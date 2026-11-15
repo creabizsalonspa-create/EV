@@ -115,6 +115,36 @@ const assert = require("node:assert/strict");
       .getByRole("button", { name: "Apply financial filters", exact: true })
       .click();
     await collected.waitFor();
+    // End-to-end vendor workspace: canonical itemized earnings, scoped CSV
+    // and source-only integrity evidence via authenticated Laravel endpoints.
+    const earningsForm = vendor.locator("form").filter({
+      has: vendor.getByRole("button", { name: "View earnings statement", exact: true }),
+    });
+    await earningsForm.locator("[name=vendor]").fill(String(f.vendor));
+    await earningsForm.locator("[name=currency]").fill("AED");
+    await earningsForm.getByRole("button", { name: "View earnings statement", exact: true }).click();
+    await vendor.getByRole("button", { name: "View itemized earnings", exact: true }).click();
+    const earningsPane = vendor.locator("[data-vendor-earnings]");
+    await earningsPane.locator('[data-earnings-invoice-id="' + f.invoice + '"]').waitFor();
+    assert.match(await earningsPane.innerText(), /Vendor allocation/);
+    const earningsDownload = vendor.waitForEvent("download");
+    await earningsPane.getByRole("link", { name: "Download earnings CSV", exact: true }).click();
+    await (await earningsDownload).saveAs(dir + "/vendor-earnings.csv");
+    const earnedCsv = fs.readFileSync(dir + "/vendor-earnings.csv", "utf8");
+    assert(earnedCsv.includes("vendor_allocated_minor"));
+    assert(earnedCsv.includes("pending_reserved_minor"));
+    await vendor.getByRole("button", {
+      name: "Inspect accessible ledger integrity", exact: true,
+    }).click();
+    const integrityPane = vendor.locator("[data-financial-integrity]");
+    await integrityPane.locator('[data-audit-invoice-id="' + f.invoice + '"]').waitFor();
+    const auditResponse = await vendor.request.get(base + "/api/finance/reconciliation-audit");
+    assert.equal(auditResponse.status(), 200);
+    assert.equal((await auditResponse.json()).external_psp_or_bank_verified, false);
+    const stranger = await vendor.request.get(
+      base + "/api/commercial/vendors/" + (Number(f.vendor) + 1000000) + "/earnings?currency=AED",
+    );
+    assert.equal(stranger.status(), 404);
     for (const theme of ["light", "dark"])
       for (const width of [390, 768, 1440]) {
         await vendor.setViewportSize({ width, height: 1000 });

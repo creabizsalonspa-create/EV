@@ -1601,6 +1601,100 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         "المتاح للتسوية الاختبارية",
                     ),
                 );
+                // This view is read-only. The server's settlement service owns eligibility,
+                // reservations, refund debt and all canonical currency calculations.
+                const vendorId = String(data.vendor);
+                const currency = String(data.currency).toUpperCase();
+                if (!/^[0-9]{1,18}$/.test(vendorId) || !/^[A-Z]{3}$/.test(currency))
+                    throw Error("Invalid vendor or currency.");
+                const earningsPane = document.createElement("section");
+                earningsPane.dataset.vendorEarnings = "true";
+                detail.append(earningsPane);
+                async function showEarnings(page = 1) {
+                    const query = new URLSearchParams({
+                        currency, page: String(page), per_page: "10",
+                    });
+                    const path = "commercial/vendors/" + vendorId + "/earnings?" + query;
+                    const result = await api(path, "GET", undefined, controller.signal);
+                    if (current !== epoch || !detail.isConnected) return;
+                    earningsPane.replaceChildren(
+                        translated("h4", "Itemized vendor earnings", "تفاصيل أرباح المشغل"),
+                        translated("p",
+                            "Test evidence only · no external bank settlement verified",
+                            "سجلات اختبار فقط · لا توجد تسوية بنكية مؤكدة"),
+                        text("p", "All-invoice availability, including adjustments: " +
+                            money(result.overall_available_minor, result.currency, result.minor_units)),
+                    );
+                    for (const invoice of result.data || []) {
+                        const row = document.createElement("article");
+                        row.className = "finance-row";
+                        row.dataset.earningsInvoiceId = String(invoice.invoice_id);
+                        const amount = (minor) =>
+                            money(minor, invoice.currency, invoice.minor_units);
+                        row.append(
+                            text("h5", invoice.invoice_number),
+                            text("p", amount(invoice.vendor_allocated_minor) + " · Vendor allocation / حصة المشغل"),
+                            text("p", amount(invoice.commission_minor) + " · Commission / العمولة"),
+                            text("p", amount(invoice.net_collected_minor) + " · Net collected / صافي التحصيل"),
+                            text("p", amount(invoice.pending_reserved_minor) + " · Pending settlement / تسوية معلقة"),
+                            text("p", amount(invoice.completed_settlement_minor) + " · Completed test settlement / تسوية اختبارية"),
+                            text("p", amount(invoice.available_minor) + " · Available or debt / المتاح أو الدين"),
+                        );
+                        earningsPane.append(row);
+                    }
+                    if (!(result.data || []).length)
+                        earningsPane.append(translated("p", "No invoices in this page.", "لا توجد فواتير في هذه الصفحة."));
+                    const pager = document.createElement("div");
+                    pager.className = "finance-pagination";
+                    pager.append(text("p", String(result.current_page) + " / " + String(result.last_page)));
+                    if (result.current_page > 1)
+                        button(pager, "Previous earnings", "الأرباح السابقة",
+                            () => showEarnings(result.current_page - 1));
+                    if (result.current_page < result.last_page)
+                        button(pager, "Next earnings", "الأرباح التالية",
+                            () => showEarnings(result.current_page + 1));
+                    earningsPane.append(pager);
+                    const link = translated("a", "Download earnings CSV", "تنزيل أرباح CSV");
+                    link.href = "/api/commercial/vendors/" + vendorId + "/earnings/export?" + query;
+                    link.download = "simulated-vendor-earnings-page.csv";
+                    earningsPane.append(link);
+                }
+                button(detail, "View itemized earnings", "عرض تفاصيل الأرباح",
+                    () => showEarnings(1));
+                const auditPane = document.createElement("section");
+                auditPane.dataset.financialIntegrity = "true";
+                detail.append(auditPane);
+                button(detail, "Inspect accessible ledger integrity", "فحص سلامة السجل المالي المتاح",
+                    async () => {
+                        // Admin scans all accessible invoices in this currency, not only
+                        // the selected vendor. Vendors remain scoped server-side.
+                        const query = new URLSearchParams({ currency, per_page: "10" });
+                        const report = await api("finance/reconciliation-audit?" + query,
+                            "GET", undefined, controller.signal);
+                        if (current !== epoch || !detail.isConnected) return;
+                        auditPane.replaceChildren(
+                            translated("h4", "Internal ledger integrity", "سلامة السجل المالي الداخلي"),
+                            translated("p",
+                                "Simulated source-only audit, not bank or PSP reconciliation",
+                                "تدقيق داخلي لسجلات اختبارية وليس مطابقة مصرفية"),
+                        );
+                        for (const item of report.data || []) {
+                            const row = document.createElement("article");
+                            row.className = "finance-row";
+                            row.dataset.auditInvoiceId = String(item.invoice_id);
+                            row.append(
+                                text("h5", item.invoice_number),
+                                text("p", item.status + " · " + (item.issues || []).join(", ")),
+                            );
+                            auditPane.append(row);
+                        }
+                        if (!(report.data || []).length)
+                            auditPane.append(translated("p", "No matching invoices.", "لا توجد فواتير مطابقة."));
+                        const link = translated("a", "Download integrity CSV", "تنزيل تقرير السلامة CSV");
+                        link.href = "/api/finance/reconciliation-audit/export?" + query;
+                        link.download = "simulated-finance-reconciliation-page.csv";
+                        auditPane.append(link);
+                    });
                 if (statement.eligible_to_request)
                     form(
                         detail,
