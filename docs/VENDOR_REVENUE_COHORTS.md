@@ -1,0 +1,9 @@
+# Vendor revenue by invoice-issuance cohort (simulated-only)
+
+GET /commercial/vendors/{vendor}/revenue-cohorts?currency=AED&from=YYYY-MM-DD&to=YYYY-MM-DD is an authenticated read-only report for the owning vendor or an authorized Admin. The same bounded 93-UTC-day report can be exported at /revenue-cohorts/export as a private CSV. The route ID is limited to 1–18 digits. Cross-tenant requests are 404 and malformed dates/currencies are 422.
+
+**Basis matters:** Each row groups canonical invoice identities by original invoice issuance date in UTC, including invoice subtotal/commission/vendor allocation and all simulated payments, refunds and noncash credits attached to those invoice IDs **as of the query**, even if the payment or refund happened after the issue date. This is not cash flow by transaction date. It is not a revenue-recognition, legal tax, bank or settlement-eligibility determination. The report deliberately displays both gross allocated vendor amount and net vendor allocation; actual payout eligibility, holding periods and carried debts are governed separately by SettlementService.
+
+SQL preaggregates invoice-linked payment, refund and unpaid-credit tables before joining to invoices, preventing cartesian amplification. Currency/minor-unit consistency reuses canonical SettlementService currency policy; a driver-portable DATE(created_at) groups by UTC configured connection, bounded empty-day buckets are explicit, and every aggregate is validated against exact signed integer limits. No PSP requests, ledger writes, refund reservations, payouts or customer PII are produced. Both JSON and CSV are marked SIMULATED_CANONICAL_FINANCE and never as external bank/PSP reconciliation.
+
+This advances only a **partial backend/data-contract component** of original requirement 3.6.2 (vendor revenue dashboard). Responsive vendor web and native dashboard visuals, verified real provider data and production acceptance are still missing.
