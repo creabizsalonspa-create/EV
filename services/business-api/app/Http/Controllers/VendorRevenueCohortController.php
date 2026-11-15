@@ -27,7 +27,7 @@ final class VendorRevenueCohortController extends Controller
         ]);
         $from = CarbonImmutable::parse($values['from'].' 00:00:00', 'UTC');
         $to = CarbonImmutable::parse($values['to'].' 00:00:00', 'UTC');
-        abort_if($from->diffInDays($to) > 92, 422, 'Revenue cohorts are limited to 93 UTC calendar days.');
+        abort_if(abs($from->diffInDays($to)) > 92, 422, 'Revenue cohorts are limited to 93 UTC calendar days.');
 
         // The existing canonical settlement precision policy rejects conflicting
         // regional and historical invoice denominations. Never combine currencies.
