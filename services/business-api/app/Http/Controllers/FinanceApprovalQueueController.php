@@ -59,15 +59,15 @@ final class FinanceApprovalQueueController extends Controller
                     'Financial approval amount exceeds browser-safe integer bounds.');
 
                 return [
-                'kind' => $row->kind,
-                'record_id' => (int) $row->record_id,
-                'vendor_id' => (int) $row->vendor_id,
-                'invoice_id' => $row->invoice_id === null ? null : (int) $row->invoice_id,
-                'currency' => $row->currency,
-                'minor_units' => $row->minor_units === null ? null : (int) $row->minor_units,
-                'amount_minor' => $amount,
-                'status' => $row->status,
-                'created_at' => $row->created_at,
+                    'kind' => $row->kind,
+                    'record_id' => (int) $row->record_id,
+                    'vendor_id' => (int) $row->vendor_id,
+                    'invoice_id' => $row->invoice_id === null ? null : (int) $row->invoice_id,
+                    'currency' => $row->currency,
+                    'minor_units' => $row->minor_units === null ? null : (int) $row->minor_units,
+                    'amount_minor' => $amount,
+                    'status' => $row->status,
+                    'created_at' => $row->created_at,
                 ];
             })->values()->all(),
             'total' => $page->total(),
