@@ -68,6 +68,11 @@ class SubscriptionChangePreviewTest extends TestCase
             ->assertJsonPath('next_cycle_subtotal_minor', 2999)
             ->assertJsonPath('next_cycle_tax_minor', 150)
             ->assertJsonPath('next_cycle_total_minor', 3149)
+            ->assertJsonPath('current_plan_list_total_minor', 1049)
+            ->assertJsonPath('current_plan_interval', 'month')
+            ->assertJsonPath('cycles_comparable', false)
+            ->assertJsonPath('nominal_plan_list_difference_minor', null)
+            ->assertJsonPath('comparison_is_proration', false)
             ->assertJsonPath('amount_due_now_minor', 0)
             ->assertJsonPath('proration_supported', false)
             ->assertJsonPath('next_cycle_invoice_issued', false)
@@ -94,6 +99,55 @@ class SubscriptionChangePreviewTest extends TestCase
         ])->assertOk()->assertJsonPath('subscription.next_plan_id', $pro['id'])
             ->assertJsonPath('entitlements.staff_limit', 2)->json();
         $this->assertCount(1, $changed['invoices']);
+    }
+
+    public function test_same_cadence_upgrade_and_downgrade_expose_only_nominal_list_difference(): void
+    {
+        [$admin, $vendor, $basic, $pro, $id] = $this->scenario();
+        $monthly = $this->actingAs($admin)->postJson('/preview-test/commercial/plans', [
+            'code' => 'preview_monthly_plus', 'name' => 'Monthly Plus',
+            'audience' => 'vendor', 'currency' => 'AED',
+            'minor_units' => 2, 'price_minor' => 1899,
+            'tax_bps' => 500, 'interval' => 'month',
+            'entitlements' => ['staff_limit' => 8],
+        ])->assertCreated()->json();
+        $url = '/preview-test/commercial/subscriptions/'.$id;
+        $beforeInvoices = DB::table('commercial_subscription_invoices')->count();
+        $beforeLedger = DB::table('commercial_subscription_ledger')->count();
+        $this->actingAs($vendor)->getJson($url.'/change-preview?plan_id='.$monthly['id'])
+            ->assertOk()
+            ->assertJsonPath('current_plan_list_total_minor', 1049)
+            ->assertJsonPath('next_cycle_total_minor', 1994)
+            ->assertJsonPath('cycles_comparable', true)
+            ->assertJsonPath('nominal_plan_list_difference_minor', 945)
+            ->assertJsonPath('comparison_is_proration', false)
+            ->assertJsonPath('amount_due_now_minor', 0);
+        $this->assertSame($beforeInvoices, DB::table('commercial_subscription_invoices')->count());
+        $this->assertSame($beforeLedger, DB::table('commercial_subscription_ledger')->count());
+
+        $this->postJson($url.'/change', [
+            'action' => 'change_plan',
+            'plan_id' => $monthly['id'],
+            'idempotency_key' => 'month-upgrade-scheduled',
+        ])->assertOk()->assertJsonPath('entitlements.staff_limit', 2);
+        $periodEnd = DB::table('commercial_subscriptions')->where('id', $id)->value('period_end');
+        $this->travelTo(Carbon::parse($periodEnd)->addSecond());
+        $service = app(\App\Services\Commercial\SubscriptionService::class);
+        $renewed = $service->renew($id);
+        $nextInvoice = $renewed['invoices']->last()->id;
+        $service->mockPay($vendor, $id, $nextInvoice, 'succeeded', 'monthly-upgrade-paid');
+
+        $this->actingAs($vendor)->getJson($url.'/change-preview?plan_id='.$basic['id'])
+            ->assertOk()
+            ->assertJsonPath('current_plan_list_total_minor', 1994)
+            ->assertJsonPath('next_cycle_total_minor', 1049)
+            ->assertJsonPath('cycles_comparable', true)
+            ->assertJsonPath('nominal_plan_list_difference_minor', -945)
+            ->assertJsonPath('comparison_is_proration', false)
+            ->assertJsonPath('amount_due_now_minor', 0);
+        $this->assertDatabaseCount('commercial_subscription_invoices', 2);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 2);
+        $this->assertDatabaseCount('subscription_credits', 0);
     }
 
     public function test_preview_rejects_foreign_subscription_retired_plan_and_expired_period(): void
