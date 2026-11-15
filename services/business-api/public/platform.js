@@ -1230,10 +1230,25 @@ async function fleets() {
     await Promise.all([loadFleetAccounts(), loadFleetInvitations()]);
 }
 async function fleetDetail(id) {
-    const reportActor = user;
-    let j = await api("fleets/" + id),
-        d = el("fleet-detail");
-    if (user !== reportActor || document.hidden) return;
+    if (!user || !Number.isSafeInteger(id) || id <= 0) return;
+    fleetDetailRequest?.abort();
+    const controller = new AbortController();
+    fleetDetailRequest = controller;
+    const generation = ++fleetDetailGeneration,
+        epoch = client.sessionEpoch, actor = user.id;
+    const active = () => generation === fleetDetailGeneration &&
+        epoch === client.sessionEpoch && actor === user?.id &&
+        fleetDetailRequest === controller && !controller.signal.aborted;
+    const d = el("fleet-detail");
+    d.setAttribute("aria-busy", "true");
+    d.replaceChildren(batteryNode("p", "Loading fleet details…",
+        "جارٍ تحميل تفاصيل الأسطول…"));
+    try {
+    const j = await api("fleets/" + id, "GET", undefined, controller.signal);
+    if (!active() || document.hidden) return;
+    if (j?.fleet?.id !== id || !Array.isArray(j.members) ||
+        !Array.isArray(j.cost_centers) || !Array.isArray(j.vehicles))
+        throw Error("Unreadable fleet details.");
     d.replaceChildren(node("h3", j.fleet.name));
     let owner = j.fleet.owner_id === user.id;
     if (owner) {
@@ -1317,14 +1332,26 @@ async function fleetDetail(id) {
             }),
         );
     if (j.cost_centers.length) {
-        const own = await api("vehicles");
+        const own = await api("vehicles?page=1", "GET", undefined, controller.signal);
+        if (!active() || document.hidden) return;
+        if (!fleetPageResponse(own, 1)) throw Error("Unreadable vehicle selection.");
         if (own.data.length) {
             const form = document.createElement("form");
             form.id = "fleet-assign";
             const vehicleLabel = ui("label", "Your vehicle / مركبتك"),
                 vehicle = document.createElement("select");
             vehicle.name = "vehicle_id";
-            for (const v of own.data) vehicle.append(new Option(v.name, v.id));
+            const seen = new Set();
+            const addVehicles = (rows) => {
+                for (const v of rows) {
+                    if (!Number.isSafeInteger(v.id) || v.id <= 0 ||
+                        typeof v.name !== "string") throw Error("Unreadable owned vehicle.");
+                    if (seen.has(v.id)) continue;
+                    seen.add(v.id);
+                    vehicle.append(new Option(v.name, String(v.id)));
+                }
+            };
+            addVehicles(own.data);
             vehicleLabel.append(vehicle);
             const centerLabel = ui("label", "Cost center / مركز التكلفة"),
                 center = document.createElement("select");
@@ -1332,22 +1359,54 @@ async function fleetDetail(id) {
             for (const c of j.cost_centers)
                 center.append(new Option(c.name, c.id));
             centerLabel.append(center);
-            form.append(
-                vehicleLabel,
-                centerLabel,
-                ui("button", "Assign vehicle"),
-            );
+            form.append(vehicleLabel, centerLabel);
+            let vehiclePage = 1, vehicleLast = own.last_page;
+            if (vehiclePage < vehicleLast) {
+                const more = batteryNode("button", "More of your vehicles",
+                    "المزيد من مركباتك");
+                more.type = "button";
+                more.dataset.fleetMoreVehicles = "true";
+                more.onclick = async () => {
+                    if (!active() || more.disabled || vehiclePage >= vehicleLast) return;
+                    more.disabled = true;
+                    const target = vehiclePage + 1;
+                    try {
+                        const result = await api("vehicles?page=" + target,
+                            "GET", undefined, controller.signal);
+                        if (!active() || !more.isConnected) return;
+                        if (!fleetPageResponse(result, target))
+                            throw Error("Unreadable vehicle selection page.");
+                        addVehicles(result.data);
+                        vehiclePage = target;
+                        vehicleLast = result.last_page;
+                        if (vehiclePage >= vehicleLast) {
+                            batteryText(more, "All your vehicles loaded",
+                                "تم تحميل جميع مركباتك");
+                        }
+                    } catch (error) {
+                        if (active()) notice(error);
+                    } finally {
+                        if (more.isConnected && active())
+                            more.disabled = vehiclePage >= vehicleLast;
+                    }
+                };
+                form.append(more);
+            }
+            const submit = ui("button", "Assign vehicle");
+            submit.type = "submit";
+            form.append(submit);
             form.onsubmit = async (event) => {
                 event.preventDefault();
+                if (!active() || submit.disabled) return;
+                submit.disabled = true;
                 try {
-                    await api(
-                        "fleets/" + id + "/vehicles",
-                        "POST",
-                        Object.fromEntries(new FormData(form)),
-                    );
-                    await fleetDetail(id);
+                    await api("fleets/" + id + "/vehicles", "POST",
+                        Object.fromEntries(new FormData(form)));
+                    if (active()) await fleetDetail(id);
                 } catch (error) {
-                    notice(error);
+                    if (active()) notice(error);
+                } finally {
+                    if (submit.isConnected) submit.disabled = false;
                 }
             };
             d.append(form);
@@ -1360,11 +1419,25 @@ async function fleetDetail(id) {
                 center: v.cost_center_id,
             }),
         );
+    } catch (error) {
+        if (!active()) return;
+        d.replaceChildren(batteryNode("p",
+            "Fleet details could not be loaded. Retry before changing memberships.",
+            "تعذر تحميل تفاصيل الأسطول. أعد المحاولة قبل تغيير العضويات."));
+        const retry = batteryNode("button", "Retry fleet details", "إعادة تحميل تفاصيل الأسطول");
+        retry.type = "button";
+        retry.dataset.fleetDetailRetry = "true";
+        retry.onclick = () => { if (active()) void fleetDetail(id); };
+        d.append(retry);
+    } finally {
+        if (active()) d.removeAttribute("aria-busy");
+    }
 }
 el("fleet-create").onsubmit = async (e) => {
     e.preventDefault();
     try {
         await api("fleets", "POST", Object.fromEntries(new FormData(e.target)));
+        fleetPage = 1;
         await fleets();
     } catch (e) {
         notice(e);
