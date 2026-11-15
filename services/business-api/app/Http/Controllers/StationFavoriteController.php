@@ -7,15 +7,8 @@ use App\Services\Discovery\StationCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
-class StationFavoriteController extends Controller
+class StationFavoriteController extends CustomerFavoritesController
 {
-    private function customer(Request $r): int
-    {
-        abort_unless($r->user()->role === 'customer', 403);
-
-        return $r->user()->id;
-    }
-
     public function index(Request $r, StationCatalog $catalog)
     {
         $user = $this->customer($r);

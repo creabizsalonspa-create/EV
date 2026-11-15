@@ -2,12 +2,17 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\PartnerLocationFavoriteController;
+use App\Http\Controllers\StationFavoriteController;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
+use App\Models\Station;
 use App\Models\User;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 class PartnerLocationFavoriteTest extends TestCase
@@ -20,6 +25,47 @@ class PartnerLocationFavoriteTest extends TestCase
         app(RecordSynchronizer::class)->ingest($provider, 'locations', [['country_code' => 'AE', 'party_id' => 'TST', 'id' => 'location-1', 'publish' => $publish, 'name' => 'Partner place', 'address' => 'Public source address', 'city' => 'Dubai', 'country' => 'ARE', 'coordinates' => ['latitude' => '25.2', 'longitude' => '55.3'], 'last_updated' => now()->subMinute()->toISOString(), 'private_token' => 'NEVER-DISPLAY']]);
 
         return [$provider, OcpiRecord::where('ocpi_provider_id', $provider->id)->firstOrFail()];
+    }
+
+    public function test_current_customer_authority_is_required_for_saved_place_actions(): void
+    {
+        Route::middleware(['web', 'auth', 'favorite-late-change'])->group(function () {
+            foreach (['stations' => StationFavoriteController::class, 'partners' => PartnerLocationFavoriteController::class] as $kind => $controller) {
+                Route::get('/favorite-late/'.$kind, [$controller, 'index']);
+                Route::get('/favorite-late/'.$kind.'/status', [$controller, 'status']);
+                Route::put('/favorite-late/'.$kind.'/{resource}', [$controller, 'save']);
+                Route::delete('/favorite-late/'.$kind.'/{resource}', [$controller, 'remove']);
+            }
+        });
+        foreach (['role', 'account_status', 'auth_epoch', 'password'] as $field) {
+            [$provider, $record] = $this->location();
+            $station = Station::create(['vendor_id' => $provider->owner_id, 'name' => 'Private saved place', 'latitude' => 25.2, 'longitude' => 55.3, 'source' => 'discovery', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'connector_type' => 'CCS2', 'power_kw' => 50]);
+            $user = User::factory()->create();
+            DB::table('station_favorites')->insert(['user_id' => $user->id, 'station_id' => $station->id, 'created_at' => now()]);
+            DB::table('partner_location_favorites')->insert(['user_id' => $user->id, 'record_id' => $record->id, 'created_at' => now()]);
+            $changed = match ($field) {
+                'role' => 'vendor', 'account_status' => 'suspended', 'auth_epoch' => 1, 'password' => bcrypt('ChangedSyntheticPassword9!')
+            };
+            $this->app->bind('favorite-late-change', fn () => new class($field, $changed)
+            {
+                public function __construct(private string $field, private mixed $value) {}
+
+                public function handle(Request $request, \Closure $next)
+                {
+                    DB::table('users')->where('id', $request->user()->id)->update([$this->field => $this->value]);
+
+                    return $next($request);
+                }
+            });
+            $status = in_array($field, ['role', 'account_status'], true) ? 403 : 409;
+            foreach (['stations' => $station->id, 'partners' => $record->id] as $kind => $id) {
+                foreach ([['GET', '', []], ['GET', '/status', [$kind === 'stations' ? 'station_ids' : 'record_ids' => [$id]]], ['PUT', '/'.$id, []], ['DELETE', '/'.$id, []]] as [$method, $suffix, $body]) {
+                    $this->actingAs($user)->json($method, '/favorite-late/'.$kind.$suffix, $body)->assertStatus($status)->assertJsonMissingPath('data');
+                    $this->assertDatabaseHas('station_favorites', ['user_id' => $user->id, 'station_id' => $station->id]);
+                    $this->assertDatabaseHas('partner_location_favorites', ['user_id' => $user->id, 'record_id' => $record->id]);
+                }
+            }
+        }
     }
 
     public function test_private_customer_preferences_are_idempotent_isolated_and_never_added_to_public_catalog(): void

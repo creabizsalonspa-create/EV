@@ -8,15 +8,8 @@ use App\Services\Discovery\PublicPartnerLocation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
-class PartnerLocationFavoriteController extends Controller
+class PartnerLocationFavoriteController extends CustomerFavoritesController
 {
-    private function customer(Request $r): int
-    {
-        abort_unless($r->user()->role === 'customer', 403);
-
-        return $r->user()->id;
-    }
-
     public function index(Request $r)
     {
         $user = $this->customer($r);
