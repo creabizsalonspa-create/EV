@@ -22,8 +22,42 @@ let stage='fixture';
   stage='web-ar-station';await root.locator('input[name=fleet-station]').fill(String(fixture.station_id));
   // Explicitly re-apply the owned synthetic fixture after changing language.
   // A fresh dashboard widget is not expected to preserve an uncommitted form filter.
-  stage='web-ar-read';await root.getByRole('button',{name:'قراءة لقطة الموصلات',exact:true}).click();
-  stage='web-ar-result';await root.getByText('تقرير حديث وقت اللقطة: متاح بحسب المصدر',{exact:true}).waitFor();assert.equal(calls,2);
+  stage='web-ar-read';
+  const arabicResponse = page.waitForResponse(r=>{
+    const url=new URL(r.url());
+    return url.pathname==='/api/charging-operations/connectors' &&
+      url.searchParams.get('station_id')===String(fixture.station_id) &&
+      r.request().method()==='GET';
+  });
+  await root.getByRole('button',{name:'قراءة لقطة الموصلات',exact:true}).click();
+  const scopedResponse = await arabicResponse;
+  stage='web-ar-response';assert.equal(scopedResponse.status(),200);
+  const snapshot=await scopedResponse.json();
+  assert.equal(snapshot.scope,'recorded_connector_fleet');
+  assert.equal(snapshot.evidence,'SIMULATED_SOURCE');
+  assert.equal(snapshot.connectors?.data?.length,1);
+  assert.equal(snapshot.connectors.data[0].station_id,fixture.station_id);
+  assert.equal(snapshot.connectors.data[0].inventory_eligible_at_read,true);
+  assert.equal(snapshot.connectors.data[0].status_freshness.state,'recent');
+  assert.equal(snapshot.connectors.data[0].status_freshness.reported_status,'Available');
+  stage='web-ar-result';
+  try {
+    await root.getByText('تقرير حديث وقت اللقطة: متاح بحسب المصدر',{exact:true}).waitFor({timeout:12000});
+  } catch (error) {
+    const view=await root.evaluate(el=>({
+      lang:document.documentElement.lang,
+      articles:el.querySelectorAll('article').length,
+      readForms:el.querySelectorAll('input[name=fleet-station]').length,
+      visibleError:el.textContent.includes('لقطة الموصلات غير متاحة'),
+      visibleUnknown:el.textContent.includes('حالة المصدر غير معروفة'),
+      visibleStale:el.textContent.includes('تقرير قديم'),
+      visibleAvailable:el.textContent.includes('متاح بحسب المصدر'),
+      reading:el.textContent.includes('جارٍ قراءة الموصلات المسجلة'),
+    })).catch(()=>({rootUnavailable:true}));
+    console.error(JSON.stringify({suite:'connector_fleet',stage,diagnostic:view}));
+    throw error;
+  }
+  assert.equal(calls,2);
   assert.deepEqual(requestedStationIds,[String(fixture.station_id),String(fixture.station_id)]);
   stage='background';await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
   assert.equal(await root.locator('article').count(),0);
