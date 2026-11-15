@@ -265,6 +265,136 @@ class SourceConsumerTest extends TestCase
     }
 
     #[DataProvider('protocolVersions')]
+    public function test_reprovisioned_station_with_same_identifier_and_protocol_cannot_splice_a_live_transaction(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond();
+        $sourceId = 8;
+        $final = false;
+        $transactionReads = 0;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($link, $protocol, $at, &$sourceId, &$final, &$transactionReads) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => $sourceId, 'protocol' => 'ocpp'.$protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                $transactionReads++;
+
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10, 'transactionId' => $protocol === '1.6' ? '101' : 'source-station-identity',
+                    'remoteStartId' => $link->start_command_id, 'meterStart' => '1.000',
+                    'startTime' => $at->toIso8601String(),
+                    'endTime' => $final ? $at->addSeconds(2)->toIso8601String() : null,
+                    'isActive' => ! $final, 'totalKwh' => $final ? '2.500' : null,
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                return Http::response(['data' => ['MeterValues' => $final &&
+                    (int) ($request['variables']['after'] ?? 0) === 0 ? [[
+                        'id' => 1, 'timestamp' => $at->addSeconds(2)->toIso8601String(),
+                        'sampledValue' => [[
+                            'measurand' => 'Energy.Active.Import.Register',
+                            'value' => '3500', 'context' => 'Transaction.End',
+                            'unitOfMeasure' => ['unit' => 'Wh'],
+                        ]],
+                    ]] : []]]);
+            }
+
+            $this->fail('Source reader must not dispatch external commands.');
+        });
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertSame(1, $transactionReads);
+
+        // A different persisted CSMS row with the same connection name and
+        // protocol cannot own an already-started source transaction.
+        $sourceId = 9;
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('Reprovisioned station identity was accepted mid-session.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('station identity', $e->getMessage());
+        }
+        $this->assertSame(1, $transactionReads);
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertSame(0, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+
+        // Independent confirmation of the original source identity permits
+        // finalization without replaying an uncertain charger command.
+        $sourceId = 8;
+        $final = true;
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(1, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id, 'status' => 'stopped', 'energy_wh' => 2500,
+        ]);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+    }
+
+    #[DataProvider('protocolVersions')]
+    public function test_legacy_started_session_cannot_silently_adopt_an_unpinned_source_station(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond()->toIso8601String();
+        $transactionsRead = 0;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($link, $protocol, $at, &$transactionsRead) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                $transactionsRead++;
+
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10, 'transactionId' => $protocol === '1.6' ? '101' : 'legacy-source-pin',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000', 'startTime' => $at,
+                    'endTime' => null, 'isActive' => true, 'totalKwh' => null,
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                return Http::response(['data' => ['MeterValues' => []]]);
+            }
+
+            $this->fail('Unexpected upstream call during legacy source reconciliation.');
+        });
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertSame(1, $transactionsRead);
+        DB::table('csms_session_links')->where('id', $link->id)->update(['source_station_id' => null]);
+
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('A legacy started transaction adopted an unknown external station.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('Legacy source station identity', $e->getMessage());
+        }
+        $this->assertSame(1, $transactionsRead);
+        $this->assertNull($link->fresh()->source_station_id);
+        $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+    }
+
+    #[DataProvider('protocolVersions')]
     public function test_distinct_source_row_ids_with_repeated_cumulative_energy_never_double_bill(string $protocol): void
     {
         $link = $this->link($protocol);
