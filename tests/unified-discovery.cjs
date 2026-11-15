@@ -257,3 +257,22 @@ for(const lang of ['en','ar'])test('missing partner name, provider, address and 
  assert.equal(card.textContent.includes('0,0'),false);
  assert.equal(card.children.some(child=>child.textContent.includes('no booking or remote control')),lang==='en');
 });
+
+
+test('recent presets are capped at five and empty filters have localized Arabic labels',async()=>{
+ const f=fixture('ar'),q=f.form.children[0].children.find(node=>node.tag==='input');
+ // First empty query demonstrates the localized fallback, with no automatic request.
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const panel=f.root.children[7];
+ assert.match(panel.children[1].children[0].dataset.ar,/كل المواقع/);
+ assert.match(panel.children[1].children[0].dataset.ar,/كل الدول/);
+ assert.match(panel.children[1].children[0].dataset.ar,/كل المصادر المنشورة/);
+ for(let i=0;i<7;i++){q.value='Session place '+i;f.form.onsubmit({preventDefault(){}});await tick();}
+ assert.equal(panel.children[1].children.length,5);
+ assert.match(panel.children[1].children[0].textContent,/Session place 6/);
+ assert.equal(panel.children[1].textContent.includes('Session place 0'),false);
+ assert.equal(f.calls.length,8);
+ panel.children[2].onclick();
+ assert.equal(panel.hidden,true);
+ assert.equal(f.calls.length,8,'Clearing in-memory entries never calls an API');
+});
