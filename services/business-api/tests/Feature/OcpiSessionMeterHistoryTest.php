@@ -48,9 +48,12 @@ class OcpiSessionMeterHistoryTest extends TestCase
         $service->ingest($p, 'sessions', [$raw]);
         $path = '/api/roaming/sandbox-orders/'.$order->id.'/meter-history';
         $this->getJson($path)->assertOk()->assertHeader('Cache-Control', 'no-store, private')->assertJsonPath('observations.total', 2)->assertJsonPath('observations.data.0.reported_energy_kwh', '0.020')->assertJsonPath('observations.data.0.energy_wh', 20)->assertJsonPath('backfilled', false)->assertJsonPath('physical_energy_verified', false)->assertJsonMissingPath('observations.data.0.lineage_hash')->assertJsonMissingPath('observations.data.0.content_hash')->assertDontSee($this->writes[0]['body']['uid']);
+        $this->getJson('/api/roaming/sandbox-orders/'.str_repeat('9', 19).'/meter-history')->assertNotFound();
         $this->actingAs($other)->getJson($path)->assertNotFound();
         $operator = '/api/ocpi/providers/'.$p->id.'/sandbox-orders/'.$order->id.'/meter-history';
         $this->actingAs($owner)->getJson($operator)->assertOk()->assertJsonPath('observations.total', 2);
+        $this->getJson('/api/ocpi/providers/'.str_repeat('9', 19).'/sandbox-orders/'.$order->id.'/meter-history')->assertNotFound();
+        $this->getJson('/api/ocpi/providers/'.$p->id.'/sandbox-orders/'.str_repeat('9', 19).'/meter-history')->assertNotFound();
         $this->actingAs($other)->getJson($operator)->assertNotFound();
         $this->assertCount(2, $this->writes);
         $this->assertDatabaseCount('finance_invoices', 0);
