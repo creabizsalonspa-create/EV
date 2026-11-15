@@ -3,6 +3,7 @@
 namespace App\Services\Ocpi;
 
 use Carbon\CarbonImmutable;
+use DateTimeImmutable;
 use Illuminate\Support\Facades\Validator;
 
 class RecordNormalizer
@@ -33,8 +34,8 @@ class RecordNormalizer
                 throw new OcpiException('Invalid '.$module.' record fields: '.$field);
             }
             $format = str_contains($record[$field], '.') ? '!Y-m-d\\TH:i:s.uP' : '!Y-m-d\\TH:i:sP';
-            $instant = \\DateTimeImmutable::createFromFormat($format, $record[$field]);
-            if (! $instant || \\DateTimeImmutable::getLastErrors() !== false) {
+            $instant = DateTimeImmutable::createFromFormat($format, $record[$field]);
+            if (! $instant || DateTimeImmutable::getLastErrors() !== false) {
                 throw new OcpiException('Invalid '.$module.' record fields: '.$field);
             }
         }
