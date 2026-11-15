@@ -11,6 +11,7 @@ use App\Models\Charging\SessionLink;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -126,6 +127,16 @@ class SourceConsumer
         if (! is_string($sourceProtocol) || ! in_array($sourceProtocol, [$link->protocol, 'ocpp'.$link->protocol], true)) {
             throw new RuntimeException('Source station protocol mismatch requires reconciliation.');
         }
+        $sourceStationId = $identity['ChargingStations'][0]['id'] ?? null;
+        if (! is_int($sourceStationId) || $sourceStationId <= 0 ||
+            ($link->source_station_id !== null && (int) $link->source_station_id !== $sourceStationId)) {
+            throw new RuntimeException('Source station identity changed; reconciliation is required.');
+        }
+        if ($link->source_station_id === null && $link->transaction_id !== null) {
+            // Pre-migration sessions were never source-station pinned. Their
+            // upstream history must be reviewed rather than auto-adopted.
+            throw new RuntimeException('Legacy source station identity requires reconciliation.');
+        }
         if ($link->remote_token_digest && (int) $identity['Authorizations'][0]['id'] !== (int) $link->remote_authorization_id) {
             throw new RuntimeException('Remote source registration changed; reconciliation is required.');
         }
@@ -186,6 +197,21 @@ class SourceConsumer
                 }
             }
         }
+        // Record authenticated external station identity once, before the
+        // first signed event. The external CitrineOS id cannot be inferred from
+        // a reused OCPP connection name or protocol on later observations.
+        DB::transaction(function () use ($link, $sourceStationId): void {
+            $locked = SessionLink::whereKey($link->id)->lockForUpdate()->firstOrFail();
+            if (($locked->source_station_id !== null && (int) $locked->source_station_id !== $sourceStationId) ||
+                ($locked->source_station_id === null && $locked->transaction_id !== null)) {
+                throw new RuntimeException('Source station identity requires reconciliation.');
+            }
+            if ($locked->source_station_id === null) {
+                $locked->source_station_id = $sourceStationId;
+                $locked->save();
+            }
+        });
+        $link->refresh();
         $count = 0;
         $baseline = self::wh($tx['meterStart'], 'kWh');
         if ($link->transaction_id === null) {
