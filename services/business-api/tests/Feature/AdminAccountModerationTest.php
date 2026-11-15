@@ -269,5 +269,4 @@ class AdminAccountModerationTest extends TestCase
             'subject' => (string) $target->id,
         ]);
     }
-
 }
