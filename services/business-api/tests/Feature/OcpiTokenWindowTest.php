@@ -47,6 +47,28 @@ class OcpiTokenWindowTest extends TestCase
         $this->assertCount($originalWrites, $this->writes, 'Token pagination must never dispatch a roaming command.');
     }
 
+    public function test_token_sender_preserves_exact_second_bounds_for_unfractioned_database_rows(): void
+    {
+        $fixture = $this->fixture();
+        $this->start($fixture[1], $fixture[4]);
+        $second = now()->utc()->subMinute()->startOfSecond();
+        DB::table('ocpi_roaming_orders')->update(['updated_at' => $second->format('Y-m-d H:i:s')]);
+        $at = $second->format('Y-m-d\\TH:i:s\\Z');
+        $later = $second->copy()->addMicrosecond()->format('Y-m-d\\TH:i:s.u\\Z');
+        $originalWrites = count($this->writes);
+        $read = fn (array $filters) => $this->withHeaders($this->peer())->getJson(
+            '/api/roaming-protocol/2.2.1/tokens?'.http_build_query($filters)
+        );
+
+        // A whole-second row equals date_from and must be excluded by date_to.
+        $read(['date_from' => $at])->assertOk()->assertHeader('X-Total-Count', '1')->assertJsonCount(1, 'data');
+        $read(['date_to' => $at])->assertOk()->assertHeader('X-Total-Count', '0')->assertJsonCount(0, 'data');
+        $read(['date_from' => $at, 'date_to' => $later])
+            ->assertOk()->assertHeader('X-Total-Count', '1')->assertJsonCount(1, 'data');
+        $read(['date_from' => $later])->assertOk()->assertHeader('X-Total-Count', '0')->assertJsonCount(0, 'data');
+        $this->assertCount($originalWrites, $this->writes, 'Date-window reads must not dispatch any OCPI commands.');
+    }
+
     public function test_ocpi_protocol_replies_echo_safe_message_ids_across_token_credentials_and_records(): void
     {
         $this->fixture();
