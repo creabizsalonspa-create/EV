@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\LoyaltyController;
 use App\Models\ChargingSession;
 use App\Models\Finance\TariffVersion;
 use App\Models\Reservation;
@@ -10,6 +11,7 @@ use App\Services\Commercial\Loyalty\LoyaltyService;
 use App\Services\Finance\FinanceService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -79,6 +81,45 @@ class LoyaltyEconomicsTest extends TestCase
             }
             $this->assertSame($counts, [DB::table('loyalty_rewards')->count(), DB::table('loyalty_ledger')->count(), DB::table('loyalty_redemption_events')->count(), DB::table('audit_events')->count()]);
             $this->assertSame('pending', DB::table('loyalty_redemptions')->where('id', $redemption->id)->value('status'));
+        }
+    }
+
+    public function test_http_scope_cannot_borrow_a_revoked_admin_for_private_reads_or_foreign_awards(): void
+    {
+        Route::middleware(['web', 'auth', 'loyalty-stale-fixture'])->group(function () {
+            Route::get('/loyalty-stale-fixture/redemptions', [LoyaltyController::class, 'redemptions']);
+            Route::post('/loyalty-stale-fixture/invoices/{invoice}/earn', [LoyaltyController::class, 'earn']);
+        });
+        foreach (['role', 'account_status', 'auth_epoch', 'password'] as $field) {
+            $f = $this->fixture();
+            $this->policy($f);
+            $reward = $this->reward($f);
+            $service = app(LoyaltyService::class);
+            $service->earn($f['invoice']->id, $f['customer']->id);
+            $service->redeem($f['customer']->id, $reward->id, $f['customer']->id, 'http-'.$field);
+            $foreign = $this->fixture();
+            $snapshot = $f['maker']->fresh();
+            $changed = match ($field) {
+                'role' => 'customer', 'account_status' => 'suspended',
+                'auth_epoch' => (int) $snapshot->auth_epoch + 1,
+                'password' => bcrypt('ChangedSyntheticPassword9!'),
+            };
+            $this->app->bind('loyalty-stale-fixture', fn () => new class($field, $changed)
+            {
+                public function __construct(private string $field, private mixed $value) {}
+
+                public function handle(Request $request, \Closure $next)
+                {
+                    DB::table('users')->where('id', $request->user()->id)->update([$this->field => $this->value]);
+
+                    return $next($request);
+                }
+            });
+            $counts = [DB::table('loyalty_awards')->count(), DB::table('loyalty_ledger')->count(), DB::table('audit_events')->count()];
+            $status = in_array($field, ['role', 'account_status'], true) ? 403 : 409;
+            $this->actingAs($snapshot)->getJson('/loyalty-stale-fixture/redemptions')->assertStatus($status)->assertJsonMissingPath('data');
+            $this->actingAs($snapshot)->postJson('/loyalty-stale-fixture/invoices/'.$foreign['invoice']->id.'/earn')->assertStatus($status)->assertJsonMissingPath('account');
+            $this->assertSame($counts, [DB::table('loyalty_awards')->count(), DB::table('loyalty_ledger')->count(), DB::table('audit_events')->count()]);
         }
     }
 

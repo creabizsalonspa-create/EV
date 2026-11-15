@@ -83,6 +83,13 @@ void main(){
 
   final api=UnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){ }));await tester.tap(find.byKey(const Key('unified-source-status')));await tester.pumpAndSettle();await tester.tap(find.text('Charging').last);await tester.pumpAndSettle();await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();expect(api.queries.single['recent_source_status'],'Charging');
  });
+ testWidgets('partner source-age selection sends bounded hours and persists across pages',(tester)async{
+  roomy(tester);
+  final api=UnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){ }));
+  await tester.tap(find.byKey(const Key('unified-source-age')));await tester.pumpAndSettle();await tester.tap(find.text('Last 24 hours').last);await tester.pumpAndSettle();
+  await tester.ensureVisible(find.byType(FilledButton));await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();expect(api.queries.single['max_source_age_hours'],'24');
+  await tester.ensureVisible(find.text('Next'));await tester.tap(find.text('Next'));await tester.pumpAndSettle();expect(api.queries.last['max_source_age_hours'],'24');
+ });
  testWidgets('an open view cannot acquire the next accounts private saved state',(tester)async{
   roomy(tester);
   final api=UnifiedApi()..pending=Completer<dynamic>();addTearDown(api.close);await tester.pumpWidget(app(api,(_)=>fail('Unexpected station handoff'),customer:true));await tester.tap(find.byType(FilledButton));await tester.pump();api.epoch++;

@@ -373,7 +373,7 @@ Retired tariff hashes also fence sandbox offers and first-time IdToken grants, i
 
 Owner web/native `POST /accept` binds explicit acceptance to the current version UUID and SHA-256. Country, ownership, account epoch and password-snapshot changes are fenced under locks. A repeated exact acceptance returns its existing receipt. `GET /receipts/{uuid}` reads that company's historical immutable document/receipt, including after a newer publication or withdrawal. Company evidence is encrypted at rest; no browser/native persistence is added. This records software evidence, not verified legal acceptance, KYC approval, financial or charger authority; existing onboarding/charging/payment gates remain independent.
 
-Authenticated `GET /api/discovery/search` and `/api/v1/discovery/search` search published local platform inventory and already-authorized OCPI location reports together. Optional `q` (80 characters, literal name/address/operator text), `scope=all|catalog|partner`, and normalized `connector=CCS2|Type2|CHAdeMO` apply before a single 25-result SQL-union pagination. Stable `catalog:{id}` and `partner:{id}` keys preserve supplier identity even when IDs collide; ordering is descending local ID then source kind, without asserting chronology or deduplicating physical sites. Hydration is bounded to the selected page. Partner authorization/publication is checked again before projecting the allowlisted public location and source timestamps. Unknown availability and false booking/control remain explicit; no provider lookup, credential, private payload, price comparison, physical availability or actionable roaming is inferred. External discovery-provider queries retain their separate consent workflow.
+Authenticated `GET /api/discovery/search` and `/api/v1/discovery/search` search published local platform inventory and already-authorized OCPI location reports together. Optional `q` (80 characters, literal name/address/operator text), `scope=all|catalog|partner`, and normalized `connector=CCS2|Type2|CHAdeMO` apply before a single 25-result SQL-union pagination. Stable `catalog:{id}` and `partner:{id}` keys preserve supplier identity even when IDs collide; ordering is descending local ID then source kind, without asserting chronology or deduplicating physical sites. Hydration is bounded to the selected page. Partner authorization/publication is checked again before projecting the allowlisted public location and source timestamps. Unknown availability and false booking/control remain explicit; no provider lookup, credential, private payload, price comparison, physical availability or actionable roaming is inferred. External discovery-provider queries retain their separate consent workflow. Unified, partner-search and available saved-partner rows share `catalog_checked_at`, `reported_source_age_minutes`, `received_age_minutes` and timestamp-evidence fields. Ages are whole minutes at response time; missing or future source timestamps never become zero-age reports (including subsecond future clocks). Receipt age describes local ingestion separately and cannot freshen an old source report. Revoked/unpublished saved rows redact all these fields. Web/Flutter unified cards flag reports at least 24 hours old and label unknown clocks explicitly; these are catalog-age warnings, never verified physical availability. Search again to recheck. Optional `max_source_age_hours` (integer1–168) bounds partner source timestamps before union pagination, rejects future clocks and leaves platform results unchanged. Web/Flutter offer one hour,24 hours or7 days; pagination preserves the submitted choice. Receipt timestamps cannot satisfy this filter.
 
 Web and Flutter provide explicit EN/AR unified search and pagination. Platform results open existing station details/connector/booking controls through the additive exact `station_id` catalog selector; partner cards are read-only. Native foreground/account fences discard late results and clear them on background. Responses are private/no-store, searches stay in memory, and no financial or charging writer is called.
 
@@ -445,6 +445,35 @@ Web `/api/ocpi/providers/{provider}/sync-plans` and native `/api/v1/ocpi/provide
 `OCPI_SCHEDULED_SYNC_ENABLED=false` defaults off. The existing scheduler runs `ocpi:poll-approved` once per minute, at most one negotiated module per invocation and one in-flight scheduled poll per provider. Approved connection metadata, active provider owner, current actor role/epoch, partner authorization revision and credential/configuration fingerprint are checked before reads and again before canonical ingestion. No database lock spans the HTTP pull. Opt-out during a pull prevents ingestion. Changed authority requires renewed explicit consent. Existing PartnerClient pagination/record/origin/credential limits and RecordSynchronizer replay, retirement and immutable CDR rules apply unchanged. No charging command, reservation, invoice or financial posting is performed.
 
 A failed read waits for its next configured interval; the error receipt contains only fixed codes. A claim interrupted for 30 minutes disables that plan and records operator review. Renewing consent starts a new run identity; it never silently resumes an interrupted request. History and outcomes remain partner-reported/unverified and do not establish physical operation or commercial acceptance. Configure and accept actual partner polling separately; local tests fake every partner request.
+
+### Private process and queue observations
+
+`GET /api/admin/operational-health` is a current-credential Admin web-session
+read behind the existing second-factor gate. It reports only process observation
+timestamps and aggregate counts for the configured default queue. Payloads,
+exceptions, connection strings, queue names and user/job identities are never
+returned. Viewing the report emits no heartbeat or retry.
+
+A real Laravel worker loop records `queue_worker` only when it consumes the
+configured default connection/queue; writes coalesce per process for30seconds.
+The scheduler runs `platform:health-heartbeat` every minute. Observations expire
+at150seconds. Changed worker scope, future/missing observations and unavailable
+storage remain unknown. A recent loop is not proof of successful jobs, every
+worker, charger connectivity or production readiness. All four verification
+flags are false. Database queues expose ready/reserved/delayed/failed counts
+and oldest-ready age; other transports remain unsupported/unknown instead of
+reporting zero. Missing monitoring storage never stops the worker or logs SQL
+secrets. `OPERATIONAL_HEALTH_ENABLED=false` disables observations.
+
+The EN/AR Admin view refreshes explicitly, labels the snapshot time and clears
+private results on account/background changes. It offers no retry, delete,
+charger, payment or external-probe actions. Public health contracts are unchanged.
+
+
+Loyalty HTTP requests recheck the original active account role, credential epoch
+and password snapshot under a user lock before scoped reads or awards. A revoked
+Admin cannot retain global redemption visibility or award access through an old
+request snapshot. Existing publication and fulfillment service guards remain.
 
 ### Private authenticator security notices
 

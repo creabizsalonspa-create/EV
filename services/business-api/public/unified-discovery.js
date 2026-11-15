@@ -3,7 +3,7 @@
  const text=(tag,en,ar)=>{const n=document.createElement(tag);if(tag==='label'){n.append(text('span',en,ar));return n;}n.dataset.en=en;n.dataset.ar=ar;n.textContent=document.documentElement.lang==='ar'?ar:en;return n;};
  const button=(en,ar,action)=>{const n=text('button',en,ar);n.type='button';n.onclick=action;return n;};
  function install(root,api,onCatalog){
-  let generation=0,page=1,query='',scope='all',connector='',mapRows=[],recentStatus='',savedOnly=false,customer=false,owner=null,favoriteWriter=null,writing=false,uncertain=false;
+  let generation=0,page=1,query='',scope='all',connector='',mapRows=[],recentStatus='',maxSourceAge='',savedOnly=false,customer=false,owner=null,favoriteWriter=null,writing=false,uncertain=false;
   const form=document.createElement('form'),input=document.createElement('input'),source=document.createElement('select'),plug=document.createElement('select'),state=document.createElement('p'),list=document.createElement('div'),nav=document.createElement('nav');
   input.maxLength=80;input.name='unified-query';
   const field=text('label','Name, address or operator','الاسم أو العنوان أو المشغل');field.append(input);form.append(field);
@@ -15,6 +15,9 @@
   const report=document.createElement('select');report.name='recent_source_status';
   for(const value of ['',...(window.EvConnectorFreshness?.statuses||['Available','Charging','Reserved','Faulted','Unavailable'])]){const option=text('option',value||'All states',value?(window.EvConnectorFreshness?.label(value,true)||value):'كل الحالات');option.value=value;report.append(option);}
   const reportLabel=text('label','Simulated source state at search','حالة مصدر المحاكاة عند البحث');reportLabel.append(report);form.append(reportLabel);
+  const ageFilter=document.createElement('select');ageFilter.name='max_source_age_hours';
+  for(const [value,en,ar] of [['','All report ages','كل أعمار التقارير'],['1','Last hour','آخر ساعة'],['24','Last 24 hours','آخر 24 ساعة'],['168','Last 7 days','آخر 7 أيام']]){const option=text('option',en,ar);option.value=value;ageFilter.append(option);}
+  const ageLabel=text('label','Partner source updates within (platform results unchanged)','تحديثات مصدر الشريك خلال (نتائج المنصة دون تغيير)');ageLabel.append(ageFilter);form.append(ageLabel);
   form.append(text('p','Canonical connector reports within five minutes at search only; excludes partner reports. Physical availability is unverified. Search again to recheck.','تقارير موصلات المنصة خلال خمس دقائق عند البحث فقط؛ باستثناء تقارير الشركاء. التوفر الفعلي غير مؤكد. أعد البحث للتحقق.'));
   const submit=text('button','Search all sources','البحث في كل المصادر');submit.type='submit';form.append(submit);state.setAttribute('role','status');
   root.append(text('h3','Search platform and partner locations','البحث في مواقع المنصة والشركاء'),text('p','One search of published records. Partner reports are unverified and cannot authorize booking, charging or payment. External discovery providers require their separate consent.','بحث موحد في السجلات المنشورة. تقارير الشركاء غير مؤكدة ولا تسمح بالحجز أو الشحن أو الدفع. يتطلب مزودو الاكتشاف الخارجيون موافقة منفصلة.'),form,state,list,nav);
@@ -26,7 +29,7 @@
    if(writing)return;
    uncertain=false;const turn=++generation;mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();state.replaceChildren(text('span','Searching…','جارٍ البحث…'));submit.disabled=true;
    try{
-    const data=await api('search?'+new URLSearchParams({q:query,scope,connector,page:String(target),saved_only:savedOnly?'1':'0',recent_source_status:recentStatus}));if(turn!==generation)return;
+    const data=await api('search?'+new URLSearchParams({q:query,scope,connector,page:String(target),saved_only:savedOnly?'1':'0',recent_source_status:recentStatus,...(maxSourceAge?{max_source_age_hours:maxSourceAge}:{})}));if(turn!==generation)return;
     if(!Array.isArray(data.data)||!Number.isInteger(data.current_page)||!Number.isInteger(data.last_page)||!Number.isInteger(data.total))throw Error('Invalid catalog response');
     mapRows=data.data;mapButton.disabled=mapRows.length===0;
     page=data.current_page;state.replaceChildren(text('span',`${data.total} published results`,`${data.total} نتيجة منشورة`));
@@ -38,6 +41,10 @@
      }else if(row.kind==='partner'&&Number.isSafeInteger(row.record_id)&&row.record_id>0&&row.key==='partner:'+row.record_id&&row.location&&row.reservable===false&&row.remote_control===false&&row.availability==='unknown'){
       card.dataset.partnerLocationId=String(row.record_id);const l=row.location;card.append(text('h4',String(l.name||l.id||''),String(l.name||l.id||'')),text('p',String(row.provider_label||''),String(row.provider_label||'')),text('p',[l.address,l.city,l.country].filter(Boolean).join(' · '),[l.address,l.city,l.country].filter(Boolean).join(' · ')),text('p','Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد'));
       card.append(text('p','Reported source time: '+String(row.source_updated_at||'unknown'),'وقت المصدر المبلغ عنه: '+String(row.source_updated_at||'غير معروف')));
+      const age=row.source_timestamp_evidence==='PARTNER_REPORTED_ONLY'&&row.source_clock_evidence==='PARTNER_REPORTED_TIME'&&Number.isSafeInteger(row.reported_source_age_minutes)&&row.reported_source_age_minutes>=0?row.reported_source_age_minutes:null;
+      card.append(text('p',age===null?'Reported catalog age unknown or partner clock ahead':`Reported catalog age at search: ${age} min${age>=1440?' · over 24 hours old':''}`,age===null?'عمر الكتالوج المبلغ عنه غير معروف أو ساعة الشريك متقدمة':`عمر الكتالوج المبلغ عنه عند البحث: ${age} دقيقة${age>=1440?' · أقدم من 24 ساعة':''}`));
+      card.append(text('p','Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'));
+
      }else continue;
      if(customer&&typeof favoriteWriter==='function'){
       const saved=row.is_favorite===true;
@@ -63,9 +70,9 @@
    }catch{if(turn===generation)state.replaceChildren(text('span','Search failed. Submit again to retry.','تعذر البحث. أعد الإرسال للمحاولة.'));}
    finally{if(turn===generation)submit.disabled=false;}
   }
-  form.onsubmit=e=>{e.preventDefault();if(writing)return;query=input.value.trim();scope=source.value;connector=plug.value;recentStatus=report.value;savedOnly=customer&&savedInput.checked;load(1);};
+  form.onsubmit=e=>{e.preventDefault();if(writing)return;query=input.value.trim();scope=source.value;connector=plug.value;recentStatus=report.value;maxSourceAge=ageFilter.value;savedOnly=customer&&savedInput.checked;load(1);};
   // Location queries and result sets stay in memory; there is no automatic lookup.
-  return {setContext(context){if(owner!==context.owner)this.clear();owner=context.owner;customer=context.customer===true;favoriteWriter=context.favorite;savedField.hidden=!customer;},clear(){generation++;writing=false;uncertain=false;recentStatus='';report.value='';savedOnly=false;savedInput.checked=false;mapRows=[];mapButton.disabled=true;query='';input.value='';list.replaceChildren();nav.replaceChildren();state.replaceChildren();submit.disabled=false;}};
+  return {setContext(context){if(owner!==context.owner)this.clear();owner=context.owner;customer=context.customer===true;favoriteWriter=context.favorite;savedField.hidden=!customer;},clear(){generation++;writing=false;uncertain=false;recentStatus='';report.value='';maxSourceAge='';ageFilter.value='';savedOnly=false;savedInput.checked=false;mapRows=[];mapButton.disabled=true;query='';input.value='';list.replaceChildren();nav.replaceChildren();state.replaceChildren();submit.disabled=false;}};
  }
  window.EvUnifiedDiscovery={install};
  window.addEventListener('discovery-api-ready',event=>{const root=document.getElementById('unified-discovery');if(root)window.EvUnifiedDiscovery.active=install(root,event.detail,id=>window.dispatchEvent(new CustomEvent('unified-catalog-open',{detail:id})));});
