@@ -3,6 +3,7 @@
 namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -76,6 +77,21 @@ class PartnerClient
         }
     }
 
+    /** Reject contradictory peer tracing without breaking previously approved headerless sandbox fixtures. */
+    private function verifyTrace(Response $response, array $sent): void
+    {
+        $request = $response->header('X-Request-ID');
+        $correlation = $response->header('X-Correlation-ID');
+        if ($request === null && $correlation === null) {
+            return;
+        }
+        if (! is_string($request) || ! is_string($correlation)
+            || ! hash_equals($sent['X-Request-ID'], $request)
+            || ! hash_equals($sent['X-Correlation-ID'], $correlation)) {
+            throw new OcpiException('Operator OCPI tracing headers disagreed with this request.');
+        }
+    }
+
     private function get(OcpiProvider $provider, string $url): array
     {
         // An already dispatched read cannot be cancelled, but a revoked or superseded
@@ -84,10 +100,12 @@ class PartnerClient
         $url = $this->guardedUrl($provider, $url);
         $c = $this->connection($provider);
         try {
-            $response = Http::connectTimeout(5)->timeout(20)->withoutRedirecting()->withOptions(['stream' => true])->withHeaders(['Accept' => 'application/json', 'Authorization' => 'Token '.$c['authorization_token'], 'X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()])->get($url);
+            $trace = ['X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()];
+            $response = Http::connectTimeout(5)->timeout(20)->withoutRedirecting()->withOptions(['stream' => true])->withHeaders(['Accept' => 'application/json', 'Authorization' => 'Token '.$c['authorization_token']] + $trace)->get($url);
             if (! $response->successful()) {
                 throw new OcpiException('Operator HTTP request failed.');
             }
+            $this->verifyTrace($response, $trace);
             $stream = $response->toPsrResponse()->getBody();
             $text = '';
             try {
@@ -233,7 +251,8 @@ class PartnerClient
         }
         $url = $this->guardedUrl($provider, rtrim($provider->endpoints[$module], '/').'/'.implode('/', array_map('rawurlencode', $segments)));
         try {
-            $r = Http::connectTimeout(5)->timeout(20)->withoutRedirecting()->withOptions(['stream' => true])->withHeaders(['Accept' => 'application/json', 'Authorization' => 'Token '.$c['authorization_token'], 'X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()])->send($method, $url, ['json' => $body]);
+            $trace = ['X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()];
+            $r = Http::connectTimeout(5)->timeout(20)->withoutRedirecting()->withOptions(['stream' => true])->withHeaders(['Accept' => 'application/json', 'Authorization' => 'Token '.$c['authorization_token']] + $trace)->send($method, $url, ['json' => $body]);
             $stream = $r->toPsrResponse()->getBody();
             $text = '';
             try {
@@ -246,6 +265,7 @@ class PartnerClient
             if (! $r->successful() || strlen($text) > 65536) {
                 throw new OcpiException('Partner transport outcome requires reconciliation.');
             }
+            $this->verifyTrace($r, $trace);
             $response = json_decode($text, true, flags: JSON_THROW_ON_ERROR);
             if (! is_array($response) || ($response['status_code'] ?? null) !== 1000 || ! is_string($response['timestamp'] ?? null) || strtotime($response['timestamp']) === false) {
                 throw new OcpiException('Partner protocol outcome requires reconciliation.');
