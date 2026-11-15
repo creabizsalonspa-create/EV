@@ -13,5 +13,6 @@ if [[ -f pubspec.lock ]]; then flutter pub get --enforce-lockfile; else flutter 
 python3 -B tool/test_hosted_return_config.py
 python3 -B tool/test_lifecycle_privacy_config.py
 python3 -B tool/test_navigation_link_config.py
+python3 -B tool/test_navigation_build.py
 flutter analyze
 flutter test --reporter expanded
