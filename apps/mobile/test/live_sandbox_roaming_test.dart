@@ -40,6 +40,19 @@ void main() {
       expect(created['live_commands_enabled'], false);
       expect(created['local_invoice_created'], false);
       final id = created['id'];
+      final sourceHistory = await api.request('roaming/sandbox-orders/$id/meter-history');
+      expect(sourceHistory['scope'], 'roaming_source_meter_history');
+      expect(sourceHistory['observations']['total'], 0);
+      expect(sourceHistory['backfilled'], false);
+      expect(sourceHistory['commands_sent'], false);
+      if (f['history_order_id'] is int) {
+        final recorded = await api.request('roaming/sandbox-orders/${f['history_order_id']}/meter-history');
+        expect(recorded['observations']['total'], 2);
+        expect(recorded['observations']['data'].every((row) => row['reported_energy_kwh'] == '0.01'), true);
+        expect(recorded['physical_energy_verified'], false);
+        expect(recorded['billing_authority'], false);
+      }
+
       final replay = await api.request(
         '$root/sandbox-orders',
         method: 'POST',

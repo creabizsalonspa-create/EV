@@ -13,6 +13,15 @@ window.createRoamingWorkspace = ({
         generation = 0,
         details = 0;
     let catalogFilters = {};
+    const meterViews = new Map();
+    const clearMeterViews = () => { for (const clear of meterViews.values()) clear(); };
+    document.addEventListener('visibilitychange', () => { if (document.hidden) clearMeterViews(); });
+    window.addEventListener('pagehide', clearMeterViews);
+    const meterObserver = new MutationObserver(() => {
+        for (const [card, clear] of meterViews) if (!card.isConnected) { clear(); meterViews.delete(card); }
+    });
+    meterObserver.observe(document.body, {childList:true,subtree:true});
+
     const raw = (tag, value) => {
         const node = document.createElement(tag);
         node.textContent = value ?? "";
@@ -29,6 +38,7 @@ window.createRoamingWorkspace = ({
         session_not_completed: "Partner session is not completed",
         energy_precision_unsupported: "Energy precision needs review",
         energy_mismatch: "Session and CDR energy differ",
+        session_meter_history_requires_review: "Accepted source meter history requires review",
         history_exceeds_comparison_limit:
             "Partner history exceeds automatic comparison limit",
         history_contains_unlinked_cdrs:
@@ -585,6 +595,40 @@ window.createRoamingWorkspace = ({
                 ["Sandbox reconciliation", row.reconciliation_state],
             ])
                 line(card, label, value);
+            const history = document.createElement('section');
+            card.append(history);
+            let historyThrough = null, historySequence = 0;
+            meterViews.set(card, () => { historySequence++; historyThrough = null; history.replaceChildren(); });
+            const meterHistory = async (page = 1) => {
+                if (!current() || document.hidden || !card.isConnected || !Number.isSafeInteger(row.id) || row.id < 1) return;
+                const sequence = ++historySequence;
+                history.replaceChildren(ui('p', 'Loading…'));
+                const path = providerId ? `ocpi/providers/${providerId}/sandbox-orders/${row.id}/meter-history` : `roaming/sandbox-orders/${row.id}/meter-history`;
+                const report = await request(`${path}?page=${page}${historyThrough === null ? "" : "&through=" + historyThrough}`);
+                if (!report || !current() || !card.isConnected || sequence !== historySequence) return;
+                if (report.scope !== 'roaming_source_meter_history' || report.order_id !== row.id || report.evidence !== 'PARTNER_REPORTED_UNVERIFIED' || report.coverage !== 'ACCEPTED_VERSIONS_SINCE_INSTRUMENTATION' ||
+                    (!Number.isSafeInteger(report.through_id) || report.through_id < 0 || (historyThrough !== null && report.through_id !== historyThrough)) || ['backfilled','physical_energy_verified','billing_authority','commands_sent'].some(k => report[k] !== false) || typeof report.source_bound !== 'boolean' ||
+                    !Array.isArray(report.observations?.data) || report.observations.data.length > 25 || report.observations.current_page !== page || !Number.isSafeInteger(report.observations.last_page) || report.observations.last_page < 1) throw Error('Unexpected source history.');
+                for (const point of report.observations.data) {
+                    if (!['PENDING','ACTIVE','COMPLETED','INVALID','RESERVATION'].includes(point.status) ||
+                        ['meter_regressed','precision_requires_review','source_clock_ahead'].some(k => typeof point[k] !== 'boolean') || typeof point.source_updated_at !== 'string' || typeof point.received_at !== 'string' ||
+                        (point.reported_energy_kwh !== null && (typeof point.reported_energy_kwh !== 'string' || !/^(0|[1-9][0-9]{0,6})(?:\.[0-9]{1,9})?$/.test(point.reported_energy_kwh)))) throw Error('Unexpected meter observation.');
+                }
+                historyThrough = report.through_id;
+                history.replaceChildren(ui('h5', 'Recorded source meter history'), ui('p', 'Source meter history disclaimer'));
+                for (const point of report.observations.data) {
+                    const entry = document.createElement('article');
+                    entry.append(raw('p', `${point.status} · ${point.reported_energy_kwh ?? '—'} kWh`));
+                    line(entry, 'Source meter timestamp', point.source_updated_at); line(entry, 'Source meter received', point.received_at);
+                    if (point.meter_regressed) entry.append(ui('p', 'Source meter decreased'));
+                    if (point.precision_requires_review) entry.append(ui('p', 'Source meter precision review'));
+                    if (point.source_clock_ahead) entry.append(ui('p', 'Source meter clock ahead'));
+                    history.append(entry);
+                }
+                if (!report.observations.data.length) history.append(ui('p', 'No recorded source meter observations'));
+                pager(history, report.observations, meterHistory);
+            };
+            button(card, 'Recorded source meter history', () => { historyThrough = null; return meterHistory(); });
             if (row.start_consent_current === false && !["source_active", "source_completed"].includes(row.state))
                 card.append(ui("p", "Roaming start authorization revoked"));
             if (row.reported_cost)
@@ -786,6 +830,7 @@ window.createRoamingWorkspace = ({
         }
     }
     function clear() {
+        clearMeterViews(); meterViews.clear();
         generation++;
         publicRequest?.abort();
         window.dispatchEvent(new CustomEvent("roaming-map-data", { detail: [] }));

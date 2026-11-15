@@ -36,6 +36,7 @@ class RecordSynchronizer
             foreach ($validated as [$raw,$n,$hash]) {
                 $identity = ['ocpi_provider_id' => $locked->id, 'module' => $module, 'country_code' => $n['country_code'], 'party_id' => $n['party_id'], 'external_id' => $n['id']];
                 $existing = OcpiRecord::where($identity)->first();
+                $previous = null;
                 $updated = CarbonImmutable::parse($n['last_updated']);
                 if ($existing && $module === 'tariffs') {
                     $retired = DB::table('ocpi_catalog_retirements')->where('record_id', $existing->id)->orderByDesc('id')->first();
@@ -68,11 +69,15 @@ class RecordSynchronizer
                     if ($module === 'sessions' && ($existing->normalized['status'] === 'COMPLETED' && $n['status'] !== 'COMPLETED')) {
                         throw new OcpiException('Completed OCPI session cannot return to an active state.');
                     }
+                    $previous = clone $existing;
                     $existing->update(['payload' => $raw, 'normalized' => $n, 'content_hash' => $hash, 'source_updated_at' => $updated, 'received_at' => now()]);
                     $counts['updated']++;
                 } else {
-                    OcpiRecord::create($identity + ['payload' => $raw, 'normalized' => $n, 'content_hash' => $hash, 'source_updated_at' => $updated, 'received_at' => now()]);
+                    $existing = OcpiRecord::create($identity + ['payload' => $raw, 'normalized' => $n, 'content_hash' => $hash, 'source_updated_at' => $updated, 'received_at' => now()]);
                     $counts['created']++;
+                }
+                if ($module === 'sessions') {
+                    app(SessionMeterHistory::class)->append($existing, (int) $locked->owner_id, $previous);
                 }
             }
             $locked->update(['last_synced_at' => now()]);

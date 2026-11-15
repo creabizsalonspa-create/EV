@@ -5,7 +5,7 @@ const {
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const { randomUUID } = require("node:crypto");
 const assert = require("node:assert/strict");
-function nativeProof(f) {
+async function nativeProof(f) {
   const fs = require("node:fs"),
     { join } = require("node:path"),
     { tmpdir } = require("node:os");
@@ -13,15 +13,14 @@ function nativeProof(f) {
   try {
     const input = join(directory, "fixture.json");
     fs.writeFileSync(input, JSON.stringify(f), { mode: 0o600 });
-    require("node:child_process").execFileSync(
-      "flutter",
-      ["test", "test/live_sandbox_roaming_test.dart", "--reporter", "expanded"],
-      {
-        cwd: "apps/mobile",
-        stdio: "inherit",
-        env: { ...process.env, EV_NATIVE_SANDBOX_ROAMING_FIXTURE: input },
-      },
-    );
+    await new Promise((resolve, reject) => {
+      const child = require("node:child_process").spawn(
+        "flutter", ["test", "test/live_sandbox_roaming_test.dart", "--reporter", "expanded"],
+        {cwd: "apps/mobile", stdio: "inherit", env: {...process.env, EV_NATIVE_SANDBOX_ROAMING_FIXTURE: input}},
+      );
+      child.once("error", () => reject(new Error("Native sandbox proof could not start.")));
+      child.once("close", code => code === 0 ? resolve() : reject(new Error("Native sandbox proof failed.")));
+    });
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -29,7 +28,7 @@ function nativeProof(f) {
 withCredentialsFixture(
   async (f) => {
     if (process.env.EV_SANDBOX_NATIVE_ONLY === "1") {
-      nativeProof(f);
+      await nativeProof(f);
       return;
     }
     const { chromium } = require("playwright");
@@ -174,6 +173,17 @@ withCredentialsFixture(
         exact: true,
       });
       await stop.waitFor();
+      await panel.getByRole('button', {name:'Recorded source meter history',exact:true}).click();
+      await panel.getByText('ACTIVE · 0.01 kWh',{exact:true}).waitFor();
+      await page.evaluate(() => { Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange')); });
+      assert.equal(await panel.getByText('ACTIVE · 0.01 kWh',{exact:true}).count(),0);
+      await page.evaluate(() => { Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange')); });
+      assert.equal(await panel.getByText('ACTIVE · 0.01 kWh',{exact:true}).count(),0);
+      await panel.getByRole('button', {name:'Recorded source meter history',exact:true}).click();
+      await panel.getByText('ACTIVE · 0.01 kWh',{exact:true}).waitFor();
+
+      const readings = await driver.request(`roaming/sandbox-orders/${id}/meter-history`);
+      assert.equal(readings.observations.total,1);assert.equal(readings.observations.data[0].energy_wh,10);assert.equal(readings.physical_energy_verified,false);assert.equal(readings.commands_sent,false);assert.equal(readings.backfilled,false);assert(!JSON.stringify(readings).includes(token.uid));
       await stop.click();
       await page.waitForFunction(() =>
         document
@@ -224,6 +234,9 @@ withCredentialsFixture(
       await panel
         .getByRole("heading", { name: "نشاط التجوال التجريبي" })
         .waitFor();
+      await panel.getByRole('button',{name:'سجل قراءات عداد المصدر',exact:true}).click();
+      await panel.getByText('COMPLETED · 0.01 kWh',{exact:true}).waitFor();
+      await panel.getByText('ACTIVE · 0.01 kWh',{exact:true}).waitFor();
       assert.equal(
         await page.evaluate(
           () => document.documentElement.scrollWidth > innerWidth + 1,
@@ -255,10 +268,28 @@ withCredentialsFixture(
       assert.equal(ops.data[0].can_stop, false);
       assert.equal(ops.data[0].can_revoke, false);
       assert(!JSON.stringify(ops).includes(token.uid));
+      const operatorReadings=await owner.request(`ocpi/providers/${f.provider_id}/sandbox-orders/${id}/meter-history`);assert.equal(operatorReadings.observations.total,2);assert(!JSON.stringify(operatorReadings).includes(token.uid));
+      for (const reviewer of [owner, await login(f.admin)]) {
+        const reviewContext = await browser.newContext({viewport:{width:390,height:844}});
+        await reviewContext.addCookies([...reviewer.cookies].map(([name,value])=>({name,value,url:f.base})));
+        const reviewPage = await reviewContext.newPage(); reviewPage.on('pageerror',e=>errors.push(e.message));
+        await reviewPage.goto(f.base);
+        const operators = reviewPage.locator('#roaming-operations');
+        await operators.locator('article').filter({hasText:f.name}).first().getByRole('button',{name:'Sandbox roaming activity',exact:true}).click();
+        const reviewPanel = operators.locator('[data-roaming-sandbox]');
+        await reviewPanel.getByRole('button',{name:'Recorded source meter history',exact:true}).click();
+        await reviewPanel.getByText('COMPLETED · 0.01 kWh',{exact:true}).waitFor();
+        await reviewPage.locator('#language').click();
+        await reviewPanel.getByRole('button',{name:'سجل قراءات عداد المصدر',exact:true}).click();
+        await reviewPanel.getByText('ACTIVE · 0.01 kWh',{exact:true}).waitFor();
+        assert(!(await reviewPanel.textContent()).includes(token.uid));
+        await reviewContext.close();
+      }
       const other = await login(f.other);
       assert.equal((await other.request("roaming/sandbox-orders")).total, 0);
+      await assert.rejects(other.request(`roaming/sandbox-orders/${id}/meter-history`),/404/);
       assert.deepEqual(errors, []);
-      if (process.env.EV_NATIVE_SANDBOX === "1") nativeProof(f);
+      if (process.env.EV_NATIVE_SANDBOX === "1") await nativeProof({...f,history_order_id:id});
       console.log(
         "PASS sandbox consent/token/START, authenticated CPO session, STOP, completed source/CDR comparison, revocation, operator privacy, Arabic phone and logout; no financial or physical acceptance.",
       );

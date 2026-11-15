@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'ocpi_test_invoice.dart';
 import 'invoice.dart';
+import 'roaming_meter_history.dart';
 
 /// Private opt-in sandbox authority, separate from public partner discovery.
 /// A command acknowledgment cannot prove a charging transaction or invoice.
@@ -440,6 +441,7 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
             '${row['location_name']} · ${row['evse_uid']} / ${row['connector_id']}',
           ),
           Text('${tr('Order state', 'حالة الطلب')}: ${row['state']}'),
+          TextButton(onPressed: busy || background ? null : () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => RoamingMeterHistoryView(api: widget.api, orderId: row['id'] as int, providerId: widget.providerId, onExpired: widget.onExpired))), child: Text(tr('Recorded source meter history', 'سجل قراءات عداد المصدر'))),
           if (row['start_consent_current'] == false &&
               !['source_active', 'source_completed'].contains(row['state']))
             Text(

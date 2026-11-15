@@ -53,6 +53,7 @@ class RoamingReconciler
                 $review = true;
                 $wh = $row->energy_wh;
             }
+            $review = $review || app(SessionMeterHistory::class)->requiresReview($session);
             // Price/meter discrepancies must not hide a proven owned active session from stop.
 
             abort_unless(in_array($n['status'], ['PENDING', 'ACTIVE', 'COMPLETED', 'INVALID'], true), 409, 'Unsupported partner session transition.');

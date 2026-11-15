@@ -36,6 +36,9 @@ class CdrReconciler
             }
         }
         if ($session) {
+            if (app(SessionMeterHistory::class)->requiresReview($session)) {
+                $issues[] = 'session_meter_history_requires_review';
+            }
             $s = $session->normalized;
             if (($s['status'] ?? null) !== 'COMPLETED') {
                 $issues[] = 'session_not_completed';
