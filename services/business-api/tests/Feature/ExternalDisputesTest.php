@@ -383,6 +383,31 @@ class ExternalDisputesTest extends TestCase
         Http::assertNotSent(fn ($request) => $request->method() === 'POST');
     }
 
+    public function test_deadline_queue_prioritizes_actionable_dates_before_null_deadlines_on_all_drivers(): void
+    {
+        $due = $this->providerEvent('evt_DueFirst')->assertOk()->json('dispute_id');
+        $this->body['id'] = 'dp_LostWithoutDeadline';
+        $this->body['status'] = 'lost';
+        $this->body['evidence_details']['due_by'] = null;
+        $lost = $this->providerEvent('evt_LostSecond')->assertOk()->json('dispute_id');
+
+        $page = $this->actingAs($this->admin)->getJson(
+            '/dispute-test/commercial/external-disputes/deadline-queue?window_hours=72&per_page=1'
+        )->assertOk()->assertJsonPath('total', 2)
+            ->assertJsonPath('data.0.id', $due)
+            ->assertJsonPath('data.0.urgency', 'evidence_due_soon')
+            ->assertJsonPath('current_page', 1)->json();
+        $second = $this->getJson(
+            '/dispute-test/commercial/external-disputes/deadline-queue?window_hours=72&per_page=1&page=2'
+        )->assertOk()->assertJsonPath('data.0.id', $lost)
+            ->assertJsonPath('data.0.urgency', 'financial_resolution_required')
+            ->assertJsonPath('current_page', 2)->json();
+        $this->assertSame(2, $second['total']);
+        $this->assertSame(2, $page['total']);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        $this->assertDatabaseCount('finance_payments', 1);
+    }
+
     public function test_lost_provider_dispute_remains_held_in_admin_deadline_queue_without_refund(): void
     {
         $id = $this->providerEvent()->assertOk()->json('dispute_id');

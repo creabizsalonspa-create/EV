@@ -71,7 +71,12 @@ class ExternalDisputesController extends Controller
                         ->whereIn('e.status', ['sending', 'uncertain']);
                 });
         });
-        $page = $query->orderBy('d.evidence_due_at')->orderBy('d.id')
+        // SQLite sorts NULLs first while PostgreSQL sorts them last for ASC.
+        // Keep active evidence deadlines ahead of unresolved lost cases on both.
+        $page = $query
+            ->orderByRaw("CASE WHEN d.status IN ('needs_response', 'warning_needs_response') AND d.evidence_due_at IS NOT NULL THEN 0 WHEN d.status = 'lost' THEN 1 ELSE 2 END")
+            ->orderByRaw('CASE WHEN d.evidence_due_at IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('d.evidence_due_at')->orderBy('d.id')
             ->paginate((int) ($values['per_page'] ?? 20));
         $rows = $page->getCollection()->map(function ($row) {
             $unresolved = DB::table('external_dispute_evidence')
