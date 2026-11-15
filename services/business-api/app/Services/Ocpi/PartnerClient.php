@@ -143,7 +143,12 @@ class PartnerClient
             return null;
         }
 
-        return preg_match('/<([^>]+)>;\s*rel="?next"?/i', $link, $m) ? $m[1] : null;
+        preg_match_all('/<([^>]+)>;\s*rel=(?:"next"|next)(?=\s*[,;]|\s*$)/i', $link, $matches);
+        if (count($matches[1]) > 1) {
+            throw new OcpiException('Ambiguous partner pagination links require source review.');
+        }
+
+        return $matches[1][0] ?? null;
     }
 
     public function negotiate(OcpiProvider $provider): array
