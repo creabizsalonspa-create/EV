@@ -1,6 +1,7 @@
 'use strict';
 const {chromium}=require('playwright'),{createHmac}=require('node:crypto'),assert=require('node:assert/strict');
 const {BusinessClient}=require('./helpers/business-client.cjs');
+const runFile=require('node:util').promisify(require('node:child_process').execFile);
 function totp(secret){
  assert.match(secret,/^[A-Z2-7]{32}$/);
  let bits='';for(const char of secret)bits+='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'.indexOf(char).toString(2).padStart(5,'0');
@@ -10,12 +11,13 @@ function totp(secret){
 }
 let stage='register';
 (async()=>{
- const client=await new BusinessClient().register('customer'),password=client.testCredentials.password;
+ const client=await new BusinessClient({base:process.env.EV_TEST_URL||'http://127.0.0.1:8000',...(process.env.EV_TEST_PHP_RUNNER?{runCommand:(_command,args)=>runFile(process.env.EV_TEST_PHP_RUNNER,args)}:{})}).register('customer'),password=client.testCredentials.password;
  stage='verify';await client.verifyEmail();
  stage='prepare';const prepared=await client.request('account/second-factor/prepare','POST',{password});
- stage='enable';const enabled=await client.request('account/second-factor/enable','POST',{password,code:totp(prepared.secret)});
- stage='rotate';const rotated=await client.request('account/second-factor/recovery-codes','POST',{password,code:enabled.recovery_codes[0]});
- stage='disable';await client.request('account/second-factor/disable','POST',{password,code:rotated.recovery_codes[0]});
+ const refreshCsrf=async()=>{const previous=client.csrf;client.csrf=(await client.request('csrf')).token;assert.notEqual(client.csrf,previous,'Successful security change must rotate CSRF');};
+ stage='enable';const enabled=await client.request('account/second-factor/enable','POST',{password,code:totp(prepared.secret)});await refreshCsrf();
+ stage='rotate';const rotated=await client.request('account/second-factor/recovery-codes','POST',{password,code:enabled.recovery_codes[0]});await refreshCsrf();
+ stage='disable';await client.request('account/second-factor/disable','POST',{password,code:rotated.recovery_codes[0]});await refreshCsrf();
  const notices=await client.request('notifications');assert.equal(notices.total,5);assert.deepEqual(notices.data.map(row=>row.kind).sort(),['account.security.enabled','account.security.disabled','account.security.recovery_rotated','account.security.recovery_used','account.security.recovery_used'].sort());
  const raw=JSON.stringify(notices);for(const secret of [password,prepared.secret,...enabled.recovery_codes,...rotated.recovery_codes])assert.equal(raw.includes(secret),false);
  stage='browser';const browser=await chromium.launch({headless:true,executablePath:process.env.EV_CHROMIUM_PATH||undefined,args:['--no-sandbox']});
@@ -31,4 +33,4 @@ let stage='register';
   assert.equal((await client.request('notifications')).data.find(n=>String(n.id)===id).read_at!==null,true);
   console.log('PASS actual Laravel/browser private MFA change/recovery notices, bilingual text and scoped read controls (synthetic loopback account)');
  }finally{await browser.close();}
-})().catch(error=>{console.error(JSON.stringify({suite:'account-security-notices',stage,error:['AssertionError','TimeoutError'].includes(error?.name)?error.name:'Error'}));process.exitCode=1;});
+})().catch(error=>{console.error(JSON.stringify({suite:'account-security-notices',stage,http_status:error?.message?.match(/failed \((\d{3})\)/)?.[1]??null,error:['AssertionError','TimeoutError'].includes(error?.name)?error.name:'Error'}));process.exitCode=1;});
