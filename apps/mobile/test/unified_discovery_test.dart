@@ -61,7 +61,7 @@ class SavedUnifiedApi extends UnifiedApi {
   }
 }
 class IncompleteMetadataApi extends UnifiedApi {
-  bool missingIdentity=false;
+  bool missingIdentity=false, missingPartnerMetadata=false;
   @override
   Future<dynamic> request(String path,{String method='GET',Map<String,dynamic>? body,Map<String,String> query=const {}})async{
     final raw=Map<String,dynamic>.from(await super.request(path,method:method,body:body,query:query) as Map);
@@ -74,6 +74,14 @@ class IncompleteMetadataApi extends UnifiedApi {
           'evidence':'SIMULATED','connector_type':'CCS2',
           // No power metadata. Must remain a non-actionable catalog card.
         },
+      };
+    }
+    if(missingPartnerMetadata&&entries.length>1&&entries[1]['kind']=='partner'){
+      entries[1]={
+        ...entries[1],
+        'provider_label':{'unexpected':'untrusted'},
+        'location':{'id':null,'name':null,'address':{'unexpected':'untrusted'},
+                    'city':null,'country':null,'latitude':null,'longitude':null},
       };
     }
     raw['data']=entries;
@@ -318,4 +326,21 @@ void main(){
    expect(find.text('<img src=x>'),findsNothing);
    expect(find.text('Synthetic partner'),findsNothing);
  });
+
+ for(final ar in [false,true]){
+  testWidgets('missing partner provider address or geometry are explicit list-only metadata ($ar)',(tester)async{
+   roomy(tester);
+   final api=IncompleteMetadataApi()..missingPartnerMetadata=true;
+   addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('No unauthorized actions'),ar:ar,customer:true));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.textContaining(ar?'سجل الشريك #7':'Partner record #7'),findsOneWidget);
+   expect(find.textContaining(ar?'اسم مقدم الخدمة غير متاح':'Provider label unavailable'),findsOneWidget);
+   expect(find.textContaining(ar?'تفاصيل العنوان غير متاحة':'Address details unavailable'),findsOneWidget);
+   expect(find.textContaining(ar?'إحداثيات الخريطة غير متاحة':'Map coordinates unavailable'),findsOneWidget);
+   expect(find.textContaining('[object Object]'),findsNothing);
+   expect(find.byKey(const Key('unified-map-open')),findsNothing);
+   expect(tester.takeException(),isNull);
+  });
+ }
 }
