@@ -365,7 +365,7 @@ class SourceConsumerTest extends TestCase
             ['id' => 2, 'timestamp' => $at->addSeconds(2)->toIso8601String(),
                 'sampledValue' => [['measurand' => 'Energy.Active.Import.Register',
                     'value' => '3500', 'context' => 'Transaction.End',
-                    'unitOfMeasure' => ['unit' => 'Wh']]],
+                    'unitOfMeasure' => ['unit' => 'Wh']]]],
         ];
         $rows = match ($kind) {
             'duplicate_id' => [$row(1), $row(1)],
