@@ -76,10 +76,16 @@ class CdrReconciler
             }
             // Multiple CDRs claiming the same source session cannot be counted twice.
             $key = $provider->id.':'.$cdr->country_code.':'.$cdr->party_id;
-            if (! isset($this->claims[$key])) {
-                $this->claims[$key] = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'cdrs')->where('country_code', $cdr->country_code)->where('party_id', $cdr->party_id)->limit(1001)->pluck('normalized');
+            $sourceClaims = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'cdrs')
+                ->where('country_code', $cdr->country_code)->where('party_id', $cdr->party_id);
+            // CDRs are append-only. A new accepted CDR changes the high-water
+            // id, so an earlier review must never reuse a stale claim snapshot.
+            $latestId = (int) (clone $sourceClaims)->max('id');
+            if (! isset($this->claims[$key]) || $this->claims[$key]['latest_id'] !== $latestId) {
+                $this->claims[$key] = ['latest_id' => $latestId,
+                    'rows' => (clone $sourceClaims)->orderByDesc('id')->limit(1001)->pluck('normalized')];
             }
-            $claims = $this->claims[$key];
+            $claims = $this->claims[$key]['rows'];
             if ($claims->count() > 1000) {
                 $issues[] = 'history_exceeds_comparison_limit';
             }
