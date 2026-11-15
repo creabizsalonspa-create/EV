@@ -54,7 +54,7 @@ test('Overdue queued email receipts are localized and never imply external send'
         assert(f.root.textContent.includes(ar?'انتظار لأكثر من 15 دقيقة':'Queued for more than 15 minutes'));
         assert(f.root.textContent.includes(ar?'تنبيهات البريد':'Email notices still queued'));
         assert.equal(nodes(f.root,'button').length,1);
-        d.email_handoff.state='unavailable';d.email_handoff.overdue_queued=2;
+        d.email_handoff.state='unavailable';d.email_handoff.outcome_unknown=null;d.email_handoff.stale_claimed=null;d.email_handoff.overdue_queued=2;
         click(f);await flush();assert(f.root.textContent.includes(ar?'تعذر تحميل':'could not load'));
     }
 });
