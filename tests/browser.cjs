@@ -336,6 +336,50 @@ function provisionTestRole(email, role) {
         document.querySelector("#vehicle-list").textContent.includes(name),
       "Browser EV " + run,
     );
+    // Vehicle garage must show pages after the first 25 and keep model /
+    // manual-SOC tooling limited to the currently verified private page.
+    const firstGaragePage = await customer.page.evaluate(() => api("vehicles?page=1"));
+    assert.equal(firstGaragePage.data.length, 1);
+    let garageOutage = false;
+    const syntheticVehicleId = 901000002;
+    await customer.page.route("**/api/vehicles?page=*", async (route) => {
+      if (garageOutage) {
+        await route.fulfill({status:503, contentType:"application/json",
+          body:JSON.stringify({message:"Synthetic garage outage"})});
+        return;
+      }
+      const page = Number(new URL(route.request().url()).searchParams.get("page"));
+      const data = page === 2
+        ? [{ ...firstGaragePage.data[0], id:syntheticVehicleId,
+             name:"Synthetic older EV" }]
+        : firstGaragePage.data;
+      await route.fulfill({status:200,contentType:"application/json",
+        body:JSON.stringify({data,current_page:page,last_page:2,total:26,
+          next_page_url:null,prev_page_url:null})});
+    });
+    await customer.page.evaluate(() => garage(1));
+    assert.equal(await customer.page.locator(
+      "#vehicle-list [data-garage-page-action=previous]").isDisabled(),true);
+    await customer.page.locator(
+      "#vehicle-list [data-garage-page-action=next]").click();
+    await customer.page.locator(
+      "#vehicle-list [data-garage-vehicle-id='" + syntheticVehicleId + "']").waitFor();
+    assert.equal(await customer.page.locator(
+      "#vehicle-list [data-garage-page-action=next]").isDisabled(),true);
+    garageOutage = true;
+    await customer.page.locator(
+      "#vehicle-list [data-garage-page-action=refresh]").click();
+    await customer.page.locator("#vehicle-list [data-garage-retry]").waitFor();
+    assert.equal(await customer.page.locator("#vehicle-list [data-garage-vehicle-id]").count(),0);
+    garageOutage = false;
+    await customer.page.locator("#vehicle-list [data-garage-retry]").click();
+    await customer.page.locator(
+      "#vehicle-list [data-garage-vehicle-id='" + syntheticVehicleId + "']").waitFor();
+    await customer.page.unroute("**/api/vehicles?page=*");
+    await customer.page.evaluate(() => garage(1));
+    assert.equal(await customer.page.locator(
+      "#vehicle-list [data-garage-vehicle-id='" + syntheticVehicleId + "']").count(),0);
+    await customer.page.locator("#vehicle-list [data-garage-vehicle-id]").first().waitFor();
     await customer.page
       .locator("#fleet-create [name=name]")
       .fill("Browser fleet " + run);
@@ -839,6 +883,8 @@ function provisionTestRole(email, role) {
     assert.equal(await customer.page.locator("#reservation-list [data-reservation-pagination]").count(), 0);
     assert.equal(await customer.page.locator("#simulation-list article").count(), 0);
     assert.equal(await customer.page.locator("#simulation-list [data-simulation-pagination]").count(), 0);
+    assert.equal(await customer.page.locator("#vehicle-list [data-garage-vehicle-id]").count(), 0);
+    assert.equal(await customer.page.locator("#vehicle-list [data-garage-pagination]").count(), 0);
     assert.equal(await customer.page.locator("#ticket-list [data-support-ticket-id]").count(), 0);
     assert.equal(await customer.page.locator("#ticket-list [data-support-pagination]").count(), 0);
     assert.equal(await customer.page.locator("#reservation-list").getAttribute("aria-busy"), null);
