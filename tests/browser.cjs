@@ -278,6 +278,50 @@ function provisionTestRole(email, role) {
       document.querySelector("#reservation-list article")?.textContent.includes("#" + id), secondId);
     await customer.page.unroute("**/api/reservations?page=*");
     await customer.page.evaluate(() => bookings(1));
+    // The canonical session feed is 25/page. Synthetic catalog rows exercise
+    // navigation only; they never simulate a real charger or payment.
+    const historicalSession = {
+      id: 901000000, reservation_id: 1, status: "cancelled",
+      energy_wh: 0, currency: "AED", total_minor: null,
+      csms_linked: false, cost_projection: null,
+    };
+    let sessionOutage = false;
+    await customer.page.route("**/api/simulations?page=*", async (route) => {
+      if (sessionOutage) {
+        await route.fulfill({status:503,contentType:"application/json",
+          body:JSON.stringify({message:"Synthetic session outage"})});
+        return;
+      }
+      const page = Number(new URL(route.request().url()).searchParams.get("page"));
+      await route.fulfill({status:200,contentType:"application/json",
+        body:JSON.stringify({
+          data:[{...historicalSession,id:page===2?901000001:901000000}],
+          current_page:page,last_page:2,total:26,
+          next_page_url:null,prev_page_url:null,
+        })});
+    });
+    await customer.page.evaluate(() => simulations(1));
+    assert.equal(await customer.page.locator(
+      "#simulation-list [data-simulation-page-action=previous]").isDisabled(), true);
+    await customer.page.locator(
+      "#simulation-list [data-simulation-page-action=next]").click();
+    await customer.page.waitForFunction(() =>
+      document.querySelector("#simulation-list article")?.textContent.includes("#901000001"));
+    assert.equal(await customer.page.locator(
+      "#simulation-list [data-simulation-page-action=next]").isDisabled(), true);
+    sessionOutage = true;
+    await customer.page.locator(
+      "#simulation-list [data-simulation-page-action=refresh]").click();
+    await customer.page.locator("#simulation-list [data-simulation-retry]").waitFor();
+    assert.equal(await customer.page.locator("#simulation-list article").count(), 0,
+      "a failed source read cannot leave an old charging session visible");
+    sessionOutage = false;
+    await customer.page.locator("#simulation-list [data-simulation-retry]").click();
+    await customer.page.waitForFunction(() =>
+      document.querySelector("#simulation-list article")?.textContent.includes("#901000001"));
+    await customer.page.unroute("**/api/simulations?page=*");
+    await customer.page.evaluate(() => simulations(1));
+    assert.equal(await customer.page.locator("#simulation-list article").count(), 0);
     const outsider = await account("Outsider");
     assert.equal(
       await outsider.page.locator("#reservation-list article").count(),
@@ -793,6 +837,8 @@ function provisionTestRole(email, role) {
     assert.equal(await customer.page.locator("#who").textContent(), "");
     assert.equal(await customer.page.locator("#reservation-list article").count(), 0);
     assert.equal(await customer.page.locator("#reservation-list [data-reservation-pagination]").count(), 0);
+    assert.equal(await customer.page.locator("#simulation-list article").count(), 0);
+    assert.equal(await customer.page.locator("#simulation-list [data-simulation-pagination]").count(), 0);
     assert.equal(await customer.page.locator("#ticket-list [data-support-ticket-id]").count(), 0);
     assert.equal(await customer.page.locator("#ticket-list [data-support-pagination]").count(), 0);
     assert.equal(await customer.page.locator("#reservation-list").getAttribute("aria-busy"), null);
