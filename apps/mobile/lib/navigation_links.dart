@@ -37,8 +37,8 @@ class NativeNavigationBridge {
 
   static Future<int?> consume() async {
     try {
-      final raw = await channel.invokeMethod<String>('consumeNavigation');
-      return navigationTabIndex(raw);
+      final raw = await channel.invokeMethod<dynamic>('consumeNavigation');
+      return navigationTabIndex(raw is String ? raw : null);
     } on PlatformException {
       return null;
     } on MissingPluginException {
