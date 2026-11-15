@@ -83,8 +83,20 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
         allowViewportSearch: true,
       )),
     );
-    if (!mounted || !foreground || generation != snapshot ||
-        !ownSession() || !fence() || bounds == null) return;
+    if (!mounted) return;
+    // A map route may outlive its original authenticated epoch. Refuse to
+    // surface the previous customer's rows or issue a new catalog lookup.
+    if (!ownSession() || !fence()) {
+      setState(() {
+        generation++;
+        rows=[];
+        submittedViewport={};
+        busy=false;
+        error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');
+      });
+      return;
+    }
+    if (!foreground || generation != snapshot || bounds == null) return;
     setState(() => submittedViewport = Map<String,String>.of(bounds));
     await load(1);
   }
