@@ -338,7 +338,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('signed-out and vendor-incompatible links cannot open private garage',
+  testWidgets('signed-out links stay private and vendor garage matches ordinary tabs',
       (tester) async {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -373,11 +373,17 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
     expect(workspace.tab, 0);
+    final writesBefore = api.calls.where((call) => call.startsWith('POST ')).length;
     nextTarget = 'garage';
     NativeNavigationBridge.pending.value++;
     await tester.pump();
     await tester.pumpAndSettle();
-    expect(workspace.tab, 0);
+    expect(workspace.tab, 3);
+    expect(api.calls, contains('GET vehicles'));
+    expect(
+      api.calls.where((call) => call.startsWith('POST ')).length,
+      writesBefore,
+    );
     expect(tester.takeException(), isNull);
   });
 }
