@@ -112,12 +112,19 @@ class SourceConsumer
                 throw new RuntimeException('Remote source token lineage conflict.');
             }
         }
-        $identity = $this->graph('query($station:String!,$tag:citext!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$station}},limit:2){id} Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id}}', ['station' => $link->identifier, 'tag' => $tag]);
+        $identity = $this->graph('query($station:String!,$tag:citext!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$station}},limit:2){id protocol} Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id}}', ['station' => $link->identifier, 'tag' => $tag]);
         if (count($identity['ChargingStations']) > 1 || count($identity['Authorizations']) > 1) {
             throw new RuntimeException('Ambiguous source identity requires reconciliation.');
         }
         if (! $identity['ChargingStations'] || ! $identity['Authorizations']) {
             return 0;
+        }
+        // The source station, not the business binding alone, establishes the
+        // protocol of the observed transaction. A moved/reprovisioned charger
+        // must never advance a session or its invoice under the old version.
+        $sourceProtocol = $identity['ChargingStations'][0]['protocol'] ?? null;
+        if (! is_string($sourceProtocol) || ! in_array($sourceProtocol, [$link->protocol, 'ocpp'.$link->protocol], true)) {
+            throw new RuntimeException('Source station protocol mismatch requires reconciliation.');
         }
         if ($link->remote_token_digest && (int) $identity['Authorizations'][0]['id'] !== (int) $link->remote_authorization_id) {
             throw new RuntimeException('Remote source registration changed; reconciliation is required.');
