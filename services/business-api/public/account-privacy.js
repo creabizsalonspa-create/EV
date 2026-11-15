@@ -50,6 +50,7 @@ window.EvPrivacyRequests = (() => {
         state.controller = null;
         state.request = null;
         state.pending = null;
+        state.submitting = false;
         state.root.replaceChildren();
     }
     function active(state, generation, controller) {
@@ -94,6 +95,10 @@ window.EvPrivacyRequests = (() => {
         const results = el("div");
         const reset = button("Start different request / طلب مختلف", () => {
             if (viewGeneration !== state.generation || !state.request) return;
+            if (state.submitting) {
+                message.textContent = "Wait for the current request to settle before starting a different one. / انتظر اكتمال الطلب الحالي قبل بدء طلب مختلف.";
+                return;
+            }
             state.pending = null;
             details.value = "";
             message.textContent =
@@ -109,6 +114,12 @@ window.EvPrivacyRequests = (() => {
             const controller = new AbortController();
             state.controller = controller;
             const generation = state.generation;
+            // Sensitive access-copy controls and previews are no longer
+            // authoritative once a refresh begins; never retain them while
+            // waiting for a failed or unresponsive read.
+            results.replaceChildren();
+            results.setAttribute("aria-busy", "true");
+            message.textContent = "Refreshing your private request history… / جارٍ تحديث سجل طلباتك الخاص…";
             try {
                 const page = await state.request(
                     "account/privacy-requests" +
@@ -118,8 +129,15 @@ window.EvPrivacyRequests = (() => {
                     controller.signal,
                 );
                 if (!active(state, generation, controller)) return;
+                if (!Array.isArray(page?.data) ||
+                    !Number.isSafeInteger(page.current_page) ||
+                    !Number.isSafeInteger(page.last_page) ||
+                    page.current_page < 1 || page.last_page < 1 ||
+                    page.current_page > page.last_page)
+                    throw Error("Unreadable private request page");
                 results.replaceChildren();
-                for (const row of page.data || []) {
+                message.textContent = "";
+                for (const row of page.data) {
                     const card = el("article");
                     card.append(
                         el(
@@ -316,14 +334,19 @@ window.EvPrivacyRequests = (() => {
                 return page.data || [];
             } catch {
                 if (active(state, generation, controller)) {
+                    results.replaceChildren();
                     message.textContent =
-                        "Could not load your request history.";
+                        "Could not load your request history. Refresh to verify access-copy and withdrawal status. / تعذر تحميل السجل؛ حدّث للتحقق من النسخ وسحب الطلبات.";
                 }
+            } finally {
+                if (active(state, generation, controller))
+                    results.removeAttribute("aria-busy");
             }
         }
         form.onsubmit = async (event) => {
             event.preventDefault();
-            if (!state.request || viewGeneration !== state.generation) return;
+            if (!state.request || viewGeneration !== state.generation ||
+                state.submitting) return;
             if (details.value.trim().length < 10) {
                 message.textContent =
                     "Please explain your request in at least 10 characters.";
@@ -344,7 +367,9 @@ window.EvPrivacyRequests = (() => {
                 ...body,
                 idempotency_key: crypto.randomUUID(),
             });
+            state.submitting = true;
             submit.disabled = true;
+            reset.disabled = true;
             try {
                 const receipt = await state.request(
                     "account/privacy-requests",
@@ -366,7 +391,11 @@ window.EvPrivacyRequests = (() => {
                         "Request could not be confirmed. Check history or retry the unchanged request safely.";
                 }
             } finally {
-                submit.disabled = false;
+                if (generation === state.generation) {
+                    state.submitting = false;
+                    submit.disabled = false;
+                    reset.disabled = false;
+                }
             }
         };
         refresh();
