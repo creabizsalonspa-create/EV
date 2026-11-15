@@ -161,11 +161,11 @@ void main(){
    expect(api.queries.length,1);
    final open=find.byKey(const Key('unified-map-open'));
    await tester.ensureVisible(open);await tester.tap(open);await tester.pumpAndSettle();
-   expect(api.queries.length,1,'Opening native map must not search');
-   expect(tiles.requests,0,'No tile access without separate opt-in');
+   expect(api.queries.length,1,reason:'Opening native map must not search');
+   expect(tiles.requests,0,reason:'No tile access without separate opt-in');
    expect(find.byKey(const Key('unified-native-viewport-search')),findsNothing);
    await tester.tap(find.byKey(const Key('partner-map-enable')));await tester.pumpAndSettle();
-   expect(api.queries.length,1,'Tiles do not transmit viewport to API');
+   expect(api.queries.length,1,reason:'Tiles do not transmit viewport to API');
    final search=find.byKey(const Key('unified-native-viewport-search'));
    await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
    expect(api.queries.length,2);
@@ -180,7 +180,7 @@ void main(){
    expect(api.queries.last['page'],'2');
    expect(api.queries.last['west'],params['west']);
    await tester.ensureVisible(find.byType(FilledButton));await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
-   expect(api.queries.last.containsKey('west'),false,'Ordinary explicit search must clear stale viewport');
+   expect(api.queries.last.containsKey('west'),false,reason:'Ordinary explicit search must clear stale viewport');
   });
  }
 }
