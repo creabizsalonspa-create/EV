@@ -120,4 +120,30 @@ class AdminSecurityDenialSummaryTest extends TestCase
         $this->assertSame(0, DB::table('audit_events')
             ->where('action', 'admin.private_list.security_denials_viewed')->count());
     }
+
+    public function test_denial_period_and_actor_filter_exclude_old_foreign_and_future_evidence(): void
+    {
+        $viewer = User::factory()->create(['role' => 'admin']);
+        $actor = User::factory()->create(['role' => 'admin']);
+        $foreignActor = User::factory()->create(['role' => 'admin']);
+        $action = 'admin.second_factor.enrollment_code_denied';
+
+        $this->denial($actor, $action, 'recent', now()->subMinutes(30)->toDateTimeString());
+        $this->denial($actor, $action, 'two-hours-old', now()->subHours(2)->toDateTimeString());
+        $this->denial($actor, $action, 'eight-days-old', now()->subDays(8)->toDateTimeString());
+        $this->denial($actor, $action, 'future', now()->addMinutes(30)->toDateTimeString());
+        $this->denial($foreignActor, $action, 'foreign', now()->subMinutes(15)->toDateTimeString());
+
+        $this->actingAs($viewer);
+        $scope = '/api/admin/security-denials?actor_id='.$actor->id;
+        $this->getJson($scope.'&window=1h')->assertOk()
+            ->assertJsonPath('observed_denials', 1)
+            ->assertJsonPath('sample_truncated', false);
+        $this->getJson($scope.'&window=24h')->assertOk()
+            ->assertJsonPath('observed_denials', 2);
+        $this->getJson($scope.'&window=7d')->assertOk()
+            ->assertJsonPath('observed_denials', 2);
+        $this->getJson('/api/admin/security-denials?window=1h')->assertOk()
+            ->assertJsonPath('observed_denials', 2);
+    }
 }
