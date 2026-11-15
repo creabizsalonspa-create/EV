@@ -2,6 +2,28 @@
 
 The Android/iOS client shares the existing Laravel session/CSRF APIs. Admin remains web-only. This is a tested development checkpoint; full product, physical-device, signing and store acceptance remain unfinished.
 
+## Inactive-screen privacy (Agent 6)
+
+The shared Flutter Navigator is obscured with an opaque screen whenever the app
+is inactive/hidden/paused, including settings overlays and pushed customer/vendor
+routes. The underlying route is kept alive, but touch and accessibility access
+to hidden private content are blocked until resume. Password and second-factor
+entry fields are cleared by the existing Workspace lifecycle observer.
+
+On Android, the existing MainActivity applies `FLAG_SECURE` while paused and
+clears it on resume (normal in-app foreground screenshots remain enabled).
+On iOS, AppDelegate adds an opaque window cover on `willResignActive` and
+removes it on `didBecomeActive`. These native defenses address OS thumbnail
+timing in addition to the Flutter frame. They do not replace authentication
+revocation, screenshot/screen-recording policy while foregrounded, or signed
+hardware/device acceptance.
+
+The focused Flutter regression is `test/lifecycle_privacy_test.dart`; the
+native source guard runs from `tool/bootstrap` with
+`python3 -B tool/test_lifecycle_privacy_config.py`. Both Android and iOS
+compilation and actual device/task-switcher checks remain separate, required
+validation gates; no local device acceptance is claimed by this change.
+
 ## Implemented
 
 - Native catalog uses real server pagination, name search, connector type, country and minimum power. Queries are encoded, applied filters/page survive tab changes, obsolete responses are ignored, failed pages retain current records and retry the requested page. No local slicing or invented availability/pricing filters.
