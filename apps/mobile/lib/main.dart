@@ -215,6 +215,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   int tab = 0;
   int recordPage = 1, recordLast = 1, recordTotal = 0;
   int _recordRequestGeneration = 0;
+  int _performGeneration = 0;
   final email = TextEditingController(),
       password = TextEditingController(),
       name = TextEditingController(),
@@ -298,11 +299,13 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
 
   void resetSession() {
     _recordRequestGeneration++;
+    _performGeneration++;
     reservationIntents.clear();
     if (!mounted) return;
     Navigator.of(context).popUntil((route) => route.isFirst);
     setState(() {
       account = null;
+      busy = false;
       keepSignedIn = false;
       restoreFailed = false;
       records = [];
@@ -322,6 +325,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
 
   Future<void> perform(Future<void> Function() task) async {
     if (busy || api == null) return;
+    final generation = _performGeneration;
     setState(() {
       busy = true;
       error = null;
@@ -330,11 +334,19 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     try {
       await task();
     } catch (e) {
-      if (e is ApiException && (e.status == 401 || e.status == 419))
-        resetSession();
-      if (mounted) setState(() => error = errorKey(e));
+      // A session reset permits the next account to sign in immediately.
+      // The previous account's late failure must not clear its session or
+      // overwrite its error/message after that change.
+      if (generation == _performGeneration && mounted) {
+        if (e is ApiException && (e.status == 401 || e.status == 419)) {
+          resetSession();
+        }
+        if (mounted) setState(() => error = errorKey(e));
+      }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && generation == _performGeneration) {
+        setState(() => busy = false);
+      }
     }
   }
 
