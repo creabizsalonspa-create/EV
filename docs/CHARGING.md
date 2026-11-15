@@ -81,7 +81,10 @@ monotonicity, not live cross-process throughput or physical acceptance.
 The local OCPP source consumer pins the independently authenticated
 CitrineOS `ChargingStations.id` and its specific `Transactions.id` onto
 the canonical session link together under a database row lock before its
-first signed start event. The external station id is not a cross-database
+first signed start event. Hasura station, authorization and transaction
+projections must be well-formed list results, and authorization IDs must
+be positive integers; absent/malformed collections are a reconciliation
+failure, not an empty poll or permission to infer a source identity. The external station id is not a cross-database
 foreign key. Subsequent observations must match the original id **as well as**
 the existing OCPP connection name, protocol, source authorization, transaction,
 connector proof and signed inbox lineage. Reprovisioning a station with the
