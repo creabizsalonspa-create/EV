@@ -264,6 +264,78 @@ class SourceConsumerTest extends TestCase
         $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
     }
 
+    #[DataProvider('protocolVersions')]
+    public function test_distinct_source_row_ids_with_repeated_cumulative_energy_never_double_bill(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->startOfSecond()->toImmutable();
+        $tx = [
+            'id' => 10,
+            'transactionId' => $protocol === '1.6' ? '101' : 'repeated-register-source',
+            'remoteStartId' => $link->start_command_id,
+            'meterStart' => '1.000',
+            'startTime' => $at->toIso8601String(),
+            'endTime' => $at->addSeconds(2)->toIso8601String(),
+            'isActive' => false,
+            'totalKwh' => '2.500',
+        ];
+        $sample = fn (int $id, int $wh, string $context, int $seconds) => [
+            'id' => $id,
+            'timestamp' => $at->addSeconds($seconds)->toIso8601String(),
+            'sampledValue' => [[
+                'measurand' => 'Energy.Active.Import.Register',
+                'value' => (string) $wh,
+                'context' => $context,
+                'unitOfMeasure' => ['unit' => 'Wh'],
+            ]],
+        ];
+        $rows = [
+            $sample(2, 2500, 'Sample.Periodic', 1),
+            $sample(3, 2500, 'Sample.Periodic', 1),
+            $sample(4, 3500, 'Transaction.End', 2),
+        ];
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($link, $tx, $rows) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $link->protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                return Http::response(['data' => ['Transactions' => [$tx]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                return Http::response(['data' => ['MeterValues' => array_values(array_filter(
+                    $rows, fn ($row) => $row['id'] > $request['variables']['after']
+                ))]]);
+            }
+
+            $this->fail('Observer attempted an external write instead of the signed local inbox.');
+        });
+
+        $this->assertSame(4, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(4, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseCount('csms_inbox_events', 4);
+        $this->assertSame([2500, 2500], DB::table('csms_inbox_events')
+            ->where('type', 'meter')->orderBy('sequence')->pluck('meter_wh')->all());
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id,
+            'energy_wh' => 2500,
+            'status' => 'stopped',
+        ]);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+    }
+
+    public static function protocolVersions(): array
+    {
+        return [['1.6'], ['2.0.1']];
+    }
+
     public function test_meter_units_are_exact_and_unsupported_precision_is_not_rounded(): void
     {
         $this->assertSame(2500, SourceConsumer::wh('2.500000', 'kWh'));
