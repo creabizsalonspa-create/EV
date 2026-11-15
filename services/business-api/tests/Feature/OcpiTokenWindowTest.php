@@ -74,6 +74,13 @@ class OcpiTokenWindowTest extends TestCase
             ->assertUnauthorized()
             ->assertHeader('X-Request-ID', $ids['X-Request-ID'])
             ->assertHeader('X-Correlation-ID', $ids['X-Correlation-ID']);
+        // Never reflect unbounded or whitespace-containing inbound identifiers.
+        $unsafe = $this->withHeaders(array_merge($headers, [
+            'X-Request-ID' => str_repeat('x', 129),
+            'X-Correlation-ID' => 'invalid space',
+        ]))->getJson('/api/roaming-protocol/versions')->assertOk();
+        $this->assertMatchesRegularExpression('/^[a-f0-9-]{36}$/i', (string) $unsafe->headers->get('X-Request-ID'));
+        $this->assertMatchesRegularExpression('/^[a-f0-9-]{36}$/i', (string) $unsafe->headers->get('X-Correlation-ID'));
         $this->assertCount(0, $this->writes, 'Read-only OCPI tracing must never send a command.');
     }
 }
