@@ -1305,6 +1305,13 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                             Number(quote.proposed_plan_id) !== planId ||
                             quote.amount_due_now_minor !== 0 ||
                             quote.proration_supported !== false ||
+                            quote.comparison_is_proration !== false ||
+                            !Number.isSafeInteger(quote.current_plan_list_total_minor) ||
+                            !["month", "year"].includes(quote.current_plan_interval) ||
+                            typeof quote.cycles_comparable !== "boolean" ||
+                            (quote.cycles_comparable
+                                ? !Number.isSafeInteger(quote.nominal_plan_list_difference_minor)
+                                : quote.nominal_plan_list_difference_minor !== null) ||
                             quote.quote_is_binding !== false ||
                             quote.real_payment_processed !== false
                         )
@@ -1339,6 +1346,31 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                                     quote.minor_units,
                                 ) + " · Next cycle total / إجمالي الدورة القادمة",
                             ),
+                            text(
+                                "p",
+                                money(
+                                    quote.current_plan_list_total_minor,
+                                    quote.currency,
+                                    quote.minor_units,
+                                ) +
+                                " · Current published list (" + quote.current_plan_interval +
+                                ") / السعر المعلن الحالي",
+                            ),
+                            quote.cycles_comparable
+                                ? text(
+                                    "p",
+                                    money(
+                                        quote.nominal_plan_list_difference_minor,
+                                        quote.currency,
+                                        quote.minor_units,
+                                    ) +
+                                    " · Nominal list difference, not due now / فرق السعر المعلن وليس مستحقاً الآن",
+                                )
+                                : translated(
+                                    "p",
+                                    "Different billing intervals; nominal totals cannot be compared directly.",
+                                    "فترات الفوترة مختلفة؛ لا يمكن مقارنة الإجماليات المعلنة مباشرة.",
+                                ),
                             text(
                                 "p",
                                 String(quote.effective_at_utc) +
