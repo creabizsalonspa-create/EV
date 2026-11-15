@@ -97,6 +97,21 @@ class CredentialExchange
         return ['token' => $body['token']];
     }
 
+    /** A credentials response timestamp is OCPI UTC evidence, never relative time. */
+    private function validPeerTimestamp(mixed $value): bool
+    {
+        if (! is_string($value)
+            || ! preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z?$/D', $value)) {
+            return false;
+        }
+        $format = '!Y-m-d\TH:i:s'
+            .(str_contains($value, '.') ? '.u' : '')
+            .(str_ends_with($value, 'Z') ? '\Z' : '');
+        $date = \DateTimeImmutable::createFromFormat($format, $value, new \DateTimeZone('UTC'));
+
+        return $date !== false && \DateTimeImmutable::getLastErrors() === false;
+    }
+
     /** Verify credential peer replies against this exact one-shot request. */
     private function verifyCredentialTrace(Response $response, array $sent): void
     {
@@ -135,7 +150,7 @@ class CredentialExchange
             abort_unless(strlen($text) <= 65536, 503);
             $this->verifyCredentialTrace($response, $trace);
             $reply = json_decode($text, true, flags: JSON_THROW_ON_ERROR);
-            abort_unless(is_array($reply) && ($reply['status_code'] ?? null) === 1000 && is_string($reply['timestamp'] ?? null) && strtotime($reply['timestamp']) !== false && ($method === 'DELETE' || array_key_exists('data', $reply)), 503);
+            abort_unless(is_array($reply) && ($reply['status_code'] ?? null) === 1000 && $this->validPeerTimestamp($reply['timestamp'] ?? null) && ($method === 'DELETE' || array_key_exists('data', $reply)), 503);
 
             return $reply;
         } catch (Throwable) {
