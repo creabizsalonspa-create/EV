@@ -211,7 +211,19 @@ class SourceConsumer
                     throw new RuntimeException('Invalid source sample requires reconciliation.');
                 }
             }
-            SourceStatusTime::parse($row['timestamp'], 300);
+            $sampleAt = SourceStatusTime::parse($row['timestamp'], 300);
+            if ($sampleAt->lt($startedAt) || ($endedAt && $sampleAt->gt($endedAt))) {
+                throw new RuntimeException('Source meter page contains an event outside its transaction.');
+            }
+            $registers = array_values(array_filter($row['sampledValue'], fn ($s) => ($s['measurand'] ?? '') === 'Energy.Active.Import.Register' && empty($s['phase'])));
+            if (count($registers) > 1) {
+                throw new RuntimeException('Ambiguous register requires reconciliation.');
+            }
+            if ($registers && ($registers[0]['context'] ?? '') !== 'Transaction.Begin') {
+                // Check the unit and precision of every pending register before
+                // committing even the preceding ignored voltage/status records.
+                self::wh($registers[0]['value'] ?? null, $registers[0]['unitOfMeasure']['unit'] ?? '', $registers[0]['unitOfMeasure']['multiplier'] ?? 0);
+            }
             $previousId = $row['id'];
         }
         foreach ($rows as $row) {
