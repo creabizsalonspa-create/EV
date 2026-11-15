@@ -341,7 +341,7 @@ class SourceConsumerTest extends TestCase
     {
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page'] as $kind) {
+            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page', 'nonenergy_before_start', 'nonenergy_after_end', 'later_ambiguous_register', 'later_invalid_unit', 'later_after_end'] as $kind) {
                 $cases[$protocol.'_'.$kind] = [$protocol, $kind];
             }
         }
@@ -381,6 +381,11 @@ class SourceConsumerTest extends TestCase
             'non_list_page' => ['first' => $row(1)],
             'oversized_page' => array_map($row, range(1, 101)),
             'missing_page' => null,
+            'nonenergy_before_start' => [array_replace($row(1), ['timestamp' => $at->subSecond()->toIso8601String()])],
+            'nonenergy_after_end' => [array_replace($row(1), ['timestamp' => $at->addSeconds(3)->toIso8601String()])],
+            'later_ambiguous_register' => [$row(1), array_replace($valid[1], ['sampledValue' => [$valid[1]['sampledValue'][0], $valid[1]['sampledValue'][0]]])],
+            'later_invalid_unit' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['unitOfMeasure' => ['unit' => 'MWh']])]])],
+            'later_after_end' => [$row(1), array_replace($valid[1], ['timestamp' => $at->addSeconds(3)->toIso8601String()])],
         };
         Http::preventStrayRequests();
         Http::fake(function (Request $request) use ($protocol, $link, $at, &$rows, &$stationQueries, &$transactionQueries) {
