@@ -34,9 +34,12 @@ void main() {
     expect(find.byType(BottomSheet), findsOneWidget);
 
     for (final state in [
+      // Flutter's transition graph requires hidden between inactive and paused.
       AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
       AppLifecycleState.paused,
       AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
     ]) {
       tester.binding.handleAppLifecycleStateChanged(state);
       await tester.pump();
