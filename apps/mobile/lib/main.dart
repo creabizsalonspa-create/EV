@@ -502,6 +502,20 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     builder: (_) => EntryDialog(title: title, fields: fields),
   );
   Future<void> create() async {
+    final requestApi = api;
+    final owner = account;
+    if (requestApi == null || owner == null || busy) return;
+    final generation = _performGeneration;
+    final selectedTab = tab;
+    final session = requestApi.sessionFence();
+    bool current() =>
+        mounted &&
+        generation == _performGeneration &&
+        identical(api, requestApi) &&
+        session() &&
+        account?.id == owner.id &&
+        account?.role == owner.role &&
+        tab == selectedTab;
     Map<String, String> fields;
     String path, title;
     if (tab == 0 && account?.role == 'vendor') {
@@ -530,18 +544,21 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
       return;
     }
     final values = await entry(s.t(title), fields);
-    if (values != null && mounted)
-      await perform(() async {
-        await api!.request(path, method: 'POST', body: values);
-        if (tab == 0) {
-          await catalogKey.currentState?.refresh();
-        } else if (tab == 4) {
-          await supportKey.currentState?.refresh();
-        } else {
-          await load();
-        }
-        if (mounted) setState(() => message = 'saved');
-      });
+    if (values == null || !current()) return;
+    await perform(() async {
+      await requestApi.request(path, method: 'POST', body: values);
+      // A completed write for a previous account must never refresh another
+      // account's records or display a success notice in its workspace.
+      if (!current()) return;
+      if (selectedTab == 0) {
+        await catalogKey.currentState?.refresh();
+      } else if (selectedTab == 4) {
+        await supportKey.currentState?.refresh();
+      } else {
+        await load();
+      }
+      if (current()) setState(() => message = 'saved');
+    });
   }
 
   void chooseConnectors(Station station) {
@@ -687,12 +704,23 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   Future<void> recovery() async {
+    final requestApi = api;
+    if (requestApi == null || account != null || busy) return;
+    final generation = _performGeneration;
+    final session = requestApi.sessionFence();
+    bool current() =>
+        mounted &&
+        account == null &&
+        generation == _performGeneration &&
+        identical(api, requestApi) &&
+        session();
     final values = await entry(s.t('forgot'), {'email': email.text.trim()});
-    if (values == null || !mounted) return;
+    if (values == null || !current()) return;
     await perform(() async {
-      await api!.csrf();
-      await api!.request('forgot-password', method: 'POST', body: values);
-      if (mounted) setState(() => message = 'recoverySent');
+      await requestApi.csrf();
+      if (!current()) return;
+      await requestApi.request('forgot-password', method: 'POST', body: values);
+      if (current()) setState(() => message = 'recoverySent');
     });
   }
 
