@@ -21,6 +21,18 @@ class RecordNormalizer
         if ($validator->fails()) {
             throw new OcpiException('Invalid '.$module.' record fields: '.implode(', ', array_keys($validator->errors()->toArray())));
         }
+        // Source dates are authoritative evidence, not server-local or relative
+        // calendar phrases. Require explicit OCPI UTC/offset seconds before
+        // Carbon normalizes a timestamp for comparison and persistence.
+        foreach (['last_updated', 'start_date_time', 'end_date_time'] as $field) {
+            if (! array_key_exists($field, $record) || $record[$field] === null) {
+                continue;
+            }
+            if (! is_string($record[$field])
+                || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})$/D', $record[$field])) {
+                throw new OcpiException('Invalid '.$module.' record fields: '.$field);
+            }
+        }
         if ($module === 'locations') {
             $uids = [];
             foreach ($record['evses'] ?? [] as $evse) {
