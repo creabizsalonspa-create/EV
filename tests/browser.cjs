@@ -319,6 +319,10 @@ function provisionTestRole(email, role) {
       document.querySelector("#notice").textContent.includes("سُجلت الدعوة"),
     );
     await outsider.page.reload();
+    // Page load precedes the authenticated identity bootstrap. Wait for its
+    // canonical fleet fetch to finish before routing paginated test fixtures,
+    // otherwise the late bootstrap refresh can detach a visible retry button.
+    await outsider.page.locator("#fleet-invitations [data-fleet-invitation-id]").waitFor();
     const actualInvitations = await outsider.page.evaluate(() => api("fleet-invitations?page=1"));
     assert.equal(actualInvitations.data.length,1);
     const realInvitation = actualInvitations.data[0];
