@@ -119,4 +119,32 @@ class SubscriptionChangePreviewTest extends TestCase
         $this->assertDatabaseCount('commercial_subscription_invoices', 1);
         $this->assertDatabaseCount('commercial_subscription_receipts', 1);
     }
+    public function test_bearer_native_preview_is_same_scoped_read_only_quote_without_admin_token_access(): void
+    {
+        [$admin, $vendor, $basic, $pro, $id] = $this->scenario();
+        $path = '/api/v1/commercial/subscriptions/'.$id.'/change-preview?plan_id='.$pro['id'];
+        $eventsBefore = DB::table('commercial_subscription_events')->count();
+        $vendorToken = $vendor->createToken('preview-native-owner')->plainTextToken;
+        $this->app['auth']->forgetGuards();
+        $this->withToken($vendorToken)->getJson($path)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('next_cycle_total_minor', 3149)
+            ->assertJsonPath('amount_due_now_minor', 0)
+            ->assertJsonPath('real_payment_processed', false);
+
+        $this->getJson('/api/v1/commercial/subscriptions/'.str_repeat('9', 19).
+            '/change-preview?plan_id='.$pro['id'])->assertNotFound();
+        $other = User::factory()->create(['role' => 'vendor']);
+        $this->app['auth']->forgetGuards();
+        $this->withToken($other->createToken('preview-native-foreign')->plainTextToken)
+            ->getJson($path)->assertNotFound();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($admin->createToken('preview-native-admin-denied')->plainTextToken)
+            ->getJson($path)->assertForbidden();
+        $this->assertSame($eventsBefore, DB::table('commercial_subscription_events')->count());
+        $this->assertDatabaseCount('commercial_subscription_invoices', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+    }
+
 }
