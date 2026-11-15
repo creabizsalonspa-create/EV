@@ -159,8 +159,16 @@ class OcpiRoamingProtocolController extends Controller
             // either bound is optional. Never compare raw ISO 8601 strings with
             // UTC SQL timestamps: offsets and the T separator break SQLite
             // lexicographic comparisons and produce inconsistent PostgreSQL reads.
-            $from = isset($v['date_from']) ? CarbonImmutable::parse($v['date_from'], 'UTC')->utc()->format('Y-m-d H:i:s.u') : null;
-            $to = isset($v['date_to']) ? CarbonImmutable::parse($v['date_to'], 'UTC')->utc()->format('Y-m-d H:i:s.u') : null;
+            // Some existing SQLite rows are stored at whole-second precision.
+            // Preserve their exact boundary semantics while retaining true
+            // microsecond comparisons when the peer supplies fractional time.
+            $utc = static function (string $value): string {
+                $time = CarbonImmutable::parse($value, 'UTC')->utc();
+
+                return $time->format($time->format('u') === '000000' ? 'Y-m-d H:i:s' : 'Y-m-d H:i:s.u');
+            };
+            $from = isset($v['date_from']) ? $utc($v['date_from']) : null;
+            $to = isset($v['date_to']) ? $utc($v['date_to']) : null;
             abort_if($from !== null && $to !== null && $to < $from, 422);
             $query = DB::table('ocpi_roaming_orders')->where('provider_id', $p->id)->where('provider_owner_id', $p->owner_id)->where('counterparty_hash', $link->configuration_hash)->when($from !== null, fn ($q) => $q->where('updated_at', '>=', $from))->when($to !== null, fn ($q) => $q->where('updated_at', '<', $to));
             $total = (clone $query)->count();
