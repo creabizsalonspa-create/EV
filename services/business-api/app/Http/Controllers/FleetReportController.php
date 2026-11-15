@@ -29,6 +29,7 @@ final class FleetReportController extends Controller
             'q' => 'nullable|string|max:80',
             'country' => ['nullable', 'regex:/^[A-Z]{2}$/D'],
             'owner_id' => 'nullable|integer|between:1,9007199254740991',
+            'include' => 'nullable|in:owner_inventory',
             'page' => 'nullable|integer|between:1,1000000',
         ]);
 
@@ -38,7 +39,11 @@ final class FleetReportController extends Controller
 
             // Apply the owner filter BEFORE the fixed-size page is selected.
             // Explicit fields only: no fleet owner password, token, or KYC.
-            $query = Fleet::query()->select('id', 'name', 'country', 'created_at', 'owner_id');
+            $includeOwnerInventory = ($v['include'] ?? null) === 'owner_inventory';
+            $query = Fleet::query()->select('id', 'name', 'country', 'created_at');
+            if ($includeOwnerInventory) {
+                $query->addSelect('owner_id');
+            }
             $text = trim($v['q'] ?? '');
             if ($text !== '') {
                 $operator = match (DB::connection()->getDriverName()) {
@@ -57,42 +62,45 @@ final class FleetReportController extends Controller
             }
 
             $page = $query->orderBy('id')->paginate(25);
-            $fleetIds = $page->getCollection()->pluck('id');
-            $owners = User::query()->whereIn('id', $page->getCollection()->pluck('owner_id'))
-                ->get(['id', 'name', 'email'])->keyBy('id');
-            $activeMembers = FleetMember::query()->whereIn('fleet_id', $fleetIds)
-                ->where('status', 'active')->select('fleet_id')
-                ->selectRaw('COUNT(*) as count')->groupBy('fleet_id')
-                ->pluck('count', 'fleet_id');
-            $assignedVehicles = FleetVehicle::query()->whereIn('fleet_id', $fleetIds)
-                ->select('fleet_id')->selectRaw('COUNT(*) as count')
-                ->groupBy('fleet_id')->pluck('count', 'fleet_id');
-            $costCenters = CostCenter::query()->whereIn('fleet_id', $fleetIds)
-                ->select('fleet_id')->selectRaw('COUNT(*) as count')
-                ->groupBy('fleet_id')->pluck('count', 'fleet_id');
+            $view = $page;
+            if ($includeOwnerInventory) {
+                $fleetIds = $page->getCollection()->pluck('id');
+                $owners = User::query()->whereIn('id', $page->getCollection()->pluck('owner_id'))
+                    ->get(['id', 'name', 'email'])->keyBy('id');
+                $activeMembers = FleetMember::query()->whereIn('fleet_id', $fleetIds)
+                    ->where('status', 'active')->select('fleet_id')
+                    ->selectRaw('COUNT(*) as count')->groupBy('fleet_id')
+                    ->pluck('count', 'fleet_id');
+                $assignedVehicles = FleetVehicle::query()->whereIn('fleet_id', $fleetIds)
+                    ->select('fleet_id')->selectRaw('COUNT(*) as count')
+                    ->groupBy('fleet_id')->pluck('count', 'fleet_id');
+                $costCenters = CostCenter::query()->whereIn('fleet_id', $fleetIds)
+                    ->select('fleet_id')->selectRaw('COUNT(*) as count')
+                    ->groupBy('fleet_id')->pluck('count', 'fleet_id');
 
-            $view = $page->through(function (Fleet $fleet) use (
-                $owners, $activeMembers, $assignedVehicles, $costCenters
-            ) {
-                $owner = $owners->get($fleet->owner_id);
+                $view = $page->through(function (Fleet $fleet) use (
+                    $owners, $activeMembers, $assignedVehicles, $costCenters
+                ) {
+                    $owner = $owners->get($fleet->owner_id);
 
-                return [
-                    'id' => (int) $fleet->id,
-                    'name' => $fleet->name,
-                    'country' => $fleet->country,
-                    'created_at' => $fleet->created_at,
-                    'owner' => $owner ? [
-                        'id' => (int) $owner->id,
-                        'name' => $owner->name,
-                        'email' => $owner->email,
-                    ] : null,
-                    'inventory' => [
-                        'active_members' => (int) ($activeMembers->get($fleet->id) ?? 0),
-                        'assigned_vehicles' => (int) ($assignedVehicles->get($fleet->id) ?? 0),
-                        'cost_centers' => (int) ($costCenters->get($fleet->id) ?? 0),
-                    ],
-                ];
-            });
+                    return [
+                        'id' => (int) $fleet->id,
+                        'name' => $fleet->name,
+                        'country' => $fleet->country,
+                        'created_at' => $fleet->created_at,
+                        'owner' => $owner ? [
+                            'id' => (int) $owner->id,
+                            'name' => $owner->name,
+                            'email' => $owner->email,
+                        ] : null,
+                        'inventory' => [
+                            'active_members' => (int) ($activeMembers->get($fleet->id) ?? 0),
+                            'assigned_vehicles' => (int) ($assignedVehicles->get($fleet->id) ?? 0),
+                            'cost_centers' => (int) ($costCenters->get($fleet->id) ?? 0),
+                        ],
+                    ];
+                });
+            }
 
             // Owner identity is private even without financial report access.
             // Record only the review scope, never email or private contents.
