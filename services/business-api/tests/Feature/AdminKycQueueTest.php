@@ -3,10 +3,12 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorKycDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -186,4 +188,79 @@ class AdminKycQueueTest extends TestCase
         $this->getJson('/api/admin/kyc-queue?page=100001')->assertUnprocessable();
         $this->postJson('/api/admin/kyc-queue', ['status' => 'approved'])->assertStatus(405);
     }
+
+    public function test_license_watchlist_uses_country_local_date_and_filters_before_pagination(): void
+    {
+        // At this instant the UAE is already on the 16th while Toronto is
+        // still on the 15th. Expiry is at the end of each local license day.
+        $this->travelTo(CarbonImmutable::parse('2026-11-15 21:00:00', 'UTC'));
+        DB::table('regions')->updateOrInsert(['country' => 'CA'], [
+            'currency' => 'CAD',
+            'minor_units' => 2,
+            'timezone' => 'America/Toronto',
+            'tax_bps' => null,
+            'commerce_enabled' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $aeExpired = $this->company($owner, 'approved', 'AE');
+        $aeExpired->update(['license_expires_on' => '2026-11-15']);
+        $aeDue = $this->company($owner, 'approved', 'AE');
+        $aeDue->update(['license_expires_on' => '2026-11-16']);
+        $aeCurrent = $this->company($owner, 'approved', 'AE');
+        $aeCurrent->update(['license_expires_on' => '2026-12-17']);
+        $caDue = $this->company($owner, 'approved', 'CA');
+        $caDue->update(['license_expires_on' => '2026-11-15']);
+        $caExpired = $this->company($owner, 'approved', 'CA');
+        $caExpired->update(['license_expires_on' => '2026-11-14']);
+
+        $this->actingAs($owner)->getJson(
+            '/api/admin/kyc-queue?status=approved&license_health=expired'
+        )->assertForbidden();
+
+        $expired = $this->actingAs($admin)->getJson(
+            '/api/admin/kyc-queue?status=approved&license_health=expired'
+        )->assertOk()->assertJsonPath('total', 2)
+            ->assertJsonCount(2, 'data')
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->assertEqualsCanonicalizing(
+            [$aeExpired->id, $caExpired->id],
+            array_column($expired->json('data'), 'id')
+        );
+        $expired->assertJsonPath('data.0.license_health', 'expired')
+            ->assertJsonMissingPath('data.0.trade_license_number');
+
+        $due = $this->getJson('/api/admin/kyc-queue?status=approved&license_health=due_30_days')
+            ->assertOk()->assertJsonPath('total', 2);
+        $this->assertEqualsCanonicalizing(
+            [$aeDue->id, $caDue->id],
+            array_column($due->json('data'), 'id')
+        );
+        $this->getJson('/api/admin/kyc-queue?status=approved&license_health=current')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $aeCurrent->id);
+        $this->getJson('/api/admin/kyc-queue?status=approved&license_health=unknown')
+            ->assertOk()->assertJsonPath('total', 0);
+
+        $this->getJson('/api/admin/kyc-queue?status=approved&country=CA&license_health=due_30_days')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $caDue->id)
+            ->assertJsonPath('data.0.license_local_date', '2026-11-15');
+        $this->getJson('/api/admin/kyc-queue?status=approved&country=AE&license_health=due_30_days')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $aeDue->id)
+            ->assertJsonPath('data.0.license_local_date', '2026-11-16');
+
+        $this->getJson('/api/admin/kyc-queue?license_health=not_real')
+            ->assertUnprocessable();
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.private_list.kyc_viewed',
+            'subject' => 'status:approved;license:expired',
+        ]);
+    }
+
 }
