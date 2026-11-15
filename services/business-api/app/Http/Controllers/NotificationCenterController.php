@@ -3,12 +3,34 @@
 namespace App\Http\Controllers;
 
 use App\Models\InboxNotification;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class NotificationCenterController extends Controller
 {
+    /**
+     * A request's session actor can become stale while a moderation, password
+     * change or role transition is committed on another connection. Reads
+     * revalidate the persisted actor; mutations lock it before changing any
+     * preference or inbox receipt. Lock ordering is actor, then private rows.
+     */
+    private function currentActor(Request $request, bool $forMutation = false): User
+    {
+        $snapshot = $request->user();
+        abort_unless($snapshot instanceof User, 401);
+        $query = User::whereKey($snapshot->id);
+        $actor = $forMutation ? $query->lockForUpdate()->firstOrFail() : $query->firstOrFail();
+        abort_unless($actor->account_status === 'active'
+            && $actor->role === $snapshot->role
+            && (int) $actor->auth_epoch === (int) $snapshot->auth_epoch
+            && hash_equals((string) $actor->password, (string) $snapshot->password),
+            409, 'Account credentials changed; sign in again.');
+
+        return $actor;
+    }
+
     /**
      * Account-scoped counters. No notification contents or foreign account IDs
      * appear in this summary. The high-water mark is a database record ID, not
@@ -24,7 +46,7 @@ class NotificationCenterController extends Controller
             'charging' => 'charging.%',
             'fleet' => 'fleet.%',
         ];
-        $query = InboxNotification::visibleTo($request->user())
+        $query = InboxNotification::visibleTo($this->currentActor($request))
             ->selectRaw('COALESCE(SUM(CASE WHEN read_at IS NULL THEN 1 ELSE 0 END), 0) AS unread_count, COALESCE(MAX(id), 0) AS latest_id');
 
         foreach ($fields as $category => $prefix) {
@@ -54,7 +76,7 @@ class NotificationCenterController extends Controller
     public function preferences(Request $request): JsonResponse
     {
         $record = DB::table('notification_preferences')
-            ->where('user_id', $request->user()->id)->first();
+            ->where('user_id', $this->currentActor($request)->id)->first();
 
         return response()->json($this->preferencePayload($record))
             ->header('Cache-Control', 'private, no-store');
@@ -78,7 +100,7 @@ class NotificationCenterController extends Controller
         ];
 
         return DB::transaction(function () use ($request, $desired, $values): JsonResponse {
-            $owner = $request->user()->id;
+            $owner = $this->currentActor($request, true)->id;
             DB::table('notification_preferences')->insertOrIgnore([
                 'user_id' => $owner,
                 'default_category' => 'all',
@@ -143,13 +165,14 @@ class NotificationCenterController extends Controller
         ]);
 
         return DB::transaction(function () use ($request, $v): JsonResponse {
-            $scope = InboxNotification::visibleTo($request->user());
+            $actor = $this->currentActor($request, true);
+            $scope = InboxNotification::visibleTo($actor);
             $updated = (clone $scope)->where('id', '<=', $v['through_id'])
                 ->whereNull('read_at')->update(['read_at' => now()]);
 
             if ($updated > 0) {
                 DB::table('audit_events')->insert([
-                    'actor_id' => $request->user()->id,
+                    'actor_id' => $actor->id,
                     'action' => 'notifications.read_through',
                     'subject' => (string) $v['through_id'],
                     'created_at' => now(),
@@ -168,18 +191,17 @@ class NotificationCenterController extends Controller
     /** Reopens only the caller's in-app read state; does not change the event. */
     public function markUnread(Request $request, InboxNotification $notification): JsonResponse
     {
-        abort_unless(InboxNotification::visibleTo($request->user())
-            ->whereKey($notification->id)->exists(), 404);
-
         return DB::transaction(function () use ($request, $notification): JsonResponse {
-            $updated = InboxNotification::visibleTo($request->user())
+            $actor = $this->currentActor($request, true);
+            abort_unless(InboxNotification::visibleTo($actor)->whereKey($notification->id)->exists(), 404);
+            $updated = InboxNotification::visibleTo($actor)
                 ->whereKey($notification->id)
                 ->whereNotNull('read_at')
                 ->update(['read_at' => null]);
 
             if ($updated > 0) {
                 DB::table('audit_events')->insert([
-                    'actor_id' => $request->user()->id,
+                    'actor_id' => $actor->id,
                     'action' => 'notifications.unread_one',
                     'subject' => (string) $notification->id,
                     'created_at' => now(),
@@ -187,7 +209,7 @@ class NotificationCenterController extends Controller
             }
 
             return response()->json(
-                InboxNotification::visibleTo($request->user())
+                InboxNotification::visibleTo($actor)
                     ->whereKey($notification->id)->firstOrFail()
             )->header('Cache-Control', 'private, no-store');
         });
