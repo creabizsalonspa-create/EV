@@ -1,6 +1,7 @@
 'use strict';
 const {chromium}=require('playwright'),{createHmac}=require('node:crypto'),assert=require('node:assert/strict');
 const {BusinessClient}=require('./helpers/business-client.cjs');
+const runFile=require('node:util').promisify(require('node:child_process').execFile);
 function totp(secret){
  assert.match(secret,/^[A-Z2-7]{32}$/);
  let bits='';for(const char of secret)bits+='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'.indexOf(char).toString(2).padStart(5,'0');
@@ -10,7 +11,7 @@ function totp(secret){
 }
 let stage='register',httpStatus=null;
 (async()=>{
- const client=await new BusinessClient().register('customer'),password=client.testCredentials.password;
+ const client=await new BusinessClient({base:process.env.EV_TEST_URL||'http://127.0.0.1:8000',...(process.env.EV_TEST_PHP_RUNNER?{runCommand:(_command,args)=>runFile(process.env.EV_TEST_PHP_RUNNER,args)}:{})}).register('customer'),password=client.testCredentials.password;
  stage='verify';await client.verifyEmail();
  stage='browser';const browser=await chromium.launch({headless:true,executablePath:process.env.EV_CHROMIUM_PATH||undefined,args:['--no-sandbox']});
  try{

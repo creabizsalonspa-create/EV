@@ -3156,6 +3156,7 @@ window.createVendorWorkspace = ({
                     `${grant.token_type} · ••••${grant.suffix} · ${grant.state}`,
                 ),
                 raw("p", grant.provisioning_state),
+                ...(grant.provisioning_state === "requires_inspection" ? [ui("p", "Rider publication requires inspection")] : []),
             );
             if (!grant.revoked_at && !grant.token_revoked_at)
                 form(
@@ -3202,6 +3203,7 @@ window.createVendorWorkspace = ({
                 !grant.token_revoked_at
             )
                 button(row, "Provision rider source", async () => {
+                    if (!confirm(EvLocale.text("Confirm rider source publication")) || !valid(epoch) || !pane.isConnected) return;
                     await api(
                         base +
                             `companies/${company.id}/rider-tokens/${grant.token_id}/provision`,
@@ -3211,6 +3213,14 @@ window.createVendorWorkspace = ({
                     );
                     if (valid(epoch) && pane.isConnected) await refresh();
                 });
+            if (result.source_adapter_enabled && (grant.token_revoked_at || (grant.token_expires_at && Number.isFinite(Date.parse(grant.token_expires_at)) && Date.parse(grant.token_expires_at) <= Date.now()))) {
+                row.append(ui("p", "Rider retirement snapshot disclaimer"));
+                button(row, "Retire inactive rider source", async () => {
+                    if (!confirm(EvLocale.text("Confirm inactive rider retirement")) || !valid(epoch) || !pane.isConnected) return;
+                    await api(base + `companies/${company.id}/rider-tokens/${grant.token_id}/retire-source`, "POST", {}, controller?.signal);
+                    if (valid(epoch) && pane.isConnected) await refresh();
+                });
+            }
             pane.append(row);
         }
         if (result.current_page > 1)

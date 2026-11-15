@@ -281,6 +281,7 @@ window.createRiderAccessWorkspace = ({ root, api, ui, notice, expired }) => {
                               : "Operator approval required",
                     ),
                     raw("p", token.provisioning_state),
+                    ...(token.provisioning_state === "requires_inspection" ? [ui("p", "Rider publication requires inspection")] : []),
                 );
                 if (!token.revoked_at) {
                     button(row, "Revoke rider token", async () => {

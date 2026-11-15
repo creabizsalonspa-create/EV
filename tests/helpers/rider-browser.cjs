@@ -98,6 +98,15 @@ module.exports = async ({ customer, owner, f, run }) => {
       .getByRole("textbox", { name: "Operator recovery note", exact: true })
       .fill("Reviewed synthetic card request");
     await request.getByRole("button", { name: "Save", exact: true }).click();
+    let publicationRequests = 0;
+    vendor.on("request", request => {if (request.url().endsWith("/provision") && request.method() === "POST") publicationRequests++;});
+    vendor.once("dialog", async dialog => {
+      assert(dialog.message().includes("does not start charging"));
+      await dialog.dismiss();
+    });
+    await request.getByRole("button", {name: "Provision test-source authorization", exact: true}).click();
+    assert.equal(publicationRequests, 0);
+    vendor.once("dialog", dialog => dialog.accept());
     await request
       .getByRole("button", {
         name: "Provision test-source authorization",
@@ -105,6 +114,27 @@ module.exports = async ({ customer, owner, f, run }) => {
       })
       .click();
     await request.getByText("active", { exact: true }).waitFor();
+    assert.equal(publicationRequests, 1);
+    assert.equal(await request.getByRole("button", {name: "Retire inactive test-source registration", exact: true}).count(), 0);
+    const browserTokenId = await card.getAttribute("data-rider-token");
+    await customer.request(`rider-access/tokens/${browserTokenId}`, "DELETE");
+    await ops.locator("[data-rider-grants]").getByRole("button", {name: "Refresh", exact: true}).click();
+    const retire = request.getByRole("button", {name: "Retire inactive test-source registration", exact: true});
+    await retire.waitFor();
+    let retirementRequests = 0;
+    vendor.on("request", r => {if (r.url().endsWith("/retire-source") && r.method() === "POST") retirementRequests++;});
+    vendor.once("dialog", dialog => dialog.dismiss());
+    await retire.click();
+    assert.equal(retirementRequests, 0);
+    vendor.once("dialog", dialog => dialog.accept());
+    const retirementResponse = vendor.waitForResponse(r => new URL(r.url()).pathname.endsWith("/retire-source") && r.request().method() === "POST");
+    await retire.click();
+    const receipt = await (await retirementResponse).json();
+    assert.equal(receipt.source_retirement_observed, true);
+    assert.equal(receipt.active_sessions_stopped, false);
+    assert.equal(receipt.hardware_verified, false);
+    await request.getByText("retired", {exact: true}).waitFor();
+    assert.equal(retirementRequests, 1);
     await page.locator("#language").click();
     await root
       .getByRole("heading", { name: "بطاقات ورموز الشحن", exact: true })

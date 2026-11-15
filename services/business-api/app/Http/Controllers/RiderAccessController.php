@@ -7,6 +7,7 @@ use App\Models\Station;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\RiderAccessHistory;
+use App\Services\Charging\RiderActor;
 use App\Services\Charging\RiderSourceProvisioner;
 use App\Services\Charging\RiderTokenRegistry;
 use Carbon\CarbonImmutable;
@@ -16,6 +17,25 @@ use Illuminate\Support\Facades\DB;
 
 class RiderAccessController extends Controller
 {
+    public function callAction($method, $parameters)
+    {
+        $request = collect($parameters)->first(fn ($value) => $value instanceof Request);
+        abort_unless($request?->user(), 401);
+        // Publication performs remote inspection and owns short claim/commit transactions.
+        if (in_array($method, ['provision', 'retireSource'], true)) {
+            app(RiderActor::class)->check($request->user());
+
+            return $this->{$method}(...array_values($parameters));
+        }
+
+        return DB::transaction(function () use ($request, $method, $parameters) {
+            // Database-only reads and changes share User -> company/token/grant ordering.
+            app(RiderActor::class)->check($request->user());
+
+            return $this->{$method}(...array_values($parameters))->header('Cache-Control', 'private, no-store');
+        }, 3);
+    }
+
     public function stations(Request $r)
     {
         abort_unless($r->user()->role === 'customer', 403);
@@ -69,6 +89,13 @@ class RiderAccessController extends Controller
         $this->reviewer($r, $company);
 
         return response()->json($source->publish($r->user(), $company, $token))->header('Cache-Control', 'private, no-store');
+    }
+
+    public function retireSource(Request $r, VendorCompany $company, int $token, RiderSourceProvisioner $source)
+    {
+        $this->reviewer($r, $company);
+
+        return response()->json($source->retire($r->user(), $company, $token))->header('Cache-Control', 'private, no-store');
     }
 
     private function owner(Request $r, RiderAccessToken $token): void
@@ -158,7 +185,11 @@ class RiderAccessController extends Controller
     {
         $this->reviewer($r, $company);
 
-        return response()->json(DB::table('rider_charging_grants as g')->join('rider_access_tokens as t', 't.id', '=', 'g.token_id')->where('g.company_id', $company->id)->select('g.id', 'g.station_id', 'g.state', 'g.expires_at', 'g.revoked_at', 't.id as token_id', 't.label', 't.suffix', 't.token_type', 't.provisioning_state', 't.revoked_at as token_revoked_at')->orderByDesc('g.id')->paginate(25)->toArray() + ['source_adapter_enabled' => (bool) config('csms.rider_enabled')])->header('Cache-Control', 'private, no-store');
+        return response()->json(DB::table('rider_charging_grants as g')->join('rider_access_tokens as t', 't.id', '=', 'g.token_id')->where('g.company_id', $company->id)->select('g.id', 'g.station_id', 'g.state', 'g.expires_at', 'g.revoked_at', 't.id as token_id', 't.label', 't.suffix', 't.token_type', 't.provisioning_state', 't.revoked_at as token_revoked_at', 't.expires_at as token_expires_at')->orderByDesc('g.id')->paginate(25)->through(function ($grant) {
+            $grant->token_expires_at = CarbonImmutable::parse($grant->token_expires_at, 'UTC')->toIso8601String();
+
+            return $grant;
+        })->toArray() + ['source_adapter_enabled' => (bool) config('csms.rider_enabled')])->header('Cache-Control', 'private, no-store');
     }
 
     public function review(Request $r, VendorCompany $company, int $grant, RiderTokenRegistry $registry)
