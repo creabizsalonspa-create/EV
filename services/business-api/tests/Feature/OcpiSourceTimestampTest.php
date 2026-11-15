@@ -85,6 +85,38 @@ class OcpiSourceTimestampTest extends TestCase
         }
     }
 
+    public function test_session_and_cdr_ranges_compare_explicit_and_implicit_utc_not_server_local_time(): void
+    {
+        $normalizer = app(RecordNormalizer::class);
+        $originalTimeZone = date_default_timezone_get();
+        date_default_timezone_set('Asia/Dubai');
+        try {
+            foreach (['sessions', 'cdrs'] as $module) {
+                // A Z-free DateTime is already UTC, not UTC+04:00.
+                $equal = array_replace($this->fixture($module), [
+                    'start_date_time' => '2025-03-10T08:00:00',
+                    'end_date_time' => '2025-03-10T08:00:00Z',
+                ]);
+                $ok = $normalizer->normalize($module, $equal);
+                $this->assertSame($ok['start_date_time'], $ok['end_date_time']);
+
+                foreach ([
+                    ['start_date_time' => '2025-03-10T08:00:00', 'end_date_time' => '2025-03-10T07:59:59Z'],
+                    ['start_date_time' => '2025-03-10T08:00:00Z', 'end_date_time' => '2025-03-10T07:59:59'],
+                ] as $reversed) {
+                    try {
+                        $normalizer->normalize($module, array_replace($this->fixture($module), $reversed));
+                        $this->fail('Reversed UTC '.$module.' source chronology was accepted.');
+                    } catch (OcpiException $error) {
+                        $this->assertStringContainsString('end_date_time', $error->getMessage());
+                    }
+                }
+            }
+        } finally {
+            date_default_timezone_set($originalTimeZone);
+        }
+    }
+
     public function test_session_and_cdr_boundaries_reject_ambiguous_local_source_times(): void
     {
         $normalizer = app(RecordNormalizer::class);
