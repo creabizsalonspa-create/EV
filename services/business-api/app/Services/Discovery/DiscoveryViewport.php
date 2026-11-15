@@ -34,11 +34,16 @@ final class DiscoveryViewport
         // strings. SQLite CAST turns invalid text into zero, while PostgreSQL
         // CAST can throw; both drivers must reject malformed source metadata.
         $driver = DB::connection()->getDriverName();
-        $safeNumber = "'^[+-]?([0-9]{1,3}([.][0-9]{1,18})?|[.][0-9]{1,18})([eE][+-]?[0-9]{1,2})?$'";
+        // The finite decimal/scientific envelope is deliberately bounded:
+        // a 40-digit mantissa with an exponent <= 99 cannot overflow a
+        // double. Raw OCPI coordinates were validated at normalization.
+        $safeNumber = "'^[+-]?([0-9]{1,40}([.][0-9]{0,40})?|[.][0-9]{1,40})([eE][+-]?[0-9]{1,2})?$'";
+        $latText = "btrim(ocpi_records.normalized->>'latitude')";
+        $lngText = "btrim(ocpi_records.normalized->>'longitude')";
         [$latitude, $longitude] = match ($driver) {
             'pgsql' => [
-                "CASE WHEN (ocpi_records.normalized->>'latitude') ~ $safeNumber THEN (ocpi_records.normalized->>'latitude')::double precision ELSE NULL END",
-                "CASE WHEN (ocpi_records.normalized->>'longitude') ~ $safeNumber THEN (ocpi_records.normalized->>'longitude')::double precision ELSE NULL END",
+                "CASE WHEN $latText ~ $safeNumber THEN $latText::double precision ELSE NULL END",
+                "CASE WHEN $lngText ~ $safeNumber THEN $lngText::double precision ELSE NULL END",
             ],
             'sqlite' => [
                 "discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.latitude'))",
