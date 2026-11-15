@@ -211,6 +211,10 @@ function provisionTestRole(email, role) {
       slot.toISOString().replace(".000Z", "Z"),
     );
     await customer.page.locator("#reservation-list article").waitFor();
+    assert.match(
+      await customer.page.locator("#reservation-list article").first().textContent(),
+      /Station local.*Asia\/Dubai/,
+    );
     await vendor.page.reload();
     await vendor.page.locator("#reservation-list article").waitFor();
     await customer.page
@@ -226,6 +230,10 @@ function provisionTestRole(email, role) {
     assert.equal(
       await customer.page.locator("html").getAttribute("dir"),
       "rtl",
+    );
+    assert.match(
+      await customer.page.locator("#reservation-list article").first().textContent(),
+      /توقيت المحطة/,
     );
     await customer.page.setViewportSize({ width: 390, height: 844 });
     assert(
