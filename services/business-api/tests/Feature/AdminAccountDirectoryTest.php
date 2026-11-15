@@ -89,4 +89,81 @@ class AdminAccountDirectoryTest extends TestCase
         $this->getJson('/api/admin/accounts?page=0')->assertUnprocessable();
         $this->postJson('/api/admin/accounts', ['role' => 'admin'])->assertStatus(405);
     }
+
+    public function test_business_owner_filters_match_one_company_and_paginate_without_leaking_kyc(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $multi = User::factory()->create(['role' => 'vendor', 'name' => 'Multi operator']);
+        $matches = User::factory()->create(['role' => 'vendor', 'name' => 'Matching operator']);
+        $noCompany = User::factory()->create(['role' => 'vendor']);
+        foreach ([
+            [$multi, 'AE', 'approved', 'Alpha Dubai'],
+            [$multi, 'CA', 'rejected', 'Beta Toronto'],
+            [$matches, 'AE', 'rejected', 'Gamma Dubai'],
+        ] as [$owner, $country, $status, $name]) {
+            VendorCompany::create([
+                'owner_id' => $owner->id,
+                'legal_name' => $name,
+                'country' => $country,
+                'status' => $status,
+                'trade_license_number' => 'SECRET-'.uniqid(),
+                'review_reason' => 'PRIVATE CONFIDENTIAL NOTES',
+                'license_expires_on' => now()->addYear()->toDateString(),
+            ]);
+        }
+
+        $this->actingAs($noCompany)->getJson(
+            '/api/admin/accounts?company_country=AE'
+        )->assertForbidden();
+
+        $this->actingAs($admin)->getJson('/api/admin/accounts?company_country=AE&company_status=rejected')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $matches->id);
+        $this->getJson('/api/admin/accounts?company_country=CA&company_status=rejected')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $multi->id);
+        $this->getJson('/api/admin/accounts?company_q=Dubai&company_status=approved')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $multi->id);
+        $this->getJson('/api/admin/accounts?company_q=Toronto&company_country=AE')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/admin/accounts?company_q=Gamma&company_country=AE&company_status=rejected&role=vendor')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $matches->id);
+
+        $reply = $this->getJson('/api/admin/accounts?company_q=Gamma')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonMissingPath('data.0.companies.0.trade_license_number')
+            ->assertJsonMissingPath('data.0.companies.0.review_reason');
+        $this->assertStringNotContainsString('PRIVATE CONFIDENTIAL NOTES', $reply->getContent());
+        $this->assertStringNotContainsString('SECRET-', $reply->getContent());
+
+        for ($i = 0; $i < 27; $i++) {
+            $owner = User::factory()->create(['role' => 'vendor']);
+            VendorCompany::create([
+                'owner_id' => $owner->id,
+                'legal_name' => 'Retail QA '.$i,
+                'country' => 'AE',
+                'status' => 'submitted',
+                'trade_license_number' => 'SECRET-'.uniqid(),
+                'license_expires_on' => now()->addYear()->toDateString(),
+            ]);
+        }
+        $this->getJson('/api/admin/accounts?company_q=Retail&company_country=AE&company_status=submitted&page=1')
+            ->assertOk()->assertJsonPath('total', 27)
+            ->assertJsonCount(25, 'data');
+        $this->getJson('/api/admin/accounts?company_q=Retail&company_country=AE&company_status=submitted&page=2')
+            ->assertOk()->assertJsonPath('total', 27)
+            ->assertJsonCount(2, 'data');
+    }
+
+    public function test_business_directory_filters_reject_invalid_country_status_and_excessive_search(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        $this->getJson('/api/admin/accounts?company_country=usa')->assertUnprocessable();
+        $this->getJson('/api/admin/accounts?company_country=%2E%2E')->assertUnprocessable();
+        $this->getJson('/api/admin/accounts?company_status=superapproved')->assertUnprocessable();
+        $this->getJson('/api/admin/accounts?company_q='.str_repeat('x', 101))
+            ->assertUnprocessable();
+    }
 }
