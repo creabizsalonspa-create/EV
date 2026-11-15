@@ -30,3 +30,26 @@ php artisan test --filter='OperationalHealthTest|OperationalIncidentsTest|Operat
 php artisan operations:watchdog-check
 ```
 On a fresh database with no worker/scheduler observations, the watchdog intentionally exits with code 1, not success. After recording both real process observations, it can return observed normal for the scoped process signals; it must never be used as a self-proving heartbeat.
+
+## Committed scanner liveness versus scheduler heartbeats
+
+A separately supervised `operations:watchdog-check` probe must not conclude
+`observed_normal` merely because Laravel's scheduler heartbeat is recent.
+The scheduler can run its own heartbeat while the incident-scanning task is
+skipped, blocked or broken. A completed `operations:scan-incidents` transaction
+now records a **single timestamp** in its serialized scanner-lock record, without
+payloads, incident duplication or external delivery. The timestamp is committed
+only after the entire scan finishes; disabled or failed scans do not refresh it.
+
+The read-only Admin EN/AR timeline shows the last completed scan state.
+The external watchdog requires a committed completion newer than 150 seconds.
+Missing, future-dated, unreadable or stale evidence fails closed with fixed codes
+`incident_scanner_unknown` or `incident_scanner_stale`. Even a fresh scan
+cannot prove all queue workers, incident condition completeness, real hardware,
+external alert delivery, or production readiness. No user-account endpoint can
+create this observation, and the watchdog cannot refresh it.
+
+Disposable checks: `php artisan test --filter='OperationalWatchdogTest|OperationalIncidentsTest'`,
+`node --test tests/admin-operational-health.cjs`, and disposable PostgreSQL
+concurrency checks. This is a separately reviewable **stacked branch**;
+merge PR #133 before integrating this follow-up.
