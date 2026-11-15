@@ -1794,9 +1794,12 @@ function resetCustomerMutationState() {
     // acknowledgements from the previous actor cannot release a newer write.
     vehicleCreateGeneration++;
     profileUpdateGeneration++;
+    ticketCreateGeneration++;
     vehicleCreatePending = false;
     profileUpdatePending = false;
-    for (const id of ["vehicle-create", "profile-form"]) {
+    ticketCreatePending = false;
+    pendingTicketCreate = null;
+    for (const id of ["vehicle-create", "profile-form", "support-create"]) {
         const submit = el(id).querySelector("button");
         if (submit) submit.disabled = false;
     }
@@ -2600,12 +2603,13 @@ async function ticketDetail(id) {
         d.append(f);
     }
 }
-let pendingTicketCreate = null, ticketCreatePending = false;
+let pendingTicketCreate = null, ticketCreatePending = false, ticketCreateGeneration = 0;
 el("support-create").onsubmit = async (e) => {
     e.preventDefault();
     if (!user || ticketCreatePending) return;
     const epoch = client.sessionEpoch, actor = user.id;
     const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const token = ++ticketCreateGeneration;
     const submit = e.target.querySelector("button");
     const payload = Object.fromEntries(new FormData(e.target));
     const signature = JSON.stringify(payload);
@@ -2635,8 +2639,10 @@ el("support-create").onsubmit = async (e) => {
     } catch (error) {
         if (active()) notice(error);
     } finally {
-        ticketCreatePending = false;
-        if (submit?.isConnected) submit.disabled = false;
+        if (token === ticketCreateGeneration) {
+            ticketCreatePending = false;
+            if (submit?.isConnected) submit.disabled = false;
+        }
     }
 };
 
