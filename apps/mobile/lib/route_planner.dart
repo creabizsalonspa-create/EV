@@ -41,6 +41,9 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   DiscoveryCapabilities? capabilities;
   RouteEstimate? estimate;
   bool consent = false, loading = false, tiles = false;
+  String requiredConnector = '';
+  bool matchesAdvertisedConnector(Station station) => requiredConnector.isEmpty || station.connector == requiredConnector;
+  bool get incompatibleStops => stops.any((stop) => !matchesAdvertisedConnector(stop));
   Object? error;
   int generation = 0;
   String t(String en, String ar) => EvStrings.of(context).arabic ? ar : en;
@@ -99,6 +102,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   Future<void> preview() async {
     final currentPoints = points();
     if (currentPoints == null ||
+        incompatibleStops ||
         !consent ||
         capabilities?.routing != true ||
         widget.client == null)
@@ -124,7 +128,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
 
   Future<void> navigate() async {
     final currentPoints = points();
-    if (currentPoints == null) return;
+    if (currentPoints == null || incompatibleStops) return;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -310,6 +314,49 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
                   ),
                 ),
               ),
+            InputDecorator(
+              decoration: InputDecoration(
+                labelText: t('Filter by advertised connector', 'تصفية حسب الموصل المعلن'),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  key: const Key('route-connector-filter'),
+                  value: requiredConnector,
+                  isExpanded: true,
+                  items: [
+                    for (final option in [
+                      ('', 'All advertised connectors', 'كل الموصلات المعلنة'),
+                      ('CCS2', 'CCS2', 'CCS2'),
+                      ('Type2', 'Type2', 'Type2'),
+                      ('CHAdeMO', 'CHAdeMO', 'CHAdeMO'),
+                    ])
+                      DropdownMenuItem(
+                        value: option.$1,
+                        child: Text(t(option.$2, option.$3)),
+                      ),
+                  ],
+                  onChanged: (value) {
+                    requiredConnector = value ?? '';
+                    invalidate();
+                  },
+                ),
+              ),
+            ),
+            Text(t(
+              'These are catalog connector labels, not verified compatibility with your vehicle, plug, energy needs or live charger status.',
+              'هذه تسميات موصلات الكتالوج وليست تحققاً من التوافق مع مركبتك أو القابس أو احتياجات الطاقة أو حالة الشاحن المباشرة.',
+            )),
+            if (incompatibleStops)
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  t(
+                    'Some selected stops do not match this connector. Remove them or change the filter before previewing or navigating.',
+                    'بعض التوقفات المحددة لا تطابق هذا الموصل. أزلها أو غيّر التصفية قبل المعاينة أو الملاحة.',
+                  ),
+                  key: const Key('route-connector-conflict'),
+                ),
+              ),
             ExpansionTile(
               title: Text(
                 t(
@@ -325,7 +372,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
                     title: Text(station.name),
                     subtitle: Text(
                       valid(station)
-                          ? '${station.connector} · ${station.powerKw} kW · ${station.source}'
+                          ? '${station.connector} · ${station.powerKw} kW · ${station.source}${matchesAdvertisedConnector(station) ? '' : ' · ${t('Different advertised connector', 'موصل معلن مختلف')}'}'
                           : t(
                               'Coordinates unavailable',
                               'الإحداثيات غير متاحة',
@@ -334,7 +381,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
                     onChanged:
                         !valid(station) ||
                             (!stops.any((s) => s.id == station.id) &&
-                                stops.length >= 3)
+                                (!matchesAdvertisedConnector(station) || stops.length >= 3))
                         ? null
                         : (selected) {
                             if (selected == true) {
@@ -368,7 +415,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
               ),
             FilledButton.icon(
               key: const Key('route-preview'),
-              onPressed: loading || !consent || capabilities?.routing != true
+              onPressed: loading || incompatibleStops || !consent || capabilities?.routing != true
                   ? null
                   : preview,
               icon: const Icon(Icons.route),
@@ -476,7 +523,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
               ),
             OutlinedButton.icon(
               key: const Key('route-navigation'),
-              onPressed: navigate,
+              onPressed: incompatibleStops ? null : navigate,
               icon: const Icon(Icons.navigation_outlined),
               label: Text(
                 t(
