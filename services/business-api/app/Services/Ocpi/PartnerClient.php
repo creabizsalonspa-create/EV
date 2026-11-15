@@ -220,11 +220,14 @@ class PartnerClient
                 continue;
             }
             $value = $requested[$field];
-            if (! is_string($value) || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})$/D', $value)) {
+            if (! is_string($value) || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})?$/D', $value)) {
                 throw new OcpiException('Invalid OCPI source window timestamp.');
             }
-            $format = str_contains($value, '.') ? '!Y-m-d\\TH:i:s.uP' : '!Y-m-d\\TH:i:sP';
-            $instant = \DateTimeImmutable::createFromFormat($format, $value);
+            // OCPI 2.2.1 §16.2: absent Z means UTC. Internal callers may
+            // provide offsets, but the peer always receives canonical UTC.
+            $hasZone = str_ends_with($value, 'Z') || preg_match('/[+-]\\d{2}:\\d{2}$/D', $value);
+            $format = '!Y-m-d\\TH:i:s'.(str_contains($value, '.') ? '.u' : '').($hasZone ? 'P' : '');
+            $instant = \DateTimeImmutable::createFromFormat($format, $value, new \DateTimeZone('UTC'));
             if (! $instant || \DateTimeImmutable::getLastErrors() !== false) {
                 throw new OcpiException('Invalid OCPI source window timestamp.');
             }
