@@ -14,3 +14,6 @@ php artisan operations:scan-incidents
 ```
 
 A stopped Laravel scheduler cannot detect its own outage; production requires a separate watchdog and approved alert transport. The feature does not send SMS, email or push, restart processes, retry uncertain hardware/payment actions, validate RTO/RPO or prove production disaster recovery. Hosted PostgreSQL and all exact-source CI remain mandatory.
+## Email handoff uncertainty review
+
+The same read-only Admin health report also counts `outcome_unknown` email receipts and `claimed` receipts older than 15 minutes, regardless of whether the separately approved email transport is active. A fifth incident condition, `email_handoff_uncertain`, opens once if either count is positive; an unavailable receipt table is **unknown**, not proof of zero. Existing receipt state and consent, user addresses, email bodies and mail transport are never changed by the scanner. There are no automatic replays or outgoing emails. An operator must investigate the original receipt using approved procedures before any corrective state change; `handed_off` still never means received by a mailbox. Synthetic tests, concurrent PostgreSQL tests and exact-source CI govern this monitoring addition.

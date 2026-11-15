@@ -106,6 +106,69 @@ class OperationalIncidentsTest extends TestCase
         $this->assertCount(1, $scanner->summary()['open']);
     }
 
+    public function test_stale_or_unknown_email_handoff_opens_review_without_resending(): void
+    {
+        $user = User::factory()->create();
+        $scanner = app(OperationalIncidents::class);
+        $health = app(OperationalHealth::class);
+        $receipt = (string) Str::uuid();
+        $row = [
+            'id' => $receipt, 'user_id' => $user->id, 'after_notification_id' => 0,
+            'through_notification_id' => 1, 'consent_revision' => 1,
+            'recipient_hash' => hash('sha256', $user->email), 'configuration_hash' => str_repeat('a', 64),
+            'state' => 'claimed', 'evidence' => 'SIMULATED_EMAIL_HANDOFF', 'claimed_at' => now()->subMinutes(20),
+            'created_at' => now()->subMinutes(21), 'updated_at' => now()->subMinutes(20),
+        ];
+        DB::table('notification_email_outbox')->insert($row);
+        $metrics = $health->report()['email_handoff'];
+        $this->assertSame(1, $metrics['stale_claimed']);
+        $this->assertSame(0, $metrics['outcome_unknown']);
+        $this->assertFalse($metrics['delivery_confirmed']);
+        $this->assertFalse($metrics['automatic_retry']);
+        $this->assertSame(1, $scanner->scan($health)['opened']);
+        $this->assertSame(0, $scanner->scan($health)['opened']);
+        $this->assertDatabaseHas('notification_email_outbox', ['id' => $receipt, 'state' => 'claimed']);
+        $response = $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->getJson('/api/admin/operational-health')->assertOk()
+            ->assertJsonPath('email_handoff.stale_claimed', 1)
+            ->assertJsonPath('incidents.open.0.condition_key', 'email_handoff_uncertain');
+        $this->assertStringNotContainsString($user->email, $response->getContent());
+        $this->assertStringNotContainsString($receipt, $response->getContent());
+        DB::table('notification_email_outbox')->where('id', $receipt)
+            ->update(['state' => 'outcome_unknown', 'completed_at' => now(), 'updated_at' => now()]);
+        $this->assertSame(1, $health->report()['email_handoff']['outcome_unknown']);
+        $this->assertSame(0, $scanner->scan($health)['resolved']);
+        // Explicit synthetic operator evidence correction, not a transport retry.
+        DB::table('notification_email_outbox')->where('id', $receipt)->update(['state' => 'cancelled', 'updated_at' => now()]);
+        $this->assertSame(1, $scanner->scan($health)['resolved']);
+        $this->assertSame([], $scanner->summary()['open']);
+        $this->assertDatabaseCount('operational_incident_events', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
+    public function test_missing_email_receipt_store_does_not_falsely_resolve_existing_alert(): void
+    {
+        $scanner = app(OperationalIncidents::class);
+        $health = app(OperationalHealth::class);
+        $user = User::factory()->create();
+        DB::table('notification_email_outbox')->insert([
+            'id' => (string) Str::uuid(), 'user_id' => $user->id, 'after_notification_id' => 0,
+            'through_notification_id' => 1, 'consent_revision' => 1,
+            'recipient_hash' => hash('sha256', $user->email), 'configuration_hash' => str_repeat('b', 64),
+            'state' => 'outcome_unknown', 'evidence' => 'SIMULATED_EMAIL_HANDOFF',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->assertSame(1, $scanner->scan($health)['opened']);
+        Schema::drop('notification_email_outbox');
+        $this->assertSame('unavailable', $health->report()['email_handoff']['state']);
+        $this->assertNull($health->report()['email_handoff']['outcome_unknown']);
+        $this->assertSame(0, $scanner->scan($health)['resolved']);
+        $this->assertDatabaseHas('operational_incident_states', [
+            'condition_key' => 'email_handoff_uncertain', 'state' => 'open',
+        ]);
+    }
+
     public function test_only_authenticated_current_admin_can_read_timeline(): void
     {
         $url = '/api/admin/operational-health';

@@ -15,7 +15,7 @@ use Throwable;
  */
 final class OperationalIncidents
 {
-    private const KEYS = ['queue_worker_stale', 'scheduler_stale', 'queue_backlog', 'queue_failed_jobs'];
+    private const KEYS = ['queue_worker_stale', 'scheduler_stale', 'queue_backlog', 'queue_failed_jobs', 'email_handoff_uncertain'];
 
     private function conditions(array $health): array
     {
@@ -27,6 +27,10 @@ final class OperationalIncidents
         $ready = $available ? ($queue['ready'] ?? null) : null;
         $age = $available ? ($queue['oldest_ready_age_seconds'] ?? null) : null;
         $failed = $available ? ($queue['failed'] ?? null) : null;
+        $email = $health['email_handoff'] ?? [];
+        $emailReadable = ($email['state'] ?? null) === 'available';
+        $unknown = $email['outcome_unknown'] ?? null;
+        $stale = $email['stale_claimed'] ?? null;
 
         return [
             'queue_worker_stale' => in_array($worker, ['recent', 'stale'], true) ? $worker === 'stale' : null,
@@ -35,6 +39,8 @@ final class OperationalIncidents
             'queue_backlog' => is_int($ready) && ($ready === 0 || is_int($age))
                 ? $ready >= 25 && $age >= 300 : null,
             'queue_failed_jobs' => is_int($failed) ? $failed > 0 : null,
+            'email_handoff_uncertain' => $emailReadable && is_int($unknown) && is_int($stale)
+                ? $unknown > 0 || $stale > 0 : null,
         ];
     }
 
