@@ -30,25 +30,26 @@ final class DiscoveryViewport
                 ->orWhere('stations.longitude', '<=', $east));
         }
 
-        // Normalized OCPI coordinates are numeric JSON. Missing, null, textual
-        // and malformed coordinates must not turn into a false (0, 0) map pin.
-        // Keep SQL expressions fixed for both supported test/production drivers.
+        // OCPI normalization stores validated numeric coordinates as JSON
+        // strings. SQLite CAST turns invalid text into zero, while PostgreSQL
+        // CAST can throw; both drivers must reject malformed source metadata.
         $driver = DB::connection()->getDriverName();
-        [$latitude, $longitude, $validCoordinates] = match ($driver) {
+        $safeNumber = "'^[+-]?([0-9]{1,3}([.][0-9]{1,18})?|[.][0-9]{1,18})([eE][+-]?[0-9]{1,2})?$'";
+        [$latitude, $longitude] = match ($driver) {
             'pgsql' => [
-                "(ocpi_records.normalized->>'latitude')::double precision",
-                "(ocpi_records.normalized->>'longitude')::double precision",
-                "jsonb_typeof(ocpi_records.normalized::jsonb->'latitude') = 'number' AND jsonb_typeof(ocpi_records.normalized::jsonb->'longitude') = 'number'",
+                "CASE WHEN (ocpi_records.normalized->>'latitude') ~ $safeNumber THEN (ocpi_records.normalized->>'latitude')::double precision ELSE NULL END",
+                "CASE WHEN (ocpi_records.normalized->>'longitude') ~ $safeNumber THEN (ocpi_records.normalized->>'longitude')::double precision ELSE NULL END",
             ],
             'sqlite' => [
-                "CAST(json_extract(ocpi_records.normalized, '$.latitude') AS REAL)",
-                "CAST(json_extract(ocpi_records.normalized, '$.longitude') AS REAL)",
-                "json_type(ocpi_records.normalized, '$.latitude') IN ('integer', 'real') AND json_type(ocpi_records.normalized, '$.longitude') IN ('integer', 'real')",
+                "discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.latitude'))",
+                "discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.longitude'))",
             ],
             default => throw new \LogicException('Discovery viewport requires PostgreSQL or SQLite.'),
         };
-        $partner->whereRaw($validCoordinates)
-            ->whereRaw("$latitude BETWEEN ? AND ?", [$south, $north])
+        if ($driver === 'sqlite') {
+            SqliteGeoMath::register(DB::connection()->getPdo());
+        }
+        $partner->whereRaw("$latitude BETWEEN ? AND ?", [$south, $north])
             ->whereRaw("$latitude BETWEEN -90 AND 90")
             ->whereRaw("$longitude BETWEEN -180 AND 180");
         if ($west < $east) {
