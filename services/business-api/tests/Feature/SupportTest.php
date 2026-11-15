@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\SupportController;
 use App\Models\InboxNotification;
 use App\Models\SupportTicket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class SupportTest extends TestCase
@@ -350,6 +353,34 @@ class SupportTest extends TestCase
         $this->assertDatabaseCount('ticket_messages', 0);
         $this->assertSame('open', $ticket->fresh()->status);
         $this->assertDatabaseCount('audit_events', 0);
+    }
+
+
+    public function test_stale_route_bound_support_ticket_owner_change_cannot_disclose_private_messages(): void
+    {
+        $firstOwner = User::factory()->create(['role' => 'customer']);
+        $newOwner = User::factory()->create(['role' => 'customer']);
+        $ticket = SupportTicket::create([
+            'user_id' => $firstOwner->id, 'subject' => 'Reassigned private case',
+        ]);
+        // Simulate reassignment after route binding but before controller
+        // authorization. The stale PHP object must not authorize access.
+        DB::table('support_tickets')->where('id', $ticket->id)
+            ->update(['user_id' => $newOwner->id]);
+        $request = Request::create('/api/support/'.$ticket->id, 'GET');
+        $request->setUserResolver(fn () => $firstOwner);
+        try {
+            app(SupportController::class)->show($request, $ticket);
+            $this->fail('Stale route model allowed foreign ticket disclosure.');
+        } catch (HttpException $e) {
+            $this->assertSame(404, $e->getStatusCode());
+        }
+
+        $fresh = Request::create('/api/support/'.$ticket->id, 'GET');
+        $fresh->setUserResolver(fn () => $newOwner);
+        $response = app(SupportController::class)->show($fresh, $ticket);
+        $this->assertSame($newOwner->id, $response->getData(true)['ticket']['user_id']);
+        $this->assertSame('no-store, private', $response->headers->get('Cache-Control'));
     }
 
 }

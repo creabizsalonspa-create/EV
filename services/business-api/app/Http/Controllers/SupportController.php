@@ -115,11 +115,16 @@ class SupportController extends Controller
     {
         return DB::transaction(function () use ($r, $ticket) {
             $role = $this->currentRole($r, true);
-            abort_unless($role === 'admin' || $ticket->user_id === $r->user()->id, 404);
+            // Route binding precedes this transaction. Recheck the ticket's
+            // live owner under lock before serializing private messages.
+            $currentTicket = SupportTicket::whereKey($ticket->id)
+                ->lockForUpdate()->firstOrFail();
+            abort_unless($role === 'admin'
+                || $currentTicket->user_id === $r->user()->id, 404);
             $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
 
             return response()->json([
-                'ticket' => $ticket,
+                'ticket' => $currentTicket,
                 'messages' => TicketMessage::where('support_ticket_id', $ticket->id)
                     ->when($role !== 'admin', fn ($q) => $q->where('internal', false))
                     ->orderBy('id')->paginate(50),
