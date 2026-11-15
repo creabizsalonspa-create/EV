@@ -22,7 +22,7 @@ final class AdminOperationsMapController extends Controller
             abort_unless($actor->role === $snapshot->role && (int) $actor->auth_epoch === (int) $snapshot->auth_epoch
                 && hash_equals((string) $actor->password, (string) $snapshot->password), 409, 'Account credentials changed; authenticate again.');
             $v = $request->validate([
-                'q' => 'nullable|string|max:80', 'country' => ['nullable', 'regex:/^[A-Z]{2}$/'],
+                'q' => 'nullable|string|max:80', 'country' => ['nullable', 'regex:/^[A-Z]{2}$/D'],
                 'company_id' => 'nullable|integer|between:1,9007199254740991',
                 'recent_source_status' => 'nullable|in:'.implode(',', ConnectorFreshness::STATUSES),
                 'south' => 'required_with:north,west,east|numeric|between:-90,90',
