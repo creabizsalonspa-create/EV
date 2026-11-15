@@ -36,6 +36,22 @@ class OperationalIncidentsTest extends TestCase
         $this->assertDatabaseCount('operational_incident_events', 0);
     }
 
+    public function test_committed_scan_liveness_does_not_advance_when_monitoring_is_disabled(): void
+    {
+        $scanner = app(OperationalIncidents::class);
+        $this->assertSame('unknown', $scanner->summary()['scanner']['state']);
+        $scanner->scan(app(OperationalHealth::class));
+        $this->assertSame('recent', $scanner->summary()['scanner']['state']);
+        $completed = DB::table('operational_incident_scan_locks')->where('id', 1)->value('last_completed_at');
+        $this->assertNotNull($completed);
+        $this->travel(180)->seconds();
+        config(['operational_health.enabled' => false]);
+        $this->assertTrue($scanner->scan(app(OperationalHealth::class))['skipped']);
+        $this->assertSame($completed, DB::table('operational_incident_scan_locks')->where('id', 1)->value('last_completed_at'));
+        $this->assertSame('stale', $scanner->summary()['scanner']['state']);
+        $this->assertDatabaseCount('operational_incident_events', 0);
+    }
+
     public function test_expired_observations_open_once_and_fresh_observations_resolve_once(): void
     {
         $health = app(OperationalHealth::class);
@@ -175,6 +191,7 @@ class OperationalIncidentsTest extends TestCase
         Schema::drop('operational_incident_states');
         $response = $this->actingAs($admin)->getJson('/api/admin/operational-health')->assertOk()
             ->assertJsonPath('incidents.store_readable', false)
+            ->assertJsonPath('incidents.scanner.state', 'unknown')
             ->assertJsonPath('incidents.automatic_retry', false)
             ->assertJsonPath('incidents.open', []);
         $this->assertStringNotContainsString('SQLSTATE', $response->getContent());
