@@ -99,10 +99,11 @@ jobs:
           node tests/recurring-payments.cjs
           ./scripts/payout-test-setup
           ./scripts/loyalty-test-setup
-          node tests/loyalty.cjs
           ./scripts/battery-test-setup
           docker restart ev-business-api
           ./scripts/start > /tmp/finance-v3-start.txt
+          # Loyalty test switch is now effective in the restarted local mock API.
+          node tests/loyalty.cjs
           node --test tests/financial-connected.test.cjs
           node tests/financial-connected.cjs
       - uses: actions/upload-artifact@v4
