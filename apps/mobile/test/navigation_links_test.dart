@@ -161,7 +161,7 @@ void main() {
     Completer<String?>? blocked;
     messenger.setMockMethodCallHandler(
       NativeNavigationBridge.channel,
-      (_) async => blocked == null ? null : await blocked!.future,
+      (_) async => blocked == null ? null : await blocked.future,
     );
     addTearDown(() => messenger.setMockMethodCallHandler(
           NativeNavigationBridge.channel,
@@ -206,7 +206,7 @@ void main() {
       (_) async {
         if (pending == null || consumed) return null;
         consumed = true;
-        return await pending!.future;
+        return await pending.future;
       },
     );
     addTearDown(() => messenger.setMockMethodCallHandler(
