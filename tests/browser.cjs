@@ -195,13 +195,21 @@ function provisionTestRole(email, role) {
       .filter({ hasText: "Browser station " + run });
     const slot = new Date(Date.now() + 86400000);
     slot.setUTCMinutes(0, 0, 0);
-    await article.locator("select[data-booking-time-mode]").selectOption("utc");
+    // Vendor station uses Asia/Dubai; book the same instant via station-local entry.
+    await article.locator("select[data-booking-time-mode]").selectOption("station");
     await article
       .locator("input[type=datetime-local]")
-      .fill(slot.toISOString().slice(0, 16));
+      .fill(new Date(slot.getTime() + 4 * 3600000).toISOString().slice(0, 16));
+    const bookingRequest = customer.page.waitForRequest((request) =>
+      request.method() === "POST" && request.url().includes("/reservations"),
+    );
     await article
       .getByRole("button", { name: "Reserve simulator slot" })
       .click();
+    assert.equal(
+      (await bookingRequest).postDataJSON().starts_at,
+      slot.toISOString().replace(".000Z", "Z"),
+    );
     await customer.page.locator("#reservation-list article").waitFor();
     await vendor.page.reload();
     await vendor.page.locator("#reservation-list article").waitFor();
