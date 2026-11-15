@@ -12,14 +12,19 @@ let stage='fixture';
  try {
   const context=await browser.newContext({viewport:{width:390,height:844}});await context.addCookies([...client.cookies].map(([name,value])=>({name,value,url:client.base})));
   const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.name));let calls=0;
-  page.on('request',r=>{if(new URL(r.url()).pathname==='/api/charging-operations/connectors'){assert.equal(r.method(),'GET');calls++;}});
+  const requestedStationIds=[];page.on('request',r=>{const url=new URL(r.url());if(url.pathname==='/api/charging-operations/connectors'){assert.equal(r.method(),'GET');calls++;requestedStationIds.push(url.searchParams.get('station_id'));}});
   stage='web-en';await page.goto(client.base);await page.locator('#commands-refresh').click();
   const root=page.locator('#charging-dashboard section');await root.getByRole('button',{name:'Read connector snapshot',exact:true}).waitFor();assert.equal(calls,0);
   await root.locator('input[name=fleet-station]').fill(String(fixture.station_id));await root.getByRole('button',{name:'Read connector snapshot',exact:true}).click();
-  await root.getByText('Recent report at snapshot: Available',{exact:true}).waitFor();assert.equal(await root.locator('article').count(),1);assert.equal(calls,1);
+  await root.getByText('Recent report at snapshot: Available',{exact:true}).waitFor();assert.equal(await root.locator('article').count(),1);assert.equal(calls,1);assert.deepEqual(requestedStationIds,[String(fixture.station_id)]);
   assert.match(await root.textContent(),/No physical availability/);assert.equal(await root.getByRole('button',{name:/start|stop|reset/i}).count(),0);
-  stage='web-ar';await page.locator('#language').click();await page.locator('#commands-refresh').click();
-  await root.getByRole('button',{name:'قراءة لقطة الموصلات',exact:true}).click();await root.getByText('تقرير حديث وقت اللقطة: متاح بحسب المصدر',{exact:true}).waitFor();assert.equal(calls,2);
+  stage='web-ar-language';await page.locator('#language').click();await page.locator('#commands-refresh').click();
+  stage='web-ar-station';await root.locator('input[name=fleet-station]').fill(String(fixture.station_id));
+  // Explicitly re-apply the owned synthetic fixture after changing language.
+  // A fresh dashboard widget is not expected to preserve an uncommitted form filter.
+  stage='web-ar-read';await root.getByRole('button',{name:'قراءة لقطة الموصلات',exact:true}).click();
+  stage='web-ar-result';await root.getByText('تقرير حديث وقت اللقطة: متاح بحسب المصدر',{exact:true}).waitFor();assert.equal(calls,2);
+  assert.deepEqual(requestedStationIds,[String(fixture.station_id),String(fixture.station_id)]);
   stage='background';await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
   assert.equal(await root.locator('article').count(),0);
   await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));});assert.equal(calls,2);assert.equal(await root.locator('article').count(),0);
