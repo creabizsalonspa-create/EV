@@ -748,6 +748,69 @@ class SourceConsumerTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 1);
     }
 
+    #[DataProvider('protocolVersions')]
+    public function test_stale_observer_cannot_rewind_a_more_recent_source_meter_cursor(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond()->toIso8601String();
+        $requested = [];
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($protocol, $link, $at, &$requested) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10, 'transactionId' => $protocol === '1.6' ? '101' : 'stale-source-reader',
+                    'remoteStartId' => $link->start_command_id, 'meterStart' => '1.000',
+                    'startTime' => $at, 'endTime' => null,
+                    'isActive' => true, 'totalKwh' => null,
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                $after = (int) ($request['variables']['after'] ?? -1);
+                $requested[] = $after;
+                if ($after === 0) {
+                    // An independent observer committed a newer position
+                    // after this worker issued the page read but before it
+                    // advanced its own non-energy row cursor.
+                    DB::table('csms_session_links')->where('id', $link->id)->update([
+                        'source_meter_cursor' => 125,
+                    ]);
+
+                    return Http::response(['data' => ['MeterValues' => [[
+                        'id' => 1,
+                        'timestamp' => $at,
+                        'sampledValue' => [['measurand' => 'Voltage', 'value' => 230]],
+                    ]]]]);
+                }
+                $this->assertSame(125, $after);
+
+                return Http::response(['data' => ['MeterValues' => []]]);
+            }
+            $this->fail('Stale source worker attempted an unexpected HTTP request.');
+        });
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(125, $link->fresh()->source_meter_cursor);
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
+
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(125, $link->fresh()->source_meter_cursor);
+        $this->assertSame([0, 125], $requested);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+    }
+
     public function test_meter_units_are_exact_and_unsupported_precision_is_not_rounded(): void
     {
         $this->assertSame(2500, SourceConsumer::wh('2.500000', 'kWh'));
