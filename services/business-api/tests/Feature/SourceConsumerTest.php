@@ -447,6 +447,83 @@ class SourceConsumerTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 1);
     }
 
+    #[DataProvider('protocolVersions')]
+    public function test_exact_hundred_row_source_page_resumes_at_next_unread_energy_record(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond();
+        $nonEnergy = array_map(fn (int $id) => [
+            'id' => $id,
+            'timestamp' => $at->toIso8601String(),
+            'sampledValue' => [['measurand' => 'Voltage', 'value' => 230]],
+        ], range(1, 100));
+        $last = [
+            'id' => 101,
+            'timestamp' => $at->addSecond()->toIso8601String(),
+            'sampledValue' => [[
+                'measurand' => 'Energy.Active.Import.Register',
+                'value' => '3500',
+                'context' => 'Transaction.End',
+                'unitOfMeasure' => ['unit' => 'Wh'],
+            ]],
+        ];
+        $requested = [];
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($protocol, $link, $at, $nonEnergy, $last, &$requested) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10,
+                    'transactionId' => $protocol === '1.6' ? '101' : 'source-pagination',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000',
+                    'startTime' => $at->toIso8601String(),
+                    'endTime' => $at->addSecond()->toIso8601String(),
+                    'isActive' => false,
+                    'totalKwh' => '2.500',
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                $after = (int) ($request['variables']['after'] ?? -1);
+                $requested[] = $after;
+                $page = match ($after) {
+                    0 => $nonEnergy,
+                    100 => [$last],
+                    101 => [],
+                    default => $this->fail('Meter page was read with an unexpected source cursor.'),
+                };
+
+                return Http::response(['data' => ['MeterValues' => $page]]);
+            }
+
+            $this->fail('Source reader attempted an unexpected external request.');
+        });
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(100, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(101, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id,
+            'status' => 'stopped',
+            'energy_wh' => 2500,
+        ]);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame([0, 100, 101], $requested);
+        $this->assertDatabaseCount('finance_invoices', 1);
+    }
+
     public function test_meter_units_are_exact_and_unsupported_precision_is_not_rounded(): void
     {
         $this->assertSame(2500, SourceConsumer::wh('2.500000', 'kWh'));
