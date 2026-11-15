@@ -33,3 +33,12 @@ test("invalid dates and incomplete values never reach the API", () => {
     assert.throws(() => toUtc("2026-02-30T10:00", "UTC"), /valid calendar date/);
     assert.throws(() => toUtc("2026-11-16T10", "UTC"), /complete date and time/);
 });
+
+test("published station timezone renders a precise UTC instant in EN/AR; unknown data remains hidden", () => {
+    const { displayStationTime } = subject();
+    assert.match(displayStationTime("2026-11-16 06:00:00", "Asia/Dubai", "en"), /10:00 \(Asia\/Dubai\)/);
+    assert.match(displayStationTime("2026-11-16T06:00:00Z", "Asia/Dubai", "ar"), /Asia\/Dubai/);
+    assert.equal(displayStationTime("2026-11-16 06:00:00", "Invalid/Zone"), null);
+    assert.equal(displayStationTime("unverified", "Asia/Dubai"), null);
+    assert.equal(displayStationTime("2026-11-16T06:00:00", "Asia/Dubai"), null);
+});
