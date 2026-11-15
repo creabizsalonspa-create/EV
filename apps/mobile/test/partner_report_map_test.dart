@@ -131,7 +131,7 @@ void main() {
     await tester.tap(find.byKey(const Key('partner-map-enable')));
     await tester.pumpAndSettle();
     expect(tiles.requests,greaterThan(0));
-    expect(chosen,isEmpty,'Enabling a map must never issue search');
+    expect(chosen,isEmpty,reason:'Enabling a map must never issue search');
     final button=find.byKey(const Key('unified-native-viewport-search'));
     await tester.ensureVisible(button);
     await tester.tap(button);
