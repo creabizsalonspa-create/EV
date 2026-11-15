@@ -9,6 +9,7 @@ let fleetPage = 1, fleetGeneration = 0, fleetRequest = null, fleetOwner = null;
 let invitationPage = 1, invitationGeneration = 0,
     invitationRequest = null, invitationOwner = null;
 let fleetDetailGeneration = 0, fleetDetailRequest = null;
+let fleetCreatePending = false;
 let unconfirmedFavorite = null;
 let favoriteMode = false,
     previousCatalogQuery = "";
@@ -134,6 +135,9 @@ function clearPrivateViews() {
     fleetDetailRequest?.abort();
     fleetDetailRequest = null;
     fleetDetailGeneration++;
+    fleetCreatePending = false;
+    const createFleetButton = el("fleet-create").querySelector("button");
+    if (createFleetButton) createFleetButton.disabled = false;
     for (const id of ["fleet-list", "fleet-invitations", "fleet-detail"])
         el(id).removeAttribute("aria-busy");
     riderWorkspace.clear();
@@ -1108,6 +1112,15 @@ async function loadFleetAccounts(page = fleetPage) {
         fleetPage = 1;
         page = 1;
     }
+    if (page !== fleetPage) {
+        // A selected fleet from a different page must not retain old member
+        // controls when the owner navigates to a new membership page.
+        fleetDetailRequest?.abort();
+        fleetDetailRequest = null;
+        fleetDetailGeneration++;
+        el("fleet-detail").replaceChildren();
+        el("fleet-detail").removeAttribute("aria-busy");
+    }
     fleetRequest?.abort();
     const controller = new AbortController();
     fleetRequest = controller;
@@ -1262,15 +1275,17 @@ async function fleetDetail(id) {
             });
             if (m.status !== "revoked") {
                 let b = ui("button", "Revoke");
+                b.type = "button";
                 b.onclick = async () => {
+                    if (!active() || b.disabled) return;
+                    b.disabled = true;
                     try {
-                        await api(
-                            "fleets/" + id + "/members/" + m.id,
-                            "DELETE",
-                        );
-                        await fleetDetail(id);
+                        await api("fleets/" + id + "/members/" + m.id, "DELETE");
+                        if (active()) await fleetDetail(id);
                     } catch (e) {
-                        notice(e);
+                        if (active()) notice(e);
+                    } finally {
+                        if (b.isConnected && active()) b.disabled = false;
                     }
                 };
                 row.append(b);
@@ -1283,20 +1298,23 @@ async function fleetDetail(id) {
         EvLocale.attribute(i, "placeholder", "Driver email");
         EvLocale.attribute(i, "aria-label", "Driver email");
         i.required = true;
-        f.append(i, ui("button", "Invite existing account"));
+        const inviteButton = ui("button", "Invite existing account");
+        inviteButton.type = "submit";
+        f.append(i, inviteButton);
         f.onsubmit = async (e) => {
             e.preventDefault();
+            if (!active() || inviteButton.disabled) return;
+            inviteButton.disabled = true;
             try {
-                notice(
-                    (
-                        await api("fleets/" + id + "/invitations", "POST", {
-                            email: i.value,
-                        })
-                    ).message,
-                );
+                const result = await api("fleets/" + id + "/invitations",
+                    "POST", {email: i.value});
+                if (!active()) return;
+                notice(result.message);
                 await fleetDetail(id);
             } catch (e) {
-                notice(e);
+                if (active()) notice(e);
+            } finally {
+                if (inviteButton.isConnected && active()) inviteButton.disabled = false;
             }
         };
         d.append(f);
@@ -1308,17 +1326,23 @@ async function fleetDetail(id) {
         EvLocale.attribute(name, "placeholder", "Cost center name");
         EvLocale.attribute(name, "aria-label", "Cost center name");
         code.required = name.required = true;
-        cf.append(code, name, ui("button", "Add cost center"));
+        const createCenter = ui("button", "Add cost center");
+        createCenter.type = "submit";
+        cf.append(code, name, createCenter);
         cf.onsubmit = async (e) => {
             e.preventDefault();
+            if (!active() || createCenter.disabled) return;
+            createCenter.disabled = true;
             try {
                 await api("fleets/" + id + "/cost-centers", "POST", {
                     code: code.value,
                     name: name.value,
                 });
-                await fleetDetail(id);
+                if (active()) await fleetDetail(id);
             } catch (e) {
-                notice(e);
+                if (active()) notice(e);
+            } finally {
+                if (createCenter.isConnected && active()) createCenter.disabled = false;
             }
         };
         d.append(cf);
@@ -1435,12 +1459,30 @@ async function fleetDetail(id) {
 }
 el("fleet-create").onsubmit = async (e) => {
     e.preventDefault();
+    if (!user || fleetCreatePending) return;
+    const epoch = client.sessionEpoch, actor = user.id;
+    const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const submit = e.target.querySelector("button");
+    fleetCreatePending = true;
+    if (submit) submit.disabled = true;
     try {
-        await api("fleets", "POST", Object.fromEntries(new FormData(e.target)));
+        const created = await api("fleets", "POST", Object.fromEntries(new FormData(e.target)));
+        if (!active()) return;
+        if (!Number.isSafeInteger(created?.id) || created.id <= 0)
+            throw Error("Fleet creation could not be confirmed.");
         fleetPage = 1;
+        fleetDetailRequest?.abort();
+        fleetDetailGeneration++;
+        el("fleet-detail").replaceChildren();
+        e.target.reset();
         await fleets();
     } catch (e) {
-        notice(e);
+        if (active()) notice(e);
+    } finally {
+        if (active()) {
+            fleetCreatePending = false;
+            if (submit) submit.disabled = false;
+        }
     }
 };
 el("region-config").onsubmit = async (e) => {
