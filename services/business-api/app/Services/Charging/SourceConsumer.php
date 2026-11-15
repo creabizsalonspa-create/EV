@@ -11,6 +11,7 @@ use App\Models\Charging\SessionLink;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -90,6 +91,18 @@ class SourceConsumer
         $link->refresh();
     }
 
+    private function advanceCursor(SessionLink $link, int $sourceRowId): void
+    {
+        // A second observer may have already committed a later page while this
+        // worker was reading source rows. Never rewind its durable progress.
+        // The signed inbox independently rejects replayed or conflicting
+        // events, so this update does not invent transaction authority.
+        SessionLink::whereKey($link->id)
+            ->where('source_meter_cursor', '<', $sourceRowId)
+            ->update(['source_meter_cursor' => $sourceRowId]);
+        $link->refresh();
+    }
+
     public function consume(SessionLink $link, bool $localInbox = false): int
     {
         $this->localInbox = $localInbox;
@@ -117,6 +130,13 @@ class SourceConsumer
             throw new RuntimeException('Ambiguous source identity requires reconciliation.');
         }
         if (! $identity['ChargingStations'] || ! $identity['Authorizations']) {
+            // Provisioning can still be pending before the first signed start.
+            // Losing an authenticated station or authorization after that is
+            // an incident, not evidence that the running session completed.
+            if ($link->transaction_id !== null || $link->source_station_id !== null) {
+                throw new RuntimeException('Started source identity disappeared; reconciliation is required.');
+            }
+
             return 0;
         }
         // The source station, not the business binding alone, establishes the
@@ -125,6 +145,16 @@ class SourceConsumer
         $sourceProtocol = $identity['ChargingStations'][0]['protocol'] ?? null;
         if (! is_string($sourceProtocol) || ! in_array($sourceProtocol, [$link->protocol, 'ocpp'.$link->protocol], true)) {
             throw new RuntimeException('Source station protocol mismatch requires reconciliation.');
+        }
+        $sourceStationId = $identity['ChargingStations'][0]['id'] ?? null;
+        if (! is_int($sourceStationId) || $sourceStationId <= 0 ||
+            ($link->source_station_id !== null && (int) $link->source_station_id !== $sourceStationId)) {
+            throw new RuntimeException('Source station identity changed; reconciliation is required.');
+        }
+        if ($link->source_station_id === null && $link->transaction_id !== null) {
+            // Pre-migration sessions were never source-station pinned. Their
+            // upstream history must be reviewed rather than auto-adopted.
+            throw new RuntimeException('Legacy source station identity requires reconciliation.');
         }
         if ($link->remote_token_digest && (int) $identity['Authorizations'][0]['id'] !== (int) $link->remote_authorization_id) {
             throw new RuntimeException('Remote source registration changed; reconciliation is required.');
@@ -143,9 +173,24 @@ class SourceConsumer
             throw new RuntimeException('Multiple source transactions require reconciliation.');
         }
         if (! $records || $records[0]['meterStart'] === null || ! $records[0]['startTime']) {
+            // Initial provisioning can be incomplete. Once source start was
+            // signed, disappearing/incomplete transaction evidence must never
+            // be mistaken for a healthy empty poll or a completed session.
+            if ($link->transaction_id !== null) {
+                throw new RuntimeException('Started source transaction missing or incomplete; reconciliation is required.');
+            }
+
             return 0;
         }
         $tx = $records[0];
+        $sourceTransactionDatabaseId = $tx['id'] ?? null;
+        if (! is_int($sourceTransactionDatabaseId) || $sourceTransactionDatabaseId <= 0 ||
+            ($link->source_transaction_database_id !== null && (int) $link->source_transaction_database_id !== $sourceTransactionDatabaseId)) {
+            throw new RuntimeException('Authenticated source transaction row identity changed; reconciliation is required.');
+        }
+        if ($link->source_transaction_database_id === null && $link->transaction_id !== null) {
+            throw new RuntimeException('Legacy source transaction row identity requires reconciliation.');
+        }
         $startedAt = SourceStatusTime::parse($tx['startTime'], 300);
         $endedAt = $tx['endTime'] === null ? null : SourceStatusTime::parse($tx['endTime'], 300);
         if ($endedAt && $endedAt->lt($startedAt)) {
@@ -186,6 +231,23 @@ class SourceConsumer
                 }
             }
         }
+        // Atomically pin both external row identifiers before the first
+        // signed event. A reused protocol transactionId or a reprovisioned
+        // station row cannot adopt an existing canonical charging session.
+        DB::transaction(function () use ($link, $sourceStationId, $sourceTransactionDatabaseId): void {
+            $locked = SessionLink::whereKey($link->id)->lockForUpdate()->firstOrFail();
+            if (($locked->source_station_id !== null && (int) $locked->source_station_id !== $sourceStationId) ||
+                ($locked->source_transaction_database_id !== null && (int) $locked->source_transaction_database_id !== $sourceTransactionDatabaseId) ||
+                (($locked->source_station_id === null || $locked->source_transaction_database_id === null) && $locked->transaction_id !== null)) {
+                throw new RuntimeException('Authenticated source row identity requires reconciliation.');
+            }
+            if ($locked->source_station_id === null || $locked->source_transaction_database_id === null) {
+                $locked->source_station_id = $sourceStationId;
+                $locked->source_transaction_database_id = $sourceTransactionDatabaseId;
+                $locked->save();
+            }
+        });
+        $link->refresh();
         $count = 0;
         $baseline = self::wh($tx['meterStart'], 'kWh');
         if ($link->transaction_id === null) {
@@ -211,7 +273,19 @@ class SourceConsumer
                     throw new RuntimeException('Invalid source sample requires reconciliation.');
                 }
             }
-            SourceStatusTime::parse($row['timestamp'], 300);
+            $sampleAt = SourceStatusTime::parse($row['timestamp'], 300);
+            if ($sampleAt->lt($startedAt) || ($endedAt && $sampleAt->gt($endedAt))) {
+                throw new RuntimeException('Source meter page contains an event outside its transaction.');
+            }
+            $registers = array_values(array_filter($row['sampledValue'], fn ($s) => ($s['measurand'] ?? '') === 'Energy.Active.Import.Register' && empty($s['phase'])));
+            if (count($registers) > 1) {
+                throw new RuntimeException('Ambiguous register requires reconciliation.');
+            }
+            if ($registers && ($registers[0]['context'] ?? '') !== 'Transaction.Begin') {
+                // Check the unit and precision of every pending register before
+                // committing even the preceding ignored voltage/status records.
+                self::wh($registers[0]['value'] ?? null, $registers[0]['unitOfMeasure']['unit'] ?? '', $registers[0]['unitOfMeasure']['multiplier'] ?? 0);
+            }
             $previousId = $row['id'];
         }
         foreach ($rows as $row) {
@@ -220,7 +294,7 @@ class SourceConsumer
                 throw new RuntimeException('Ambiguous register requires reconciliation.');
             }
             if (! $samples || ($samples[0]['context'] ?? '') === 'Transaction.Begin') {
-                $link->update(['source_meter_cursor' => $row['id']]);
+                $this->advanceCursor($link, $row['id']);
 
                 continue;
             }
@@ -239,7 +313,7 @@ class SourceConsumer
                 throw new RuntimeException('Source sequence exceeds the inbox bound.');
             }
             $this->send($link, $tx, $ended ? 'ended' : 'meter', $row['id'], $meter, $ended ? $tx['endTime'] : $row['timestamp']);
-            $link->update(['source_meter_cursor' => $row['id']]);
+            $this->advanceCursor($link, $row['id']);
             $count++;
             if ($ended) {
                 break;

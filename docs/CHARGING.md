@@ -2,6 +2,8 @@
 
 This module exercises **simulated OCPP chargers against the separately running CitrineOS v2.1.0 service**. It does not operate physical equipment, prove hardware compatibility, or establish live charging/payment readiness.
 
+For a future authorized physical device pilot, use [OCPP Pilot Acceptance](OCPP_PILOT_ACCEPTANCE.md) as a **draft, unexecuted** safety, evidence, model/firmware matrix and rollback gate; it does not authorize a charger command.
+
 ## Reproduce
 
 From the repository root:
@@ -41,6 +43,55 @@ The successful protocol-run output is retained in `docs/evidence/charging-protoc
 
 These protocol tests do not by themselves establish Laravel-to-CSMS transaction correlation, event-inbox authenticity/deduplication, final business invoice/payment reconciliation, physical charger safety, complete OCPP conformance, diagnostics/firmware controls, or production operational resilience. The Laravel business bridge and its separate end-to-end evidence must be verified independently before claiming the entire customer/vendor charging-to-invoice workflow.
 
+## Started sessions require authenticated source continuity
+
+Before a signed start has been observed, the source consumer can wait for a
+simulator station/authorization that is still being provisioned. Once a
+transaction has started or the source station has been pinned, disappearance
+of either authenticated identity is a reconciliation incident rather than a
+healthy empty poll. Similarly, a previously authenticated started transaction
+that disappears or loses its required meter start or absolute start time
+requires review; incomplete first-time source provisioning still waits safely. The reader never finalizes or releases capacity from
+missing-source evidence, and resumes only after a verified original identity
+returns. OCPP 1.6 and 2.0.1 station-removal/authorization-removal tests
+require exactly one final invoice and zero extra commands after recovery.
+
+## Monotonic meter cursor under parallel workers
+
+The signed inbox owns charging event idempotency, while the restartable
+source reader owns an independent monotonic `source_meter_cursor` checkpoint.
+Concurrent or delayed observers use a conditional database update: a stale
+worker may acknowledge an earlier non-energy source row but cannot write a
+smaller cursor after another worker has already committed a later page.
+Refreshing the link after the conditional update uses the durable position on
+the next source poll; no second charger command or invoice is implied.
+Both OCPP protocol fixtures simulate a concurrently advanced cursor and
+verify that a late observer never rewinds it. This checks source checkpoint
+monotonicity, not live cross-process throughput or physical acceptance.
+
+## Immutable external source station and transaction identities
+
+The local OCPP source consumer pins the independently authenticated
+CitrineOS `ChargingStations.id` and its specific `Transactions.id` onto
+the canonical session link together under a database row lock before its
+first signed start event. The external station id is not a cross-database
+foreign key. Subsequent observations must match the original id **as well as**
+the existing OCPP connection name, protocol, source authorization, transaction,
+connector proof and signed inbox lineage. Reprovisioning a station with the
+same name and protocol under a different source row never splices energy into
+an existing session or issues a second start command.
+
+The new nullable station-id and transaction-row-id columns do not
+fabricate historical identities: sessions already started without either
+pin require explicit reconciliation rather than adopting the current row.
+Even if the OCPP protocol transactionId has been reused under the same source
+station, a different persisted source transaction database row cannot
+resume an existing canonical session. A new session without source transaction evidence
+does not pin an arbitrary upstream station. Both OCPP 1.6 and 2.0.1 have
+replacement, legacy-unpinned and resume-with-original-source regressions.
+This remains simulator-only evidence, not approved physical charger identity
+validation or production upstream registration.
+
 ## Bounded meter-source page integrity
 
 The restartable OCPP simulator source reader validates the complete Hasura
@@ -49,6 +100,11 @@ including voltage/non-energy records that are intentionally not billed.
 Only ordered, strictly increasing positive integer source row identifiers
 within the signed inbox's sequence bound, an actual array of sampled values,
 explicit source timestamps and a maximum of 100 rows per page are accepted.
+The entire page is also checked for transaction chronology, unique cumulative
+energy registers, supported energy units and meter precision before any cursor
+advance. Ignored voltage-only records cannot conceal a timestamp outside the
+actual source transaction, and a malformed register later in the same page
+cannot cause earlier records to be marked read.
 Missing pages, overlong pages, unknown timestamps and re-ordered/repeated
 row IDs stop reconciliation without skipping the original unread row.
 Neither a failed read nor a duplicate cumulative register issues a new
@@ -57,9 +113,17 @@ remain durable; final invoices are still issued only from an authenticated
 terminal cumulative register matching CitrineOS final energy.
 
 Both OCPP 1.6 and 2.0.1 are covered by `SourceConsumerTest` malformed-page,
-restart, duplicate-register and single-invoice regressions. These fixtures
-exercise the canonical local-simulator source and signed inbox; they do not
-represent full upstream conformance or physical charger acceptance.
+restart, duplicate-register and single-invoice regressions. A dedicated
+100-row boundary test reads exactly the full first page of non-energy source
+evidence, persists cursor 100, restarts to consume the unread terminal register
+at id 101, and verifies that another restart observes an empty page, with
+one invoice and no second charger command. An expanded 250-row
+three-page simulated source stream for each OCPP version exercises two
+identical periodic cumulative-register observations (no double counting),
+three independent observer invocations and a final authoritative 2.5 kWh
+session, with one invoice and no second charger command. These fixtures
+exercise the canonical local-simulator source and signed inbox; they do not represent
+full upstream conformance or physical charger acceptance.
 
 ## Fault observation cursor integrity
 

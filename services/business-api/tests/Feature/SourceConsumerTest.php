@@ -265,6 +265,169 @@ class SourceConsumerTest extends TestCase
     }
 
     #[DataProvider('protocolVersions')]
+    public function test_reprovisioned_station_with_same_identifier_and_protocol_cannot_splice_a_live_transaction(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond();
+        $sourceId = 8;
+        $transactionRowId = 10;
+        $final = false;
+        $transactionReads = 0;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($link, $protocol, $at, &$sourceId, &$transactionRowId, &$final, &$transactionReads) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => $sourceId, 'protocol' => 'ocpp'.$protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                $transactionReads++;
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => $transactionRowId, 'transactionId' => $protocol === '1.6' ? '101' : 'source-station-identity',
+                    'remoteStartId' => $link->start_command_id, 'meterStart' => '1.000',
+                    'startTime' => $at->toIso8601String(),
+                    'endTime' => $final ? $at->addSeconds(2)->toIso8601String() : null,
+                    'isActive' => ($final === false), 'totalKwh' => $final ? '2.500' : null,
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                return Http::response(['data' => ['MeterValues' => $final &&
+                    (int) ($request['variables']['after'] ?? 0) === 0 ? [[
+                        'id' => 1, 'timestamp' => $at->addSeconds(2)->toIso8601String(),
+                        'sampledValue' => [[
+                            'measurand' => 'Energy.Active.Import.Register',
+                            'value' => '3500', 'context' => 'Transaction.End',
+                            'unitOfMeasure' => ['unit' => 'Wh'],
+                        ]],
+                    ]] : []]]);
+            }
+
+            $this->fail('Source reader must not dispatch external commands.');
+        });
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertSame(10, $link->fresh()->source_transaction_database_id);
+        $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertSame(1, $transactionReads);
+
+        // A different persisted CSMS row with the same connection name and
+        // protocol cannot own an already-started source transaction.
+        $sourceId = 9;
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('Reprovisioned station identity was accepted mid-session.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('station identity', $e->getMessage());
+        }
+        $this->assertSame(1, $transactionReads);
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertSame(0, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+
+        // Reusing the exact protocol transactionId under another persisted
+        // source row also cannot hijack the original canonical session.
+        $sourceId = 8;
+        $transactionRowId = 11;
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('Changed source transaction row was accepted mid-session.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('source transaction row identity changed', $e->getMessage());
+        }
+        $this->assertSame(2, $transactionReads);
+        $this->assertSame(10, $link->fresh()->source_transaction_database_id);
+        $this->assertSame(0, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+
+        // Independent confirmation of both original source row identities
+        // permits finalization without replaying an uncertain charger command.
+        $transactionRowId = 10;
+        $final = true;
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(1, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id, 'status' => 'stopped', 'energy_wh' => 2500,
+        ]);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+    }
+
+    #[DataProvider('protocolVersions')]
+    public function test_legacy_started_session_cannot_silently_adopt_an_unpinned_source_station(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond()->toIso8601String();
+        $transactionsRead = 0;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($link, $protocol, $at, &$transactionsRead) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                $transactionsRead++;
+
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10, 'transactionId' => $protocol === '1.6' ? '101' : 'legacy-source-pin',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000', 'startTime' => $at,
+                    'endTime' => null, 'isActive' => true, 'totalKwh' => null,
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                return Http::response(['data' => ['MeterValues' => []]]);
+            }
+
+            $this->fail('Unexpected upstream call during legacy source reconciliation.');
+        });
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertSame(10, $link->fresh()->source_transaction_database_id);
+        $this->assertSame(1, $transactionsRead);
+        DB::table('csms_session_links')->where('id', $link->id)->update(['source_station_id' => null]);
+
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('A legacy started transaction adopted an unknown external station.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('Legacy source station identity', $e->getMessage());
+        }
+        $this->assertSame(1, $transactionsRead);
+        $this->assertNull($link->fresh()->source_station_id);
+        // Legacy started links also cannot adopt an unpinned source
+        // Transactions.id from a later upstream projection.
+        DB::table('csms_session_links')->where('id', $link->id)->update([
+            'source_station_id' => 8, 'source_transaction_database_id' => null,
+        ]);
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('Legacy started session adopted an unknown external transaction row.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('Legacy source transaction row identity', $e->getMessage());
+        }
+        $this->assertSame(2, $transactionsRead);
+        $this->assertNull($link->fresh()->source_transaction_database_id);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+    }
+
+    #[DataProvider('protocolVersions')]
     public function test_distinct_source_row_ids_with_repeated_cumulative_energy_never_double_bill(string $protocol): void
     {
         $link = $this->link($protocol);
@@ -341,7 +504,7 @@ class SourceConsumerTest extends TestCase
     {
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page'] as $kind) {
+            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page', 'nonenergy_before_start', 'nonenergy_after_end', 'later_ambiguous_register', 'later_invalid_unit', 'later_after_end'] as $kind) {
                 $cases[$protocol.'_'.$kind] = [$protocol, $kind];
             }
         }
@@ -381,6 +544,11 @@ class SourceConsumerTest extends TestCase
             'non_list_page' => ['first' => $row(1)],
             'oversized_page' => array_map($row, range(1, 101)),
             'missing_page' => null,
+            'nonenergy_before_start' => [array_replace($row(1), ['timestamp' => $at->subSecond()->toIso8601String()])],
+            'nonenergy_after_end' => [array_replace($row(1), ['timestamp' => $at->addSeconds(3)->toIso8601String()])],
+            'later_ambiguous_register' => [$row(1), array_replace($valid[1], ['sampledValue' => [$valid[1]['sampledValue'][0], $valid[1]['sampledValue'][0]]])],
+            'later_invalid_unit' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['unitOfMeasure' => ['unit' => 'MWh']])]])],
+            'later_after_end' => [$row(1), array_replace($valid[1], ['timestamp' => $at->addSeconds(3)->toIso8601String()])],
         };
         Http::preventStrayRequests();
         Http::fake(function (Request $request) use ($protocol, $link, $at, &$rows, &$stationQueries, &$transactionQueries) {
@@ -436,6 +604,352 @@ class SourceConsumerTest extends TestCase
         $rows = $valid;
         $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
         $this->assertSame(2, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id,
+            'status' => 'stopped',
+            'energy_wh' => 2500,
+        ]);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertDatabaseCount('finance_invoices', 1);
+    }
+
+    #[DataProvider('protocolVersions')]
+    public function test_exact_hundred_row_source_page_resumes_at_next_unread_energy_record(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond();
+        $nonEnergy = array_map(fn (int $id) => [
+            'id' => $id,
+            'timestamp' => $at->toIso8601String(),
+            'sampledValue' => [['measurand' => 'Voltage', 'value' => 230]],
+        ], range(1, 100));
+        $last = [
+            'id' => 101,
+            'timestamp' => $at->addSecond()->toIso8601String(),
+            'sampledValue' => [[
+                'measurand' => 'Energy.Active.Import.Register',
+                'value' => '3500',
+                'context' => 'Transaction.End',
+                'unitOfMeasure' => ['unit' => 'Wh'],
+            ]],
+        ];
+        $requested = [];
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($protocol, $link, $at, $nonEnergy, $last, &$requested) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10,
+                    'transactionId' => $protocol === '1.6' ? '101' : 'source-pagination',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000',
+                    'startTime' => $at->toIso8601String(),
+                    'endTime' => $at->addSecond()->toIso8601String(),
+                    'isActive' => false,
+                    'totalKwh' => '2.500',
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                $after = (int) ($request['variables']['after'] ?? -1);
+                $requested[] = $after;
+                $page = match ($after) {
+                    0 => $nonEnergy,
+                    100 => [$last],
+                    101 => [],
+                    default => $this->fail('Meter page was read with an unexpected source cursor.'),
+                };
+
+                return Http::response(['data' => ['MeterValues' => $page]]);
+            }
+
+            $this->fail('Source reader attempted an unexpected external request.');
+        });
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(100, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(101, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id,
+            'status' => 'stopped',
+            'energy_wh' => 2500,
+        ]);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame([0, 100, 101], $requested);
+        $this->assertDatabaseCount('finance_invoices', 1);
+    }
+
+    #[DataProvider('protocolVersions')]
+    public function test_multi_page_cumulative_energy_with_250_source_rows_survives_restarts_without_duplicate_invoice(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond();
+        // Three persisted source pages, two periodic registers with identical
+        // cumulative energy, and one authoritative terminal register.
+        $rows = array_map(fn (int $id) => [
+            'id' => $id,
+            'timestamp' => $at->toIso8601String(),
+            'sampledValue' => [['measurand' => 'Voltage', 'value' => 230]],
+        ], range(1, 250));
+        $register = fn (int $id, string $value, string $context, int $offset) => [
+            'id' => $id,
+            'timestamp' => $at->addSeconds($offset)->toIso8601String(),
+            'sampledValue' => [[
+                'measurand' => 'Energy.Active.Import.Register',
+                'value' => $value,
+                'context' => $context,
+                'unitOfMeasure' => ['unit' => 'Wh'],
+            ]],
+        ];
+        $rows[74] = $register(75, '2500', 'Sample.Periodic', 1);
+        $rows[149] = $register(150, '2500', 'Sample.Periodic', 1);
+        $rows[249] = $register(250, '3500', 'Transaction.End', 2);
+        $pagesRequested = [];
+
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($link, $protocol, $at, $rows, &$pagesRequested) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10,
+                    'transactionId' => $protocol === '1.6' ? '101' : 'source-long-run',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000',
+                    'startTime' => $at->toIso8601String(),
+                    'endTime' => $at->addSeconds(2)->toIso8601String(),
+                    'isActive' => false,
+                    'totalKwh' => '2.500',
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                $after = (int) ($request['variables']['after'] ?? -1);
+                $pagesRequested[] = $after;
+                $this->assertContains($after, [0, 100, 200, 250]);
+
+                return Http::response(['data' => [
+                    'MeterValues' => array_slice($rows, $after, 100),
+                ]]);
+            }
+
+            $this->fail('Unexpected external request during source load recovery.');
+        });
+
+        $this->assertSame(2, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(100, $link->fresh()->source_meter_cursor);
+        $this->assertSame(1500, DB::table('charging_sessions')->value('energy_wh'));
+        $this->assertDatabaseCount('finance_invoices', 0);
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(200, $link->fresh()->source_meter_cursor);
+        $this->assertSame(1500, DB::table('charging_sessions')->value('energy_wh'));
+        $this->assertDatabaseCount('finance_invoices', 0);
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(250, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id,
+            'status' => 'stopped',
+            'energy_wh' => 2500,
+        ]);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('csms_inbox_events', 4);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertSame(8, $link->fresh()->source_station_id);
+
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame([0, 100, 200, 250], $pagesRequested);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+    }
+
+    #[DataProvider('protocolVersions')]
+    public function test_stale_observer_cannot_rewind_a_more_recent_source_meter_cursor(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond()->toIso8601String();
+        $requested = [];
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($protocol, $link, $at, &$requested) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10, 'transactionId' => $protocol === '1.6' ? '101' : 'stale-source-reader',
+                    'remoteStartId' => $link->start_command_id, 'meterStart' => '1.000',
+                    'startTime' => $at, 'endTime' => null,
+                    'isActive' => true, 'totalKwh' => null,
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                $after = (int) ($request['variables']['after'] ?? -1);
+                $requested[] = $after;
+                if ($after === 0) {
+                    // An independent observer committed a newer position
+                    // after this worker issued the page read but before it
+                    // advanced its own non-energy row cursor.
+                    DB::table('csms_session_links')->where('id', $link->id)->update([
+                        'source_meter_cursor' => 125,
+                    ]);
+
+                    return Http::response(['data' => ['MeterValues' => [[
+                        'id' => 1,
+                        'timestamp' => $at,
+                        'sampledValue' => [['measurand' => 'Voltage', 'value' => 230]],
+                    ]]]]);
+                }
+                $this->assertSame(125, $after);
+
+                return Http::response(['data' => ['MeterValues' => []]]);
+            }
+            $this->fail('Stale source worker attempted an unexpected HTTP request.');
+        });
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(125, $link->fresh()->source_meter_cursor);
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
+
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(125, $link->fresh()->source_meter_cursor);
+        $this->assertSame([0, 125], $requested);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+    }
+
+    public static function vanishedSourceIdentities(): array
+    {
+        return [
+            'ocpp16_station_removed' => ['1.6', 'station'],
+            'ocpp16_authorization_removed' => ['1.6', 'authorization'],
+            'ocpp201_station_removed' => ['2.0.1', 'station'],
+            'ocpp201_authorization_removed' => ['2.0.1', 'authorization'],
+            'ocpp16_transaction_missing' => ['1.6', 'transaction'],
+            'ocpp201_transaction_missing' => ['2.0.1', 'transaction'],
+            'ocpp16_meter_start_missing' => ['1.6', 'meter_start'],
+            'ocpp201_meter_start_missing' => ['2.0.1', 'meter_start'],
+            'ocpp16_start_time_missing' => ['1.6', 'start_time'],
+            'ocpp201_start_time_missing' => ['2.0.1', 'start_time'],
+        ];
+    }
+
+    #[DataProvider('vanishedSourceIdentities')]
+    public function test_started_session_requires_review_if_authenticated_source_identity_disappears(string $protocol, string $missing): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond();
+        $remove = null;
+        $ended = false;
+        $transactionReads = 0;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($protocol, $link, $at, &$remove, &$ended, &$transactionReads) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => $remove === 'station' ? [] : [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => $remove === 'authorization' ? [] : [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                $transactionReads++;
+                if ($remove === 'transaction') {
+                    return Http::response(['data' => ['Transactions' => []]]);
+                }
+
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10,
+                    'transactionId' => $protocol === '1.6' ? '101' : 'disappeared-source-fixture',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => $remove === 'meter_start' ? null : '1.000',
+                    'startTime' => $remove === 'start_time' ? null : $at->toIso8601String(),
+                    'endTime' => $ended ? $at->addSeconds(2)->toIso8601String() : null,
+                    'isActive' => ($ended === false),
+                    'totalKwh' => $ended ? '2.500' : null,
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                $after = (int) ($request['variables']['after'] ?? -1);
+
+                $samples = $ended && $after === 0 ? [[
+                    'id' => 1, 'timestamp' => $at->addSeconds(2)->toIso8601String(),
+                    'sampledValue' => [[
+                        'measurand' => 'Energy.Active.Import.Register',
+                        'value' => '3500',
+                        'context' => 'Transaction.End',
+                        'unitOfMeasure' => ['unit' => 'Wh'],
+                    ]],
+                ]] : [];
+
+                return Http::response(['data' => ['MeterValues' => $samples]]);
+            }
+
+            $this->fail('A source identity check attempted unexpected outbound traffic.');
+        });
+
+        // An unstarted request may wait for upstream station or token
+        // provisioning without falsely claiming an incident or a command.
+        $remove = $missing;
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link, true));
+        $this->assertNull($link->fresh()->source_station_id);
+        $this->assertNull($link->fresh()->transaction_id);
+        $earlyReads = in_array($missing, ['station', 'authorization'], true) ? 0 : 1;
+        $this->assertSame($earlyReads, $transactionReads);
+        $this->assertDatabaseCount('csms_inbox_events', 0);
+        $remove = null;
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertSame($earlyReads + 1, $transactionReads);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $remove = $missing;
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('A started session silently accepted a vanished source identity.');
+        } catch (RuntimeException $e) {
+            $expected = in_array($missing, ['station', 'authorization'], true)
+                ? 'identity disappeared'
+                : 'transaction missing or incomplete';
+            $this->assertStringContainsString($expected, $e->getMessage());
+        }
+        $laterReads = in_array($missing, ['station', 'authorization'], true) ? 0 : 1;
+        $this->assertSame($earlyReads + 1 + $laterReads, $transactionReads);
+        $this->assertSame(0, $link->fresh()->source_meter_cursor);
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+
+        $remove = null;
+        $ended = true;
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
         $this->assertDatabaseHas('charging_sessions', [
             'id' => $link->charging_session_id,
             'status' => 'stopped',
