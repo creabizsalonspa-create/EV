@@ -124,4 +124,10 @@ push-provider registration or entity-specific notification routing. The existing
 `creabizev://payments/hosted-return` wake-up signal remains separate and has no
 authority to confirm a payment. Validate with `flutter test test/navigation_links_test.dart`,
 `python3 -B tool/test_navigation_link_config.py`, real Android intent dispatch and
-iOS simulator URL dispatch. Physical-device and release signing remain unverified.
+iOS simulator URL dispatch. The native CI workflow now also checks the **built**
+Android merged manifest and compiled iOS simulator Info.plist through
+`tool/check_navigation_build.py android|ios`; it rejects extra URL entrypoints,
+unreviewed hosts, missing browsing restrictions and Flutter auto-routing. The
+artifact guard's negative fixtures run during `tool/bootstrap`. These checks
+verify packaging contracts, not actual OS intent dispatch or user-installed
+signed applications. Physical-device and release signing remain unverified.
