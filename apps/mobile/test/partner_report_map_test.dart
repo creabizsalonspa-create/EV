@@ -421,11 +421,17 @@ void main() {
     expect(find.byKey(const Key('unified-native-gps-loading')),findsOneWidget);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
+    expect(find.byType(FlutterMap),findsNothing,
+      reason:'True backgrounding must release consented tile UI');
+    expect(find.byKey(const Key('unified-native-gps-once')),findsNothing);
     pending.complete(const ForegroundFix(25.2,55.3,10));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('unified-native-gps-loading')),findsNothing);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
+    expect(find.byType(FlutterMap),findsNothing,
+      reason:'Foreground resume cannot silently restore consented GPS map tiles');
+    expect(find.byKey(const Key('partner-map-enable')),findsOneWidget);
     expect(find.byKey(const Key('unified-native-gps-error')),findsNothing);
     expect(tester.takeException(),isNull);
   });
