@@ -85,8 +85,12 @@ restart, duplicate-register and single-invoice regressions. A dedicated
 100-row boundary test reads exactly the full first page of non-energy source
 evidence, persists cursor 100, restarts to consume the unread terminal register
 at id 101, and verifies that another restart observes an empty page, with
-one invoice and no second charger command. These fixtures exercise the
-canonical local-simulator source and signed inbox; they do not represent
+one invoice and no second charger command. An expanded 250-row
+three-page simulated source stream for each OCPP version exercises two
+identical periodic cumulative-register observations (no double counting),
+three independent observer invocations and a final authoritative 2.5 kWh
+session, with one invoice and no second charger command. These fixtures
+exercise the canonical local-simulator source and signed inbox; they do not represent
 full upstream conformance or physical charger acceptance.
 
 ## Fault observation cursor integrity
