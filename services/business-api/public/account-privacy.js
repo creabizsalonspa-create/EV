@@ -9,12 +9,16 @@ window.EvPrivacyRequests = (() => {
             generation: 0,
             controller: null,
             request: null,
+            previews: new Set(),
+            secrets: new Set(),
         },
         admin: {
             root: adminRoot,
             generation: 0,
             controller: null,
             request: null,
+            previews: new Set(),
+            secrets: new Set(),
         },
     };
 
@@ -44,7 +48,14 @@ window.EvPrivacyRequests = (() => {
         s.value = options[0][0];
         return s;
     }
+    function wipeSensitive(state) {
+        for (const preview of state.previews) preview.textContent = "";
+        for (const input of state.secrets) input.value = "";
+        state.previews.clear();
+        state.secrets.clear();
+    }
     function clear(state) {
+        wipeSensitive(state);
         state.generation++;
         state.controller?.abort();
         state.controller = null;
@@ -117,6 +128,7 @@ window.EvPrivacyRequests = (() => {
             // Sensitive access-copy controls and previews are no longer
             // authoritative once a refresh begins; never retain them while
             // waiting for a failed or unresponsive read.
+            wipeSensitive(state);
             results.replaceChildren();
             results.setAttribute("aria-busy", "true");
             message.textContent = "Refreshing your private request history… / جارٍ تحديث سجل طلباتك الخاص…";
@@ -160,6 +172,9 @@ window.EvPrivacyRequests = (() => {
                         factor.autocomplete = "one-time-code";
                         factor.maxLength = 64;
                         const preview = el("pre");
+                        state.previews.add(preview);
+                        state.secrets.add(password);
+                        state.secrets.add(factor);
                         preview.style.whiteSpace = "pre-wrap";
                         preview.style.overflowWrap = "anywhere";
                         card.append(
@@ -181,8 +196,8 @@ window.EvPrivacyRequests = (() => {
                         const view = button(
                             "View private account copy / عرض نسخة الحساب الخاصة",
                             async () => {
-                                if (!active(state, generation, controller))
-                                    return;
+                                if (!active(state, generation, controller) ||
+                                    document.hidden) return;
                                 const body = {
                                     password: password.value,
                                     second_factor_code: factor.value,
@@ -198,8 +213,8 @@ window.EvPrivacyRequests = (() => {
                                         body,
                                         controller.signal,
                                     );
-                                    if (!active(state, generation, controller))
-                                        return;
+                                    if (!active(state, generation, controller) ||
+                                        document.hidden) return;
                                     if (
                                         copy.schema_version !== 1 ||
                                         copy.owner_id !== user.id ||
@@ -447,6 +462,7 @@ window.EvPrivacyRequests = (() => {
                 page: String(page),
             });
             if (kind.value) params.set("kind", kind.value);
+            wipeSensitive(state);
             message.textContent = "Loading private review queue…";
             results.replaceChildren();
             try {
@@ -490,6 +506,7 @@ window.EvPrivacyRequests = (() => {
                         const adminPassword = el("input");
                         adminPassword.type = "password";
                         adminPassword.autocomplete = "current-password";
+                        state.secrets.add(adminPassword);
                         const requestKey = crypto.randomUUID();
                         const prepare = button(
                             "Prepare private account copy / إعداد نسخة الحساب الخاصة",
@@ -689,5 +706,13 @@ window.EvPrivacyRequests = (() => {
         load(1);
     }
 
+    // Background tabs cannot retain a revealed account copy, an authenticator
+    // input or an Admin review password in a hidden DOM. No request is replayed.
+    document.addEventListener?.("visibilitychange", () => {
+        if (document.hidden) {
+            wipeSensitive(states.mine);
+            wipeSensitive(states.admin);
+        }
+    });
     return { setSelfActor, setAdminActor };
 })();
