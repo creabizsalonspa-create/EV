@@ -352,5 +352,4 @@ class AdminStaffPermissionTest extends TestCase
             'id' => $membership->id, 'status' => 'revoked', 'invitation_version' => 2,
         ]);
     }
-
 }
