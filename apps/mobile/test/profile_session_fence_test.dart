@@ -39,19 +39,16 @@ Future<void> loginFixture(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-Future<Future<void>> beginProfileEdit(
+Future<void> submitProfileEdit(
   WidgetTester tester,
-  dynamic workspace,
   DeferredProfileApi api,
 ) async {
-  final Future<void> update = workspace.profile();
   await tester.pumpAndSettle();
   expect(find.byType(EntryDialog), findsOneWidget);
   await tester.enterText(find.byType(TextFormField).last, 'Old account name');
   await tester.tap(find.widgetWithText(FilledButton, 'Save'));
   await tester.pump();
   await api.profileRequested.future;
-  return update;
 }
 
 void main() {
@@ -66,7 +63,8 @@ void main() {
     await loginFixture(tester);
     final dynamic workspace = tester.state(find.byType(Workspace));
 
-    final update = await beginProfileEdit(tester, workspace, api);
+    final Future<void> update = workspace.profile();
+    await submitProfileEdit(tester, api);
     api.profileResponse.complete({
       'id': 1,
       'name': 'Updated account name',
@@ -90,7 +88,8 @@ void main() {
     await loginFixture(tester);
     final dynamic workspace = tester.state(find.byType(Workspace));
 
-    final update = await beginProfileEdit(tester, workspace, api);
+    final Future<void> update = workspace.profile();
+    await submitProfileEdit(tester, api);
     workspace.expiredSession();
     await tester.pumpAndSettle();
     expect(workspace.account, isNull);
@@ -119,7 +118,8 @@ void main() {
     await loginFixture(tester);
     final dynamic workspace = tester.state(find.byType(Workspace));
 
-    final oldUpdate = await beginProfileEdit(tester, workspace, api);
+    final Future<void> oldUpdate = workspace.profile();
+    await submitProfileEdit(tester, api);
     workspace.expiredSession();
     await tester.pumpAndSettle();
     await loginFixture(tester);
