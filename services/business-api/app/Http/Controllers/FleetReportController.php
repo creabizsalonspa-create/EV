@@ -94,6 +94,15 @@ final class FleetReportController extends Controller
                 ];
             });
 
+            // Owner identity is private even without financial report access.
+            // Record only the review scope, never email or private contents.
+            DB::table('audit_events')->insert([
+                'actor_id' => $actor->id,
+                'action' => 'admin.private_list.fleets_viewed',
+                'subject' => isset($v['owner_id']) ? 'owner:'.$v['owner_id'] : 'all',
+                'created_at' => now(),
+            ]);
+
             return response()->json($view)->header('Cache-Control', 'private, no-store');
         });
     }
