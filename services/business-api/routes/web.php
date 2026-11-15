@@ -11,6 +11,7 @@ use App\Http\Controllers\AdminOperationalHealthController;
 use App\Http\Controllers\AdminOperationsMapController;
 use App\Http\Controllers\AdminOperatorRoleHistoryController;
 use App\Http\Controllers\AdminSecondFactorController;
+use App\Http\Controllers\AdminSecurityDenialSummaryController;
 use App\Http\Controllers\AdminSessionController;
 use App\Http\Controllers\AdminStaffPermissionController;
 use App\Http\Controllers\ChargerCommandController;
@@ -99,6 +100,7 @@ Route::get('/api/admin/privacy-requests', [AccountPrivacyController::class, 'adm
 Route::patch('/api/admin/privacy-requests/{privacyCase}/review', [AccountPrivacyController::class, 'review'])->middleware(['auth', 'throttle:authentication']);
 Route::get('/api/admin/privacy-requests/{privacyCase}/reviews', [AccountPrivacyController::class, 'adminHistory'])->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/admin/audit-events', [AdminAuditTrailController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/security-denials', [AdminSecurityDenialSummaryController::class, 'index'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::get('/api/admin/kyc-queue', [AdminKycQueueController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/admin/permission-grants', [AdminStaffPermissionController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::post('/api/admin/permission-grants/{membership}/revoke', [AdminStaffPermissionController::class, 'revoke'])->middleware(['auth', 'throttle:authentication']);
