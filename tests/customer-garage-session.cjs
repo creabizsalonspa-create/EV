@@ -3,13 +3,17 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const {test} = require("node:test");
 const src = fs.readFileSync("services/business-api/public/platform.js", "utf8");
-const begin = src.indexOf("let garageGeneration = 0");
-const end = src.indexOf('async function support()', begin);
-assert(begin >= 0 && end > begin, "customer garage source boundary");
-const ticketBegin = src.indexOf("let pendingTicketCreate");
+const stateBegin = src.indexOf("let garageGeneration = 0");
+const stateEnd = src.indexOf("let unconfirmedFavorite",stateBegin);
+const begin = src.indexOf("function resetCustomerMutationState()");
+const end = src.indexOf("async function support()", begin);
+assert(stateBegin >= 0 && stateEnd > stateBegin &&
+    begin > stateEnd && end > begin, "customer garage source boundary");
+const ticketBegin = src.indexOf('el("support-create").onsubmit');
 const ticketEnd = src.indexOf('el("verify-email")',ticketBegin);
 assert(ticketBegin > end && ticketEnd > ticketBegin, "customer support source boundary");
-const code = src.slice(begin,end) + "\n" + src.slice(ticketBegin,ticketEnd);
+const code = src.slice(stateBegin,stateEnd) + "\n" +
+    src.slice(begin,end) + "\n" + src.slice(ticketBegin,ticketEnd);
 function harness() {
     const elements = new Map();
     const el = id => {
@@ -191,4 +195,18 @@ test("support ticket creation uses independent account-scoped pending tokens",as
     assert.equal(h.supportReloads(),1);
     assert.deepEqual(h.openedTickets(),[71]);
     assert.equal(form.resetCount,1);
+});
+
+test("pending-logout startup has initialized mutation locks before private cleanup",async()=>{
+    assert(stateBegin < src.indexOf("function clearPrivateViews()"),
+        "startup cleanup must never reference uninitialized let bindings");
+    assert(stateBegin < src.indexOf("(async () => {"),
+        "startup async signOut may clear identity synchronously");
+    const h=harness();
+    for(const id of ["vehicle-create","profile-form","support-create"]) {
+        h.el(id).submit={disabled:true,isConnected:true};
+    }
+    h.methods.resetCustomerMutationState();
+    for(const id of ["vehicle-create","profile-form","support-create"])
+        assert.equal(h.el(id).submit.disabled,false);
 });
