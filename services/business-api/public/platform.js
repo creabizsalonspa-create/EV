@@ -9,6 +9,10 @@ let favoriteMode = false,
     previousCatalogQuery = "";
 let commandRequest = null,
     commandPage = 1;
+let reservationPage = 1,
+    reservationGeneration = 0,
+    reservationRequest = null,
+    reservationOwner = null;
 let user = null,
     csrf = document.querySelector("meta[name=csrf-token]").content;
 const el = (id) => document.getElementById(id),
@@ -116,6 +120,12 @@ function clearPrivateViews() {
     inboxPreferencesFor = null;
     inboxPage = 1;
     inboxGeneration++;
+    reservationRequest?.abort();
+    reservationRequest = null;
+    reservationGeneration++;
+    reservationPage = 1;
+    reservationOwner = null;
+    el("reservation-list").removeAttribute("aria-busy");
     riderWorkspace.clear();
     vendorWorkspace.clear();
     vehicleModelCatalog.clear();
@@ -767,15 +777,44 @@ async function stations(query = "") {
         el("stations").append(a);
     }
 }
-async function bookings() {
-    let j = await api("reservations");
-    el("reservation-list").replaceChildren();
-    if (!j.data.length)
-        empty(
-            "reservation-list",
-            "No reservations yet. Choose a simulator station to try a booking. / لا توجد حجوزات بعد",
-        );
-    for (let r of j.data) {
+async function bookings(page = reservationPage) {
+    if (!user || !Number.isSafeInteger(page) || page < 1) return;
+    const owner = client.sessionEpoch + ":" + user.id + ":" + user.role;
+    if (reservationOwner !== owner) {
+        reservationOwner = owner;
+        reservationPage = 1;
+        page = 1;
+    }
+    reservationRequest?.abort();
+    const controller = new AbortController();
+    reservationRequest = controller;
+    const generation = ++reservationGeneration;
+    const epoch = client.sessionEpoch, actor = user.id;
+    const active = () => generation === reservationGeneration &&
+        epoch === client.sessionEpoch && actor === user?.id &&
+        reservationRequest === controller && !controller.signal.aborted;
+    const list = el("reservation-list");
+    list.setAttribute("aria-busy", "true");
+    list.replaceChildren(batteryNode("p", "Loading reservations…", "جارٍ تحميل الحجوزات…"));
+    try {
+        const j = await api("reservations?page=" + page, "GET", undefined, controller.signal);
+        if (!active()) return;
+        if (!Array.isArray(j?.data) || !Number.isSafeInteger(j.current_page) ||
+            !Number.isSafeInteger(j.last_page) || !Number.isSafeInteger(j.total) ||
+            j.current_page < 1 || j.last_page < 1 || j.total < 0 ||
+            j.current_page !== page)
+            throw new Error("Unrecognized reservation response.");
+        if (page > j.last_page) {
+            await bookings(j.last_page);
+            return;
+        }
+        reservationPage = page;
+        list.replaceChildren();
+        if (!j.data.length)
+            list.append(batteryNode("p",
+                "No reservations found on this page. / No physical charger booking is implied.",
+                "لا توجد حجوزات في هذه الصفحة. هذا لا يؤكد حجز شاحن فعلي."));
+        for (let r of j.data) {
         let a = ui(
             "article",
             "#{id} · station {station} · {time} UTC · {status}",
@@ -867,7 +906,41 @@ async function bookings() {
             };
             a.append(start);
         }
-        el("reservation-list").append(a);
+            list.append(a);
+        }
+        const pager = document.createElement("nav");
+        pager.className = "pagination";
+        pager.dataset.reservationPagination = "true";
+        pager.setAttribute("aria-label", EvLocale.language === "ar" ? "صفحات الحجوزات" : "Reservation pages");
+        pager.append(ui("span", "Page {page} of {last} · {total} records", {
+            page: j.current_page, last: j.last_page, total: j.total,
+        }));
+        for (const [key, label, ar, targetPage, disabled] of [
+            ["previous", "Previous", "السابق", page - 1, page <= 1],
+            ["next", "Next", "التالي", page + 1, page >= j.last_page],
+            ["refresh", "Refresh", "تحديث", page, false],
+        ]) {
+            const button = batteryNode("button", label, ar);
+            button.type = "button";
+            button.dataset.reservationPageAction = key;
+            button.disabled = disabled;
+            button.addEventListener("click", () => {
+                if (active()) void bookings(targetPage);
+            });
+            pager.append(button);
+        }
+        list.append(pager);
+    } catch (error) {
+        if (!active()) return;
+        list.replaceChildren(batteryNode("p", "Reservations could not be loaded. Refresh to retry.",
+            "تعذر تحميل الحجوزات. حدّث للمحاولة مرة أخرى."));
+        const retry = batteryNode("button", "Retry reservations", "إعادة محاولة تحميل الحجوزات");
+        retry.type = "button";
+        retry.dataset.reservationRetry = "true";
+        retry.onclick = () => { if (active()) void bookings(page); };
+        list.append(retry);
+    } finally {
+        if (active()) list.removeAttribute("aria-busy");
     }
 }
 async function simulations() {
