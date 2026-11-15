@@ -166,4 +166,37 @@ class AdminAccountDirectoryTest extends TestCase
         $this->getJson('/api/admin/accounts?company_q='.str_repeat('x', 101))
             ->assertUnprocessable();
     }
+
+    public function test_business_name_search_is_case_insensitive_and_escapes_like_wildcards(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $withSymbols = User::factory()->create(['role' => 'vendor']);
+        $withoutSymbols = User::factory()->create(['role' => 'vendor']);
+
+        foreach ([
+            [$withSymbols, 'A_100% Warranty! LLC'],
+            [$withoutSymbols, 'A1100X WARRANTYX LLC'],
+        ] as [$owner, $name]) {
+            VendorCompany::create([
+                'owner_id' => $owner->id,
+                'legal_name' => $name,
+                'country' => 'AE',
+                'status' => 'submitted',
+                'license_expires_on' => now()->addYear()->toDateString(),
+            ]);
+        }
+
+        $this->actingAs($admin);
+        foreach (['%', '_', '!'] as $symbol) {
+            $this->getJson('/api/admin/accounts?company_q='.rawurlencode($symbol))
+                ->assertOk()->assertJsonPath('total', 1)
+                ->assertJsonPath('data.0.id', $withSymbols->id);
+        }
+
+        $this->getJson('/api/admin/accounts?company_q=warranty')
+            ->assertOk()->assertJsonPath('total', 2);
+        $this->getJson('/api/admin/accounts?company_q='.rawurlencode('100% Warranty!'))
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $withSymbols->id);
+    }
 }
