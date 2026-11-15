@@ -55,5 +55,19 @@
         if (new Date(candidates[0]).getUTCMinutes() % 30 !== 0) throw new Error("Choose a 30-minute UTC slot using UTC time. / اختر وقت UTC بفاصل 30 دقيقة.");
         return new Date(candidates[0]).toISOString().replace(".000Z", "Z");
     }
-    window.EvStationTime = Object.freeze({ validZone, toUtc });
+    function displayStationTime(value, timezone, language = "en") {
+        const zone = validZone(timezone);
+        if (!zone || typeof value !== "string") return null;
+        // Laravel may serialize its UTC timestamp with a space and no suffix.
+        // An explicit offset must never be interpreted in the device timezone.
+        const utc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
+            ? value.replace(" ", "T") + "Z" : value;
+        if (!/(Z|[+-]\d{2}:\d{2})$/i.test(utc)) return null;
+        const instant = new Date(utc);
+        if (Number.isNaN(instant.getTime())) return null;
+        return new Intl.DateTimeFormat(language === "ar" ? "ar" : "en-GB", {
+            timeZone: zone, dateStyle: "medium", timeStyle: "short", hourCycle: "h23",
+        }).format(instant) + " (" + zone + ")";
+    }
+    window.EvStationTime = Object.freeze({ validZone, toUtc, displayStationTime });
 })();
