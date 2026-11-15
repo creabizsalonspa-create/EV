@@ -57,9 +57,13 @@ remain durable; final invoices are still issued only from an authenticated
 terminal cumulative register matching CitrineOS final energy.
 
 Both OCPP 1.6 and 2.0.1 are covered by `SourceConsumerTest` malformed-page,
-restart, duplicate-register and single-invoice regressions. These fixtures
-exercise the canonical local-simulator source and signed inbox; they do not
-represent full upstream conformance or physical charger acceptance.
+restart, duplicate-register and single-invoice regressions. A dedicated
+100-row boundary test reads exactly the full first page of non-energy source
+evidence, persists cursor 100, restarts to consume the unread terminal register
+at id 101, and verifies that another restart observes an empty page, with
+one invoice and no second charger command. These fixtures exercise the
+canonical local-simulator source and signed inbox; they do not represent
+full upstream conformance or physical charger acceptance.
 
 ## Fault observation cursor integrity
 
