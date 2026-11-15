@@ -49,7 +49,7 @@ class SourceConsumerTest extends TestCase
         $rows = [
             ['id' => 1, 'timestamp' => $at->toIso8601String(), 'sampledValue' => [['measurand' => 'Voltage', 'value' => 230]]],
             ['id' => 2, 'timestamp' => $at->addSecond()->toIso8601String(), 'sampledValue' => [['measurand' => 'Energy.Active.Import.Register', 'value' => '2500', 'context' => 'Sample.Periodic', 'unitOfMeasure' => ['unit' => 'Wh']]]],
-            ['id' => 3, 'timestamp' => $at->addSeconds(2)->toIso8601String(), 'sampledValue' => [['measurand' => 'Energy.Active.Import.Register', 'value' => '3.500', 'context' => 'Transaction.End', 'unitOfMeasure' => ['unit' => 'kWh']]]],
+            ['id' => 3, 'timestamp' => $at->addSecond()->toIso8601String(), 'sampledValue' => [['measurand' => 'Energy.Active.Import.Register', 'value' => '3.500', 'context' => 'Transaction.End', 'unitOfMeasure' => ['unit' => 'kWh']]]],
         ];
         $loseEndResponse = false;
         Http::preventStrayRequests();
@@ -105,7 +105,10 @@ class SourceConsumerTest extends TestCase
                 $this->assertDatabaseCount('finance_invoices', 1);
                 $this->assertSame(2, $link->source_meter_cursor);
             }
-            // Retry the exact persisted source identity after a lost response.
+            // The terminal source sample occurred before the source endTime,
+        // which the signed inbox recorded as last_event_at. A lost reply
+        // must not strand final cursor reconciliation or duplicate billing.
+        // Retry the exact persisted source identity after a lost response.
             $this->assertSame(1, $consumer->consume($link->fresh(), $localInbox));
         }
         $this->assertDatabaseHas('charging_sessions', ['id' => $link->charging_session_id, 'status' => 'stopped', 'energy_wh' => 2500]);
