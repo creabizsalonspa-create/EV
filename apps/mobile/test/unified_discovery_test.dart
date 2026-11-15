@@ -371,4 +371,34 @@ void main(){
    expect(find.byKey(const Key('unified-recent-5')),findsNothing);
    expect(find.textContaining('Private session 0'),findsNothing);
  });
+
+ testWidgets('native account changes reset source, connector and age dropdowns alongside country',(tester)async{
+   roomy(tester);
+   final first=UnifiedApi(),second=UnifiedApi();
+   addTearDown(first.close);addTearDown(second.close);
+   await tester.pumpWidget(app(first,(_){ }));
+   final scope=find.byKey(const Key('unified-scope'));
+   final connector=find.byKey(const Key('unified-connector'));
+   final age=find.byKey(const Key('unified-source-age'));
+   await tester.ensureVisible(scope);await tester.tap(scope);await tester.pumpAndSettle();
+   await tester.tap(find.text('Authorized partner reports').last);await tester.pumpAndSettle();
+   await tester.ensureVisible(connector);await tester.tap(connector);await tester.pumpAndSettle();
+   await tester.tap(find.text('CCS2').last);await tester.pumpAndSettle();
+   await tester.ensureVisible(age);await tester.tap(age);await tester.pumpAndSettle();
+   await tester.tap(find.text('Last 24 hours').last);await tester.pumpAndSettle();
+   await tester.ensureVisible(find.byType(FilledButton));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(first.queries.last['scope'],'partner');
+   expect(first.queries.last['connector'],'CCS2');
+   expect(first.queries.last['max_source_age_hours'],'24');
+   await tester.pumpWidget(app(second,(_){ }));await tester.pumpAndSettle();
+   expect(tester.widget<DropdownButtonFormField<String>>(scope).initialValue,'all');
+   expect(tester.widget<DropdownButtonFormField<String>>(connector).initialValue,'');
+   expect(tester.widget<DropdownButtonFormField<String>>(age).initialValue,'');
+   await tester.ensureVisible(find.byType(FilledButton));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(second.queries.last['scope'],'all');
+   expect(second.queries.last['connector'],'');
+   expect(second.queries.last.containsKey('max_source_age_hours'),false);
+ });
 }
