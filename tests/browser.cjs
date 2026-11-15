@@ -242,6 +242,10 @@ function provisionTestRole(email, role) {
       .locator("#fleet-create [name=name]")
       .fill("Browser fleet " + run);
     await customer.page.locator("#fleet-create button").click();
+    // Wait for the committed fleet to appear before reading the actual first
+    // page; a browser click does not await its asynchronous submit handler.
+    await customer.page.locator("#fleet-list button")
+      .filter({hasText:"Browser fleet " + run}).waitFor();
     const firstFleetPage = await customer.page.evaluate(() => api("fleets?page=1"));
     const selectedFleet = firstFleetPage.data.find((f) => f.name === "Browser fleet " + run);
     assert(selectedFleet && Number.isSafeInteger(selectedFleet.id));
