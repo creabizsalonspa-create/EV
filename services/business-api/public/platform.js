@@ -2578,31 +2578,43 @@ async function ticketDetail(id) {
         d.append(f);
     }
 }
-let pendingTicketCreate = null;
+let pendingTicketCreate = null, ticketCreatePending = false;
 el("support-create").onsubmit = async (e) => {
     e.preventDefault();
+    if (!user || ticketCreatePending) return;
+    const epoch = client.sessionEpoch, actor = user.id;
+    const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const submit = e.target.querySelector("button");
     const payload = Object.fromEntries(new FormData(e.target));
     const signature = JSON.stringify(payload);
-    if (!pendingTicketCreate || pendingTicketCreate.signature !== signature) {
+    if (!pendingTicketCreate || pendingTicketCreate.signature !== signature ||
+        pendingTicketCreate.actor !== actor || pendingTicketCreate.epoch !== epoch) {
         pendingTicketCreate = {
-            signature,
+            signature, actor, epoch,
             key: crypto.randomUUID().replace(/-/g, ""),
         };
     }
+    const request = pendingTicketCreate;
+    ticketCreatePending = true;
+    if (submit) submit.disabled = true;
     try {
         const t = await api("support", "POST", {
             ...payload,
-            idempotency_key: pendingTicketCreate.key,
+            idempotency_key: request.key,
         });
+        if (!active()) return;
         if (!Number.isSafeInteger(t?.id) || t.id <= 0) {
             throw new Error("Ticket creation was not confirmed");
         }
-        pendingTicketCreate = null;
+        if (pendingTicketCreate === request) pendingTicketCreate = null;
         e.target.reset();
         await support();
-        await ticketDetail(t.id);
-    } catch (e) {
-        notice(e);
+        if (active()) await ticketDetail(t.id);
+    } catch (error) {
+        if (active()) notice(error);
+    } finally {
+        ticketCreatePending = false;
+        if (submit?.isConnected) submit.disabled = false;
     }
 };
 
