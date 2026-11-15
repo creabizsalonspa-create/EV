@@ -10,6 +10,9 @@ use Illuminate\Support\Facades\DB;
 
 final class VendorRevenueCohortController extends Controller
 {
+    // JSON integers must also remain exact in JavaScript/Flutter web consumers.
+    private const MAX_SAFE_MINOR = 9_007_199_254_740_991;
+
     /**
      * Invoice-issuance cohorts, not a cash-flow statement, PSP reconciliation,
      * earned payout balance or event-time payment/reversal series.
@@ -89,7 +92,7 @@ final class VendorRevenueCohortController extends Controller
             foreach ($amounts as $name) {
                 $value = $source ? filter_var($source->$name, FILTER_VALIDATE_INT) : 0;
                 abort_if($value === false || $value < 0, 409, 'Financial aggregate exceeds exact integer bounds.');
-                abort_if($value > PHP_INT_MAX - $totals[$name], 409, 'Financial aggregate exceeds exact integer bounds.');
+                abort_if($value > self::MAX_SAFE_MINOR - $totals[$name], 409, 'Financial aggregate exceeds exact browser integer bounds.');
                 $entry[$name] = $value;
                 $totals[$name] += $value;
             }
