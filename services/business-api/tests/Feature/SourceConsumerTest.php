@@ -210,7 +210,7 @@ class SourceConsumerTest extends TestCase
 
                 return Http::response(['data' => ['Transactions' => [[
                     'id' => 10,
-                    'transactionId' => 'source-protocol-fixture',
+                    'transactionId' => $link->protocol === '1.6' ? '101' : 'source-protocol-fixture',
                     'remoteStartId' => $link->start_command_id,
                     'meterStart' => '1.000',
                     'startTime' => $at,
