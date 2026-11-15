@@ -500,6 +500,116 @@ class SourceConsumerTest extends TestCase
         return [['1.6'], ['2.0.1']];
     }
 
+    public static function invalidSourceProjections(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['missing_stations', 'nonlist_authorizations', 'string_authorization_id', 'missing_transactions', 'nonlist_transactions'] as $kind) {
+                $cases[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('invalidSourceProjections')]
+    public function test_malformed_source_projections_never_start_a_session_and_recover_only_with_valid_source(string $protocol, string $kind): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond();
+        $bad = true;
+        $transactionReads = 0;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($protocol, $link, $at, $kind, &$bad, &$transactionReads) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                $data = [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ];
+                if ($bad && $kind === 'missing_stations') {
+                    unset($data['ChargingStations']);
+                }
+                if ($bad && $kind === 'nonlist_authorizations') {
+                    $data['Authorizations'] = ['record' => ['id' => 9]];
+                }
+                if ($bad && $kind === 'string_authorization_id') {
+                    $data['Authorizations'] = [['id' => '9']];
+                }
+
+                return Http::response(['data' => $data]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                $transactionReads++;
+                $records = [[
+                    'id' => 10,
+                    'transactionId' => $protocol === '1.6' ? '101' : 'malformed-projection',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000',
+                    'startTime' => $at->toIso8601String(),
+                    'endTime' => $at->addSeconds(2)->toIso8601String(),
+                    'isActive' => false,
+                    'totalKwh' => '2.500',
+                ]];
+                $data = ['Transactions' => $records];
+                if ($bad && $kind === 'missing_transactions') {
+                    unset($data['Transactions']);
+                }
+                if ($bad && $kind === 'nonlist_transactions') {
+                    $data['Transactions'] = ['record' => $records[0]];
+                }
+
+                return Http::response(['data' => $data]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                return Http::response(['data' => ['MeterValues' => [[
+                    'id' => 1,
+                    'timestamp' => $at->addSeconds(2)->toIso8601String(),
+                    'sampledValue' => [[
+                        'measurand' => 'Energy.Active.Import.Register',
+                        'value' => '3500',
+                        'context' => 'Transaction.End',
+                        'unitOfMeasure' => ['unit' => 'Wh'],
+                    ]],
+                ]]]]);
+            }
+
+            $this->fail('Malformed projection caused an unexpected outbound action.');
+        });
+
+        try {
+            app(SourceConsumer::class)->consume($link, true);
+            $this->fail('Malformed authenticated source projection was accepted.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('source', strtolower($e->getMessage()));
+        }
+        $this->assertNull($link->fresh()->transaction_id);
+        $this->assertNull($link->fresh()->source_station_id);
+        $this->assertNull($link->fresh()->source_transaction_database_id);
+        $this->assertSame(0, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id, 'status' => 'pending_start', 'energy_wh' => 0,
+        ]);
+        $this->assertDatabaseCount('csms_inbox_events', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $bad = false;
+
+        $this->assertSame(2, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(1, $link->fresh()->source_meter_cursor);
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertSame(10, $link->fresh()->source_transaction_database_id);
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id, 'status' => 'stopped', 'energy_wh' => 2500,
+        ]);
+        $this->assertDatabaseCount('csms_inbox_events', 2);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertGreaterThanOrEqual(1, $transactionReads);
+    }
+
     public static function invalidMeterPages(): array
     {
         $cases = [];
