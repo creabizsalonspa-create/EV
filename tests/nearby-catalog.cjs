@@ -75,8 +75,8 @@ const assert = require("node:assert/strict");
     await page.locator("#language").click();
     await page.getByText("1.11 كم بخط مستقيم", { exact: true }).waitFor();
     assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
-    await page.getByText("اسم المشغل", {exact: true}).waitFor();
-    await page.getByText("تتضمن تعليمات الدخول", {exact: true}).waitFor();
+    await page.locator("#filters").getByText("اسم المشغل", {exact: true}).waitFor();
+    await page.locator("#filters").getByText("تتضمن تعليمات الدخول", {exact: true}).waitFor();
     // Read-only feedback is allowed; discovery still grants no booking/control.
     const cards = page.locator("#stations");
     assert.equal(await cards.locator("button").count(), 1);
