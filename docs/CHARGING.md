@@ -41,6 +41,23 @@ The successful protocol-run output is retained in `docs/evidence/charging-protoc
 
 These protocol tests do not by themselves establish Laravel-to-CSMS transaction correlation, event-inbox authenticity/deduplication, final business invoice/payment reconciliation, physical charger safety, complete OCPP conformance, diagnostics/firmware controls, or production operational resilience. The Laravel business bridge and its separate end-to-end evidence must be verified independently before claiming the entire customer/vendor charging-to-invoice workflow.
 
+## Fault observation cursor integrity
+
+The bounded local CitrineOS fault observer validates the recognized OCPP
+connector-status vocabulary and strict timezone-qualified source timestamp
+before it commits even the first event in a source page. Unsupported device
+states, relative/naive dates and future observations fail the entire page and
+leave the durable cursor unchanged in `requires_review`. The owner receives
+a private generic review notification; an operator-approved corrected source
+page can resume from the original event ids. Recovery is sourced from a new
+valid observation, never inferred from the failed poll. The observer does not
+dispatch charger commands or alter reservations, sessions or billing.
+
+`ContinuousFaultObserverTest` covers both OCPP versions and invalid-status,
+relative-clock and naive-clock handling, followed by restart-safe source
+catch-up. These are mocked-source regression checks, not conformance or
+hardware acceptance.
+
 ## Source station protocol identity and reconciliation
 
 The restartable local-simulator `SourceConsumer` now requires the authenticated
