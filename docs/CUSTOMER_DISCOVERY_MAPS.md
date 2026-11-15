@@ -49,3 +49,12 @@ The unified authenticated search now accepts optional `min_power_kw` and `max_po
 Both existing English/Arabic web and canonical Flutter advanced forms disclose this source limitation and normalize Arabic numerals. Empty values do not change unfiltered inventory. Submitted values persist across pagination and are cleared on session/context reset. No charger operation, connector-state claim, external provider lookup, licensed data call or physical-device change is added.
 
 Candidate acceptance includes Laravel SQLite and PostgreSQL numeric-bound validation, source isolation, pre-union pagination and combined country+viewport intersections, browser DOM & live Laravel/Chromium synthetic fixtures, Flutter EN/AR filter input and page-state tests, plus hosted platform/native CI. This stacked candidate depends on Agent 8 viewport/country PR #137 and must not be merged before that dependency and all exact-head gates pass.
+
+
+### Session-only recent unified search presets (Agent 8 follow-on)
+
+The existing unified discovery search on both web and Flutter holds **up to five successful explicitly submitted filter presets in memory only**. It includes search text, country, source scope, connector, bounded partner report freshness, saved-only flag where authorized, and advanced price/power/operator/address filters. Successful repeated searches move the same preset to the front rather than creating duplicates. A recent preset button **restores local form fields only**; the user must press Search separately before any network request occurs. Pagination, map viewport search, favorite updates and failed requests cannot silently populate recent history.
+
+A **Clear recent filters** button deletes the list without network traffic. The list is never sent to analytics or placed in localStorage, browser history, cookies, URL fragments, the backend or secure storage. Web context/account clearing and native authentication changes destroy it; native background/inactive transitions destroy it as well. Search terms remain ordinary user-entered text and are not upgraded to live availability or charging authorization.
+
+Coverage: English/Arabic DOM and Flutter widget tests for deduplication, restore-without-request, explicit re-submission, no history on failed searches, clearing on account identity and native background transitions. No cross-device persistence, search recommendations or profile synchronization is claimed. Provider terms and customer data policies must be reviewed before any future durable search-history feature.
