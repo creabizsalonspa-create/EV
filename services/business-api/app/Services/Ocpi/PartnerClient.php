@@ -84,8 +84,12 @@ class PartnerClient
         $hasRequest = $headers->hasHeader('X-Request-ID');
         $hasCorrelation = $headers->hasHeader('X-Correlation-ID');
         if (! $hasRequest && ! $hasCorrelation) {
-            // Some existing approved sandbox fixtures predate echoed trace IDs.
-            return;
+            // Legacy headerless fixtures are permitted only in local/testing.
+            // Real OCPI partners must echo both outbound tracing identifiers.
+            if (app()->environment(['local', 'testing'])) {
+                return;
+            }
+            throw new OcpiException('Operator OCPI tracing headers disagreed with this request.');
         }
         if (! $hasRequest || ! $hasCorrelation
             || ! hash_equals($sent['X-Request-ID'], $headers->getHeaderLine('X-Request-ID'))
