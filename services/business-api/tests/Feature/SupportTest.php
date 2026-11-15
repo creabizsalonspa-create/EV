@@ -287,4 +287,69 @@ class SupportTest extends TestCase
         $this->assertDatabaseCount('ticket_messages', 1);
         $this->assertDatabaseCount('inbox_notifications', 0);
     }
+
+    public function test_stale_admin_cannot_read_other_support_or_mutate_private_ticket_after_credentials_change(): void
+    {
+        $owner = User::factory()->create(['role' => 'customer']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $ticket = SupportTicket::create([
+            'user_id' => $owner->id, 'subject' => 'Confidential support case',
+        ]);
+        $this->actingAs($admin, 'web');
+        $this->getJson('/api/support')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson('/api/support/'.$ticket->id)->assertOk();
+
+        DB::table('users')->where('id', $admin->id)->update(['auth_epoch' => 2]);
+        foreach (['/api/support', '/api/v1/support',
+            '/api/support/'.$ticket->id, '/api/v1/support/'.$ticket->id] as $path) {
+            $this->getJson($path)->assertStatus(409);
+        }
+        $this->postJson('/api/support/'.$ticket->id.'/messages', [
+            'body' => 'Stale privileged note', 'internal' => true,
+        ])->assertStatus(409);
+        $this->patchJson('/api/support/'.$ticket->id.'/status', [
+            'status' => 'resolved', 'reason' => 'Stale privileged decision',
+        ])->assertStatus(409);
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'auth_epoch' => 0, 'password' => bcrypt('new-admin-secret'),
+        ]);
+        $this->getJson('/api/support')->assertStatus(409);
+        $this->getJson('/api/support/'.$ticket->id)->assertStatus(409);
+        $this->postJson('/api/support/'.$ticket->id.'/messages', [
+            'body' => 'New password cannot revive cached authority', 'internal' => true,
+        ])->assertStatus(409);
+        $this->assertDatabaseCount('ticket_messages', 0);
+        $this->assertDatabaseCount('inbox_notifications', 0);
+        $this->assertSame('open', $ticket->fresh()->status);
+        $this->assertDatabaseCount('audit_events', 0);
+
+        // Fresh authenticated Admin authority can still investigate.
+        $fresh = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($fresh, 'web')->getJson('/api/support/'.$ticket->id)
+            ->assertOk()->assertJsonPath('ticket.id', $ticket->id)
+            ->assertHeader('Cache-Control', 'no-store, private');
+    }
+
+    public function test_suspended_admin_cannot_read_or_change_private_support_cases(): void
+    {
+        $owner = User::factory()->create(['role' => 'customer']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $ticket = SupportTicket::create(['user_id' => $owner->id, 'subject' => 'Private owner complaint']);
+        $this->actingAs($admin, 'web');
+
+        DB::table('users')->where('id', $admin->id)->update(['account_status' => 'suspended']);
+        $this->getJson('/api/support')->assertForbidden();
+        $this->getJson('/api/support/'.$ticket->id)->assertForbidden();
+        $this->postJson('/api/support/'.$ticket->id.'/messages', [
+            'body' => 'Suspended internal note', 'internal' => true,
+        ])->assertForbidden();
+        $this->patchJson('/api/support/'.$ticket->id.'/status', [
+            'status' => 'resolved', 'reason' => 'Suspended status change',
+        ])->assertForbidden();
+        $this->assertDatabaseCount('ticket_messages', 0);
+        $this->assertSame('open', $ticket->fresh()->status);
+        $this->assertDatabaseCount('audit_events', 0);
+    }
+
 }

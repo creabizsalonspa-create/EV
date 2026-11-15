@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\InboxNotification;
+use App\Models\User;
 use App\Models\SupportTicket;
 use App\Models\TicketMessage;
 use Illuminate\Http\Request;
@@ -13,12 +14,30 @@ class SupportController extends Controller
     /** Role revocation must invalidate a cached authenticated Admin model. */
     private function currentRole(Request $r, bool $forUpdate = false): ?string
     {
-        $actor = DB::table('users')->where('id', $r->user()->id);
+        $snapshot = $r->user();
+        abort_unless($snapshot instanceof User, 403);
+        $query = User::whereKey($snapshot->id);
         if ($forUpdate) {
-            $actor->lockForUpdate();
+            $query->lockForUpdate();
+        }
+        $actor = $query->first();
+        if (! $actor) {
+            return null;
         }
 
-        return $actor->value('role');
+        // Staff support can include confidential cross-account messages.
+        // A live Admin role alone must not revive a stale session after
+        // a password change or an auth-epoch revocation.
+        if ($actor->role === 'admin') {
+            abort_unless($snapshot->role === 'admin'
+                && $snapshot->account_status === 'active'
+                && $actor->account_status === 'active', 403);
+            abort_unless((int) $snapshot->auth_epoch === (int) $actor->auth_epoch
+                && hash_equals((string) $snapshot->password, (string) $actor->password),
+                409, 'Administrator credentials changed. Sign in again.');
+        }
+
+        return $actor->role;
     }
 
     private function access(Request $r, SupportTicket $t): void
@@ -33,9 +52,18 @@ class SupportController extends Controller
 
     public function index(Request $r)
     {
-        $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+        return DB::transaction(function () use ($r) {
+            // Keep the current Admin row locked until the private list is
+            // collected. Customer/vendor tickets remain owner-scoped.
+            $role = $this->currentRole($r, true);
+            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
 
-        return SupportTicket::when($this->currentRole($r) !== 'admin', fn ($q) => $q->where('user_id', $r->user()->id))->orderByDesc('id')->paginate(25);
+            return response()->json(
+                SupportTicket::when($role !== 'admin',
+                    fn ($q) => $q->where('user_id', $r->user()->id))
+                    ->orderByDesc('id')->paginate(25)
+            )->header('Cache-Control', 'no-store, private');
+        });
     }
 
     public function create(Request $r)
@@ -85,10 +113,18 @@ class SupportController extends Controller
 
     public function show(Request $r, SupportTicket $ticket)
     {
-        $this->access($r, $ticket);
-        $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+        return DB::transaction(function () use ($r, $ticket) {
+            $role = $this->currentRole($r, true);
+            abort_unless($role === 'admin' || $ticket->user_id === $r->user()->id, 404);
+            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
 
-        return response()->json(['ticket' => $ticket, 'messages' => TicketMessage::where('support_ticket_id', $ticket->id)->when($this->currentRole($r) !== 'admin', fn ($q) => $q->where('internal', false))->orderBy('id')->paginate(50)]);
+            return response()->json([
+                'ticket' => $ticket,
+                'messages' => TicketMessage::where('support_ticket_id', $ticket->id)
+                    ->when($role !== 'admin', fn ($q) => $q->where('internal', false))
+                    ->orderBy('id')->paginate(50),
+            ])->header('Cache-Control', 'no-store, private');
+        });
     }
 
     public function reply(Request $r, SupportTicket $ticket)
