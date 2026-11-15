@@ -200,4 +200,63 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(),isNull);
   });
+
+  testWidgets('empty partner-only map never accesses tiles or invents a station', (tester) async {
+    final tiles=FakeMapTiles();
+    await tester.pumpWidget(MaterialApp(home:PartnerReportMap(
+      points:const [],tileProvider:tiles,
+    )));
+    expect(find.text('No map-compatible coordinates on this page.'),findsOneWidget);
+    expect(find.byKey(const Key('partner-map-enable')),findsNothing);
+    expect(find.byType(FlutterMap),findsNothing);
+    expect(find.byKey(const Key('unified-native-viewport-search')),findsNothing);
+    expect(tiles.requests,0);
+  });
+
+  testWidgets('empty exploratory map requires separate tile consent and deliberate viewport submit', (tester) async {
+    final tiles=FakeMapTiles();
+    final requested=<Map<String,String>>[];
+    await tester.pumpWidget(MaterialApp(home:Builder(builder:(context)=>Scaffold(
+      body:FilledButton(key:const Key('open-empty-exploration'),onPressed:()async{
+        final result=await Navigator.of(context).push<Map<String,String>>(
+          MaterialPageRoute(builder:(_)=>PartnerReportMap(
+            points:const [],tileProvider:tiles,allowViewportSearch:true,
+          )),
+        );
+        if(result!=null)requested.add(result);
+      },child:const Text('Open discovery area')),
+    ))));
+    await tester.tap(find.byKey(const Key('open-empty-exploration')));
+    await tester.pumpAndSettle();
+    expect(tiles.requests,0);
+    expect(find.byType(FlutterMap),findsNothing);
+    expect(find.byKey(const Key('unified-native-viewport-search')),findsNothing);
+    expect(find.textContaining('neutral world view'),findsOneWidget);
+    expect(find.byKey(const Key('partner-map-enable')),findsOneWidget);
+    expect(requested,isEmpty);
+
+    await tester.tap(find.byKey(const Key('partner-map-enable')));
+    await tester.pumpAndSettle();
+    expect(find.byType(FlutterMap),findsOneWidget);
+    expect(tiles.requests,greaterThan(0));
+    expect(requested,isEmpty);
+    expect(find.byKey(const Key('partner-report-pin-0')),findsNothing);
+    expect(find.byKey(const Key('partner-report-cluster-0')),findsNothing);
+
+    final action=find.byKey(const Key('unified-native-viewport-search'));
+    await tester.ensureVisible(action);
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    expect(requested.length,1);
+    final bounds=requested.single;
+    for(final key in ['south','north','west','east']){
+      expect(double.tryParse(bounds[key]??''),isNotNull);
+    }
+    expect(double.parse(bounds['south']!),lessThan(0));
+    expect(double.parse(bounds['north']!),greaterThan(0));
+    expect(double.parse(bounds['west']!),lessThan(0));
+    expect(double.parse(bounds['east']!),greaterThan(0));
+    expect(find.byType(FlutterMap),findsNothing);
+    expect(tester.takeException(),isNull);
+  });
 }
