@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\InboxNotification;
 use App\Models\User;
+use App\Services\Notifications\CurrentNotificationActor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -20,15 +21,7 @@ class NotificationCenterController extends Controller
     {
         $snapshot = $request->user();
         abort_unless($snapshot instanceof User, 401);
-        $query = User::whereKey($snapshot->id);
-        $actor = $forMutation ? $query->lockForUpdate()->firstOrFail() : $query->firstOrFail();
-        abort_unless($actor->account_status === 'active'
-            && $actor->role === $snapshot->role
-            && (int) $actor->auth_epoch === (int) $snapshot->auth_epoch
-            && hash_equals((string) $actor->password, (string) $snapshot->password),
-            409, 'Account credentials changed; sign in again.');
-
-        return $actor;
+        return app(CurrentNotificationActor::class)->revalidate($snapshot, $forMutation);
     }
 
     /**
