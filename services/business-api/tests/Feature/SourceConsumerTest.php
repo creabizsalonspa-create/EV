@@ -504,7 +504,7 @@ class SourceConsumerTest extends TestCase
     {
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page', 'nonenergy_before_start', 'nonenergy_after_end', 'later_ambiguous_register', 'later_invalid_unit', 'later_after_end'] as $kind) {
+            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page', 'nonenergy_before_start', 'nonenergy_after_end', 'later_ambiguous_register', 'later_invalid_unit', 'later_after_end', 'later_regressing_nonenergy_time', 'later_regressing_energy_time'] as $kind) {
                 $cases[$protocol.'_'.$kind] = [$protocol, $kind];
             }
         }
@@ -549,6 +549,17 @@ class SourceConsumerTest extends TestCase
             'later_ambiguous_register' => [$row(1), array_replace($valid[1], ['sampledValue' => [$valid[1]['sampledValue'][0], $valid[1]['sampledValue'][0]]])],
             'later_invalid_unit' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['unitOfMeasure' => ['unit' => 'MWh']])]])],
             'later_after_end' => [$row(1), array_replace($valid[1], ['timestamp' => $at->addSeconds(3)->toIso8601String()])],
+            'later_regressing_nonenergy_time' => [
+                array_replace($row(1), ['timestamp' => $at->addSecond()->toIso8601String()]),
+                $row(2),
+            ],
+            'later_regressing_energy_time' => [
+                ['id' => 1, 'timestamp' => $at->addSecond()->toIso8601String(),
+                    'sampledValue' => [['measurand' => 'Energy.Active.Import.Register',
+                        'value' => '2500', 'context' => 'Sample.Periodic',
+                        'unitOfMeasure' => ['unit' => 'Wh']]]],
+                array_replace($valid[1], ['timestamp' => $at->toIso8601String()]),
+            ],
         };
         Http::preventStrayRequests();
         Http::fake(function (Request $request) use ($protocol, $link, $at, &$rows, &$stationQueries, &$transactionQueries) {
@@ -707,7 +718,7 @@ class SourceConsumerTest extends TestCase
         // cumulative energy, and one authoritative terminal register.
         $rows = array_map(fn (int $id) => [
             'id' => $id,
-            'timestamp' => $at->toIso8601String(),
+            'timestamp' => $at->addSeconds($id >= 75 ? 1 : 0)->toIso8601String(),
             'sampledValue' => [['measurand' => 'Voltage', 'value' => 230]],
         ], range(1, 250));
         $register = fn (int $id, string $value, string $context, int $offset) => [
