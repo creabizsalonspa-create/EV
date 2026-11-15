@@ -87,6 +87,8 @@ class AccountSecondFactorTest extends TestCase
         $code = AdminTotp::codeAtStep($prepared['secret'], intdiv(now()->timestamp, 30));
         $reply = $this->postJson('/api/account/second-factor/enable', ['password' => 'password', 'code' => $code])->assertOk()->json();
         $this->assertCount(8, $reply['recovery_codes']);
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9]{40}$/D', $reply['csrf_token']);
+        $this->assertSame(session()->token(), $reply['csrf_token']);
         $this->assertFalse($reply['reauthentication_required']);
         $row = DB::table('account_second_factors')->where('user_id', $user->id)->first();
         $this->assertSame($prepared['secret'], Crypt::decryptString($row->secret));
@@ -95,6 +97,17 @@ class AccountSecondFactorTest extends TestCase
         $this->getJson('/api/me')->assertOk(); // Proven current browser keeps a fresh epoch.
         $this->getJson('/api/account/second-factor')->assertJsonPath('enabled', true)->assertJsonPath('recovery_remaining', 8)->assertJsonMissingPath('recovery_codes');
         $this->assertStringNotContainsString($prepared['secret'], json_encode(DB::table('audit_events')->get()));
+    }
+
+    public function test_native_factor_enrollment_requires_reauthentication_without_a_browser_csrf_handoff(): void
+    {
+        $user = User::factory()->create();
+        $token = $user->createToken('native-factor-test')->plainTextToken;
+        $this->withHeaders(['Authorization' => 'Bearer '.$token]);
+        $prepared = $this->postJson('/api/v1/account/second-factor/prepare', ['password' => 'password'])->assertOk()->json();
+        $this->postJson('/api/v1/account/second-factor/enable', ['password' => 'password', 'code' => AdminTotp::codeAtStep($prepared['secret'], intdiv(now()->timestamp, 30))])
+            ->assertOk()->assertJsonPath('reauthentication_required', true)->assertJsonPath('csrf_token', null);
+        $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 
     public function test_password_only_and_replayed_totp_cannot_leave_an_authenticated_browser_session(): void

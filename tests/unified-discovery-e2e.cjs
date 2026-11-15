@@ -16,7 +16,7 @@ let stage='fixture';
   await root.locator('select[name=max_source_age_hours]').selectOption('24');
   stage='search';const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/discovery/search');await root.getByRole('button',{name:'Search all sources',exact:true}).click();const result=await response;assert.equal(new URL(result.url()).searchParams.get('max_source_age_hours'),'24');assert.equal(result.status(),200);assert.equal((await result.json()).total,2);
   await root.locator('[data-discovery-key="partner:'+f.record_id+'"]').waitFor();assert.equal(await root.locator('article').count(),2);assert.equal(await root.locator('article b').count(),0);assert.equal(await root.locator('[data-discovery-key="partner:'+f.record_id+'"] button:not([data-favorite-kind])').count(),0);assert.equal(await root.locator('[data-discovery-key="partner:'+f.record_id+'"] button[data-favorite-kind]').count(),1);
-  assert.match(await root.textContent(),/Reported catalog age at search:/);assert.match(await root.textContent(),/do not verify physical availability/);
+  assert.match(await root.textContent(),/Reported catalog age at search:/);assert.match(await root.textContent(),/Catalog-age policy at search: within limit/);assert.match(await root.textContent(),/do not verify physical availability/);
   stage='favorites';for(const [kind,id,path] of [['catalog',f.station_id,'favorites'],['partner',f.record_id,'roaming/favorites']]){
    const saved=page.waitForResponse(r=>new URL(r.url()).pathname===`/api/${path}/${id}`&&r.request().method()==='PUT');
    await root.locator(`[data-discovery-key="${kind}:${id}"] button[data-favorite-kind]`).click();assert.equal((await saved).status(),200);
@@ -40,7 +40,7 @@ let stage='fixture';
   assert.equal(await page.locator('.station-map-pin:not(.partner-map-pin)').count(),1);assert.equal(await page.locator('.partner-map-pin').count(),1);
   await page.getByRole('button',{name:'Disable interactive map',exact:true}).click();assert.equal(await page.locator('#station-map').isVisible(),false);
 
-  await page.locator('#language').click();await page.waitForFunction(()=>document.documentElement.lang==='ar');assert.match(await root.textContent(),/التوفر غير معروف/);assert.match(await root.textContent(),/عمر الكتالوج المبلغ عنه عند البحث/);assert.match(await root.textContent(),/لا تؤكد التوفر الفعلي/);
+  await page.locator('#language').click();await page.waitForFunction(()=>document.documentElement.lang==='ar');assert.match(await root.textContent(),/التوفر غير معروف/);assert.match(await root.textContent(),/عمر الكتالوج المبلغ عنه عند البحث/);assert.match(await root.textContent(),/سياسة عمر الكتالوج عند البحث/);assert.match(await root.textContent(),/لا تؤكد التوفر الفعلي/);
   const canonical=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/stations'&&new URL(r.url()).searchParams.get('station_id')===String(f.station_id));await root.locator('[data-discovery-key="catalog:'+f.station_id+'"] button:not([data-favorite-kind])').click();assert.equal((await canonical).status(),200);
   assert.deepEqual(errors,[]);console.log('Actual unified Laravel/browser bilingual search, supplier identities, safe text and canonical catalog handoff passed (synthetic published records).');
  }finally{await browser.close();execFileSync(process.env.EV_TEST_PHP_RUNNER||'./scripts/php',['tests/Fixtures/unified-discovery-clean.php',run],{stdio:'pipe'});}

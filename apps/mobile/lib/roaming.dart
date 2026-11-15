@@ -1,3 +1,4 @@
+import 'partner_catalog_policy.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
@@ -14,9 +15,11 @@ class RoamingLocation {
   final String? providerLabel;
   final int? reportedSourceAgeMinutes;
   final String? sourceClockEvidence;
+  final dynamic catalogAgePolicy;
   final double? distanceKm;
   RoamingLocation.fromJson(Map<String, dynamic> json)
-    : id = json['id'] as int?,
+    : catalogAgePolicy = json['location_available'] == false ? null : json['catalog_age_policy'],
+      id = json['id'] as int?,
       available = json['location_available'] != false,
       location = json['location'] is Map
           ? Map<String, dynamic>.from(json['location'] as Map)
@@ -628,6 +631,7 @@ class _RoamingViewState extends State<RoamingView> {
                             Text(tr('Partner source age (not live): ',
                                     'عمر تقرير الشريك (ليس مباشراً): ') +
                                 row.reportedSourceAgeMinutes.toString() + ' min'),
+                          Text(partnerCatalogPolicyText(row.catalogAgePolicy, Localizations.localeOf(context).languageCode == 'ar')),
                           if (row.sourceClockEvidence == 'PARTNER_CLOCK_AHEAD' ||
                               row.sourceClockEvidence == 'SOURCE_TIMESTAMP_UNKNOWN')
                             Text(tr(

@@ -73,7 +73,7 @@ final class ScheduledSync
             $history = DB::table('ocpi_sync_runs as r')->join('ocpi_sync_plans as p', 'p.id', '=', 'r.plan_id')->where('p.provider_id', $provider->id)
                 ->select('r.id', 'p.module', 'r.state', 'r.result_code', 'r.counts', 'r.started_at', 'r.completed_at')->orderByDesc('r.started_at')->orderByDesc('r.id')->paginate(25, ['*'], 'page', $page);
 
-            return ['plans' => array_map(fn ($m) => $this->project($plans->get($m), $m, $provider), PartnerClient::MODULES), 'history' => $history->toArray(),
+            return ['catalog_health' => app(PartnerCatalogHealth::class)->snapshot($provider), 'plans' => array_map(fn ($m) => $this->project($plans->get($m), $m, $provider), PartnerClient::MODULES), 'history' => $history->toArray(),
                 'configured' => (bool) config('ocpi.scheduled_sync_enabled'), 'intervals' => self::INTERVALS, 'read_only_polling' => true, 'billing_authority' => false, 'remote_control' => false, 'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'physical_charging_verified' => false];
         });
     }
