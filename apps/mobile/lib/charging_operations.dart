@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'connector_fleet.dart';
 import 'action_form.dart';
 import 'strings.dart';
 
@@ -234,7 +235,25 @@ class _OperationsState extends State<ChargingOperationsView> {
   Widget build(BuildContext context) {
     final s = EvStrings.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(t('title'))),
+      appBar: AppBar(
+        title: Text(t('title')),
+        actions: [
+          IconButton(
+            tooltip: Localizations.localeOf(context).languageCode == 'ar'
+                ? 'سجل موصلات الأسطول'
+                : 'Recorded connector fleet',
+            icon: const Icon(Icons.electrical_services),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ConnectorFleetView(
+                  api: widget.api,
+                  onExpired: widget.onExpired,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

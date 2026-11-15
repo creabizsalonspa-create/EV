@@ -1,3 +1,20 @@
+# 15 November 2026 — connected connector fleet observations (integration pending)
+
+Laravel, vendor/Admin EN/AR web and vendor Flutter now provide explicit paginated
+fleet snapshots from canonical connector mappings and existing accepted source
+freshness rules. Both OCPP versions remain distinct; missing/stale/conflicting/
+future/replaced/maintenance-blocked source cannot become a recent status. Private
+station filters, ownership/security-epoch checks, no credential/customer payloads,
+background/account fences and frozen pagination are enforced. No command, source
+poll, bill or physical/live-availability claim is created.
+
+Focused PostgreSQL22/376 including canonical topology regressions, two new Flutter
+cases plus existing operational-control cases, changed native analysis, browser
+EN/AR source contracts and actual isolated Laravel/vendor EN/AR filtered snapshot
+workflow passed. Mandatory hosted validation and integration remain pending.
+The original312 inventory and production acceptance remain unchanged; this is
+stored-source monitoring, not verified physical fleet connectivity.
+
 # 15 November 2026 — current-request OCPI operations (integration pending)
 
 Connected Laravel, customer EN/AR web and Flutter preserve captured account

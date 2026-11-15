@@ -2568,6 +2568,7 @@ async function commandHistory(page = 1) {
         );
         if (request.signal.aborted || user !== actor) return;
         const metrics = el("charging-dashboard");
+        window.renderConnectorFleetAction?.(metrics, { api, actor: () => user });
         const ar = document.documentElement.lang === "ar";
         const line = (en, arabic, value) => {
             const item = document.createElement("p");

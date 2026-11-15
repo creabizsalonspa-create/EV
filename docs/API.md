@@ -623,3 +623,23 @@ may be reused. Prepared, dispatching and unknown outcomes never retry. Web and
 Flutter show a separate completion action; cancel sends nothing. Local revoke
 and source token deactivation never imply that an active session stopped,
 release an active EVSE hold, or authorize billing/physical charging.
+
+
+### Recorded connector fleet
+
+Owner vendor/protected web Admin `GET /api/charging-operations/connectors`
+(native `/api/v1/...`, existing native Admin restriction preserved) provides
+25 mapped connectors/page, stable ascending mapping IDs, optional positive
+`station_id` and bounded `page`. Current captured role/password/epoch/status
+is checked under user lock. Foreign station filters return404; station transfers
+cannot expose prior-owner source evidence. Canonical topology/license/maintenance
+checks and existing `ConnectorFreshness` generation/component rules qualify each
+source snapshot. Exact five-minute expiry is stale; missing, future, conflicting,
+replaced or blocked source stays unknown. No credential, raw payload, customer,
+transaction or billing record is projected and no upstream read is performed.
+
+EN/AR web and Flutter use explicit filtered reads and frozen-filter pagination.
+Account/background changes discard cached and in-flight snapshots; resume does
+not poll. Reports are labeled with snapshot/source timestamps and simulated
+source evidence, never current physical availability, connectivity or command
+permission. This observation page does not replace topology or admission checks.
