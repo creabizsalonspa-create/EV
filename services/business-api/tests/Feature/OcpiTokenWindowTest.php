@@ -46,4 +46,34 @@ class OcpiTokenWindowTest extends TestCase
             ->assertStatus(422);
         $this->assertCount($originalWrites, $this->writes, 'Token pagination must never dispatch a roaming command.');
     }
+
+    public function test_ocpi_protocol_replies_echo_safe_message_ids_across_token_credentials_and_records(): void
+    {
+        $this->fixture();
+        $ids = ['X-Request-ID' => 'agent9-synthetic-request', 'X-Correlation-ID' => 'agent9-synthetic-correlation'];
+        $headers = array_merge($this->peer(), $ids);
+
+        foreach ([
+            '/api/roaming-protocol/versions',
+            '/api/roaming-protocol/2.2.1/tokens?limit=1',
+        ] as $url) {
+            $this->withHeaders($headers)->getJson($url)
+                ->assertOk()
+                ->assertHeader('X-Request-ID', $ids['X-Request-ID'])
+                ->assertHeader('X-Correlation-ID', $ids['X-Correlation-ID']);
+        }
+
+        // The same tracing contract must survive a peer-scoped read error.
+        $this->withHeaders($headers)->getJson('/api/roaming-protocol/2.2.1/sessions/NL/ABC/missing')
+            ->assertNotFound()
+            ->assertHeader('X-Request-ID', $ids['X-Request-ID'])
+            ->assertHeader('X-Correlation-ID', $ids['X-Correlation-ID']);
+
+        $this->withHeaders(array_merge($headers, ['Authorization' => 'Token '.base64_encode('wrong-peer')]))
+            ->getJson('/api/roaming-protocol/2.2.1/tokens?limit=1')
+            ->assertUnauthorized()
+            ->assertHeader('X-Request-ID', $ids['X-Request-ID'])
+            ->assertHeader('X-Correlation-ID', $ids['X-Correlation-ID']);
+        $this->assertCount(0, $this->writes, 'Read-only OCPI tracing must never send a command.');
+    }
 }
