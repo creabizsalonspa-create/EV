@@ -21,13 +21,13 @@ function harness() {
     };
     const user = {id:7,role:"customer"};
     const client = {sessionEpoch:1};
-    let reads = [], create, profile, requests = [], notices = [], localeUpdates = [];
+    let reads = [], creates = [], profiles = [], requests = [], notices = [], localeUpdates = [];
     const api = (path,method) => {
         requests.push({path,method});
         if (path === "vehicles" && method === "POST")
-            return new Promise(resolve => {create=resolve;});
+            return new Promise(resolve => {creates.push(resolve);});
         if (path === "profile" && method === "PATCH")
-            return new Promise(resolve => {profile=resolve;});
+            return new Promise(resolve => {profiles.push(resolve);});
         if (path === "vehicles")
             return new Promise(resolve => {reads.push(resolve);});
         throw Error("unexpected "+path);
@@ -43,10 +43,11 @@ function harness() {
         identity:async()=>{},
         FormData:class {constructor(){} *[Symbol.iterator](){}}
     };
-    const methods = new Function("env", "with(env){"+code+"return {garage};}")(env);
+    const methods = new Function("env", "with(env){"+code+"return {garage,resetCustomerMutationState};}")(env);
     return {methods,el,client,user,requests,notices,localeUpdates,
         resolveRead:(index,value)=>reads[index](value),
-        resolveCreate:()=>create(),resolveProfile:value=>profile(value)};
+        resolveCreate:(index=0)=>creates[index](),
+        resolveProfile:(value,index=0)=>profiles[index](value)};
 }
 test("late garage response cannot render a previous customer's private vehicles",async()=>{
     const h=harness(),p=h.methods.garage();
@@ -105,4 +106,48 @@ test("starting a garage refresh immediately clears previously displayed private 
     h.resolveRead(0,{data:[{id:1,name:"Previous",connector_type:"CCS2"}]});
     await pending;
     assert.equal(list.children.length,0);
+});
+
+test("new account vehicle create stays locked independently of old pending acknowledgement",async()=>{
+    const h=harness(),form=h.el("vehicle-create");
+    form.submit={disabled:false,isConnected:true};
+    const event={preventDefault(){},target:form};
+    const former=form.onsubmit(event);
+    assert.equal(h.requests.filter(x=>x.path==="vehicles"&&x.method==="POST").length,1);
+    h.client.sessionEpoch++;
+    h.user.id=8;
+    h.methods.resetCustomerMutationState();
+    const current=form.onsubmit(event);
+    assert.equal(h.requests.filter(x=>x.path==="vehicles"&&x.method==="POST").length,2);
+    assert.equal(form.submit.disabled,true);
+    h.resolveCreate(0);
+    await former;
+    assert.equal(form.submit.disabled,true,
+        "late former actor cannot release the current actor's in-flight lock");
+    h.resolveCreate(1);
+    await Promise.resolve();
+    h.resolveRead(0,{data:[]});
+    await current;
+    assert.equal(form.submit.disabled,false);
+});
+test("new account profile PATCH survives older account acknowledgement",async()=>{
+    const h=harness(),form=h.el("profile-form");
+    form.submit={disabled:false,isConnected:true};
+    const event={preventDefault(){},target:form};
+    const former=form.onsubmit(event);
+    h.client.sessionEpoch++;
+    h.user.id=8;
+    h.methods.resetCustomerMutationState();
+    const current=form.onsubmit(event);
+    assert.equal(h.requests.filter(x=>x.path==="profile"&&x.method==="PATCH").length,2);
+    assert.equal(form.submit.disabled,true);
+    h.resolveProfile({id:7,locale:"ar"},0);
+    await former;
+    assert.equal(form.submit.disabled,true);
+    assert.equal(h.localeUpdates.length,0);
+    h.resolveProfile({id:8,locale:"en"},1);
+    await current;
+    assert.equal(form.submit.disabled,false);
+    assert.equal(h.localeUpdates.length,1);
+    assert.equal(h.localeUpdates[0],"en");
 });
