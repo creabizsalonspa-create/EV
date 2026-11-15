@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\UnifiedDiscoveryController;
+use App\Models\Finance\TariffVersion;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\Station;
@@ -259,7 +260,7 @@ class UnifiedDiscoveryTest extends TestCase
     {
         $this->freezeTime();
         $f = $this->fixtures();
-        $tariff = fn (int $rate, $at) => \App\Models\Finance\TariffVersion::create(['station_id' => $f['station']->id, 'created_by' => $f['station']->vendor_id, 'rate_minor_per_kwh' => $rate, 'tax_bps' => 500, 'commission_bps' => 1000, 'currency' => 'AED', 'minor_units' => 2, 'effective_from' => $at]);
+        $tariff = fn (int $rate, $at) => TariffVersion::create(['station_id' => $f['station']->id, 'created_by' => $f['station']->vendor_id, 'rate_minor_per_kwh' => $rate, 'tax_bps' => 500, 'commission_bps' => 1000, 'currency' => 'AED', 'minor_units' => 2, 'effective_from' => $at]);
         $tariff(1, now()->subHour());
         $tariff(150, now()->subMinute());
         $tariff(900, now()->addMinute());
