@@ -545,6 +545,12 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertSame(0, $service->scan()['escalated']);
         DB::table('charging_status_observations')->where('id', $f['observation'])
             ->update(['occurred_at' => now()->subMinutes(61)]);
+        // A configured Admin who has been suspended must not receive a new
+        // escalation notification or consume the one-time escalation marker.
+        DB::table('users')->where('id', $admin->id)->update(['account_status' => 'suspended']);
+        $this->assertSame(0, $service->scan()['escalated']);
+        $this->assertDatabaseCount('charging_fault_admin_escalations', 0);
+        DB::table('users')->where('id', $admin->id)->update(['account_status' => 'active']);
         $this->assertSame(1, $service->scan()['escalated']);
         $this->assertSame(0, $service->scan()['escalated']);
         $this->assertDatabaseCount('charging_fault_admin_escalations', 1);
