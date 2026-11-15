@@ -17,6 +17,7 @@ let supportPage = 1,
     supportGeneration = 0,
     supportRequest = null,
     supportOwner = null;
+let ticketDetailGeneration = 0, ticketDetailRequest = null;
 let user = null,
     csrf = document.querySelector("meta[name=csrf-token]").content;
 const el = (id) => document.getElementById(id),
@@ -136,6 +137,10 @@ function clearPrivateViews() {
     supportPage = 1;
     supportOwner = null;
     el("ticket-list").removeAttribute("aria-busy");
+    ticketDetailRequest?.abort();
+    ticketDetailRequest = null;
+    ticketDetailGeneration++;
+    el("ticket-detail").removeAttribute("aria-busy");
     riderWorkspace.clear();
     vendorWorkspace.clear();
     vehicleModelCatalog.clear();
@@ -2356,17 +2361,65 @@ async function refreshInbox() {
         view.append(pages);
     }
 }
-async function ticketDetail(id) {
-    const j = await api("support/" + id),
-        d = el("ticket-detail");
+async function ticketDetail(id, page = 1, showNewest = false) {
+    if (!user || !Number.isSafeInteger(id) || id < 1 ||
+        !Number.isSafeInteger(page) || page < 1) return;
+    ticketDetailRequest?.abort();
+    const controller = new AbortController();
+    ticketDetailRequest = controller;
+    const generation = ++ticketDetailGeneration,
+        epoch = client.sessionEpoch, owner = user.id;
+    const active = () => generation === ticketDetailGeneration &&
+        epoch === client.sessionEpoch && owner === user?.id &&
+        ticketDetailRequest === controller && !controller.signal.aborted;
+    const d = el("ticket-detail");
+    d.setAttribute("aria-busy", "true");
+    d.replaceChildren(batteryNode("p", "Loading ticket messages…", "جارٍ تحميل رسائل الدعم…"));
+    try {
+    const j = await api("support/" + id + "?page=" + page, "GET", undefined, controller.signal);
+    if (!active()) return;
+    const messages = j?.messages;
+    if (j?.ticket?.id !== id || !Array.isArray(messages?.data) ||
+        !Number.isSafeInteger(messages.current_page) ||
+        !Number.isSafeInteger(messages.last_page) ||
+        !Number.isSafeInteger(messages.total) ||
+        messages.current_page !== page || messages.last_page < 1 ||
+        messages.total < 0)
+        throw new Error("Unrecognized support conversation response.");
+    if (page > messages.last_page || (showNewest && page < messages.last_page)) {
+        await ticketDetail(id, messages.last_page);
+        return;
+    }
     d.replaceChildren(
         ui("h3", "{subject} · {status}", {
             subject: j.ticket.subject,
             status: { translate: j.ticket.status },
         }),
     );
-    for (const m of j.messages.data)
+    if (!messages.data.length) d.append(batteryNode("p",
+        "No visible messages on this page.", "لا توجد رسائل ظاهرة في هذه الصفحة."));
+    for (const m of messages.data)
         d.append(node("p", (m.internal ? "INTERNAL · " : "") + m.body));
+    const pager = document.createElement("nav");
+    pager.className = "pagination";
+    pager.dataset.supportMessagePagination = "true";
+    pager.setAttribute("aria-label", "Support conversation pages / صفحات محادثة الدعم");
+    pager.append(ui("span", "Page {page} of {last} · {total} records", {
+        page: messages.current_page, last: messages.last_page, total: messages.total,
+    }));
+    for (const [key, en, ar, target, disabled] of [
+        ["previous", "Previous", "السابق", page - 1, page <= 1],
+        ["next", "Next", "التالي", page + 1, page >= messages.last_page],
+        ["latest", "Newest messages", "أحدث الرسائل", messages.last_page, page === messages.last_page],
+    ]) {
+        const b = batteryNode("button", en, ar);
+        b.type = "button";
+        b.disabled = disabled;
+        b.dataset.supportMessagePageAction = key;
+        b.onclick = () => { if (active()) void ticketDetail(id, target); };
+        pager.append(b);
+    }
+    d.append(pager);
     if (j.ticket.status !== "closed") {
         const f = document.createElement("form"),
             body = document.createElement("textarea");
@@ -2408,7 +2461,7 @@ async function ticketDetail(id) {
                 // fails, do not leave the just-sent body ready to submit again.
                 body.value = "";
                 await support();
-                await ticketDetail(id);
+                await ticketDetail(id, 1, true);
             } catch (e) {
                 notice(e);
             }
@@ -2453,12 +2506,25 @@ async function ticketDetail(id) {
                 pendingStatus = null;
                 reason.value = "";
                 await support();
-                await ticketDetail(id);
+                await ticketDetail(id, 1, true);
             } catch (e) {
                 notice(e);
             }
         };
         d.append(f);
+    }
+    } catch (error) {
+        if (!active()) return;
+        d.replaceChildren(batteryNode("p",
+            "Support messages could not be loaded. Retry to check the current conversation.",
+            "تعذر تحميل رسائل الدعم. أعد المحاولة لعرض المحادثة الحالية."));
+        const retry = batteryNode("button", "Retry support messages", "إعادة تحميل رسائل الدعم");
+        retry.type = "button";
+        retry.dataset.supportMessageRetry = "true";
+        retry.onclick = () => { if (active()) void ticketDetail(id, page, showNewest); };
+        d.append(retry);
+    } finally {
+        if (active()) d.removeAttribute("aria-busy");
     }
 }
 let pendingTicketCreate = null;
