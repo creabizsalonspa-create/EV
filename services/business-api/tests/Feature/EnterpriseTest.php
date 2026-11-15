@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class EnterpriseTest extends TestCase
@@ -56,7 +57,7 @@ class EnterpriseTest extends TestCase
 
         DB::table('users')->where('id', $admin->id)->update([
             'auth_epoch' => 0,
-            'password' => \Illuminate\Support\Facades\Hash::make('rotated-owner-password'),
+            'password' => Hash::make('rotated-owner-password'),
         ]);
         $this->putJson('/api/regions/'.$country, $payload)->assertStatus(409);
         $this->assertDatabaseMissing('regions', ['country' => $country]);
