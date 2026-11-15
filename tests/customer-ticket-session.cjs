@@ -3,10 +3,13 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const {test} = require("node:test");
 const src = fs.readFileSync("services/business-api/public/platform.js","utf8");
+const stateStart = src.indexOf("let pendingTicketCreate = null");
+const stateEnd = src.indexOf("let unconfirmedFavorite",stateStart);
 const start = src.indexOf("let ticketDetailGeneration = 0;");
 const end = src.indexOf('el("verify-email").onclick',start);
-assert(start>=0 && end>start,"support ticket source boundary");
-const section = src.slice(start,end);
+assert(stateStart>=0 && stateEnd>stateStart && start>stateEnd && end>start,
+    "support ticket source boundary");
+const section = src.slice(stateStart,stateEnd) + "\n" + src.slice(start,end);
 function harness() {
     const client={sessionEpoch:1},user={id:7,role:"customer"};
     const root={children:[],replaceChildren(...items){this.children=items;},append(item){this.children.push(item);}};
