@@ -83,6 +83,27 @@ class OcpiIntegrationTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_production_peer_reads_require_trace_ids_not_headerless_fixture_compatibility(): void
+    {
+        $provider = $this->provider();
+        $provider->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        Http::fake(['https://partner.example/locations' => Http::response($this->envelope([$this->location()]))]);
+        $previous = app()->environment();
+
+        try {
+            app()->detectEnvironment(static fn () => 'production');
+            try {
+                app(PartnerClient::class)->pull($provider->fresh(), 'locations');
+                $this->fail('Production OCPI response without echoed tracing IDs was accepted.');
+            } catch (OcpiException $error) {
+                $this->assertStringContainsString('tracing headers', $error->getMessage());
+            }
+        } finally {
+            app()->detectEnvironment(static fn () => $previous);
+        }
+        Http::assertSentCount(1);
+    }
+
     public function test_outbound_partner_reads_accept_matching_trace_ids_and_do_not_retry(): void
     {
         $provider = $this->provider();
