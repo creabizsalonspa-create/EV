@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class AdminAccountDirectoryTest extends TestCase
@@ -96,13 +97,13 @@ class AdminAccountDirectoryTest extends TestCase
         $target = User::factory()->create(['role' => 'vendor']);
         $this->actingAs($admin, 'web');
 
-        \Illuminate\Support\Facades\DB::table('users')->where('id', $admin->id)
+        DB::table('users')->where('id', $admin->id)
             ->update(['role' => 'customer']);
         $this->getJson('/api/admin/accounts')->assertForbidden();
         $this->getJson('/api/admin/accounts/'.$target->id.'/moderations')
             ->assertForbidden();
 
-        \Illuminate\Support\Facades\DB::table('users')->where('id', $admin->id)
+        DB::table('users')->where('id', $admin->id)
             ->update(['role' => 'admin', 'auth_epoch' => 1]);
         $this->getJson('/api/admin/accounts')->assertStatus(409);
         $this->getJson('/api/admin/accounts/'.$target->id.'/moderations')
