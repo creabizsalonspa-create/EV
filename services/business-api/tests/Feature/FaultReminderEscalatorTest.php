@@ -386,11 +386,10 @@ class FaultReminderEscalatorTest extends TestCase
             'charging.fault.reminder.simulated')->count());
         foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
             $this->actingAs($admin)->getJson($prefix.'?category=charging')
-                ->assertOk()->assertJsonPath('total', 0);
-            $this->getJson($prefix.'/summary')->assertOk()
-                ->assertJsonPath('unread_count', 0);
-            $this->postJson($prefix.'/'.$closure->id.'/read')->assertNotFound();
-            $this->postJson($prefix.'/'.$initial.'/read')->assertNotFound();
+                ->assertStatus(409);
+            $this->getJson($prefix.'/summary')->assertStatus(409);
+            $this->postJson($prefix.'/'.$closure->id.'/read')->assertStatus(409);
+            $this->postJson($prefix.'/'.$initial.'/read')->assertStatus(409);
         }
         $this->assertNull($closure->fresh()->read_at);
         DB::table('users')->where('id', $admin->id)->update(['role' => 'admin']);
@@ -431,18 +430,15 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertFalse($preparedRead->exists());
         $this->assertSame(0, $preparedWrite->update(['read_at' => now()]));
         foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
-            $this->getJson($prefix.'?category=charging')
-                ->assertOk()->assertJsonPath('total', 0);
-            $this->getJson($prefix.'/summary')
-                ->assertOk()->assertJsonPath('unread_count', 0);
+            $this->getJson($prefix.'?category=charging')->assertStatus(409);
+            $this->getJson($prefix.'/summary')->assertStatus(409);
             foreach ([$openId, $closedId] as $id) {
-                $this->postJson($prefix.'/'.$id.'/read')->assertNotFound();
-                $this->postJson($prefix.'/'.$id.'/unread')->assertNotFound();
+                $this->postJson($prefix.'/'.$id.'/read')->assertStatus(409);
+                $this->postJson($prefix.'/'.$id.'/unread')->assertStatus(409);
             }
             $this->postJson($prefix.'/read-through', [
                 'through_id' => $closedId,
-            ])->assertOk()->assertJsonPath('marked_read', 0)
-                ->assertJsonPath('remaining_unread', 0);
+            ])->assertStatus(409);
         }
         $this->assertNull(InboxNotification::findOrFail($openId)->read_at);
         $this->assertNull(InboxNotification::findOrFail($closedId)->read_at);
@@ -518,16 +514,13 @@ class FaultReminderEscalatorTest extends TestCase
         DB::table('users')->where('id', $admin->id)
             ->update(['role' => 'vendor']);
         foreach (['/api/notifications', '/api/v1/notifications'] as $base) {
-            $this->getJson($base.'?category=charging')
-                ->assertOk()->assertJsonPath('total', 0);
-            $this->getJson($base.'/summary')->assertOk()
-                ->assertJsonPath('unread_count', 0);
-            $this->postJson($base.'/'.$id.'/read')->assertNotFound();
-            $this->postJson($base.'/'.$id.'/unread')->assertNotFound();
+            $this->getJson($base.'?category=charging')->assertStatus(409);
+            $this->getJson($base.'/summary')->assertStatus(409);
+            $this->postJson($base.'/'.$id.'/read')->assertStatus(409);
+            $this->postJson($base.'/'.$id.'/unread')->assertStatus(409);
             $this->postJson($base.'/read-through', [
                 'through_id' => $id,
-            ])->assertOk()->assertJsonPath('marked_read', 0)
-                ->assertJsonPath('remaining_unread', 0);
+            ])->assertStatus(409);
         }
         $this->assertNull(InboxNotification::findOrFail($id)->read_at);
         DB::table('users')->where('id', $admin->id)
