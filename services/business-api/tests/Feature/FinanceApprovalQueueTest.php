@@ -107,7 +107,7 @@ class FinanceApprovalQueueTest extends TestCase
             ->assertJsonPath('real_money_moved', false)
             ->assertJsonPath('not_a_payment_or_payout_authority', true);
         $rows = collect($response->json('data'))->keyBy('kind');
-        $this->assertSameCanonicalizing(['refund', 'settlement', 'adjustment'], $rows->keys()->all());
+        $this->assertEqualsCanonicalizing(['refund', 'settlement', 'adjustment'], $rows->keys()->all());
         $this->assertSame($refund, $rows['refund']['record_id']);
         $this->assertSame($invoice->id, $rows['refund']['invoice_id']);
         $this->assertSame(25, $rows['refund']['amount_minor']);
