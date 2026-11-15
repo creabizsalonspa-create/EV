@@ -52,3 +52,21 @@ test("late former customer loyalty response cannot restore private points",async
  h.setActor({id:8,role:"customer"});release({data:[{id:99,kind:"earn",points:999}],current_page:1,last_page:1,total:1});
  await reading;assert.doesNotMatch(h.root.textContent,/Points entry/);assert.doesNotMatch(h.root.textContent,/999/);
 });
+
+test("empty authoritative ledger displays a real empty state",async()=>{
+ const h=harness();await h.find("Open loyalty & rewards").onclick();
+ h.setNext(()=>Promise.resolve({data:[],current_page:1,last_page:1,total:0}));
+ await h.find("Points history").onclick();
+ assert.match(h.root.textContent,/No points have been posted/);
+ assert.doesNotMatch(h.root.textContent,/Loyalty records unavailable/);
+});
+test("unverified cash-like account response cannot display invented promotional points",async()=>{
+ const h=harness();
+ h.setNext(()=>Promise.resolve({user_id:7,unit:"NON_MONETARY_POINTS",
+  evidence:"TEST_PROMOTIONAL_ECONOMICS",cash_value:true,transferable:false,
+  balance_points:12,spendable_points:12,pending_reconciliation_points:0,
+  qualified_lifetime_points:12,tier_by_currency:{}}));
+ await h.find("Open loyalty & rewards").onclick();
+ assert.match(h.root.textContent,/Loyalty records unavailable/);
+ assert.doesNotMatch(h.root.textContent,/Recorded balance/);
+});
