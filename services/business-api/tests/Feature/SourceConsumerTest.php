@@ -307,9 +307,10 @@ class SourceConsumerTest extends TestCase
                 return Http::response(['data' => ['Transactions' => [$tx]]]);
             }
             if (str_contains($query, 'MeterValues')) {
-                return Http::response(['data' => ['MeterValues' => array_values(array_filter(
-                    $rows, fn ($row) => $row['id'] > $request['variables']['after']
-                ))]]);
+                $after = $request['variables']['after'];
+                $observations = array_values(array_filter($rows, fn ($row) => $row['id'] > $after));
+
+                return Http::response(['data' => ['MeterValues' => $observations]]);
             }
 
             $this->fail('Observer attempted an external write instead of the signed local inbox.');
