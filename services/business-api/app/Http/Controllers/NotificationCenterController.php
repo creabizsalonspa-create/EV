@@ -21,6 +21,7 @@ class NotificationCenterController extends Controller
     {
         $snapshot = $request->user();
         abort_unless($snapshot instanceof User, 401);
+
         return app(CurrentNotificationActor::class)->revalidate($snapshot, $forMutation);
     }
 
