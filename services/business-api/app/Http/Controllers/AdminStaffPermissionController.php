@@ -28,8 +28,11 @@ class AdminStaffPermissionController extends Controller
      */
     public function index(Request $request)
     {
-        $actor = $this->activeAdmin($request);
-        $input = $request->validate([
+        return DB::transaction(function () use ($request) {
+            $actor = AdminTransactionAuthority::requireCurrent(
+                $this->activeAdmin($request)
+            );
+            $input = $request->validate([
             'company_id' => 'sometimes|integer|min:1',
             'status' => 'sometimes|in:active,invited,revoked',
             'page' => 'sometimes|integer|min:1|max:100000',
@@ -92,7 +95,8 @@ class AdminStaffPermissionController extends Controller
             'created_at' => now(),
         ]);
 
-        return response()->json($view)->header('Cache-Control', 'no-store, private');
+            return response()->json($view)->header('Cache-Control', 'no-store, private');
+        });
     }
 
     /**
@@ -217,8 +221,11 @@ class AdminStaffPermissionController extends Controller
 
     public function revocations(Request $request, VendorCompanyStaff $membership)
     {
-        $this->activeAdmin($request);
-        $history = DB::table('admin_permission_revocations')
+        return DB::transaction(function () use ($request, $membership) {
+            AdminTransactionAuthority::requireCurrent(
+                $this->activeAdmin($request)
+            );
+            $history = DB::table('admin_permission_revocations')
             ->where('membership_id', $membership->id)
             ->orderByDesc('id')
             ->paginate(25)
@@ -238,6 +245,7 @@ class AdminStaffPermissionController extends Controller
             'created_at' => now(),
         ]);
 
-        return response()->json($history)->header('Cache-Control', 'no-store, private');
+            return response()->json($history)->header('Cache-Control', 'no-store, private');
+        });
     }
 }
