@@ -112,7 +112,10 @@ timestamp monotonicity, unique cumulative energy registers, supported energy
 units and meter precision before any cursor advance. The first row of a later
 page must not precede the last signed source event in time; if it does, the
 observer preserves the cursor and requires reconciliation instead of silently
-skipping or billing reordered evidence. Ignored voltage-only records cannot conceal a timestamp outside the
+skipping or billing reordered evidence. The first authenticated terminal
+cumulative register forms a hard page boundary: any subsequent upstream
+diagnostic/voltage rows are outside the canonical session and cannot block
+signed terminal finalization or cause a replay of an invoice. Ignored voltage-only records cannot conceal a timestamp outside the
 actual source transaction, and a malformed register later in the same page
 cannot cause earlier records to be marked read.
 Missing pages, overlong pages, unknown timestamps and re-ordered/repeated
