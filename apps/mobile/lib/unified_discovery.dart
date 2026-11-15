@@ -124,6 +124,18 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     await load(1);
   }
 
+  String recentLabel(Map<String,String> previous) {
+    final source=previous['scope']=='catalog'
+      ?tr('Platform catalog','كتالوج المنصة')
+      :previous['scope']=='partner'
+        ?tr('Partner reports','تقارير الشركاء')
+        :tr('All published sources','كل المصادر المنشورة');
+    final name=previous['q']?.isNotEmpty==true
+      ?previous['q']!:tr('All locations','كل المواقع');
+    final market=previous['country']?.isNotEmpty==true
+      ?previous['country']!:tr('all countries','كل الدول');
+    return '$name · $market · $source';
+  }
   // Restoring historical *form fields* cannot issue any request. Changing
   // the ListView key remounts dropdowns with the restored initialValue.
   void restoreRecent(Map<String,String> old){
@@ -188,9 +200,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
             OutlinedButton(key:Key('unified-recent-${entry.key}'),
               onPressed:busy||writing?null:()=>restoreRecent(entry.value),
               child:Text(tr('Restore filters: ','استعادة المرشحات: ')+
-                [(entry.value['q']?.isNotEmpty==true?entry.value['q']!:'All locations'),
-                 (entry.value['country']?.isNotEmpty==true?entry.value['country']!:'all countries'),
-                 (entry.value['scope']??'all')].join(' · '))),
+                recentLabel(entry.value))),
         ]),
         TextButton(key:const Key('unified-recent-clear'),
           onPressed:busy||writing?null:()=>setState(recentPresets.clear),
