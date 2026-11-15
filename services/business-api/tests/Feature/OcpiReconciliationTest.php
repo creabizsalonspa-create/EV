@@ -70,6 +70,30 @@ class OcpiReconciliationTest extends TestCase
         $this->assertContains('session_reference_missing', app(CdrReconciler::class)->inspect($other, $unlinked)['issues']);
     }
 
+    public function test_reused_reconciler_rechecks_immutable_claims_after_new_source_ingress(): void
+    {
+        [$provider, $first, $raw] = $this->source();
+        $reconciler = app(CdrReconciler::class);
+        $this->assertSame('source_consistent', $reconciler->inspect($provider, $first)['status']);
+
+        // The same long-lived service must not retain a once-clean snapshot.
+        app(RecordSynchronizer::class)->ingest($provider, 'cdrs', [
+            array_replace($raw, ['id' => 'cdr-later-same-session']),
+        ]);
+        $second = OcpiRecord::where('ocpi_provider_id', $provider->id)
+            ->where('module', 'cdrs')->where('external_id', 'cdr-later-same-session')->firstOrFail();
+        foreach ([$first, $second] as $record) {
+            $report = $reconciler->inspect($provider, $record);
+            $this->assertSame('requires_review', $report['status']);
+            $this->assertContains('multiple_cdrs_for_session', $report['issues']);
+            $this->assertFalse($report['billing_eligible']);
+            $this->assertFalse($report['local_invoice_created']);
+        }
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+        $this->assertSame($raw, $first->fresh()->payload);
+    }
+
     public function test_multiple_cdr_claims_and_credits_never_double_count_or_rewrite_source_records(): void
     {
         [$provider, $first, $raw] = $this->source();
