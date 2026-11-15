@@ -96,20 +96,25 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       Text(tr('Search published platform and authorized partner records. Partner reports do not authorize booking, charging or payment. External provider lookups require separate consent.','البحث في سجلات المنصة والشركاء المصرح لهم. تقارير الشركاء لا تسمح بالحجز أو الشحن أو الدفع. تتطلب الاستعلامات الخارجية موافقة منفصلة.')),
       TextField(key:const Key('unified-query'),controller:query,maxLength:80,decoration:InputDecoration(labelText:tr('Name, address or operator','الاسم أو العنوان أو المشغل'))),
       DropdownButtonFormField<String>(initialValue:scope,decoration:InputDecoration(labelText:tr('Source','المصدر')),items:[for(final choice in [('all','All published sources','كل المصادر المنشورة'),('catalog','Platform catalog','كتالوج المنصة'),('partner','Authorized partner reports','تقارير الشركاء المصرح لهم')])DropdownMenuItem(value:choice.$1,child:Text(tr(choice.$2,choice.$3)))],onChanged:busy?null:(value)=>setState(()=>scope=value!)),
-      DropdownButtonFormField<String>(
-        key: const Key('unified-country'),
-        initialValue: country,
+      InputDecorator(
         decoration: InputDecoration(labelText: tr('Country (supported markets)', 'الدولة (الأسواق المدعومة)')),
-        items: [
-          for(final option in [
-            ('','All supported markets','جميع الأسواق المدعومة'),
-            ('AE','United Arab Emirates','الإمارات العربية المتحدة'),
-            ('US','United States','الولايات المتحدة'),
-            ('CA','Canada','كندا'),
-          ])
-            DropdownMenuItem(value:option.$1,child:Text(tr(option.$2,option.$3))),
-        ],
-        onChanged:busy||writing?null:(value)=>setState(()=>country=value!),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            key: const Key('unified-country'),
+            value: country,
+            isExpanded: true,
+            items: [
+              for(final option in [
+                ('','All supported markets','جميع الأسواق المدعومة'),
+                ('AE','United Arab Emirates','الإمارات العربية المتحدة'),
+                ('US','United States','الولايات المتحدة'),
+                ('CA','Canada','كندا'),
+              ])
+                DropdownMenuItem(value:option.$1,child:Text(tr(option.$2,option.$3))),
+            ],
+            onChanged:busy||writing?null:(value)=>setState(()=>country=value!),
+          ),
+        ),
       ),
       DropdownButtonFormField<String>(initialValue:connector,decoration:InputDecoration(labelText:tr('Connector','الموصل')),items:[for(final value in ['','CCS2','Type2','CHAdeMO'])DropdownMenuItem(value:value,child:Text(value.isEmpty?tr('All connectors','كل الموصلات'):value))],onChanged:busy?null:(value)=>setState(()=>connector=value!)),
       DropdownButtonFormField<String>(key:const Key('unified-source-status'),initialValue:sourceStatus,decoration:InputDecoration(labelText:tr('Simulated source state at search','حالة مصدر المحاكاة عند البحث')),items:[DropdownMenuItem(value:'',child:Text(tr('All states','كل الحالات'))),for(final status in reportedConnectorStatuses)DropdownMenuItem(value:status,child:Text(connectorStatusLabel(status,Localizations.localeOf(context).languageCode=='ar')))],onChanged:busy||writing?null:(value)=>setState(()=>sourceStatus=value!)),
