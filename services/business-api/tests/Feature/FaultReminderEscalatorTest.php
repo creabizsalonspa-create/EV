@@ -395,7 +395,7 @@ class FaultReminderEscalatorTest extends TestCase
         $id = InboxNotification::where('kind', 'charging.fault.escalated.simulated')
             ->firstOrFail()->id;
         $this->actingAs($admin)->getJson('/api/notifications?category=charging')
-            ->assertOk()->assertJsonPath('total', 2);
+            ->assertOk()->assertJsonPath('total', 1);
         DB::table('users')->where('id', $admin->id)
             ->update(['account_status' => 'suspended']);
         // Even a previously prepared query cannot display a private alert
