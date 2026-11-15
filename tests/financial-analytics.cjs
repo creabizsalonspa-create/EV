@@ -208,6 +208,44 @@ const assert = require("node:assert/strict");
         .count(),
       0,
     );
+    // Admin financial triage is a read-only source union, not a second
+    // approval authority. Native Admin tokens remain denied by API middleware.
+    assert.equal(
+      await customer.getByRole("button", {
+        name: "Load pending finance reviews", exact: true,
+      }).count(), 0,
+      "Customer must not be offered privileged finance approval controls",
+    );
+    const maker = await login("maker");
+    const queueResponse = maker.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/finance/approval-queue" &&
+        response.request().method() === "GET";
+    });
+    await maker.getByRole("button", {
+      name: "Load pending finance reviews", exact: true,
+    }).click();
+    const queueHttp = await queueResponse;
+    assert.equal(queueHttp.status(), 200);
+    const queueBody = await queueHttp.json();
+    assert.equal(queueBody.admin_only, true);
+    assert.equal(queueBody.read_only, true);
+    assert.equal(queueBody.real_money_moved, false);
+    assert.equal(queueBody.mutations_performed, false);
+    assert.equal(queueBody.not_a_payment_or_payout_authority, true);
+    await maker.locator("[data-finance-approval-queue]")
+      .getByRole("heading", { name: "Pending financial reviews" }).waitFor();
+    assert.equal(
+      await maker.locator("[data-finance-approval-queue]")
+        .getByRole("button", { name: /Approve|Pay|Refund|Send/ }).count(),
+      0,
+      "The triage screen must not silently create approval/payment actions",
+    );
+    const wrongRole = await vendor.request.get(
+      base + "/api/finance/approval-queue?kind=refund",
+      { headers: { Accept: "application/json" } },
+    );
+    assert.equal(wrongRole.status(), 403);
     const anonymous = await browser.newContext();
     assert.equal(
       (
