@@ -144,4 +144,32 @@ class VendorRevenueCohortTest extends TestCase
         $this->assertDatabaseCount('finance_refunds', 0);
         $this->assertDatabaseCount('finance_journals', 2);
     }
+    public function test_native_revenue_cohorts_preserve_owner_and_admin_personal_token_boundaries(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
+        $this->invoice(100, 'native', true);
+        $path = '/api/v1/commercial/vendors/'.$this->vendor->id.
+            '/revenue-cohorts?currency=AED&from=2026-11-10&to=2026-11-11';
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($this->vendor->createToken('cohort-native-vendor')->plainTextToken)
+            ->getJson($path)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('totals.paid_minor', 100)
+            ->assertJsonPath('real_money_movement', false);
+
+        $other = User::factory()->create(['role' => 'vendor']);
+        $this->app['auth']->forgetGuards();
+        $this->withToken($other->createToken('cohort-native-foreign')->plainTextToken)
+            ->getJson($path)->assertNotFound();
+        $this->getJson(str_replace('/revenue-cohorts?', '/revenue-cohorts/export?', $path))
+            ->assertNotFound();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($this->admin->createToken('cohort-admin-pat-disallowed')->plainTextToken)
+            ->getJson($path)->assertForbidden();
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('finance_payments', 1);
+    }
+
 }
