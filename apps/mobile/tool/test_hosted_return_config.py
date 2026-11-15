@@ -9,13 +9,24 @@ ANDROID = '{http://schemas.android.com/apk/res/android}'
 
 
 class HostedReturnConfig(unittest.TestCase):
-    def test_android_registers_only_fixed_custom_return_and_disables_route_autonavigation(self):
+    def test_android_registers_only_payment_return_and_read_only_tabs_without_autonavigation(self):
         tree = ET.parse(ROOT / 'android/app/src/main/AndroidManifest.xml')
         activity = tree.find('./application/activity')
         self.assertEqual('singleTop', activity.get(ANDROID + 'launchMode'))
         links = [item for item in activity.findall('intent-filter') if any(a.get(ANDROID + 'name') == 'android.intent.action.VIEW' for a in item.findall('action'))]
-        self.assertEqual(1, len(links))
-        self.assertEqual([{ANDROID + 'scheme': 'creabizev', ANDROID + 'host': 'payments', ANDROID + 'path': '/hosted-return'}], [dict(d.attrib) for d in links[0].findall('data')])
+        self.assertEqual(2, len(links))
+        self.assertEqual(
+            [
+                [{ANDROID + 'scheme': 'creabizev', ANDROID + 'host': 'payments', ANDROID + 'path': '/hosted-return'}],
+                [{ANDROID + 'scheme': 'creabizev', ANDROID + 'host': 'navigate', ANDROID + 'pathPrefix': '/tab/'}],
+            ],
+            [[dict(d.attrib) for d in link.findall('data')] for link in links],
+        )
+        for link in links:
+            self.assertEqual(
+                {'android.intent.category.DEFAULT', 'android.intent.category.BROWSABLE'},
+                {category.get(ANDROID + 'name') for category in link.findall('category')},
+            )
         flags = {m.get(ANDROID + 'name'): m.get(ANDROID + 'value') for m in activity.findall('meta-data')}
         self.assertEqual('false', flags.get('flutter_deeplinking_enabled'))
 
