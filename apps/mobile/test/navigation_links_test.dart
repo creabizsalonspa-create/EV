@@ -195,6 +195,54 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('link cannot route after app backgrounds during native read',
+      (tester) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    Completer<String?>? pending;
+    bool consumed = false;
+    messenger.setMockMethodCallHandler(
+      NativeNavigationBridge.channel,
+      (_) async {
+        if (pending == null || consumed) return null;
+        consumed = true;
+        return await pending!.future;
+      },
+    );
+    addTearDown(() => messenger.setMockMethodCallHandler(
+          NativeNavigationBridge.channel,
+          null,
+        ));
+    final api = FixtureApi();
+    addTearDown(api.close);
+    final preferences = AppPreferences(TestStore());
+    await preferences.load();
+    await tester.pumpWidget(EvApp(preferences: preferences, api: api));
+    await tester.pumpAndSettle();
+    await login(tester);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    final dynamic workspace = tester.state(find.byType(Workspace));
+    expect(workspace.account?.role, 'customer');
+
+    pending = Completer<String?>();
+    NativeNavigationBridge.pending.value++;
+    await tester.pump();
+    await tester.pump();
+    expect(consumed, isTrue);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    pending.complete('support');
+    await tester.pumpAndSettle();
+    expect(workspace.tab, 0);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(workspace.tab, 0);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('signed-out and vendor-incompatible links cannot open private garage',
       (tester) async {
     final messenger =
