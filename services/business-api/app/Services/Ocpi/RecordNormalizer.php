@@ -32,6 +32,11 @@ class RecordNormalizer
                 || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})$/D', $record[$field])) {
                 throw new OcpiException('Invalid '.$module.' record fields: '.$field);
             }
+            $format = str_contains($record[$field], '.') ? '!Y-m-d\\TH:i:s.uP' : '!Y-m-d\\TH:i:sP';
+            $instant = \\DateTimeImmutable::createFromFormat($format, $record[$field]);
+            if (! $instant || \\DateTimeImmutable::getLastErrors() !== false) {
+                throw new OcpiException('Invalid '.$module.' record fields: '.$field);
+            }
         }
         if ($module === 'locations') {
             $uids = [];
