@@ -79,7 +79,7 @@
   // Location identity remains visible as read-only evidence.
   const catalogMetadataComplete=row=>row&&row.station&&
     typeof row.station.name==='string'&&row.station.name.trim()!==''&&
-    typeof row.station.evidence==='string'&&row.station.evidence.trim()!==''&&
+    ['SIMULATED','DISCOVERY_ONLY'].includes(row.station.evidence)&&
     ['CCS2','Type2','CHAdeMO'].includes(row.station.connector_type)&&
     Number.isSafeInteger(row.station.power_kw)&&
     row.station.power_kw>=1&&row.station.power_kw<=1000;
