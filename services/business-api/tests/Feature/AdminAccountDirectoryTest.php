@@ -89,4 +89,24 @@ class AdminAccountDirectoryTest extends TestCase
         $this->getJson('/api/admin/accounts?page=0')->assertUnprocessable();
         $this->postJson('/api/admin/accounts', ['role' => 'admin'])->assertStatus(405);
     }
+
+    public function test_private_account_directory_and_moderation_history_reject_stale_admin(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $target = User::factory()->create(['role' => 'vendor']);
+        $this->actingAs($admin, 'web');
+
+        \Illuminate\Support\Facades\DB::table('users')->where('id', $admin->id)
+            ->update(['role' => 'customer']);
+        $this->getJson('/api/admin/accounts')->assertForbidden();
+        $this->getJson('/api/admin/accounts/'.$target->id.'/moderations')
+            ->assertForbidden();
+
+        \Illuminate\Support\Facades\DB::table('users')->where('id', $admin->id)
+            ->update(['role' => 'admin', 'auth_epoch' => 1]);
+        $this->getJson('/api/admin/accounts')->assertStatus(409);
+        $this->getJson('/api/admin/accounts/'.$target->id.'/moderations')
+            ->assertStatus(409);
+        $this->assertDatabaseCount('audit_events', 0);
+    }
 }
