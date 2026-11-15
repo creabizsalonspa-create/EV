@@ -263,4 +263,39 @@ class AdminKycQueueTest extends TestCase
         ]);
     }
 
+
+    public function test_kyc_review_rechecks_revoked_admin_identity_inside_transaction(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($owner);
+        $route = '/api/vendor-ops/companies/'.$company->id.'/review';
+        $payload = [
+            'status' => 'changes_requested',
+            'reason' => 'Independent license evidence needs correction',
+        ];
+
+        // Keep the authenticated request's prior User object alive while
+        // the database authority has changed underneath it.
+        $this->actingAs($admin, 'web');
+        DB::table('users')->where('id', $admin->id)->update(['account_status' => 'suspended']);
+        $this->postJson($route, $payload)->assertForbidden();
+        $this->assertDatabaseHas('vendor_companies', ['id' => $company->id, 'status' => 'submitted']);
+        $this->assertDatabaseCount('vendor_company_reviews', 0);
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'account_status' => 'active',
+            'auth_epoch' => 1,
+        ]);
+        $this->postJson($route, $payload)->assertStatus(409);
+        $this->assertDatabaseHas('vendor_companies', ['id' => $company->id, 'status' => 'submitted']);
+        $this->assertDatabaseCount('vendor_company_reviews', 0);
+
+        // No review decision or positive audit is manufactured by denial.
+        $this->assertDatabaseMissing('audit_events', [
+            'action' => 'vendor_ops.company.changes_requested',
+            'subject' => (string) $company->id,
+        ]);
+    }
+
 }
