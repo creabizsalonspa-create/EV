@@ -232,6 +232,8 @@ void main() {
     expect(find.byType(FlutterMap),findsNothing);
     expect(find.byKey(const Key('unified-native-viewport-search')),findsNothing);
     expect(find.textContaining('neutral world view'),findsOneWidget);
+    expect(find.text('Choose discovery search area'),findsOneWidget);
+    expect(find.text('Enable discovery area map'),findsOneWidget);
     expect(find.byKey(const Key('partner-map-enable')),findsOneWidget);
     expect(requested,isEmpty);
 
