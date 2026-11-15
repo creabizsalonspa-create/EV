@@ -241,11 +241,26 @@ function provisionTestRole(email, role) {
     await customer.page
       .locator("#fleet-create [name=name]")
       .fill("Browser fleet " + run);
-    await customer.page.locator("#fleet-create button").click();
+    // Two near-simultaneous form submissions must create only one fleet.
+    // The browser sends the normal form events without bypassing the API.
+    const fleetCreateRequests = [];
+    const onFleetCreate = (request) => {
+      if (new URL(request.url()).pathname === "/api/fleets" &&
+          request.method() === "POST") fleetCreateRequests.push(request);
+    };
+    customer.page.on("request", onFleetCreate);
+    await customer.page.evaluate(() => {
+      const form = document.getElementById("fleet-create");
+      form.requestSubmit();
+      form.requestSubmit();
+    });
     // Wait for the committed fleet to appear before reading the actual first
     // page; a browser click does not await its asynchronous submit handler.
     await customer.page.locator("#fleet-list button")
       .filter({hasText:"Browser fleet " + run}).waitFor();
+    customer.page.off("request", onFleetCreate);
+    assert.equal(fleetCreateRequests.length,1,
+      "two fast submits must not create duplicate fleet records");
     const firstFleetPage = await customer.page.evaluate(() => api("fleets?page=1"));
     const selectedFleet = firstFleetPage.data.find((f) => f.name === "Browser fleet " + run);
     assert(selectedFleet && Number.isSafeInteger(selectedFleet.id));
