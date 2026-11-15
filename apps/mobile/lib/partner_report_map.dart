@@ -204,7 +204,18 @@ class _PartnerReportMapState extends State<PartnerReportMap>
         state == AppLifecycleState.inactive;
     if (!foreground) {
       locationGeneration++;
-      if (mounted) setState(() => locating = false);
+      mapGeneration++;
+      if (mounted) {
+        setState(() {
+          // Tiles and the consented GPS viewport leave the widget tree
+          // when the app is truly backgrounded. Reopening requires an
+          // explicit map action again; inactive permission sheets are exempt.
+          enabled = false;
+          mapReady = false;
+          locating = false;
+          locationError = null;
+        });
+      }
     }
   }
   @override
