@@ -43,9 +43,10 @@ function verifyWorkflow(key, group, sourceSha) {
   assert.equal(run.workflow_id, spec.workflow_id, 'Wrong reviewed workflow ID');
   assert.equal(run.path, spec.path, 'Wrong workflow source path');
   assert.equal(run.head_sha, sourceSha, 'CI source does not match exact target');
-  assert.ok(['push','pull_request','workflow_dispatch'].includes(run.event), 'Unsafe workflow event');
-  assert.ok(typeof run.head_branch === 'string' && run.head_branch.length > 0,
-    'Missing workflow branch');
+  // Release evidence must describe the exact post-merge integration push.
+  assert.equal(run.event, 'push', 'Integrated release evidence needs a branch push');
+  assert.equal(run.head_branch, 'development/fullstack-continuation',
+    'CI is not the canonical integrated release branch');
   assert.equal(run.status, 'completed', 'CI workflow has not completed');
   assert.equal(run.conclusion, 'success', 'CI workflow is not successful');
   assert.equal(run.repository?.full_name, REPO, 'Run belongs to wrong repository');
@@ -68,6 +69,16 @@ function verifyWorkflow(key, group, sourceSha) {
   assert.deepEqual([...byName.keys()].sort(), spec.jobs.slice().sort(), 'Unreviewed/missing CI job');
   if (key === 'platform') {
     for (const step of [
+      'Run ./scripts/php vendor/bin/pint --test',
+      'Check reproducible42-category coverage',
+      'Run ./scripts/php artisan test --compact',
+      'Run npm run test:frontend',
+      'Run npm run test:privacy',
+      'Verify every discovery browser suite within the production catalog budget',
+      'Run npm run test:localization',
+      'Run node tests/charging-client.cjs',
+      'Financial browser workflows',
+      'Paced financial history and charger operational regressions',
       'Run npm run test:e2e',
       'Run npm run test:web-session',
       'Run npm run test:vendor',
@@ -76,12 +87,36 @@ function verifyWorkflow(key, group, sourceSha) {
       'Run npm run test:ocpi-provisioning',
     ]) requiredStep(byName.get('business-platform'), step);
     for (const step of [
+      'Reject stale, incomplete or forged acceptance claims',
       'Fetch exact-run Laravel recovery evidence',
       'Fetch exact-run PostGIS recovery evidence',
     ]) requiredStep(byName.get('recovery-acceptance'), step);
+    for (const [job, steps] of Object.entries({
+      'staging-image': [
+        'Verify private staging and synthetic demo regressions without Docker',
+        'Build pinned staging runtime and verify offline image boundaries',
+        'Verify real disposable PostgreSQL dump and independent Laravel restore',
+      ],
+      'finance-postgres': ['Run services/business-api/tests/Postgres/run-finance'],
+      'connector-postgres': ['Run services/business-api/tests/Postgres/run-connectors'],
+      'csms-recovery': ['Verify disposable pinned PostGIS data and recovery-point integrity'],
+    })) for (const step of steps) requiredStep(byName.get(job), step);
   } else {
     const android = byName.get('native (ubuntu-latest)');
     const ios = byName.get('native (macos-15)');
+    for (const [job, steps] of [[android, [
+      'Validate native source and tests',
+      'Verify foreground-only native privacy configuration',
+      'Verify native PDF artifact security boundaries',
+      'Verify actual merged Android foreground location permissions',
+      'Verify native inventory against local Laravel',
+    ]], [ios, [
+      'Validate native source and tests',
+      'Verify foreground-only native privacy configuration',
+      'Verify native PDF artifact security boundaries',
+      'Verify bundled iOS foreground privacy permissions and localizations',
+      'Verify simulator startup recovery guards',
+    ]]]) for (const step of steps) requiredStep(job, step);
     requiredStep(android, 'Run flutter build apk --debug --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true');
     requiredStep(ios, 'Run flutter build ios --simulator --no-codesign --debug --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true');
     requiredStep(ios, 'Run native UI integration on iOS simulator (synthetic TLS fixtures)');

@@ -5,12 +5,20 @@ const {verifySnapshot,WORKFLOWS}=require('../scripts/agent10-ci-source-gate.cjs'
 const SHA='a'.repeat(40), ID=1234567890, REPO='creabizsalonspa-create/EV';
 const names={
  'business-platform':[
+ 'Run ./scripts/php vendor/bin/pint --test','Check reproducible42-category coverage',
+ 'Run ./scripts/php artisan test --compact','Run npm run test:frontend','Run npm run test:privacy',
+ 'Verify every discovery browser suite within the production catalog budget','Run npm run test:localization',
+ 'Run node tests/charging-client.cjs','Financial browser workflows','Paced financial history and charger operational regressions',
  'Run npm run test:e2e','Run npm run test:web-session','Run npm run test:vendor',
  'Run npm run test:ocpp','Run EV_ROAMING_VERIFY_RATE_LIMIT=1 npm run test:roaming',
  'Run npm run test:ocpi-provisioning'],
- 'recovery-acceptance':['Fetch exact-run Laravel recovery evidence','Fetch exact-run PostGIS recovery evidence'],
- 'native (ubuntu-latest)':['Run flutter build apk --debug --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true'],
- 'native (macos-15)':['Run flutter build ios --simulator --no-codesign --debug --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true','Run native UI integration on iOS simulator (synthetic TLS fixtures)'],
+ 'staging-image':['Verify private staging and synthetic demo regressions without Docker','Build pinned staging runtime and verify offline image boundaries','Verify real disposable PostgreSQL dump and independent Laravel restore'],
+ 'finance-postgres':['Run services/business-api/tests/Postgres/run-finance'],
+ 'connector-postgres':['Run services/business-api/tests/Postgres/run-connectors'],
+ 'csms-recovery':['Verify disposable pinned PostGIS data and recovery-point integrity'],
+ 'recovery-acceptance':['Reject stale, incomplete or forged acceptance claims','Fetch exact-run Laravel recovery evidence','Fetch exact-run PostGIS recovery evidence'],
+ 'native (ubuntu-latest)':['Validate native source and tests','Verify foreground-only native privacy configuration','Verify native PDF artifact security boundaries','Verify actual merged Android foreground location permissions','Verify native inventory against local Laravel','Run flutter build apk --debug --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true'],
+ 'native (macos-15)':['Validate native source and tests','Verify foreground-only native privacy configuration','Verify native PDF artifact security boundaries','Verify bundled iOS foreground privacy permissions and localizations','Verify simulator startup recovery guards','Run flutter build ios --simulator --no-codesign --debug --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true','Run native UI integration on iOS simulator (synthetic TLS fixtures)'],
 };
 function fixture() {
  const group=(key,index)=>{
@@ -54,11 +62,16 @@ test('canceled, queued, skipped, failed and unlisted mandatory jobs must not pas
 test('mandatory test steps cannot be skipped, omitted or falsely passed',()=>{
  for(const mutate of [
    s=>{s.platform.jobs[0].steps[0].conclusion='skipped';},
+   s=>{s.platform.jobs[0].steps.find(x=>x.name==='Financial browser workflows').conclusion='skipped';},
+   s=>{s.platform.jobs[3].steps[0].conclusion='skipped';},
+   s=>{s.platform.jobs[4].steps[0].conclusion='failure';},
    s=>{s.platform.jobs[0].steps[0].status='in_progress';},
    s=>{s.platform.jobs[0].steps.pop();},
    s=>{s.platform.jobs[0].steps.push(s.platform.jobs[0].steps[0]);},
    s=>{s.platform.jobs[5].steps=[];},
    s=>{s.native.jobs[0].steps[0].conclusion='skipped';},
+   s=>{s.native.jobs[0].steps.find(x=>x.name==='Verify actual merged Android foreground location permissions').conclusion='skipped';},
+   s=>{s.native.jobs[1].steps.find(x=>x.name==='Verify bundled iOS foreground privacy permissions and localizations').conclusion='skipped';},
    s=>{s.native.jobs[1].steps[1].conclusion='failure';},
  ])assert.throws(()=>verifySnapshot(wrong(mutate),SHA));
 });
@@ -74,6 +87,8 @@ test('unknown release/production declarations and mixed workflow identities fail
    s=>s.native.run.id=s.platform.run.id,
    s=>s.native.run.run_attempt=0,
    s=>s.native.run.event='pull_request_target',
+   s=>s.native.run.event='pull_request',
+   s=>{s.platform.run.head_branch='feature';s.native.run.head_branch='feature';},
  ])assert.throws(()=>verifySnapshot(wrong(mutate),SHA));
 });
 test('source SHA format and snapshot schema are mandatory',()=>{

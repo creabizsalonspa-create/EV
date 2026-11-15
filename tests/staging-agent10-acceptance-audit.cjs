@@ -171,3 +171,17 @@ test('reject oversized source snapshots and malformed JSON without writing outpu
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('rejects invalid UTF-8 evidence rather than replacing bytes with ambiguous text', () => {
+  const os = require('node:os');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ev-qa-utf8-'));
+  try {
+    const candidate = path.join(directory, 'coverage.json');
+    fs.writeFileSync(candidate, Buffer.from([123,34,120,34,58,34,255,34,125]));
+    assert.throws(() => readCoverageFile(candidate), /UTF-8|encoded data/i);
+    fs.writeFileSync(candidate, JSON.stringify({ok:true}));
+    assert.deepEqual(readCoverageFile(candidate), {ok:true});
+  } finally {
+    fs.rmSync(directory, {recursive:true, force:true});
+  }
+});

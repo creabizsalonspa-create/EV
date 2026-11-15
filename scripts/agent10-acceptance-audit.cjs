@@ -2,6 +2,7 @@
 'use strict';
 // Independent, read-only acceptance audit. No production or external verification.
 const fs = require('node:fs');
+const {TextDecoder}=require('node:util');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { parseJsonStrict } = require('./agent10-strict-json.cjs');
@@ -123,7 +124,18 @@ function readCoverageFile(filename) {
     const before = fs.fstatSync(fd, { bigint: true });
     assert.ok(before.isFile() && before.nlink === 1n && before.size > 0n &&
       before.size <= 2_000_000n, 'Coverage input must be a bounded regular file');
-    const content = fs.readFileSync(fd, 'utf8');
+    // Allocate at most the validated 2 MB size, even if an adversary grows
+    // the same inode while we read it. readFileSync(fd) can otherwise consume
+    // unbounded content before a post-read size check detects the mutation.
+    const bytes = Buffer.alloc(Number(before.size));
+    let used = 0;
+    while (used < bytes.length) {
+      const count = fs.readSync(fd, bytes, used, bytes.length-used, used);
+      if (count === 0) break;
+      used += count;
+    }
+    assert.equal(used, bytes.length, 'Coverage was truncated during bounded read');
+    const content = new TextDecoder('utf-8', {fatal:true}).decode(bytes);
     const after = fs.fstatSync(fd, { bigint: true });
     const visible = fs.lstatSync(filename, { bigint: true });
     const identity = stat => [stat.dev, stat.ino, stat.size, stat.mtimeNs,

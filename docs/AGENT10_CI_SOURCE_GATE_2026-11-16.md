@@ -2,12 +2,12 @@
 
 **Date:** 16 November 2026. **Scope:** offline, read-only cross-workflow evidence comparison. **Status:** NOT A CUSTOMER RELEASE APPROVAL.
 
-This tool rejects stale, incomplete or mixed GitHub Actions metadata. It requires **both** reviewed GitHub workflows at the **same exact source SHA**:
+This tool rejects stale, incomplete or mixed GitHub Actions metadata. It requires **both** reviewed GitHub workflows from successful **post-merge pushes** on `development/fullstack-continuation` at the **same exact source SHA**. Passing feature-branch or pull-request workflows are not integrated-source evidence:
 
 - Platform validation — workflow ID `397762279`, path `.github/workflows/ci.yml`, and six successful jobs: `business-platform`, `finance-postgres`, `connector-postgres`, `staging-image`, `csms-recovery`, `recovery-acceptance`.
 - Native client validation — workflow ID `397853920`, path `.github/workflows/mobile.yml`, and two successful jobs: `native (ubuntu-latest)` and `native (macos-15)`.
 
-It additionally verifies success for the exact core browser/OCPP/OCPI/Laravel recovery steps, the Linux **debug** APK build step, and the macOS **unsigned simulator** build/UI integration steps. A skipped mandatory job, missing step, duplicate or unexpected job, wrong event, stale source SHA, mixed branch/repository, pending run, or failed status is rejected.
+It additionally verifies success for the required Laravel, lint, requirement-inventory, browser, localization, privacy, OCPP, OCPI, finance, PostgreSQL, staging image, disposable restore and recovery steps; both native jobs require source/security validation, and the appropriate Linux **debug** APK and macOS **unsigned simulator** builds and privacy/UI steps. It refuses skipped core steps even where a job has a misleading green result. A skipped mandatory job, missing step, duplicate or unexpected job, wrong event, stale source SHA, mixed branch/repository, pending run, or failed status is rejected.
 
 ## Operator-only, read-only evidence collection
 
