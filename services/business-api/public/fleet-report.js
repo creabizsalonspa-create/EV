@@ -42,7 +42,7 @@ window.EvFleetReport = (() => {
         const openFleet=id=>{if(identity!==serial||document.hidden)return;slot.replaceChildren();mount(slot,id);};
         async function load(page=1,applied=null){
             if(identity!==serial||document.hidden)return;
-            const run=++turn, filters=applied||{q:name.value.trim(),country:country.value.trim().toUpperCase()};
+            const run=++turn, filters=applied||{q:name.value.trim(),country:country.value.trim().toUpperCase(),include:'owner_inventory'};
             if(!applied&&ownerId.value.trim())filters.owner_id=ownerId.value.trim();
             const params=new URLSearchParams({...filters,page:String(page)});
             rows.replaceChildren();search.disabled=true;
