@@ -72,7 +72,7 @@ class OcpiSourceTimestampTest extends TestCase
         $normalizer = app(RecordNormalizer::class);
 
         foreach (['locations', 'tariffs', 'sessions', 'cdrs'] as $module) {
-            foreach (['2025-03-10 11:00:00', '2025-03-10T11:00:00', 'yesterday', '2025-03-10T11:00:00.1234567Z'] as $invalid) {
+            foreach (['2025-03-10 11:00:00', '2025-03-10T11:00:00', 'yesterday', '2025-02-30T11:00:00Z', '2025-03-10T25:00:00Z', '2025-03-10T11:61:00Z', '2025-03-10T11:00:00.1234567Z'] as $invalid) {
                 try {
                     $normalizer->normalize($module, array_replace($this->fixture($module), ['last_updated' => $invalid]));
                     $this->fail('Timezone-free or imprecise '.$module.' source timestamp was accepted.');
