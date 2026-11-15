@@ -6,7 +6,10 @@ const src = fs.readFileSync("services/business-api/public/platform.js", "utf8");
 const begin = src.indexOf("let garageGeneration = 0");
 const end = src.indexOf('async function support()', begin);
 assert(begin >= 0 && end > begin, "customer garage source boundary");
-const code = src.slice(begin,end);
+const ticketBegin = src.indexOf("let pendingTicketCreate");
+const ticketEnd = src.indexOf('el("verify-email")',ticketBegin);
+assert(ticketBegin > end && ticketEnd > ticketBegin, "customer support source boundary");
+const code = src.slice(begin,end) + "\n" + src.slice(ticketBegin,ticketEnd);
 function harness() {
     const elements = new Map();
     const el = id => {
@@ -15,19 +18,24 @@ function harness() {
             elements:{name:{value:""},locale:{value:""}},
             replaceChildren(...children){this.children=children;},
             append(...children){this.children.push(...children);},
-            querySelector(selector){return selector === "button" ? this.submit || null : null;}
+            querySelector(selector){return selector === "button" ? this.submit || null : null;},
+            reset(){this.resetCount=(this.resetCount||0)+1;}
         });
         return elements.get(id);
     };
     const user = {id:7,role:"customer"};
     const client = {sessionEpoch:1};
-    let reads = [], creates = [], profiles = [], requests = [], notices = [], localeUpdates = [];
-    const api = (path,method) => {
-        requests.push({path,method});
+    let reads = [], creates = [], profiles = [], tickets = [],
+        requests = [], notices = [], localeUpdates = [],
+        supportReloads = 0, openedTickets = [], keyCount = 0;
+    const api = (path,method,data) => {
+        requests.push({path,method,data});
         if (path === "vehicles" && method === "POST")
             return new Promise(resolve => {creates.push(resolve);});
         if (path === "profile" && method === "PATCH")
             return new Promise(resolve => {profiles.push(resolve);});
+        if (path === "support" && method === "POST")
+            return new Promise(resolve => {tickets.push(resolve);});
         if (path === "vehicles")
             return new Promise(resolve => {reads.push(resolve);});
         throw Error("unexpected "+path);
@@ -41,13 +49,19 @@ function harness() {
         notice:e=>notices.push(e),
         EvLocale:{set:value=>localeUpdates.push(value)},
         identity:async()=>{},
+        support:async()=>{supportReloads++;},
+        ticketDetail:async id=>{openedTickets.push(id);},
+        crypto:{randomUUID:()=>String(++keyCount).padStart(32,"0")},
         FormData:class {constructor(){} *[Symbol.iterator](){}}
     };
     const methods = new Function("env", "with(env){"+code+"return {garage,resetCustomerMutationState};}")(env);
     return {methods,el,client,user,requests,notices,localeUpdates,
         resolveRead:(index,value)=>reads[index](value),
         resolveCreate:(index=0)=>creates[index](),
-        resolveProfile:(value,index=0)=>profiles[index](value)};
+        resolveProfile:(value,index=0)=>profiles[index](value),
+        resolveTicket:(index,value)=>tickets[index](value),
+        supportReloads:()=>supportReloads,
+        openedTickets:()=>openedTickets};
 }
 test("late garage response cannot render a previous customer's private vehicles",async()=>{
     const h=harness(),p=h.methods.garage();
@@ -150,4 +164,31 @@ test("new account profile PATCH survives older account acknowledgement",async()=
     assert.equal(form.submit.disabled,false);
     assert.equal(h.localeUpdates.length,1);
     assert.equal(h.localeUpdates[0],"en");
+});
+
+test("support ticket creation uses independent account-scoped pending tokens",async()=>{
+    const h=harness(),form=h.el("support-create");
+    form.submit={disabled:false,isConnected:true};
+    const event={preventDefault(){},target:form};
+    const old=form.onsubmit(event);
+    await form.onsubmit(event);
+    assert.equal(h.requests.filter(x=>x.path==="support"&&x.method==="POST").length,1);
+    h.client.sessionEpoch++;
+    h.user.id=8;
+    h.methods.resetCustomerMutationState();
+    const current=form.onsubmit(event);
+    const posts=h.requests.filter(x=>x.path==="support"&&x.method==="POST");
+    assert.equal(posts.length,2);
+    assert.notEqual(posts[0].data.idempotency_key,posts[1].data.idempotency_key);
+    assert.equal(form.submit.disabled,true);
+    h.resolveTicket(0,{id:70});
+    await old;
+    assert.equal(form.submit.disabled,true);
+    assert.equal(h.supportReloads(),0);
+    h.resolveTicket(1,{id:71});
+    await current;
+    assert.equal(form.submit.disabled,false);
+    assert.equal(h.supportReloads(),1);
+    assert.deepEqual(h.openedTickets(),[71]);
+    assert.equal(form.resetCount,1);
 });
