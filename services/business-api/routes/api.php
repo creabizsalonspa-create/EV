@@ -11,6 +11,7 @@ use App\Http\Controllers\ChargingReviewController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController as E;
+use App\Http\Controllers\FleetReportController;
 use App\Http\Controllers\MobileAuthController as M;
 use App\Http\Controllers\NotificationCenterController;
 use App\Http\Controllers\OcpiProtocolCredentialsController;
@@ -91,6 +92,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/fleets', [E::class, 'index']);
         Route::post('/fleets', [E::class, 'create']);
         Route::get('/fleets/{fleet}', [E::class, 'show']);
+        Route::get('/fleets/{fleet}/report', [FleetReportController::class, 'show']);
         Route::get('/fleet-invitations', [E::class, 'invitations']);
         Route::post('/fleet-invitations/{invitation}/accept', [E::class, 'accept']);
     });
