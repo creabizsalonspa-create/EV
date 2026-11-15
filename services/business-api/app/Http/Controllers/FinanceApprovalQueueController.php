@@ -9,6 +9,8 @@ use Illuminate\Validation\Rule;
 /** Read-only Admin approvals; never a bank, PSP, ledger or settlement authority. */
 final class FinanceApprovalQueueController extends Controller
 {
+    private const MAX_BROWSER_MINOR = 9_007_199_254_740_991;
+
     public function index(Request $request)
     {
         abort_unless($request->user()->role === 'admin', 403);
@@ -49,17 +51,25 @@ final class FinanceApprovalQueueController extends Controller
         $page = $query->paginate((int) ($filters['per_page'] ?? 20), ['*'], 'page', (int) ($filters['page'] ?? 1));
 
         return response()->json([
-            'data' => $page->getCollection()->map(static fn ($row): array => [
+            'data' => $page->getCollection()->map(static function ($row): array {
+                // Refuse silently rounded JSON amounts in Customer/Vendor/Admin.
+                $amount = filter_var($row->amount_minor, FILTER_VALIDATE_INT);
+                abort_if($amount === false || $amount > self::MAX_BROWSER_MINOR ||
+                    $amount < -self::MAX_BROWSER_MINOR, 409,
+                    'Financial approval amount exceeds browser-safe integer bounds.');
+
+                return [
                 'kind' => $row->kind,
                 'record_id' => (int) $row->record_id,
                 'vendor_id' => (int) $row->vendor_id,
                 'invoice_id' => $row->invoice_id === null ? null : (int) $row->invoice_id,
                 'currency' => $row->currency,
                 'minor_units' => $row->minor_units === null ? null : (int) $row->minor_units,
-                'amount_minor' => (int) $row->amount_minor,
+                'amount_minor' => $amount,
                 'status' => $row->status,
                 'created_at' => $row->created_at,
-            ])->values()->all(),
+                ];
+            })->values()->all(),
             'total' => $page->total(),
             'current_page' => $page->currentPage(),
             'last_page' => $page->lastPage(),

@@ -127,6 +127,26 @@ class FinanceApprovalQueueTest extends TestCase
         $this->assertDatabaseCount('commercial_adjustment_approvals', 1);
     }
 
+    public function test_unrepresentable_large_settlement_fails_closed_without_corrupting_invoice_or_payout(): void
+    {
+        $this->seedApprovals();
+        DB::table('commercial_settlements')->insert([
+            'number' => 'SIM-SET-TOO-LARGE-FOR-JS',
+            'vendor_id' => $this->vendor->id, 'currency' => 'AED',
+            'minor_units' => 2, 'amount_minor' => 9_007_199_254_740_992,
+            'state' => 'pending', 'request_key' => hash('sha256', 'too-large-approval'),
+            'created_by' => $this->vendor->id, 'evidence' => 'SIMULATED',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->actingAs($this->admin)->getJson($this->base())
+            ->assertConflict();
+        $this->getJson($this->base().'?kind=refund')
+            ->assertOk()->assertJsonPath('total', 1);
+        $this->assertDatabaseCount('commercial_settlements', 2);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        $this->assertDatabaseCount('finance_journals', 2);
+    }
+
     public function test_kind_currency_vendor_paging_and_native_admin_token_boundaries(): void
     {
         [$invoice, $refund, $settlement, $adjustment] = $this->seedApprovals();
