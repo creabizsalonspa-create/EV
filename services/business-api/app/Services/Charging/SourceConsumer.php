@@ -265,6 +265,7 @@ class SourceConsumer
         // that do not contain an energy register. A truncated/reordered source
         // projection must not silently skip the original event after restart.
         $previousId = max(0, $link->source_meter_cursor);
+        $previousSourceAt = $link->last_event_at ?? $startedAt;
         foreach ($rows as $row) {
             if (! is_array($row) || ! is_int($row['id'] ?? null) || $row['id'] <= $previousId || $row['id'] > 1000000000 ||
                 ! is_string($row['timestamp'] ?? null) || ! is_array($row['sampledValue'] ?? null) ||
@@ -280,6 +281,10 @@ class SourceConsumer
             if ($sampleAt->lt($startedAt) || ($endedAt && $sampleAt->gt($endedAt))) {
                 throw new RuntimeException('Source meter page contains an event outside its transaction.');
             }
+            if ($sampleAt->lt($previousSourceAt)) {
+                throw new RuntimeException('Source meter chronology regressed; reconciliation is required.');
+            }
+            $previousSourceAt = $sampleAt;
             $registers = array_values(array_filter($row['sampledValue'], fn ($s) => ($s['measurand'] ?? '') === 'Energy.Active.Import.Register' && empty($s['phase'])));
             if (count($registers) > 1) {
                 throw new RuntimeException('Ambiguous register requires reconciliation.');
