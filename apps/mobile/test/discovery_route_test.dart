@@ -257,4 +257,83 @@ void main() {
       expect(opened!.queryParameters['waypoints'], '25.250000,55.350000');
     },
   );
+
+  testWidgets(
+    'route connector filter blocks mismatched selected stops but preserves an explicit removal path',
+    (tester) async {
+      final type2 = Station.fromJson({
+        'id': 2,
+        'name': 'Different plug',
+        'connector_type': 'Type2',
+        'power_kw': 22,
+        'evidence': 'DISCOVERY_ONLY',
+        'latitude': 25.26,
+        'longitude': 55.36,
+      });
+      await tester.binding.setSurfaceSize(const Size(900, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(MaterialApp(home: RoutePlannerView(
+        stations: [station(), type2],
+        initialStop: type2,
+      )));
+      await tester.pumpAndSettle();
+      final filter = find.byKey(const Key('route-connector-filter'));
+      await tester.ensureVisible(filter);
+      await tester.tap(filter);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('CCS2').last);
+      await tester.pumpAndSettle();
+      expect(tester.widget<DropdownButton<String>>(filter).value, 'CCS2');
+      expect(find.byKey(const Key('route-connector-conflict')), findsOneWidget);
+      expect(tester.widget<OutlinedButton>(find.byKey(const Key('route-navigation'))).onPressed, isNull);
+      expect(find.textContaining('not verified compatibility with your vehicle'), findsOneWidget);
+      final remove = find.byTooltip('Remove stop');
+      await tester.ensureVisible(remove);
+      await tester.tap(remove);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('route-connector-conflict')), findsNothing);
+      expect(tester.widget<OutlinedButton>(find.byKey(const Key('route-navigation'))).onPressed, isNotNull);
+      final expand = find.text('Add charging stops from results');
+      await tester.ensureVisible(expand);
+      await tester.tap(expand);
+      await tester.pumpAndSettle();
+      final incompatible = find.byKey(const Key('route-stop-2'));
+      final compatible = find.byKey(const Key('route-stop-1'));
+      await tester.ensureVisible(incompatible);
+      expect(tester.widget<CheckboxListTile>(incompatible).onChanged, isNull);
+      await tester.ensureVisible(compatible);
+      expect(tester.widget<CheckboxListTile>(compatible).onChanged, isNotNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('route connector selection is not a verified charging permission or a background provider call',(tester) async {
+    var calls = 0;
+    final client = DiscoveryClient.withRequest((path, method, body) async {
+      calls++;
+      if(path=='capabilities')return {
+        'provider':'geoapify','routing':false,'geocoding':false,'max_charging_stops':3,
+      };
+      throw StateError('Unexpected navigation or licensed provider call');
+    });
+    final type2=Station.fromJson({
+      'id':3,'name':'Type2 station','connector_type':'Type2','power_kw':7,
+      'evidence':'DISCOVERY_ONLY','latitude':25.2,'longitude':55.3,
+    });
+    await tester.binding.setSurfaceSize(const Size(900, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(home:RoutePlannerView(
+      client:client,stations:[station(),type2],
+    )));
+    await tester.pumpAndSettle();
+    final initialCalls=calls;
+    final filter=find.byKey(const Key('route-connector-filter'));
+    await tester.ensureVisible(filter);
+    await tester.tap(filter);await tester.pumpAndSettle();
+    await tester.tap(find.text('Type2').last);await tester.pumpAndSettle();
+    expect(calls,initialCalls,'Connector selection must never contact a routing provider');
+    expect(find.textContaining('not verified compatibility with your vehicle'),findsOneWidget);
+    expect(tester.widget<FilledButton>(find.byKey(const Key('route-preview'))).onPressed,isNull);
+    expect(tester.takeException(),isNull);
+  });
 }
