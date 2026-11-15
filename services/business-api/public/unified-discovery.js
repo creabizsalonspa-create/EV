@@ -110,14 +110,16 @@
      }else if(row.kind==='partner'&&Number.isSafeInteger(row.record_id)&&row.record_id>0&&row.key==='partner:'+row.record_id&&row.location&&row.reservable===false&&row.remote_control===false&&row.availability==='unknown'){
       allowedFavorite=true;card.dataset.partnerLocationId=String(row.record_id);const l=row.location;
       const safe=value=>typeof value==='string'&&value.trim()?value.trim().slice(0,250):'';
-      const name=safe(l.name)||safe(l.id)||'Partner record #'+row.record_id;
+      const providedName=safe(l.name)||safe(l.id);
+      const nameEn=providedName||'Partner record #'+row.record_id;
+      const nameAr=providedName||'سجل الشريك #'+row.record_id;
       const provider=safe(row.provider_label);
       const address=[l.address,l.city,l.country].map(safe).filter(Boolean).join(' · ');
       const lat=l.latitude===null||l.latitude===undefined||String(l.latitude).trim()===''?NaN:Number(l.latitude);
       const lng=l.longitude===null||l.longitude===undefined||String(l.longitude).trim()===''?NaN:Number(l.longitude);
       const canMap=Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=85.05112878&&Math.abs(lng)<=180;
       card.append(
-       text('h4',name,name),
+       text('h4',nameEn,nameAr),
        text('p',provider||'Provider label unavailable (unverified)',provider||'اسم مقدم الخدمة غير متاح (غير مؤكد)'),
        text('p',address||'Address details unavailable',address||'تفاصيل العنوان غير متاحة'),
        text('p','Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد'),
