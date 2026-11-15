@@ -18,6 +18,8 @@ let supportPage = 1,
     supportRequest = null,
     supportOwner = null;
 let ticketDetailGeneration = 0, ticketDetailRequest = null;
+let simulationPage = 1, simulationGeneration = 0,
+    simulationRequest = null, simulationOwner = null;
 let user = null,
     csrf = document.querySelector("meta[name=csrf-token]").content;
 const el = (id) => document.getElementById(id),
@@ -141,6 +143,12 @@ function clearPrivateViews() {
     ticketDetailRequest = null;
     ticketDetailGeneration++;
     el("ticket-detail").removeAttribute("aria-busy");
+    simulationRequest?.abort();
+    simulationRequest = null;
+    simulationGeneration++;
+    simulationPage = 1;
+    simulationOwner = null;
+    el("simulation-list").removeAttribute("aria-busy");
     riderWorkspace.clear();
     vendorWorkspace.clear();
     vehicleModelCatalog.clear();
@@ -963,14 +971,42 @@ async function bookings(page = reservationPage) {
         if (active()) list.removeAttribute("aria-busy");
     }
 }
-async function simulations() {
-    let j = await api("simulations");
-    el("simulation-list").replaceChildren();
+async function simulations(page = simulationPage) {
+    if (!user || !Number.isSafeInteger(page) || page < 1) return;
+    const owner = client.sessionEpoch + ":" + user.id + ":" + user.role;
+    if (simulationOwner !== owner) {
+        simulationOwner = owner;
+        simulationPage = 1;
+        page = 1;
+    }
+    simulationRequest?.abort();
+    const controller = new AbortController();
+    simulationRequest = controller;
+    const generation = ++simulationGeneration,
+        epoch = client.sessionEpoch, actor = user.id;
+    const active = () => generation === simulationGeneration &&
+        epoch === client.sessionEpoch && actor === user?.id &&
+        simulationRequest === controller && !controller.signal.aborted;
+    const list = el("simulation-list");
+    list.setAttribute("aria-busy", "true");
+    list.replaceChildren(batteryNode("p", "Loading charging sessions…",
+        "جارٍ تحميل جلسات الشحن…"));
+    try {
+    const j = await api("simulations?page=" + page, "GET", undefined, controller.signal);
+    if (!active()) return;
+    if (!Array.isArray(j?.data) || !Number.isSafeInteger(j.current_page) ||
+        !Number.isSafeInteger(j.last_page) || !Number.isSafeInteger(j.total) ||
+        j.current_page !== page || j.last_page < 1 || j.total < 0)
+        throw new Error("Unrecognized charging session response.");
+    if (page > j.last_page) {
+        await simulations(j.last_page);
+        return;
+    }
+    simulationPage = page;
+    list.replaceChildren();
     if (!j.data.length)
-        empty(
-            "simulation-list",
-            "No simulated sessions yet. Your session history will appear here. / لا توجد جلسات بعد",
-        );
+        list.append(batteryNode("p", "No charging sessions on this page.",
+            "لا توجد جلسات شحن في هذه الصفحة."));
     for (let s of j.data) {
         let a = ui(
             "article",
@@ -1166,7 +1202,40 @@ async function simulations() {
                 a.append(f);
             }
         }
-        el("simulation-list").append(a);
+        list.append(a);
+    }
+    const pager = document.createElement("nav");
+    pager.className = "pagination";
+    pager.dataset.simulationPagination = "true";
+    pager.setAttribute("aria-label", "Charging session pages / صفحات جلسات الشحن");
+    pager.append(ui("span", "Page {page} of {last} · {total} records", {
+        page: j.current_page, last: j.last_page, total: j.total,
+    }));
+    for (const [key, en, ar, target, disabled] of [
+        ["previous", "Previous", "السابق", page - 1, page <= 1],
+        ["next", "Next", "التالي", page + 1, page >= j.last_page],
+        ["refresh", "Refresh", "تحديث", page, false],
+    ]) {
+        const button = batteryNode("button", en, ar);
+        button.type = "button";
+        button.dataset.simulationPageAction = key;
+        button.disabled = disabled;
+        button.onclick = () => { if (active()) void simulations(target); };
+        pager.append(button);
+    }
+    list.append(pager);
+    } catch (error) {
+        if (!active()) return;
+        list.replaceChildren(batteryNode("p",
+            "Charging sessions could not be loaded. Retry to verify current source state.",
+            "تعذر تحميل جلسات الشحن. أعد المحاولة للتحقق من حالة المصدر."));
+        const retry = batteryNode("button", "Retry charging sessions", "إعادة تحميل جلسات الشحن");
+        retry.type = "button";
+        retry.dataset.simulationRetry = "true";
+        retry.onclick = () => { if (active()) void simulations(page); };
+        list.append(retry);
+    } finally {
+        if (active()) list.removeAttribute("aria-busy");
     }
 }
 async function regions() {
