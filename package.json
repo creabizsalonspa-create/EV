@@ -40,7 +40,7 @@
     "test:driver-preferences": "node tests/vehicle-driver-preferences.cjs",
     "test:e2e:driver-preferences": "node tests/driver-preferences-e2e.cjs",
     "test:discovery-connected": "node tests/discovery-connected.cjs",
-    "test:privacy": "node tests/privacy-requests.cjs && node tests/privacy-admin-browser-fixture.cjs",
+    "test:privacy": "node tests/privacy-requests.cjs && node tests/privacy-admin-browser-fixture.cjs && node --test tests/account-privacy.cjs",
     "test:e2e:privacy": "node tests/privacy-e2e.cjs",
     "test:e2e:privacy-admin": "node tests/privacy-admin-e2e.cjs"
   },
