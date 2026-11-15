@@ -240,3 +240,20 @@ test('unknown station identity fails closed and cannot navigate to a guessed ID'
  assert.equal(f.list.children[0].dataset.partnerLocationId,'7');
  assert.equal(f.chosen.length,0);
 });
+
+
+for(const lang of ['en','ar'])test('missing partner name, provider, address and coordinates are explicitly unknown '+lang,async()=>{
+ const row={...sample.data[1],provider_label:{unexpected:'Untrusted'},
+  location:{id:null,name:null,address:{unexpected:'Untrusted'},city:null,country:null}};
+ const f=fixture(lang,async()=>({...sample,data:[sample.data[0],row]}));
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const card=f.list.children[1];
+ assert.equal(f.list.children.length,2);
+ assert.match(card.textContent,/Partner record #7/);
+ assert.match(card.textContent,lang==='ar'?/اسم مقدم الخدمة غير متاح/:/Provider label unavailable/);
+ assert.match(card.textContent,lang==='ar'?/تفاصيل العنوان غير متاحة/:/Address details unavailable/);
+ assert.match(card.textContent,lang==='ar'?/إحداثيات الخريطة غير متاحة/:/Map coordinates unavailable/);
+ assert.equal(card.textContent.includes('[object Object]'),false);
+ assert.equal(card.textContent.includes('0,0'),false);
+ assert.equal(card.children.some(child=>child.textContent.includes('no booking or remote control')),lang==='en');
+});
