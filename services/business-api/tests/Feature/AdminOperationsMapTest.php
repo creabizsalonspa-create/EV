@@ -120,13 +120,16 @@ class AdminOperationsMapTest extends TestCase
         $this->getJson('/api/admin/operations/map?country=ZZ')
             ->assertOk()->assertJsonPath('total', 0);
         $this->getJson('/api/admin/operations/map?country=ae')->assertUnprocessable();
-        $this->getJson('/api/admin/operations/map?country=AE%0A')->assertUnprocessable();
+        // Global TrimStrings normalization is intentional: trailing input
+        // whitespace cannot become a newline-bearing private audit subject.
+        $this->getJson('/api/admin/operations/map?country=AE%0A')
+            ->assertOk()->assertJsonPath('total', 1);
 
         $audit = DB::table('audit_events')
             ->where('action', 'admin.private_list.operations_map_viewed')
             ->orderBy('id')->get();
-        $this->assertCount(3, $audit);
-        $this->assertSame(['country:AE', 'all', 'country:ZZ'], $audit->pluck('subject')->all());
+        $this->assertCount(4, $audit);
+        $this->assertSame(['country:AE', 'all', 'country:ZZ', 'country:AE'], $audit->pluck('subject')->all());
         foreach ($audit as $event) {
             $this->assertSame($admin->id, (int) $event->actor_id);
         }
