@@ -133,7 +133,7 @@ class VendorRevenueCohortTest extends TestCase
         $this->actingAs($this->customer)->getJson($base.$query)->assertNotFound();
         $this->actingAs($this->admin)->getJson($base.$query)->assertOk()->assertJsonPath('totals.invoice_count', 1);
         $this->getJson($base.'?currency=aed&from=2026-11-10&to=2026-11-11')->assertUnprocessable();
-        $this->getJson($base.'?currency=AED%0A&from=2026-11-10&to=2026-11-11')->assertUnprocessable();
+        $this->getJson($base.'?currency=AE%0AD&from=2026-11-10&to=2026-11-11')->assertUnprocessable();
         $this->getJson($base.'?currency=AED&from=2026-11-10&to=2027-02-10')
             ->assertOk()->assertJsonCount(93, 'data');
         $this->getJson($base.'?currency=AED&from=2026-11-10&to=2027-02-11')->assertUnprocessable();
@@ -148,6 +148,7 @@ class VendorRevenueCohortTest extends TestCase
         $this->assertDatabaseCount('finance_refunds', 0);
         $this->assertDatabaseCount('finance_journals', 2);
     }
+
     public function test_invoice_cohort_aggregates_exclude_another_vendor_even_when_currency_and_date_match(): void
     {
         $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
