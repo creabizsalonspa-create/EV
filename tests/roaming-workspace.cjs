@@ -97,6 +97,38 @@ const assert = require("node:assert/strict");
       await pub.getByRole("button", { name: /reserve|start|pay/i }).count(),
       0,
     );
+    // Other integration suites intentionally publish their own synthetic partner
+    // records in the shared local database. Scope the strict 26-record paging
+    // assertion to this run instead of assuming exclusive ownership of the
+    // global public catalog. Keep the server count and real rendered checks.
+    const scopedCatalogResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/api/roaming/locations" &&
+        url.searchParams.get("q") === run &&
+        url.searchParams.get("page") === "1"
+      );
+    });
+    await pub
+      .getByRole("textbox", { name: "Search partner locations", exact: true })
+      .fill(run);
+    await pub
+      .getByRole("button", { name: "Search partner locations", exact: true })
+      .click();
+    const scopedCatalog = await scopedCatalogResponse;
+    assert.equal(
+      scopedCatalog.status(),
+      200,
+      `Scoped roaming catalog must return HTTP 200, got ${scopedCatalog.status()}.`,
+    );
+    const scopedPage = await scopedCatalog.json();
+    assert.equal(scopedPage.current_page, 1, "Scoped catalog first page drift.");
+    assert.equal(scopedPage.last_page, 2, "Scoped catalog page count drift.");
+    assert.equal(scopedPage.total, 26, "Scoped synthetic catalog must contain 26 records.");
+    assert.equal(scopedPage.data.length, 25, "Scoped first page must hold 25 records.");
+    await pub
+      .getByText("Page 1 of 2 · 26 records", { exact: true })
+      .waitFor();
     // Assert the actual HTTP and pagination contract before waiting on the DOM.
     // This distinguishes a throttled/failed catalog read from a render regression
     // without relaxing the original visible second-page assertion.
@@ -104,6 +136,7 @@ const assert = require("node:assert/strict");
       const url = new URL(response.url());
       return (
         url.pathname === "/api/roaming/locations" &&
+        url.searchParams.get("q") === run &&
         url.searchParams.get("page") === "2"
       );
     });
