@@ -64,6 +64,26 @@ class OcpiWindowedPullTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_implicit_ocpi_utc_date_bounds_are_canonicalized_before_outbound_get(): void
+    {
+        $provider = $this->provider();
+        $seen = [];
+        Http::fake(function ($request) use (&$seen) {
+            $seen[] = $request->url();
+
+            return Http::response($this->envelope([]));
+        });
+        $this->assertSame([], app(PartnerClient::class)->pull($provider, 'locations', [
+            'date_from' => '2025-03-10T08:00:00',
+            'date_to' => '2025-03-10T08:30:00',
+        ]));
+        $this->assertCount(1, $seen);
+        parse_str((string) parse_url($seen[0], PHP_URL_QUERY), $query);
+        $this->assertSame('2025-03-10T08:00:00.000000Z', $query['date_from']);
+        $this->assertSame('2025-03-10T08:30:00.000000Z', $query['date_to']);
+        Http::assertSentCount(1);
+    }
+
     public function test_same_window_next_link_keeps_both_pages_without_retrying(): void
     {
         $provider = $this->provider();
