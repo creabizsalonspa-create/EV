@@ -289,7 +289,7 @@ class SourceConsumerTest extends TestCase
                     'remoteStartId' => $link->start_command_id, 'meterStart' => '1.000',
                     'startTime' => $at->toIso8601String(),
                     'endTime' => $final ? $at->addSeconds(2)->toIso8601String() : null,
-                    'isActive' => ! $final, 'totalKwh' => $final ? '2.500' : null,
+                    'isActive' => ($final === false), 'totalKwh' => $final ? '2.500' : null,
                 ]]]]);
             }
             if (str_contains($query, 'MeterValues')) {
@@ -890,7 +890,7 @@ class SourceConsumerTest extends TestCase
                     'meterStart' => $remove === 'meter_start' ? null : '1.000',
                     'startTime' => $remove === 'start_time' ? null : $at->toIso8601String(),
                     'endTime' => $ended ? $at->addSeconds(2)->toIso8601String() : null,
-                    'isActive' => ! $ended,
+                    'isActive' => ($ended === false),
                     'totalKwh' => $ended ? '2.500' : null,
                 ]]]]);
             }
