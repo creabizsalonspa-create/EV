@@ -91,19 +91,20 @@ class OcpiWindowedPullTest extends TestCase
     public function test_partner_next_link_cannot_drop_change_or_duplicate_explicit_source_bounds(): void
     {
         $provider = $this->provider();
-        foreach (['drop', 'change', 'duplicate'] as $mode) {
-            Http::fake(function ($request) use ($mode) {
-                $base = $request->url();
-                $link = match ($mode) {
-                    'drop' => 'https://partner.example/locations?page=2',
-                    'change' => str_replace('08%3A30', '09%3A30', $base).'&page=2',
-                    'duplicate' => $base.'&date_from=2025-03-10T08%3A00%3A00.000000Z&page=2',
-                };
+        $mode = 'drop';
+        Http::fake(function ($request) use (&$mode) {
+            $base = $request->url();
+            $link = match ($mode) {
+                'drop' => 'https://partner.example/locations?page=2',
+                'change' => str_replace('08%3A30', '09%3A30', $base).'&page=2',
+                'duplicate' => $base.'&date_from=2025-03-10T08%3A00%3A00.000000Z&page=2',
+            };
 
-                return Http::response($this->envelope([['id' => 'only-first-page']]), 200, [
-                    'Link' => '<'.$link.'>; rel="next"',
-                ]);
-            });
+            return Http::response($this->envelope([['id' => 'only-first-page']]), 200, [
+                'Link' => '<'.$link.'>; rel="next"',
+            ]);
+        });
+        foreach (['drop', 'change', 'duplicate'] as $mode) {
             try {
                 app(PartnerClient::class)->pull($provider, 'locations', [
                     'date_from' => '2025-03-10T08:00:00Z',
