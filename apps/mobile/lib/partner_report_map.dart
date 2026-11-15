@@ -361,9 +361,11 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
                     // attached its controller, including on short screens
                     // where the lazily built map sits below the button.
                     onMapReady: () {
-                      if (mounted && enabled && !mapReady) {
-                        setState(() => mapReady = true);
-                      }
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted && enabled && !mapReady) {
+                          setState(() => mapReady = true);
+                        }
+                      });
                     },
                     onPositionChanged: (camera, _) {
                       if (mounted && (camera.zoom - currentZoom).abs() > 0.005) {
