@@ -177,6 +177,14 @@ class SubscriptionService
         $subscription = $this->access($actor, $subscriptionId);
         $plan = $this->eligibleChangePlan($subscription, $targetPlanId);
         $tax = Money::multiplyDivide((int) $plan->price_minor, (int) $plan->tax_bps, 10000);
+        $currentPlan = $this->plan((int) $subscription->plan_id);
+        $currentTax = Money::multiplyDivide((int) $currentPlan->price_minor, (int) $currentPlan->tax_bps, 10000);
+        $currentListTotal = (int) $currentPlan->price_minor + $currentTax;
+        $nextListTotal = (int) $plan->price_minor + $tax;
+        // Monthly and annual totals are not comparable without a stated horizon.
+        // This is nominal published list pricing, NOT a credit, proration,
+        // outstanding balance, or a charge instruction.
+        $sameCadence = $currentPlan->interval === $plan->interval;
 
         return [
             'subscription_id' => (int) $subscription->id,
@@ -189,7 +197,12 @@ class SubscriptionService
             'effective_at_utc' => CarbonImmutable::parse($subscription->period_end)->utc()->toIso8601String(),
             'next_cycle_subtotal_minor' => (int) $plan->price_minor,
             'next_cycle_tax_minor' => $tax,
-            'next_cycle_total_minor' => (int) $plan->price_minor + $tax,
+            'next_cycle_total_minor' => $nextListTotal,
+            'current_plan_list_total_minor' => $currentListTotal,
+            'current_plan_interval' => $currentPlan->interval,
+            'cycles_comparable' => $sameCadence,
+            'nominal_plan_list_difference_minor' => $sameCadence ? $nextListTotal - $currentListTotal : null,
+            'comparison_is_proration' => false,
             'amount_due_now_minor' => 0,
             'proration_supported' => false,
             'next_cycle_invoice_issued' => false,
