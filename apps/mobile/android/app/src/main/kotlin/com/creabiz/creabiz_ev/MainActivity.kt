@@ -11,6 +11,8 @@ class MainActivity : FlutterActivity() {
     private var returnPending = false
     private var clearPrivacyFlagOnResume = false
     private var returnChannel: MethodChannel? = null
+    private var navigationPending: String? = null
+    private var navigationChannel: MethodChannel? = null
 
     private fun acceptReturn(intent: Intent?) {
         val uri: Uri = intent?.data ?: return
@@ -20,6 +22,19 @@ class MainActivity : FlutterActivity() {
         // Only a boolean wake-up signal is retained, never payment IDs/status.
         returnPending = true
         returnChannel?.invokeMethod("hostedReturn", null)
+    }
+
+    private fun acceptNavigation(intent: Intent?) {
+        val uri: Uri = intent?.data ?: return
+        if (intent.action != Intent.ACTION_VIEW || uri.scheme != "creabizev" ||
+            uri.host != "navigate" || uri.port != -1 || uri.userInfo != null ||
+            uri.query != null || uri.fragment != null) return
+        val target = uri.path?.removePrefix("/tab/") ?: return
+        if (target !in setOf("discover", "reservations", "sessions", "garage", "support", "fleet") ||
+            uri.encodedPath != "/tab/$target") return
+        // Only a screen name is retained, never an identity, URL or action.
+        navigationPending = target
+        navigationChannel?.invokeMethod("navigationAvailable", null)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -32,7 +47,18 @@ class MainActivity : FlutterActivity() {
                 result.success(pending)
             } else result.notImplemented()
         }
+        navigationChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger, "com.creabiz.ev/navigation"
+        )
+        navigationChannel?.setMethodCallHandler { call, result ->
+            if (call.method == "consumeNavigation") {
+                val target = navigationPending
+                navigationPending = null
+                result.success(target)
+            } else result.notImplemented()
+        }
         acceptReturn(intent)
+        acceptNavigation(intent)
     }
 
     // The OS may capture a task-switcher thumbnail while Flutter is paused.
@@ -58,5 +84,6 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         acceptReturn(intent)
+        acceptNavigation(intent)
     }
 }
