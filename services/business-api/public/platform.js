@@ -390,9 +390,12 @@ function reservationForm(s, mapping = null) {
     hint.setAttribute("role", "status");
     const showTimeMode = () => {
         i.value = "";
+        // A station in a quarter-hour-offset region can have valid UTC
+        // half-hour slots at :15 or :45 local. Validation remains UTC-owned.
+        i.step = mode.value === "station" ? 60 : 1800;
         if (mode.value === "station") {
-            batteryText(timeTitle, "Station-local start (:00 or :30)", "البداية بتوقيت المحطة (00 أو 30)");
-            batteryText(hint, "Uses " + stationZone + ". If a DST time repeats or does not exist, choose UTC instead.",
+            batteryText(timeTitle, "Station-local start (30-min UTC slot)", "البداية بتوقيت المحطة (موعد UTC بفاصل 30 دقيقة)");
+            batteryText(hint, "Uses " + stationZone + ". Some offsets require :15 or :45 locally. For repeated or missing DST times use UTC.",
                 "يستخدم توقيت " + stationZone + ". عند تكرار ساعة أو غيابها بسبب التوقيت الصيفي اختر UTC.");
         } else {
             batteryText(timeTitle, "UTC start (:00 or :30)", "البداية بتوقيت UTC (00 أو 30)");
