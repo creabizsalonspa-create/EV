@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorKycDocument;
 use Illuminate\Http\Request;
@@ -27,7 +28,24 @@ class AdminKycQueueController extends Controller
             'status' => 'sometimes|required|in:draft,submitted,approved,rejected,changes_requested,suspended',
             'country' => ['sometimes', 'required', 'regex:/^[A-Z]{2}$/D'],
             'page' => 'sometimes|integer|min:1|max:100000',
+            'license_health' => 'sometimes|required|in:expired,due_30_days,current,unknown',
         ]);
+        // Use the configured local calendar, just as VendorAccess does for
+        // license validity. Do not turn UTC midnight into an early expiry.
+        // An invalid/missing region configuration is unknown, never "valid".
+        $licenseCalendars = [];
+        foreach (DB::table('regions')->get(['country', 'timezone']) as $region) {
+            try {
+                $today = CarbonImmutable::now($region->timezone);
+            } catch (\Throwable) {
+                continue;
+            }
+            $licenseCalendars[$region->country] = [
+                'today' => $today->toDateString(),
+                'due' => $today->addDays(30)->toDateString(),
+            ];
+        }
+
         // Prioritize cases awaiting a human review. Every other state must be
         // explicitly selected by the reviewer, not silently commingled.
         $status = $filter['status'] ?? 'submitted';
@@ -40,7 +58,32 @@ class AdminKycQueueController extends Controller
         if (isset($filter['country'])) {
             $query->where('country', $filter['country']);
         }
-        $page = $query->orderByDesc('id')->paginate(25);
+        if (isset($filter['license_health'])) {
+            $health = $filter['license_health'];
+            $query->where(function ($scope) use ($health, $licenseCalendars) {
+                // A false initial condition keeps every OR branch grouped.
+                $scope->whereRaw('1 = 0');
+                if ($health === 'unknown') {
+                    $scope->orWhereNull('license_expires_on')
+                        ->orWhereNotIn('country', array_keys($licenseCalendars));
+
+                    return;
+                }
+                foreach ($licenseCalendars as $country => $local) {
+                    $scope->orWhere(function ($perCountry) use ($country, $health, $local) {
+                        $perCountry->where('country', $country);
+                        if ($health === 'expired') {
+                            $perCountry->where('license_expires_on', '<', $local['today']);
+                        } elseif ($health === 'due_30_days') {
+                            $perCountry->whereBetween('license_expires_on', [$local['today'], $local['due']]);
+                        } else {
+                            $perCountry->where('license_expires_on', '>', $local['due']);
+                        }
+                    });
+                }
+            });
+        }
+        $page = $query->orderByDesc('id')->paginate(25)->appends($filter);
 
         $companies = $page->getCollection();
         $companyIds = $companies->pluck('id');
@@ -53,9 +96,14 @@ class AdminKycQueueController extends Controller
             ->get(['company_id', 'kind'])
             ->groupBy('company_id');
 
-        $view = $page->through(function (VendorCompany $company) use ($owners, $evidence) {
+        $view = $page->through(function (VendorCompany $company) use ($owners, $evidence, $licenseCalendars) {
             $owner = $owners->get($company->owner_id);
             $docs = $evidence->get($company->id) ?? collect();
+            $local = $licenseCalendars[$company->country] ?? null;
+            $expiry = $company->license_expires_on?->toDateString();
+            $licenseHealth = ! $local || ! $expiry ? 'unknown'
+                : ($expiry < $local['today'] ? 'expired'
+                    : ($expiry <= $local['due'] ? 'due_30_days' : 'current'));
 
             return [
                 'id' => $company->id,
@@ -64,7 +112,11 @@ class AdminKycQueueController extends Controller
                 'status' => $company->status,
                 'created_at' => $company->created_at,
                 'reviewed_at' => $company->reviewed_at,
-                'license_expires_on' => $company->license_expires_on?->toDateString(),
+                'license_expires_on' => $expiry,
+                // Date-based triage only. Not evidence of an authentic license,
+                // a completed review, or permission to control a charger.
+                'license_health' => $licenseHealth,
+                'license_local_date' => $local['today'] ?? null,
                 'owner' => $owner ? [
                     'id' => $owner->id,
                     'name' => $owner->name,
@@ -84,7 +136,7 @@ class AdminKycQueueController extends Controller
         DB::table('audit_events')->insert([
             'actor_id' => $actor->id,
             'action' => 'admin.private_list.kyc_viewed',
-            'subject' => 'status:'.$status,
+            'subject' => 'status:'.$status.(isset($filter['license_health']) ? ';license:'.$filter['license_health'] : ''),
             'created_at' => now(),
         ]);
 
