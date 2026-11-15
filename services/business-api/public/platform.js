@@ -353,14 +353,50 @@ async function initialCatalog() {
     if (renderedCatalogIdentity !== catalogIdentityKey()) await stations(requestedCatalogQuery);
 }
 function reservationForm(s, mapping = null) {
-    let f = document.createElement("form"),
-        l = ui("label", "UTC start (00 or 30 minutes)"),
-        i = document.createElement("input");
+    const stationZone = window.EvStationTime.validZone(s.timezone);
+    const f = document.createElement("form");
+    const l = document.createElement("label");
+    const timeTitle = batteryNode("span", "Start (UTC, :00 or :30)", "البداية (UTC، الدقيقة 00 أو 30)");
+    const i = document.createElement("input");
     i.type = "datetime-local";
     i.step = 1800;
     i.required = true;
-    l.append(i);
-    f.append(l);
+    l.append(timeTitle, i);
+    const modeLabel = document.createElement("label");
+    const mode = document.createElement("select");
+    mode.dataset.bookingTimeMode = "true";
+    if (stationZone) {
+        const local = new Option("Station local (" + stationZone + ")", "station");
+        local.dataset.en = "Station local (" + stationZone + ")";
+        local.dataset.ar = "توقيت المحطة (" + stationZone + ")";
+        mode.append(local);
+    }
+    const utc = new Option("UTC (exact slot)", "utc");
+    utc.dataset.en = "UTC (exact slot)";
+    utc.dataset.ar = "UTC (موعد محدد)";
+    mode.append(utc);
+    modeLabel.append(batteryNode("span", "Time reference", "مرجع التوقيت"), mode);
+    const hint = batteryNode("p", "", "");
+    hint.setAttribute("role", "status");
+    const showTimeMode = () => {
+        i.value = "";
+        if (mode.value === "station") {
+            batteryText(timeTitle, "Station-local start (:00 or :30)", "البداية بتوقيت المحطة (00 أو 30)");
+            batteryText(hint, "Uses " + stationZone + ". If a DST time repeats or does not exist, choose UTC instead.",
+                "يستخدم توقيت " + stationZone + ". عند تكرار ساعة أو غيابها بسبب التوقيت الصيفي اختر UTC.");
+        } else {
+            batteryText(timeTitle, "UTC start (:00 or :30)", "البداية بتوقيت UTC (00 أو 30)");
+            batteryText(hint, stationZone
+                ? "Enter the exact UTC time; your device timezone is not used."
+                : "Station timezone unavailable. Enter the exact UTC time.",
+                stationZone
+                    ? "أدخل وقت UTC المحدد؛ لا يُستخدم توقيت جهازك."
+                    : "توقيت المحطة غير متاح. أدخل وقت UTC المحدد.");
+        }
+    };
+    mode.addEventListener("change", showTimeMode);
+    f.append(modeLabel, l, hint);
+    showTimeMode();
     const policy = s.reservation_terms;
     if (policy != null && !window.EvReservationPolicy?.valid(policy)) {
         f.replaceChildren(batteryNode('p', 'Reservation terms are unavailable. Refresh before booking.', 'شروط الحجز غير متاحة. حدّث قبل الحجز.'));
@@ -409,8 +445,9 @@ function reservationForm(s, mapping = null) {
                 ...(termsVersion ? {expected_reservation_terms_version:termsVersion} : {}),
                 ...(vehicle.value ? { vehicle_id: Number(vehicle.value) } : {}),
                 ...(mapping ? { connector_mapping_id: mapping.id } : {}),
-                starts_at:
-                    i.value.length === 16 ? i.value + ":00Z" : i.value + "Z",
+                starts_at: window.EvStationTime.toUtc(
+                    i.value, mode.value === "station" ? stationZone : "UTC",
+                ),
                 idempotency_key: bookingKey,
             });
             bookingKey = crypto.randomUUID();
