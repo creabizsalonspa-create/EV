@@ -101,6 +101,50 @@ class OcpiCredentialTraceTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_credentials_discovery_rejects_invalid_peer_envelope_dates_without_followup_requests(): void
+    {
+        $provider = $this->fixture();
+        $time = 'yesterday';
+        Http::fake(function ($request) use (&$time) {
+            $reply = $this->reply($request->url());
+            $reply['timestamp'] = $time;
+
+            return Http::response($reply, 200, [
+                'X-Request-ID' => $request->header('X-Request-ID')[0],
+                'X-Correlation-ID' => $request->header('X-Correlation-ID')[0],
+            ]);
+        });
+        foreach (['yesterday', '2025-02-30T08:00:00Z', '2025-03-10 08:00:00', '2025-03-10T08:00:00+00:00'] as $time) {
+            try {
+                app(CredentialExchange::class)->endpoint($provider, base64_encode('SYNTHETIC-NON-LIVE-BOOTSTRAP'));
+                $this->fail('Malformed credentials response timestamp was accepted.');
+            } catch (OcpiException $error) {
+                $this->assertStringContainsString('credentials request failed', $error->getMessage());
+            }
+        }
+        Http::assertSentCount(4);
+        $this->assertDatabaseCount('ocpi_credential_links', 0);
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+    }
+
+    public function test_credentials_discovery_accepts_ocpi_implicit_utc_envelope(): void
+    {
+        $provider = $this->fixture();
+        Http::fake(function ($request) {
+            $reply = $this->reply($request->url());
+            $reply['timestamp'] = '2025-03-10T08:00:00';
+
+            return Http::response($reply, 200, [
+                'X-Request-ID' => $request->header('X-Request-ID')[0],
+                'X-Correlation-ID' => $request->header('X-Correlation-ID')[0],
+            ]);
+        });
+        $url = app(CredentialExchange::class)->endpoint($provider, base64_encode('SYNTHETIC-NON-LIVE-BOOTSTRAP'));
+        $this->assertSame('https://partner.example/ocpi/2.2.1/credentials', $url);
+        Http::assertSentCount(2);
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+    }
+
     public function test_production_mode_requires_both_peer_credential_trace_echoes(): void
     {
         $provider = $this->fixture();
