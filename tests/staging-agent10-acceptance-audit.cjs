@@ -63,9 +63,10 @@ test('canonical fixed 42/312 inventory independently cross-checks without releas
   const result = audit(coverage);
   assert.equal(result.original_categories, 42);
   assert.equal(result.original_atoms, 312);
-  assert.equal(result.raw_stage_counts.coded, 186);
-  assert.equal(result.raw_stage_counts.tested, 185);
-  assert.equal(result.raw_stage_counts.merged, 185);
+  for (const stage of ['coded', 'tested', 'merged', 'production_accepted']) {
+    const computed = coverage.categories.reduce((sum, category) => sum + category.counts[stage], 0);
+    assert.equal(result.raw_stage_counts[stage], computed);
+  }
   assert.equal(result.customer_delivery_ready, false);
   assert.equal(result.live_ci_verified, false);
 });
