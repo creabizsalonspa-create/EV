@@ -24,5 +24,5 @@ let stage='fixture';
   assert.equal(await root.locator('article').count(),0);
   await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));});assert.equal(calls,2);assert.equal(await root.locator('article').count(),0);
   assert.deepEqual(errors,[]);console.log('PASS actual Laravel/vendor fleet source snapshot EN/AR, explicit scoped reads and background clearing; no command/payment or source query.');
- } finally { await browser.close(); }
+ } finally { try { await browser.close(); } finally { execFileSync(process.env.EV_TEST_PHP_RUNNER||'./scripts/php',['tests/Fixtures/unified-discovery-clean.php',run],{stdio:'pipe'}); } }
 })().catch(e=>{console.error(JSON.stringify({suite:'connector_fleet',stage,error:e?.name==='TimeoutError'?'TimeoutError':'Error'}));process.exitCode=1;});

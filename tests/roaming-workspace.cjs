@@ -9,7 +9,7 @@ const assert = require("node:assert/strict");
   const run = randomBytes(4).toString("hex"),
     password = randomBytes(24).toString("hex") + "aA9!";
   const fixture = (action) =>
-    execFileSync("./scripts/php", [
+    execFileSync(process.env.EV_TEST_PHP_RUNNER || "./scripts/php", [
       "tests/Fixtures/roaming-workspace.php",
       action,
       run,
