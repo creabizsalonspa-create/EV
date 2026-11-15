@@ -110,7 +110,7 @@ creabizev://navigate/tab/support
 creabizev://navigate/tab/fleet
 ```
 
-Garage links require Customer role; the normal authenticated backend still authorizes every read.
+Garage links work for both signed-in Customer and Vendor accounts, matching ordinary tab navigation; customer-only vehicle actions remain role-gated inside the screen and backend authorization still applies.
 Both native launchers reject credentials, query parameters, fragments, ports, encoded
 paths and unknown tabs; the Flutter bridge independently checks tab allowlisting,
 current account identity, session epoch and foreground lifecycle before routing.
