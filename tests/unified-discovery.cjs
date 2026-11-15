@@ -8,7 +8,7 @@ class Element{
  set textContent(value){this.text=String(value);this.children=[];}
  get textContent(){return this.text+this.children.map(x=>x.textContent||'').join('');}
 }
-const sample={data:[{key:'catalog:7',kind:'catalog',station:{id:7,name:'<b>Catalog</b>',evidence:'SIMULATED'}},{key:'partner:7',kind:'partner',record_id:7,provider_label:'Private operator label',location:{name:'<img src=x>',address:'Synthetic',country:'ARE'},availability:'unknown',remote_control:false,reservable:false}],current_page:1,last_page:2,total:3};
+const sample={data:[{key:'catalog:7',kind:'catalog',station:{id:7,name:'<b>Catalog</b>',evidence:'SIMULATED',connector_type:'CCS2',power_kw:50}},{key:'partner:7',kind:'partner',record_id:7,provider_label:'Private operator label',location:{name:'<img src=x>',address:'Synthetic',country:'ARE'},availability:'unknown',remote_control:false,reservable:false}],current_page:1,last_page:2,total:3};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function fixture(lang='en',api=async()=>sample){const events=[],listeners=new Map(),window={addEventListener(type,fn){listeners.set(type,[...(listeners.get(type)||[]),fn]);},dispatchEvent(event){events.push(event);for(const fn of listeners.get(event.type)||[])fn(event);}},document={getElementById:()=>null,documentElement:{lang},createElement:tag=>new Element(tag)};vm.runInNewContext(fs.readFileSync('services/business-api/public/partner-catalog-policy.js','utf8'),{window});vm.runInNewContext(fs.readFileSync('services/business-api/public/unified-discovery.js','utf8'),{window,document,URLSearchParams,CustomEvent:class{constructor(type,data){this.type=type;this.detail=data.detail;}}});const root=new Element('section'),chosen=[],calls=[];const control=window.EvUnifiedDiscovery.install(root,async(...args)=>{calls.push(args);return api(...args);},id=>chosen.push(id));return{root,chosen,calls,control,events,emit:(type,detail)=>window.dispatchEvent({type,detail}),form:root.children[2],list:root.children[4],nav:root.children[5]};}
 for(const lang of ['en','ar'])test('actual unified DOM query, typed identities and safe source text '+lang,async()=>{
@@ -210,4 +210,33 @@ test('failed catalog or map-only queries cannot enter recent search history',asy
  await tick();
  assert.equal(f.calls.length,1);
  assert.equal(f.root.children[7].hidden,true,'Viewport lookup is not a newly saved search');
+});
+
+
+for(const lang of ['en','ar'])test('incomplete catalog metadata stays readable but has no booking or favorite action '+lang,async()=>{
+ const partial={...sample,data:[
+  {...sample.data[0],station:{id:7,name:'<img src=x>',evidence:'SIMULATED',connector_type:'CCS2'}},
+  sample.data[1],
+ ]};
+ const f=fixture(lang,async()=>partial);
+ f.control.setContext({owner:'private',customer:true,favorite:()=>{throw Error('No write allowed');}});
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.list.children.length,2,'Valid partner must remain visible despite incomplete station');
+ const station=f.list.children[0];
+ assert.equal(station.children.some(child=>child.tag==='button'),false);
+ assert.match(station.textContent,lang==='ar'?/غير مكتملة/:/details incomplete/);
+ assert.equal(station.children[0].children.length,0,'Untrusted station name is always text');
+ assert.equal(f.chosen.length,0);
+ assert.equal(f.list.children[1].children.some(child=>child.tag==='button'),true,
+  'Independent authorized favorite action on the partner remains');
+});
+test('unknown station identity fails closed and cannot navigate to a guessed ID',async()=>{
+ const f=fixture('en',async()=>({...sample,data:[
+  {...sample.data[0],key:'catalog:7',station:{name:'No identifier',connector_type:'CCS2',power_kw:50,evidence:'SIMULATED'}},
+  sample.data[1],
+ ]}));
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.list.children.length,1);
+ assert.equal(f.list.children[0].dataset.partnerLocationId,'7');
+ assert.equal(f.chosen.length,0);
 });
