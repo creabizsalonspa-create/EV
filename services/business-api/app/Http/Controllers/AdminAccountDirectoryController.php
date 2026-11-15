@@ -26,75 +26,75 @@ class AdminAccountDirectoryController extends Controller
             );
 
             $filters = $request->validate([
-            'q' => 'sometimes|required|string|max:100',
-            'role' => 'sometimes|required|in:customer,vendor,admin',
-            'account_status' => 'sometimes|required|in:active,suspended',
-            'verified' => 'sometimes|required|in:yes,no',
-            'page' => 'sometimes|integer|min:1|max:100000',
-        ]);
+                'q' => 'sometimes|required|string|max:100',
+                'role' => 'sometimes|required|in:customer,vendor,admin',
+                'account_status' => 'sometimes|required|in:active,suspended',
+                'verified' => 'sometimes|required|in:yes,no',
+                'page' => 'sometimes|integer|min:1|max:100000',
+            ]);
 
-        $query = User::query()->select([
-            'id', 'name', 'email', 'role', 'locale', 'email_verified_at', 'account_status', 'created_at',
-        ]);
+            $query = User::query()->select([
+                'id', 'name', 'email', 'role', 'locale', 'email_verified_at', 'account_status', 'created_at',
+            ]);
 
-        if (isset($filters['q'])) {
-            $term = trim($filters['q']);
-            $query->where(function ($q) use ($term) {
-                $q->where('name', 'like', '%'.$term.'%')
-                    ->orWhere('email', 'like', '%'.$term.'%');
-            });
-        }
-
-        if (isset($filters['role'])) {
-            $query->where('role', $filters['role']);
-        }
-
-        if (isset($filters['account_status'])) {
-            $query->where('account_status', $filters['account_status']);
-        }
-
-        if (isset($filters['verified'])) {
-            if ($filters['verified'] === 'yes') {
-                $query->whereNotNull('email_verified_at');
-            } else {
-                $query->whereNull('email_verified_at');
+            if (isset($filters['q'])) {
+                $term = trim($filters['q']);
+                $query->where(function ($q) use ($term) {
+                    $q->where('name', 'like', '%'.$term.'%')
+                        ->orWhere('email', 'like', '%'.$term.'%');
+                });
             }
-        }
 
-        $page = $query->orderByDesc('id')->paginate(25)->appends($filters);
-        $ids = $page->getCollection()->pluck('id');
-        $companies = VendorCompany::query()
-            ->whereIn('owner_id', $ids)
-            ->get(['id', 'owner_id', 'legal_name', 'country', 'status', 'reviewed_at'])
-            ->groupBy('owner_id');
+            if (isset($filters['role'])) {
+                $query->where('role', $filters['role']);
+            }
 
-        $view = $page->through(function (User $user) use ($companies) {
-            return [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'role' => $user->role,
-                'account_status' => $user->account_status,
-                'locale' => $user->locale,
-                'email_verified' => $user->email_verified_at !== null,
-                'created_at' => $user->created_at,
-                'companies' => ($companies->get($user->id) ?? collect())->map(fn ($company) => [
-                    'id' => $company->id,
-                    'legal_name' => $company->legal_name,
-                    'country' => $company->country,
-                    'status' => $company->status,
-                    'reviewed_at' => $company->reviewed_at,
-                ])->values(),
-            ];
-        });
+            if (isset($filters['account_status'])) {
+                $query->where('account_status', $filters['account_status']);
+            }
 
-        DB::table('audit_events')->insert([
-            'actor_id' => $actor->id,
-            'action' => 'admin.private_list.accounts_viewed',
-            'subject' => isset($filters['role'])
-                ? 'role:'.$filters['role'] : 'all',
-            'created_at' => now(),
-        ]);
+            if (isset($filters['verified'])) {
+                if ($filters['verified'] === 'yes') {
+                    $query->whereNotNull('email_verified_at');
+                } else {
+                    $query->whereNull('email_verified_at');
+                }
+            }
+
+            $page = $query->orderByDesc('id')->paginate(25)->appends($filters);
+            $ids = $page->getCollection()->pluck('id');
+            $companies = VendorCompany::query()
+                ->whereIn('owner_id', $ids)
+                ->get(['id', 'owner_id', 'legal_name', 'country', 'status', 'reviewed_at'])
+                ->groupBy('owner_id');
+
+            $view = $page->through(function (User $user) use ($companies) {
+                return [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role,
+                    'account_status' => $user->account_status,
+                    'locale' => $user->locale,
+                    'email_verified' => $user->email_verified_at !== null,
+                    'created_at' => $user->created_at,
+                    'companies' => ($companies->get($user->id) ?? collect())->map(fn ($company) => [
+                        'id' => $company->id,
+                        'legal_name' => $company->legal_name,
+                        'country' => $company->country,
+                        'status' => $company->status,
+                        'reviewed_at' => $company->reviewed_at,
+                    ])->values(),
+                ];
+            });
+
+            DB::table('audit_events')->insert([
+                'actor_id' => $actor->id,
+                'action' => 'admin.private_list.accounts_viewed',
+                'subject' => isset($filters['role'])
+                    ? 'role:'.$filters['role'] : 'all',
+                'created_at' => now(),
+            ]);
 
             return response()->json($view)->header('Cache-Control', 'no-store, private');
         });
@@ -187,25 +187,25 @@ class AdminAccountDirectoryController extends Controller
                 $this->requireActiveAdmin($request)
             );
             $history = DB::table('admin_account_moderations')
-            ->where('target_user_id', $target->id)
-            ->orderByDesc('id')
-            ->paginate(25)
-            ->through(fn ($event) => [
-                'id' => $event->id,
-                'actor_user_id' => $event->actor_user_id,
-                'from_status' => $event->from_status,
-                'to_status' => $event->to_status,
-                'reason' => Crypt::decryptString($event->reason_encrypted),
-                'created_at' => $event->created_at,
-            ]);
+                ->where('target_user_id', $target->id)
+                ->orderByDesc('id')
+                ->paginate(25)
+                ->through(fn ($event) => [
+                    'id' => $event->id,
+                    'actor_user_id' => $event->actor_user_id,
+                    'from_status' => $event->from_status,
+                    'to_status' => $event->to_status,
+                    'reason' => Crypt::decryptString($event->reason_encrypted),
+                    'created_at' => $event->created_at,
+                ]);
 
-        // The private reason is for authorized reviewers, not audit logs.
-        DB::table('audit_events')->insert([
-            'actor_id' => $request->user()->id,
-            'action' => 'admin.private_history.account_viewed',
-            'subject' => (string) $target->id,
-            'created_at' => now(),
-        ]);
+            // The private reason is for authorized reviewers, not audit logs.
+            DB::table('audit_events')->insert([
+                'actor_id' => $request->user()->id,
+                'action' => 'admin.private_history.account_viewed',
+                'subject' => (string) $target->id,
+                'created_at' => now(),
+            ]);
 
             return response()->json($history)->header('Cache-Control', 'no-store, private');
         });
