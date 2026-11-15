@@ -409,4 +409,82 @@ class UnifiedDiscoveryTest extends TestCase
         }
         Http::assertNothingSent();
     }
+
+    public function test_supported_country_filters_exact_location_not_ocpi_party_before_pagination(): void
+    {
+        $f = $this->fixtures();
+
+        $usStation = $f['station']->replicate();
+        $usStation->country = 'US';
+        $usStation->currency = 'USD';
+        $usStation->name = 'United States station';
+        $usStation->save();
+
+        $canadaStation = $f['station']->replicate();
+        $canadaStation->country = 'CA';
+        $canadaStation->currency = 'CAD';
+        $canadaStation->name = 'Canada station';
+        $canadaStation->save();
+
+        $usPartner = $f['record']->replicate();
+        $usPartner->external_id = 'us-location-from-ca-party';
+        $usPartner->country_code = 'CA'; // Party registration is NOT the station country.
+        $usPartner->content_hash = str_repeat('b', 64);
+        $usPartner->normalized = array_merge($f['record']->normalized, [
+            'name' => 'United States partner', 'country' => 'USA',
+            'latitude' => '25.1', 'longitude' => '55.1',
+        ]);
+        $usPartner->save();
+
+        $canadaPartner = $f['record']->replicate();
+        $canadaPartner->external_id = 'ca-location-from-ae-party';
+        $canadaPartner->country_code = 'AE';
+        $canadaPartner->content_hash = str_repeat('c', 64);
+        $canadaPartner->normalized = array_merge($f['record']->normalized, [
+            'name' => 'Canada partner', 'country' => 'CAN',
+            'latitude' => '25.2', 'longitude' => '55.2',
+        ]);
+        $canadaPartner->save();
+
+        // Out-of-country high IDs must not consume the target country's page.
+        foreach (range(1, 26) as $n) {
+            $out = $f['station']->replicate();
+            $out->name = 'Other-market-'.$n;
+            $out->save();
+        }
+
+        foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $route) {
+            foreach ([
+                'AE' => ['catalog:'.$f['station']->id, 'partner:'.$f['record']->id],
+                'US' => ['catalog:'.$usStation->id, 'partner:'.$usPartner->id],
+                'CA' => ['catalog:'.$canadaStation->id, 'partner:'.$canadaPartner->id],
+            ] as $country => $expected) {
+                $reply = $this->getJson($route.'?country='.$country)->assertOk()
+                    ->assertJsonPath('total', $country === 'AE' ? 28 : 2);
+                // The unfiltered AE market deliberately contains 26 additional stations.
+                $this->assertEqualsCanonicalizing(
+                    $expected,
+                    array_values(array_intersect($expected, array_column($reply->json('data'), 'key')))
+                );
+                if ($country !== 'AE') {
+                    $reply->assertJsonCount(2, 'data')->assertJsonPath('last_page', 1);
+                    $this->getJson($route.'?country='.$country.'&scope=partner')
+                        ->assertJsonPath('total', 1)->assertJsonPath('data.0.availability', 'unknown')
+                        ->assertJsonPath('data.0.reservable', false);
+                    $this->getJson($route.'?country='.$country.'&scope=catalog')
+                        ->assertJsonPath('total', 1);
+                }
+            }
+            $this->getJson($route.'?country=US&south=24&north=26&west=54&east=56')
+                ->assertJsonPath('total', 2);
+            $this->getJson($route.'?country=US&page=2')->assertJsonPath('total', 2)->assertJsonCount(0, 'data');
+            foreach (['GB', 'USA', 'ae', 'XX', 'AE%25', 'country[]=US'] as $bad) {
+                $suffix = str_starts_with($bad, 'country[') ? $bad : 'country='.$bad;
+                $this->getJson($route.'?'.$suffix)->assertUnprocessable();
+            }
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('reservations', 0);
+        Http::assertNothingSent();
+    }
 }
