@@ -659,6 +659,95 @@ class SourceConsumerTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 1);
     }
 
+    #[DataProvider('protocolVersions')]
+    public function test_multi_page_cumulative_energy_with_250_source_rows_survives_restarts_without_duplicate_invoice(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond();
+        // Three persisted source pages, two periodic registers with identical
+        // cumulative energy, and one authoritative terminal register.
+        $rows = array_map(fn (int $id) => [
+            'id' => $id,
+            'timestamp' => $at->toIso8601String(),
+            'sampledValue' => [['measurand' => 'Voltage', 'value' => 230]],
+        ], range(1, 250));
+        $register = fn (int $id, string $value, string $context, int $offset) => [
+            'id' => $id,
+            'timestamp' => $at->addSeconds($offset)->toIso8601String(),
+            'sampledValue' => [[
+                'measurand' => 'Energy.Active.Import.Register',
+                'value' => $value,
+                'context' => $context,
+                'unitOfMeasure' => ['unit' => 'Wh'],
+            ]],
+        ];
+        $rows[74] = $register(75, '2500', 'Sample.Periodic', 1);
+        $rows[149] = $register(150, '2500', 'Sample.Periodic', 1);
+        $rows[249] = $register(250, '3500', 'Transaction.End', 2);
+        $pagesRequested = [];
+
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($link, $protocol, $at, $rows, &$pagesRequested) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10,
+                    'transactionId' => $protocol === '1.6' ? '101' : 'source-long-run',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000',
+                    'startTime' => $at->toIso8601String(),
+                    'endTime' => $at->addSeconds(2)->toIso8601String(),
+                    'isActive' => false,
+                    'totalKwh' => '2.500',
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                $after = (int) ($request['variables']['after'] ?? -1);
+                $pagesRequested[] = $after;
+                $this->assertContains($after, [0, 100, 200, 250]);
+
+                return Http::response(['data' => [
+                    'MeterValues' => array_slice($rows, $after, 100),
+                ]]);
+            }
+
+            $this->fail('Unexpected external request during source load recovery.');
+        });
+
+        $this->assertSame(2, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(100, $link->fresh()->source_meter_cursor);
+        $this->assertSame(1500, DB::table('charging_sessions')->value('energy_wh'));
+        $this->assertDatabaseCount('finance_invoices', 0);
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(200, $link->fresh()->source_meter_cursor);
+        $this->assertSame(1500, DB::table('charging_sessions')->value('energy_wh'));
+        $this->assertDatabaseCount('finance_invoices', 0);
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(250, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id,
+            'status' => 'stopped',
+            'energy_wh' => 2500,
+        ]);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('csms_inbox_events', 4);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertSame(8, $link->fresh()->source_station_id);
+
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame([0, 100, 200, 250], $pagesRequested);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+    }
+
     public function test_meter_units_are_exact_and_unsupported_precision_is_not_rounded(): void
     {
         $this->assertSame(2500, SourceConsumer::wh('2.500000', 'kWh'));
