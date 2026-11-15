@@ -53,7 +53,16 @@ class AdminAccountDirectoryController extends Controller
                 $company->selectRaw('1')->from('vendor_companies')
                     ->whereColumn('vendor_companies.owner_id', 'users.id');
                 if (isset($filters['company_q'])) {
-                    $company->where('vendor_companies.legal_name', 'like', '%'.trim($filters['company_q']).'%');
+                    // Match literal business text (including %, _, and !) on
+                    // supported databases, with case-insensitive lookup.
+                    $operator = match (DB::connection()->getDriverName()) {
+                        'pgsql' => 'ILIKE',
+                        'sqlite' => 'LIKE',
+                        default => throw new \LogicException('Unsupported Admin business directory database.'),
+                    };
+                    $needle = trim($filters['company_q']);
+                    $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $needle).'%';
+                    $company->whereRaw("vendor_companies.legal_name $operator ? ESCAPE '!'", [$pattern]);
                 }
                 if (isset($filters['company_country'])) {
                     $company->where('vendor_companies.country', $filters['company_country']);
