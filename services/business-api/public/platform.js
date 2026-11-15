@@ -20,6 +20,8 @@ let supportPage = 1,
 let ticketDetailGeneration = 0, ticketDetailRequest = null;
 let simulationPage = 1, simulationGeneration = 0,
     simulationRequest = null, simulationOwner = null;
+let garagePage = 1, garageGeneration = 0,
+    garageRequest = null, garageOwner = null;
 let user = null,
     csrf = document.querySelector("meta[name=csrf-token]").content;
 const el = (id) => document.getElementById(id),
@@ -149,6 +151,12 @@ function clearPrivateViews() {
     simulationPage = 1;
     simulationOwner = null;
     el("simulation-list").removeAttribute("aria-busy");
+    garageRequest?.abort();
+    garageRequest = null;
+    garageGeneration++;
+    garagePage = 1;
+    garageOwner = null;
+    el("vehicle-list").removeAttribute("aria-busy");
     riderWorkspace.clear();
     vendorWorkspace.clear();
     vehicleModelCatalog.clear();
@@ -1717,9 +1725,41 @@ async function batteryEditor(id, row) {
     row.append(box);
 }
 
-async function garage() {
-    const j = await api("vehicles");
-    el("vehicle-list").replaceChildren();
+async function garage(page = garagePage, showNewest = false) {
+    if (!user || !Number.isSafeInteger(page) || page < 1) return;
+    const owner = client.sessionEpoch + ":" + user.id + ":" + user.role;
+    if (garageOwner !== owner) {
+        garageOwner = owner;
+        garagePage = 1;
+        page = 1;
+    }
+    garageRequest?.abort();
+    const controller = new AbortController();
+    garageRequest = controller;
+    const generation = ++garageGeneration,
+        epoch = client.sessionEpoch, actor = user.id;
+    const active = () => generation === garageGeneration &&
+        epoch === client.sessionEpoch && actor === user?.id &&
+        garageRequest === controller && !controller.signal.aborted;
+    const list = el("vehicle-list");
+    list.setAttribute("aria-busy", "true");
+    list.replaceChildren(batteryNode("p", "Loading vehicles…", "جارٍ تحميل المركبات…"));
+    try {
+    const j = await api("vehicles?page=" + page, "GET", undefined, controller.signal);
+    if (!active()) return;
+    if (!Array.isArray(j?.data) || !Number.isSafeInteger(j.current_page) ||
+        !Number.isSafeInteger(j.last_page) || !Number.isSafeInteger(j.total) ||
+        j.current_page !== page || j.last_page < 1 || j.total < 0)
+        throw new Error("Unrecognized garage response.");
+    if (page > j.last_page || (showNewest && page < j.last_page)) {
+        await garage(j.last_page);
+        return;
+    }
+    garagePage = page;
+    list.replaceChildren();
+    if (!j.data.length)
+        list.append(batteryNode("p", "No vehicles on this page.",
+            "لا توجد مركبات في هذه الصفحة."));
     for (const v of j.data) {
         const row = node("div", "#" + v.id + " · " + v.name + " · " + v.connector_type);
         if (user.role === "customer") {
@@ -1737,12 +1777,50 @@ async function garage() {
             button.onclick = () => driverPreferences.open(v);
             row.append(button);
         }
-        el("vehicle-list").append(row);
+        row.dataset.garageVehicleId = String(v.id);
+        list.append(row);
     }
     vehicleModelCatalog.renderGarage(j.data);
     vehicleManualSoc.renderGarage(j.data);
     el("profile-form").elements.name.value = user.name;
     el("profile-form").elements.locale.value = user.locale;
+    const pager = document.createElement("nav");
+    pager.className = "pagination";
+    pager.dataset.garagePagination = "true";
+    pager.setAttribute("aria-label", "Vehicle garage pages / صفحات مرآب المركبات");
+    pager.append(ui("span", "Page {page} of {last} · {total} records", {
+        page: j.current_page, last: j.last_page, total: j.total,
+    }));
+    for (const [key, en, ar, target, disabled] of [
+        ["previous", "Previous", "السابق", page - 1, page <= 1],
+        ["next", "Next", "التالي", page + 1, page >= j.last_page],
+        ["refresh", "Refresh", "تحديث", page, false],
+    ]) {
+        const b = batteryNode("button", en, ar);
+        b.type = "button";
+        b.dataset.garagePageAction = key;
+        b.disabled = disabled;
+        b.onclick = () => { if (active()) void garage(target); };
+        pager.append(b);
+    }
+    list.append(pager);
+    } catch (error) {
+        if (!active()) return;
+        list.replaceChildren(batteryNode("p",
+            "Garage could not be loaded. Retry before using vehicle-specific tools.",
+            "تعذر تحميل المركبات. أعد المحاولة قبل استخدام أدوات المركبة."));
+        // Do not retain model or manually reported battery controls from an
+        // unverified previous page: the newly requested scope is unknown.
+        vehicleModelCatalog.renderGarage([]);
+        vehicleManualSoc.renderGarage([]);
+        const retry = batteryNode("button", "Retry garage", "إعادة تحميل المركبات");
+        retry.type = "button";
+        retry.dataset.garageRetry = "true";
+        retry.onclick = () => { if (active()) void garage(page, showNewest); };
+        list.append(retry);
+    } finally {
+        if (active()) list.removeAttribute("aria-busy");
+    }
 }
 el("vehicle-create").onsubmit = async (e) => {
     e.preventDefault();
@@ -1752,7 +1830,7 @@ el("vehicle-create").onsubmit = async (e) => {
             "POST",
             Object.fromEntries(new FormData(e.target)),
         );
-        await garage();
+        await garage(1, true);
     } catch (e) {
         notice(e);
     }
