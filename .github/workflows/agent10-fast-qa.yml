@@ -1,0 +1,59 @@
+name: Agent 10 fast offline QA
+on:
+  push:
+    branches:
+      - development/agent10-independent-acceptance-20261115
+  pull_request:
+    paths:
+      - 'scripts/agent10-*.cjs'
+      - 'tests/staging-agent10-*.cjs'
+      - 'tests/operational-connected.cjs'
+      - 'docs/evidence/requirements/**'
+      - '.github/workflows/agent10-fast-qa.yml'
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  agent10-offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Require exact checked-out source and refuse shallow manual claims
+        shell: bash
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -f docs/evidence/requirements/coverage.json
+      - name: Syntax-check independent QA and bounded operational harness
+        shell: bash
+        run: |
+          set -eu
+          node --check scripts/agent10-acceptance-audit.cjs
+          node --check scripts/agent10-ci-source-gate.cjs
+          node --check scripts/agent10-strict-json.cjs
+          node --check tests/operational-connected.cjs
+          for file in tests/staging-agent10-*.cjs; do node --check "$file"; done
+      - name: Run every read-only Agent 10 negative and fixed-denominator test
+        shell: bash
+        run: |
+          set -eu
+          node --test tests/staging-agent10-*.cjs
+      - name: Recompute 42-category/312-item coverage without acceptance inflation
+        shell: bash
+        run: |
+          set -eu
+          node scripts/agent10-acceptance-audit.cjs > "$RUNNER_TEMP/agent10-coverage.json"
+          node -e 'const fs=require("node:fs");const a=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/agent10-coverage.json","utf8"));if(a.original_categories!==42||a.original_atoms!==312||a.raw_stage_counts.production_accepted!==0||a.production_ready!==false||a.customer_delivery_ready!==false||a.exact_git_sha_verified!==false)process.exit(1);'
+      - name: Retain source-only summary for integration review
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent10-offline-coverage
+          path: ${{ runner.temp }}/agent10-coverage.json
+          retention-days: 7
+          if-no-files-found: error
