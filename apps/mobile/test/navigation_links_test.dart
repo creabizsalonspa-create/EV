@@ -243,6 +243,101 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('newer native link wins when older response completes last',
+      (tester) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final replies = <Completer<String?>>[];
+    messenger.setMockMethodCallHandler(
+      NativeNavigationBridge.channel,
+      (_) async {
+        if (replies.isEmpty) return null;
+        return await replies.removeAt(0).future;
+      },
+    );
+    addTearDown(() => messenger.setMockMethodCallHandler(
+          NativeNavigationBridge.channel,
+          null,
+        ));
+    final api = FixtureApi();
+    addTearDown(api.close);
+    final preferences = AppPreferences(TestStore());
+    await preferences.load();
+    await tester.pumpWidget(EvApp(preferences: preferences, api: api));
+    await tester.pumpAndSettle();
+    await login(tester);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    final dynamic workspace = tester.state(find.byType(Workspace));
+
+    final older = Completer<String?>();
+    final newer = Completer<String?>();
+    replies.addAll([older, newer]);
+    NativeNavigationBridge.pending.value++;
+    await tester.pump();
+    await tester.pump();
+    expect(replies.length, 1);
+    NativeNavigationBridge.pending.value++;
+    await tester.pump();
+    await tester.pump();
+    expect(replies, isEmpty);
+
+    newer.complete('sessions');
+    await tester.pumpAndSettle();
+    expect(workspace.tab, 2);
+    older.complete('support');
+    await tester.pumpAndSettle();
+    expect(workspace.tab, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('delayed link cannot enter a new sign-in of the same account',
+      (tester) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    Completer<String?>? waiting;
+    bool used = false;
+    messenger.setMockMethodCallHandler(
+      NativeNavigationBridge.channel,
+      (_) async {
+        if (waiting == null || used) return null;
+        used = true;
+        return await waiting.future;
+      },
+    );
+    addTearDown(() => messenger.setMockMethodCallHandler(
+          NativeNavigationBridge.channel,
+          null,
+        ));
+    final api = FixtureApi();
+    addTearDown(api.close);
+    final preferences = AppPreferences(TestStore());
+    await preferences.load();
+    await tester.pumpWidget(EvApp(preferences: preferences, api: api));
+    await tester.pumpAndSettle();
+    await login(tester);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    final dynamic workspace = tester.state(find.byType(Workspace));
+    expect(workspace.account?.id, 1);
+
+    waiting = Completer<String?>();
+    NativeNavigationBridge.pending.value++;
+    await tester.pump();
+    await tester.pump();
+    expect(used, isTrue);
+    workspace.expiredSession();
+    await tester.pumpAndSettle();
+    await login(tester);
+    expect(workspace.account?.id, 1);
+    expect(workspace.tab, 0);
+
+    waiting.complete('support');
+    await tester.pumpAndSettle();
+    expect(workspace.tab, 0);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('signed-out and vendor-incompatible links cannot open private garage',
       (tester) async {
     final messenger =
