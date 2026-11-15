@@ -67,11 +67,11 @@
     recentPresets=[record,...recentPresets.filter(other=>JSON.stringify(other)!==fingerprint)].slice(0,5);
     renderRecentPresets();
   }
-  root.append(text('h3','Search platform and partner locations','البحث في مواقع المنصة والشركاء'),text('p','One search of published records. Partner reports are unverified and cannot authorize booking, charging or payment. External discovery providers require their separate consent.','بحث موحد في السجلات المنشورة. تقارير الشركاء غير مؤكدة ولا تسمح بالحجز أو الشحن أو الدفع. يتطلب مزودو الاكتشاف الخارجيون موافقة منفصلة.'),form,recentPanel,state,list,nav);
+  root.append(text('h3','Search platform and partner locations','البحث في مواقع المنصة والشركاء'),text('p','One search of published records. Partner reports are unverified and cannot authorize booking, charging or payment. External discovery providers require their separate consent.','بحث موحد في السجلات المنشورة. تقارير الشركاء غير مؤكدة ولا تسمح بالحجز أو الشحن أو الدفع. يتطلب مزودو الاكتشاف الخارجيون موافقة منفصلة.'),form,state,list,nav);
   const mapButton=button('Map these loaded results','عرض هذه النتائج المحملة على الخريطة',()=>{
    window.dispatchEvent(new CustomEvent('unified-map-data',{detail:mapRows}));
    document.getElementById('discovery-map')?.scrollIntoView({block:'start'});
-  });mapButton.disabled=true;root.append(mapButton);
+  });mapButton.disabled=true;root.append(mapButton,recentPanel);
   async function load(target,remember=false){
    if(writing)return;
    const historySnapshot=remember?{q:query,scope,country,connector,recentStatus,maxSourceAge,savedOnly,advanced:{...advancedQuery}}:null;
