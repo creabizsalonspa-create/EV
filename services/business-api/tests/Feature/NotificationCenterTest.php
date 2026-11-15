@@ -645,8 +645,8 @@ class NotificationCenterTest extends TestCase
         $this->getJson('/api/notifications?category=charging')
             ->assertOk()->assertJsonPath('total', 0);
         DB::table('users')->where('id', $owner->id)->update(['role' => 'customer']);
-        $this->getJson('/api/notifications?category=charging')
-            ->assertOk()->assertJsonPath('total', 0);
+        // A stale vendor session is rejected outright after role revocation.
+        $this->getJson('/api/notifications?category=charging')->assertStatus(409);
         $this->assertNull($note->fresh()->read_at);
         $this->assertNull($case->fresh()->read_at);
         $this->assertDatabaseCount('audit_events', 0);
