@@ -26,6 +26,9 @@ class AdminAccountDirectoryController extends Controller
             'role' => 'sometimes|required|in:customer,vendor,admin',
             'account_status' => 'sometimes|required|in:active,suspended',
             'verified' => 'sometimes|required|in:yes,no',
+            'company_q' => 'sometimes|required|string|max:100',
+            'company_country' => ['sometimes', 'required', 'regex:/^[A-Z]{2}$/D'],
+            'company_status' => 'sometimes|required|in:draft,submitted,approved,rejected,changes_requested,suspended',
             'page' => 'sometimes|integer|min:1|max:100000',
         ]);
 
@@ -38,6 +41,26 @@ class AdminAccountDirectoryController extends Controller
             $query->where(function ($q) use ($term) {
                 $q->where('name', 'like', '%'.$term.'%')
                     ->orWhere('email', 'like', '%'.$term.'%');
+            });
+        }
+
+        // Multiple business filters must match the SAME owned company.
+        // Separate WHERE EXISTS clauses could falsely match two unrelated
+        // companies owned by one account (e.g. UAE approved + CA rejected).
+        if (isset($filters['company_q']) || isset($filters['company_country'])
+            || isset($filters['company_status'])) {
+            $query->whereExists(function ($company) use ($filters) {
+                $company->selectRaw('1')->from('vendor_companies')
+                    ->whereColumn('vendor_companies.owner_id', 'users.id');
+                if (isset($filters['company_q'])) {
+                    $company->where('vendor_companies.legal_name', 'like', '%'.trim($filters['company_q']).'%');
+                }
+                if (isset($filters['company_country'])) {
+                    $company->where('vendor_companies.country', $filters['company_country']);
+                }
+                if (isset($filters['company_status'])) {
+                    $company->where('vendor_companies.status', $filters['company_status']);
+                }
             });
         }
 
