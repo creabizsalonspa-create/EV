@@ -1,3 +1,21 @@
+# 15 November 2026 — connected fleet/RFID/customer security candidate
+
+Combined source preserves merged firmware/Admin operations, fleet reports, current
+RFID authority, partner catalog age filtering and private authenticator notices.
+The new security-notice browser acceptance failure was reproduced as HTTP419
+following successful session/CSRF rotation. The client now fetches and asserts a
+new token after each successful change; server CSRF and no-mutation-replay rules
+remain intact. Isolated browser runners use only their configured loopback API.
+
+Focused combined evidence: PostgreSQL90 tests/1209 assertions; Flutter34 cases;
+eight-file native analysis clean; PHP style752 files; actual EN/AR Laravel owner/
+Admin fleet reports, outsider denial, MFA/recovery notices and scoped read control,
+partner catalog age/search/favorites, and private process observations passed.
+Both parent command/filter/localization sets were explicitly preserved. The
+existing required both-protocol charging/source and release CI remains mandatory
+before integration; this candidate is not merged or production accepted.
+No original inventory scope, weights or atom credits changed.
+
 # 15 November 2026 — current-account RFID source operations (integration pending)
 
 Customer card/grant reads, issue/revoke/renew and operator reviews now retain and

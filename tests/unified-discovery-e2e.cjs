@@ -3,8 +3,8 @@ const {execFileSync}=require('node:child_process'),{randomBytes}=require('node:c
 const {BusinessClient}=require('./helpers/business-client.cjs');
 let stage='fixture';
 (async()=>{
- const run=randomBytes(4).toString('hex'),password=randomBytes(24).toString('hex')+'Aa9!',f=JSON.parse(execFileSync('./scripts/php',['tests/Fixtures/unified-discovery.php',run,password],{encoding:'utf8'}));assert.equal(f.fixture_only,true);
- stage='login';const c=new BusinessClient();c.csrf=(await c.request('csrf')).token;await c.request('login','POST',{email:`canonical-customer-${run}@example.test`,password});
+ const run=randomBytes(4).toString('hex'),password=randomBytes(24).toString('hex')+'Aa9!',f=JSON.parse(execFileSync(process.env.EV_TEST_PHP_RUNNER||'./scripts/php',['tests/Fixtures/unified-discovery.php',run,password],{encoding:'utf8'}));assert.equal(f.fixture_only,true);
+ stage='login';const c=new BusinessClient({base:process.env.EV_TEST_URL||'http://127.0.0.1:8000'});c.csrf=(await c.request('csrf')).token;await c.request('login','POST',{email:`canonical-customer-${run}@example.test`,password});
  const browser=await chromium.launch({headless:true,executablePath:process.env.EV_CHROMIUM_PATH||undefined,args:['--no-sandbox']});
  try{
   const ctx=await browser.newContext();await ctx.addCookies([...c.cookies].map(([name,value])=>({name,value,url:c.base})));
@@ -43,5 +43,5 @@ let stage='fixture';
   await page.locator('#language').click();await page.waitForFunction(()=>document.documentElement.lang==='ar');assert.match(await root.textContent(),/التوفر غير معروف/);assert.match(await root.textContent(),/عمر الكتالوج المبلغ عنه عند البحث/);assert.match(await root.textContent(),/لا تؤكد التوفر الفعلي/);
   const canonical=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/stations'&&new URL(r.url()).searchParams.get('station_id')===String(f.station_id));await root.locator('[data-discovery-key="catalog:'+f.station_id+'"] button:not([data-favorite-kind])').click();assert.equal((await canonical).status(),200);
   assert.deepEqual(errors,[]);console.log('Actual unified Laravel/browser bilingual search, supplier identities, safe text and canonical catalog handoff passed (synthetic published records).');
- }finally{await browser.close();execFileSync('./scripts/php',['tests/Fixtures/unified-discovery-clean.php',run],{stdio:'pipe'});}
+ }finally{await browser.close();execFileSync(process.env.EV_TEST_PHP_RUNNER||'./scripts/php',['tests/Fixtures/unified-discovery-clean.php',run],{stdio:'pipe'});}
 })().catch(error=>{console.error(JSON.stringify({suite:'unified-discovery',stage,error:['Error','AssertionError','TimeoutError'].includes(error?.name)?error.name:'Error'}));process.exit(1);});
