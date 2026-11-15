@@ -4,6 +4,7 @@ namespace App\Services\Ocpi;
 
 use Carbon\CarbonImmutable;
 use DateTimeImmutable;
+use DateTimeZone;
 use Illuminate\Support\Facades\Validator;
 
 class RecordNormalizer
@@ -22,19 +23,20 @@ class RecordNormalizer
         if ($validator->fails()) {
             throw new OcpiException('Invalid '.$module.' record fields: '.implode(', ', array_keys($validator->errors()->toArray())));
         }
-        // Source dates are authoritative evidence, not server-local or relative
-        // calendar phrases. Require explicit OCPI UTC/offset seconds before
-        // Carbon normalizes a timestamp for comparison and persistence.
+        // OCPI 2.2.1 DateTime is UTC whether or not a trailing Z is present.
+        // Numeric offsets, local-server dates and relative text are not peer UTC.
         foreach (['last_updated', 'start_date_time', 'end_date_time'] as $field) {
             if (! array_key_exists($field, $record) || $record[$field] === null) {
                 continue;
             }
             if (! is_string($record[$field])
-                || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})$/D', $record[$field])) {
+                || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?Z?$/D', $record[$field])) {
                 throw new OcpiException('Invalid '.$module.' record fields: '.$field);
             }
-            $format = str_contains($record[$field], '.') ? '!Y-m-d\\TH:i:s.uP' : '!Y-m-d\\TH:i:sP';
-            $instant = DateTimeImmutable::createFromFormat($format, $record[$field]);
+            $format = '!Y-m-d\\TH:i:s'
+                .(str_contains($record[$field], '.') ? '.u' : '')
+                .(str_ends_with($record[$field], 'Z') ? '\\Z' : '');
+            $instant = DateTimeImmutable::createFromFormat($format, $record[$field], new DateTimeZone('UTC'));
             if (! $instant || DateTimeImmutable::getLastErrors() !== false) {
                 throw new OcpiException('Invalid '.$module.' record fields: '.$field);
             }
@@ -55,7 +57,7 @@ class RecordNormalizer
                 }
             }
         }
-        $updated = CarbonImmutable::parse($record['last_updated'])->utc();
+        $updated = CarbonImmutable::parse($record['last_updated'], 'UTC')->utc();
         if ($updated->greaterThan(now()->addMinutes(5))) {
             throw new OcpiException('Operator record timestamp is in the future.');
         }
@@ -63,8 +65,8 @@ class RecordNormalizer
         $n = match ($module) {
             'locations' => ['connector_standards' => $this->standards($record['evses'] ?? []), 'name' => $record['name'] ?? $record['id'], 'publish' => (bool) $record['publish'], 'address' => $record['address'], 'city' => $record['city'], 'country' => $record['country'], 'latitude' => (string) $record['coordinates']['latitude'], 'longitude' => (string) $record['coordinates']['longitude'], 'evses' => array_map(fn ($e) => ['uid' => $e['uid'], 'reported_status' => $e['status'], 'connectors' => array_map(fn ($c) => ['id' => $c['id'], 'standard' => $c['standard']], $e['connectors'])], $record['evses'] ?? []), 'availability' => 'unknown', 'remote_control' => false, 'reservable' => false],
             'tariffs' => ['currency' => $record['currency'], 'elements' => array_map(fn ($e) => ['price_components' => array_map(fn ($c) => ['type' => $c['type'], 'price' => (string) $c['price'], 'step_size' => (int) $c['step_size'], 'vat' => isset($c['vat']) ? (string) $c['vat'] : null], $e['price_components'])], $record['elements']), 'billing_eligible' => false],
-            'sessions' => ['currency' => $record['currency'], 'status' => $record['status'], 'start_date_time' => CarbonImmutable::parse($record['start_date_time'])->utc()->toISOString(), 'end_date_time' => isset($record['end_date_time']) ? CarbonImmutable::parse($record['end_date_time'])->utc()->toISOString() : null, 'energy_kwh' => (string) $record['kwh'], 'location_id' => $record['location_id'], 'evse_uid' => $record['evse_uid'], 'connector_id' => $record['connector_id'], 'cost' => $this->cost($record['total_cost'] ?? []), 'billing_eligible' => false],
-            'cdrs' => ['credit' => (bool) ($record['credit'] ?? false), 'credit_reference_id' => $record['credit_reference_id'] ?? null, 'session_id' => $record['session_id'] ?? null, 'currency' => $record['currency'], 'start_date_time' => CarbonImmutable::parse($record['start_date_time'])->utc()->toISOString(), 'end_date_time' => CarbonImmutable::parse($record['end_date_time'])->utc()->toISOString(), 'energy_kwh' => (string) $record['total_energy'], 'time_hours' => (string) $record['total_time'], 'cost' => $this->cost($record['total_cost']), 'location_id' => $record['cdr_location']['id'], 'evse_uid' => $record['cdr_location']['evse_uid'], 'connector_id' => $record['cdr_location']['connector_id'], 'billing_eligible' => false],
+            'sessions' => ['currency' => $record['currency'], 'status' => $record['status'], 'start_date_time' => CarbonImmutable::parse($record['start_date_time'], 'UTC')->utc()->toISOString(), 'end_date_time' => isset($record['end_date_time']) ? CarbonImmutable::parse($record['end_date_time'], 'UTC')->utc()->toISOString() : null, 'energy_kwh' => (string) $record['kwh'], 'location_id' => $record['location_id'], 'evse_uid' => $record['evse_uid'], 'connector_id' => $record['connector_id'], 'cost' => $this->cost($record['total_cost'] ?? []), 'billing_eligible' => false],
+            'cdrs' => ['credit' => (bool) ($record['credit'] ?? false), 'credit_reference_id' => $record['credit_reference_id'] ?? null, 'session_id' => $record['session_id'] ?? null, 'currency' => $record['currency'], 'start_date_time' => CarbonImmutable::parse($record['start_date_time'], 'UTC')->utc()->toISOString(), 'end_date_time' => CarbonImmutable::parse($record['end_date_time'], 'UTC')->utc()->toISOString(), 'energy_kwh' => (string) $record['total_energy'], 'time_hours' => (string) $record['total_time'], 'cost' => $this->cost($record['total_cost']), 'location_id' => $record['cdr_location']['id'], 'evse_uid' => $record['cdr_location']['evse_uid'], 'connector_id' => $record['cdr_location']['connector_id'], 'billing_eligible' => false],
         };
 
         return $identity + $n;
