@@ -404,8 +404,12 @@ function provisionTestRole(email, role) {
       "#fleet-assign select[name=vehicle_id] option[value='" + syntheticOlderVehicle + "']").count(),0);
     vehiclePageFail = false;
     await customer.page.locator("#fleet-assign [data-fleet-more-vehicles]").click();
-    await customer.page.locator(
-      "#fleet-assign select[name=vehicle_id] option[value='" + syntheticOlderVehicle + "']").waitFor();
+    // Native <option> nodes in a closed <select> are attached but hidden.
+    // Assert the second-page choice exists without requiring CSS visibility.
+    const olderVehicleOption = customer.page.locator(
+      "#fleet-assign select[name=vehicle_id] option[value='" + syntheticOlderVehicle + "']");
+    await olderVehicleOption.waitFor({state:"attached"});
+    assert.equal(await olderVehicleOption.count(),1);
     await customer.page.unroute("**/api/vehicles?page=*");
     await customer.page.locator("#fleet-assign [name=vehicle_id]").selectOption(
       String(ownFleetVehicles.data[0].id));
