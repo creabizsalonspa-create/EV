@@ -21,7 +21,7 @@ final class VendorRevenueCohortController extends Controller
         abort_unless(User::whereKey($vendor)->where('role', 'vendor')->exists(), 404);
 
         $values = $request->validate([
-            'currency' => ['required', 'regex:/^[A-Z]{3}$/'],
+            'currency' => ['required', 'regex:/\A[A-Z]{3}\z/'],
             'from' => ['required', 'date_format:Y-m-d'],
             'to' => ['required', 'date_format:Y-m-d', 'after_or_equal:from'],
         ]);

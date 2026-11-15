@@ -133,6 +133,7 @@ class VendorRevenueCohortTest extends TestCase
         $this->actingAs($this->customer)->getJson($base.$query)->assertNotFound();
         $this->actingAs($this->admin)->getJson($base.$query)->assertOk()->assertJsonPath('totals.invoice_count', 1);
         $this->getJson($base.'?currency=aed&from=2026-11-10&to=2026-11-11')->assertUnprocessable();
+        $this->getJson($base.'?currency=AED%0A&from=2026-11-10&to=2026-11-11')->assertUnprocessable();
         $this->getJson($base.'?currency=AED&from=2026-11-10&to=2027-03-01')->assertUnprocessable();
         $this->getJson($base.'?currency=AED&from=2026-11-12&to=2026-11-10')->assertUnprocessable();
         $this->getJson($base.'?currency=AED&from=2026-02-30&to=2026-11-11')->assertUnprocessable();
