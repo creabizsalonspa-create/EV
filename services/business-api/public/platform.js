@@ -786,6 +786,10 @@ async function bookings() {
                 status: { translate: r.status },
             },
         );
+        const stationTimeEn = window.EvStationTime.displayStationTime(r.starts_at, r.station_timezone, "en");
+        if (stationTimeEn)
+            a.append(batteryNode("p", "Station local · " + stationTimeEn,
+                "توقيت المحطة · " + window.EvStationTime.displayStationTime(r.starts_at, r.station_timezone, "ar")));
         window.EvReservationPolicy?.attach(a, r.reservation_terms_snapshot);
         if (r.vehicle_connector_type) a.append(r.vehicle_label
             ? node("p", r.vehicle_label + " · " + r.vehicle_connector_type)
