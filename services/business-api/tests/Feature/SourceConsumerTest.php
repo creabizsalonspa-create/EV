@@ -341,7 +341,7 @@ class SourceConsumerTest extends TestCase
     {
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'oversized_page', 'missing_page'] as $kind) {
+            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page'] as $kind) {
                 $cases[$protocol.'_'.$kind] = [$protocol, $kind];
             }
         }
@@ -376,6 +376,9 @@ class SourceConsumerTest extends TestCase
             'non_absolute_time' => [array_replace($row(1), ['timestamp' => '2026-11-15 10:00:00'])],
             'future_non_energy' => [array_replace($row(1), ['timestamp' => $at->addMinutes(6)->toIso8601String()])],
             'missing_samples' => [array_replace($row(1), ['sampledValue' => null])],
+            'non_array_sample' => [array_replace($row(1), ['sampledValue' => [null]])],
+            'non_list_samples' => [array_replace($row(1), ['sampledValue' => ['voltage' => ['measurand' => 'Voltage', 'value' => 230]]])],
+            'non_list_page' => ['first' => $row(1)],
             'oversized_page' => array_map($row, range(1, 101)),
             'missing_page' => null,
         };
