@@ -1785,8 +1785,16 @@ async function batteryEditor(id, row) {
     row.append(box);
 }
 
+let garageGeneration = 0, vehicleCreatePending = false;
 async function garage() {
+    const epoch = client.sessionEpoch, actor = user?.id;
+    if (!actor) return;
+    const generation = ++garageGeneration;
+    const active = () => generation === garageGeneration &&
+        epoch === client.sessionEpoch && actor === user?.id;
     const j = await api("vehicles");
+    if (!active()) return;
+    if (!Array.isArray(j?.data)) throw Error("Unreadable vehicle list.");
     el("vehicle-list").replaceChildren();
     for (const v of j.data) {
         const row = node("div", "#" + v.id + " · " + v.name + " · " + v.connector_type);
@@ -1814,15 +1822,24 @@ async function garage() {
 }
 el("vehicle-create").onsubmit = async (e) => {
     e.preventDefault();
+    if (!user || vehicleCreatePending) return;
+    const epoch = client.sessionEpoch, actor = user.id;
+    const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const submit = e.target.querySelector("button[type=submit]");
+    vehicleCreatePending = true;
+    if (submit) submit.disabled = true;
     try {
         await api(
             "vehicles",
             "POST",
             Object.fromEntries(new FormData(e.target)),
         );
-        await garage();
-    } catch (e) {
-        notice(e);
+        if (active()) await garage();
+    } catch (error) {
+        if (active()) notice(error);
+    } finally {
+        vehicleCreatePending = false;
+        if (submit?.isConnected) submit.disabled = false;
     }
 };
 el("profile-form").onsubmit = async (e) => {
