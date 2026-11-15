@@ -16,6 +16,7 @@ class EvStrings {
   }
 
   static const en = <String, String>{
+    'privacyScreenHidden': 'App content is hidden while the app is inactive.',
     'accountSecurity_enabled': "Authenticator enabled for your account. If this was not you, change your password and contact support.",
     'accountSecurity_disabled': "Authenticator disabled for your account. If this was not you, change your password and contact support.",
     'accountSecurity_recovery_rotated': "Authenticator recovery codes replaced. If this was not you, change your password and contact support.",
@@ -431,6 +432,7 @@ class EvStrings {
     "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
+    'privacyScreenHidden': 'يتم إخفاء محتوى التطبيق عندما لا يكون نشطاً.',
     'accountSecurity_enabled': "تم تفعيل تطبيق التحقق لحسابك. إذا لم تفعل ذلك، غيّر كلمة المرور وتواصل مع الدعم.",
     'accountSecurity_disabled': "تم تعطيل تطبيق التحقق لحسابك. إذا لم تفعل ذلك، غيّر كلمة المرور وتواصل مع الدعم.",
     'accountSecurity_recovery_rotated': "تم استبدال رموز استرداد تطبيق التحقق. إذا لم تفعل ذلك، غيّر كلمة المرور وتواصل مع الدعم.",
