@@ -290,7 +290,12 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     final owner = account;
     final fence = requestApi?.sessionFence();
     final target = await NativeNavigationBridge.consume();
-    if (!mounted || target == null || owner == null || busy ||
+    // The app can background while the platform response is in flight.
+    // A pre-await foreground check alone is not sufficient.
+    final lifecycleAfterRead = WidgetsBinding.instance.lifecycleState;
+    if ((lifecycleAfterRead != null &&
+            lifecycleAfterRead != AppLifecycleState.resumed) ||
+        !mounted || target == null || owner == null || busy ||
         !identical(api, requestApi) || fence == null || !fence() ||
         account?.id != owner.id || account?.role != owner.role ||
         !['customer', 'vendor'].contains(owner.role)) return;
