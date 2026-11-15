@@ -120,6 +120,7 @@ class AdminOperationsMapTest extends TestCase
         $this->getJson('/api/admin/operations/map?country=ZZ')
             ->assertOk()->assertJsonPath('total', 0);
         $this->getJson('/api/admin/operations/map?country=ae')->assertUnprocessable();
+        $this->getJson('/api/admin/operations/map?country=AE%0A')->assertUnprocessable();
 
         $audit = DB::table('audit_events')
             ->where('action', 'admin.private_list.operations_map_viewed')
