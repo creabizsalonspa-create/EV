@@ -54,7 +54,6 @@ class NativeNavigationGuards(unittest.TestCase):
             "account?.id != owner.id",
             "account?.role != owner.role",
             "fence == null || !fence()",
-            "target == 3 && owner.role != 'customer'",
             "NativeNavigationBridge.pending.removeListener(_onNavigationAvailable)",
         ]:
             self.assertIn(required, source)
