@@ -241,6 +241,43 @@ function provisionTestRole(email, role) {
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     );
+    // Synthetic 26-row server pagination projection: browser must not truncate
+    // the first page, retain stale pages after errors, or silently forge actions.
+    const firstPage = await customer.page.evaluate(() => api("reservations?page=1"));
+    assert.equal(firstPage.data.length, 1);
+    const secondId = 900000000;
+    let reservationsFail = false;
+    await customer.page.route("**/api/reservations?page=*", async (route) => {
+      if (reservationsFail) {
+        await route.fulfill({ status: 503, contentType: "application/json",
+          body: JSON.stringify({ message: "Synthetic outage" }) });
+        return;
+      }
+      const page = Number(new URL(route.request().url()).searchParams.get("page"));
+      const data = page === 2
+        ? [{ ...firstPage.data[0], id: secondId, status: "cancelled" }]
+        : firstPage.data;
+      await route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ data, current_page: page, last_page: 2,
+          total: 26, next_page_url: null, prev_page_url: null }) });
+    });
+    await customer.page.evaluate(() => bookings(1));
+    assert.equal(await customer.page.locator("#reservation-list [data-reservation-page-action=previous]").isDisabled(), true);
+    await customer.page.locator("#reservation-list [data-reservation-page-action=next]").click();
+    await customer.page.waitForFunction((id) =>
+      document.querySelector("#reservation-list article")?.textContent.includes("#" + id), secondId);
+    assert.equal(await customer.page.locator("#reservation-list [data-reservation-page-action=next]").isDisabled(), true);
+    reservationsFail = true;
+    await customer.page.locator("#reservation-list [data-reservation-page-action=refresh]").click();
+    await customer.page.locator("#reservation-list [data-reservation-retry]").waitFor();
+    assert.equal(await customer.page.locator("#reservation-list article").count(), 0,
+      "failed reload cannot leave a stale private reservation visible");
+    reservationsFail = false;
+    await customer.page.locator("#reservation-list [data-reservation-retry]").click();
+    await customer.page.waitForFunction((id) =>
+      document.querySelector("#reservation-list article")?.textContent.includes("#" + id), secondId);
+    await customer.page.unroute("**/api/reservations?page=*");
+    await customer.page.evaluate(() => bookings(1));
     const outsider = await account("Outsider");
     assert.equal(
       await outsider.page.locator("#reservation-list article").count(),
