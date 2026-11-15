@@ -102,4 +102,33 @@ class AdminOperationsMapTest extends TestCase
             }
         }
     }
+
+    public function test_authorized_private_map_reads_are_scope_audited_without_search_or_vendor_data(): void
+    {
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->station(['name' => 'PRIVATE-PLATFORM-MAP-SECRET']);
+
+        $this->actingAs($vendor)->getJson('/api/admin/operations/map?country=AE')
+            ->assertForbidden();
+        $this->assertSame(0, DB::table('audit_events')
+            ->where('action', 'admin.private_list.operations_map_viewed')->count());
+
+        $this->actingAs($admin)->getJson('/api/admin/operations/map?country=AE')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private');
+        $this->getJson('/api/admin/operations/map')->assertOk();
+        $this->getJson('/api/admin/operations/map?country=ZZ')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/admin/operations/map?country=ae')->assertUnprocessable();
+
+        $audit = DB::table('audit_events')
+            ->where('action', 'admin.private_list.operations_map_viewed')
+            ->orderBy('id')->get();
+        $this->assertCount(3, $audit);
+        $this->assertSame(['country:AE', 'all', 'country:ZZ'], $audit->pluck('subject')->all());
+        foreach ($audit as $event) {
+            $this->assertSame($admin->id, (int) $event->actor_id);
+        }
+        $this->assertStringNotContainsString('PRIVATE-PLATFORM-MAP-SECRET', $audit->toJson());
+    }
 }
