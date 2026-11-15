@@ -10,7 +10,7 @@ final class OcpiMessageHeaders
 {
     public static function response(Request $request): array
     {
-        $id = static fn (mixed $value): string => is_string($value) && preg_match('/^[\\x21-\\x7e]{1,128}$/D', $value)
+        $id = static fn (mixed $value): string => is_string($value) && preg_match('/^[!-~]{1,128}$/D', $value)
             ? $value : (string) Str::uuid();
 
         return [
