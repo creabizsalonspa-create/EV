@@ -147,6 +147,12 @@ full upstream conformance or physical charger acceptance.
 
 ## Fault observation cursor integrity
 
+The bounded local CitrineOS fault observer rejects malformed/non-list
+station, event-page and newest-event projections before any cursor or alert
+commit, and a missing station row identifier cannot masquerade as an absent
+charger. Both protocol fixtures require operator-only review notification and
+replay from the unadvanced cursor after corrected authenticated source data.
+
 The bounded local CitrineOS fault observer validates the recognized OCPP
 connector-status vocabulary and strict timezone-qualified source timestamp
 before it commits even the first event in a source page. Unsupported device
