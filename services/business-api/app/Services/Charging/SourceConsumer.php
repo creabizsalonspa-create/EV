@@ -133,6 +133,10 @@ class SourceConsumer
             }
         }
         $identity = $this->graph('query($station:String!,$tag:citext!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$station}},limit:2){id protocol} Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id}}', ['station' => $link->identifier, 'tag' => $tag]);
+        if (! is_array($identity['ChargingStations'] ?? null) || ! array_is_list($identity['ChargingStations']) ||
+            ! is_array($identity['Authorizations'] ?? null) || ! array_is_list($identity['Authorizations'])) {
+            throw new RuntimeException('Malformed authenticated source identity projection requires reconciliation.');
+        }
         if (count($identity['ChargingStations']) > 1 || count($identity['Authorizations']) > 1) {
             throw new RuntimeException('Ambiguous source identity requires reconciliation.');
         }
@@ -145,6 +149,9 @@ class SourceConsumer
             }
 
             return 0;
+        }
+        if (! is_int($identity['Authorizations'][0]['id'] ?? null) || $identity['Authorizations'][0]['id'] <= 0) {
+            throw new RuntimeException('Invalid source authorization identity requires reconciliation.');
         }
         // The source station, not the business binding alone, establishes the
         // protocol of the observed transaction. A moved/reprovisioned charger
@@ -171,10 +178,16 @@ class SourceConsumer
         }
         if ($rider) {
             $records = $this->graph('query($station:Int!,$auth:Int!,$after:timestamptz!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},authorizationId:{_eq:$auth},startTime:{_gte:$after}},order_by:{id:desc},limit:25){id transactionId remoteStartId meterStart startTime endTime isActive totalKwh}}', ['station' => $identity['ChargingStations'][0]['id'], 'auth' => $identity['Authorizations'][0]['id'], 'after' => $link->created_at->toImmutable()->subSeconds(2)->toISOString()])['Transactions'];
+            if (! is_array($records) || ! array_is_list($records)) {
+                throw new RuntimeException('Malformed authenticated source transaction projection requires reconciliation.');
+            }
             $assigned = SessionLink::where('binding_id', $link->binding_id)->where('id', '!=', $link->id)->whereNotNull('transaction_id')->pluck('transaction_id')->map(fn ($id) => (string) $id)->all();
             $records = array_values(array_filter($records, fn ($tx) => ! in_array((string) $tx['transactionId'], $assigned, true)));
         } else {
             $records = $this->graph('query($station:Int!,$auth:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},authorizationId:{_eq:$auth}},limit:2){id transactionId remoteStartId meterStart startTime endTime isActive totalKwh}}', ['station' => $identity['ChargingStations'][0]['id'], 'auth' => $identity['Authorizations'][0]['id']])['Transactions'];
+        }
+        if (! is_array($records) || ! array_is_list($records)) {
+            throw new RuntimeException('Malformed authenticated source transaction projection requires reconciliation.');
         }
         if (count($records) > 1) {
             throw new RuntimeException('Multiple source transactions require reconciliation.');
