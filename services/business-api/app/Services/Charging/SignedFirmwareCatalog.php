@@ -54,6 +54,7 @@ class SignedFirmwareCatalog
         abort_unless(is_string($signature) && strlen($signature) <= 800 && $raw !== false && strlen($raw) > 0, 422, 'Valid firmware signature is required.');
         $bytes = file_get_contents($file);
         abort_unless(hash_equals($v['sha256'], hash('sha256', $bytes)) && openssl_verify($bytes, $raw, $cert, OPENSSL_ALGO_SHA256) === 1, 422, 'Firmware bytes or signature failed verification.');
+        $compatibility = app(FirmwareCompatibility::class)->catalog($v, $cert);
         $path = 'firmware/releases/'.$v['sha256'].'.bin';
         if (Storage::disk('local')->exists($path)) {
             abort_unless(hash_equals($v['sha256'], hash_file('sha256', Storage::disk('local')->path($path))), 409, 'Stored firmware changed.');
@@ -61,6 +62,6 @@ class SignedFirmwareCatalog
             abort_unless(Storage::disk('local')->put($path, $bytes), 503, 'Private firmware storage is unavailable.');
         }
 
-        return ['catalog_key' => $key, 'version' => $v['version'], 'manufacturer' => $v['manufacturer'], 'model' => $v['model'], 'sha256' => $v['sha256'], 'size' => $size, 'signer_fingerprint' => strtolower($fingerprint), 'signing_certificate' => $cert, 'signature' => $signature];
+        return $compatibility + ['catalog_key' => $key, 'version' => $v['version'], 'manufacturer' => $v['manufacturer'], 'model' => $v['model'], 'sha256' => $v['sha256'], 'size' => $size, 'signer_fingerprint' => strtolower($fingerprint), 'signing_certificate' => $cert, 'signature' => $signature];
     }
 }

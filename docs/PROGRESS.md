@@ -1,3 +1,38 @@
+# 15 November 2026 — current-account RFID source operations (integration pending)
+
+Customer card/grant reads, issue/revoke/renew and operator reviews now retain and
+recheck the original active account credentials under database locks. Source
+publication rechecks authority, approved licensed company, grant, expiry and
+matching live lease before creation/acceptance and before local promotion; HTTP
+never spans these short transactions. Changed authority after an outbound write
+leaves inspection required and no local authorization promotion. Web and Flutter
+add explicit test-source confirmation and localized inspection guidance; uncertain
+publication is not retried automatically. No physical command or ledger change.
+
+Focused PostgreSQL rider/history/source27 tests/330 assertions,17 native rider
+privacy/history/confirmation cases and targeted analysis passed. New PostgreSQL
+cases are registered in required CI; actual source/browser validation remains a
+mandatory hosted gate, including confirmation cancellation before publication.
+No inventory or production credit. Next: combine with current connected delivery,
+resolve actual hosted failures and merge only exact-source validated changes.
+
+# 15 November 2026 — private fleet operations reporting (integration pending)
+
+Implemented owner/protected web Admin reports and connected EN/AR web/Flutter
+views: current inventory, fleet-local inclusive dates, scoped cost-center filters,
+approved explicitly shared claims, exact string amounts by currency/precision,
+and private formula-safe CSV snapshots. Personal sessions/invoices are not
+searched. This creates no financial or charger mutation and claims no cash balance
+or hardware verification. Bound:366 days/2500 claims; account/background fences.
+
+Focused verification: PostgreSQL corporate/fleet24 tests/274 assertions; three new
+Flutter cases and five existing fleet/session cases passed; targeted analysis clean;
+EN/AR Chromium CSV/account checks and actual Laravel owner/Admin browser reports
+plus outsider denial passed. Existing PostgreSQL boolean fixture assertions now
+accept disabled false as well as SQLite0, never true. Required hosted gates remain
+pending for this feature. No new atom or production credit; next: integrate only
+when exact-source mandatory checks pass and continue unfinished enterprise scope.
+
 # 13 November 2026 — private contact-phone verification continuation
 
 Implemented Laravel/web/Flutter contact verification with encrypted phone storage,

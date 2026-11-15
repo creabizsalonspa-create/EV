@@ -7,6 +7,7 @@ use App\Models\Station;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\RiderAccessHistory;
+use App\Services\Charging\RiderActor;
 use App\Services\Charging\RiderSourceProvisioner;
 use App\Services\Charging\RiderTokenRegistry;
 use Carbon\CarbonImmutable;
@@ -16,6 +17,25 @@ use Illuminate\Support\Facades\DB;
 
 class RiderAccessController extends Controller
 {
+    public function callAction($method, $parameters)
+    {
+        $request = collect($parameters)->first(fn ($value) => $value instanceof Request);
+        abort_unless($request?->user(), 401);
+        // Publication performs remote inspection and owns short claim/commit transactions.
+        if ($method === 'provision') {
+            app(RiderActor::class)->check($request->user());
+
+            return $this->{$method}(...array_values($parameters));
+        }
+
+        return DB::transaction(function () use ($request, $method, $parameters) {
+            // Database-only reads and changes share User -> company/token/grant ordering.
+            app(RiderActor::class)->check($request->user());
+
+            return $this->{$method}(...array_values($parameters))->header('Cache-Control', 'private, no-store');
+        }, 3);
+    }
+
     public function stations(Request $r)
     {
         abort_unless($r->user()->role === 'customer', 403);

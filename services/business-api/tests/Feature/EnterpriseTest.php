@@ -18,10 +18,10 @@ class EnterpriseTest extends TestCase
 
     public function test_only_admin_can_configure_regions_and_commerce_stays_disabled(): void
     {
-        $this->getJson('/api/regions')->assertOk()->assertJsonPath('0.currency', 'AED')->assertJsonPath('0.commerce_enabled', 0);
+        $this->getJson('/api/regions')->assertOk()->assertJsonPath('0.currency', 'AED')->assertJsonPath('0.commerce_enabled', fn ($value) => $value === false || $value === 0);
         $v = ['currency' => 'SAR', 'minor_units' => 2, 'timezone' => 'Asia/Riyadh', 'tax_bps' => 1500, 'commerce_enabled' => true];
         $this->actingAs(User::factory()->create())->putJson('/api/regions/SA', $v)->assertForbidden();
-        $this->actingAs(User::factory()->create(['role' => 'admin']))->putJson('/api/regions/SA', $v)->assertOk()->assertJsonPath('commerce_enabled', 0);
+        $this->actingAs(User::factory()->create(['role' => 'admin']))->putJson('/api/regions/SA', $v)->assertOk()->assertJsonPath('commerce_enabled', fn ($value) => $value === false || $value === 0);
         $v['minor_units'] = 8;
         $this->putJson('/api/regions/SA', $v)->assertUnprocessable();
     }

@@ -446,6 +446,13 @@ Web `/api/ocpi/providers/{provider}/sync-plans` and native `/api/v1/ocpi/provide
 
 A failed read waits for its next configured interval; the error receipt contains only fixed codes. A claim interrupted for 30 minutes disables that plan and records operator review. Renewing consent starts a new run identity; it never silently resumes an interrupted request. History and outcomes remain partner-reported/unverified and do not establish physical operation or commercial acceptance. Configure and accept actual partner polling separately; local tests fake every partner request.
 
+
+### Signed firmware compatibility paths
+
+A configured firmware entry may now include `compatibility: {protocols: ["1.6","2.0.1"], from_versions: ["vendor-version"]}` and `compatibility_signature` (base64 SHA-256/OpenSSL signature by the same independently pinned, current certificate that signs the firmware bytes). The manifest message is `creabiz-firmware-compatibility-v1\n` followed by compact UTF-8 JSON in this exact key order: `catalog_key,manufacturer,model,version,sha256,protocols,from_versions`. Unicode/slashes are unescaped; both lists are sorted with bytewise string order, unique and bounded (two protocols,20 exact source versions). No ranges, wildcards or inferred version ordering are accepted. Firmware source versions use1–80 ASCII letters/digits/dot/underscore/plus/colon/dash, beginning with a letter or digit. Changing any bound identity/policy invalidates the signature; a changed approved policy requires a new catalog identity.
+
+Approval verifies both signatures and stores the manifest fingerprint with the immutable release. Vendor/Admin web and Flutter expose the approved protocol/source-version policy; releases without this optional policy retain the existing model-only path and are labelled accordingly; no compatibility attestation is backfilled. At claim and again immediately before transport, the backend verifies the stored policy and matches current canonical source manufacturer/model, protocol and firmware version. Missing/mismatched source data denies new claims. If the live process catches a preflight failure before entering the firmware HTTP call, it durably records `not_dispatched`, revokes the unused download capability and keeps the local maintenance hold until an authorized owner/Admin explicitly cancels with a note. This positive application proof permits cancellation without fabricating device evidence. A crash, an entered firmware HTTP call, or any uncertain transport still retains the existing unknown/held state and cannot use this cancellation path. Exact retries return the original outcome without sending again. Operations expose the manifest fingerprint for lineage. Existing pinned-certificate, signed-byte, company, idle/session/reservation, one-shot dispatch and correlated review safeguards remain. This software remains within the existing disabled-by-default local simulator adapter; no physical upgrade, manufacturer approval or production enablement is asserted.
+
 ### Private process and queue observations
 
 `GET /api/admin/operational-health` is a current-credential Admin web-session
@@ -480,3 +487,40 @@ request snapshot. Existing publication and fulfillment service guards remain.
 Successful customer/vendor authenticator enablement, disablement, recovery-code replacement and individual recovery-code consumption create private `account.security.enabled|disabled|recovery_rotated|recovery_used` inbox notices in the same database transaction as the change. Preparation, failed proofs and rolled-back changes create no security notice. Metadata contains only `evidence=ACCOUNT_SECURITY_EVENT`; secrets, codes, hashes, IP addresses and device details are excluded. Existing scoped inbox read/unread controls apply. Web and Flutter render static English/Arabic security guidance. These in-app notices do not assert external delivery or successful login; the separate consent-bound generic email digest retains all existing configuration and account-epoch restrictions.
 
 Saved platform and partner favorite actions also lock and recheck the authenticated customer's current role, active status, credential epoch and password fingerprint before any preference read or mutation. Role/status revocation rejects403; changed credentials reject409. The entire bounded database action serializes with revocation. This never grants booking or charging authority.
+
+### Private fleet operations report
+
+`GET /api/fleets/{fleet}/report` and native `/api/v1/fleets/{fleet}/report`
+require the current active fleet owner or protected web Admin (Admin personal
+access tokens remain forbidden). Required `from` and `through` are inclusive
+`YYYY-MM-DD` fleet-local dates, at most 366 days. Optional `cost_center_id` must
+belong to that fleet. Unknown regional timezone fails closed. Optional
+`format=csv` returns a private, formula-safe CSV; default JSON returns current
+inventory counts, applied local/UTC bounds, observation time, and historical
+cost-center/currency/precision groups from approved claims **submitted** during
+the selected interval. Approval is evaluated at read time; no unshared personal
+invoice or session history is queried. Inventory covers the entire current fleet
+and is independent of claim-period/cost-center filters. More than 2500 matching
+claims requires narrower filters, with no silent truncation. Amounts are exact
+unsigned decimal strings in minor units, separately grouped by precision and
+currency. Recorded claim totals are not balances, cash collections, refunds,
+settlement or proof of physical charging. No financial or charging record is
+created. Web downloads the displayed CSV snapshot; Flutter previews a selectable
+private CSV in memory and clears it on background/account change.
+
+
+### Current-account RFID registry and publication authority
+
+All customer card/grant reads and database changes recheck the captured active
+account's role, password and authentication epoch under a User-first transaction.
+Card issue and revocation also enforce this when invoked through their service.
+Operator source publication runs separate short authorization/claim/commit
+transactions, with no HTTP inside a transaction. Before creating or accepting a
+source authorization it rechecks the current account, approved licensed company,
+original token expiry, active approved grant and unexpired matching publication
+lease. Credential changes after a source write prevent local promotion and leave
+`requires_inspection`; this never marks a session started or paid and never
+retries an uncertain publication automatically. Web and Flutter require explicit
+publication confirmation and explain this inspection state. All existing local
+adapter, real-time rider callback, no-offline-fallback, token privacy, source
+ownership/CAS and hardware-unverified boundaries remain required.

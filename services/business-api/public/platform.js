@@ -198,6 +198,7 @@ function renderIdentity() {
     );
     window.EvAdminAccounts?.setActor(user, api);
     window.EvAdminOperationalHealth?.setActor(user, api);
+    window.EvFleetReport?.setActor(user, api);
     window.EvAdminOperationsMap?.setActor(user, api);
     window.EvAdminKycQueue?.setActor(user, api);
     window.EvAdminStaffPermissions?.setActor(user, api);
@@ -1049,11 +1050,16 @@ async function fleets() {
     }
 }
 async function fleetDetail(id) {
+    const reportActor = user;
     let j = await api("fleets/" + id),
         d = el("fleet-detail");
+    if (user !== reportActor || document.hidden) return;
     d.replaceChildren(node("h3", j.fleet.name));
     let owner = j.fleet.owner_id === user.id;
     if (owner) {
+        const report = document.createElement("section");
+        d.append(report);
+        window.EvFleetReport?.mount(report, id);
         for (let m of j.members) {
             let row = ui("p", "Member #{id} · {status}", {
                 id: m.user_id,

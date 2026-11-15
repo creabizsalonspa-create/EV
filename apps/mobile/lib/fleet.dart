@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
 import 'action_form.dart';
+import 'fleet_report.dart';
 
 class FleetView extends StatefulWidget {
   final EvApi api;
@@ -453,6 +454,25 @@ class _FleetPageState extends State<FleetPage> {
                 Wrap(
                   spacing: 8,
                   children: [
+                    OutlinedButton(
+                      onPressed: busy
+                          ? null
+                          : () => Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) => FleetReportView(
+                                  api: widget.api,
+                                  fleetId: widget.id,
+                                  onExpired: widget.onExpired,
+                                ),
+                              ),
+                            ),
+                      child: Text(
+                        Localizations.localeOf(context).languageCode == 'ar'
+                            ? 'تقرير الأسطول'
+                            : 'Fleet report',
+                      ),
+                    ),
                     FilledButton(
                       onPressed: busy ? null : invite,
                       child: Text(s.t('inviteMember')),

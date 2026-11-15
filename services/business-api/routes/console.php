@@ -263,7 +263,6 @@ Artisan::command('ocpi:poll-approved', function () {
     }
 })->purpose('One bounded opt-in partner module pull through canonical OCPI ingress');
 Schedule::command('ocpi:poll-approved')->everyMinute()->withoutOverlapping(30);
-
 Artisan::command('platform:health-heartbeat', function () {
     $recorded = app(OperationalHealth::class)->record('scheduler');
     $this->info($recorded ? 'Scheduler observation recorded.' : 'Scheduler observation not recorded.');

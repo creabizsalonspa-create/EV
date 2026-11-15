@@ -1023,7 +1023,7 @@ window.createVendorWorkspace = ({
                         choices: Object.fromEntries(
                             result.configured_candidates.map((v) => [
                                 v.key,
-                                `${v.manufacturer} · ${v.model} · ${v.version}`,
+                                `${v.manufacturer} · ${v.model} · ${v.version}${v.compatibility_declared ? " · " + EvLocale.text("Compatibility signature will be verified on approval") : ""}`,
                             ]),
                         ),
                     },
@@ -1054,6 +1054,11 @@ window.createVendorWorkspace = ({
                 raw("p", release.sha256),
                 raw("p", release.signer_fingerprint),
                 raw("p", release.size),
+            );
+            row.append(ui("p", release.compatibility_policy ? "Approved signed compatibility policy" : "Legacy model check; no declared signed upgrade path"));
+            if (release.compatibility_policy) row.append(
+                raw("p", `${EvLocale.text("OCPP protocols")}: ${release.compatibility_policy.protocols.join(" · ")}`),
+                raw("p", `${EvLocale.text("Allowed current firmware")}: ${release.compatibility_policy.from_versions.join(" · ")}`),
             );
             if (release.revoked_at)
                 row.append(ui("p", "Firmware release revoked"));
@@ -1203,7 +1208,7 @@ window.createVendorWorkspace = ({
             row.dataset.firmwareOperation = operation.id;
             row.append(
                 raw("h4", `#${operation.id} · ${operation.version}`),
-                raw("p", operation.status),
+                operation.status === "not_dispatched" ? ui("p", "Blocked before firmware command submission; review or cancel") : raw("p", operation.status),
                 raw("p", operation.sha256),
                 raw("p", operation.created_at),
             );
@@ -1214,7 +1219,7 @@ window.createVendorWorkspace = ({
             )
                 form(
                     row,
-                    operation.status === "requested"
+                    (operation.can_cancel === true || (operation.status === "requested" && operation.attempted_at == null))
                         ? "Cancel firmware before dispatch"
                         : "Review firmware source evidence",
                     [
@@ -1227,7 +1232,7 @@ window.createVendorWorkspace = ({
                     async (body) => {
                         await api(
                             path +
-                                `/${operation.id}/${operation.status === "requested" ? "cancel" : "review"}`,
+                                `/${operation.id}/${(operation.can_cancel === true || (operation.status === "requested" && operation.attempted_at == null)) ? "cancel" : "review"}`,
                             "POST",
                             { note: body.note },
                             controller?.signal,
@@ -3151,6 +3156,7 @@ window.createVendorWorkspace = ({
                     `${grant.token_type} · ••••${grant.suffix} · ${grant.state}`,
                 ),
                 raw("p", grant.provisioning_state),
+                ...(grant.provisioning_state === "requires_inspection" ? [ui("p", "Rider publication requires inspection")] : []),
             );
             if (!grant.revoked_at && !grant.token_revoked_at)
                 form(
@@ -3197,6 +3203,7 @@ window.createVendorWorkspace = ({
                 !grant.token_revoked_at
             )
                 button(row, "Provision rider source", async () => {
+                    if (!confirm(EvLocale.text("Confirm rider source publication")) || !valid(epoch) || !pane.isConnected) return;
                     await api(
                         base +
                             `companies/${company.id}/rider-tokens/${grant.token_id}/provision`,

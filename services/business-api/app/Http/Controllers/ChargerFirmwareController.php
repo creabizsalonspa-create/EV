@@ -6,6 +6,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Services\Charging\FirmwareCompatibility;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SignedFirmwareCatalog;
@@ -33,12 +34,17 @@ class ChargerFirmwareController extends Controller
         app(MaintenanceActor::class)->check($r->user());
         app(VendorAccess::class)->require($r->user(), $company, 'inventory.read');
         $filters = $r->validate(['manufacturer' => 'sometimes|string|max:100', 'model' => 'sometimes|string|max:100', 'active' => 'sometimes|in:true,false']);
-        $page = DB::table('charger_firmware_releases')->where('company_id', $company->id)->when(isset($filters['manufacturer']), fn ($q) => $q->where('manufacturer', $filters['manufacturer']))->when(isset($filters['model']), fn ($q) => $q->where('model', $filters['model']))->when(($filters['active'] ?? null) === 'true', fn ($q) => $q->whereNull('revoked_at'))->select('id', 'catalog_key', 'version', 'manufacturer', 'model', 'sha256', 'size', 'signer_fingerprint', 'revoked_at', 'created_at')->orderByDesc('id')->paginate(25)->toArray();
+        $page = DB::table('charger_firmware_releases')->where('company_id', $company->id)->when(isset($filters['manufacturer']), fn ($q) => $q->where('manufacturer', $filters['manufacturer']))->when(isset($filters['model']), fn ($q) => $q->where('model', $filters['model']))->when(($filters['active'] ?? null) === 'true', fn ($q) => $q->whereNull('revoked_at'))->select('id', 'catalog_key', 'version', 'manufacturer', 'model', 'sha256', 'size', 'signer_fingerprint', 'revoked_at', 'created_at', 'compatibility_protocols', 'compatibility_from_versions', 'compatibility_manifest_sha256')->orderByDesc('id')->paginate(25)->through(function ($row) {
+            $row->compatibility_policy = $row->compatibility_manifest_sha256 === null ? null : ['protocols' => json_decode($row->compatibility_protocols, true), 'from_versions' => json_decode($row->compatibility_from_versions, true), 'manifest_sha256' => $row->compatibility_manifest_sha256];
+            unset($row->compatibility_protocols, $row->compatibility_from_versions, $row->compatibility_manifest_sha256);
+
+            return $row;
+        })->toArray();
         $candidates = [];
         if ($r->user()->role === 'admin') {
             foreach ($catalog->entries() as $entry) {
                 if (is_array($entry)) {
-                    $candidates[] = array_intersect_key($entry, array_flip(['key', 'version', 'manufacturer', 'model']));
+                    $candidates[] = array_intersect_key($entry, array_flip(['key', 'version', 'manufacturer', 'model'])) + ['compatibility_declared' => array_key_exists('compatibility', $entry)];
                 }
             }
         }
@@ -59,7 +65,7 @@ class ChargerFirmwareController extends Controller
             app(MaintenanceActor::class)->check($r->user());
             $old = DB::table('charger_firmware_releases')->where('company_id', $company->id)->where('catalog_key', $v['catalog_key'])->first();
             if ($old) {
-                abort_unless($old->sha256 === $release['sha256'] && $old->signer_fingerprint === $release['signer_fingerprint'] && $old->version === $release['version'] && $old->manufacturer === $release['manufacturer'] && $old->model === $release['model'] && $old->revoked_at === null, 409, 'Configured release identity changed or was revoked.');
+                abort_unless($old->sha256 === $release['sha256'] && $old->signer_fingerprint === $release['signer_fingerprint'] && $old->version === $release['version'] && $old->manufacturer === $release['manufacturer'] && $old->model === $release['model'] && $old->compatibility_manifest_sha256 === $release['compatibility_manifest_sha256'] && $old->revoked_at === null, 409, 'Configured release identity changed or was revoked.');
 
                 return response()->json(['id' => $old->id, 'signature_verified' => true]);
             }
@@ -94,7 +100,11 @@ class ChargerFirmwareController extends Controller
     public function operations(Request $r, VendorCompany $company, VendorCharger $charger, ChargerResetController $guard)
     {
         $b = $guard->scope($r, $company, $charger);
-        $page = DB::table('charger_firmware_operations as op')->join('charger_firmware_releases as release', 'release.id', '=', 'op.release_id')->where('op.binding_id', $b->id)->select('op.id', 'op.release_id', 'release.version', 'release.sha256', 'op.status', 'op.created_at', 'op.reviewed_at', 'op.download_expires_at')->orderByDesc('op.id')->paginate(25)->toArray();
+        $page = DB::table('charger_firmware_operations as op')->join('charger_firmware_releases as release', 'release.id', '=', 'op.release_id')->where('op.binding_id', $b->id)->select('op.id', 'op.release_id', 'release.version', 'release.sha256', 'release.compatibility_manifest_sha256', 'op.status', 'op.created_at', 'op.reviewed_at', 'op.attempted_at', 'op.pre_dispatch_blocked_at', 'op.pre_dispatch_blocked_code', 'op.download_expires_at')->orderByDesc('op.id')->paginate(25)->through(function ($row) {
+            $row->can_cancel = $row->reviewed_at === null && (($row->status === 'requested' && $row->attempted_at === null) || ($row->status === 'not_dispatched' && $row->pre_dispatch_blocked_at !== null));
+
+            return $row;
+        })->toArray();
 
         return response()->json($page + ['can_manage' => $r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 'adapter_enabled' => (bool) config('csms.firmware_enabled'), 'physical_execution_verified' => false])->header('Cache-Control', 'private, no-store');
     }
@@ -108,10 +118,11 @@ class ChargerFirmwareController extends Controller
         abort_unless(strlen($secret) >= 32 && $reply->successful() && $reply->json('ready') === true && $reply->json('tenant_id') === 1 && in_array($binding->protocol, $reply->json('signed_firmware_protocols', []), true) && is_string($proof) && hash_equals(hash_hmac('sha256', "creabiz-rider-v1\n".$nonce, $secret), $proof), 503, 'Supported signed firmware source is not verified.');
     }
 
-    private function compatibleSource(object $binding, VendorCharger $charger): void
+    private function compatibleSource(object $binding, VendorCharger $charger, object $release): void
     {
-        $rows = app(RemoteSessionAuthorization::class)->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){chargePointVendor chargePointModel}}', ['name' => $binding->identifier])['ChargingStations'];
+        $rows = app(RemoteSessionAuthorization::class)->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){chargePointVendor chargePointModel firmwareVersion protocol}}', ['name' => $binding->identifier])['ChargingStations'];
         abort_unless(count($rows) === 1 && ($rows[0]['chargePointVendor'] ?? null) === $charger->manufacturer && ($rows[0]['chargePointModel'] ?? null) === $charger->model, 409, 'Registered source manufacturer and model must match the approved artifact.');
+        app(FirmwareCompatibility::class)->source($release, $binding->protocol, $rows[0]);
     }
 
     private function bytes(object $release): string
@@ -123,6 +134,8 @@ class ChargerFirmwareController extends Controller
         $pins = array_map('strtolower', config('csms.firmware_signer_pins', []));
         $signature = base64_decode($release->signature, true);
         abort_unless(is_array($parsed) && in_array($release->signer_fingerprint, $pins, true) && openssl_x509_fingerprint($release->signing_certificate, 'sha256') === $release->signer_fingerprint && ($parsed['validFrom_time_t'] ?? PHP_INT_MAX) <= time() && ($parsed['validTo_time_t'] ?? 0) > time() && $signature !== false && openssl_verify(file_get_contents($path), $signature, $release->signing_certificate, OPENSSL_ALGO_SHA256) === 1, 409, 'Approved signer or firmware signature is no longer valid.');
+
+        app(FirmwareCompatibility::class)->approved($release);
 
         return $path;
     }
@@ -161,7 +174,7 @@ class ChargerFirmwareController extends Controller
             $this->bytes($release);
             abort_if(DB::table('charger_firmware_operations')->where('binding_id', $b->id)->whereNull('reviewed_at')->exists() || DB::table('charger_reset_operations')->where('binding_id', $b->id)->whereNull('reviewed_at')->exists(), 409, 'Review the existing maintenance operation first.');
             $guard->idle($b);
-            $this->compatibleSource($b, $charger);
+            $this->compatibleSource($b, $charger, $release);
             $this->sourceCapability($b);
             $raw = bin2hex(random_bytes(32));
             $id = DB::table('charger_firmware_operations')->insertGetId(['binding_id' => $b->id, 'release_id' => $release->id, 'actor_id' => $r->user()->id, 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'status' => 'requested', 'download_token_digest' => hash('sha256', $raw), 'download_token_ciphertext' => Crypt::encryptString($raw), 'download_expires_at' => now()->addHours(2), 'created_at' => now(), 'updated_at' => now()]);
@@ -178,8 +191,10 @@ class ChargerFirmwareController extends Controller
         $row = $created['row'];
         if ($created['created'] && DB::table('charger_firmware_operations')->where('id', $row->id)->where('status', 'requested')->update(['status' => 'dispatching', 'attempted_at' => now(), 'updated_at' => now()])) {
             $state = 'outcome_unknown';
+            $wireAttempted = false;
+            $blockedAt = null;
             try {
-                $state = DB::transaction(function () use ($r, $company, $charger, $guard, $b, $row) {
+                $state = DB::transaction(function () use ($r, $company, $charger, $guard, $b, $row, &$wireAttempted) {
                     Station::whereKey($b->station_id)->lockForUpdate()->firstOrFail();
                     $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                     $guard->scope($r, $company, $charger, true);
@@ -190,7 +205,7 @@ class ChargerFirmwareController extends Controller
                     $release = DB::table('charger_firmware_releases')->where('id', $row->release_id)->whereNull('revoked_at')->lockForUpdate()->firstOrFail();
                     $this->bytes($release);
                     $guard->idle($b);
-                    $this->compatibleSource($b, $charger);
+                    $this->compatibleSource($b, $charger, $release);
                     $serialized = Crypt::decryptString($current->source_payload_ciphertext);
                     abort_unless(hash_equals($current->source_payload_digest, hash('sha256', $serialized)), 409, 'Firmware source provenance changed.');
                     $payload = json_decode($serialized, true, 32, JSON_THROW_ON_ERROR);
@@ -198,6 +213,7 @@ class ChargerFirmwareController extends Controller
                     $token = Http::timeout(5)->withoutRedirecting()->post(config('csms.operations_base_url').'/dev/token', ['roles' => ['admin'], 'tenantId' => 1])->throw()->json('accessToken');
                     abort_unless(is_string($token) && $token !== '', 503);
                     $action = $b->protocol === '1.6' ? 'signedUpdateFirmware' : 'updateFirmware';
+                    $wireAttempted = true; // From here even an exception is an uncertain command outcome.
                     $reply = Http::timeout(10)->withoutRedirecting()->withToken($token)->post(config('csms.operations_base_url').'/ocpp/'.$b->protocol.'/configuration/'.$action.'?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), $payload);
 
                     if (! $reply->successful() || $reply->json() !== [['success' => true]]) {
@@ -210,8 +226,16 @@ class ChargerFirmwareController extends Controller
                 });
             } catch (Throwable $error) {
                 Log::warning('firmware.dispatch_requires_review', ['operation_id' => $row->id, 'exception_class' => $error::class]);
+                if (! $wireAttempted) {
+                    $state = 'not_dispatched';
+                    $blockedAt = now();
+                }
             }
-            DB::table('charger_firmware_operations')->where('id', $row->id)->where('status', 'dispatching')->whereNull('reviewed_at')->update(['status' => $state, 'updated_at' => now()]);
+            $updates = ['status' => $state, 'updated_at' => now()];
+            if ($blockedAt !== null) {
+                $updates += ['pre_dispatch_blocked_at' => $blockedAt, 'pre_dispatch_blocked_code' => 'pre_dispatch_checks_failed', 'download_token_digest' => hash('sha256', random_bytes(32)), 'download_expires_at' => now()];
+            }
+            DB::table('charger_firmware_operations')->where('id', $row->id)->where('status', 'dispatching')->whereNull('reviewed_at')->update($updates);
         }
 
         return response()->json(['id' => $row->id, 'status' => DB::table('charger_firmware_operations')->where('id', $row->id)->value('status'), 'physical_execution_verified' => false, 'capacity_released' => false], $created['created'] ? 201 : 200)->header('Cache-Control', 'private, no-store');
@@ -230,7 +254,7 @@ class ChargerFirmwareController extends Controller
             $op = DB::table('charger_firmware_operations')->where('id', $operation)->where('binding_id', $b->id)->lockForUpdate()->first();
             abort_unless($op, 404);
             if ($op->status !== 'cancelled_unsent') {
-                abort_unless($op->status === 'requested' && $op->attempted_at === null && $op->reviewed_at === null, 409, 'An attempted firmware command cannot be cancelled or released.');
+                abort_unless($op->reviewed_at === null && (($op->status === 'requested' && $op->attempted_at === null) || ($op->status === 'not_dispatched' && $op->pre_dispatch_blocked_at !== null)), 409, 'An uncertain or submitted firmware command cannot be cancelled or released.');
                 DB::table('charger_firmware_operations')->where('id', $op->id)->update(['status' => 'cancelled_unsent', 'reviewed_at' => now(), 'reviewed_by' => $r->user()->id, 'review_note' => Crypt::encryptString($v['note']), 'updated_at' => now()]);
                 DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'firmware.cancelled_before_dispatch', 'subject' => (string) $op->id, 'created_at' => now()]);
             }
