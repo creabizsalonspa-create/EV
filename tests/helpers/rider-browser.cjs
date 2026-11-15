@@ -98,6 +98,15 @@ module.exports = async ({ customer, owner, f, run }) => {
       .getByRole("textbox", { name: "Operator recovery note", exact: true })
       .fill("Reviewed synthetic card request");
     await request.getByRole("button", { name: "Save", exact: true }).click();
+    let publicationRequests = 0;
+    vendor.on("request", request => {if (request.url().endsWith("/provision") && request.method() === "POST") publicationRequests++;});
+    vendor.once("dialog", async dialog => {
+      assert(dialog.message().includes("does not start charging"));
+      await dialog.dismiss();
+    });
+    await request.getByRole("button", {name: "Provision test-source authorization", exact: true}).click();
+    assert.equal(publicationRequests, 0);
+    vendor.once("dialog", dialog => dialog.accept());
     await request
       .getByRole("button", {
         name: "Provision test-source authorization",
@@ -105,6 +114,7 @@ module.exports = async ({ customer, owner, f, run }) => {
       })
       .click();
     await request.getByText("active", { exact: true }).waitFor();
+    assert.equal(publicationRequests, 1);
     await page.locator("#language").click();
     await root
       .getByRole("heading", { name: "بطاقات ورموز الشحن", exact: true })

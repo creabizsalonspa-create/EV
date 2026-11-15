@@ -47,3 +47,16 @@ test('locale application preserves nested search inputs, source dropdowns and pr
  apply(f.root);assert.match(f.root.children[3].textContent,/3 نتيجة منشورة/);assert(f.form.children[0].children.some(n=>n.tag==='input'));assert(f.form.children[1].children.some(n=>n.tag==='select'));assert(f.form.children[2].children.some(n=>n.tag==='select'));assert(f.form.children[3].children.some(n=>n.tag==='input'));
  if(f.form.children[4].tag==='label')assert(f.form.children[4].children.some(n=>n.tag==='select'));
 });
+
+for(const lang of ['en','ar'])test('partner catalog age stays explicit and unknown clocks never become fresh '+lang,async()=>{
+ for(const [age,evidence,known] of [[1500,'PARTNER_REPORTED_TIME',true],[0,'PARTNER_REPORTED_TIME',true],[null,'PARTNER_CLOCK_AHEAD',false],[-1,'PARTNER_REPORTED_TIME',false],['0','PARTNER_REPORTED_TIME',false]]){
+  const f=fixture(lang,async()=>({...sample,data:[{...sample.data[1],reported_source_age_minutes:age,source_clock_evidence:evidence,source_timestamp_evidence:'PARTNER_REPORTED_ONLY'}]}));f.form.onsubmit({preventDefault(){}});await tick();
+  assert.match(f.list.textContent,known?(lang==='ar'?/عند البحث/:/age at search/):(lang==='ar'?/غير معروف أو/:/unknown or partner clock/));
+  if(age===1500)assert.match(f.list.textContent,lang==='ar'?/أقدم من 24/:/over 24 hours old/);
+  assert.match(f.list.textContent,lang==='ar'?/لا تؤكد التوفر الفعلي/:/do not verify physical availability/);assert.equal(f.calls.length,1);assert.equal(f.list.children[0].children.some(n=>n.tag==='button'),false);
+ }
+});
+
+test('explicit partner age filter persists on pagination and clears with the account',async()=>{
+ const f=fixture();const age=f.form.children.flatMap(n=>n.children).find(n=>n.name==='max_source_age_hours');age.value='24';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls[0][0].split('?')[1]).get('max_source_age_hours'),'24');f.nav.children.find(n=>n.tag==='button').onclick();await tick();assert.equal(new URLSearchParams(f.calls[1][0].split('?')[1]).get('max_source_age_hours'),'24');f.control.clear();assert.equal(age.value,'');f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).has('max_source_age_hours'),false);
+});

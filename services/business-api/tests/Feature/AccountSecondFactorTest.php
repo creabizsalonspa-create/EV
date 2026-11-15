@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Security\AdminTotp;
+use App\Services\Identity\AccountSecondFactor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,56 @@ class AccountSecondFactorTest extends TestCase
         $reply = $this->postJson('/api/account/second-factor/enable', ['password' => 'password', 'code' => $code])->assertOk()->json();
 
         return [$prepared['secret'], $reply['recovery_codes']];
+    }
+
+    public function test_proven_security_changes_create_private_secret_free_notices_without_failed_attempt_duplicates(): void
+    {
+        $this->freezeTime();
+        foreach (['customer', 'vendor'] as $role) {
+            $user = User::factory()->create(['role' => $role]);
+            [$secret, $codes] = $this->setupFactor($user);
+            $notices = fn () => DB::table('inbox_notifications')->where('user_id', $user->id)->orderBy('id')->get();
+            $this->assertSame(['account.security.enabled'], $notices()->pluck('kind')->all());
+            $this->postJson('/api/account/second-factor/recovery-codes', ['password' => 'incorrect', 'code' => $codes[0]])->assertUnprocessable();
+            $this->assertCount(1, $notices());
+            $replacement = $this->postJson('/api/account/second-factor/recovery-codes', ['password' => 'password', 'code' => $codes[0]])->assertOk()->json('recovery_codes');
+            $this->assertSame(['account.security.enabled', 'account.security.recovery_used', 'account.security.recovery_rotated'], $notices()->pluck('kind')->all());
+            $this->postJson('/api/account/second-factor/disable', ['password' => 'password', 'code' => $codes[1]])->assertUnprocessable();
+            $this->assertCount(3, $notices());
+            $this->postJson('/api/account/second-factor/disable', ['password' => 'password', 'code' => $replacement[0]])->assertOk();
+            $this->assertSame(['account.security.enabled', 'account.security.recovery_used', 'account.security.recovery_rotated', 'account.security.recovery_used', 'account.security.disabled'], $notices()->pluck('kind')->all());
+            foreach ($notices() as $notice) {
+                $this->assertSame(['evidence' => 'ACCOUNT_SECURITY_EVENT'], json_decode($notice->metadata, true));
+            }
+            $reply = $this->getJson('/api/notifications')->assertOk();
+            foreach ([$secret, ...$codes, ...$replacement] as $private) {
+                $this->assertStringNotContainsString($private, $reply->getContent());
+            }
+            $other = User::factory()->create();
+            $this->actingAs($other)->getJson('/api/notifications')->assertOk()->assertJsonPath('total', 0);
+            $this->postJson('/api/notifications/'.$notices()->first()->id.'/read')->assertNotFound();
+        }
+    }
+
+    public function test_rolled_back_recovery_use_cannot_leave_a_notice_or_consume_the_code(): void
+    {
+        $user = User::factory()->create();
+        [, $codes] = $this->setupFactor($user);
+        $before = DB::table('account_second_factors')->where('user_id', $user->id)->value('recovery_hashes');
+        try {
+            DB::transaction(function () use ($user, $codes) {
+                app(AccountSecondFactor::class)->authenticate($user->fresh(), $codes[0]);
+                throw new \RuntimeException('Synthetic rollback');
+            });
+            $this->fail('Rollback was not exercised.');
+        } catch (\RuntimeException $error) {
+            $this->assertSame('Synthetic rollback', $error->getMessage());
+        }
+        $this->assertSame($before, DB::table('account_second_factors')->where('user_id', $user->id)->value('recovery_hashes'));
+        $this->assertDatabaseMissing('inbox_notifications', ['kind' => 'account.security.recovery_used']);
+        app(AccountSecondFactor::class)->authenticate($user->fresh(), $codes[0]);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->assertDatabaseHas('inbox_notifications', ['user_id' => $user->id, 'kind' => 'account.security.recovery_used']);
     }
 
     public function test_enrollment_requires_password_and_authenticator_proof_and_stores_only_encrypted_secrets(): void

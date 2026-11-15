@@ -3156,6 +3156,7 @@ window.createVendorWorkspace = ({
                     `${grant.token_type} · ••••${grant.suffix} · ${grant.state}`,
                 ),
                 raw("p", grant.provisioning_state),
+                ...(grant.provisioning_state === "requires_inspection" ? [ui("p", "Rider publication requires inspection")] : []),
             );
             if (!grant.revoked_at && !grant.token_revoked_at)
                 form(
@@ -3202,6 +3203,7 @@ window.createVendorWorkspace = ({
                 !grant.token_revoked_at
             )
                 button(row, "Provision rider source", async () => {
+                    if (!confirm(EvLocale.text("Confirm rider source publication")) || !valid(epoch) || !pane.isConnected) return;
                     await api(
                         base +
                             `companies/${company.id}/rider-tokens/${grant.token_id}/provision`,

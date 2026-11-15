@@ -373,7 +373,7 @@ Retired tariff hashes also fence sandbox offers and first-time IdToken grants, i
 
 Owner web/native `POST /accept` binds explicit acceptance to the current version UUID and SHA-256. Country, ownership, account epoch and password-snapshot changes are fenced under locks. A repeated exact acceptance returns its existing receipt. `GET /receipts/{uuid}` reads that company's historical immutable document/receipt, including after a newer publication or withdrawal. Company evidence is encrypted at rest; no browser/native persistence is added. This records software evidence, not verified legal acceptance, KYC approval, financial or charger authority; existing onboarding/charging/payment gates remain independent.
 
-Authenticated `GET /api/discovery/search` and `/api/v1/discovery/search` search published local platform inventory and already-authorized OCPI location reports together. Optional `q` (80 characters, literal name/address/operator text), `scope=all|catalog|partner`, and normalized `connector=CCS2|Type2|CHAdeMO` apply before a single 25-result SQL-union pagination. Stable `catalog:{id}` and `partner:{id}` keys preserve supplier identity even when IDs collide; ordering is descending local ID then source kind, without asserting chronology or deduplicating physical sites. Hydration is bounded to the selected page. Partner authorization/publication is checked again before projecting the allowlisted public location and source timestamps. Unknown availability and false booking/control remain explicit; no provider lookup, credential, private payload, price comparison, physical availability or actionable roaming is inferred. External discovery-provider queries retain their separate consent workflow.
+Authenticated `GET /api/discovery/search` and `/api/v1/discovery/search` search published local platform inventory and already-authorized OCPI location reports together. Optional `q` (80 characters, literal name/address/operator text), `scope=all|catalog|partner`, and normalized `connector=CCS2|Type2|CHAdeMO` apply before a single 25-result SQL-union pagination. Stable `catalog:{id}` and `partner:{id}` keys preserve supplier identity even when IDs collide; ordering is descending local ID then source kind, without asserting chronology or deduplicating physical sites. Hydration is bounded to the selected page. Partner authorization/publication is checked again before projecting the allowlisted public location and source timestamps. Unknown availability and false booking/control remain explicit; no provider lookup, credential, private payload, price comparison, physical availability or actionable roaming is inferred. External discovery-provider queries retain their separate consent workflow. Unified, partner-search and available saved-partner rows share `catalog_checked_at`, `reported_source_age_minutes`, `received_age_minutes` and timestamp-evidence fields. Ages are whole minutes at response time; missing or future source timestamps never become zero-age reports (including subsecond future clocks). Receipt age describes local ingestion separately and cannot freshen an old source report. Revoked/unpublished saved rows redact all these fields. Web/Flutter unified cards flag reports at least 24 hours old and label unknown clocks explicitly; these are catalog-age warnings, never verified physical availability. Search again to recheck. Optional `max_source_age_hours` (integer1–168) bounds partner source timestamps before union pagination, rejects future clocks and leaves platform results unchanged. Web/Flutter offer one hour,24 hours or7 days; pagination preserves the submitted choice. Receipt timestamps cannot satisfy this filter.
 
 Web and Flutter provide explicit EN/AR unified search and pagination. Platform results open existing station details/connector/booking controls through the additive exact `station_id` catalog selector; partner cards are read-only. Native foreground/account fences discard late results and clear them on background. Responses are private/no-store, searches stay in memory, and no financial or charging writer is called.
 
@@ -477,6 +477,17 @@ private results on account/background changes. It offers no retry, delete,
 charger, payment or external-probe actions. Public health contracts are unchanged.
 
 
+Loyalty HTTP requests recheck the original active account role, credential epoch
+and password snapshot under a user lock before scoped reads or awards. A revoked
+Admin cannot retain global redemption visibility or award access through an old
+request snapshot. Existing publication and fulfillment service guards remain.
+
+### Private authenticator security notices
+
+Successful customer/vendor authenticator enablement, disablement, recovery-code replacement and individual recovery-code consumption create private `account.security.enabled|disabled|recovery_rotated|recovery_used` inbox notices in the same database transaction as the change. Preparation, failed proofs and rolled-back changes create no security notice. Metadata contains only `evidence=ACCOUNT_SECURITY_EVENT`; secrets, codes, hashes, IP addresses and device details are excluded. Existing scoped inbox read/unread controls apply. Web and Flutter render static English/Arabic security guidance. These in-app notices do not assert external delivery or successful login; the separate consent-bound generic email digest retains all existing configuration and account-epoch restrictions.
+
+Saved platform and partner favorite actions also lock and recheck the authenticated customer's current role, active status, credential epoch and password fingerprint before any preference read or mutation. Role/status revocation rejects403; changed credentials reject409. The entire bounded database action serializes with revocation. This never grants booking or charging authority.
+
 ### Private fleet operations report
 
 `GET /api/fleets/{fleet}/report` and native `/api/v1/fleets/{fleet}/report`
@@ -496,3 +507,20 @@ currency. Recorded claim totals are not balances, cash collections, refunds,
 settlement or proof of physical charging. No financial or charging record is
 created. Web downloads the displayed CSV snapshot; Flutter previews a selectable
 private CSV in memory and clears it on background/account change.
+
+
+### Current-account RFID registry and publication authority
+
+All customer card/grant reads and database changes recheck the captured active
+account's role, password and authentication epoch under a User-first transaction.
+Card issue and revocation also enforce this when invoked through their service.
+Operator source publication runs separate short authorization/claim/commit
+transactions, with no HTTP inside a transaction. Before creating or accepting a
+source authorization it rechecks the current account, approved licensed company,
+original token expiry, active approved grant and unexpired matching publication
+lease. Credential changes after a source write prevent local promotion and leave
+`requires_inspection`; this never marks a session started or paid and never
+retries an uncertain publication automatically. Web and Flutter require explicit
+publication confirmation and explain this inspection state. All existing local
+adapter, real-time rider callback, no-offline-fallback, token privacy, source
+ownership/CAS and hardware-unverified boundaries remain required.

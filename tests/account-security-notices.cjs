@@ -1,0 +1,20 @@
+'use strict';
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+class Element{
+ constructor(tag){this.tag=tag;this.children=[];this.dataset={};this.text='';}
+ append(...nodes){this.children.push(...nodes);}
+ replaceChildren(...nodes){this.children=nodes;}
+ set textContent(value){this.text=String(value);this.children=[];}
+ get textContent(){return this.text+this.children.map(n=>n.textContent||'').join('');}
+}
+const source=fs.readFileSync('services/business-api/public/platform.js','utf8');
+const actual=source.slice(source.indexOf('async function refreshInbox() {'),source.indexOf('async function ticketDetail('));
+for(const ar of [false,true])test('actual private inbox renders security events safely in '+(ar?'Arabic':'English'),async()=>{
+ const window={};vm.runInNewContext(fs.readFileSync('services/business-api/public/locale-data.js','utf8'),{window});
+ const root=new Element('section'),calls=[],rows=['enabled','disabled','recovery_rotated','recovery_used'].map((event,index)=>({id:index+1,kind:'account.security.'+event,read_at:null,metadata:{secret:'PRIVATE-RECOVERY-CODE',html:'<img src=x>'}}));
+ const context={client:{sessionEpoch:1},user:{id:7,role:'customer'},inboxGeneration:0,inboxPage:1,inboxUnreadOnly:false,inboxCategory:'all',inboxPreferencesFor:null,inboxPreferences:null,document:{createElement:tag=>new Element(tag)},el:()=>root,EvLocale:{attribute(){}},api:async(path,method)=>{calls.push({path,method});return path==='notifications/summary'?{unread_count:0,latest_id:4}:{data:rows,current_page:1,last_page:1};},ui:(tag,key)=>{const n=new Element(tag);n.textContent=window.EV_MESSAGES[key]?.[ar?'ar':'en']||key;return n;}};
+ vm.runInNewContext(actual,context);await context.refreshInbox();
+ assert.equal(root.children.filter(n=>n.dataset.notificationId).length,4);
+ for(const row of root.children.filter(n=>n.dataset.notificationId)){assert.match(row.textContent,ar?/الدعم/:/contact support/);assert.doesNotMatch(row.textContent,/PRIVATE-RECOVERY-CODE|<img/);assert.equal(row.children.filter(n=>n.tag==='button').length,1);}
+ const before=calls.length,retained=root.children.find(n=>n.dataset.notificationId).children[0].onclick;context.user={id:8,role:'customer'};await retained();assert.equal(calls.length,before,'Old-account notice controls must not write');
+});
