@@ -105,7 +105,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
             isExpanded: true,
             items: [
               for(final option in [
-                ('','All supported markets','جميع الأسواق المدعومة'),
+                ('','No country filter (available records)','بدون تصفية حسب الدولة (السجلات المتاحة)'),
                 ('AE','United Arab Emirates','الإمارات العربية المتحدة'),
                 ('US','United States','الولايات المتحدة'),
                 ('CA','Canada','كندا'),
