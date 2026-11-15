@@ -183,4 +183,29 @@ void main(){
    expect(api.queries.last.containsKey('west'),false,reason:'Ordinary explicit search must clear stale viewport');
   });
  }
+
+ for(final ar in [false,true]){
+  testWidgets('country filter preserves pagination and resets visible control after identity change ($ar)',(tester)async{
+   roomy(tester);
+   final first=UnifiedApi(),second=UnifiedApi();
+   addTearDown(first.close);addTearDown(second.close);
+   await tester.pumpWidget(app(first,(_){},ar:ar));
+   final market=find.byKey(const Key('unified-country'));
+   await tester.ensureVisible(market);await tester.tap(market);await tester.pumpAndSettle();
+   await tester.tap(find.text(ar?'الولايات المتحدة':'United States').last);await tester.pumpAndSettle();
+   expect(tester.widget<DropdownButton<String>>(market).value,'US');
+   await tester.ensureVisible(find.byType(FilledButton));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(first.queries.single['country'],'US');
+   final next=find.text(ar?'التالي':'Next');
+   await tester.ensureVisible(next);await tester.tap(next);await tester.pumpAndSettle();
+   expect(first.queries.last['country'],'US');
+   expect(first.queries.last['page'],'2');
+   await tester.pumpWidget(app(second,(_){},ar:ar));await tester.pumpAndSettle();
+   expect(tester.widget<DropdownButton<String>>(market).value,'');
+   await tester.ensureVisible(find.byType(FilledButton));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(second.queries.single.containsKey('country'),false);
+  });
+ }
 }
