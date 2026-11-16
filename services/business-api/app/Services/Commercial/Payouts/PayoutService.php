@@ -18,6 +18,21 @@ class PayoutService
         abort_unless(config('payouts.enabled') && ! app()->environment('production'), 503, 'Test payout execution is disabled; real payouts are prohibited.');
     }
 
+    /**
+     * No request snapshot is available to this service; verify the persisted
+     * reviewer state under a row lock in each write transaction. Controller
+     * entrypoints independently verify the request's credential snapshot.
+     */
+    private function currentAdmin(int $id): User
+    {
+        $admin = User::whereKey($id)->lockForUpdate()->first();
+        abort_unless($admin && $admin->role === 'admin'
+            && $admin->account_status === 'active', 409,
+            'The administrator must sign in again before a payout decision.');
+
+        return $admin;
+    }
+
     public function provider(string $name): PayoutProvider
     {
         abort_unless(in_array($name, ['mock', 'stripe_test'], true), 422);
@@ -51,7 +66,7 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($vendor, $actor, $v) {
-            User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            $this->currentAdmin($actor);
             User::whereKey($vendor)->where('role', 'vendor')->lockForUpdate()->firstOrFail();
             $key = hash('sha256', $actor.':'.$v['idempotency_key']);
             $fingerprint = hash('sha256', json_encode([$vendor, $v['provider'], $v['currency'], $v['account_reference'], $v['bank_reference']], JSON_THROW_ON_ERROR));
@@ -168,7 +183,7 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($settlementId, $accountId, $actor, $key) {
-            User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            $this->currentAdmin($actor);
             $hint = DB::table('commercial_settlements')->find($settlementId);
             abort_unless($hint, 404);
             User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
@@ -195,6 +210,7 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($id, $actor) {
+            $this->currentAdmin($actor);
             [$row, $settlement] = $this->lock($id);
             abort_if((int) $row->created_by === $actor, 403, 'Another administrator must approve the payout.');
             if ($row->status === 'approved') {
@@ -215,6 +231,7 @@ class PayoutService
         abort_unless(DB::transactionLevel() === 0 || app()->runningUnitTests(), 409, 'Payout execution must run outside caller transactions.');
         $lease = Str::random(48);
         [$payout, $attempt, $done] = DB::transaction(function () use ($id, $actor, $lease) {
+            $this->currentAdmin($actor);
             [$row, $settlement] = $this->lock($id);
             if (in_array($row->status, ['paid', 'pending'], true)) {
                 return [$row, null, true];
@@ -251,7 +268,10 @@ class PayoutService
             if (! $sent) {
                 abort_unless($provider->balance($account) >= (int) $payout->amount_minor, 409, 'The approved connected TEST account must be pre-funded before a bank payout.');
             }
-            DB::transaction(function () use ($id, $attempt, $lease) {
+            DB::transaction(function () use ($id, $attempt, $lease, $actor) {
+                // One last account-status check immediately before the
+                // durable request_sent boundary and outbound TEST payout POST.
+                $this->currentAdmin($actor);
                 [$row, $settlement] = $this->lock($id);
                 $this->eligible($settlement);
                 abort_unless(DB::table('commercial_payout_accounts')->where('id', $row->account_id)->where('status', 'active')->exists(), 409, 'Payout account has been revoked.');
@@ -363,6 +383,7 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($id, $actor) {
+            $this->currentAdmin($actor);
             [$row, $settlement] = $this->lock($id);
             abort_unless(in_array($row->status, ['failed', 'reversed'], true), 409, 'Only a known failed or reversed payout may create a replacement attempt.');
             $this->eligible($settlement);
@@ -378,6 +399,7 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($id, $actor) {
+            $this->currentAdmin($actor);
             [$row] = $this->lock($id);
             if ($row->status === 'cancelled') {
                 return $row;
