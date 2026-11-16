@@ -43,7 +43,7 @@ window.EvPartnerCatalogObservations=(()=>{
      for(const [kind,en,ar]of[['reported_age','Partner-reported timestamp age','عمر الوقت الذي أبلغ عنه الشريك'],['receipt_age','Local receipt timestamp age','عمر وقت الاستلام المحلي']]){card.append(text('h5',en,ar));for(const [bucket,names]of Object.entries(ageLabels)){const p=text('p',...names);p.append(raw('span',`: ${m[kind][bucket]}`));card.append(p);}}
      for(const [metric,names]of Object.entries(labels)){if(!(metric in m))continue;const p=text('p',...names);p.append(raw('span',`: ${m[metric]}`));card.append(p);}
      if(key==='locations'){
-      for(const [facet,en,ar]of [['published_by_reported_market','Published partner records by reported market (not full network coverage)','السجلات المنشورة لدى الشريك حسب الدولة المبلّغ عنها (ليست تغطية الشبكة كاملة)'],['published_with_usable_coordinates_by_reported_market','Published records with usable map coordinates by reported market (accuracy unverified)','السجلات المنشورة بإحداثيات قابلة للعرض حسب الدولة (الدقة غير متحققة)']]){
+      for(const [facet,en,ar]of [['published_by_reported_market','Stored publish=true partner records by reported market (not full network coverage)','السجلات المخزنة بعلامة نشر صحيحة حسب الدولة المبلّغ عنها (ليست تغطية الشبكة كاملة)'],['published_with_usable_coordinates_by_reported_market','Published records with usable map coordinates by reported market (accuracy unverified)','السجلات المنشورة بإحداثيات قابلة للعرض حسب الدولة (الدقة غير متحققة)']]){
        card.append(text('h5',en,ar));for(const [market,names]of Object.entries(markets)){const p=text('p',...names);p.append(raw('span',`: ${m[facet][market]}`));card.append(p);}
       }
      }output.append(card);
