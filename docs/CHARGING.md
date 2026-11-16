@@ -153,7 +153,9 @@ full upstream conformance or physical charger acceptance.
 The bounded local CitrineOS fault observer rejects malformed/non-list
 station, event-page and newest-event projections before any cursor or alert
 commit, and a missing station row identifier cannot masquerade as an absent
-charger. Both protocol fixtures require operator-only review notification and
+charger. Both protocol fixtures also exercise 250 simulated status observations
+over three 100-record cursor pages, with two independently detected and
+recovered faults, no duplicate notices, no command or invoice side effects. Both protocol fixtures require operator-only review notification and
 replay from the unadvanced cursor after corrected authenticated source data.
 
 The bounded local CitrineOS fault observer validates the recognized OCPP
