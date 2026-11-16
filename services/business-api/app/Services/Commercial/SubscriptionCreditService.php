@@ -3,6 +3,7 @@
 namespace App\Services\Commercial;
 
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Payments\HostedCheckout;
 use App\Services\Commercial\Payments\MockPaymentProvider;
 use App\Services\Commercial\Payments\PaymentProvider;
@@ -61,7 +62,9 @@ class SubscriptionCreditService
         $fingerprint = hash('sha256', json_encode([$subscription, $invoice, $amount, $reason], JSON_THROW_ON_ERROR));
         // The immutable request survives an external timeout and retains exact amount/reason provenance.
         $request = DB::transaction(function () use ($actor, $subscription, $invoice, $amount, $reason, $requestKey, $fingerprint) {
-            User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            // The Admin role captured by a browser session is not durable
+            // authority for even sandbox financial refunds.
+            app(CurrentFinanceReader::class)->requireSnapshot($actor);
             $this->subscriptions->access($actor, $subscription, true);
             if ($old = DB::table('subscription_credit_requests')->where('request_key', $requestKey)->first()) {
                 abort_unless(hash_equals($old->fingerprint, $fingerprint), 409, 'Subscription credit key payload mismatch.');
@@ -83,8 +86,11 @@ class SubscriptionCreditService
         $checkout = $this->capture($receipt);
         $providerName = $receipt->evidence === 'STRIPE_TEST_CONTRACT' ? 'stripe_test' : 'mock';
         $provider = $this->provider($providerName);
-        $action = function () use ($request, $provider, $receipt, $checkout) {
-            return DB::transaction(function () use ($request, $provider, $receipt, $checkout) {
+        $action = function () use ($request, $provider, $receipt, $checkout, $actor) {
+            return DB::transaction(function () use ($request, $provider, $receipt, $checkout, $actor) {
+                // An Admin can be demoted while external recovery is pending.
+                // Verify current authority again immediately before refund I/O.
+                app(CurrentFinanceReader::class)->requireSnapshot($actor);
                 $s = DB::table('commercial_subscriptions')->where('id', $request->subscription_id)->lockForUpdate()->firstOrFail();
                 if ($prior = DB::table('subscription_credits')->where('request_id', $request->id)->first()) {
                     return $prior;
