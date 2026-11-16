@@ -153,7 +153,15 @@ final class OpenChargeMapProjection
             return null;
         }
         try {
-            return (new DateTimeImmutable($value))->setTimezone(new DateTimeZone('UTC'));
+            $parsed = new DateTimeImmutable($value);
+            // PHP silently rolls over invalid calendar days unless the
+            // parser warnings are inspected. An impossible crowd-reported
+            // date must remain unknown, never become a fabricated timestamp.
+            if (DateTimeImmutable::getLastErrors() !== false) {
+                return null;
+            }
+
+            return $parsed->setTimezone(new DateTimeZone('UTC'));
         } catch (\Exception) {
             return null;
         }

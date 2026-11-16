@@ -413,6 +413,29 @@ class OpenChargeMapDiscoveryTest extends TestCase
         }
     }
 
+    public function test_impossible_upstream_calendar_date_remains_unknown_and_cannot_pass_freshness(): void
+    {
+        $poi = $this->point();
+        $poi['DateLastStatusUpdate'] = '2026-02-30T12:00:00Z';
+        Http::fake(['api.openchargemap.io/*' => Http::response([$poi], 200, ['Content-Type' => 'application/json'])]);
+
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+            ->assertOk()
+            ->assertJsonPath('count', 1)
+            ->assertJsonPath('results.0.source_updated_at', null)
+            ->assertJsonPath('results.0.source_age_minutes', null)
+            ->assertJsonPath('results.0.source_clock_evidence', 'SOURCE_TIME_UNKNOWN')
+            ->assertJsonPath('quality_sample.source_time_unknown_or_future_count', 1)
+            ->assertJsonPath('results.0.availability', 'unknown')
+            ->assertJsonPath('results.0.remote_control', false)
+            ->assertJsonPath('results.0.reservable', false);
+        $this->postJson('/api/discovery/open-charge-map/search',
+            $this->input() + ['max_source_age_hours' => 1])
+            ->assertOk()
+            ->assertJsonPath('count', 0);
+        Http::assertSentCount(1);
+    }
+
     public function test_invalid_cached_calendar_date_cannot_be_promoted_to_fresh_source(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-04-15T12:00:00Z'));
