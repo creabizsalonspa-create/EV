@@ -73,6 +73,8 @@ class ChargerResetController extends Controller
                 $known[$connector['id']] = true;
             }
             $latest = [];
+            $lastStatusTime = null;
+            $latestStatusTime = [];
             // GraphQL orders source observations by descending durable ID.
             // Validate every bounded returned row before trusting the newest
             // item; an object-shaped or string-coerced projection is not proof
@@ -82,9 +84,21 @@ class ChargerResetController extends Controller
                     $row['connectorDatabaseId'] > 0 &&
                     is_string($row['connectorStatus'] ?? null) &&
                     is_string($row['timestamp'] ?? null), 409, 'Malformed source connector status.');
-                SourceStatusTime::parse($row['timestamp']);
-                if (! isset($latest[$row['connectorDatabaseId']])) {
-                    $latest[$row['connectorDatabaseId']] = $row;
+                $statusAt = SourceStatusTime::parse($row['timestamp']);
+                // Descending source event IDs must never carry increasing
+                // timestamps. Otherwise an earlier-clock Available report
+                // could hide an otherwise newer connector fault.
+                abort_unless($lastStatusTime === null || ! $statusAt->gt($lastStatusTime),
+                    409, 'Source status chronology requires manual review.');
+                $lastStatusTime = $statusAt;
+                $connectorId = $row['connectorDatabaseId'];
+                if (isset($latest[$connectorId])) {
+                    abort_unless(! $statusAt->equalTo($latestStatusTime[$connectorId]) ||
+                        $row['connectorStatus'] === $latest[$connectorId]['connectorStatus'],
+                        409, 'Conflicting same-time source status requires manual review.');
+                } else {
+                    $latest[$connectorId] = $row;
+                    $latestStatusTime[$connectorId] = $statusAt;
                 }
             }
             foreach ($d['Connectors'] as $connector) {

@@ -163,6 +163,46 @@ class ChargerResetTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_conflicting_source_status_clocks_cannot_authorize_a_reset(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['same_instant_conflict', 'reverse_source_clock'] as $kind) {
+                $f = $this->fixture($protocol);
+                Http::swap(new Factory);
+                Http::preventStrayRequests();
+                Http::fake(function ($r) use ($f, $kind) {
+                    $this->assertSame('http://source.test/graphql', $r->url());
+                    if (str_contains($r['query'], 'ChargingStations')) {
+                        return Http::response(['data' => [
+                            'ChargingStations' => [['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']]],
+                        ]]);
+                    }
+                    $first = now()->subSeconds($kind === 'reverse_source_clock' ? 30 : 0)->toISOString();
+                    $second = now()->toISOString();
+
+                    return Http::response(['data' => [
+                        'Transactions' => [],
+                        'Connectors' => [['id' => 7]],
+                        'StatusNotifications' => [
+                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => $first],
+                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Faulted', 'timestamp' => $second],
+                        ],
+                    ]]);
+                });
+                $this->actingAs($f['owner'])->postJson($f['path'], [
+                    'reason' => 'Quarantine contradictory source connector observations',
+                    'idempotency_key' => 'status-'.$kind.'-'.$protocol,
+                ])->assertConflict();
+                $this->assertSame(0, DB::table('charger_reset_operations')
+                    ->where('binding_id', $f['binding'])->count());
+                Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+                    || str_contains($request->url(), '/configuration/reset'));
+                $this->assertDatabaseCount('charger_commands', 0);
+                $this->assertDatabaseCount('finance_invoices', 0);
+            }
+        }
+    }
+
     public function test_uncertain_reset_is_not_retried_and_blocks_start_admission(): void
     {
         $f = $this->fixture();
