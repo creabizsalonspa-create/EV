@@ -125,7 +125,23 @@ class CdrReconciler
         $state = 'missing';
         if (is_string($reference) && $reference !== '' && strlen($reference) <= 64) {
             $original = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'cdrs')->where('country_code', $cdr->country_code)->where('party_id', $cdr->party_id)->where('external_id', $reference)->first();
-            $state = ! $original ? 'not_found' : ($original->id === $cdr->id || ($original->payload['credit'] ?? false) || isset($original->payload['credit_reference_id']) ? 'invalid_target' : 'matched');
+            if (! $original) {
+                $state = 'not_found';
+            } elseif ($original->id === $cdr->id || ($original->payload['credit'] ?? false) || isset($original->payload['credit_reference_id'])) {
+                $state = 'invalid_target';
+            } else {
+                // Existence of a referenced CDR is not proof that a credit is
+                // for the same charging source. Require the source identities
+                // to agree before marking the reference as structurally matched.
+                // A partial credit may change amounts, so do not compare price
+                // or use this result to authorize any financial adjustment.
+                $credit = $cdr->normalized;
+                $source = $original->normalized;
+                $identity = ['session_id', 'currency', 'location_id', 'evse_uid', 'connector_id'];
+                $state = collect($identity)->every(fn ($field) => is_string($credit[$field] ?? null)
+                    && $credit[$field] !== '' && $credit[$field] === ($source[$field] ?? null))
+                    ? 'matched' : 'identity_mismatch';
+            }
         }
 
         // A same-party source reference is not consent to change an invoice,
