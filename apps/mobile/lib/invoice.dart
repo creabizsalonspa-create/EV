@@ -95,9 +95,48 @@ class _InvoicePageState extends State<InvoicePage>
         method: widget.invoiceId != null ? 'GET' : 'POST',
       );
       if (!current(n, session)) return;
-      if (result['invoice']?['evidence'] != 'SIMULATED' ||
+      // Never create financial action routes from an unverified or partial
+      // invoice projection. Real-payment authority cannot come from this
+      // simulator-only endpoint.
+      final invoice = result is Map ? result['invoice'] : null;
+      bool validMinor(Object? value) => value is int && value >= 0;
+      if (result is! Map ||
+          invoice is! Map ||
+          invoice['evidence'] != 'SIMULATED' ||
+          invoice['id'] is! int ||
+          (invoice['id'] as int) <= 0 ||
+          (widget.invoiceId != null && invoice['id'] != widget.invoiceId) ||
+          invoice['user_id'] is! int ||
+          (invoice['user_id'] as int) <= 0 ||
+          invoice['number'] is! String ||
+          (invoice['number'] as String).isEmpty ||
+          (invoice['number'] as String).length > 100 ||
+          invoice['currency'] is! String ||
+          !RegExp(r'^[A-Z]{3}$').hasMatch(invoice['currency'] as String) ||
+          invoice['minor_units'] is! int ||
+          (invoice['minor_units'] as int) < 0 ||
+          (invoice['minor_units'] as int) > 3 ||
+          !validMinor(invoice['subtotal_minor']) ||
+          !validMinor(invoice['tax_minor']) ||
+          !validMinor(invoice['total_minor']) ||
+          !validMinor(result['paid_minor']) ||
+          !validMinor(result['refunded_minor']) ||
+          !validMinor(result['amount_due_minor']) ||
+          result['ledger_balanced'] is! bool ||
+          !const {
+            'unpaid',
+            'partially_paid',
+            'paid',
+            'refunded',
+            'partially_refunded',
+            'credited',
+          }.contains(result['state']) ||
           result['payment_provider'] != 'SIMULATOR_ONLY' ||
-          result['real_payment_processed'] != false) {
+          result['real_payment_processed'] != false ||
+          (result['payments'] != null && result['payments'] is! List) ||
+          (result['refunds'] != null && result['refunds'] is! List) ||
+          (result['unpaid_credit_notes'] != null &&
+              result['unpaid_credit_notes'] is! List)) {
         throw const ApiException(409, 'Unsupported finance evidence.');
       }
       if (current(n, session))
