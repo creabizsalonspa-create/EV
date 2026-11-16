@@ -10,6 +10,25 @@ use Illuminate\Validation\Rule;
 
 class SubscriptionController extends Controller
 {
+    /**
+     * Call inside a DB transaction to pin the current account while reading
+     * private billing terms or making an Admin catalog change. Session models
+     * are snapshots and must not authorize financial activity after revocation.
+     */
+    private function currentActor(Request $r): User
+    {
+        $snapshot = $r->user();
+        abort_unless($snapshot instanceof User, 401);
+        $current = User::whereKey($snapshot->id)->lockForUpdate()->first();
+        abort_unless($current && $current->account_status === 'active'
+            && $current->role === $snapshot->role
+            && (int) $current->auth_epoch === (int) $snapshot->auth_epoch
+            && hash_equals((string) $current->password, (string) $snapshot->password),
+            409, 'Account authorization changed; sign in again.');
+
+        return $current;
+    }
+
     public function plans(Request $r)
     {
         $q = DB::table('commercial_plan_versions as p')->join('commercial_plan_availability as a', 'a.plan_id', '=', 'p.id')->select('p.*', 'a.available');
@@ -38,18 +57,32 @@ class SubscriptionController extends Controller
             $v[$field] = (int) $v[$field];
         }
 
-        return response()->json($s->publish($r->user(), $v), 201);
+        return DB::transaction(function () use ($r, $s, $v) {
+            $current = $this->currentActor($r);
+            abort_unless($current->role === 'admin', 403);
+
+            return response()->json($s->publish($current, $v), 201);
+        }, 3);
     }
 
     public function availability(Request $r, int $plan)
     {
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['available' => 'required|boolean']);
-        abort_unless(DB::table('commercial_plan_availability')->where('plan_id', $plan)->exists(), 404);
-        DB::table('commercial_plan_availability')->where('plan_id', $plan)->update(['available' => $v['available']]);
-        DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'finance.subscription_plan_availability', 'subject' => (string) $plan, 'created_at' => now()]);
 
-        return response()->json(['plan_id' => $plan, 'available' => (bool) $v['available']]);
+        return DB::transaction(function () use ($r, $plan, $v) {
+            $current = $this->currentActor($r);
+            abort_unless($current->role === 'admin', 403);
+            abort_unless(DB::table('commercial_plan_availability')->where('plan_id', $plan)
+                ->lockForUpdate()->exists(), 404);
+            DB::table('commercial_plan_availability')->where('plan_id', $plan)
+                ->update(['available' => $v['available']]);
+            DB::table('audit_events')->insert(['actor_id' => $current->id,
+                'action' => 'finance.subscription_plan_availability',
+                'subject' => (string) $plan, 'created_at' => now()]);
+
+            return response()->json(['plan_id' => $plan, 'available' => (bool) $v['available']]);
+        }, 3);
     }
 
     public function index(Request $r)
@@ -82,14 +115,7 @@ class SubscriptionController extends Controller
         // through quote calculation so a former Admin cannot preview another
         // company's private terms after losing cross-account authority.
         return DB::transaction(function () use ($r, $subscription, $s) {
-            $snapshot = $r->user();
-            abort_unless($snapshot instanceof User, 401);
-            $current = User::whereKey($snapshot->id)->lockForUpdate()->first();
-            abort_unless($current && $current->account_status === 'active'
-                && $current->role === $snapshot->role
-                && (int) $current->auth_epoch === (int) $snapshot->auth_epoch
-                && hash_equals((string) $current->password, (string) $snapshot->password),
-                409, 'Account authorization changed; sign in again.');
+            $current = $this->currentActor($r);
 
             // Authorize the CURRENT owner/Admin before resolving target terms.
             $s->access($current, $subscription);
