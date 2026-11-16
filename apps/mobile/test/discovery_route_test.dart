@@ -460,7 +460,7 @@ void main() {
       ]) {
         await tester.scrollUntilVisible(
           find.byKey(Key(key)),
-          -240,
+          key.startsWith('origin-') ? -240 : 240,
           scrollable: find.byType(Scrollable).first,
         );
         expect(
