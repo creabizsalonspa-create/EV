@@ -340,7 +340,7 @@ class SupportViewState extends State<SupportView>
   ApiPage<Map<String, dynamic>>? data;
   int generation = 0;
   late bool Function() authorized;
-  bool foreground = true;
+  bool foreground = true, freshRead = false;
   bool current(int request, bool Function() session) =>
       mounted && foreground && authorized() && session() &&
       generation == request;
@@ -350,6 +350,7 @@ class SupportViewState extends State<SupportView>
     data = null;
     error = null;
     loading = false;
+    freshRead = false;
     preferencesLoaded = false;
     savedPreferences = null;
     category = 'all';
@@ -412,6 +413,7 @@ class SupportViewState extends State<SupportView>
       loading = true;
       error = null;
       data = null;
+      freshRead = false;
       unreadCount = null;
       unreadByCategory = null;
       latestNotificationId = null;
@@ -451,6 +453,7 @@ class SupportViewState extends State<SupportView>
       if (current(request, session)) {
         setState(() {
           data = result;
+          freshRead = true;
           unreadCount = summary is Map && summary['unread_count'] is int
               ? summary['unread_count'] as int
               : null;
@@ -482,7 +485,8 @@ class SupportViewState extends State<SupportView>
   }
 
   Future<void> createTicket() async {
-    if (loading || notifications || !foreground || !authorized()) return;
+    if (loading || notifications || !freshRead ||
+        !foreground || !authorized()) return;
     final dialogSession = widget.api.sessionFence();
     final dialogGeneration = generation;
     final dialogApi = widget.api;
@@ -804,7 +808,7 @@ class SupportViewState extends State<SupportView>
               if (!notifications)
                 OutlinedButton.icon(
                   key: const Key('support-new-ticket'),
-                  onPressed: loading ? null : createTicket,
+                  onPressed: loading || !freshRead ? null : createTicket,
                   icon: const Icon(Icons.add_comment_outlined),
                   label: Text(s.t('openTicket')),
                 ),
@@ -913,6 +917,15 @@ class SupportViewState extends State<SupportView>
               child: Text(s.t('markCurrentNotificationsRead')),
             ),
           if (loading) const LinearProgressIndicator(),
+          if (!loading && !freshRead && foreground)
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                Localizations.localeOf(context).languageCode == 'ar'
+                    ? 'حدّث سجل الحساب قبل اتخاذ إجراء جديد.'
+                    : 'Refresh this account history before taking another action.',
+              ),
+            ),
           if (error != null)
             Column(
               children: [
