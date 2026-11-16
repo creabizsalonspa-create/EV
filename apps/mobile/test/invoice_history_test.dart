@@ -8,7 +8,7 @@ import 'test_support.dart';
 
 class HistoryApi extends FixtureApi {
   final queries = <Map<String, String>>[];
-  bool failSecond = true, expired = false;
+  bool failSecond = true, expired = false, malformedList = false;
   final methods = <String>[];
   @override
   Future<dynamic> request(
@@ -37,7 +37,7 @@ class HistoryApi extends FixtureApi {
         throw const ApiException(503, 'offline');
       }
       return {
-        'data': [invoice],
+        'data': [malformedList ? {...invoice, 'id': 'not-an-id'} : invoice],
         'current_page': int.parse(query['page']!),
         'last_page': 2,
         'total': 26,
@@ -147,6 +147,24 @@ void main() {
     expect(expired, isFalse);
   });
 
+  testWidgets('malformed private invoice row hides detail controls until explicit retry', (
+    tester,
+  ) async {
+    final api = HistoryApi()
+      ..malformedList = true
+      ..failSecond = false;
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, () {}));
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-HISTORY-7'), findsNothing);
+    expect(find.text('عرض الفاتورة'), findsNothing);
+    await tester.ensureVisible(find.text('إعادة المحاولة'));
+    api.malformedList = false;
+    await tester.tap(find.text('إعادة المحاولة'));
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-HISTORY-7'), findsOneWidget);
+    expect(api.methods.every((method) => method == 'GET'), isTrue);
+  });
   testWidgets('background clears private invoice list and filters without automatic reads', (
     tester,
   ) async {
