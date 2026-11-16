@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorKycDocument;
+use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -277,8 +278,11 @@ class AdminKycQueueTest extends TestCase
         $company->update(['license_expires_on' => '2027-11-15']);
         $this->actingAs($admin);
 
+        $access = app(VendorAccess::class);
         foreach (['', 'Invalid/Not-IANA'] as $timezone) {
             DB::table('regions')->where('country', 'AE')->update(['timezone' => $timezone]);
+            $this->assertFalse($access->licenseValid($company));
+            $this->assertFalse($access->capabilities($owner, $company)['inventory_operational']);
             $this->getJson('/api/admin/kyc-queue?status=approved&license_health=unknown')
                 ->assertOk()
                 ->assertJsonPath('total', 1)
@@ -290,6 +294,9 @@ class AdminKycQueueTest extends TestCase
             $this->getJson('/api/admin/kyc-queue?status=approved&license_health=due_30_days')
                 ->assertOk()->assertJsonPath('total', 0);
         }
+        DB::table('regions')->where('country', 'AE')->update(['timezone' => 'Asia/Dubai']);
+        $this->assertTrue($access->licenseValid($company));
+        $this->assertTrue($access->capabilities($owner, $company)['inventory_operational']);
 
         // The Admin can inspect the item, but a default/server-local date
         // can never silently promote unknown license validity to current.
