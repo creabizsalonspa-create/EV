@@ -14,7 +14,7 @@ final class CatalogObservations
 
     private function bucket(?string $value, CarbonImmutable $at): string
     {
-        if ($value === null || ! preg_match('/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):([0-5]\d):([0-5]\d)(?:\.\d{1,6})?(?:Z|[+-](?:0\d|1[0-4])(?::?[0-5]\d)?)?$/D', $value, $parts)
+        if ($value === null || ! preg_match('/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):([0-5]\d):([0-5]\d)(?:\.\d{1,6})?(?:Z|[+-](?:0\d|1[0-3])(?::?[0-5]\d)?|[+-]14(?::?00)?)?$/D', $value, $parts)
             || ! checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1]) || (int) $parts[4] > 23) {
             return 'unknown';
         }
