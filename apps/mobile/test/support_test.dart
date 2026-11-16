@@ -612,6 +612,37 @@ void main() {
     expect(current.supportReads, 1);
   });
 
+  testWidgets('old 401 response cannot expire a replacement inbox account', (
+    tester,
+  ) async {
+    final previous = ActorScopedSupportFixture(deferFirst: true);
+    final replacement = ActorScopedSupportFixture();
+    addTearDown(previous.close);
+    addTearDown(replacement.close);
+    var expired = false;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(
+        api: previous, accountId: 1, onSessionExpired: () => expired = true,
+      )),
+    ));
+    await tester.pump();
+    previous.actorEpoch++;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(
+        api: replacement, accountId: 2,
+        onSessionExpired: () => expired = true,
+      )),
+    ));
+    await tester.pumpAndSettle();
+    previous.firstSupportResponse!.completeError(
+      const ApiException(401, 'PRIVATE OLD ACTOR ERROR'),
+    );
+    await tester.pumpAndSettle();
+    expect(expired, isFalse);
+    expect(find.text('Synthetic support thread'), findsOneWidget);
+    expect(find.textContaining('PRIVATE OLD ACTOR ERROR'), findsNothing);
+  });
+
   testWidgets('inactive app clears inbox and requires explicit foreground refresh', (
     tester,
   ) async {
