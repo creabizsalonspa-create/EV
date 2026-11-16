@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\CorporateBilling;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -11,10 +12,22 @@ class CorporateBillingController extends Controller
     public function index(Request $r, CorporateBilling $service)
     {
         $fleet = $r->validate(['fleet_id' => 'required|integer|min:1']);
-        $service->fleet((int) $fleet['fleet_id'], $r->user()->id);
-        $manager = $r->user()->role === 'admin' || (int) DB::table('fleets')->find($fleet['fleet_id'])->owner_id === $r->user()->id;
 
-        return response()->json(['agreements' => DB::table('corporate_agreements')->where('fleet_id', $fleet['fleet_id'])->orderByDesc('id')->get()->map(fn ($a) => (array) $a + ['acceptance' => DB::table('corporate_agreement_acceptances')->where('agreement_id', $a->id)->first()]), 'can_manage' => $manager, 'real_payment_enabled' => false]);
+        return DB::transaction(function () use ($r, $service, $fleet) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $company = $service->fleet((int) $fleet['fleet_id'], $actor->id);
+            $manager = $actor->role === 'admin' || (int) $company->owner_id === $actor->id;
+
+            return response()->json([
+                'agreements' => DB::table('corporate_agreements')
+                    ->where('fleet_id', $company->id)->orderByDesc('id')->get()->map(
+                        fn ($a) => (array) $a + [
+                            'acceptance' => DB::table('corporate_agreement_acceptances')
+                                ->where('agreement_id', $a->id)->first(),
+                        ]),
+                'can_manage' => $manager, 'real_payment_enabled' => false,
+            ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function publish(Request $r, int $fleet, CorporateBilling $s)
@@ -40,11 +53,22 @@ class CorporateBillingController extends Controller
 
     public function claims(Request $r, int $agreement, CorporateBilling $s)
     {
-        $a = $s->agreement($agreement);
-        $f = $s->fleet((int) $a->fleet_id, $r->user()->id);
-        $manager = $r->user()->role === 'admin' || (int) $f->owner_id === $r->user()->id;
+        return DB::transaction(function () use ($r, $agreement, $s) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $a = $s->agreement($agreement);
+            $f = $s->fleet((int) $a->fleet_id, $actor->id);
+            $manager = $actor->role === 'admin' || (int) $f->owner_id === $actor->id;
 
-        return DB::table('corporate_claims')->where('agreement_id', $agreement)->when(! $manager, fn ($q) => $q->where('driver_id', $r->user()->id))->orderByDesc('id')->paginate(25)->through(fn ($row) => (array) $row + ['decision' => DB::table('corporate_claim_decisions')->where('claim_id', $row->id)->first(), 'statement_id' => DB::table('corporate_statement_lines')->where('claim_id', $row->id)->value('statement_id')]);
+            return response()->json(DB::table('corporate_claims')
+                ->where('agreement_id', $agreement)
+                ->when(! $manager, fn ($q) => $q->where('driver_id', $actor->id))
+                ->orderByDesc('id')->paginate(25)->through(fn ($row) => (array) $row + [
+                    'decision' => DB::table('corporate_claim_decisions')
+                        ->where('claim_id', $row->id)->first(),
+                    'statement_id' => DB::table('corporate_statement_lines')
+                        ->where('claim_id', $row->id)->value('statement_id'),
+                ]))->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function decide(Request $r, int $claim, CorporateBilling $s)
@@ -63,10 +87,18 @@ class CorporateBillingController extends Controller
 
     public function statements(Request $r, int $agreement, CorporateBilling $s)
     {
-        $a = $s->agreement($agreement);
-        $s->fleet((int) $a->fleet_id, $r->user()->id, true);
+        return DB::transaction(function () use ($r, $agreement, $s) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $a = $s->agreement($agreement);
+            $s->fleet((int) $a->fleet_id, $actor->id, true);
 
-        return DB::table('corporate_statements')->where('agreement_id', $agreement)->orderByDesc('id')->paginate(25)->through(fn ($row) => (array) $row + ['receipt' => DB::table('corporate_receipts')->where('statement_id', $row->id)->first()]);
+            return response()->json(DB::table('corporate_statements')
+                ->where('agreement_id', $agreement)->orderByDesc('id')->paginate(25)
+                ->through(fn ($row) => (array) $row + [
+                    'receipt' => DB::table('corporate_receipts')
+                        ->where('statement_id', $row->id)->first(),
+                ]))->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function show(Request $r, int $statement, CorporateBilling $s)
