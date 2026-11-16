@@ -82,7 +82,7 @@ class ChargerCommandTest extends TestCase
             'payload' => ['session_id' => 18, 'id_token' => $token],
             'confirmation' => [
                 'success' => true,
-                'nested' => ['accessToken' => $sourceSecret],
+                'nested' => ['accessToken' => $sourceSecret, 'token' => $sourceSecret],
             ],
         ]);
         $this->actingAs($vendor)->getJson('/api/charger-commands')
@@ -90,6 +90,7 @@ class ChargerCommandTest extends TestCase
             ->assertJsonPath('data.0.payload.session_id', 18)
             ->assertJsonPath('data.0.payload.id_token', '[REDACTED]')
             ->assertJsonPath('data.0.confirmation.nested.accessToken', '[REDACTED]')
+            ->assertJsonPath('data.0.confirmation.nested.token', '[REDACTED]')
             ->assertJsonPath('data.0.confirmation.success', true);
         $serialized = json_encode($command->fresh(), JSON_THROW_ON_ERROR);
         $this->assertStringNotContainsString($token, $serialized);

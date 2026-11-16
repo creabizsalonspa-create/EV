@@ -13,7 +13,7 @@ class ChargerCommand extends Model
     protected $attributes = ['status' => 'pending'];
 
     /**
-     * The canonical command must retain its encrypted-at-rest transport input
+     * The canonical command must retain its original transport input
      * for reconciliation, but public vendor/Admin JSON must never expose an
      * opaque customer start token or arbitrary CSMS reply credentials.
      * Model accessors keep the original stored values for the dispatcher.
@@ -35,7 +35,7 @@ class ChargerCommand extends Model
         foreach ($data as $key => $value) {
             $normalized = is_string($key) ? strtolower(str_replace(['_', '-'], '', $key)) : '';
             if (in_array($normalized, [
-                'idtoken', 'accesstoken', 'refreshtoken', 'authorization',
+                'idtoken', 'idtag', 'token', 'accesstoken', 'refreshtoken', 'authorization',
                 'secret', 'clientsecret', 'apikey', 'privatekey', 'password',
                 'xhasuraadminsecret', 'signature',
             ], true)) {
