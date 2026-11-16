@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Payouts\PayoutService;
 use Illuminate\Http\Request;
@@ -25,7 +26,7 @@ class PayoutController extends Controller
      * perform external provider I/O; the provider service retains its own
      * payout, bank account, idempotency and maker-checker transactions.
      */
-    private function currentActor(Request $r, bool $admin = false): \App\Models\User
+    private function currentActor(Request $r, bool $admin = false): User
     {
         return DB::transaction(function () use ($r, $admin) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
@@ -156,6 +157,7 @@ class PayoutController extends Controller
     {
         $this->admin($r);
         $actor = $this->currentActor($r, true);
+
         // Do not wrap externally connected execute/reconcile in a transaction:
         // PayoutService manages its own lease and uncertainty recovery gates.
         return response()->json(['payout' => $this->safe($service->{$action}($payout, $actor->id))]);
