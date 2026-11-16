@@ -151,35 +151,63 @@ class FinanceController extends Controller
 
     public function issue(Request $r, ChargingSession $session, FinanceService $finance)
     {
-        $b = Reservation::findOrFail($session->reservation_id);
-        $s = Station::findOrFail($b->station_id);
-        abort_unless($r->user()->id === $b->user_id || ($r->user()->role === 'vendor' && $r->user()->id === $s->vendor_id) || $r->user()->role === 'admin', 404);
+        return DB::transaction(function () use ($r, $session, $finance) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $reservation = Reservation::findOrFail($session->reservation_id);
+            $station = Station::findOrFail($reservation->station_id);
+            abort_unless($actor->id === $reservation->user_id
+                || ($actor->role === 'vendor' && $actor->id === $station->vendor_id)
+                || $actor->role === 'admin', 404);
 
-        return response()->json($finance->summary($finance->issue($session, $r->user()->id)), 201);
+            return response()->json(
+                $finance->summary($finance->issue($session, $actor->id)), 201
+            )->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function show(Request $r, Invoice $invoice, FinanceService $finance)
     {
-        $this->invoiceAccess($r, $invoice);
+        return DB::transaction(function () use ($r, $invoice, $finance) {
+            $this->invoiceAccess($r, $invoice);
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $operator = $actor->role === 'admin'
+                || ($actor->role === 'vendor' && $actor->id === $invoice->vendor_id);
 
-        $operator = $r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $r->user()->id === $invoice->vendor_id);
-
-        return response()->json($finance->summary($invoice) + ['can_review_unpaid_credit' => $operator && DB::table('ocpi_test_invoice_receipts')->where('invoice_id', $invoice->id)->exists(), 'can_issue_unpaid_credit' => $operator && $finance->unpaidCreditAvailable($invoice), 'payments' => Payment::where('invoice_id', $invoice->id)->get(), 'refunds' => Refund::where('invoice_id', $invoice->id)->get()])->header('Cache-Control', 'private, no-store');
+            return response()->json($finance->summary($invoice) + [
+                'can_review_unpaid_credit' => $operator
+                    && DB::table('ocpi_test_invoice_receipts')
+                        ->where('invoice_id', $invoice->id)->exists(),
+                'can_issue_unpaid_credit' => $operator
+                    && $finance->unpaidCreditAvailable($invoice),
+                'payments' => Payment::where('invoice_id', $invoice->id)->get(),
+                'refunds' => Refund::where('invoice_id', $invoice->id)->get(),
+            ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function sourceEvidence(Request $r, Invoice $invoice, ChargingProvenance $provenance)
     {
-        $this->invoiceAccess($r, $invoice);
+        return DB::transaction(function () use ($r, $invoice, $provenance) {
+            $this->invoiceAccess($r, $invoice);
 
-        return response()->json($provenance->inspect($invoice))->header('Cache-Control', 'private, no-store');
+            return response()->json($provenance->inspect($invoice))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function sourceCredits(Request $r, Invoice $invoice, CreditRefundEvidence $evidence)
     {
-        $this->invoiceAccess($r, $invoice);
-        $v = $r->validate(['page' => 'sometimes|integer|min:1|max:100000', 'full_reversal' => 'sometimes|boolean']);
+        return DB::transaction(function () use ($r, $invoice, $evidence) {
+            $this->invoiceAccess($r, $invoice);
+            $v = $r->validate([
+                'page' => 'sometimes|integer|min:1|max:100000',
+                'full_reversal' => 'sometimes|boolean',
+            ]);
 
-        return response()->json($evidence->options($invoice, (int) ($v['page'] ?? 1), (bool) ($v['full_reversal'] ?? false)))->header('Cache-Control', 'private, no-store');
+            return response()->json($evidence->options(
+                $invoice, (int) ($v['page'] ?? 1), (bool) ($v['full_reversal'] ?? false)
+            ))->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function unpaidCredit(Request $r, Invoice $invoice, FinanceService $finance)
@@ -229,10 +257,18 @@ class FinanceController extends Controller
 
     public function journal(Request $r, Invoice $invoice)
     {
-        $this->invoiceAccess($r, $invoice);
-        abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $r->user()->id === $invoice->vendor_id), 403);
-        $journals = Journal::where('invoice_id', $invoice->id)->orderBy('id')->get();
+        return DB::transaction(function () use ($r, $invoice) {
+            $this->invoiceAccess($r, $invoice);
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($actor->role === 'admin'
+                || ($actor->role === 'vendor' && $actor->id === $invoice->vendor_id), 403);
+            $journals = Journal::where('invoice_id', $invoice->id)->orderBy('id')->get();
 
-        return response()->json(['journals' => $journals, 'entries' => JournalEntry::whereIn('journal_id', $journals->pluck('id'))->orderBy('id')->get()]);
+            return response()->json([
+                'journals' => $journals,
+                'entries' => JournalEntry::whereIn('journal_id', $journals->pluck('id'))
+                    ->orderBy('id')->get(),
+            ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 }
