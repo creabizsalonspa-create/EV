@@ -12,6 +12,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
@@ -104,6 +105,65 @@ class CorporateHostedCollectionTest extends TestCase
             $this->assertSame(0, $s['amount_due_minor']);
         }
         $this->assertFalse(app(CorporateBilling::class)->statement($f['statement']->id, $f['owner']->id)['can_collect_hosted']);
+    }
+
+    public function test_revoked_payer_or_admin_cannot_view_hosted_statement_or_call_mock_provider(): void
+    {
+        $f = $this->f();
+        $h = $this->create($f);
+        $before = DB::table('corporate_hosted_events')->count();
+
+        foreach ([$f['owner'], $f['admin']] as $reader) {
+            $record = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $restore = [
+                'role' => $record->role,
+                'account_status' => $record->account_status,
+                'auth_epoch' => $record->auth_epoch,
+                'password' => $record->password,
+            ];
+            $this->actingAs($reader)->getJson(self::URL)->assertOk()
+                ->assertJsonPath('total', 1);
+            $this->getJson(self::URL.'/'.$h['id'])->assertOk();
+
+            foreach ([
+                ['role' => 'vendor'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $record->auth_epoch + 1],
+                ['password' => Hash::make('rotated-corporate-hosted-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                foreach ([
+                    $this->getJson(self::URL),
+                    $this->getJson(self::URL.'/'.$h['id']),
+                    $this->getJson(self::URL.'/'.$h['id'].'/events'),
+                ] as $response) {
+                    $this->assertContains($response->getStatusCode(), [401, 403, 409]);
+                }
+                if ($reader->id === $f['owner']->id) {
+                    foreach ([
+                        $this->postJson(self::URL, [
+                            'statement_id' => $f['statement']->id,
+                            'consent' => true, 'idempotency_key' => 'revoked-create',
+                        ]),
+                        $this->postJson(self::URL.'/'.$h['id'].'/simulate', [
+                            'consent' => true, 'outcome' => 'authorized',
+                        ]),
+                        $this->postJson(self::URL.'/'.$h['id'].'/capture'),
+                    ] as $response) {
+                        $this->assertContains($response->getStatusCode(), [401, 403, 409]);
+                    }
+                }
+                DB::table('users')->where('id', $reader->id)->update($restore);
+            }
+        }
+
+        $this->assertSame($before, DB::table('corporate_hosted_events')->count());
+        $this->assertDatabaseHas('corporate_hosted_checkouts', [
+            'id' => $h['id'], 'status' => 'prepared',
+        ]);
+        $this->assertDatabaseCount('corporate_receipts', 0);
+        Http::assertNothingSent();
     }
 
     public function test_only_original_payer_who_is_current_fleet_owner_may_mutate_and_other_parties_cannot_read(): void
