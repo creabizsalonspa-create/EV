@@ -112,12 +112,19 @@ class SourceConsumer
                 throw new RuntimeException('Remote source token lineage conflict.');
             }
         }
-        $identity = $this->graph('query($station:String!,$tag:citext!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$station}},limit:2){id} Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id}}', ['station' => $link->identifier, 'tag' => $tag]);
+        $identity = $this->graph('query($station:String!,$tag:citext!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$station}},limit:2){id protocol} Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id}}', ['station' => $link->identifier, 'tag' => $tag]);
         if (count($identity['ChargingStations']) > 1 || count($identity['Authorizations']) > 1) {
             throw new RuntimeException('Ambiguous source identity requires reconciliation.');
         }
         if (! $identity['ChargingStations'] || ! $identity['Authorizations']) {
             return 0;
+        }
+        // The source station, not the business binding alone, establishes the
+        // protocol of the observed transaction. A moved/reprovisioned charger
+        // must never advance a session or its invoice under the old version.
+        $sourceProtocol = $identity['ChargingStations'][0]['protocol'] ?? null;
+        if (! is_string($sourceProtocol) || ! in_array($sourceProtocol, [$link->protocol, 'ocpp'.$link->protocol], true)) {
+            throw new RuntimeException('Source station protocol mismatch requires reconciliation.');
         }
         if ($link->remote_token_digest && (int) $identity['Authorizations'][0]['id'] !== (int) $link->remote_authorization_id) {
             throw new RuntimeException('Remote source registration changed; reconciliation is required.');
@@ -185,7 +192,28 @@ class SourceConsumer
             $this->send($link, $tx, 'started', 0, $baseline, $tx['startTime']);
             $count++;
         }
-        $rows = $this->graph('query($tx:Int!,$after:Int!){MeterValues(where:{tenantId:{_eq:1},transactionDatabaseId:{_eq:$tx},id:{_gt:$after}},order_by:{id:asc},limit:100){id timestamp sampledValue}}', ['tx' => $tx['id'], 'after' => max(0, $link->source_meter_cursor)])['MeterValues'];
+        $rows = $this->graph('query($tx:Int!,$after:Int!){MeterValues(where:{tenantId:{_eq:1},transactionDatabaseId:{_eq:$tx},id:{_gt:$after}},order_by:{id:asc},limit:100){id timestamp sampledValue}}', ['tx' => $tx['id'], 'after' => max(0, $link->source_meter_cursor)])['MeterValues'] ?? null;
+        if (! is_array($rows) || ! array_is_list($rows) || count($rows) > 100) {
+            throw new RuntimeException('Source meter page is missing or exceeds its limit.');
+        }
+        // Check the complete page before persisting any cursor, including rows
+        // that do not contain an energy register. A truncated/reordered source
+        // projection must not silently skip the original event after restart.
+        $previousId = max(0, $link->source_meter_cursor);
+        foreach ($rows as $row) {
+            if (! is_array($row) || ! is_int($row['id'] ?? null) || $row['id'] <= $previousId || $row['id'] > 1000000000 ||
+                ! is_string($row['timestamp'] ?? null) || ! is_array($row['sampledValue'] ?? null) ||
+                ! array_is_list($row['sampledValue'])) {
+                throw new RuntimeException('Invalid source meter page requires reconciliation.');
+            }
+            foreach ($row['sampledValue'] as $sample) {
+                if (! is_array($sample)) {
+                    throw new RuntimeException('Invalid source sample requires reconciliation.');
+                }
+            }
+            SourceStatusTime::parse($row['timestamp'], 300);
+            $previousId = $row['id'];
+        }
         foreach ($rows as $row) {
             $samples = array_values(array_filter($row['sampledValue'], fn ($s) => ($s['measurand'] ?? '') === 'Energy.Active.Import.Register' && empty($s['phase'])));
             if (count($samples) > 1) {
