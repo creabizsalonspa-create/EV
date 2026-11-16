@@ -672,7 +672,7 @@
         journey.ontoggle = () => {
             if (journey.open) capabilities();
         };
-        return {
+        const controls = {
             update(data) {
                 stations = data;
                 renderStops();
@@ -710,6 +710,25 @@
             },
             refresh: capabilities,
         };
+        // Browser visibility is not account logout, but private route inputs
+        // must not remain visible or dispatch after backgrounding. Clear only
+        // in-memory tool state, without GPS, provider calls or auto-refresh.
+        const onHidden = () => {
+            if (!section.isConnected) {
+                document.removeEventListener("visibilitychange", onHidden);
+                window.removeEventListener("pagehide", onPageHide);
+                return;
+            }
+            if (document.hidden) controls.clear();
+        };
+        const onPageHide = () => {
+            controls.clear();
+            document.removeEventListener("visibilitychange", onHidden);
+            window.removeEventListener("pagehide", onPageHide);
+        };
+        document.addEventListener("visibilitychange", onHidden);
+        window.addEventListener("pagehide", onPageHide);
+        return controls;
     }
     window.EvGeoTools = { install, point, navigationCoordinate: coordinate };
 })();
