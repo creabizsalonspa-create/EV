@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\InboxNotification;
-use App\Models\User;
 use App\Models\SupportTicket;
 use App\Models\TicketMessage;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
