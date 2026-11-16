@@ -420,7 +420,14 @@ class SupportViewState extends State<SupportView>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     foreground = state == AppLifecycleState.resumed;
-    if (mounted && !foreground) setState(clearPrivate);
+    if (!mounted) return;
+    if (!foreground) {
+      setState(clearPrivate);
+    } else {
+      // Rebuild the explicit Refresh affordance, but do not silently reload
+      // private history or replay an uncertain ticket/notice mutation.
+      setState(() {});
+    }
   }
 
   @override
@@ -1277,7 +1284,14 @@ class _TicketPageState extends State<TicketPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     foreground = state == AppLifecycleState.resumed;
-    if (mounted && !foreground) setState(clearPrivate);
+    if (!mounted) return;
+    if (!foreground) {
+      setState(clearPrivate);
+    } else {
+      // Rebuild the explicit Refresh affordance, but do not silently reload
+      // private history or replay an uncertain ticket/notice mutation.
+      setState(() {});
+    }
   }
 
   void failed(Object e, int n, bool Function() session,
