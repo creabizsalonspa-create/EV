@@ -1556,8 +1556,143 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 actor: () => actor,
             });
             await settlements(operations, current);
+            vendorRevenue(operations, current);
         }
     }
+    function vendorRevenue(parent, current) {
+        // Issuance-date source cohorts, not PSP cashflow or payout eligibility.
+        const area = document.createElement("section");
+        area.dataset.vendorRevenue = "true";
+        area.append(
+            translated("h4", "Vendor revenue by invoice date", "إيرادات المشغل بحسب تاريخ الفاتورة"),
+            translated(
+                "p",
+                "Simulated invoice cohorts only. Collections and refunds belong to the original invoice date, not their transaction date. Payout eligibility is separate.",
+                "مجموعات فواتير تجريبية فقط. تُنسب المدفوعات والاستردادات إلى تاريخ الفاتورة الأصلية، وليس تاريخ المعاملة. أهلية الصرف منفصلة.",
+            ),
+        );
+        parent.append(area);
+        const results = document.createElement("section");
+        results.dataset.vendorRevenueResults = "true";
+        const today = new Date().toISOString().slice(0, 10);
+        const from = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+        let reportGeneration = 0;
+        const requestForm = form(
+            area,
+            [
+                field(
+                    "vendor",
+                    "Vendor account ID",
+                    "رقم حساب المشغل",
+                    actor.role === "vendor" ? actor.id : undefined,
+                    "number",
+                ),
+                field("currency", "Currency", "العملة", "AED"),
+                field("from", "Invoice date from (UTC)", "تاريخ الفاتورة من (UTC)", from, "date"),
+                field("to", "Invoice date to (UTC)", "تاريخ الفاتورة إلى (UTC)", today, "date"),
+            ],
+            "View revenue cohorts",
+            "عرض مجموعات الإيرادات",
+            async (data) => {
+                const vendor = Number(data.vendor);
+                if (!Number.isSafeInteger(vendor) || vendor < 1 ||
+                    (actor.role === "vendor" && vendor !== Number(actor.id)))
+                    throw Error("Invalid vendor account.");
+                const currency = String(data.currency).toUpperCase();
+                if (!/^[A-Z]{3}$/.test(currency))
+                    throw Error("Invalid three-letter currency.");
+                const query = new URLSearchParams({
+                    currency,
+                    from: String(data.from),
+                    to: String(data.to),
+                });
+                const requestGeneration = ++reportGeneration;
+                // Clear private results before the request so revoked sessions
+                // cannot retain an earlier report or downloadable CSV on errors.
+                results.replaceChildren();
+                const report = await api(
+                    "commercial/vendors/" + vendor + "/revenue-cohorts?" + query,
+                    "GET",
+                    undefined,
+                    controller.signal,
+                );
+                if (
+                    current !== epoch ||
+                    requestGeneration !== reportGeneration ||
+                    !results.isConnected ||
+                    document.hidden
+                ) return;
+                if (
+                    Number(report.vendor_id) !== vendor ||
+                    report.currency !== currency ||
+                    report.basis !== "INVOICE_ISSUANCE_DATE_UTC_COHORT" ||
+                    report.external_psp_or_bank_verified !== false ||
+                    report.real_money_movement !== false ||
+                    report.not_cashflow_or_payout_eligibility !== true ||
+                    !Array.isArray(report.data) ||
+                    report.data.length > 93
+                )
+                    throw Error("Revenue cohort source cannot be verified.");
+                results.replaceChildren(
+                    translated("h5", "Invoice-cohort totals (simulated)", "إجماليات مجموعات الفواتير (تجريبية)"),
+                    text(
+                        "p",
+                        money(report.totals.invoiced_minor, currency, report.minor_units) +
+                            " · Issued invoices / الفواتير الصادرة",
+                    ),
+                    text(
+                        "p",
+                        money(report.totals.net_collected_minor, currency, report.minor_units) +
+                            " · Collected less refunds / المحصل بعد الاستردادات",
+                    ),
+                    text(
+                        "p",
+                        money(report.totals.net_vendor_allocated_minor, currency, report.minor_units) +
+                            " · Vendor allocation after credits / حصة المشغل بعد الإشعارات",
+                    ),
+                    translated(
+                        "p",
+                        "Not a cashflow statement, bank reconciliation or payable balance.",
+                        "ليس كشف تدفق نقدي أو مطابقة مصرفية أو رصيداً مستحقاً للصرف.",
+                    ),
+                );
+                for (const row of report.data) {
+                    const entry = document.createElement("article");
+                    entry.className = "finance-row";
+                    entry.dataset.revenueDate = row.date_utc;
+                    entry.append(
+                        text("h6", row.date_utc),
+                        text("p", String(row.invoice_count) + " · Invoices / فواتير"),
+                        text("p", money(row.net_collected_minor, currency, report.minor_units) +
+                            " · Net collected / صافي التحصيل"),
+                        text("p", money(row.net_vendor_allocated_minor, currency, report.minor_units) +
+                            " · Vendor allocation / حصة المشغل"),
+                    );
+                    results.append(entry);
+                }
+                const link = translated("a", "Download private CSV", "تنزيل CSV خاص");
+                link.href = "/api/commercial/vendors/" + vendor +
+                    "/revenue-cohorts/export?" + query;
+                link.download = "simulated-vendor-invoice-cohorts.csv";
+                results.append(link);
+            },
+        );
+        const clearResult = () => {
+            reportGeneration++;
+            results.replaceChildren();
+        };
+        requestForm.addEventListener("input", clearResult);
+        requestForm.addEventListener("change", clearResult);
+        document.addEventListener(
+            "visibilitychange",
+            () => {
+                if (document.hidden) clearResult();
+            },
+            { signal: controller.signal },
+        );
+        area.append(results);
+    }
+
     async function settlements(parent, current) {
         const activeCache = cache,
             key = "commercial/settlements?";
