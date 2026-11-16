@@ -36,6 +36,39 @@ class ChargerCommandTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 1);
     }
 
+    public function test_vendor_command_idempotency_is_actor_scoped_and_rejects_a_cross_station_key_reuse(): void
+    {
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $a = $this->station($vendor);
+        $b = $this->station($vendor);
+        foreach ([$a, $b] as $station) {
+            DB::table('csms_bindings')->insert([
+                'station_id' => $station->id,
+                'identifier' => 'ev-test-idempotency-'.$station->id,
+                'protocol' => '1.6',
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        Http::preventStrayRequests();
+        Http::fake();
+        $this->actingAs($vendor);
+        $first = $this->postJson('/api/stations/'.$a->id.'/commands', [
+            'action' => 'start', 'idempotency_key' => 'same-actor-same-key',
+        ])->assertAccepted()->json('id');
+        $this->postJson('/api/stations/'.$a->id.'/commands', [
+            'action' => 'start', 'idempotency_key' => 'same-actor-same-key',
+        ])->assertOk()->assertJsonPath('id', $first);
+        $this->postJson('/api/stations/'.$b->id.'/commands', [
+            'action' => 'start', 'idempotency_key' => 'same-actor-same-key',
+        ])->assertConflict();
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseHas('charger_commands', [
+            'id' => $first, 'actor_id' => $vendor->id, 'station_id' => $a->id,
+        ]);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_http_submission_does_not_claim_charger_acceptance_and_is_not_replayed(): void
     {
         config(['csms.simulator_enabled' => true]);

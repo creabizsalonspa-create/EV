@@ -71,6 +71,18 @@ class ChargerCommandController extends Controller
         return DB::transaction(function () use ($r, $station, $v, $payload, $hash) {
             $actor = app(ChargingActorConsent::class)->capture($r->user());
             abort_unless($actor->role === 'vendor' && $station->vendor_id === $actor->id, 404);
+            // capture() locks this actor's user row. Recheck the idempotency
+            // key *after* acquiring it: another request may have inserted the
+            // command after our original optimistic lookup. Without this
+            // second check, the unique(actor,key) constraint would surface as
+            // a 500 instead of returning the original command.
+            $existing = ChargerCommand::where('actor_id', $actor->id)
+                ->where('idempotency_key', $v['idempotency_key'])->first();
+            if ($existing) {
+                abort_unless(hash_equals($existing->payload_hash, $hash), 409, 'Idempotency key payload mismatch.');
+
+                return response()->json($existing);
+            }
             Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
             abort_if(ConnectorMapping::where('station_id', $station->id)->exists(), 409, 'Use a mapped reservation.');
             $c = ChargerCommand::create(['consent_auth_epoch' => $v['action'] === 'start' ? (int) $actor->auth_epoch : null, 'actor_id' => $r->user()->id, 'station_id' => $station->id, 'action' => $v['action'], 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'payload' => $payload]);
