@@ -221,10 +221,10 @@ class SignedFirmwareTest extends TestCase
         return compact('owner', 'admin', 'station', 'company', 'charger', 'binding', 'releases', 'path', 'entry', 'bytes', 'pin', 'protocol');
     }
 
-    private function source(array $f, bool $unknown = false, bool $loss = false, ?string $statusTime = null, ?string $firmwareVersion = 'sim-fw-v1', bool $drift = false, ?string $malformedSource = null): void
+    private function source(array $f, bool $unknown = false, bool $loss = false, ?string $statusTime = null, ?string $firmwareVersion = 'sim-fw-v1', bool $drift = false, ?string $malformedSource = null, ?string $malformedReview = null): void
     {
         $compatibilityReads = 0;
-        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime, $firmwareVersion, $drift, $malformedSource, &$compatibilityReads) {
+        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime, $firmwareVersion, $drift, $malformedSource, $malformedReview, &$compatibilityReads) {
             if (str_contains($r->url(), '/capabilities')) {
                 parse_str(parse_url($r->url(), PHP_URL_QUERY), $query);
 
@@ -235,10 +235,30 @@ class SignedFirmwareTest extends TestCase
                 $q = $r['query'];
                 if (str_contains($q, 'OCPPMessages')) {
                     if (str_contains($q, '"csms"')) {
-                        return Http::response(['data' => ['OCPPMessages' => $unknown ? [] : [['id' => 41, 'createdAt' => now()->toISOString()]]]]);
+                        $request = ['id' => 41, 'createdAt' => now()->toISOString()];
+                        if ($malformedReview === 'bad_request_list') {
+                            return Http::response(['data' => ['OCPPMessages' => ['request' => $request]]]);
+                        }
+                        if ($malformedReview === 'string_request_id') {
+                            $request['id'] = '41';
+                        }
+                        return Http::response(['data' => ['OCPPMessages' => $unknown ? [] : [$request]]]);
                     }
-
-                    return Http::response(['data' => ['OCPPMessages' => [['payload' => ['status' => 'Installed', 'requestId' => 1]]]]]);
+                    $status = ['id' => 42, 'createdAt' => now()->toISOString(),
+                        'payload' => ['status' => 'Installed', 'requestId' => 1]];
+                    if ($malformedReview === 'bad_status_list') {
+                        return Http::response(['data' => ['OCPPMessages' => ['status' => $status]]]);
+                    }
+                    if ($malformedReview === 'wrong_status_request') {
+                        $status['payload']['requestId'] = 99;
+                    }
+                    if ($malformedReview === 'string_status_request') {
+                        $status['payload']['requestId'] = '1';
+                    }
+                    if ($malformedReview === 'missing_status_payload') {
+                        unset($status['payload']);
+                    }
+                    return Http::response(['data' => ['OCPPMessages' => [$status]]]);
                 }
                 if (str_contains($q, 'ChargingStations')) {
                     $isCompatibility = str_contains($q, 'chargePointVendor');
@@ -246,6 +266,12 @@ class SignedFirmwareTest extends TestCase
                     $row = ['id' => 9, 'protocol' => $f['protocol'], 'isOnline' => true,
                         'firmwareVersion' => $reportedVersion, 'chargePointVendor' => 'Synthetic',
                         'chargePointModel' => 'Fixture'];
+                    if (! $isCompatibility && $malformedReview === 'bad_review_station_list') {
+                        return Http::response(['data' => ['ChargingStations' => ['station' => $row]]]);
+                    }
+                    if (! $isCompatibility && $malformedReview === 'string_review_station_id') {
+                        $row['id'] = '9';
+                    }
                     if ($isCompatibility && $malformedSource !== null) {
                         if ($malformedSource === 'missing_collection') {
                             return Http::response(['data' => []]);
@@ -397,6 +423,49 @@ class SignedFirmwareTest extends TestCase
         $this->get('/api/internal/firmware/'.$raw)->assertNotFound();
         $this->assertStringNotContainsString($raw, $this->getJson($f['path'])->assertOk()->getContent());
         $this->assertStringNotContainsString('Signed simulator deployment', DB::table('charger_firmware_operations')->find($id)->reason);
+    }
+
+    public static function malformedFirmwareReviewEvidence(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['bad_review_station_list', 'string_review_station_id',
+                'bad_request_list', 'string_request_id', 'bad_status_list',
+                'wrong_status_request', 'string_status_request', 'missing_status_payload'] as $kind) {
+                $cases[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('malformedFirmwareReviewEvidence')]
+    public function test_malformed_source_firmware_review_cannot_fabricate_installation(string $protocol, string $kind): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source($f);
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approve verified signed software fixture for review provenance',
+        ])->assertCreated()->json('id');
+        $id = $this->actingAs($f['owner'])->postJson($f['path'], [
+            'release_id' => $release, 'reason' => 'Check source review evidence type and identity',
+            'idempotency_key' => 'review-source-types',
+        ])->assertCreated()->assertJsonPath('status', 'transport_submitted')->json('id');
+        Http::swap(new Factory);
+        $this->source($f, malformedReview: $kind);
+        $this->postJson($f['path'].'/'.$id.'/review', [
+            'note' => 'This malformed source response must not certify installation',
+        ])->assertConflict();
+        $this->assertDatabaseHas('charger_firmware_operations', [
+            'id' => $id, 'status' => 'transport_submitted', 'reviewed_at' => null,
+        ]);
+        $this->assertSame(0, DB::table('audit_events')
+            ->where('action', 'firmware.source_reviewed')->where('subject', (string) $id)->count());
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/signedUpdateFirmware?')
+            || str_contains($r->url(), '/updateFirmware?'));
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_vendor_cannot_approve_and_untrusted_or_changed_bytes_are_rejected(): void
