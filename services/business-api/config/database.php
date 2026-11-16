@@ -38,7 +38,10 @@ return [
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            'busy_timeout' => null,
+            // CI's disposable OCPP workers share SQLite with the local HTTP server.
+            // Wait for transient writer contention without retrying commands or
+            // changing PostgreSQL, financial provenance, or journal semantics.
+            'busy_timeout' => min(20000, max(1000, (int) env('DB_SQLITE_BUSY_TIMEOUT_MS', 10000))),
             'journal_mode' => null,
             'synchronous' => null,
             'transaction_mode' => 'DEFERRED',
