@@ -90,8 +90,14 @@ class RouteEstimate {
 
 class DiscoveryClient {
   final DiscoveryRequest request;
+  // A client is tied to the authenticated EvApi epoch that created it.
+  // Reusing the object after sign-out/sign-in must not let in-flight private
+  // route responses or previously approved third-party navigation through.
+  final bool Function() currentSession;
+  static bool _unfencedTestClient() => true;
   DiscoveryClient(EvApi api, {void Function()? onExpired})
-    : request = ((path, method, body) async {
+    : currentSession = api.sessionFence(),
+      request = ((path, method, body) async {
         try {
           return await api.request(
             'discovery/$path',
@@ -103,7 +109,8 @@ class DiscoveryClient {
           rethrow;
         }
       });
-  DiscoveryClient.withRequest(this.request);
+  DiscoveryClient.withRequest(this.request, {bool Function()? currentSession})
+    : currentSession = currentSession ?? _unfencedTestClient;
   Future<DiscoveryCapabilities> capabilities() async =>
       DiscoveryCapabilities.fromJson(
         Map<String, dynamic>.from(
