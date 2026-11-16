@@ -72,6 +72,8 @@ const {BusinessClient} = require('./helpers/business-client.cjs');
   await form.locator(`[name=vehicle_id] option[value="${vehicle.id}"]`).waitFor({state:'attached'});
   await form.locator('[name=vehicle_id]').selectOption(String(vehicle.id));
   const day=new Date(Date.now()+86400000).toISOString().slice(0,10);
+  // An explicitly UTC-derived fixture belongs in UTC mode, never station-local.
+  await form.locator('select[data-booking-time-mode]').selectOption('utc');
   await form.locator('input[type=datetime-local]').fill(day+'T12:00');
   const reserved=p.waitForResponse(r=>new URL(r.url()).pathname==='/api/reservations'&&r.request().method()==='POST');
   await form.getByRole('button',{name:'Reserve simulator slot',exact:true}).click();

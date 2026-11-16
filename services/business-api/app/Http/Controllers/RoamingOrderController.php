@@ -74,6 +74,8 @@ class RoamingOrderController extends Controller
         $service->policy($p);
         abort_unless($location->module === 'locations', 404);
         $filters = $r->validate(['evse_uid' => 'sometimes|string|max:64', 'connector_id' => 'sometimes|string|max:64']);
+        $reservationService = app(ReservationRoaming::class);
+        $providerAllowsReservation = $reservationService->supported($p);
         $offers = [];
         $raw = $location->payload;
         $attempts = 0;
@@ -96,14 +98,14 @@ class RoamingOrderController extends Controller
                     }
                     try {
                         $v = $service->offer($location, $evse['uid'], $connector['id'], $tariff);
-                        $offers[] = ['evse_uid' => $evse['uid'], 'connector_id' => $connector['id'], 'tariff_id' => $tariff, 'tariff' => $v['tariff']->normalized, 'offer_hash' => $v['hash'], 'terms_version' => SandboxRoaming::TERMS, 'source_updated_at' => $location->source_updated_at, 'tariff_updated_at' => $v['tariff']->source_updated_at];
+                        $offers[] = ['evse_uid' => $evse['uid'], 'connector_id' => $connector['id'], 'tariff_id' => $tariff, 'tariff' => $v['tariff']->normalized, 'offer_hash' => $v['hash'], 'terms_version' => SandboxRoaming::TERMS, 'reservation_supported' => $providerAllowsReservation && $reservationService->reservableEvse($location, $evse['uid']), 'source_updated_at' => $location->source_updated_at, 'tariff_updated_at' => $v['tariff']->source_updated_at];
                     } catch (\Throwable) {
                     }
                 }
             }
         }
 
-        return $this->reply(['provider_name' => $p->name, 'location_name' => $location->normalized['name'], 'location_record_id' => $location->id, 'offers' => $offers, 'reservation_supported' => app(ReservationRoaming::class)->supported($p), 'reservation_terms_version' => ReservationRoaming::TERMS, 'truncated' => $truncated, 'evidence' => 'SANDBOX_PARTNER_UNVERIFIED', 'live_commands_enabled' => false, 'billing_eligible' => false, 'local_invoice_created' => false]);
+        return $this->reply(['provider_name' => $p->name, 'location_name' => $location->normalized['name'], 'location_record_id' => $location->id, 'offers' => $offers, 'reservation_supported' => collect($offers)->contains(fn ($offer) => $offer['reservation_supported'] === true), 'reservation_terms_version' => ReservationRoaming::TERMS, 'truncated' => $truncated, 'evidence' => 'SANDBOX_PARTNER_UNVERIFIED', 'live_commands_enabled' => false, 'billing_eligible' => false, 'local_invoice_created' => false]);
     }
 
     public function index(Request $r, SandboxRoaming $service)

@@ -439,6 +439,7 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
             child: Text(tr('Start sandbox roaming', 'بدء التجوال التجريبي')),
           ),
           if (data?['reservation_supported'] == true &&
+              offer['reservation_supported'] == true &&
               data?['reservation_terms_version'] ==
                   'sandbox-reservation-preauthorization-v1') ...[
             Text(

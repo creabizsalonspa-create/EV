@@ -4,6 +4,7 @@ import 'sandbox_roaming_test.dart' as fixture;
 
 class ReservationApi extends fixture.RoamingApi {
   bool supported = true;
+  bool evseReservable = true;
   final List<String> writes = [];
   @override
   Map<String, dynamic> order() => {
@@ -34,6 +35,11 @@ class ReservationApi extends fixture.RoamingApi {
         ...Map<String, dynamic>.from(result),
         'reservation_supported': supported,
         'reservation_terms_version': 'sandbox-reservation-preauthorization-v1',
+        'offers': [
+          for (final row in (result['offers'] as List))
+            {...Map<String, dynamic>.from(row),
+              'reservation_supported': supported && evseReservable},
+        ],
       };
     return result;
   }
@@ -119,6 +125,19 @@ void main() {
     expect(find.textContaining('Capacity remains held'), findsOneWidget);
     expect(api.writes, isEmpty);
   });
+  testWidgets('provider-wide approval never exposes an unadvertised EVSE reservation', (
+    tester,
+  ) async {
+    final api = ReservationApi()..evseReservable = false;
+    await tester.pumpWidget(fixture.app(api));
+    await tester.pumpAndSettle();
+    expect(find.text('Start sandbox roaming'), findsOneWidget);
+    expect(find.text('Reserve sandbox EVSE'), findsNothing);
+    expect(find.byType(DropdownButtonFormField<int>), findsNothing);
+    expect(find.byType(CheckboxListTile), findsOneWidget);
+    expect(api.writes, isEmpty);
+  });
+
   testWidgets('disabled reservation contract exposes no new consent', (
     tester,
   ) async {

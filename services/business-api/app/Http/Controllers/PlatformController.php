@@ -196,8 +196,10 @@ class PlatformController extends Controller
         $bound = DB::table('csms_bindings')->whereIn('station_id', $page->getCollection()->pluck('station_id'))->pluck('station_id')->flip();
 
         $names = $r->user()->role === 'customer' ? Vehicle::where('user_id', $r->user()->id)->whereIn('id', $page->getCollection()->pluck('vehicle_id')->filter())->pluck('name', 'id') : collect();
+        // Station timezone is published location metadata, not private rider data.
+        $zones = Station::whereIn('id', $page->getCollection()->pluck('station_id'))->pluck('timezone', 'id');
 
-        return response()->json($page->through(function ($reservation) use ($bound, $names, $r) {
+        return response()->json($page->through(function ($reservation) use ($bound, $names, $zones, $r) {
             $csms = $bound->has($reservation->station_id);
             if ($reservation->connector_mapping_id) {
                 $map = ConnectorMapping::findOrFail($reservation->connector_mapping_id);
@@ -212,7 +214,7 @@ class PlatformController extends Controller
                 $data['vehicle_label'] = $names->get($reservation->vehicle_id);
             }
 
-            return $data + ['csms_bound' => $csms, 'can_check_in' => app(ReservationLifecycle::class)->eligible($reservation), 'physical_presence_verified' => false];
+            return $data + ['station_timezone' => $zones->get($reservation->station_id), 'csms_bound' => $csms, 'can_check_in' => app(ReservationLifecycle::class)->eligible($reservation), 'physical_presence_verified' => false];
         }))->header('Cache-Control', 'private, no-store');
     }
 

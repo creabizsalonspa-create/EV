@@ -382,6 +382,52 @@ window.mountExternalDisputes = ({ container, api, ui, actor }) => {
             content.append(card);
         }
     }
+    async function deadlineQueue(nextPage = 1) {
+        if (role !== "admin") return;
+        const version = ++generation;
+        const results = await request(
+            "commercial/external-disputes/deadline-queue?window_hours=48&per_page=20&page=" + nextPage,
+        );
+        if (!alive() || version !== generation) return;
+        content.replaceChildren(
+            t("h4", "Provider evidence deadlines (48 hours)", "مواعيد أدلة المزود (48 ساعة)"),
+            t("p",
+                "Read-only TEST triage · inspect current provider state before acting",
+                "مراجعة اختبارية للقراءة فقط · تحقق من حالة المزود قبل اتخاذ إجراء"),
+        );
+        if (!results.data.length)
+            content.append(t("p", "No approaching deadlines or unresolved cases.", "لا توجد مواعيد قريبة أو قضايا معلقة."));
+        for (const item of results.data) {
+            const card = document.createElement("article");
+            card.className = "finance-item";
+            card.dataset.disputeDeadlineId = String(item.id);
+            summary(card, item);
+            const urgency = {
+                financial_resolution_required: ["Financial resolution required", "يلزم حل مالي"],
+                provider_submission_uncertain: ["Provider submission outcome uncertain", "نتيجة تقديم الأدلة غير مؤكدة"],
+                deadline_passed: ["Evidence deadline passed", "انتهى موعد تقديم الأدلة"],
+                evidence_due_soon: ["Evidence due within 48 hours", "موعد تقديم الأدلة خلال 48 ساعة"],
+            };
+            if (urgency[item.urgency])
+                card.append(t("strong", ...urgency[item.urgency]));
+            if (item.provider_observation_stale)
+                card.append(t("p",
+                    "Provider observation may be stale; inspect before acting",
+                    "قد تكون حالة المزود قديمة؛ تحقق قبل اتخاذ إجراء"));
+            button(card, "Review urgent dispute", "مراجعة النزاع العاجل", () => detail(item.id));
+            content.append(card);
+        }
+        const pager = document.createElement("div");
+        pager.className = "finance-pagination";
+        pager.append(literal("p", String(results.current_page) + " / " + String(results.last_page)));
+        if (results.current_page > 1)
+            button(pager, "Previous deadlines", "المواعيد السابقة",
+                () => deadlineQueue(results.current_page - 1));
+        if (results.current_page < results.last_page)
+            button(pager, "Next deadlines", "المواعيد التالية",
+                () => deadlineQueue(results.current_page + 1));
+        content.append(pager);
+    }
     async function list(nextPage = 1) {
         const version = ++generation;
         const data = await request(
@@ -425,5 +471,7 @@ window.mountExternalDisputes = ({ container, api, ui, actor }) => {
         attention = true;
         return list(1);
     });
+    if (role === "admin")
+        button(container, "Review evidence deadlines", "مراجعة مواعيد الأدلة", () => deadlineQueue(1));
     container.append(content);
 };

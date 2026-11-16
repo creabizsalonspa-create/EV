@@ -76,7 +76,8 @@ class PlatformTest extends TestCase
         $this->actingAs($u)->postJson('/api/reservations', $this->payload($s))->assertCreated();
         $b = Reservation::first();
         $this->actingAs($other)->getJson('/api/reservations')->assertJsonCount(0, 'data');
-        $this->actingAs($vendor)->getJson('/api/reservations')->assertJsonCount(1, 'data');
+        $this->actingAs($vendor)->getJson('/api/reservations')->assertJsonCount(1, 'data')->assertJsonPath('data.0.station_timezone', 'Asia/Dubai');
+        $this->actingAs($u)->getJson('/api/reservations')->assertJsonCount(1, 'data')->assertJsonPath('data.0.station_timezone', 'Asia/Dubai');
         $this->actingAs(User::factory()->create())->deleteJson('/api/reservations/'.$b->id)->assertNotFound();
         $this->getJson('/api/reservations')->assertJsonCount(0, 'data');
         $this->actingAs($u)->deleteJson('/api/reservations/'.$b->id)->assertOk();
