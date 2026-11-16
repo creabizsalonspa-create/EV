@@ -198,7 +198,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     assert.equal((await reloadRevenue).status(), 200);
     await vr.locator("[data-vendor-revenue-results]")
       .getByRole("heading", { name: "Invoice-cohort totals (simulated)" }).waitFor();
-    const revokedPath = /\\/api\\/commercial\\/vendors\\/\\d+\\/revenue-cohorts\\?/;
+    const revokedPath = new RegExp("api/commercial/vendors/[0-9]+/revenue-cohorts[?]");
     await vendor.route(revokedPath, async (route) => route.fulfill({
       status: 409, contentType: "application/json",
       body: JSON.stringify({ message: "Account authorization changed; sign in again." }),
