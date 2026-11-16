@@ -66,7 +66,7 @@ class OcpiReconciliationTest extends TestCase
         $controller = app(OcpiController::class);
         $reconciler = app(CdrReconciler::class);
         $response = $controller->records($request, $provider, 'cdrs', $reconciler);
-        $this->assertSame(200, $response->status());
+        $this->assertSame(200, $response->getStatusCode());
         $this->assertStringNotContainsString('PRIVATE-DRIVER-IDENTITY', $response->getContent());
 
         DB::table('users')->where('id', $owner->id)->increment('auth_epoch');
