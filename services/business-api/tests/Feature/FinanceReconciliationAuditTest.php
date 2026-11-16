@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Finance\FinanceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
@@ -101,6 +102,43 @@ class FinanceReconciliationAuditTest extends TestCase
             ->getJson($this->url().'?per_page=1')->assertOk()
             ->assertJsonPath('total', 2)->assertJsonCount(1, 'data');
         $this->actingAs($foreignOwner)->getJson($this->url())->assertOk()->assertJsonPath('total', 1);
+    }
+
+    public function test_revoked_vendor_and_admin_snapshots_cannot_read_private_reconciliation_or_csv(): void
+    {
+        [$vendor, $customer, $invoice] = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $before = DB::table('finance_journals')->count();
+
+        foreach ([$vendor, $admin] as $actor) {
+            $record = DB::table('users')->where('id', $actor->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $record->role,
+                'account_status' => $record->account_status,
+                'auth_epoch' => $record->auth_epoch,
+                'password' => $record->password,
+            ];
+            $this->actingAs($actor);
+            $this->getJson($this->url())->assertOk()->assertJsonPath('total', 1);
+
+            foreach ([
+                ['role' => 'customer'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $record->auth_epoch + 1],
+                ['password' => Hash::make('changed-private-finance-session')],
+            ] as $change) {
+                // Simulates revocation in another request without refreshing
+                // the already-authenticated in-memory request identity.
+                DB::table('users')->where('id', $actor->id)->update($change);
+                $this->getJson($this->url())->assertConflict();
+                $this->get($this->url().'/export')->assertConflict();
+                DB::table('users')->where('id', $actor->id)->update($original);
+            }
+        }
+
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_invoices', 1);
     }
 
     public function test_zero_value_invoice_does_not_require_artificial_ledger_lines(): void
