@@ -7,6 +7,7 @@ import 'test_support.dart';
 
 class InvoiceFixture extends FixtureApi {
   bool fail = false, invalidEvidence = false;
+  String? corruptField;
   int requests = 0;
   @override
   Future<dynamic> request(
@@ -21,16 +22,20 @@ class InvoiceFixture extends FixtureApi {
     if (fail) throw const ApiException(401, 'expired');
     return {
       'invoice': {
+        'id': corruptField == 'id' ? '7' : 7,
+        'user_id': 123,
+        'minor_units': corruptField == 'minor_units' ? 5 : 2,
         'number': 'SIM-FIXTURE',
         'evidence': 'SIMULATED',
         'subtotal_minor': 313,
         'tax_minor': 16,
-        'total_minor': 329,
-        'currency': 'AED',
+        'total_minor': corruptField == 'total_minor' ? -1 : 329,
+        'currency': corruptField == 'currency' ? 'DANGEROUS' : 'AED',
       },
       'paid_minor': 329,
       'refunded_minor': 329,
       'amount_due_minor': 0,
+      'state': 'refunded',
       'ledger_balanced': true,
       'payment_provider': 'SIMULATOR_ONLY',
       'real_payment_processed': invalidEvidence,
@@ -163,6 +168,23 @@ void main() {
       expect(api.requests, 2);
     },
   );
+  for (final field in ['id', 'minor_units', 'total_minor', 'currency']) {
+    testWidgets('malformed invoice $field cannot open financial actions', (
+      tester,
+    ) async {
+      final api = InvoiceFixture()..corruptField = field;
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        home: InvoicePage(api: api, sessionId: 7, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('SIM-FIXTURE'), findsNothing);
+      expect(find.text('Ledger balanced'), findsNothing);
+      expect(find.byType(OutlinedButton), findsNothing);
+      expect(api.requests, 1);
+    });
+  }
+
   testWidgets(
     'unsupported finance evidence is not presented as a simulation document',
     (tester) async {
