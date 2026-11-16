@@ -74,7 +74,7 @@ class RiderAuthorityTest extends TestCase
 
     private function source(array $fixture, ?callable $during = null): object
     {
-        $state = (object) ['lookups' => 0, 'writes' => 0, 'row' => ['id' => 88, 'idToken' => 'AABBCC123456', 'idTokenType' => 'ISO14443', 'status' => 'Blocked', 'additionalInfo' => [['type' => 'CREABIZ_RIDER', 'additionalIdToken' => $fixture['token']->source_registration_nonce]]]];
+        $state = (object) ['lookups' => 0, 'writes' => 0, 'projection' => null, 'row' => ['id' => 88, 'idToken' => 'AABBCC123456', 'idTokenType' => 'ISO14443', 'status' => 'Blocked', 'additionalInfo' => [['type' => 'CREABIZ_RIDER', 'additionalIdToken' => $fixture['token']->source_registration_nonce]]]];
         $transactionBaseline = DB::transactionLevel();
         Http::fake(function ($request) use ($state, $during, $transactionBaseline) {
             // No database transaction may span capability or GraphQL HTTP.
@@ -96,10 +96,35 @@ class RiderAuthorityTest extends TestCase
             $state->lookups++;
             $during?->__invoke('lookup');
 
-            return Http::response(['data' => ['Authorizations' => $state->row === null ? [] : [$state->row]]]);
+            return Http::response(['data' => ['Authorizations' => $state->projection ?? ($state->row === null ? [] : [$state->row])]]);
         });
 
         return $state;
+    }
+
+    public function test_malformed_rider_source_lists_cannot_trigger_implicit_second_token_creation(): void
+    {
+        foreach (['object', 'null_row', 'string_id', 'missing_id'] as $case) {
+            $f = $this->publication();
+            $state = $this->source($f);
+            $state->projection = match ($case) {
+                'object' => ['record' => $state->row],
+                'null_row' => [null],
+                'string_id' => [array_replace($state->row, ['id' => '88'])],
+                'missing_id' => [array_diff_key($state->row, ['id' => true])],
+            };
+            $this->denied(
+                fn () => app(RiderSourceProvisioner::class)->publish($f['owner'], $f['company'], $f['token']->id),
+                409,
+            );
+            $this->assertSame(1, $state->lookups);
+            $this->assertSame(0, $state->writes, 'Source ambiguity must not create another authorization.');
+            $this->assertSame('requires_inspection', $f['token']->fresh()->provisioning_state);
+            $this->assertNull($f['token']->fresh()->provisioned_at);
+            $this->assertDatabaseCount('csms_session_links', 0);
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        }
     }
 
     public function test_current_source_publication_is_verified_without_holding_database_locks_over_http(): void
