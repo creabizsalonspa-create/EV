@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Disputes\ExternalDisputes;
 use Illuminate\Http\Request;
@@ -25,7 +26,7 @@ class ExternalDisputesController extends Controller
         return $query;
     }
 
-    private function currentAdmin(Request $r): \App\Models\User
+    private function currentAdmin(Request $r): User
     {
         return DB::transaction(function () use ($r) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
@@ -49,6 +50,7 @@ class ExternalDisputesController extends Controller
     public function index(Request $r)
     {
         $v = $r->validate(['attention' => 'sometimes|boolean']);
+
         return DB::transaction(function () use ($r, $v) {
             $query = $this->scoped($r);
             if ($v['attention'] ?? false) {
