@@ -9,6 +9,8 @@ use App\Models\User;
 use App\Services\Finance\FinanceService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -167,6 +169,66 @@ class VendorRevenueCohortTest extends TestCase
             ->assertJsonPath('totals.net_vendor_allocated_minor', 100);
         $this->assertDatabaseCount('finance_invoices', 2);
         $this->assertDatabaseCount('finance_payments', 2);
+    }
+
+    public function test_revoked_cached_vendor_and_admin_sessions_cannot_read_cohorts_or_download_csv(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
+        $this->invoice(100, 'revoked-session', true);
+        $base = '/revenue-test/commercial/vendors/'.$this->vendor->id.'/revenue-cohorts';
+        $query = '?currency=AED&from=2026-11-10&to=2026-11-11';
+        $original = DB::table('users')->where('id', $this->vendor->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
+        $snapshot = [
+            'role' => $original->role,
+            'account_status' => $original->account_status,
+            'auth_epoch' => $original->auth_epoch,
+            'password' => $original->password,
+        ];
+
+        // Direct SQL deliberately leaves Laravel's authenticated model cached,
+        // reproducing a session that survived a concurrent moderation change.
+        $this->actingAs($this->vendor);
+        foreach ([
+            ['account_status' => 'suspended'],
+            ['role' => 'customer'],
+            ['auth_epoch' => (int) $original->auth_epoch + 1],
+            ['password' => Hash::make('rotated-vendor-credential')],
+        ] as $change) {
+            DB::table('users')->where('id', $this->vendor->id)->update($change);
+            $this->getJson($base.$query)->assertStatus(409);
+            $this->get($base.'/export'.$query)->assertStatus(409);
+            DB::table('users')->where('id', $this->vendor->id)->update($snapshot);
+        }
+        $this->getJson($base.$query)->assertOk()->assertJsonPath('totals.paid_minor', 100);
+
+        $admin = DB::table('users')->where('id', $this->admin->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
+        $adminSnapshot = [
+            'role' => $admin->role,
+            'account_status' => $admin->account_status,
+            'auth_epoch' => $admin->auth_epoch,
+            'password' => $admin->password,
+        ];
+        $this->actingAs($this->admin);
+        foreach ([
+            ['role' => 'customer'],
+            ['account_status' => 'suspended'],
+            ['auth_epoch' => (int) $admin->auth_epoch + 1],
+            ['password' => Hash::make('rotated-admin-credential')],
+        ] as $change) {
+            DB::table('users')->where('id', $this->admin->id)->update($change);
+            $this->getJson($base.$query)->assertStatus(409);
+            $this->get($base.'/export'.$query)->assertStatus(409);
+            DB::table('users')->where('id', $this->admin->id)->update($adminSnapshot);
+        }
+        $this->getJson($base.$query)->assertOk()->assertJsonPath('totals.invoice_count', 1);
+
+        // Private failures cannot record financial events or create payouts.
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('finance_payments', 1);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        $this->assertDatabaseCount('finance_journals', 2);
     }
 
     public function test_native_revenue_cohorts_preserve_owner_and_admin_personal_token_boundaries(): void
