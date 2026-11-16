@@ -87,6 +87,53 @@ class VendorPayoutTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_revoked_admin_cannot_initiate_any_payout_or_bank_account_mutation(): void
+    {
+        $f = $this->fixture();
+        $id = $this->prepared($f, 'prepared-before-revocation');
+        $maker = $f['maker'];
+        $this->actingAs($maker);
+        $record = DB::table('users')->where('id', $maker->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
+        $original = [
+            'role' => $record->role,
+            'account_status' => $record->account_status,
+            'auth_epoch' => $record->auth_epoch,
+            'password' => $record->password,
+        ];
+        $beforeAccounts = DB::table('commercial_payout_accounts')->count();
+        $beforePayouts = DB::table('commercial_payouts')->count();
+        $beforeEvents = DB::table('commercial_payout_events')->count();
+
+        foreach ([
+            ['role' => 'vendor'],
+            ['account_status' => 'suspended'],
+            ['auth_epoch' => (int) $record->auth_epoch + 1],
+            ['password' => Hash::make('rotated-test-payout-operator')],
+        ] as $mutation) {
+            DB::table('users')->where('id', $maker->id)->update($mutation);
+            $this->postJson('/payout-test/commercial/vendors/'.$f['vendor']->id.'/payout-accounts', [
+                'provider' => 'mock', 'currency' => 'AED',
+                'account_reference' => 'mock_Rejected',
+                'bank_reference' => 'mock_Rejected',
+                'idempotency_key' => 'revoked-payout-account',
+            ])->assertConflict();
+            $this->postJson('/payout-test/commercial/settlements/'.$f['settlement']->id.'/payouts', [
+                'account_id' => $f['account']->id, 'idempotency_key' => 'revoked-payout',
+            ])->assertConflict();
+            $this->postJson($this->path($id, 'approve'))->assertConflict();
+            $this->postJson('/payout-test/commercial/payout-accounts/'.$f['account']->id.'/verify')
+                ->assertConflict();
+            DB::table('users')->where('id', $maker->id)->update($original);
+        }
+
+        $this->assertSame($beforeAccounts, DB::table('commercial_payout_accounts')->count());
+        $this->assertSame($beforePayouts, DB::table('commercial_payouts')->count());
+        $this->assertSame($beforeEvents, DB::table('commercial_payout_events')->count());
+        $this->assertDatabaseCount('commercial_payout_attempts', 0);
+        Http::assertNothingSent();
+    }
+
     private function fixture(string $provider = 'mock'): array
     {
         return (require base_path('tests/Fixtures/vendor-payout.php'))($provider);
