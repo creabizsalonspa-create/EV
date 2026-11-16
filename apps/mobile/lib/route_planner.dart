@@ -42,6 +42,9 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   RouteEstimate? estimate;
   bool consent = false, loading = false, tiles = false;
   String requiredConnector = '';
+  // Do not reuse a prior account's in-memory station choices when an
+  // authenticated discovery client changes before new catalog results arrive.
+  bool awaitingFreshAccountCatalog = false;
   bool matchesAdvertisedConnector(Station station) => requiredConnector.isEmpty || station.connector == requiredConnector;
   bool get incompatibleStops => stops.any((stop) => !matchesAdvertisedConnector(stop));
   Object? error;
@@ -75,10 +78,10 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
       // Do not carry private coordinates, old stations, a route estimate or
       // an outstanding external-navigation consent across that boundary.
       generation++;
+      awaitingFreshAccountCatalog = true;
       stops.clear();
-      if (widget.initialStop != null && valid(widget.initialStop!)) {
-        stops.add(widget.initialStop!);
-      }
+      // An initial stop passed with a new client may still be a previous
+      // session's cached object; require fresh user selection instead.
       originLat.text = widget.origin == null ? '' : '${widget.origin!.latitude}';
       originLng.text = widget.origin == null ? '' : '${widget.origin!.longitude}';
       destinationLat.clear();
@@ -92,6 +95,10 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
       tiles = false;
       capabilities = null;
       loadCapabilities();
+    } else if (awaitingFreshAccountCatalog &&
+        !identical(oldWidget.stations, widget.stations)) {
+      // The caller has supplied a new catalog snapshot for this client.
+      awaitingFreshAccountCatalog = false;
     }
   }
 
@@ -406,7 +413,9 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
                 ),
               ),
               children: [
-                for (final station in widget.stations)
+                for (final station in awaitingFreshAccountCatalog
+                    ? const <Station>[]
+                    : widget.stations)
                   CheckboxListTile(
                     key: Key('route-stop-${station.id}'),
                     value: stops.any((s) => s.id == station.id),
