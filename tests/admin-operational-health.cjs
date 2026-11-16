@@ -10,3 +10,28 @@ test('unknown queue transport never displays a manufactured zero',async()=>{cons
 test('late responses and errors cannot cross an account change',async()=>{const f=fixture();let resolve;f.setActor({role:'admin'},()=>new Promise(r=>resolve=r));click(f);f.setActor(null,()=>{});resolve(report());await flush();assert.equal(f.root.children.length,0);});
 test('background clears private snapshots and foreground does not silently read again',async()=>{const f=fixture();let reads=0;f.setActor({role:'admin'},async()=>{reads++;return report();});click(f);await flush();assert.equal(nodes(f.root,'article').length,2);f.document.hidden=true;f.events.visibilitychange();assert.equal(nodes(f.root,'article').length,0);f.document.hidden=false;f.events.visibilitychange();await flush();assert.equal(reads,1);});
 test('promoted readiness, duplicate components and invalid counts fail closed without raw errors',async()=>{for(const change of[d=>d.job_success_verified=true,d=>d.components[1].component='queue_worker',d=>d.queue.ready=9007199254740992,d=>{d.queue.state='unavailable';}]){const f=fixture(),d=report();change(d);f.setActor({role:'admin'},async()=>d);click(f);await flush();assert.equal(nodes(f.root,'article').length,0);assert(f.root.textContent.includes('could not load'));}const f=fixture();f.setActor({role:'admin'},async()=>{throw Error('PRIVATE-DB-PASSWORD');});click(f);await flush();assert(!f.root.textContent.includes('PRIVATE'));});
+
+test('Admin incident timeline is read-only, localized and excludes payload injection',async()=>{for(const ar of[false,true]){const f=fixture(ar),calls=[],d=report();d.incidents={store_readable:true,monitoring_enabled:true,automatic_retry:false,external_alert_delivery:false,production_recovery_verified:false,open:[{condition_key:'queue_worker_stale',state:'open',opened_at:'2026-11-15T12:00:00Z'}],recent_events:[{id:1,condition_key:'queue_worker_stale',transition:'opened',observed_at:'2026-11-15T12:00:00Z'}]};f.setActor({role:'admin'},async(...args)=>{calls.push(args);return d;});click(f);await flush();assert(f.root.textContent.includes(ar?'السجل الزمني':'Operational incident timeline'));assert(f.root.textContent.includes(ar?'انتهت صلاحية':'observation expired'));assert.equal(calls.length,1);assert.equal(calls[0][1],'GET');assert(!f.root.textContent.includes('SECRET'));}}
+);
+test('Invalid incident provenance and fabricated delivery claims fail closed',async()=>{for(const mutate of[d=>d.incidents.external_alert_delivery=true,d=>d.incidents.open[0].condition_key='SECRET_PRIVATE_JOB',d=>d.incidents.recent_events[0].transition='sent']){const f=fixture(),d=report();d.incidents={store_readable:true,monitoring_enabled:true,automatic_retry:false,external_alert_delivery:false,production_recovery_verified:false,open:[{condition_key:'scheduler_stale',state:'open',opened_at:'2026-11-15Z'}],recent_events:[{id:1,condition_key:'scheduler_stale',transition:'opened',observed_at:'2026-11-15Z'}]};mutate(d);f.setActor({role:'admin'},async()=>d);click(f);await flush();assert(f.root.textContent.includes('could not load'));assert(!f.root.textContent.includes('SECRET_PRIVATE_JOB'));}});
+
+test('Email handoff uncertainty is counted without rendering recipients or auto-resend controls',async()=>{
+    for(const ar of [false,true]){
+        const f=fixture(ar),d=report(),calls=[];
+        d.email_handoff={state:'available',outcome_unknown:2,stale_claimed:1,age_threshold_seconds:900,delivery_confirmed:false,automatic_retry:false};
+        d.incidents={store_readable:true,monitoring_enabled:true,automatic_retry:false,external_alert_delivery:false,production_recovery_verified:false,
+            open:[{condition_key:'email_handoff_uncertain',state:'open',opened_at:'2026-11-15T12:00:00Z'}],
+            recent_events:[{id:4,condition_key:'email_handoff_uncertain',transition:'opened',observed_at:'2026-11-15T12:00:00Z'}]};
+        f.setActor({role:'admin'},async(...args)=>{calls.push(args);return d;});click(f);await flush();
+        assert(f.root.textContent.includes(ar?'مراجعة تسليم البريد':'Email handoff review'));
+        assert(f.root.textContent.includes(ar?'غير المؤكد':'Uncertain email handoff'));
+        assert.equal(calls.length,1);assert.equal(calls[0][1],'GET');assert.equal(nodes(f.root,'button').length,1);
+    }
+});
+test('Untrusted email handoff metrics and fabricated delivery claims fail closed',async()=>{
+    for(const mutate of [d=>d.email_handoff.delivery_confirmed=true,d=>d.email_handoff.stale_claimed=-1,d=>{d.email_handoff.state='unavailable';}]){
+        const f=fixture(),d=report();d.email_handoff={state:'available',outcome_unknown:0,stale_claimed:0,age_threshold_seconds:900,delivery_confirmed:false,automatic_retry:false};
+        mutate(d);f.setActor({role:'admin'},async()=>d);click(f);await flush();
+        assert(f.root.textContent.includes('could not load'));
+    }
+});

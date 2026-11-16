@@ -35,6 +35,8 @@ const { chromium } = require("playwright"),
         minor_units: 2,
         amount_minor: 300,
         status: "needs_response",
+        urgency: "evidence_due_soon",
+        provider_observation_stale: true,
         evidence_due_at: "2099-01-01T00:00:00Z",
         provider_observed_at: "2026-10-28T00:00:00Z",
         settlement_hold: true,
@@ -70,6 +72,18 @@ const { chromium } = require("playwright"),
       0,
       "Component must load lazily",
     );
+    // Admin-only operational triage is read-only and displays provider
+    // freshness and due-date urgency without issuing a payment/evidence call.
+    await page
+      .getByRole("button", { name: "Review evidence deadlines", exact: true })
+      .click();
+    await page.locator('[data-dispute-deadline-id="9"]').waitFor();
+    await page.getByText("Evidence due within 48 hours", { exact: true }).waitFor();
+    await page.getByText("Provider observation may be stale; inspect before acting", { exact: true }).waitFor();
+    const queueCalls = await page.evaluate(() => calls.slice());
+    assert(queueCalls.some(c =>
+      c.path.includes("/deadline-queue?window_hours=48") && c.method === "GET"));
+    assert(queueCalls.every(c => c.method === "GET"));
     await page
       .getByRole("button", { name: "Load provider disputes", exact: true })
       .click();
@@ -151,7 +165,7 @@ const { chromium } = require("playwright"),
     });
     assert.equal(await page.locator("textarea").count(), 0);
     console.log(
-      "PASS isolated simulated dispute UI: lazy loading, admin evidence mutation, literal text, error display, same-key retry retained across inspection, successful draft cleanup and logout removal. Not external provider verification.",
+      "PASS isolated simulated dispute UI: bounded read-only deadline triage and stale-provider status, lazy loading, admin evidence mutation, literal text, error display, same-key retry retained across inspection, successful draft cleanup and logout removal. Not external provider verification.",
     );
   } finally {
     await browser.close();
