@@ -59,6 +59,7 @@ class SubscriptionGatewayController extends Controller
 
             return $current;
         }, 3);
+
         // Provider observation remains owned by PaymentRecovery and must not
         // run under a controller-level database transaction.
         return response()->json($gateway->reconcile($actor, $checkout))
