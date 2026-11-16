@@ -225,6 +225,9 @@ class AdminStaffPermissionController extends Controller
             AdminTransactionAuthority::requireCurrent(
                 $this->activeAdmin($request)
             );
+            // Confidential histories must reject malformed/unbounded paging
+            // before returning decrypted reasons or recording a view audit.
+            $request->validate(['page' => 'sometimes|integer|min:1|max:100000']);
             $history = DB::table('admin_permission_revocations')
                 ->where('membership_id', $membership->id)
                 ->orderByDesc('id')
