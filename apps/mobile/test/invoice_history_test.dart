@@ -114,32 +114,37 @@ void main() {
     var expired = false;
     await tester.pumpWidget(app(oldApi, () => expired = true));
     await tester.pump();
+    expect(oldApi.invoiceReads, 1);
+
+    // Replace the authenticated API while the previous account's GET is still
+    // unresolved. The next user's invoice must win even if the old GET returns.
     oldApi.actorEpoch++;
+    final newApi = HistoryApi()..failSecond = false;
+    addTearDown(newApi.close);
+    await tester.pumpWidget(app(newApi, () => {}));
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-HISTORY-7'), findsOneWidget);
+
     oldApi.pending.complete({
       'data': [
         {
           'id': 7,
           'number': 'PRIVATE-OLD-ACCOUNT',
           'evidence': 'SIMULATED',
+          'created_at': '2026-10-27T00:00:00Z',
+          'total_minor': 329,
+          'currency': 'AED',
         },
       ],
       'current_page': 1,
       'last_page': 1,
       'total': 1,
     });
-    await tester.pump();
-    await tester.pumpWidget(app(oldApi, () => expired = true));
-    await tester.pump();
-    expect(find.text('PRIVATE-OLD-ACCOUNT'), findsNothing);
-    expect(expired, isFalse);
-    expect(oldApi.invoiceReads, 1);
-
-    final newApi = HistoryApi()..failSecond = false;
-    addTearDown(newApi.close);
-    await tester.pumpWidget(app(newApi, () {}));
     await tester.pumpAndSettle();
     expect(find.text('SIM-HISTORY-7'), findsOneWidget);
     expect(find.text('PRIVATE-OLD-ACCOUNT'), findsNothing);
+    expect(oldApi.invoiceReads, 1);
+    expect(expired, isFalse);
   });
 
   testWidgets('background clears private invoice list and filters without automatic reads', (
