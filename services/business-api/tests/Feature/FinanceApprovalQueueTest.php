@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Finance\FinanceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -140,6 +141,36 @@ class FinanceApprovalQueueTest extends TestCase
         $this->assertDatabaseCount('finance_refunds', 0);
         $this->assertDatabaseCount('commercial_settlement_events', 0);
         $this->assertDatabaseCount('commercial_adjustment_approvals', 1);
+    }
+
+    public function test_revoked_admin_session_cannot_read_approval_queue_or_export(): void
+    {
+        $this->seedApprovals();
+        $this->actingAs($this->admin);
+        $this->getJson($this->base())->assertOk();
+        $record = DB::table('users')->where('id', $this->admin->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
+        $original = [
+            'role' => $record->role,
+            'account_status' => $record->account_status,
+            'auth_epoch' => $record->auth_epoch,
+            'password' => $record->password,
+        ];
+        $beforeAudits = DB::table('audit_events')->count();
+        foreach ([
+            ['role' => 'vendor'],
+            ['account_status' => 'suspended'],
+            ['auth_epoch' => (int) $record->auth_epoch + 1],
+            ['password' => Hash::make('rotated-approval-session')],
+        ] as $change) {
+            DB::table('users')->where('id', $this->admin->id)->update($change);
+            $this->getJson($this->base())->assertConflict();
+            $this->get($this->base().'/export')->assertConflict();
+            DB::table('users')->where('id', $this->admin->id)->update($original);
+        }
+        $this->assertSame($beforeAudits, DB::table('audit_events')->count());
+        $this->assertDatabaseCount('finance_refunds', 0);
+        $this->assertDatabaseCount('commercial_adjustment_approvals', 0);
     }
 
     public function test_unrepresentable_large_settlement_fails_closed_without_corrupting_invoice_or_payout(): void
