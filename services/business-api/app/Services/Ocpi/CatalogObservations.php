@@ -55,13 +55,17 @@ final class CatalogObservations
                     $query->selectRaw("CASE WHEN json_typeof(normalized->'$key') IN ('string','number') AND length(normalized->>'$key') <= 128 THEN normalized->>'$key' ELSE NULL END AS $key");
                 }
                 $query->selectRaw("CASE WHEN json_typeof(normalized->'publish') = 'boolean' THEN CASE WHEN normalized->>'publish' = 'true' THEN 1 ELSE 0 END ELSE NULL END AS publish_value")
-                    ->selectRaw("CASE WHEN json_typeof(normalized->'connector_standards') = 'array' THEN CASE WHEN json_array_length(normalized->'connector_standards') > 0 THEN 1 ELSE 0 END ELSE NULL END AS connector_list");
+                    ->selectRaw("CASE WHEN json_typeof(normalized->'connector_standards') = 'array' THEN CASE WHEN json_array_length(normalized->'connector_standards') > 0 THEN 1 ELSE 0 END ELSE NULL END AS connector_list")
+                    // A charging location's own ISO-3 country is not the
+                    // OCPI party's ISO-2 jurisdiction or a GPS-derived guess.
+                    ->selectRaw("CASE WHEN json_typeof(normalized->'country') = 'string' AND length(normalized->>'country') <= 3 THEN normalized->>'country' ELSE NULL END AS location_country");
             } elseif (DB::connection()->getDriverName() === 'sqlite') {
                 foreach (['latitude', 'longitude'] as $key) {
                     $query->selectRaw("CASE WHEN json_type(normalized, '$.$key') IN ('text','integer','real') AND length(CAST(json_extract(normalized, '$.$key') AS TEXT)) <= 128 THEN json_extract(normalized, '$.$key') ELSE NULL END AS $key");
                 }
                 $query->selectRaw("CASE json_type(normalized, '$.publish') WHEN 'true' THEN 1 WHEN 'false' THEN 0 ELSE NULL END AS publish_value")
-                    ->selectRaw("CASE WHEN json_type(normalized, '$.connector_standards') = 'array' THEN CASE WHEN json_array_length(normalized, '$.connector_standards') > 0 THEN 1 ELSE 0 END ELSE NULL END AS connector_list");
+                    ->selectRaw("CASE WHEN json_type(normalized, '$.connector_standards') = 'array' THEN CASE WHEN json_array_length(normalized, '$.connector_standards') > 0 THEN 1 ELSE 0 END ELSE NULL END AS connector_list")
+                    ->selectRaw("CASE WHEN json_type(normalized, '$.country') = 'text' AND length(json_extract(normalized, '$.country')) <= 3 THEN json_extract(normalized, '$.country') ELSE NULL END AS location_country");
             } else {
                 abort(503, 'Catalog observation storage is unsupported.');
             }
@@ -75,6 +79,11 @@ final class CatalogObservations
                 $modules[$name] += $name === 'locations'
                     ? array_fill_keys(['stored_publish_true', 'stored_publish_false', 'stored_publish_unknown', 'coordinates_usable', 'coordinates_unknown_or_invalid', 'connector_list_present', 'connector_list_empty', 'connector_list_unknown'], 0)
                     : ['current_version_retired' => 0];
+                if ($name === 'locations') {
+                    $markets = ['AE' => 0, 'US' => 0, 'CA' => 0, 'other_or_unknown' => 0];
+                    $modules[$name]['published_by_reported_market'] = $markets;
+                    $modules[$name]['published_with_usable_coordinates_by_reported_market'] = $markets;
+                }
             }
             foreach ($rows as $row) {
                 $entry = &$modules[$row->module];
@@ -87,6 +96,18 @@ final class CatalogObservations
                         && (float) $row->latitude >= -90 && (float) $row->latitude <= 90 && (float) $row->longitude >= -180 && (float) $row->longitude <= 180;
                     $entry[$usable ? 'coordinates_usable' : 'coordinates_unknown_or_invalid']++;
                     $entry[$row->connector_list === null ? 'connector_list_unknown' : ((int) $row->connector_list === 1 ? 'connector_list_present' : 'connector_list_empty')]++;
+                    if ($row->publish_value !== null && (int) $row->publish_value === 1) {
+                        $market = match ($row->location_country) {
+                            'ARE' => 'AE',
+                            'USA' => 'US',
+                            'CAN' => 'CA',
+                            default => 'other_or_unknown',
+                        };
+                        $entry['published_by_reported_market'][$market]++;
+                        if ($usable) {
+                            $entry['published_with_usable_coordinates_by_reported_market'][$market]++;
+                        }
+                    }
                 } else {
                     $entry['current_version_retired'] += (int) $row->retired;
                 }
@@ -95,7 +116,11 @@ final class CatalogObservations
 
             return ['scope' => 'stored_partner_catalog_observations', 'as_of' => $at->toISOString(), 'module_filter' => $module, 'record_limit' => self::LIMIT,
                 'provider' => ['id' => $current->id, 'name' => $current->name, 'authorized' => $current->authorized], 'modules' => $modules,
-                'receipt_refreshes_source_age' => false, 'live_availability_verified' => false, 'physical_charging_verified' => false, 'remote_control' => false, 'billing_authority' => false];
+                'receipt_refreshes_source_age' => false,
+                'market_classification' => 'PARTNER_REPORTED_LOCATION_COUNTRY_ONLY',
+                'coverage_exhaustive' => false,
+                'live_availability_verified' => false, 'physical_charging_verified' => false,
+                'remote_control' => false, 'billing_authority' => false];
         }, 3);
     }
 }
