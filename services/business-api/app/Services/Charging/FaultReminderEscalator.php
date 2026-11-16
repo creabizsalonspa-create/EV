@@ -240,7 +240,7 @@ class FaultReminderEscalator
                     $occurredAt->lessThanOrEqualTo(now()->subMinutes(60))) {
                     $admin = DB::table('users')->where('id', $adminId)
                         ->lockForUpdate()->first();
-                    if ($admin && $admin->role === 'admin') {
+                    if ($admin && $admin->role === 'admin' && $admin->account_status === 'active') {
                         $insertedEscalation = DB::table('charging_fault_admin_escalations')
                             ->insertOrIgnore([
                                 'alert_id' => $alert->id,
@@ -265,6 +265,15 @@ class FaultReminderEscalator
                             $escalatedNow = true;
                         }
                     }
+                }
+                // Closure evidence and Admin oversight remain eligible even
+                // if the vendor is suspended. Suppress only the *new owner*
+                // reminder under the current owner row lock before inserting.
+                $owner = DB::table('users')->where('id', $company->owner_id)
+                    ->lockForUpdate()->first();
+                if (! $owner || $owner->role !== 'vendor'
+                    || $owner->account_status !== 'active') {
+                    return ['reminded' => false, 'escalated' => $escalatedNow];
                 }
                 $preference = DB::table('notification_preferences')
                     ->where('user_id', $company->owner_id)->lockForUpdate()->first();
