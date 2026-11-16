@@ -57,7 +57,17 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
     if (oldWidget.api != widget.api) {
       clearPrivate();
       authorized = widget.api.sessionFence();
-      if (foreground && authorized()) load();
+      final replacementApi = widget.api;
+      // This widget is already scheduled to rebuild. Start the new actor's
+      // read only after the update frame, never inside the build traversal.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            identical(widget.api, replacementApi) &&
+            foreground &&
+            authorized()) {
+          load();
+        }
+      });
     }
   }
 
