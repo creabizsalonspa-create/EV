@@ -209,6 +209,7 @@
             requiredConnector = "",
             estimate = null,
             epoch = 0,
+            capabilityEpoch = 0,
             routeAbort;
         const section = document.createElement("div");
         section.className = "discovery-tools";
@@ -298,10 +299,13 @@
             fieldset.append(addresses.root);
             return { fieldset, values, addresses };
         }
-        function invalidate() {
+        function invalidate(revokeConsent = true) {
             epoch++;
             routeAbort?.abort();
             estimate = null;
+            // Consent was for the exact reviewed itinerary. Editing stops,
+            // coordinates or connector filters requires a new explicit opt-in.
+            if (revokeConsent) routeConsent.checked = false;
             routeState.replaceChildren();
             preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
             navigation.disabled = !compatibleStops();
@@ -446,7 +450,7 @@
             },
         );
         preview.disabled = true;
-        routeConsent.onchange = invalidate;
+        routeConsent.onchange = () => invalidate(false);
         const navigation = button(
             "Open navigation with selected stops",
             "فتح الملاحة بالتوقفات المحددة",
@@ -623,8 +627,12 @@
         section.append(address, journey);
         root.append(section);
         async function capabilities() {
+            // Session clear and subsequent requests invalidate delayed
+            // provider capabilities from the previous authenticated context.
+            const requestGeneration = ++capabilityEpoch;
             try {
                 const c = await request("capabilities", "GET");
+                if (requestGeneration !== capabilityEpoch) return;
                 if (
                     c.provider !== "geoapify" ||
                     typeof c.geocoding !== "boolean" ||
@@ -649,6 +657,7 @@
                 preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
                 privacy.hidden = !routeAvailable;
             } catch (_) {
+                if (requestGeneration !== capabilityEpoch) return;
                 search.root.hidden =
                     origin.addresses.root.hidden =
                     destination.addresses.root.hidden =
@@ -671,11 +680,19 @@
             addStop,
             clear() {
                 epoch++;
+                capabilityEpoch++;
                 routeAbort?.abort();
                 stops = [];
                 requiredConnector = "";
                 connectorFilter.value = "";
                 estimate = null;
+                // A prior account's provider permission is never retained.
+                routeAvailable = false;
+                service.hidden = false;
+                privacy.hidden = true;
+                search.root.hidden =
+                    origin.addresses.root.hidden =
+                    destination.addresses.root.hidden = true;
                 preview.disabled = true;
                 navigation.disabled = false;
                 for (const box of [origin, destination]) {
