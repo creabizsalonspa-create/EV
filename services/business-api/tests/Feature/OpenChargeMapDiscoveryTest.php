@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 use App\Services\Discovery\OpenChargeMapAdapter;
 
@@ -415,6 +416,7 @@ class OpenChargeMapDiscoveryTest extends TestCase
     public function test_invalid_cached_calendar_date_cannot_be_promoted_to_fresh_source(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-04-15T12:00:00Z'));
+        DB::enableQueryLog();
         try {
             Http::fake(['api.openchargemap.io/*' => Http::response([$this->point()], 200, ['Content-Type' => 'application/json'])]);
             $adapter = app(OpenChargeMapAdapter::class);
@@ -433,8 +435,13 @@ class OpenChargeMapDiscoveryTest extends TestCase
             $this->assertFalse($filtered['remote_control']);
             $this->assertSame(0, $adapter->filterReported($source, maxSourceAgeHours: 1)['count']);
             Http::assertSentCount(1);
-            $this->assertDatabaseCount('finance_invoices', 0);
+            // This pure discovery adapter must not touch any SQL store,
+            // including financial, charger or partner-write tables. The
+            // test intentionally runs without unrelated DB migrations.
+            $this->assertSame([], DB::getQueryLog());
         } finally {
+            DB::disableQueryLog();
+            DB::flushQueryLog();
             Carbon::setTestNow();
         }
     }
