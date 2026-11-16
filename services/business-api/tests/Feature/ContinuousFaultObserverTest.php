@@ -561,6 +561,81 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('inbox_notifications', 0);
     }
 
+    #[DataProvider('protocols')]
+    public function test_status_source_clock_regression_never_advances_fault_cursor_across_polls(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        // A short upstream page can be genuine but is not "caught up" if
+        // its independently reported newest event is still ahead.
+        $this->source($f, $this->events(1, 1), newest: 2);
+        $initial = app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertSame('catching_up', $initial['state']);
+        $this->assertSame(1, $initial['events']);
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 1, 'state' => 'catching_up',
+        ]);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertDatabaseCount('charging_status_observations', 1);
+
+        $bad = $this->events(2, 2);
+        // The later event ID falsely advertises an earlier clock and an
+        // "Available" status. Do not let it recover the prior fault.
+        $bad[0]['timestamp'] = now()->subSeconds(1001)->toISOString();
+        $this->source($f, $bad, newest: 2);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Cross-page status timestamp rollback was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 1, 'state' => 'requires_review',
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 1);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.fault.simulated')->count());
+        $this->assertSame(0, InboxNotification::where('kind', 'charging.fault.recovered.simulated')->count());
+
+        $this->source($f, $this->events(2, 2), newest: 2);
+        $result = app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertSame('caught_up', $result['state']);
+        $this->assertSame(1, $result['events']);
+        $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 2]);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.fault.recovered.simulated')->count());
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.monitor.resumed.simulated')->count());
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_status_source_clock_regression_within_one_page_requires_review(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $invalid = $this->events(1, 2);
+        $invalid[1]['timestamp'] = now()->subSeconds(1001)->toISOString();
+        $this->source($f, $invalid, newest: 2);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Within-page source status clock rollback was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 0, 'state' => 'requires_review',
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->source($f, $this->events(1, 2), newest: 2);
+        $this->assertSame('caught_up', app(ContinuousFaultObserver::class)->observe($f['binding'])['state']);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.fault.recovered.simulated')->count());
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_disabled_or_production_worker_cannot_read_source(): void
     {
         $f = $this->fixture();
