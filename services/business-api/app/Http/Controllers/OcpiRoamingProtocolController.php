@@ -11,6 +11,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
@@ -200,7 +201,11 @@ class OcpiRoamingProtocolController extends Controller
 
             return $reply;
         } catch (Throwable $e) {
-            $http = $e instanceof HttpExceptionInterface ? $e->getStatusCode() : 409;
+            // Laravel validation failures are domain-safe 422 responses, not
+            // generic 409 upstream conflicts. Keep details and source data
+            // private while preserving OCPI tracing on malformed peer input.
+            $http = $e instanceof HttpExceptionInterface ? $e->getStatusCode()
+                : ($e instanceof ValidationException ? 422 : 409);
 
             return $this->reply(null, 2000, $http);
         }
