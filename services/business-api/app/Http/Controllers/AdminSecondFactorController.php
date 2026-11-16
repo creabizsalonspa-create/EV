@@ -24,7 +24,11 @@ class AdminSecondFactorController extends Controller
 
     public function page(Request $request)
     {
-        $this->account($request);
+        // This setup page is deliberately outside the MFA gate. It must still
+        // reject a revoked role, suspended account or stale credential epoch.
+        DB::transaction(function () use ($request) {
+            AdminTransactionAuthority::requireCurrent($this->account($request));
+        });
 
         return response()->view('admin-second-factor')
             ->header('Cache-Control', 'no-store, private')
@@ -33,15 +37,19 @@ class AdminSecondFactorController extends Controller
 
     public function status(Request $request)
     {
-        $account = $this->account($request);
-        $enrolled = DB::table('admin_second_factors')->where('user_id', $account->id)->exists();
+        return DB::transaction(function () use ($request) {
+            // Enrollment status is private account-security metadata, not a
+            // public fallback for sessions invalidated by Admin revocation.
+            $account = AdminTransactionAuthority::requireCurrent($this->account($request));
+            $enrolled = DB::table('admin_second_factors')->where('user_id', $account->id)->exists();
 
-        return response()->json([
-            'enrolled' => $enrolled,
-            'verified' => $enrolled && AdminSecondFactorGate::verified($request),
-            'authenticator_required' => true,
-            'recovery_reset_available' => $enrolled && AdminSecondFactorGate::recoveryResetAvailable($request),
-        ])->header('Cache-Control', 'no-store, private');
+            return response()->json([
+                'enrolled' => $enrolled,
+                'verified' => $enrolled && AdminSecondFactorGate::verified($request),
+                'authenticator_required' => true,
+                'recovery_reset_available' => $enrolled && AdminSecondFactorGate::recoveryResetAvailable($request),
+            ])->header('Cache-Control', 'no-store, private');
+        });
     }
 
     public function begin(Request $request)
