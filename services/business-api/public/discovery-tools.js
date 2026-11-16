@@ -682,6 +682,9 @@
                 epoch++;
                 capabilityEpoch++;
                 routeAbort?.abort();
+                // These catalog entries may be tenant-private. A session
+                // reset must clear both selected stops and old search results.
+                stations = [];
                 stops = [];
                 requiredConnector = "";
                 connectorFilter.value = "";
