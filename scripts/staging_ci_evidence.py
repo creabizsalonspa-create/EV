@@ -12,7 +12,10 @@ import stat
 import sys
 
 SHA = re.compile(r'^[a-f0-9]{40}$')
-EXPECTED = {'business-platform', 'finance-postgres', 'connector-postgres', 'staging-image'}
+EXPECTED = {
+    'business-platform', 'finance-postgres', 'connector-postgres',
+    'staging-image', 'csms-recovery', 'recovery-acceptance',
+}
 WORKFLOW = {'id': 397762279, 'name': 'Platform validation', 'path': '.github/workflows/ci.yml'}
 REPO = 'creabizsalonspa-create/EV'
 MAX_JSON = 8 * 1024 * 1024
@@ -119,6 +122,8 @@ def verify(run, listing, source):
             type(repository.get('id')) is not int or repository['id'] <= 0 or
             type(head_repo.get('id')) is not int or head_repo['id'] != repository['id']):
         raise EvidenceError('Workflow originates from another repository')
+    # The workflow has six required jobs. The recovery-acceptance gate
+    # depends on all five preceding jobs and cannot be omitted from evidence.
     jobs = listing.get('jobs')
     if type(listing.get('total_count')) is not int or listing['total_count'] != len(EXPECTED) or not isinstance(jobs, list) or len(jobs) != len(EXPECTED):
         raise EvidenceError('Incomplete, unexpected or paginated job listing')

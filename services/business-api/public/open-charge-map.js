@@ -174,8 +174,33 @@
             data.license_policy !== 'PER_RECORD_ATTRIBUTION_REQUIRED' ||
             !Array.isArray(data.results) || data.results.length > 25 ||
             !data.results.every(secure)) throw Error('Unsafe source data');
+        const quality = data.quality_sample;
+        if (quality !== undefined) {
+            const count = data.results.length;
+            const keys = ['returned_count', 'source_time_unknown_or_future_count',
+                'source_older_than_24h_count', 'operational_report_unknown_count'];
+            if (!quality || quality.evidence !== 'FILTERED_LICENSED_CROWD_SAMPLE_ONLY' ||
+                quality.complete_geographic_coverage !== false || quality.live_status_verified !== false ||
+                quality.max_source_sample !== 25 ||
+                !keys.every(key => Number.isSafeInteger(quality[key]) &&
+                    quality[key] >= 0 && quality[key] <= count) ||
+                quality.returned_count !== count) throw Error('Unsafe source quality summary');
+        }
         lastResult = data;
         results.replaceChildren();
+        if (quality !== undefined) {
+            const summary = text('p',
+                'Quality of ' + quality.returned_count + ' returned filtered crowd reports (maximum 25 source records): ' +
+                quality.source_time_unknown_or_future_count + ' unknown/future timestamps; ' +
+                quality.source_older_than_24h_count + ' older than 24 hours; ' +
+                quality.operational_report_unknown_count + ' missing operational reports. This sample is not full geographic coverage or live charger availability.',
+                'جودة ' + quality.returned_count + ' من تقارير المجتمع المعروضة بعد التصفية (٢٥ سجلاً مصدرياً كحد أقصى): ' +
+                quality.source_time_unknown_or_future_count + ' أوقات مفقودة أو مستقبلية؛ ' +
+                quality.source_older_than_24h_count + ' أقدم من ٢٤ ساعة؛ ' +
+                quality.operational_report_unknown_count + ' دون تقرير تشغيل. هذه عينة وليست تغطية جغرافية شاملة أو توافراً مباشراً للشواحن.');
+            summary.className = 'ocm-quality-sample';
+            results.append(summary);
+        }
         for (const r of data.results) {
             const card = document.createElement('article');
             card.dataset.ocmLocationId = r.id;

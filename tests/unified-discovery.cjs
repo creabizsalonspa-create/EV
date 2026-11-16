@@ -132,3 +132,30 @@ for(const lang of ['en','ar'])test('supported market filter preserves source pag
  await tick();
  assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).has('country'),false);
 });
+
+
+for(const lang of ['en','ar'])test('published power range is explicit, normalized and retained across pages '+lang,async()=>{
+ const f=fixture(lang),details=f.form.children.find(n=>n.tag==='details');
+ const controls=Object.fromEntries(details.children.filter(n=>n.tag==='label').map(n=>{const input=n.children.find(x=>x.tag==='input');return [input.name,input];}));
+ assert.equal(f.calls.length,0);
+ assert(controls.min_power_kw&&controls.max_power_kw,'Both published power bounds are accessible');
+ controls.min_power_kw.value='٤٠';
+ controls.max_power_kw.value='٦٠';
+ f.form.onsubmit({preventDefault(){}});await tick();
+ let params=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(params.get('min_power_kw'),'40');
+ assert.equal(params.get('max_power_kw'),'60');
+ assert.match(details.textContent,lang==='ar'?/قدرة فعلية مقاسة/:/not measured live power/);
+ f.nav.children.find(n=>n.tag==='button').onclick();
+ await tick();params=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(params.get('page'),'2');
+ assert.equal(params.get('min_power_kw'),'40');
+ assert.equal(params.get('max_power_kw'),'60');
+ f.control.clear();
+ assert.equal(controls.min_power_kw.value,'');
+ assert.equal(controls.max_power_kw.value,'');
+ f.form.onsubmit({preventDefault(){}});await tick();
+ params=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(params.has('min_power_kw'),false);
+ assert.equal(params.has('max_power_kw'),false);
+});

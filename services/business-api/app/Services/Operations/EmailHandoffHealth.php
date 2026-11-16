@@ -27,6 +27,7 @@ final class EmailHandoffHealth
                 return [
                     'state' => 'available',
                     'outcome_unknown' => (clone $outbox)->where('state', 'outcome_unknown')->count(),
+                    'overdue_queued' => (clone $outbox)->where('state', 'queued')->where('created_at', '<=', $cutoff)->count(),
                     'stale_claimed' => (clone $outbox)->where('state', 'claimed')
                         ->where(fn ($query) => $query
                             ->where('claimed_at', '<=', $cutoff)
@@ -43,6 +44,7 @@ final class EmailHandoffHealth
                 'state' => 'unavailable',
                 'outcome_unknown' => null,
                 'stale_claimed' => null,
+                'overdue_queued' => null,
                 'age_threshold_seconds' => 900,
                 'delivery_confirmed' => false,
                 'automatic_retry' => false,

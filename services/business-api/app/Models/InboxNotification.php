@@ -166,7 +166,8 @@ class InboxNotification extends Model
                     ->orWhereExists(function ($active) {
                         $active->selectRaw('1')->from('users as active_admin')
                             ->whereColumn('active_admin.id', 'inbox_notifications.user_id')
-                            ->where('active_admin.role', 'admin');
+                            ->where('active_admin.role', 'admin')
+                            ->where('active_admin.account_status', 'active');
                     });
             })
             ->where(function (Builder $visible) use (
