@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Services\Discovery\OpenChargeMapAdapter;
 use App\Services\Discovery\LookupFailure;
+use App\Services\Discovery\OpenChargeMapAdapter;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
