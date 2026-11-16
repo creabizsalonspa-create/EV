@@ -31,7 +31,7 @@ class RoutePlannerView extends StatefulWidget {
   State<RoutePlannerView> createState() => _RoutePlannerViewState();
 }
 
-class _RoutePlannerViewState extends State<RoutePlannerView> {
+class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBindingObserver {
   final form = GlobalKey<FormState>();
   final originLat = TextEditingController(),
       originLng = TextEditingController(),
@@ -40,7 +40,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   final stops = <Station>[];
   DiscoveryCapabilities? capabilities;
   RouteEstimate? estimate;
-  bool consent = false, loading = false, tiles = false;
+  bool consent = false, loading = false, tiles = false, foreground = true;
   String requiredConnector = '';
   // Do not reuse a prior account's in-memory station choices when an
   // authenticated discovery client changes before new catalog results arrive.
@@ -49,7 +49,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   bool get incompatibleStops => stops.any((stop) => !matchesAdvertisedConnector(stop));
   Object? error;
   int generation = 0;
-  bool get sessionCurrent => widget.client?.currentSession() ?? true;
+  bool get sessionCurrent => foreground && (widget.client?.currentSession() ?? true);
   String t(String en, String ar) => EvStrings.of(context).arabic ? ar : en;
   bool valid(Station station) =>
       station.latitude != null &&
@@ -61,6 +61,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     tiles = widget.tilesEnabled;
     if (sessionCurrent && widget.origin != null) {
       originLat.text = '${widget.origin!.latitude}';
@@ -69,6 +70,31 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
     if (sessionCurrent && widget.initialStop != null && valid(widget.initialStop!))
       stops.add(widget.initialStop!);
     loadCapabilities();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == foreground) return;
+    foreground = resumed;
+    if (!resumed) {
+      // Coordinates and the selected catalog stops are sensitive route intent.
+      // A backgrounded widget must not display them, keep a map tile alive,
+      // or accept a late Geoapify/Google Maps response or consent dialog.
+      generation++;
+      originLat.clear();
+      originLng.clear();
+      destinationLat.clear();
+      destinationLng.clear();
+      stops.clear();
+      requiredConnector = '';
+      consent = false;
+      estimate = null;
+      error = null;
+      loading = false;
+      tiles = false;
+    }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -291,6 +317,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   );
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     generation++;
     for (final c in [originLat, originLng, destinationLat, destinationLng]) {
       c.dispose();
@@ -300,6 +327,12 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
 
   @override
   Widget build(BuildContext context) {
+    if (!foreground) {
+      return Scaffold(
+        appBar: AppBar(title: Text(t('Plan charging route', 'تخطيط مسار الشحن'))),
+        body: Center(child: Text(t('Route planning hidden while the app is inactive.', 'تخطيط المسار مخفي أثناء عدم نشاط التطبيق.'))),
+      );
+    }
     // The widget can outlive a logout even when its DiscoveryClient object
     // remains identical. A parent refresh must never redraw old account
     // coordinates, catalog stops, estimates, or map tiles in the new epoch.
