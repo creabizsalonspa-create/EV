@@ -50,8 +50,16 @@ const proof={phase:'fixture',requests:0,englishResponse:null,arabicResponse:null
     return button&&button.disabled===false;
   });
   stage='web-ar-station';await root.locator('input[name=fleet-station]').fill(String(fixture.station_id));
-  // Explicitly re-apply the owned synthetic fixture after changing language.
-  // A fresh dashboard widget is not expected to preserve an uncommitted form filter.
+  // Recreate the dashboard between input and submission: this must retain
+  // the same actor's typed filter, but must not issue an implicit/global GET.
+  stage='web-ar-rebuild';await page.locator('#commands-refresh').click();
+  await page.waitForFunction(()=>{
+    const button=document.querySelector('#commands-refresh');
+    return button&&button.disabled===false;
+  });
+  stage='web-ar-preserved-draft';
+  assert.equal(await root.locator('input[name=fleet-station]').inputValue(),String(fixture.station_id));
+  assert.equal(calls,1);
   stage='web-ar-read';
   const arabicResponse = page.waitForResponse(r=>{
     const url=new URL(r.url());
