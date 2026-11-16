@@ -241,6 +241,15 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
               ),
             ),
             if (busy) const LinearProgressIndicator(),
+            if (!busy && data == null && error == null)
+              TextButton(
+                onPressed: () => load(page: 1),
+                child: Text(
+                  Localizations.localeOf(context).languageCode == 'ar'
+                      ? 'تحديث سجل الفواتير'
+                      : 'Refresh invoice history',
+                ),
+              ),
             if (error != null) ...[
               Text(s.t(errorKey(error!))),
               TextButton(
@@ -271,16 +280,22 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
                         ),
                         OutlinedButton(
                           onPressed: () async {
+                            final actorApi = widget.api;
+                            final session = actorApi.sessionFence();
+                            final pageNumber = page.current;
                             await Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 builder: (_) => InvoicePage(
-                                  api: widget.api,
+                                  api: actorApi,
                                   invoiceId: invoice['id'] as int,
                                   onExpired: widget.onExpired,
                                 ),
                               ),
                             );
-                            if (mounted) load(page: page.current);
+                            if (mounted && foreground && session() &&
+                                authorized() && identical(widget.api, actorApi)) {
+                              await load(page: pageNumber);
+                            }
                           },
                           child: Text(s.t('viewInvoice')),
                         ),
