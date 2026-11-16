@@ -309,7 +309,7 @@ class AdminKycQueueTest extends TestCase
         // The Admin can inspect the item, but a default/server-local date
         // can never silently promote unknown license validity to current.
         $this->assertDatabaseHas('vendor_companies', [
-            'id' => $company->id, 'license_expires_on' => '2027-11-15',
+            'id' => $company->id, 'license_expires_on' => '2027-11-15 00:00:00',
         ]);
         $this->assertDatabaseCount('vendor_company_reviews', 0);
     }
