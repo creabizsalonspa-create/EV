@@ -190,7 +190,7 @@ class FinanceTest extends TestCase
             $this->getJson($prefix.'/invoices/'.$invoice->id)->assertOk();
 
             foreach ([
-                ['role' => 'vendor'],
+                ['role' => $row->role === 'vendor' ? 'customer' : 'vendor'],
                 ['account_status' => 'suspended'],
                 ['auth_epoch' => (int) $row->auth_epoch + 1],
                 ['password' => Hash::make('rotated-private-invoice-session')],
