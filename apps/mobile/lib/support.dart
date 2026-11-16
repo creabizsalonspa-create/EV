@@ -377,7 +377,19 @@ class SupportViewState extends State<SupportView>
     pendingTicketKey = null;
   }
 
-  Future<void> refresh() => load(page: data?.current ?? 1);
+  bool ensureActor() {
+    if (!mounted) return false;
+    if (authorized()) return true;
+    // A revoked session may be observed through a user action before a
+    // parent rebuild. Never leave the prior actor's private rows visible.
+    setState(clearPrivate);
+    return false;
+  }
+
+  Future<void> refresh() async {
+    if (!ensureActor()) return;
+    await load(page: data?.current ?? 1);
+  }
 
   @override
   void initState() {
@@ -419,7 +431,8 @@ class SupportViewState extends State<SupportView>
   }
 
   Future<void> load({int page = 1}) async {
-    if (!foreground || !authorized() || page < 1 || page > 100000) return;
+    if (!ensureActor() || !foreground ||
+        page < 1 || page > 100000) return;
     final session = widget.api.sessionFence();
     final request = ++generation;
     final showingNotifications = notifications;
@@ -499,8 +512,8 @@ class SupportViewState extends State<SupportView>
   }
 
   Future<void> createTicket() async {
-    if (loading || notifications || !freshRead ||
-        !foreground || !authorized()) return;
+    if (!ensureActor() || loading || notifications || !freshRead ||
+        !foreground) return;
     final dialogSession = widget.api.sessionFence();
     final dialogGeneration = generation;
     final dialogApi = widget.api;
@@ -561,8 +574,8 @@ class SupportViewState extends State<SupportView>
 
   Future<void> editNotificationPreferences() async {
     final prefs = savedPreferences;
-    if (!notifications || loading || prefs == null ||
-        !foreground || !authorized()) return;
+    if (!ensureActor() || !notifications || loading || prefs == null ||
+        !foreground) return;
     final dialogSession = widget.api.sessionFence();
     final dialogGeneration = generation;
     final dialogApi = widget.api;
@@ -713,7 +726,7 @@ class SupportViewState extends State<SupportView>
 
   Future<void> markCurrentRead() async {
     final throughId = latestNotificationId;
-    if (!notifications || loading || !foreground || !authorized() ||
+    if (!ensureActor() || !notifications || loading || !foreground ||
         throughId == null || throughId <= 0) return;
     final session = widget.api.sessionFence();
     final request = ++generation;
@@ -743,7 +756,7 @@ class SupportViewState extends State<SupportView>
   }
 
   Future<void> markNotification(int id, {required bool read}) async {
-    if (!notifications || loading || !foreground || !authorized() || id <= 0) return;
+    if (!ensureActor() || !notifications || loading || !foreground || id <= 0) return;
     final session = widget.api.sessionFence();
     final request = ++generation;
     setState(() {
@@ -771,7 +784,7 @@ class SupportViewState extends State<SupportView>
   }
 
   Future<void> open(int id) async {
-    if (!foreground || !authorized() || id <= 0) return;
+    if (!ensureActor() || !foreground || id <= 0) return;
     final session = widget.api.sessionFence();
     final request = generation;
     await Navigator.of(context).push(
