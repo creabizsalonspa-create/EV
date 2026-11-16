@@ -145,4 +145,59 @@ void main() {
     expect(find.byType(FlutterMap),findsNothing);
     expect(tester.takeException(),isNull);
   });
+
+  test('loaded published sources group into separate identified records at map zoom', () {
+    final platform = PartnerMapPoint.fromPublishedCatalog({
+      'id':17,'name':'Platform source','latitude':25.2,'longitude':55.3,'evidence':'DISCOVERY_ONLY',
+    })!;
+    final partner = PartnerMapPoint.fromPublishedLocation({
+      'name':'Partner source','latitude':'25.2','longitude':'55.3',
+    }, providerLabel:'Unverified operator')!;
+    final other = PartnerMapPoint.fromPublishedLocation({
+      'name':'Remote source','latitude':-25.2,'longitude':-55.3,
+    })!;
+    final groups = clusterPublishedMapPoints([platform,partner,other],11);
+    expect(groups.length,2);
+    expect(groups.first.length,2);
+    expect(groups.first.first.platformCatalog,true);
+    expect(groups.first[1].platformCatalog,false);
+    expect(groups.last.single.name,'Remote source');
+    final missing = PartnerMapPoint(latitude:double.infinity,longitude:0,name:'Invalid');
+    expect(clusterPublishedMapPoints([platform,missing],11).single.single.name,'Platform source');
+    expect(clusterPublishedMapPoints([platform,partner],double.nan).length,2);
+  });
+
+  testWidgets('cluster marker discloses two separate sources with no charging control', (tester) async {
+    final tiles=FakeMapTiles();
+    final platform=PartnerMapPoint.fromPublishedCatalog({
+      'id':3,'name':'Published station','latitude':25.2,'longitude':55.3,'evidence':'SIMULATED',
+    })!;
+    final partner=PartnerMapPoint.fromPublishedLocation({
+      'name':'Unverified network','latitude':25.2,'longitude':55.3,
+    },providerLabel:'Crowd supplier')!;
+    await tester.pumpWidget(MaterialApp(home:PartnerReportMap(
+      points:[platform,partner],tileProvider:tiles,
+    )));
+    expect(find.byKey(const Key('partner-report-cluster-0')),findsNothing);
+    expect(tiles.requests,0);
+    await tester.tap(find.byKey(const Key('partner-map-enable')));
+    await tester.pumpAndSettle();
+    expect(tiles.requests,greaterThan(0));
+    final cluster=find.byKey(const Key('partner-report-cluster-0'));
+    expect(cluster,findsOneWidget);
+    expect(find.byKey(const Key('partner-report-pin-0')),findsNothing);
+    await tester.tap(cluster);await tester.pumpAndSettle();
+    expect(find.textContaining('2 loaded locations'),findsOneWidget);
+    expect(find.textContaining('A cluster is not one charger'),findsOneWidget);
+    expect(find.text('Published station'),findsWidgets);
+    expect(find.text('Unverified network'),findsWidgets);
+    await tester.tap(find.text('Unverified network').last);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Partner-reported place; live availability'),findsOneWidget);
+    expect(find.text('Reserve connector'),findsNothing);
+    expect(find.text('Start charging'),findsNothing);
+    await tester.tap(find.byKey(const Key('partner-report-details-close')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(),isNull);
+  });
 }
