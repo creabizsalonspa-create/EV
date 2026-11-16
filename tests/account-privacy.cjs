@@ -647,10 +647,11 @@ test("BFCache pagehide clears credentials and invalidates a pending access copy"
   });
   await tick();
   const input = nodes(ui.mine, "input").find(x => x.type === "password");
-  input.value = "Sensitive for navigation";
   const view = nodes(ui.mine, "button").find(x =>
     x.textContent.startsWith("View private account copy"));
   const pending = view.onclick();
+  // The user may enter another secret while the first request is pending.
+  input.value = "Sensitive for navigation";
   ui.pagehide();
   assert.equal(input.value, "");
   release({ schema_version: 1, owner_id: 3, request_id: 22,
