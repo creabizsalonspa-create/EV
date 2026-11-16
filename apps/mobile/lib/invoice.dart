@@ -100,6 +100,22 @@ class _InvoicePageState extends State<InvoicePage>
       // simulator-only endpoint.
       final invoice = result is Map ? result['invoice'] : null;
       bool validMinor(Object? value) => value is int && value >= 0;
+      bool validTransactions(Object? rows) =>
+          rows == null ||
+          (rows is List &&
+              rows.every((row) =>
+                  row is Map &&
+                  validMinor(row['amount_minor']) &&
+                  row['created_at'] is String &&
+                  (row['reason'] == null || row['reason'] is String)));
+      bool validCreditNotes(Object? notes) =>
+          notes == null ||
+          (notes is List &&
+              notes.every((note) =>
+                  note is Map &&
+                  note['id'] is int &&
+                  (note['id'] as int) > 0 &&
+                  note['credit_note_number'] is String));
       if (result is! Map ||
           invoice is! Map ||
           invoice['evidence'] != 'SIMULATED' ||
@@ -133,10 +149,10 @@ class _InvoicePageState extends State<InvoicePage>
           }.contains(result['state']) ||
           result['payment_provider'] != 'SIMULATOR_ONLY' ||
           result['real_payment_processed'] != false ||
-          (result['payments'] != null && result['payments'] is! List) ||
-          (result['refunds'] != null && result['refunds'] is! List) ||
-          (result['unpaid_credit_notes'] != null &&
-              result['unpaid_credit_notes'] is! List)) {
+          !validMinor(result['unpaid_credited_minor']) ||
+          !validTransactions(result['payments']) ||
+          !validTransactions(result['refunds']) ||
+          !validCreditNotes(result['unpaid_credit_notes'])) {
         throw const ApiException(409, 'Unsupported finance evidence.');
       }
       if (current(n, session))
