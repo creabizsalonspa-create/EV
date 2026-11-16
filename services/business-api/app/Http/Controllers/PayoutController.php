@@ -160,5 +160,4 @@ class PayoutController extends Controller
         // PayoutService manages its own lease and uncertainty recovery gates.
         return response()->json(['payout' => $this->safe($service->{$action}($payout, $actor->id))]);
     }
-    }
 }
