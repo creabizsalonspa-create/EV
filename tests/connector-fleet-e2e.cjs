@@ -19,7 +19,15 @@ let stage='fixture';
   await root.getByText('Recent report at snapshot: Available',{exact:true}).waitFor();assert.equal(await root.locator('article').count(),1);assert.equal(calls,1);
   assert.match(await root.textContent(),/No physical availability/);assert.equal(await root.getByRole('button',{name:/start|stop|reset/i}).count(),0);
   stage='web-ar';await page.locator('#language').click();await page.locator('#commands-refresh').click();
-  await root.getByRole('button',{name:'قراءة لقطة الموصلات',exact:true}).click();await root.getByText('تقرير حديث وقت اللقطة: متاح بحسب المصدر',{exact:true}).waitFor();assert.equal(calls,2);
+  // Command refresh replaces the entire dashboard and its read-only connector
+  // panel. A fresh panel intentionally has no remembered station query.
+  // Re-enter the explicit scope rather than accidentally reading all stations.
+  const arabicRead=root.getByRole('button',{name:'قراءة لقطة الموصلات',exact:true});
+  await arabicRead.waitFor();
+  await root.locator('input[name=fleet-station]').fill(String(fixture.station_id));
+  assert.equal(calls,1);
+  await arabicRead.click();
+  await root.getByText('تقرير حديث وقت اللقطة: متاح بحسب المصدر',{exact:true}).waitFor();assert.equal(calls,2);
   stage='background';await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
   assert.equal(await root.locator('article').count(),0);
   await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));});assert.equal(calls,2);assert.equal(await root.locator('article').count(),0);
