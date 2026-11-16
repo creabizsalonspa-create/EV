@@ -45,7 +45,16 @@ class HistoryApi extends FixtureApi {
     }
     expect(path, 'finance/invoices/7');
     return {
-      'invoice': invoice,
+      'invoice': {
+        ...invoice,
+        // Canonical finance/invoices/{id} detail includes these identity and
+        // currency precision fields; listing projections need not include them.
+        'charging_session_id': 7,
+        'user_id': 123,
+        'minor_units': 2,
+      },
+      'state': 'partially_refunded',
+      'unpaid_credited_minor': 0,
       'paid_minor': 329,
       'refunded_minor': 100,
       'amount_due_minor': 0,
