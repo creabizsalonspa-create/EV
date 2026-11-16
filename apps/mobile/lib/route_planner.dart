@@ -80,10 +80,12 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
       generation++;
       awaitingFreshAccountCatalog = true;
       stops.clear();
-      // An initial stop passed with a new client may still be a previous
-      // session's cached object; require fresh user selection instead.
-      originLat.text = widget.origin == null ? '' : '${widget.origin!.latitude}';
-      originLng.text = widget.origin == null ? '' : '${widget.origin!.longitude}';
+      // Initial route inputs from the new widget may still have been cached
+      // by the old signed-in account. A client rotation invalidates all four
+      // private coordinates, even when the caller passes an old origin again.
+      // Require an explicit new-account entry or fresh discovery selection.
+      originLat.clear();
+      originLng.clear();
       destinationLat.clear();
       destinationLng.clear();
       requiredConnector = '';
