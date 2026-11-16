@@ -122,6 +122,10 @@ class _InvoicePageState extends State<InvoicePage>
           invoice['id'] is! int ||
           (invoice['id'] as int) <= 0 ||
           (widget.invoiceId != null && invoice['id'] != widget.invoiceId) ||
+          invoice['charging_session_id'] is! int ||
+          (invoice['charging_session_id'] as int) <= 0 ||
+          (widget.sessionId != null &&
+              invoice['charging_session_id'] != widget.sessionId) ||
           invoice['user_id'] is! int ||
           (invoice['user_id'] as int) <= 0 ||
           invoice['number'] is! String ||
