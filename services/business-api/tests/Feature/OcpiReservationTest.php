@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\OcpiRecord;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\ReservationRoaming;
@@ -192,7 +193,7 @@ class OcpiReservationTest extends TestCase
     {
         $f = $this->setupReservation();
         $this->actingAs($f[1]);
-        $tariff = \App\Models\OcpiRecord::query()->where('module', 'tariffs')->firstOrFail();
+        $tariff = OcpiRecord::query()->where('module', 'tariffs')->firstOrFail();
         $source = $tariff->payload;
         $url = '/api/roaming/locations/'.$f[4]->id.'/sandbox-offers';
         $originalZone = date_default_timezone_get();
@@ -203,10 +204,10 @@ class OcpiReservationTest extends TestCase
             // In New York, a Z-free UTC end 30 minutes ago must be rejected;
             // interpreting it as New York-local would make it appear future.
             foreach (['Asia/Dubai' => 'start_date_time',
-                      'America/New_York' => 'end_date_time',
-                      'UTC' => 'invalid_date',
-                      'Europe/London' => 'null_start',
-                      'Pacific/Auckland' => 'null_end'] as $zone => $boundary) {
+                'America/New_York' => 'end_date_time',
+                'UTC' => 'invalid_date',
+                'Europe/London' => 'null_start',
+                'Pacific/Auckland' => 'null_end'] as $zone => $boundary) {
                 date_default_timezone_set($zone);
                 $this->travel(1)->seconds();
                 $raw = $source;
