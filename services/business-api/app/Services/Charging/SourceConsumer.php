@@ -272,6 +272,11 @@ class SourceConsumer
                 (($locked->source_station_id === null || $locked->source_transaction_database_id === null) && $locked->transaction_id !== null)) {
                 throw new RuntimeException('Authenticated source row identity requires reconciliation.');
             }
+            if (SessionLink::where('binding_id', $locked->binding_id)
+                ->where('id', '!=', $locked->id)
+                ->where('source_transaction_database_id', $sourceTransactionDatabaseId)->exists()) {
+                throw new RuntimeException('Source transaction row is already linked; reconciliation is required.');
+            }
             if ($locked->source_station_id === null || $locked->source_transaction_database_id === null) {
                 $locked->source_station_id = $sourceStationId;
                 $locked->source_transaction_database_id = $sourceTransactionDatabaseId;

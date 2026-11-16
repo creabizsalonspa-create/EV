@@ -3,11 +3,13 @@
 namespace Tests\Feature;
 
 use App\Models\Charging\SessionLink;
+use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceConsumer;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
@@ -502,6 +504,49 @@ class SourceConsumerTest extends TestCase
     public static function protocolVersions(): array
     {
         return [['1.6'], ['2.0.1']];
+    }
+
+    #[DataProvider('protocolVersions')]
+    public function test_one_source_transaction_row_cannot_be_assigned_to_two_canonical_sessions(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $link->update([
+            'source_station_id' => 8,
+            'source_transaction_database_id' => 10,
+        ]);
+        $original = ChargingSession::findOrFail($link->charging_session_id);
+        $booking = Reservation::findOrFail($original->reservation_id);
+        $later = Reservation::create([
+            'user_id' => $booking->user_id,
+            'station_id' => $booking->station_id,
+            'starts_at' => now()->addDays(2),
+            'idempotency_key' => 'second-upstream-source-'.$protocol,
+        ]);
+        $second = ChargingSession::create([
+            'reservation_id' => $later->id,
+            'status' => 'pending_start',
+            'rate_minor_per_kwh' => $original->rate_minor_per_kwh,
+            'currency' => $original->currency,
+        ]);
+        $other = SessionLink::create([
+            'charging_session_id' => $second->id,
+            'binding_id' => $link->binding_id,
+            'start_command_id' => $link->start_command_id,
+            'protocol' => $link->protocol,
+            'identifier' => $link->identifier,
+            'source_station_id' => 8,
+            'source_transaction_database_id' => 11,
+            'last_sequence' => -1,
+        ]);
+        $this->assertDatabaseCount('csms_session_links', 2);
+        $this->assertSame(11, $other->fresh()->source_transaction_database_id);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+
+        // Even if two workers miss an application-level collision check, the
+        // database cannot assign the same authenticated CSMS row twice.
+        $this->expectException(QueryException::class);
+        $other->update(['source_transaction_database_id' => 10]);
     }
 
     public static function invalidSourceProjections(): array

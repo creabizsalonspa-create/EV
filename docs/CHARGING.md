@@ -105,7 +105,11 @@ fabricate historical identities: sessions already started without either
 pin require explicit reconciliation rather than adopting the current row.
 Even if the OCPP protocol transactionId has been reused under the same source
 station, a different persisted source transaction database row cannot
-resume an existing canonical session. A new session without source transaction evidence
+resume an existing canonical session. A separate unique database constraint
+on `binding_id` and `source_transaction_database_id` additionally prevents
+two canonical sessions from claiming the exact same upstream row, including
+when competing workers both attempt to pin it. Nullable legacy identities
+remain pending explicit reconciliation rather than being fabricated. A new session without source transaction evidence
 does not pin an arbitrary upstream station. Both OCPP 1.6 and 2.0.1 have
 replacement, legacy-unpinned and resume-with-original-source regressions.
 This remains simulator-only evidence, not approved physical charger identity
