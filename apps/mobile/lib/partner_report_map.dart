@@ -210,7 +210,17 @@ class _PartnerReportMapState extends State<PartnerReportMap>
   bool refreshAfterInactive = false;
   int locationGeneration = 0, mapGeneration = 0;
   double currentZoom = 11;
-  final mapController = MapController();
+  // A map that was detached while the OS permission dialog was open must
+  // not keep the previous flutter_map camera's subscriptions alive on resume.
+  MapController mapController = MapController();
+
+  void replaceMapController() {
+    final retired = mapController;
+    mapController = MapController();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      retired.dispose();
+    });
+  }
   final manualLatitude=TextEditingController();
   final manualLongitude=TextEditingController();
   @override
@@ -236,6 +246,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
         // Flutter was inactive. Rebuild an initialized map once, without
         // invoking MapController.move on a stale descendant.
         resumedGpsCentre = centre;
+        replaceMapController();
         mapGeneration++;
         mapReady = false;
         currentZoom = 12;
@@ -485,7 +496,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
             if ((points.isNotEmpty || exploratory) && !enabled)
               FilledButton(
                 key: const Key('partner-map-enable'),
-                onPressed: () => setState(() { mapGeneration++; enabled = true; mapReady = false; resumedGpsCentre = null; currentZoom = points.isEmpty ? 2 : 11; }),
+                onPressed: () => setState(() { replaceMapController(); mapGeneration++; enabled = true; mapReady = false; resumedGpsCentre = null; currentZoom = points.isEmpty ? 2 : 11; }),
                 child: Text(exploratory
                     ?t('Enable discovery area map','تفعيل خريطة منطقة البحث')
                     :t('Enable report map','تفعيل خريطة التقارير')),
