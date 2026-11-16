@@ -494,4 +494,65 @@ class UnifiedDiscoveryTest extends TestCase
         $this->assertDatabaseCount('reservations', 0);
         Http::assertNothingSent();
     }
+
+    public function test_bounded_published_station_power_filters_before_union_without_trusting_partner_reports(): void
+    {
+        $f = $this->fixtures();
+        $low = $f['station']->replicate();
+        $low->name = 'Low rated 7 kW';
+        $low->power_kw = 7;
+        $low->save();
+
+        $high = $f['station']->replicate();
+        $high->name = 'High rated US 150 kW';
+        $high->power_kw = 150;
+        $high->country = 'US';
+        $high->currency = 'USD';
+        $high->save();
+
+        // Partner's reported capabilities are not a canonical station rating.
+        $f['record']->update(['normalized' => array_merge($f['record']->normalized, [
+            'latitude' => '25', 'longitude' => '55',
+            'evses' => [['reported_status' => 'AVAILABLE', 'connectors' => [['standard' => 'IEC_62196_T2_COMBO', 'max_electric_power' => 350000]]]],
+        ])]);
+
+        // Newer out-of-range stations must not consume a page slot.
+        foreach (range(1, 27) as $i) {
+            $other = $f['station']->replicate();
+            $other->name = 'Outside power range '.$i;
+            $other->power_kw = 1;
+            $other->save();
+        }
+
+        foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $route) {
+            $middle = $this->getJson($route.'?min_power_kw=40&max_power_kw=60')
+                ->assertOk()->assertJsonPath('total', 1)->assertJsonCount(1, 'data')
+                ->assertJsonPath('data.0.key', 'catalog:'.$f['station']->id)
+                ->assertJsonPath('data.0.station.power_kw', 50);
+            $this->assertStringNotContainsString('max_electric_power', $middle->getContent());
+
+            $this->getJson($route.'?min_power_kw=100')
+                ->assertJsonPath('total', 1)->assertJsonPath('data.0.key', 'catalog:'.$high->id);
+            $this->getJson($route.'?min_power_kw=100&country=US&south=24&north=26&west=54&east=56')
+                ->assertJsonPath('total', 1)->assertJsonPath('data.0.key', 'catalog:'.$high->id);
+            $this->getJson($route.'?max_power_kw=7')
+                ->assertJsonPath('total', 28)->assertJsonPath('last_page', 2);
+            $this->getJson($route.'?min_power_kw=40&max_power_kw=60&page=2')
+                ->assertJsonPath('total', 1)->assertJsonCount(0, 'data');
+            $this->getJson($route.'?scope=partner&min_power_kw=1')
+                ->assertJsonPath('total', 0);
+            foreach ([
+                'min_power_kw=0', 'min_power_kw=1001', 'max_power_kw=0',
+                'min_power_kw=1.5', 'max_power_kw=-3', 'min_power_kw=NaN',
+                'min_power_kw=65&max_power_kw=40', 'min_power_kw[]=40',
+            ] as $invalid) {
+                $this->getJson($route.'?'.$invalid)->assertUnprocessable();
+            }
+        }
+
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('reservations', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+        Http::assertNothingSent();
+    }
 }

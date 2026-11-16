@@ -42,6 +42,15 @@ Platform station location country uses ISO alpha-2; normalized OCPI **location**
 Candidate tests: full Laravel SQLite/PostgreSQL supported-country filtering and source scoping, native EN/AR market selection and account reset, browser DOM pagination/viewport intersection and a real Laravel/Chromium combined-market search. Do not mark these tests as passed until exact-head CI completes. Other countries and actual provider acceptance remain pending product/contract scope.
 
 
+### Published rated-power filter — Agent 8 stacked candidate
+
+The unified authenticated search now accepts optional `min_power_kw` and `max_power_kw`, each a whole number from 1 to 1000. If both are supplied, minimum must not exceed maximum; invalid bounds return HTTP 422. The predicate applies to **existing `stations.power_kw` values**, the published platform station rating, before SQL union/count/pagination. It composes with optional supported country, explicit rectangular viewport, existing source/connector/text and saved filters. Partner OCPI reports are **excluded** whenever either power bound is supplied: their crowd/partner-reported power is not an authorized, comparable, current station power rating. An empty matching result is not a claim that no real charging location has the requested power.
+
+Both existing English/Arabic web and canonical Flutter advanced forms disclose this source limitation and normalize Arabic numerals. Empty values do not change unfiltered inventory. Submitted values persist across pagination and are cleared on session/context reset. No charger operation, connector-state claim, external provider lookup, licensed data call or physical-device change is added.
+
+Candidate acceptance includes Laravel SQLite and PostgreSQL numeric-bound validation, source isolation, pre-union pagination and combined country+viewport intersections, browser DOM & live Laravel/Chromium synthetic fixtures, Flutter EN/AR filter input and page-state tests, plus hosted platform/native CI. This stacked candidate depends on Agent 8 viewport/country PR #137 and must not be merged before that dependency and all exact-head gates pass.
+
+
 ### Native route-stop connector suitability control — Agent 8 isolated candidate
 
 The existing read-only web and Flutter route planners now include an **explicit advertised-connector filter** for CCS2, Type2, CHAdeMO, or all catalog labels. It only consults the already-loaded station records; selecting a connector does not call a provider or device. Candidate stops with different advertised connector types are visible but cannot be newly added. An already-selected incompatible stop is retained and visibly identified as a conflict rather than silently removed from the itinerary. Both route preview and external-navigation actions remain disabled until the user removes conflicting stops or changes the filter. Changing the filter invalidates a previous route estimate and fences any in-flight response by generation.
