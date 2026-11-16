@@ -134,12 +134,16 @@ class PaymentRecoveryTest extends TestCase
 
     public function test_uncertain_refund_rejects_changed_payload_or_replacement_key_without_another_provider_request(): void
     {
-        [$user, , $checkout] = $this->fixture(true);
+        [$user, $invoice, $checkout] = $this->fixture(true);
         Http::fake(['*' => Http::failedConnection()]);
         $gateway = app(GatewayService::class);
-        $this->failure(fn () => $gateway->operate($checkout->id, $user->id, 'refund', 'refund-original', 50, null, 'Original'), 503);
-        $this->failure(fn () => $gateway->operate($checkout->id, $user->id, 'refund', 'refund-original', 51, null, 'Original'), 409, 'payload');
-        $this->failure(fn () => $gateway->operate($checkout->id, $user->id, 'refund', 'refund-replacement', 50, null, 'Original'), 409, 'unresolved');
+        // Provider refund recovery must be initiated by the invoice Vendor
+        // (or Admin), never by the Customer who paid the charge.
+        $reviewer = $invoice->vendor_id;
+        $this->failure(fn () => $gateway->operate($checkout->id, $user->id, 'refund', 'customer-forbidden', 50, null, 'Original'), 404);
+        $this->failure(fn () => $gateway->operate($checkout->id, $reviewer, 'refund', 'refund-original', 50, null, 'Original'), 503);
+        $this->failure(fn () => $gateway->operate($checkout->id, $reviewer, 'refund', 'refund-original', 51, null, 'Original'), 409, 'payload');
+        $this->failure(fn () => $gateway->operate($checkout->id, $reviewer, 'refund', 'refund-replacement', 50, null, 'Original'), 409, 'unresolved');
         $this->assertDatabaseCount('payment_recovery_intents', 1);
         $this->assertDatabaseCount('finance_refunds', 0);
         Http::assertSentCount(1);
