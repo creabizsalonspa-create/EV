@@ -1199,6 +1199,15 @@ class _TicketPageState extends State<TicketPage>
   bool current(int n, bool Function() session) =>
       mounted && foreground && authorized() && session() && n == generation;
 
+  bool knownMessageVisibility(Object? flag) =>
+      flag is bool || flag == 0 || flag == 1 ||
+      flag == '0' || flag == '1';
+
+  bool publiclyVisible(Map<String, dynamic> row) =>
+      row['internal'] == false ||
+      row['internal'] == 0 ||
+      row['internal'] == '0';
+
   void clearPrivate() {
     generation++;
     ticket = null;
@@ -1297,7 +1306,7 @@ class _TicketPageState extends State<TicketPage>
       final list = ApiPage.fromJson(response['messages'], (row) => row);
       if (list.items.any((row) =>
           row['body'] is! String ||
-          (row['internal'] != null && row['internal'] is! bool))) {
+          !knownMessageVisibility(row['internal']))) {
         throw const FormatException('Unverified ticket messages');
       }
       if (current(n, session)) {
@@ -1392,7 +1401,7 @@ class _TicketPageState extends State<TicketPage>
               ),
               Text(s.t(ticket!['status'])),
               for (final row in page?.items ?? <Map<String, dynamic>>[])
-                if (row['internal'] != true)
+                if (publiclyVisible(row))
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
