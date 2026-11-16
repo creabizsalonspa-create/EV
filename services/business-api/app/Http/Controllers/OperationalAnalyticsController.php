@@ -48,13 +48,13 @@ class OperationalAnalyticsController extends Controller
     {
         $report = DB::transaction(fn () => $this->report($r, $company), 3);
         abort_if(count($report['sites']) > 100, 409, 'Select a site for a smaller PDF.');
-        if (!defined('K_TCPDF_EXTERNAL_CONFIG')) {
+        if (! defined('K_TCPDF_EXTERNAL_CONFIG')) {
             define('K_TCPDF_EXTERNAL_CONFIG', true);
         }
-        if (!defined('K_PATH_FONTS')) {
+        if (! defined('K_PATH_FONTS')) {
             define('K_PATH_FONTS', resource_path('financial-fonts').'/');
         }
-        if (!defined('PDF_FONT_NAME_MAIN')) {
+        if (! defined('PDF_FONT_NAME_MAIN')) {
             define('PDF_FONT_NAME_MAIN', 'dejavusans');
         }
         $ar = $r->input('locale', 'en') === 'ar';
