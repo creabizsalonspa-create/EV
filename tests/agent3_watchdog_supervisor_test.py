@@ -79,6 +79,9 @@ class IndependentWatchdogTest(unittest.TestCase):
         for raw in ['{"status":"observed_normal","status":"needs_attention"}',
                     'PRIVATE CUSTOMER EMAIL: someone@example.com',
                     json.dumps({**BASE, 'signals': ['SECRET-CHARGER-ID']}),
+                    json.dumps({**BASE, 'signals': ['queue_backlog', 'queue_backlog']}),
+                    json.dumps({**BASE, 'recipient_email': 'PRIVATE@EXAMPLE.COM'}),
+                    json.dumps({**BASE, 'read_only': 'true'}),
                     json.dumps({**BASE, 'production_readiness_verified': True}),
                     'x' * 5000]:
             with self.subTest(raw=raw[:30]):
@@ -96,6 +99,7 @@ class IndependentWatchdogTest(unittest.TestCase):
         self.assertEqual(self.calls.read_text(), 'x')
 
     def test_missing_runtime_and_invalid_timeout_fail_closed(self):
+        self.artisan.write_text("raise SystemExit('CLI-MUST-NOT-RUN')\n")
         for runtime, timeout in [('/missing-runtime', '1'), (sys.executable, '0'),
                                  (sys.executable, '31')]:
             args = [sys.executable, str(SUPERVISOR), '--runtime', runtime,
@@ -103,6 +107,7 @@ class IndependentWatchdogTest(unittest.TestCase):
             r = subprocess.run(args, capture_output=True, text=True, check=False)
             self.assertEqual(r.returncode, 1)
             self.assertEqual(json.loads(r.stdout)['signals'], ['watchdog_probe_unavailable'])
+            self.assertNotIn('CLI-MUST-NOT-RUN', r.stdout + r.stderr)
 
 
 if __name__ == '__main__':
