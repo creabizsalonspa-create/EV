@@ -573,7 +573,98 @@ class ActorScopedSupportFixture extends SupportFixture {
   }
 }
 
+class ActorScopedTicketFixture extends SupportFixture {
+  int actorEpoch = 0, detailReads = 0;
+  final Completer<dynamic>? firstDetail;
+  ActorScopedTicketFixture({bool deferFirst = false})
+      : firstDetail = deferFirst ? Completer<dynamic>() : null;
+
+  @override
+  bool Function() sessionFence() {
+    final captured = actorEpoch;
+    return () => actorEpoch == captured;
+  }
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path == 'support/1' && method == 'GET') {
+      detailReads++;
+      if (detailReads == 1 && firstDetail != null) return firstDetail!.future;
+    }
+    return super.request(path, method: method, body: body, query: query);
+  }
+}
+
 void main() {
+  testWidgets('late previous-account ticket detail never crosses the new actor', (
+    tester,
+  ) async {
+    final oldApi = ActorScopedTicketFixture(deferFirst: true);
+    final newApi = ActorScopedTicketFixture();
+    addTearDown(oldApi.close);
+    addTearDown(newApi.close);
+    var expired = false;
+    await tester.pumpWidget(MaterialApp(
+      home: TicketPage(api: oldApi, id: 1, onSessionExpired: () => expired = true),
+    ));
+    await tester.pump();
+    expect(oldApi.detailReads, 1);
+    oldApi.actorEpoch++;
+    await tester.pumpWidget(MaterialApp(
+      home: TicketPage(api: newApi, id: 1, onSessionExpired: () => expired = true),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Original public message'), findsOneWidget);
+    oldApi.firstDetail!.complete({
+      'ticket': {'id': 1, 'subject': 'PRIVATE-OLD-TICKET', 'status': 'open'},
+      'messages': {
+        'data': [
+          {'body': 'PRIVATE-OLD-MESSAGE', 'internal': false},
+        ],
+        'current_page': 1, 'last_page': 1, 'total': 1,
+      },
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('PRIVATE-OLD-TICKET'), findsNothing);
+    expect(find.text('PRIVATE-OLD-MESSAGE'), findsNothing);
+    expect(find.text('Original public message'), findsOneWidget);
+    expect(expired, isFalse);
+  });
+
+  testWidgets('background hides private ticket thread and draft until explicit refresh', (
+    tester,
+  ) async {
+    final api = ActorScopedTicketFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: TicketPage(api: api, id: 1, onSessionExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Original public message'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('ticket-reply')), 'PRIVATE DRAFT');
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(find.text('Original public message'), findsNothing);
+    expect(find.text('PRIVATE DRAFT'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(api.detailReads, 1);
+    expect(find.byKey(const Key('ticket-reply')), findsNothing);
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(api.detailReads, 2);
+    expect(find.text('Original public message'), findsOneWidget);
+    expect(
+      tester.widget<TextFormField>(find.byKey(const Key('ticket-reply'))).controller!.text,
+      isEmpty,
+    );
+  });
+
   testWidgets('private support GET cannot outlive a switched account', (
     tester,
   ) async {
