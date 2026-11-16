@@ -24,6 +24,7 @@ class InvoiceFixture extends FixtureApi {
       'invoice': {
         'id': corruptField == 'id' ? '7' : 7,
         'user_id': 123,
+        'charging_session_id': corruptField == 'session' ? 8 : 7,
         'minor_units': corruptField == 'minor_units' ? 5 : 2,
         'number': 'SIM-FIXTURE',
         'evidence': 'SIMULATED',
@@ -178,7 +179,7 @@ void main() {
       expect(api.requests, 2);
     },
   );
-  for (final field in ['id', 'minor_units', 'total_minor', 'currency', 'payment', 'refund', 'credit_note']) {
+  for (final field in ['id', 'session', 'minor_units', 'total_minor', 'currency', 'payment', 'refund', 'credit_note']) {
     testWidgets('malformed invoice $field cannot open financial actions', (
       tester,
     ) async {
