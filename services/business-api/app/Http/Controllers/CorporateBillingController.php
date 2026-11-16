@@ -103,19 +103,38 @@ class CorporateBillingController extends Controller
 
     public function show(Request $r, int $statement, CorporateBilling $s)
     {
-        return response()->json($s->statement($statement, $r->user()->id));
+        return DB::transaction(function () use ($r, $statement, $s) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+
+            return response()->json($s->statement($statement, $actor->id))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function pay(Request $r, int $statement, CorporateBilling $s)
     {
         $v = $r->validate(['idempotency_key' => 'required|string|max:100']);
 
-        return response()->json(['receipt' => $s->simulatePayment($statement, $r->user()->id, $v['idempotency_key']), 'real_payment_processed' => false]);
+        return DB::transaction(function () use ($r, $statement, $s, $v) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+
+            return response()->json([
+                'receipt' => $s->simulatePayment($statement, $actor->id, $v['idempotency_key']),
+                'real_payment_processed' => false,
+            ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function csv(Request $r, int $statement, CorporateBilling $s)
     {
-        $v = $s->statement($statement, $r->user()->id);
+        // Materialize a complete private ledger statement while the current
+        // owner/Admin identity is still locked. CSV generation uses only the
+        // authorized in-memory snapshot after releasing that read transaction.
+        $v = DB::transaction(function () use ($r, $statement, $s) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+
+            return $s->statement($statement, $actor->id);
+        }, 3);
         $f = fopen('php://temp', 'w+');
         fputcsv($f, ['statement', 'invoice', 'cost_center', 'subtotal_minor', 'tax_minor', 'total_minor', 'currency', 'minor_units'], ',', '"', '');
         foreach ($v['lines'] as $line) {
