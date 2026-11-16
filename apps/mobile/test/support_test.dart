@@ -600,7 +600,50 @@ class ActorScopedTicketFixture extends SupportFixture {
   }
 }
 
+class NumericVisibilityTicketFixture extends SupportFixture {
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    final result = await super.request(path, method: method, body: body, query: query);
+    if (path == 'support/1' && method == 'GET') {
+      return {
+        ...result as Map<String, dynamic>,
+        'messages': {
+          ...result['messages'] as Map<String, dynamic>,
+          'data': [
+            for (final row in result['messages']['data'] as List)
+              {
+                ...row as Map<String, dynamic>,
+                'internal': row['internal'] == true ? 1 : 0,
+              },
+          ],
+        },
+      };
+    }
+    return result;
+  }
+}
+
 void main() {
+  testWidgets('numeric Laravel internal flags never reveal private messages', (
+    tester,
+  ) async {
+    final api = NumericVisibilityTicketFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: TicketPage(api: api, id: 1, onSessionExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Original public message'), findsOneWidget);
+    expect(find.text('Hidden internal fixture'), findsNothing);
+    expect(find.byKey(const Key('ticket-reply')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('late previous-account ticket detail never crosses the new actor', (
     tester,
   ) async {
