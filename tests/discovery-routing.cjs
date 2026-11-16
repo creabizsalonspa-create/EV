@@ -205,6 +205,25 @@ const fs = require("node:fs");
     assert.equal(routeBody.points[0].latitude, 25.2);
     assert.equal(routeBody.points[2].latitude, 25.23);
     assert.equal(tiles, 0);
+    // A consented request only authorizes the reviewed origin/destination
+    // and stop list, not future edits to that same in-memory form.
+    await journey.locator("[name=journey_destination_latitude]").fill("25.31");
+    assert.equal(
+      await journey.locator("form>label input[type=checkbox]").isChecked(),
+      false,
+      "Editing a route must withdraw provider consent",
+    );
+    assert(await journey.getByRole("button", {
+      name: "Preview provider route", exact: true
+    }).isDisabled());
+    assert.equal(routeCalls, 1, "Editing never sends the new coordinates");
+    await journey.locator("form>label input[type=checkbox]").check();
+    await journey.getByRole("button", {
+      name: "Preview provider route", exact: true
+    }).click();
+    await journey.getByText("1.3 km · 4 min", { exact: true }).waitFor();
+    assert.equal(routeCalls, 2);
+    assert.equal(routeBody.points.at(-1).latitude, 25.31);
     page.once("dialog", (dialog) => dialog.accept());
     await journey
       .getByRole("button", {
@@ -267,7 +286,7 @@ const fs = require("node:fs");
     assert(await journey.getByRole("button", { name: "معاينة مسار المزود", exact: true }).isDisabled());
     assert(await journey.getByRole("button", { name: "فتح الملاحة بالتوقفات المحددة", exact: true }).isDisabled());
     assert.equal(await journey.locator("ol li").count(), 3, "Filter must not silently remove stops");
-    assert.equal(routeCalls, 1, "Connector filter must not send route/provider requests");
+    assert.equal(routeCalls, 2, "Connector filter must not send route/provider requests");
     for(let i=0;i<3;i++) {
       await journey.locator("ol li").first().getByRole("button", { name: "إزالة التوقف", exact: true }).click();
     }
@@ -277,7 +296,7 @@ const fs = require("node:fs");
     assert(await addType2.isEnabled());
     await addType2.click();
     assert.equal(await journey.locator("ol li").count(),1);
-    assert.equal(routeCalls,1);
+    assert.equal(routeCalls,2);
     await page.locator("#location-consent").check();
     await page
       .getByRole("button", { name: "استخدام موقعي مرة واحدة", exact: true })
@@ -294,6 +313,10 @@ const fs = require("node:fs");
     );
     assert.equal(await journey.locator("ol li").count(), 0);
     assert.equal(await connectorFilter.inputValue(), "", "Session clear must also clear route connector");
+    assert.equal(await journey.locator("form>label input[type=checkbox]").isChecked(), false);
+    assert(await journey.getByRole("button", { name: "معاينة مسار المزود", exact: true }).isDisabled());
+    assert.equal(await journey.locator("form>label").filter({ hasText: "Geoapify" }).isHidden(), true,
+      "Signed-out discovery must not retain provider capability or privacy consent");
     assert.equal(await field.locator("input[type=search]").inputValue(), "");
     assert.equal(
       await page.locator("#filters [name=latitude]").inputValue(),
