@@ -88,8 +88,10 @@ class PayoutService
 
         return DB::transaction(function () use ($id, $actor, $version) {
             $vendor = User::whereKey($actor)->lockForUpdate()->first();
-            abort_unless($vendor && $vendor->role === 'vendor'
-                && $vendor->account_status === 'active', 409, 'Vendor consent authority changed.');
+            abort_unless($vendor && $vendor->account_status === 'active', 409,
+                'Vendor consent authority changed.');
+            abort_unless($vendor->role === 'vendor', 403,
+                'Only the Vendor owner can accept payout consent.');
             $hint = $this->account($id);
             User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
             $row = DB::table('commercial_payout_accounts')->where('id', $id)->lockForUpdate()->first();
