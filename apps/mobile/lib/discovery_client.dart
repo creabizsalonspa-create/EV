@@ -95,20 +95,29 @@ class DiscoveryClient {
   // route responses or previously approved third-party navigation through.
   final bool Function() currentSession;
   static bool _unfencedTestClient() => true;
-  DiscoveryClient(EvApi api, {void Function()? onExpired})
-    : currentSession = api.sessionFence(),
-      request = ((path, method, body) async {
-        try {
-          return await api.request(
-            'discovery/$path',
-            method: method,
-            body: body,
-          );
-        } on ApiException catch (error) {
-          if ([401, 419].contains(error.status)) onExpired?.call();
-          rethrow;
+  factory DiscoveryClient(EvApi api, {void Function()? onExpired}) {
+    final fence = api.sessionFence();
+    return DiscoveryClient.withRequest((path, method, body) async {
+      // The caller can keep an old DiscoveryClient alive after EvApi rotates
+      // its credential jar. Never let it submit private coordinates under
+      // the next actor, re-display an earlier result, or sign out that actor.
+      if (!fence()) throw StateError('Discovery session changed');
+      try {
+        final reply = await api.request(
+          'discovery/$path',
+          method: method,
+          body: body,
+        );
+        if (!fence()) throw StateError('Discovery session changed');
+        return reply;
+      } on ApiException catch (error) {
+        if (fence() && [401, 419].contains(error.status)) {
+          onExpired?.call();
         }
-      });
+        rethrow;
+      }
+    }, currentSession: fence);
+  }
   DiscoveryClient.withRequest(this.request, {bool Function()? currentSession})
     : currentSession = currentSession ?? _unfencedTestClient;
   Future<DiscoveryCapabilities> capabilities() async =>
