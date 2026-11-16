@@ -109,6 +109,29 @@ class OcpiCatalogObservationsTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_historical_catalog_clocks_reject_impossible_offsets_instead_of_silent_rollover(): void
+    {
+        // PHP's DateTime parser can normalize +99:99 and +14:30 without
+        // reporting an error, but those are not valid ISO/RFC offsets for
+        // catalog quality metrics. No request, DB write or network required.
+        $bucket = new \ReflectionMethod(CatalogObservations::class, 'bucket');
+        $at = \Carbon\CarbonImmutable::parse('2026-11-16T12:00:00Z');
+        foreach ([
+            '2026-11-16T10:00:00+14:30',
+            '2026-11-16T10:00:00+99:99',
+            '2026-11-16T10:00:00+00:61',
+            '2026-11-16T10:00:00-14:01',
+            '2026-02-30T09:00:00Z',
+        ] as $invalid) {
+            $this->assertSame('unknown', $bucket->invoke(app(CatalogObservations::class), $invalid, $at),
+                'Invalid historical source date or offset cannot become a trusted freshness bucket');
+        }
+        $this->assertSame('within_24_hours', $bucket->invoke(app(CatalogObservations::class),
+            '2026-11-16T09:00:00+14:00', $at));
+        $this->assertSame('within_1_hour', $bucket->invoke(app(CatalogObservations::class),
+            '2026-11-16T12:00:00Z', $at));
+    }
+
     public function test_catalog_observations_are_current_owner_or_admin_only(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);
