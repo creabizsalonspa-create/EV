@@ -264,6 +264,46 @@ class AdminKycQueueTest extends TestCase
         ]);
     }
 
+    public function test_private_company_directory_and_detail_reject_stale_admin_sessions(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($owner);
+        $directory = '/api/vendor-ops/companies';
+        $detail = $directory.'/'.$company->id;
+        $this->actingAs($admin, 'web');
+        $this->getJson($directory)->assertOk()->assertJsonPath('total', 1);
+        $this->getJson($detail)->assertOk()->assertJsonPath('id', $company->id);
+        $this->getJson($directory.'?page=100001')->assertUnprocessable();
+
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
+        $this->getJson($directory)->assertForbidden();
+        $this->getJson($detail)->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'role' => 'admin', 'account_status' => 'suspended',
+        ]);
+        $this->getJson($directory)->assertForbidden();
+        $this->getJson($detail)->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'account_status' => 'active', 'auth_epoch' => 1,
+        ]);
+        $this->getJson($directory)->assertStatus(409);
+        $this->getJson($detail)->assertStatus(409);
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'auth_epoch' => 0, 'password' => Hash::make('new-reviewer-secret'),
+        ]);
+        $this->getJson($directory)->assertStatus(409);
+        $this->getJson($detail)->assertStatus(409);
+
+        // A real owner retains their own private company detail and list.
+        $this->actingAs($owner, 'web')->getJson($detail)
+            ->assertOk()->assertJsonPath('id', $company->id);
+        $this->getJson($directory)->assertOk()->assertJsonPath('total', 1);
+    }
+
     public function test_private_kyc_history_and_evidence_reads_fail_after_admin_credential_revocation(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);
