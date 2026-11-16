@@ -2,12 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Services\Discovery\OpenChargeMapAdapter;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
-use App\Services\Discovery\OpenChargeMapAdapter;
 
 class OpenChargeMapDiscoveryTest extends TestCase
 {
@@ -445,5 +445,4 @@ class OpenChargeMapDiscoveryTest extends TestCase
             Carbon::setTestNow();
         }
     }
-
 }
