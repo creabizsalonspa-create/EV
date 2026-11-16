@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\OcpiRecord;
 use App\Services\Ocpi\CredentialExchange;
+use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\ReservationRoaming;
 use App\Services\Ocpi\SandboxRoaming;
@@ -223,8 +224,23 @@ class OcpiReservationTest extends TestCase
                 } else {
                     $raw['start_date_time'] = '2026-02-30T09:00:00';
                 }
-                app(RecordSynchronizer::class)->ingest($f[3], 'tariffs', [$raw]);
-                $this->getJson($url)->assertOk()->assertJsonCount(0, 'offers');
+                if ($boundary === 'invalid_date') {
+                    // Canonical OCPI ingestion now rejects impossible dates
+                    // before any source replacement. A previously valid
+                    // tariff must remain unchanged rather than be treated as
+                    // an invalid offer published by this incoming record.
+                    $previousPayload = $tariff->fresh()->payload;
+                    try {
+                        app(RecordSynchronizer::class)->ingest($f[3], 'tariffs', [$raw]);
+                        $this->fail('An impossible OCPI source timestamp was accepted.');
+                    } catch (OcpiException $error) {
+                        $this->assertStringContainsString('start_date_time', $error->getMessage());
+                    }
+                    $this->assertSame($previousPayload, $tariff->fresh()->payload);
+                } else {
+                    app(RecordSynchronizer::class)->ingest($f[3], 'tariffs', [$raw]);
+                    $this->getJson($url)->assertOk()->assertJsonCount(0, 'offers');
+                }
                 $this->assertCount(0, $this->writes);
                 $this->assertDatabaseCount('ocpi_roaming_orders', 0);
                 $this->assertDatabaseCount('ocpi_roaming_commands', 0);
