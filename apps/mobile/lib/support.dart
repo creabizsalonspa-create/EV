@@ -695,7 +695,9 @@ class SupportViewState extends State<SupportView>
 
   Future<void> markCurrentRead() async {
     final throughId = latestNotificationId;
-    if (!notifications || loading || throughId == null || throughId <= 0) return;
+    if (!notifications || loading || !foreground || !authorized() ||
+        throughId == null || throughId <= 0) return;
+    final session = widget.api.sessionFence();
     final request = ++generation;
     setState(() {
       loading = true;
@@ -707,22 +709,24 @@ class SupportViewState extends State<SupportView>
         method: 'POST',
         body: {'through_id': throughId},
       );
-      if (mounted && request == generation) await load(page: 1);
+      if (current(request, session)) await load(page: 1);
     } catch (e) {
-      if (mounted && request == generation) {
-        if (e is ApiException && [401, 419].contains(e.status)) {
-          widget.onSessionExpired();
-        }
-        setState(() {
-          error = e;
-          loading = false;
-        });
+      if (!current(request, session)) return;
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        setState(clearPrivate);
+        widget.onSessionExpired();
+        return;
       }
+      setState(() {
+        error = e;
+        loading = false;
+      });
     }
   }
 
   Future<void> markNotification(int id, {required bool read}) async {
-    if (!notifications || loading || id <= 0) return;
+    if (!notifications || loading || !foreground || !authorized() || id <= 0) return;
+    final session = widget.api.sessionFence();
     final request = ++generation;
     setState(() {
       loading = true;
@@ -733,21 +737,25 @@ class SupportViewState extends State<SupportView>
         'notifications/$id/${read ? 'read' : 'unread'}',
         method: 'POST',
       );
-      if (mounted && request == generation) await load(page: data?.current ?? 1);
+      if (current(request, session)) await load(page: data?.current ?? 1);
     } catch (e) {
-      if (mounted && request == generation) {
-        if (e is ApiException && [401, 419].contains(e.status)) {
-          widget.onSessionExpired();
-        }
-        setState(() {
-          error = e;
-          loading = false;
-        });
+      if (!current(request, session)) return;
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        setState(clearPrivate);
+        widget.onSessionExpired();
+        return;
       }
+      setState(() {
+        error = e;
+        loading = false;
+      });
     }
   }
 
   Future<void> open(int id) async {
+    if (!foreground || !authorized() || id <= 0) return;
+    final session = widget.api.sessionFence();
+    final request = generation;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => TicketPage(
@@ -757,7 +765,7 @@ class SupportViewState extends State<SupportView>
         ),
       ),
     );
-    if (mounted) await refresh();
+    if (current(request, session)) await refresh();
   }
 
   @override
