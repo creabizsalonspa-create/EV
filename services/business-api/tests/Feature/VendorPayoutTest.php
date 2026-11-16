@@ -205,6 +205,31 @@ class VendorPayoutTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_suspended_vendor_cannot_request_stripe_test_onboarding_before_provider_io(): void
+    {
+        $f = $this->fixture('stripe_test');
+        DB::table('users')->where('id', $f['vendor']->id)
+            ->update(['account_status' => 'suspended']);
+
+        try {
+            app(PayoutService::class)->onboarding(
+                $f['account']->id, $f['vendor']->id, 'stale-vendor-onboarding'
+            );
+            $this->fail('Suspended Vendor requested external onboarding link.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+
+        Http::assertNothingSent();
+        $this->assertDatabaseHas('commercial_payout_accounts', [
+            'id' => $f['account']->id, 'status' => 'pending_verification',
+        ]);
+        $this->assertDatabaseMissing('commercial_payout_events', [
+            'account_id' => $f['account']->id,
+            'action' => 'account.onboarding_link_requested',
+        ]);
+    }
+
     private function fixture(string $provider = 'mock'): array
     {
         return (require base_path('tests/Fixtures/vendor-payout.php'))($provider);
