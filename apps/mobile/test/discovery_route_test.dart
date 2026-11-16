@@ -369,6 +369,125 @@ void main() {
   );
 
   testWidgets(
+    'backgrounding clears private route coordinates, selected stops, consent and late provider results',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(900, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final lateRoute = Completer<dynamic>();
+      var routeRequests = 0;
+      final client = DiscoveryClient.withRequest((path, _, body) {
+        if (path == 'capabilities') {
+          return Future<dynamic>.value({
+            'provider': 'geoapify',
+            'geocoding': false,
+            'routing': true,
+            'max_charging_stops': 3,
+          });
+        }
+        expect(path, 'route');
+        routeRequests++;
+        return lateRoute.future;
+      });
+      await tester.pumpWidget(MaterialApp(
+        home: RoutePlannerView(
+          client: client,
+          stations: [station()],
+          initialStop: station(),
+          origin: GeoPoint(25.2, 55.3),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextFormField>(find.byKey(const Key('origin-lat'))).controller!.text,
+        '25.2',
+      );
+      expect(find.text('Synthetic stop'), findsWidgets);
+      for (final field in {
+        'destination-lat': '25.3',
+        'destination-lng': '55.4',
+      }.entries) {
+        await tester.ensureVisible(find.byKey(Key(field.key)));
+        await tester.enterText(find.byKey(Key(field.key)), field.value);
+      }
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('route-provider-consent')),
+        240,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byKey(const Key('route-provider-consent')));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('route-preview')),
+        240,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byKey(const Key('route-preview')));
+      await tester.pump();
+      expect(routeRequests, 1);
+
+      // Simulate an actual mobile lifecycle, not a detached test shortcut.
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+        await tester.pump();
+      }
+      expect(
+        find.text('Route planning hidden while the app is inactive.'),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('origin-lat')), findsNothing);
+      expect(find.text('Synthetic stop'), findsNothing);
+
+      lateRoute.complete(estimate());
+      await tester.pump();
+      for (final state in [
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+      for (final key in [
+        'origin-lat',
+        'origin-lng',
+        'destination-lat',
+        'destination-lng',
+      ]) {
+        await tester.scrollUntilVisible(
+          find.byKey(Key(key)),
+          -240,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(
+          tester.widget<TextFormField>(find.byKey(Key(key))).controller!.text,
+          isEmpty,
+        );
+      }
+      expect(find.text('Synthetic stop'), findsNothing);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('route-provider-consent')),
+        240,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(
+        tester.widget<CheckboxListTile>(
+          find.byKey(const Key('route-provider-consent')),
+        ).value,
+        false,
+      );
+      expect(find.textContaining('km ·'), findsNothing);
+      expect(routeRequests, 1,
+          reason: 'Foreground resume must not replay an old provider route');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'editing reviewed route coordinates requires renewed provider consent',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(900, 1600));
