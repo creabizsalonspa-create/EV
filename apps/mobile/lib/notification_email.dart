@@ -279,6 +279,14 @@ class _NotificationEmailState extends State<NotificationEmailView>
                     'سجل النقل — التسليم غير مؤكد',
                   ),
                 ),
+                if (history != null &&
+                    (history!['data'] as List).isEmpty)
+                  Text(
+                    t(
+                      'No email notice handoffs on this page.',
+                      'لا توجد عمليات نقل إشعارات بالبريد في هذه الصفحة.',
+                    ),
+                  ),
                 for (final row
                     in (history?['data'] as List? ?? const []).whereType<Map>())
                   ListTile(
