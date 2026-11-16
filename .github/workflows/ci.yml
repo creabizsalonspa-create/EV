@@ -182,11 +182,11 @@ jobs:
       - name: Seed synthetic build-context exclusion canaries
         shell: bash
         run: |
-          for suffix in sqlite sqlite3 sqlite-wal sqlite3-journal; do
+          for suffix in sqlite sqlite3 sqlite-wal sqlite-shm sqlite3-journal; do
             printf 'synthetic image-exclusion canary\n' > "services/business-api/database/ev-image-guard.$suffix"
           done
           printf 'EV_IMAGE_CANARY=synthetic-only\n' > services/business-api/.env.image-canary
-          # The five synthetic canaries must be present on disk to prove they
+          # The six synthetic canaries must be present on disk to prove they
           # cannot enter Docker, but must not turn a clean committed checkout
           # into an untracked-source failure. Limit exclusions to these exact
           # scratch paths for this one runner; unrelated files remain visible.
@@ -194,6 +194,7 @@ jobs:
           /services/business-api/database/ev-image-guard.sqlite
           /services/business-api/database/ev-image-guard.sqlite3
           /services/business-api/database/ev-image-guard.sqlite-wal
+          /services/business-api/database/ev-image-guard.sqlite-shm
           /services/business-api/database/ev-image-guard.sqlite3-journal
           /services/business-api/.env.image-canary
           EV_STAGING_CANARIES
