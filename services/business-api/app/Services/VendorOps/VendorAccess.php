@@ -61,7 +61,8 @@ class VendorAccess
         // back to the PHP server timezone and authorize charger operations.
         // Align this authority check with the Admin KYC unknown-date queue.
         if (! is_string($timezone)
-            || ! in_array($timezone, \DateTimeZone::listIdentifiers(), true)
+            || ($timezone !== 'UTC' && ! str_contains($timezone, '/'))
+            || ! in_array($timezone, \DateTimeZone::listIdentifiers(\DateTimeZone::ALL_WITH_BC), true)
             || ! $company->license_expires_on) {
             return false;
         }
