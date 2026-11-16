@@ -250,10 +250,18 @@ class SourceConsumer
                 throw new RuntimeException('Mapped source identity conflict.');
             }
             if ($link->protocol === '1.6') {
-                $proof = $this->graph('query($tx:Int!){Transactions(where:{id:{_eq:$tx},tenantId:{_eq:1}}){connectorId}}', ['tx' => $tx['id']])['Transactions'];
-                $connector = $this->graph('query($id:Int!,$station:Int!){Connectors(where:{id:{_eq:$id},tenantId:{_eq:1},stationId:{_eq:$station}}){connectorId}}', ['id' => $proof[0]['connectorId'] ?? 0, 'station' => $identity['ChargingStations'][0]['id']])['Connectors'];
-                if (count($connector) !== 1 || (int) $connector[0]['connectorId'] !== $map->source_connector_number) {
-                    throw new RuntimeException('Source connector mismatch.');
+                $proof = $this->graph('query($tx:Int!){Transactions(where:{id:{_eq:$tx},tenantId:{_eq:1}}){connectorId}}', ['tx' => $tx['id']])['Transactions'] ?? null;
+                // The source graph must return one explicitly typed transaction
+                // connector, not a malformed object that silently becomes id 0.
+                if (! is_array($proof) || ! array_is_list($proof) || count($proof) !== 1 ||
+                    ! is_array($proof[0]) || ! is_int($proof[0]['connectorId'] ?? null) || $proof[0]['connectorId'] <= 0) {
+                    throw new RuntimeException('Malformed source transaction connector proof.');
+                }
+                $connector = $this->graph('query($id:Int!,$station:Int!){Connectors(where:{id:{_eq:$id},tenantId:{_eq:1},stationId:{_eq:$station}}){connectorId}}', ['id' => $proof[0]['connectorId'], 'station' => $identity['ChargingStations'][0]['id']])['Connectors'] ?? null;
+                if (! is_array($connector) || ! array_is_list($connector) || count($connector) !== 1 ||
+                    ! is_array($connector[0]) || ! is_int($connector[0]['connectorId'] ?? null) ||
+                    $connector[0]['connectorId'] !== (int) $map->source_connector_number) {
+                    throw new RuntimeException('Source connector mismatch or malformed mapping proof.');
                 }
             } else {
                 // CitrineOS 2.1 normalized transaction/EVSE projections do not retain
@@ -262,13 +270,19 @@ class SourceConsumer
                 if (! $rider) {
                     $info['remoteStartId'] = (int) $link->start_command_id;
                 }
-                $proof = $this->graph('query($station:Int!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},action:{_eq:"TransactionEvent"},payload:{_contains:$match}},limit:2){payload}}', ['station' => $identity['ChargingStations'][0]['id'], 'match' => ['eventType' => 'Started', 'transactionInfo' => $info]])['OCPPMessages'];
-                if (! $proof) {
-                    throw new RuntimeException('Source target proof is unavailable.');
+                $proof = $this->graph('query($station:Int!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},action:{_eq:"TransactionEvent"},payload:{_contains:$match}},limit:2){payload}}', ['station' => $identity['ChargingStations'][0]['id'], 'match' => ['eventType' => 'Started', 'transactionInfo' => $info]])['OCPPMessages'] ?? null;
+                if (! is_array($proof) || ! array_is_list($proof) || count($proof) < 1 || count($proof) > 2) {
+                    throw new RuntimeException('Malformed source Started message projection.');
                 }
                 foreach ($proof as $row) {
-                    if (($row['payload']['evse']['id'] ?? null) !== $evse->source_evse_number || ($row['payload']['evse']['connectorId'] ?? null) !== $map->source_connector_number) {
-                        throw new RuntimeException('Source EVSE/connector mismatch.');
+                    $payload = is_array($row) ? ($row['payload'] ?? null) : null;
+                    $reported = is_array($payload) ? ($payload['transactionInfo'] ?? null) : null;
+                    if (! is_array($reported) || ($payload['eventType'] ?? null) !== 'Started' ||
+                        ($reported['transactionId'] ?? null) !== (string) $tx['transactionId'] ||
+                        (! $rider && ($reported['remoteStartId'] ?? null) !== (int) $link->start_command_id) ||
+                        ($payload['evse']['id'] ?? null) !== (int) $evse->source_evse_number ||
+                        ($payload['evse']['connectorId'] ?? null) !== (int) $map->source_connector_number) {
+                        throw new RuntimeException('Source Started target, transaction or EVSE/connector mismatch.');
                     }
                 }
             }

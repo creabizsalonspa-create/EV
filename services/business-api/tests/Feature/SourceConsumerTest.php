@@ -2,11 +2,17 @@
 
 namespace Tests\Feature;
 
+use App\Models\Charging\ConnectorMapping;
+use App\Models\Charging\Evse;
 use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Models\VendorOps\VendorCharger;
+use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorConnector;
+use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceConsumer;
 use Illuminate\Database\QueryException;
@@ -547,6 +553,135 @@ class SourceConsumerTest extends TestCase
         // database cannot assign the same authenticated CSMS row twice.
         $this->expectException(QueryException::class);
         $other->update(['source_transaction_database_id' => 10]);
+    }
+
+    #[DataProvider('protocolVersions')]
+    public function test_source_target_proof_requires_a_typed_graphql_list_and_original_connector(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $session = ChargingSession::findOrFail($link->charging_session_id);
+        $booking = Reservation::findOrFail($session->reservation_id);
+        $station = Station::findOrFail($booking->station_id);
+        $company = VendorCompany::create([
+            'owner_id' => $station->vendor_id, 'legal_name' => 'Synthetic target proof',
+            'country' => 'AE', 'trade_license_number' => 'SOURCE-TARGET', 'license_expires_on' => now()->addYear()->toDateString(),
+            'status' => 'approved',
+        ]);
+        $site = VendorSite::create([
+            'company_id' => $company->id, 'station_id' => $station->id,
+            'name' => 'Target fixture', 'country' => 'AE', 'timezone' => 'Asia/Dubai',
+            'address' => 'Synthetic', 'latitude' => 25, 'longitude' => 55,
+        ]);
+        $charger = VendorCharger::create([
+            'company_id' => $company->id, 'site_id' => $site->id, 'asset_reference' => 'TARGET-PROOF',
+            'manufacturer' => 'Synthetic', 'model' => 'Fixture', 'source' => 'simulator', 'ocpp_protocol' => $protocol,
+        ]);
+        DB::table('csms_bindings')->where('id', $link->binding_id)
+            ->update(['vendor_charger_id' => $charger->id]);
+        $evse = Evse::create([
+            'charger_id' => $charger->id, 'number' => 1, 'mode' => 'csms',
+            'binding_id' => $link->binding_id, 'source_evse_number' => $protocol === '1.6' ? 0 : 5,
+        ]);
+        $connector = VendorConnector::create([
+            'charger_id' => $charger->id, 'connector_number' => 1,
+            'connector_type' => 'CCS2', 'max_power_kw' => 50,
+        ]);
+        $map = ConnectorMapping::create([
+            'station_id' => $station->id, 'evse_id' => $evse->id,
+            'connector_id' => $connector->id, 'source_connector_number' => 7,
+        ]);
+        $booking->update(['connector_mapping_id' => $map->id, 'charging_evse_id' => $evse->id]);
+        $session->update(['charging_evse_id' => $evse->id]);
+        $link->update(['connector_mapping_id' => $map->id]);
+
+        $at = now()->toImmutable()->startOfSecond();
+        $bad = true;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($protocol, $link, $at, &$bad) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions(where:{id:')) {
+                $row = ['connectorId' => 11];
+
+                return Http::response(['data' => [
+                    'Transactions' => $bad ? ['record' => $row] : [$row],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10,
+                    'transactionId' => $protocol === '1.6' ? '101' : 'mapped-target-proof',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000',
+                    'startTime' => $at->toIso8601String(),
+                    'endTime' => $at->addSeconds(2)->toIso8601String(),
+                    'isActive' => false,
+                    'totalKwh' => '2.500',
+                ]]]]);
+            }
+            if (str_contains($query, 'Connectors')) {
+                return Http::response(['data' => [
+                    'Connectors' => [['connectorId' => 7]],
+                ]]);
+            }
+            if (str_contains($query, 'OCPPMessages')) {
+                $row = ['payload' => [
+                    'eventType' => 'Started',
+                    'transactionInfo' => [
+                        'transactionId' => 'mapped-target-proof',
+                        'remoteStartId' => $link->start_command_id,
+                    ],
+                    'evse' => ['id' => 5, 'connectorId' => 7],
+                ]];
+
+                return Http::response(['data' => [
+                    'OCPPMessages' => $bad ? ['record' => $row] : [$row],
+                ]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                return Http::response(['data' => ['MeterValues' => [[
+                    'id' => 1, 'timestamp' => $at->addSeconds(2)->toIso8601String(),
+                    'sampledValue' => [[
+                        'measurand' => 'Energy.Active.Import.Register',
+                        'context' => 'Transaction.End', 'value' => '3500',
+                        'unitOfMeasure' => ['unit' => 'Wh'],
+                    ]],
+                ]]]]);
+            }
+
+            $this->fail('Source target proof must not dispatch an unapproved command.');
+        });
+
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('Malformed source connector projection was accepted as physical target proof.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('source', strtolower($e->getMessage()));
+        }
+        $this->assertNull($link->fresh()->source_station_id);
+        $this->assertNull($link->fresh()->source_transaction_database_id);
+        $this->assertNull($link->fresh()->transaction_id);
+        $this->assertDatabaseCount('csms_inbox_events', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+
+        $bad = false;
+        $this->assertSame(2, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(1, $link->fresh()->source_meter_cursor);
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertSame(10, $link->fresh()->source_transaction_database_id);
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id, 'status' => 'stopped', 'energy_wh' => 2500,
+        ]);
+        $this->assertDatabaseCount('csms_inbox_events', 2);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
     }
 
     public static function invalidSourceProjections(): array
