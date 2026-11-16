@@ -156,6 +156,46 @@ class ConnectorTopologyTest extends TestCase
         $this->getJson($path)->assertJsonPath('data.0.status_freshness.state', 'unknown');
     }
 
+    public function test_reordered_persisted_source_event_never_reuses_older_available_status(): void
+    {
+        $f = $this->topology('2.0.1');
+        $this->freezeTime();
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $path = '/api/stations/'.$f['station']->id.'/connectors';
+        $base = [
+            'binding_id' => $binding->id,
+            'source_generation' => FaultMonitor::generation($binding),
+            'fingerprint' => str_repeat('f', 64),
+            'evse_number' => 5,
+            'connector_number' => 7,
+            'error_code' => 'NoError',
+            'created_at' => now(),
+        ];
+
+        DB::table('charging_status_observations')->insert($base + [
+            'source_event_id' => 1,
+            'status' => 'Available',
+            'occurred_at' => now()->subSeconds(10),
+        ]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('data.0.status_freshness.state', 'recent')
+            ->assertJsonPath('data.0.status_freshness.reported_status', 'Available');
+
+        // A more recent authenticated source ID contradicts the old clock.
+        // Source ID order must win over a misleading earlier "Available" time.
+        DB::table('charging_status_observations')->insert($base + [
+            'source_event_id' => 2,
+            'status' => 'Faulted',
+            'occurred_at' => now()->subSeconds(20),
+        ]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('data.0.status_freshness.state', 'unknown')
+            ->assertJsonPath('data.0.status_freshness.reported_status', null)
+            ->assertJsonPath('data.0.status_freshness.physical_availability_verified', false);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     #[DataProvider('protocols')]
     public function test_recent_source_filter_uses_the_exact_current_connector_before_pagination(string $protocol): void
     {
