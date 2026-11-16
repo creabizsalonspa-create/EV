@@ -596,6 +596,41 @@ test("hidden browser tab wipes revealed private account copy and password inputs
   assert.equal(inputs.find(x=>x.type==="password").value,"");
   assert.equal(inputs.find(x=>x.autocomplete==="one-time-code").value,"");
 });
+test("private copy response stays sealed across a hidden-to-visible round trip", async () => {
+  const ui = fixture();
+  let releaseFirst;
+  let reads = 0;
+  ui.setSelfActor({ id: 3, role: "customer" }, async (path, method = "GET") => {
+    if (method === "POST") {
+      reads++;
+      if (reads === 1)
+        return new Promise((resolve) => { releaseFirst = resolve; });
+      return { schema_version: 1, owner_id: 3, request_id: 22,
+        scope: "self_service_account_copy",
+        profile: { email: "fresh-visible-copy@example.test" } };
+    }
+    return page([{ ...record, kind: "access",
+      copy: { status: "available", expires_at: "2026-11-20T00:00:00Z" } }]);
+  });
+  await tick();
+  const view = nodes(ui.mine, "button").find(x =>
+    x.textContent.startsWith("View private account copy"));
+  const inFlight = view.onclick();
+  assert.equal(typeof releaseFirst, "function");
+  ui.hide();
+  ui.show();
+  releaseFirst({ schema_version: 1, owner_id: 3, request_id: 22,
+    scope: "self_service_account_copy",
+    profile: { email: "old-background-copy@example.test" } });
+  await inFlight;
+  assert.equal(nodes(ui.mine, "pre")[0].textContent, "");
+  assert(!ui.mine.textContent.includes("old-background-copy@example.test"));
+  // A new, intentional visible read remains available after the old one is rejected.
+  await view.onclick();
+  assert.equal(reads, 2);
+  assert.match(nodes(ui.mine, "pre")[0].textContent, /fresh-visible-copy@example.test/);
+});
+
 test("late private copy read cannot repopulate a hidden browser tab",async()=>{
   const ui=fixture();
   let resolveCopy;
