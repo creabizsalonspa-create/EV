@@ -317,16 +317,26 @@ const fs = require("node:fs");
     holdNextCapabilities = true;
     await journey.locator("summary").first().click();
     await journey.locator("summary").first().click();
-    await Promise.race([
-      awaitingCapability,
-      new Promise((_, reject) => setTimeout(
-        () => reject(Error("Pending capability fixture never started")), 10000)),
-    ]);
+    let capabilityTimeout;
+    try {
+      await Promise.race([
+        awaitingCapability,
+        new Promise((_, reject) => {
+          capabilityTimeout = setTimeout(
+            () => reject(Error("Pending capability fixture never started")), 10000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(capabilityTimeout);
+    }
+    const staleResponse = page.waitForResponse(
+      (response) => response.url().includes("/api/discovery/capabilities"));
     await page.evaluate(() =>
       window.dispatchEvent(new CustomEvent("catalog-map-clear")),
     );
     releaseHeldCapabilities();
-    await page.waitForTimeout(100);
+    await staleResponse;
+    await page.waitForTimeout(0);
     await page.evaluate(() =>
       window.pendingGps({ coords: { latitude: 12, longitude: 34 } }),
     );
