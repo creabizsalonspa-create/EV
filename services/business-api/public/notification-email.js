@@ -8,12 +8,12 @@ window.EvNotificationEmail = {
         const node = (tag, text) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; return el; };
         const valid = n => current() && root.isConnected && !document.hidden && n === generation;
         const base = 'notifications/email';
-        const failed = n => {
+        const failed = (n, retryPage = 1) => {
             if (!valid(n)) return;
             const message = node('p', t('Request outcome unavailable. Refresh before making another change.', 'نتيجة الطلب غير متاحة. حدّث قبل إجراء تغيير آخر.'));
             message.setAttribute('role', 'alert');
             root.replaceChildren(message);
-            button(t('Refresh', 'تحديث'), () => load());
+            button(t('Refresh', 'تحديث'), () => load(retryPage));
         };
         function button(text, action) {
             const b = node('button', text); b.type = 'button'; root.append(b);
@@ -73,7 +73,7 @@ window.EvNotificationEmail = {
             } catch {
                 // A refresh increments generation; only this request can render its retry.
                 // Never disclose backend errors or leave a blank private page.
-                failed(n);
+                failed(n, page);
             }
         }
         const hide = () => { if (document.hidden || !current()) { generation++; busy = false; root.replaceChildren(); } if (!root.isConnected) document.removeEventListener('visibilitychange', hide); };
