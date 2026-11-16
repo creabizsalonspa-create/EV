@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Disputes\ExternalDisputes;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -9,14 +10,29 @@ use Illuminate\Support\Facades\DB;
 
 class ExternalDisputesController extends Controller
 {
+    /** Must run within a transaction that retains the live user row lock. */
     private function scoped(Request $r)
     {
-        $query = DB::table('external_disputes as d')->join('gateway_checkouts as c', 'c.id', '=', 'd.checkout_id')->join('finance_invoices as i', 'i.id', '=', 'c.invoice_id')->select('d.*', 'i.id as invoice_id', 'i.minor_units');
-        if ($r->user()->role !== 'admin') {
-            $query->where($r->user()->role === 'vendor' ? 'i.vendor_id' : 'i.user_id', $r->user()->id);
+        $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+        $query = DB::table('external_disputes as d')
+            ->join('gateway_checkouts as c', 'c.id', '=', 'd.checkout_id')
+            ->join('finance_invoices as i', 'i.id', '=', 'c.invoice_id')
+            ->select('d.*', 'i.id as invoice_id', 'i.minor_units');
+        if ($actor->role !== 'admin') {
+            $query->where($actor->role === 'vendor' ? 'i.vendor_id' : 'i.user_id', $actor->id);
         }
 
         return $query;
+    }
+
+    private function currentAdmin(Request $r): \App\Models\User
+    {
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($actor->role === 'admin', 403);
+
+            return $actor;
+        }, 3);
     }
 
     private function sanitized(object $row): array
@@ -33,32 +49,55 @@ class ExternalDisputesController extends Controller
     public function index(Request $r)
     {
         $v = $r->validate(['attention' => 'sometimes|boolean']);
-        $query = $this->scoped($r);
-        if ($v['attention'] ?? false) {
-            $query->where(function ($q) {
-                $q->whereIn('d.status', ['lost', 'needs_response', 'warning_needs_response'])->orWhereExists(function ($sub) {
-                    $sub->selectRaw('1')->from('external_dispute_evidence as e')->whereColumn('e.dispute_id', 'd.id')->whereIn('e.status', ['uncertain', 'sending']);
+        return DB::transaction(function () use ($r, $v) {
+            $query = $this->scoped($r);
+            if ($v['attention'] ?? false) {
+                $query->where(function ($q) {
+                    $q->whereIn('d.status', ['lost', 'needs_response', 'warning_needs_response'])
+                        ->orWhereExists(function ($sub) {
+                            $sub->selectRaw('1')->from('external_dispute_evidence as e')
+                                ->whereColumn('e.dispute_id', 'd.id')
+                                ->whereIn('e.status', ['uncertain', 'sending']);
+                        });
                 });
-            });
-        }
+            }
 
-        return $query->orderByDesc('d.id')->paginate(25)->through(fn ($row) => $this->sanitized($row));
+            return response()->json($query->orderByDesc('d.id')->paginate(25)
+                ->through(fn ($row) => $this->sanitized($row)))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function show(Request $r, int $dispute)
     {
-        $row = $this->scoped($r)->where('d.id', $dispute)->first();
-        abort_unless($row, 404);
-        $events = DB::table('external_dispute_events')->where('dispute_id', $dispute)->orderBy('id')->get(['id', 'type', 'status', 'created_at']);
-        $operations = $r->user()->role === 'admin' ? DB::table('external_dispute_evidence')->where('dispute_id', $dispute)->orderBy('id')->get(['id', 'actor_id', 'submit', 'status', 'retry_until', 'created_at', 'updated_at']) : [];
+        return DB::transaction(function () use ($r, $dispute) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $row = $this->scoped($r)->where('d.id', $dispute)->first();
+            abort_unless($row, 404);
+            $events = DB::table('external_dispute_events')->where('dispute_id', $dispute)
+                ->orderBy('id')->get(['id', 'type', 'status', 'created_at']);
+            $operations = $actor->role === 'admin'
+                ? DB::table('external_dispute_evidence')->where('dispute_id', $dispute)
+                    ->orderBy('id')->get([
+                        'id', 'actor_id', 'submit', 'status', 'retry_until', 'created_at', 'updated_at',
+                    ])
+                : [];
 
-        return response()->json(['dispute' => $this->sanitized($row), 'events' => $events, 'evidence_submissions' => $operations]);
+            return response()->json([
+                'dispute' => $this->sanitized($row), 'events' => $events,
+                'evidence_submissions' => $operations,
+            ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function reconcile(Request $r, int $dispute, ExternalDisputes $service)
     {
-        abort_unless($r->user()->role === 'admin', 403);
-        abort_unless($this->scoped($r)->where('d.id', $dispute)->exists(), 404);
+        $this->currentAdmin($r);
+        DB::transaction(function () use ($r, $dispute) {
+            abort_unless($this->scoped($r)->where('d.id', $dispute)->exists(), 404);
+        }, 3);
+        // The service owns the provider read/uncertainty transaction. No
+        // controller transaction may span a remote test-provider request.
         $service->reconcile($dispute);
 
         return $this->show($r, $dispute);
@@ -66,20 +105,20 @@ class ExternalDisputesController extends Controller
 
     public function evidence(Request $r, int $dispute, ExternalDisputes $service)
     {
-        abort_unless($r->user()->role === 'admin', 403);
+        $actor = $this->currentAdmin($r);
         $v = $r->validate(['idempotency_key' => 'required|string|max:100', 'submit' => 'required|boolean', 'evidence' => 'required|array:product_description,service_date,refund_policy_disclosure,refund_refusal_explanation,access_activity_log,uncategorized_text', 'evidence.*' => 'required|string|max:5000']);
-        $service->evidence($dispute, $r->user()->id, $v['evidence'], $v['submit'], $v['idempotency_key']);
+        $service->evidence($dispute, $actor->id, $v['evidence'], $v['submit'], $v['idempotency_key']);
 
         return $this->show($r, $dispute);
     }
 
     public function retry(Request $r, int $dispute, int $operation, ExternalDisputes $service)
     {
-        abort_unless($r->user()->role === 'admin', 403);
+        $actor = $this->currentAdmin($r);
         // Retry is server-owned: changing evidence or selecting a new provider
         // identity is impossible through this endpoint.
         $r->validate(['evidence' => 'prohibited', 'idempotency_key' => 'prohibited', 'submit' => 'prohibited']);
-        $service->retryEvidence($dispute, $operation, $r->user()->id);
+        $service->retryEvidence($dispute, $operation, $actor->id);
 
         return $this->show($r, $dispute);
     }
