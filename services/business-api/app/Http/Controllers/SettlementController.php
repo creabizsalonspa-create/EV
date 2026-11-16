@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\SettlementService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -23,20 +24,43 @@ class SettlementController extends Controller
 
     public function index(Request $r)
     {
-        abort_unless(in_array($r->user()->role, ['admin', 'vendor'], true), 403);
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless(in_array($actor->role, ['admin', 'vendor'], true), 403);
 
-        return DB::table('commercial_settlements')->when($r->user()->role !== 'admin', fn ($q) => $q->where('vendor_id', $r->user()->id))->orderByDesc('id')->paginate(25);
+            return response()->json(DB::table('commercial_settlements')
+                ->when($actor->role !== 'admin', fn ($q) => $q->where('vendor_id', $actor->id))
+                ->orderByDesc('id')->paginate(25))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function statement(Request $r, int $vendor, SettlementService $service)
     {
-        $this->vendor($r, $vendor);
         $v = $r->validate(['currency' => ['required', 'string', 'regex:/^[A-Z]{3}$/']]);
-        $schedule = DB::table('commercial_settlement_schedules')->where('vendor_id', $vendor)->where('currency', $v['currency'])->first();
-        $balance = $service->balances($vendor, $v['currency'], (int) ($schedule->hold_days ?? 0));
 
-        return response()->json($balance + ['schedule' => $schedule, 'eligible_to_request' => $schedule && $schedule->enabled && $schedule->next_due_at <= now()->toDateTimeString() && $balance['available_minor'] > 0 && $balance['available_minor'] >= (int) $schedule->minimum_minor,
-            'adjustments' => DB::table('commercial_adjustments as a')->leftJoin('commercial_adjustment_approvals as p', 'p.adjustment_id', '=', 'a.id')->where('a.vendor_id', $vendor)->where('a.currency', $v['currency'])->select('a.id', 'a.amount_minor', 'a.reason', 'a.created_at', 'p.approved_by')->orderByDesc('a.id')->limit(100)->get()]);
+        return DB::transaction(function () use ($r, $vendor, $service, $v) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($actor->role === 'admin'
+                || ($actor->role === 'vendor' && $actor->id === $vendor), 404);
+            abort_unless(User::whereKey($vendor)->where('role', 'vendor')->exists(), 404);
+            $schedule = DB::table('commercial_settlement_schedules')
+                ->where('vendor_id', $vendor)->where('currency', $v['currency'])->first();
+            $balance = $service->balances($vendor, $v['currency'], (int) ($schedule->hold_days ?? 0));
+
+            return response()->json($balance + [
+                'schedule' => $schedule,
+                'eligible_to_request' => $schedule && $schedule->enabled
+                    && $schedule->next_due_at <= now()->toDateTimeString()
+                    && $balance['available_minor'] > 0
+                    && $balance['available_minor'] >= (int) $schedule->minimum_minor,
+                'adjustments' => DB::table('commercial_adjustments as a')
+                    ->leftJoin('commercial_adjustment_approvals as p', 'p.adjustment_id', '=', 'a.id')
+                    ->where('a.vendor_id', $vendor)->where('a.currency', $v['currency'])
+                    ->select('a.id', 'a.amount_minor', 'a.reason', 'a.created_at', 'p.approved_by')
+                    ->orderByDesc('a.id')->limit(100)->get(),
+            ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function schedule(Request $r, int $vendor)
@@ -47,7 +71,9 @@ class SettlementController extends Controller
         abort_unless(DB::table('regions')->where('currency', $v['currency'])->exists(), 422, 'Currency must be configured.');
 
         return DB::transaction(function () use ($r, $vendor, $v) {
-            User::whereKey($vendor)->lockForUpdate()->firstOrFail();
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($actor->role === 'admin', 403);
+            User::whereKey($vendor)->where('role', 'vendor')->lockForUpdate()->firstOrFail();
             DB::table('commercial_settlement_schedules')->updateOrInsert(['vendor_id' => $vendor, 'currency' => $v['currency']], ['hold_days' => (int) $v['hold_days'], 'interval_days' => (int) $v['interval_days'], 'minimum_minor' => (int) $v['minimum_minor'], 'next_due_at' => Carbon::parse($v['next_due_at'])->utc(), 'enabled' => $v['enabled'], 'configured_by' => $r->user()->id, 'created_at' => now(), 'updated_at' => now()]);
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'finance.settlement.schedule_configured', 'subject' => (string) $vendor, 'created_at' => now()]);
 
@@ -57,27 +83,49 @@ class SettlementController extends Controller
 
     public function draft(Request $r, int $vendor, SettlementService $service)
     {
-        $this->vendor($r, $vendor);
         $v = $r->validate(['currency' => ['required', 'string', 'regex:/^[A-Z]{3}$/'], 'idempotency_key' => 'required|string|max:100']);
 
-        return response()->json($service->draft($vendor, $v['currency'], $r->user()->id, $v['idempotency_key']), 201);
+        return DB::transaction(function () use ($r, $vendor, $service, $v) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($actor->role === 'admin'
+                || ($actor->role === 'vendor' && $actor->id === $vendor), 404);
+            abort_unless(User::whereKey($vendor)->where('role', 'vendor')->exists(), 404);
+
+            return response()->json($service->draft($vendor, $v['currency'],
+                $actor->id, $v['idempotency_key']), 201);
+        }, 3);
     }
 
     public function show(Request $r, int $settlement)
     {
-        $s = DB::table('commercial_settlements')->find($settlement);
-        abort_unless($s, 404);
-        $this->vendor($r, (int) $s->vendor_id);
-        $lines = DB::table('commercial_settlement_lines')->where('settlement_id', $settlement)->orderBy('id')->get();
+        return DB::transaction(function () use ($r, $settlement) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $s = DB::table('commercial_settlements')->find($settlement);
+            abort_unless($s, 404);
+            abort_unless($actor->role === 'admin'
+                || ($actor->role === 'vendor' && $actor->id === (int) $s->vendor_id), 404);
+            abort_unless(User::whereKey($s->vendor_id)->where('role', 'vendor')->exists(), 404);
+            $lines = DB::table('commercial_settlement_lines')
+                ->where('settlement_id', $settlement)->orderBy('id')->get();
 
-        return response()->json(['settlement' => $s, 'lines' => $lines, 'events' => DB::table('commercial_settlement_events')->where('settlement_id', $settlement)->orderBy('id')->get(), 'reconciled' => (int) $s->amount_minor === (int) $lines->sum('amount_minor'), 'real_payout_enabled' => false]);
+            return response()->json([
+                'settlement' => $s, 'lines' => $lines,
+                'events' => DB::table('commercial_settlement_events')
+                    ->where('settlement_id', $settlement)->orderBy('id')->get(),
+                'reconciled' => (int) $s->amount_minor === (int) $lines->sum('amount_minor'),
+                'real_payout_enabled' => false,
+            ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function transition(Request $r, int $settlement, string $action, SettlementService $service)
     {
-        $this->admin($r);
+        return DB::transaction(function () use ($r, $settlement, $action, $service) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($actor->role === 'admin', 403);
 
-        return response()->json($service->transition($settlement, $r->user()->id, $action));
+            return response()->json($service->transition($settlement, $actor->id, $action));
+        }, 3);
     }
 
     public function adjustment(Request $r, int $vendor)
