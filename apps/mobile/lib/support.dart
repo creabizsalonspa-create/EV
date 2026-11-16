@@ -482,7 +482,10 @@ class SupportViewState extends State<SupportView>
   }
 
   Future<void> createTicket() async {
-    if (loading || notifications) return;
+    if (loading || notifications || !foreground || !authorized()) return;
+    final dialogSession = widget.api.sessionFence();
+    final dialogGeneration = generation;
+    final dialogApi = widget.api;
     // A popped dialog remains in the widget tree for its reverse route
     // animation. Controllers are owned and disposed by that dialog's State,
     // not immediately when the showDialog future resolves.
@@ -493,7 +496,8 @@ class SupportViewState extends State<SupportView>
         initialBody: pendingTicketBody,
       ),
     );
-    if (!mounted || desired == null) return;
+    if (desired == null || !current(dialogGeneration, dialogSession) ||
+        !identical(widget.api, dialogApi)) return;
     if (pendingTicketKey == null ||
         pendingTicketSubject != desired['subject'] ||
         pendingTicketBody != desired['body']) {
@@ -501,6 +505,7 @@ class SupportViewState extends State<SupportView>
       pendingTicketSubject = desired['subject'];
       pendingTicketBody = desired['body'];
     }
+    final session = widget.api.sessionFence();
     final request = ++generation;
     setState(() {
       loading = true;
@@ -512,7 +517,7 @@ class SupportViewState extends State<SupportView>
         method: 'POST',
         body: {...desired, 'idempotency_key': pendingTicketKey},
       );
-      if (!mounted || request != generation) return;
+      if (!current(request, session)) return;
       if (accepted is! Map ||
           accepted['id'] is! int ||
           (accepted['id'] as int) <= 0) {
@@ -523,9 +528,11 @@ class SupportViewState extends State<SupportView>
       pendingTicketKey = null;
       await load(page: 1);
     } catch (errorValue) {
-      if (!mounted || request != generation) return;
+      if (!current(request, session)) return;
       if (errorValue is ApiException && [401, 419].contains(errorValue.status)) {
+        setState(clearPrivate);
         widget.onSessionExpired();
+        return;
       }
       setState(() {
         error = errorValue;
