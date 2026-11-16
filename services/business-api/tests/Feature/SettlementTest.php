@@ -368,6 +368,42 @@ class SettlementTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 3);
     }
 
+    public function test_revoked_vendor_or_admin_cannot_read_private_earnings_or_csv(): void
+    {
+        $this->invoice();
+        $this->configure();
+        $url = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings?currency=AED';
+        $csv = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings/export?currency=AED';
+        $before = DB::table('finance_journals')->count();
+
+        foreach ([$this->vendor, $this->admin] as $actor) {
+            $row = DB::table('users')->where('id', $actor->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $row->role,
+                'account_status' => $row->account_status,
+                'auth_epoch' => $row->auth_epoch,
+                'password' => $row->password,
+            ];
+            $this->actingAs($actor);
+            $this->getJson($url)->assertOk()->assertJsonPath('total', 1);
+            foreach ([
+                ['role' => 'customer'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $row->auth_epoch + 1],
+                ['password' => Hash::make('revoked-earnings-export-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $actor->id)->update($change);
+                $this->getJson($url)->assertConflict();
+                $this->get($csv)->assertConflict();
+                DB::table('users')->where('id', $actor->id)->update($original);
+            }
+        }
+
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('commercial_settlements', 0);
+    }
+
     public function test_earnings_export_is_page_bounded_currency_exact_and_tenant_private(): void
     {
         $invoice = $this->invoice();
