@@ -88,3 +88,32 @@ payment task, or changing an invoice. A later fresh reservation timestamp
 resolves the *local observation*, not the business outcome. Disposable SQLite
 tests and PostgreSQL independent-process scanner races check one open/resolve
 transition, immutable job records and zero charger/finance side effects.
+
+## Independently supervised one-shot watchdog result validation
+
+`python3 scripts/agent3-watchdog-supervisor.py --runtime /ABSOLUTE/APPROVED/PHP \
+--artisan /ABSOLUTE/REVIEWED/APP/artisan --timeout 20` is a **single
+read-only probe**, intended to be invoked by a *separately supervised*
+operator/monitor. Do not call it from Laravel's own scheduler; a stopped
+scheduler cannot launch its own outage check. A deployment-specific monitor
+must supervise invocation frequency, missing executions and the process
+exit code; **no cron/systemd service, pager, SMTP/SMS/push target, root access
+or production alert routing is provisioned here**.
+
+The probe executes the existing `operations:watchdog-check` command exactly
+once without a shell, caps time to 1–30 seconds, validates a strict bounded
+JSON schema/allowlisted static signals and matching 0/1 exit status, and
+never echoes raw stdout/stderr. Timeout, malformed output, secret-bearing
+text, unexpected fields, unknown signal codes, process failure or an exit
+mismatch returns only `watchdog_probe_unavailable` with nonzero exit status.
+It cannot write a scheduler/worker heartbeat, scan/resolve incidents, release
+a reserved job, replay a claim, dispatch a charger/payment command or send
+external messages. A legitimate `observed_normal` retains all
+`*_verified=false` production/hardware limitations from the Artisan probe.
+
+`python3 -B -m unittest discover -s tests -p 'agent3_*_test.py' -q`
+includes six disposable independent-subprocess tests for the supervisor,
+and is part of the CI staging-image preflight. These tests were also run
+locally in a disposable Python directory with **6 passed**, including an
+explicit no-retry timeout and no-private-output test. Hosted exact-source
+CI still governs integration of this staged change.
