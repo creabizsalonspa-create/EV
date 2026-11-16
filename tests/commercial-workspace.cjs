@@ -186,6 +186,34 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     await revenueForm.locator("[name=from]").fill("2026-10-01");
     assert.equal(await vr.locator("[data-vendor-revenue-results]").locator("*").count(), 0,
       "Editing cohort filters must clear prior financial results");
+    // Reopen a current report, then simulate revocation from the server on a
+    // subsequent refresh. A failed private GET must erase the old totals and
+    // CSV link, not leave a former session's finance data on screen.
+    const reloadRevenue = vendor.waitForResponse((response) =>
+      new URL(response.url()).pathname.endsWith("/revenue-cohorts") &&
+      response.request().method() === "GET");
+    await revenueForm.getByRole("button", {
+      name: "View revenue cohorts", exact: true,
+    }).click();
+    assert.equal((await reloadRevenue).status(), 200);
+    await vr.locator("[data-vendor-revenue-results]")
+      .getByRole("heading", { name: "Invoice-cohort totals (simulated)" }).waitFor();
+    const revokedPath = /\\/api\\/commercial\\/vendors\\/\\d+\\/revenue-cohorts\\?/;
+    await vendor.route(revokedPath, async (route) => route.fulfill({
+      status: 409, contentType: "application/json",
+      body: JSON.stringify({ message: "Account authorization changed; sign in again." }),
+    }));
+    const refused = vendor.waitForResponse((response) =>
+      new URL(response.url()).pathname.endsWith("/revenue-cohorts") &&
+      response.request().method() === "GET");
+    await revenueForm.getByRole("button", {
+      name: "View revenue cohorts", exact: true,
+    }).click();
+    assert.equal((await refused).status(), 409);
+    await vendor.waitForFunction(() => !document.querySelector("#commercial-finance").inert);
+    assert.equal(await vr.locator("[data-vendor-revenue-results]").locator("*").count(), 0,
+      "Denied cohort refresh must not retain prior financial output or CSV export");
+    await vendor.unroute(revokedPath);
     // Keep the existing customer refund review and Admin reconciliation flows
     // intact; do not issue any synthetic payment or refund from this report.
     const request = vr.locator(".finance-row").filter({
