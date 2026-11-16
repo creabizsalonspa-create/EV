@@ -11,6 +11,7 @@ window.EvPrivacyRequests = (() => {
             request: null,
             previews: new Set(),
             secrets: new Set(),
+            visibilityVersion: 0,
         },
         admin: {
             root: adminRoot,
@@ -19,6 +20,7 @@ window.EvPrivacyRequests = (() => {
             request: null,
             previews: new Set(),
             secrets: new Set(),
+            visibilityVersion: 0,
         },
     };
 
@@ -210,6 +212,9 @@ window.EvPrivacyRequests = (() => {
                                 password.value = "";
                                 factor.value = "";
                                 preview.textContent = "";
+                                // A hidden-to-visible round trip invalidates an in-flight
+                                // private-copy read even when the response arrives visible.
+                                const visibilityVersion = state.visibilityVersion;
                                 view.disabled = true;
                                 try {
                                     const copy = await state.request(
@@ -219,7 +224,8 @@ window.EvPrivacyRequests = (() => {
                                         controller.signal,
                                     );
                                     if (!active(state, generation, controller) ||
-                                        document.hidden) return;
+                                        document.hidden ||
+                                        visibilityVersion !== state.visibilityVersion) return;
                                     if (
                                         copy.schema_version !== 1 ||
                                         copy.owner_id !== user.id ||
@@ -715,6 +721,10 @@ window.EvPrivacyRequests = (() => {
     // input or an Admin review password in a hidden DOM. No request is replayed.
     document.addEventListener?.("visibilitychange", () => {
         if (document.hidden) {
+            // Do not allow a prior, still-pending private response to become
+            // visible after the tab is foregrounded again.
+            states.mine.visibilityVersion++;
+            states.admin.visibilityVersion++;
             wipeSensitive(states.mine);
             wipeSensitive(states.admin);
         }
