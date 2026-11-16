@@ -178,28 +178,30 @@ class SourceConsumer
         }
         if ($rider) {
             $records = $this->graph('query($station:Int!,$auth:Int!,$after:timestamptz!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},authorizationId:{_eq:$auth},startTime:{_gte:$after}},order_by:{id:desc},limit:25){id transactionId remoteStartId meterStart startTime endTime isActive totalKwh}}', ['station' => $identity['ChargingStations'][0]['id'], 'auth' => $identity['Authorizations'][0]['id'], 'after' => $link->created_at->toImmutable()->subSeconds(2)->toISOString()])['Transactions'] ?? null;
-            if (! is_array($records) || ! array_is_list($records)) {
-                throw new RuntimeException('Malformed authenticated source transaction projection requires reconciliation.');
-            }
-            $assigned = SessionLink::where('binding_id', $link->binding_id)->where('id', '!=', $link->id)->whereNotNull('transaction_id')->pluck('transaction_id')->map(fn ($id) => (string) $id)->all();
-            $records = array_values(array_filter($records, fn ($tx) => ! in_array((string) $tx['transactionId'], $assigned, true)));
         } else {
             $records = $this->graph('query($station:Int!,$auth:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},authorizationId:{_eq:$auth}},limit:2){id transactionId remoteStartId meterStart startTime endTime isActive totalKwh}}', ['station' => $identity['ChargingStations'][0]['id'], 'auth' => $identity['Authorizations'][0]['id']])['Transactions'] ?? null;
         }
         if (! is_array($records) || ! array_is_list($records)) {
             throw new RuntimeException('Malformed authenticated source transaction projection requires reconciliation.');
         }
-        if (count($records) > 1) {
-            throw new RuntimeException('Multiple source transactions require reconciliation.');
-        }
-        if ($records) {
-            $required = ['id', 'transactionId', 'remoteStartId', 'meterStart', 'startTime', 'endTime', 'isActive', 'totalKwh'];
-            if (! is_array($records[0]) || array_diff($required, array_keys($records[0])) !== [] ||
-                ! is_bool($records[0]['isActive']) || ! in_array(gettype($records[0]['transactionId']), ['string', 'integer'], true) ||
-                (string) $records[0]['transactionId'] === '' ||
-                ($records[0]['endTime'] !== null && ! is_string($records[0]['endTime']))) {
+        // Validate every raw row before filtering already-owned rider
+        // transactions. A malformed earlier row must not be silently skipped
+        // or trigger a PHP warning while examining its transactionId.
+        $required = ['id', 'transactionId', 'remoteStartId', 'meterStart', 'startTime', 'endTime', 'isActive', 'totalKwh'];
+        foreach ($records as $candidate) {
+            if (! is_array($candidate) || array_diff($required, array_keys($candidate)) !== [] ||
+                ! is_bool($candidate['isActive']) || ! in_array(gettype($candidate['transactionId']), ['string', 'integer'], true) ||
+                (string) $candidate['transactionId'] === '' ||
+                ($candidate['endTime'] !== null && ! is_string($candidate['endTime']))) {
                 throw new RuntimeException('Malformed authenticated source transaction row requires reconciliation.');
             }
+        }
+        if ($rider) {
+            $assigned = SessionLink::where('binding_id', $link->binding_id)->where('id', '!=', $link->id)->whereNotNull('transaction_id')->pluck('transaction_id')->map(fn ($id) => (string) $id)->all();
+            $records = array_values(array_filter($records, fn ($tx) => ! in_array((string) $tx['transactionId'], $assigned, true)));
+        }
+        if (count($records) > 1) {
+            throw new RuntimeException('Multiple source transactions require reconciliation.');
         }
         if (! $records || $records[0]['meterStart'] === null || ! $records[0]['startTime']) {
             // Initial provisioning can be incomplete. Once source start was

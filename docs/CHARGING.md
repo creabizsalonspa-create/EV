@@ -89,7 +89,9 @@ first signed start event. Hasura station, authorization and transaction
 projections must be well-formed list results, and authorization IDs must
 be positive integers. Transaction rows must contain the full requested
 identity, start/stop, meter and active-state shape; missing fields fail
-closed before any signed event or cursor advance. Absent/malformed
+closed before any signed event or cursor advance. For rider sessions, the
+complete raw source collection is validated **before** already-assigned
+transactions are filtered, preventing malformed older rows from being hidden. Absent/malformed
 collections are a reconciliation failure, not an empty poll or permission
 to infer a source identity. The external station id is not a cross-database
 foreign key. Subsequent observations must match the original id **as well as**
