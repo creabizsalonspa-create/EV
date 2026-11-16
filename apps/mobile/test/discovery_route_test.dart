@@ -413,9 +413,13 @@ void main() {
       await tester.tap(find.byKey(const Key('navigation-consent')));
       await tester.pumpAndSettle();
       expect(launches, 0);
-      final destination = tester.widget<TextField>(
+      final destination = tester.widget<TextFormField>(
           find.byKey(const Key('destination-lat')));
       expect(destination.controller!.text, isEmpty);
+      expect(find.textContaining('1. Synthetic stop'), findsNothing,
+        reason:'Previous account stop must not survive source change');
+      expect(find.byKey(const Key('route-stop-1')), findsNothing,
+        reason:'Previous account catalog requires new authenticated results');
       expect(find.text('Provider estimate only'), findsNothing);
       expect(tester.takeException(), isNull);
     },
