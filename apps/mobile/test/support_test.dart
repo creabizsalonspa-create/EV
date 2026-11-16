@@ -610,18 +610,15 @@ class NumericVisibilityTicketFixture extends SupportFixture {
   }) async {
     final result = await super.request(path, method: method, body: body, query: query);
     if (path == 'support/1' && method == 'GET') {
+      final record = Map<String, dynamic>.from(result as Map);
+      final messages = Map<String, dynamic>.from(record['messages'] as Map);
+      final rows = (messages['data'] as List).whereType<Map>().map((row) {
+        final item = Map<String, dynamic>.from(row);
+        return {...item, 'internal': item['internal'] == true ? 1 : 0};
+      }).toList();
       return {
-        ...result as Map<String, dynamic>,
-        'messages': {
-          ...result['messages'] as Map<String, dynamic>,
-          'data': [
-            for (final row in result['messages']['data'] as List)
-              {
-                ...row as Map<String, dynamic>,
-                'internal': row['internal'] == true ? 1 : 0,
-              },
-          ],
-        },
+        ...record,
+        'messages': {...messages, 'data': rows},
       };
     }
     return result;
