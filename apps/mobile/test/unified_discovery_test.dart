@@ -311,4 +311,37 @@ void main(){
     expect(tester.takeException(),isNull);
   });
  }
+
+ testWidgets('Arabic manual map centre moves an empty map without GPS or automatic catalog search',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi(),tiles=UnifiedFixtureTiles();
+   addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('No implicit charging'),ar:true,tileProvider:tiles));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.queries.length,1);
+   final open=find.byKey(const Key('unified-map-open'));
+   await tester.ensureVisible(open);await tester.tap(open);await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-native-manual-centre')),findsNothing);
+   expect(tiles.requests,0);
+   await tester.tap(find.byKey(const Key('partner-map-enable')));await tester.pumpAndSettle();
+   final latitude=find.byKey(const Key('unified-map-manual-latitude'));
+   final longitude=find.byKey(const Key('unified-map-manual-longitude'));
+   await tester.ensureVisible(latitude);await tester.enterText(latitude,'٢٥٫٢');
+   await tester.ensureVisible(longitude);await tester.enterText(longitude,'٥٥٫٣');
+   final reposition=find.byKey(const Key('unified-native-manual-centre'));
+   await tester.ensureVisible(reposition);await tester.tap(reposition);await tester.pumpAndSettle();
+   expect(api.queries.length,1,reason:'Typing and moving the map are not catalog API requests');
+   expect(find.byKey(const Key('unified-native-gps-error')),findsNothing);
+   final search=find.byKey(const Key('unified-native-viewport-search'));
+   await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(api.queries.length,2);
+   final bbox=api.queries.last;
+   expect(double.parse(bbox['south']!),lessThan(25.2));
+   expect(double.parse(bbox['north']!),greaterThan(25.2));
+   expect(double.parse(bbox['west']!),lessThan(55.3));
+   expect(double.parse(bbox['east']!),greaterThan(55.3));
+   expect(bbox.containsKey('latitude'),false);
+   expect(bbox.containsKey('longitude'),false);
+   expect(tester.takeException(),isNull);
+ });
 }
