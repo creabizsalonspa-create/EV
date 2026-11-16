@@ -207,6 +207,69 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       .waitFor();
     const vendor = await login("vendor"),
       vr = vendor.locator("#commercial-finance");
+    // Finance dashboard is a private read-only issuance-date cohort view. Its
+    // collected/refunded amounts are not claims of legal revenue or cash payout.
+    const revenueForm = vr.locator("form").filter({
+      has: vendor.getByRole("button", {
+        name: "View revenue cohorts", exact: true,
+      }),
+    });
+    await revenueForm.locator("[name=currency]").fill("AED");
+    const revenueRequest = vendor.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname.endsWith("/revenue-cohorts") &&
+        response.request().method() === "GET";
+    });
+    await revenueForm.getByRole("button", {
+      name: "View revenue cohorts", exact: true,
+    }).click();
+    const revenueResponse = await revenueRequest;
+    assert.equal(revenueResponse.status(), 200);
+    const cohorts = await revenueResponse.json();
+    assert.equal(cohorts.real_money_movement, false);
+    assert.equal(cohorts.not_cashflow_or_payout_eligibility, true);
+    assert.equal(cohorts.external_psp_or_bank_verified, false);
+    assert.equal(cohorts.basis, "INVOICE_ISSUANCE_DATE_UTC_COHORT");
+    await vr.locator("[data-vendor-revenue-results]").
+      getByRole("heading", { name: "Invoice-cohort totals (simulated)" }).waitFor();
+    const invoiceDays = await vr.locator("[data-vendor-revenue-results] [data-revenue-date]").count();
+    assert(invoiceDays > 0 && invoiceDays <= 93);
+    const exportLink = vr.locator("[data-vendor-revenue-results]")
+      .getByRole("link", { name: "Download private CSV", exact: true });
+    assert.match(await exportLink.getAttribute("href"), /\/api\/commercial\/vendors\/\d+\/revenue-cohorts\/export\?/);
+    await revenueForm.locator("[name=from]").fill("2026-10-01");
+    assert.equal(await vr.locator("[data-vendor-revenue-results]").locator("*").count(), 0,
+      "Editing cohort filters must clear prior financial results");
+    // Reopen a current report, then simulate revocation from the server on a
+    // subsequent refresh. A failed private GET must erase the old totals and
+    // CSV link, not leave a former session's finance data on screen.
+    const reloadRevenue = vendor.waitForResponse((response) =>
+      new URL(response.url()).pathname.endsWith("/revenue-cohorts") &&
+      response.request().method() === "GET");
+    await revenueForm.getByRole("button", {
+      name: "View revenue cohorts", exact: true,
+    }).click();
+    assert.equal((await reloadRevenue).status(), 200);
+    await vr.locator("[data-vendor-revenue-results]")
+      .getByRole("heading", { name: "Invoice-cohort totals (simulated)" }).waitFor();
+    const revokedPath = new RegExp("api/commercial/vendors/[0-9]+/revenue-cohorts[?]");
+    await vendor.route(revokedPath, async (route) => route.fulfill({
+      status: 409, contentType: "application/json",
+      body: JSON.stringify({ message: "Account authorization changed; sign in again." }),
+    }));
+    const refused = vendor.waitForResponse((response) =>
+      new URL(response.url()).pathname.endsWith("/revenue-cohorts") &&
+      response.request().method() === "GET");
+    await revenueForm.getByRole("button", {
+      name: "View revenue cohorts", exact: true,
+    }).click();
+    assert.equal((await refused).status(), 409);
+    await vendor.waitForFunction(() => !document.querySelector("#commercial-finance").inert);
+    assert.equal(await vr.locator("[data-vendor-revenue-results]").locator("*").count(), 0,
+      "Denied cohort refresh must not retain prior financial output or CSV export");
+    await vendor.unroute(revokedPath);
+    // Keep the existing customer refund review and Admin reconciliation flows
+    // intact; do not issue any synthetic payment or refund from this report.
     const request = vr.locator(".finance-row").filter({
       has: vendor.getByText("Browser refund " + run, { exact: true }),
     });
@@ -538,7 +601,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     assert.equal(await root.textContent(), "");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS actual Laravel financial workspace: checkout authorization/capture, refund request/review, nonbinding next-cycle preview/zero due, subscription gateway capture/entitlement, immutable subscription credit/refund and entitlement revocation, recovery queue privacy, dispute resolution, settlement approval/test payout, CSV download, both themes three widths RTL and logout privacy. MOCK payments only.",
+      "PASS actual Laravel financial workspace: checkout authorization/capture, refund request/review, vendor invoice-cohort analytics, nonbinding next-cycle preview/zero due, subscription gateway capture/entitlement, immutable subscription credit/refund and entitlement revocation, recovery queue privacy, dispute resolution, settlement approval/test payout, CSV download, both themes three widths RTL and logout privacy. MOCK payments only.",
     );
   } finally {
     await browser.close();

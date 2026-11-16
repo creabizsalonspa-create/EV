@@ -74,6 +74,32 @@ withPrivacyFixture(async (fixture) => {
       .filter({ hasText: `Request #${firstId} ·` });
     assert.equal(await root.locator("article").count(), 1);
     assert.equal(await card.locator("b").count(), 0);
+    // A failed authoritative refresh must immediately remove stale private
+    // withdrawal controls, not leave a previously authorized action exposed.
+    const failHistory = async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({message:"Synthetic private history read failure"}),
+      });
+    };
+    await page.route("**/api/account/privacy-requests*", failHistory);
+    await root.getByRole("button", {
+      name: "Refresh requests / تحديث الطلبات", exact: true,
+    }).click();
+    await root.getByText(/Could not load your request history/).waitFor();
+    assert.equal(await root.getByRole("button", {
+      name: "Withdraw request / سحب الطلب", exact: true,
+    }).count(), 0);
+    assert.equal(await root.locator("article").count(), 0);
+    await page.unroute("**/api/account/privacy-requests*", failHistory);
+    await root.getByRole("button", {
+      name: "Refresh requests / تحديث الطلبات", exact: true,
+    }).click();
+    await card.getByRole("button", {
+      name: "Withdraw request / سحب الطلب", exact: true,
+    }).waitFor();
     await card
       .getByRole("button", {
         name: "Withdraw request / سحب الطلب",

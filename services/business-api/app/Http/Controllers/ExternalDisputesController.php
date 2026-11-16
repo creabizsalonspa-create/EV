@@ -45,6 +45,84 @@ class ExternalDisputesController extends Controller
         return $query->orderByDesc('d.id')->paginate(25)->through(fn ($row) => $this->sanitized($row));
     }
 
+    /**
+     * Read-only Admin triage; never polls providers, changes settlement holds
+     * or posts any financial or external dispute operation.
+     */
+    public function deadlineQueue(Request $r)
+    {
+        abort_unless($r->user()->role === 'admin', 403);
+        $values = $r->validate([
+            'window_hours' => 'sometimes|integer|between:0,168',
+            'per_page' => 'sometimes|integer|between:1,25',
+        ]);
+        $window = (int) ($values['window_hours'] ?? 48);
+        $cutoff = now()->addHours($window);
+        $query = $this->scoped($r)->where(function ($q) use ($cutoff) {
+            $q->where('d.status', 'lost')
+                ->orWhere(function ($q) use ($cutoff) {
+                    $q->whereIn('d.status', ['needs_response', 'warning_needs_response'])
+                        ->whereNotNull('d.evidence_due_at')
+                        ->where('d.evidence_due_at', '<=', $cutoff);
+                })
+                ->orWhereExists(function ($q) {
+                    $q->selectRaw('1')->from('external_dispute_evidence as e')
+                        ->whereColumn('e.dispute_id', 'd.id')
+                        ->whereIn('e.status', ['sending', 'uncertain']);
+                });
+        });
+        // SQLite sorts NULLs first while PostgreSQL sorts them last for ASC.
+        // Keep active evidence deadlines ahead of unresolved lost cases on both.
+        $page = $query
+            ->orderByRaw("CASE WHEN d.status IN ('needs_response', 'warning_needs_response') AND d.evidence_due_at IS NOT NULL THEN 0 WHEN d.status = 'lost' THEN 1 ELSE 2 END")
+            ->orderByRaw('CASE WHEN d.evidence_due_at IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('d.evidence_due_at')->orderBy('d.id')
+            ->paginate((int) ($values['per_page'] ?? 20));
+        $rows = $page->getCollection()->map(function ($row) {
+            $unresolved = DB::table('external_dispute_evidence')
+                ->where('dispute_id', $row->id)
+                ->whereIn('status', ['sending', 'uncertain'])->exists();
+            $needs = in_array($row->status, ['needs_response', 'warning_needs_response'], true);
+            $expired = $needs && $row->evidence_due_at
+                && Carbon::parse($row->evidence_due_at)->isPast();
+            $urgency = $row->status === 'lost' ? 'financial_resolution_required'
+                : ($unresolved ? 'provider_submission_uncertain'
+                    : ($expired ? 'deadline_passed' : 'evidence_due_soon'));
+
+            return [
+                'id' => (int) $row->id,
+                'invoice_id' => (int) $row->invoice_id,
+                'currency' => $row->currency,
+                'minor_units' => (int) $row->minor_units,
+                'amount_minor' => (int) $row->amount_minor,
+                'status' => $row->status,
+                'urgency' => $urgency,
+                'evidence_due_at' => $row->evidence_due_at,
+                'provider_observed_at' => $row->provider_observed_at,
+                'provider_observation_stale' => ! $row->provider_observed_at
+                    || Carbon::parse($row->provider_observed_at)->lessThan(now()->subDay()),
+                'deadline_passed' => (bool) $expired,
+                'settlement_hold' => (bool) $row->settlement_hold,
+                'requires_financial_resolution' => $row->status === 'lost',
+                'has_uncertain_evidence' => $unresolved,
+                'evidence' => 'STRIPE_TEST_CONTRACT',
+                'real_money_moved' => false,
+            ];
+        })->values()->all();
+
+        return response()->json([
+            'data' => $rows,
+            'total' => $page->total(),
+            'current_page' => $page->currentPage(),
+            'last_page' => $page->lastPage(),
+            'per_page' => $page->perPage(),
+            'window_hours' => $window,
+            'provider_actions_performed' => false,
+            'real_money_moved' => false,
+            'evidence' => 'STRIPE_TEST_CONTRACT',
+        ])->header('Cache-Control', 'private, no-store');
+    }
+
     public function show(Request $r, int $dispute)
     {
         $row = $this->scoped($r)->where('d.id', $dispute)->first();
