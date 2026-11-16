@@ -154,7 +154,10 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     await tester.pump();
     expect(find.text('SIM-HISTORY-7'), findsNothing);
-    expect(find.text('PRIVATE-PREFIX'), findsNothing);
+    expect(
+      tester.widget<TextFormField>(find.byType(TextFormField).first).controller!.text,
+      isEmpty,
+    );
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
     expect(api.queries.length, requests);
