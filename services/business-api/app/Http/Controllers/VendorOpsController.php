@@ -138,13 +138,22 @@ class VendorOpsController extends Controller
         $v = $r->validate(['legal_name' => 'sometimes|required|string|max:150', 'country' => 'sometimes|required|string|size:2|exists:regions,country', 'trade_license_number' => 'sometimes|required|string|max:100', 'license_expires_on' => 'sometimes|required|date_format:Y-m-d|after:today']);
 
         return DB::transaction(function () use ($r, $company, $v) {
-            $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $c = $this->currentOwnedCompany($r, $company);
             abort_unless(in_array($c->status, ['draft', 'changes_requested', 'rejected']), 409, 'Submitted or approved company details cannot change.');
             $c->update($v);
             $this->access->audit($r->user(), 'company.updated', $c->id);
 
             return $c;
         });
+    }
+
+    /** Authorize an owner against the locked current row, not a route snapshot. */
+    private function currentOwnedCompany(Request $request, VendorCompany $company): VendorCompany
+    {
+        $current = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+        $this->access->owner($request->user(), $current);
+
+        return $current;
     }
 
     /**
@@ -230,7 +239,7 @@ class VendorOpsController extends Controller
         }
         try {
             return DB::transaction(function () use ($r, $company, $v, $file, $path) {
-                $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+                $c = $this->currentOwnedCompany($r, $company);
                 abort_unless(in_array($c->status, ['draft', 'changes_requested', 'rejected']), 409);
                 $d = VendorKycDocument::create(['company_id' => $c->id, 'uploaded_by' => $r->user()->id, 'kind' => $v['kind'], 'storage_path' => $path, 'mime_type' => $file->getMimeType(), 'size_bytes' => $file->getSize(), 'sha256' => hash_file('sha256', $file->getRealPath())]);
                 $this->access->audit($r->user(), 'document.uploaded', $d->id);
@@ -320,7 +329,7 @@ class VendorOpsController extends Controller
         $this->access->owner($r->user(), $company);
 
         $result = DB::transaction(function () use ($r, $company) {
-            $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $c = $this->currentOwnedCompany($r, $company);
             $alreadySubmitted = $c->status === 'submitted';
             abort_unless($alreadySubmitted || in_array($c->status, ['draft', 'changes_requested', 'rejected'], true), 409);
             if (! $alreadySubmitted) {
@@ -472,7 +481,7 @@ class VendorOpsController extends Controller
         $u = User::where('email', $v['email'])->first();
         if ($u && $u->id !== $company->owner_id) {
             DB::transaction(function () use ($r, $company, $u, $v) {
-                VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+                $this->currentOwnedCompany($r, $company);
                 $existing = VendorCompanyStaff::where('company_id', $company->id)->where('user_id', $u->id)->lockForUpdate()->first();
                 abort_if($existing?->admin_revoked_at !== null, 409,
                     'Staff access is under an administrator security hold.');
@@ -508,7 +517,7 @@ class VendorOpsController extends Controller
         $desired = array_values($v['permissions']);
 
         return DB::transaction(function () use ($r, $company, $membership, $v, $desired) {
-            VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $this->currentOwnedCompany($r, $company);
             $grant = VendorCompanyStaff::whereKey($membership->id)
                 ->where('company_id', $company->id)
                 ->lockForUpdate()->firstOrFail();
@@ -588,8 +597,10 @@ class VendorOpsController extends Controller
         $this->access->owner($r->user(), $company);
         abort_unless($membership->company_id === $company->id, 404);
 
-        return DB::transaction(function () use ($r, $membership) {
-            $m = VendorCompanyStaff::whereKey($membership->id)->lockForUpdate()->firstOrFail();
+        return DB::transaction(function () use ($r, $company, $membership) {
+            $this->currentOwnedCompany($r, $company);
+            $m = VendorCompanyStaff::whereKey($membership->id)
+                ->where('company_id', $company->id)->lockForUpdate()->firstOrFail();
             if ($m->status !== 'revoked') {
                 $m->update(['status' => 'revoked', 'invitation_version' => $m->invitation_version + 1]);
                 $this->access->audit($r->user(), 'staff.revoked', $m->id);
