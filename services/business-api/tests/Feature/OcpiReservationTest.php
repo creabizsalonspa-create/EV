@@ -188,6 +188,52 @@ class OcpiReservationTest extends TestCase
         $this->assertSame(2, $calls);
     }
 
+    public function test_only_a_freshly_advertised_reservable_evse_can_be_reserved(): void
+    {
+        $f = $this->setupReservation();
+        $location = $f[4];
+        $owner = $f[3];
+        $this->actingAs($f[1]);
+        $url = '/api/roaming/locations/'.$location->id;
+        $base = $location->payload;
+
+        foreach ([null, [], ['REMOTE_START_STOP_CAPABLE']] as $capabilities) {
+            $this->travel(1)->seconds();
+            $changed = $base;
+            $changed['last_updated'] = now()->toISOString();
+            if ($capabilities === null) {
+                unset($changed['evses'][0]['capabilities']);
+            } else {
+                $changed['evses'][0]['capabilities'] = $capabilities;
+            }
+            app(RecordSynchronizer::class)->ingest($owner, 'locations', [$changed]);
+            $offer = $this->getJson($url.'/sandbox-offers')
+                ->assertOk()
+                ->assertJsonPath('reservation_supported', false)
+                ->assertJsonPath('offers.0.reservation_supported', false)
+                ->json('offers.0');
+            $this->assertNotNull($offer, 'A published non-reservable EVSE remains visible for permitted start flows.');
+            $this->postJson($url.'/sandbox-reservations', [
+                'request_key' => (string) Str::uuid(), 'evse_uid' => 'E1',
+                'connector_id' => '1', 'tariff_id' => 'T1',
+                'offer_hash' => $offer['offer_hash'],
+                'terms_version' => ReservationRoaming::TERMS,
+                'consent' => true, 'duration_minutes' => 5,
+            ])->assertConflict();
+            $this->assertCount(0, $this->writes);
+            $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+            $this->assertDatabaseCount('ocpi_roaming_commands', 0);
+        }
+
+        $this->travel(1)->seconds();
+        $base['last_updated'] = now()->toISOString();
+        app(RecordSynchronizer::class)->ingest($owner, 'locations', [$base]);
+        $this->getJson($url.'/sandbox-offers')->assertOk()
+            ->assertJsonPath('reservation_supported', true)
+            ->assertJsonPath('offers.0.reservation_supported', true);
+        $this->assertCount(0, $this->writes);
+    }
+
     public function test_reservation_consent_validation_operator_and_numeric_route_boundaries_send_nothing(): void
     {
         $f = $this->setupReservation();
