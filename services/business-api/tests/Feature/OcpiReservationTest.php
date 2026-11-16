@@ -239,6 +239,12 @@ class OcpiReservationTest extends TestCase
                     $this->assertSame($previousPayload, $tariff->fresh()->payload);
                 } else {
                     app(RecordSynchronizer::class)->ingest($f[3], 'tariffs', [$raw]);
+                    // SQL datetime columns carry no timezone. A different PHP
+                    // default timezone must not move an OCPI UTC instant or
+                    // grant an unintended tariff-window offer.
+                    $freshTariff = $tariff->fresh();
+                    $this->assertSame($raw['last_updated'], $freshTariff->source_updated_at->toISOString());
+                    $this->assertTrue($freshTariff->received_at->lte(now()));
                     $this->getJson($url)->assertOk()->assertJsonCount(0, 'offers');
                 }
                 $this->assertCount(0, $this->writes);
