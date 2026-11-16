@@ -66,6 +66,7 @@ jobs:
       - run: ./scripts/start
       - run: npm run test:e2e
       - run: npm run test:frontend
+      - run: node --test tests/loyalty-read-privacy.cjs
       - run: npm run test:privacy
       - name: Verify every discovery browser suite within the production catalog budget
         run: npm run test:discovery-connected
@@ -101,6 +102,8 @@ jobs:
           ./scripts/battery-test-setup
           docker restart ev-business-api
           ./scripts/start > /tmp/finance-v3-start.txt
+          # Loyalty test switch is now effective in the restarted local mock API.
+          node tests/loyalty.cjs
           node --test tests/financial-connected.test.cjs
           node tests/financial-connected.cjs
       - uses: actions/upload-artifact@v4
