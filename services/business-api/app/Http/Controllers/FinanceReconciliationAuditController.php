@@ -4,14 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Models\Finance\Invoice;
 use App\Services\Finance\InvoiceReconciliationAudit;
+use App\Security\CurrentFinanceReader;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 final class FinanceReconciliationAuditController extends Controller
 {
     private function page(Request $request, InvoiceReconciliationAudit $audit): array
     {
-        $user = $request->user();
+        $user = app(CurrentFinanceReader::class)->requireCurrent($request);
         abort_unless(in_array($user->role, ['vendor', 'admin'], true), 403);
         $values = $request->validate([
             'currency' => ['sometimes', 'regex:/^[A-Z]{3}$/'],
@@ -54,13 +56,14 @@ final class FinanceReconciliationAuditController extends Controller
 
     public function index(Request $request, InvoiceReconciliationAudit $audit)
     {
-        return response()->json($this->page($request, $audit))->header('Cache-Control', 'private, no-store');
+        return DB::transaction(fn () => response()->json($this->page($request, $audit))
+            ->header('Cache-Control', 'private, no-store'), 3);
     }
 
     public function export(Request $request, InvoiceReconciliationAudit $audit)
     {
         // Same tenant-scoped, validated page as JSON; never an unbounded export.
-        $payload = $this->page($request, $audit);
+        $payload = DB::transaction(fn () => $this->page($request, $audit), 3);
 
         return response()->streamDownload(static function () use ($payload): void {
             $output = fopen('php://output', 'wb');
