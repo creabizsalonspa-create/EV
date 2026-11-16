@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Services\Discovery\LookupFailure;
 use App\Services\Discovery\OpenChargeMapAdapter;
+use App\Services\Discovery\OpenChargeMapProjection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -469,6 +470,39 @@ class OpenChargeMapDiscoveryTest extends TestCase
             ->assertOk()
             ->assertJsonPath('count', 0);
         Http::assertSentCount(1);
+    }
+
+    public function test_crowd_report_with_impossible_utc_offset_cannot_become_fresh_source_evidence(): void
+    {
+        // DateTimeImmutable accepts +14:30 as a valid offset even though
+        // real ISO 8601 offset limits stop at +/-14:00. Source time evidence
+        // must be verified before Carbon/cache age calculations.
+        $clock = new \DateTimeImmutable('2026-11-16T12:00:00Z');
+        foreach ([
+            '2026-11-16T10:30:00+14:30',
+            '2026-11-16T10:30:00-14:01',
+            '2026-11-16T10:30:00+99:99',
+            '2026-11-16T10:30:00+00:61',
+            '2026-02-30T10:30:00+02:00',
+        ] as $invalid) {
+            $poi = $this->point();
+            $poi['DateLastStatusUpdate'] = $invalid;
+            $readout = OpenChargeMapProjection::item($poi, $clock);
+            $this->assertIsArray($readout);
+            $this->assertNull($readout['source_updated_at'], 'Impossible upstream source instant cannot be trusted');
+            $this->assertNull($readout['source_age_minutes']);
+            $this->assertSame('SOURCE_TIME_UNKNOWN', $readout['source_clock_evidence']);
+            $this->assertSame('unknown', $readout['availability']);
+            $this->assertFalse($readout['remote_control']);
+            $this->assertFalse($readout['reservable']);
+            $this->assertFalse($readout['billing_eligible']);
+        }
+        $valid = $this->point();
+        $valid['DateLastStatusUpdate'] = '2026-11-16T10:30:00+14:00';
+        $normal = OpenChargeMapProjection::item($valid, $clock);
+        $this->assertSame('2026-11-15T20:30:00Z', $normal['source_updated_at']);
+        $this->assertSame('CROWD_REPORTED_TIME', $normal['source_clock_evidence']);
+        Http::assertNothingSent();
     }
 
     public function test_invalid_cached_calendar_date_cannot_be_promoted_to_fresh_source(): void
