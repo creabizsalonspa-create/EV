@@ -221,7 +221,11 @@ void main(){
   roomy(tester);
   final api=UnifiedApi()..pending=Completer<dynamic>();addTearDown(api.close);await tester.pumpWidget(app(api,(_)=>fail('Unexpected station handoff'),customer:true));await tester.tap(find.byType(FilledButton));await tester.pump();api.epoch++;
   api.pending!.complete({'data':[partnerRow()],'current_page':1,'last_page':1,'total':1});await tester.pumpAndSettle();expect(find.text('Synthetic partner'),findsNothing);expect(find.text('Account changed. Reopen search.'),findsOneWidget);
-  await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();expect(api.calls.length,1);
+  // The account-revocation surface hides all controls; a stale view cannot
+  // initiate another search after an in-flight old-account response.
+  expect(find.byType(FilledButton),findsNothing);
+  expect(find.byKey(const Key('unified-query')),findsNothing);
+  expect(api.calls.length,1);
  });
  testWidgets('background and old account responses cannot repopulate results',(tester)async{
   roomy(tester);
