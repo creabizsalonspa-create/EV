@@ -159,6 +159,32 @@ class CorporateBillingTest extends TestCase
                 $this->postJson($this->url('statements/'.$statement['id'].'/simulate-payment'), [
                     'idempotency_key' => 'revoked-no-corporate-ledger-post',
                 ])->assertConflict();
+                $this->postJson($this->url('agreements/'.$agreement['id'].'/accept'), [
+                    'consent' => true,
+                ])->assertConflict();
+                $this->postJson($this->url('agreements/'.$agreement['id'].'/claims'), [
+                    'invoice_id' => $claim['invoice_id'], 'cost_center_id' => $this->center,
+                    'idempotency_key' => 'revoked-corporate-claim',
+                ])->assertConflict();
+                $this->postJson($this->url('claims/'.$claim['id'].'/review'), [
+                    'decision' => 'approved', 'reason' => 'Revoked actor must not review',
+                ])->assertConflict();
+                $this->postJson($this->url('agreements/'.$agreement['id'].'/statements'), [
+                    'period' => now()->format('Y-m'), 'claim_ids' => [$claim['id']],
+                    'idempotency_key' => 'revoked-corporate-invoice',
+                ])->assertConflict();
+                if ($snapshot->role === 'admin') {
+                    $this->postJson($this->url('fleets/'.$this->fleet->id.'/agreements'), [
+                        'currency' => 'AED', 'minor_units' => 2,
+                        'credit_limit_minor' => 100000, 'payment_terms_days' => 30,
+                        'billing_day' => 1,
+                        'effective_from' => now()->addDays(2)->toIso8601String(),
+                        'expires_at' => now()->addYear()->toIso8601String(),
+                        'legal_name' => 'Must not publish when revoked',
+                        'terms' => 'A revoked Admin cannot create this agreement.',
+                        'idempotency_key' => 'revoked-new-agreement',
+                    ])->assertConflict();
+                }
                 DB::table('users')->where('id', $reader->id)->update($original);
             }
         }
