@@ -204,7 +204,9 @@ class OcpiReservationTest extends TestCase
             // interpreting it as New York-local would make it appear future.
             foreach (['Asia/Dubai' => 'start_date_time',
                       'America/New_York' => 'end_date_time',
-                      'UTC' => 'invalid_date'] as $zone => $boundary) {
+                      'UTC' => 'invalid_date',
+                      'Europe/London' => 'null_start',
+                      'Pacific/Auckland' => 'null_end'] as $zone => $boundary) {
                 date_default_timezone_set($zone);
                 $this->travel(1)->seconds();
                 $raw = $source;
@@ -213,6 +215,10 @@ class OcpiReservationTest extends TestCase
                     $raw['start_date_time'] = now()->utc()->addMinutes(30)->format('Y-m-d\TH:i:s');
                 } elseif ($boundary === 'end_date_time') {
                     $raw['end_date_time'] = now()->utc()->subMinutes(30)->format('Y-m-d\TH:i:s');
+                } elseif ($boundary === 'null_start') {
+                    $raw['start_date_time'] = null;
+                } elseif ($boundary === 'null_end') {
+                    $raw['end_date_time'] = null;
                 } else {
                     $raw['start_date_time'] = '2026-02-30T09:00:00';
                 }

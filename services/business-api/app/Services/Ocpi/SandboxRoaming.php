@@ -61,12 +61,12 @@ class SandboxRoaming
         // server timezone. Fail closed on offset, relative or rolled dates.
         // This is pure source-window validation, never live tariff authority.
         $utcDates = app(ReservationRoaming::class);
-        if (isset($rawTariff['start_date_time'])) {
+        if (array_key_exists('start_date_time', $rawTariff)) {
             $start = $utcDates->sourceUtcInstant($rawTariff['start_date_time']);
             abort_unless($start !== null && $start->lte(now()), 409,
                 'Partner tariff start time requires UTC review.');
         }
-        if (isset($rawTariff['end_date_time'])) {
+        if (array_key_exists('end_date_time', $rawTariff)) {
             $end = $utcDates->sourceUtcInstant($rawTariff['end_date_time']);
             abort_unless($end !== null && $end->gt(now()), 409,
                 'Partner tariff end time requires UTC review.');
