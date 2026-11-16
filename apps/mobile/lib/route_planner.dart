@@ -88,6 +88,8 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
       estimate = null;
       error = null;
       loading = false;
+      // A new account also requires fresh opt-in before OSM tile traffic.
+      tiles = false;
       capabilities = null;
       loadCapabilities();
     }
@@ -111,6 +113,10 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   void invalidate() {
     generation++;
     setState(() {
+      // Consent applies to the exact origin, destination and stops reviewed.
+      // Editing any route input must not silently authorize sending a new
+      // itinerary to the third-party routing provider.
+      consent = false;
       estimate = null;
       error = null;
       loading = false;
