@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const {test} = require("node:test");
 const src = fs.readFileSync("services/business-api/public/platform.js", "utf8");
-const stateBegin = src.indexOf("let garageGeneration = 0");
+const stateBegin = src.indexOf("let fleetPage = 1");
 const stateEnd = src.indexOf("let unconfirmedFavorite",stateBegin);
 const begin = src.indexOf("function resetCustomerMutationState()");
 const end = src.indexOf("async function support()", begin);
@@ -12,7 +12,8 @@ assert(stateBegin >= 0 && stateEnd > stateBegin &&
 const ticketBegin = src.indexOf('el("support-create").onsubmit');
 const ticketEnd = src.indexOf('el("verify-email")',ticketBegin);
 assert(ticketBegin > end && ticketEnd > ticketBegin, "customer support source boundary");
-const code = src.slice(stateBegin,stateEnd) + "\n" +
+const code = "let garagePage=1, garageGeneration=0, garageRequest=null, garageOwner=null;\n" +
+    src.slice(stateBegin,stateEnd) + "\n" +
     src.slice(begin,end) + "\n" + src.slice(ticketBegin,ticketEnd);
 function harness() {
     const elements = new Map();
@@ -20,6 +21,7 @@ function harness() {
         if (!elements.has(id)) elements.set(id,{
             children:[],
             elements:{name:{value:""},locale:{value:""}},
+            setAttribute(){},removeAttribute(){},dataset:{},
             replaceChildren(...children){this.children=children;},
             append(...children){this.children.push(...children);},
             querySelector(selector){return selector === "button" ? this.submit || null : null;},
@@ -40,16 +42,16 @@ function harness() {
             return new Promise(resolve => {profiles.push(resolve);});
         if (path === "support" && method === "POST")
             return new Promise(resolve => {tickets.push(resolve);});
-        if (path === "vehicles")
+        if (path === "vehicles" || path.startsWith("vehicles?page="))
             return new Promise(resolve => {reads.push(resolve);});
         throw Error("unexpected "+path);
     };
-    const node = (tag,value) => ({tag,value,children:[],append(x){this.children.push(x);}});
-    const env = {el,client,user,api,node,batteryNode:node,
+    const node = (tag,value) => ({tag,value,dataset:{},children:[],setAttribute(){},removeAttribute(){},append(...items){this.children.push(...items);}});
+    const env = {el,client,user,api,node,ui:node,batteryNode:node,supportPage:1,
         batteryEditor:()=>{},driverPreferences:{open:()=>{}},
         vehicleModelCatalog:{renderGarage:()=>{}},
         vehicleManualSoc:{renderGarage:()=>{}},
-        document:{createElement:()=>({dataset:{}}),documentElement:{lang:"en"}},
+        document:{createElement:tag=>node(tag),documentElement:{lang:"en"}},
         notice:e=>notices.push(e),
         EvLocale:{set:value=>localeUpdates.push(value)},
         identity:async()=>{},
@@ -60,7 +62,7 @@ function harness() {
     };
     const methods = new Function("env", "with(env){"+code+"return {garage,resetCustomerMutationState};}")(env);
     return {methods,el,client,user,requests,notices,localeUpdates,
-        resolveRead:(index,value)=>reads[index](value),
+        resolveRead:(index,value)=>reads[index]({current_page:1,last_page:1,total:value?.data?.length??0,...value}),
         resolveCreate:(index=0)=>creates[index](),
         resolveProfile:(value,index=0)=>profiles[index](value),
         resolveTicket:(index,value)=>tickets[index](value),
@@ -71,6 +73,7 @@ test("late garage response cannot render a previous customer's private vehicles"
     const h=harness(),p=h.methods.garage();
     h.client.sessionEpoch++;
     h.user.id=8;
+    h.el("vehicle-list").replaceChildren(); // normal account-switch cleanup
     h.resolveRead(0,{data:[{id:55,name:"Private",connector_type:"CCS2"}]});
     await p;
     assert.equal(h.el("vehicle-list").children.length,0);
@@ -80,7 +83,7 @@ test("overlapping garage reads cannot replace the newest list",async()=>{
     const second=h.methods.garage();
     h.resolveRead(1,{data:[]});await second;
     h.resolveRead(0,{data:[{id:55,name:"Old",connector_type:"CCS2"}]});await first;
-    assert.equal(h.el("vehicle-list").children.length,0);
+    assert.equal(h.el("vehicle-list").children.some(row=>String(row.value).includes("Old")),false);
 });
 test("vehicle create submits only once while pending and does not render after account switch",async()=>{
     const h=harness(),form=h.el("vehicle-create");
@@ -119,11 +122,11 @@ test("starting a garage refresh immediately clears previously displayed private 
     const h=harness(),list=h.el("vehicle-list");
     list.append({value:"Prior account vehicle"});
     const pending=h.methods.garage();
-    assert.equal(list.children.length,0);
+    assert.equal(list.children.some(row=>String(row.value).includes("Prior account vehicle")),false);
     h.client.sessionEpoch++;
     h.resolveRead(0,{data:[{id:1,name:"Previous",connector_type:"CCS2"}]});
     await pending;
-    assert.equal(list.children.length,0);
+    assert.equal(list.children.some(row=>String(row.value).includes("Previous")),false);
 });
 
 test("new account vehicle create stays locked independently of old pending acknowledgement",async()=>{

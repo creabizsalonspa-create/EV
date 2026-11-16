@@ -12,7 +12,7 @@ let fleetDetailGeneration = 0, fleetDetailRequest = null;
 let fleetCreatePending = false;
 // Startup's pending-logout branch can clear identity before lower sections
 // initialize. Every mutation lock read by clearPrivateViews must exist now.
-let garageGeneration = 0, vehicleCreatePending = false,
+let vehicleCreatePending = false,
     vehicleCreateGeneration = 0, profileUpdateGeneration = 0,
     profileUpdatePending = false;
 let pendingTicketCreate = null, ticketCreatePending = false, ticketCreateGeneration = 0;
@@ -21,6 +21,19 @@ let favoriteMode = false,
     previousCatalogQuery = "";
 let commandRequest = null,
     commandPage = 1;
+let reservationPage = 1,
+    reservationGeneration = 0,
+    reservationRequest = null,
+    reservationOwner = null;
+let supportPage = 1,
+    supportGeneration = 0,
+    supportRequest = null,
+    supportOwner = null;
+let ticketDetailGeneration = 0, ticketDetailRequest = null;
+let simulationPage = 1, simulationGeneration = 0,
+    simulationRequest = null, simulationOwner = null;
+let garagePage = 1, garageGeneration = 0,
+    garageRequest = null, garageOwner = null;
 let user = null,
     csrf = document.querySelector("meta[name=csrf-token]").content;
 const el = (id) => document.getElementById(id),
@@ -147,6 +160,34 @@ function clearPrivateViews() {
     if (createFleetButton) createFleetButton.disabled = false;
     for (const id of ["fleet-list", "fleet-invitations", "fleet-detail"])
         el(id).removeAttribute("aria-busy");
+    reservationRequest?.abort();
+    reservationRequest = null;
+    reservationGeneration++;
+    reservationPage = 1;
+    reservationOwner = null;
+    el("reservation-list").removeAttribute("aria-busy");
+    supportRequest?.abort();
+    supportRequest = null;
+    supportGeneration++;
+    supportPage = 1;
+    supportOwner = null;
+    el("ticket-list").removeAttribute("aria-busy");
+    ticketDetailRequest?.abort();
+    ticketDetailRequest = null;
+    ticketDetailGeneration++;
+    el("ticket-detail").removeAttribute("aria-busy");
+    simulationRequest?.abort();
+    simulationRequest = null;
+    simulationGeneration++;
+    simulationPage = 1;
+    simulationOwner = null;
+    el("simulation-list").removeAttribute("aria-busy");
+    garageRequest?.abort();
+    garageRequest = null;
+    garageGeneration++;
+    garagePage = 1;
+    garageOwner = null;
+    el("vehicle-list").removeAttribute("aria-busy");
     riderWorkspace.clear();
     vendorWorkspace.clear();
     vehicleModelCatalog.clear();
@@ -384,14 +425,53 @@ async function initialCatalog() {
     if (renderedCatalogIdentity !== catalogIdentityKey()) await stations(requestedCatalogQuery);
 }
 function reservationForm(s, mapping = null) {
-    let f = document.createElement("form"),
-        l = ui("label", "UTC start (00 or 30 minutes)"),
-        i = document.createElement("input");
+    const stationZone = window.EvStationTime.validZone(s.timezone);
+    const f = document.createElement("form");
+    const l = document.createElement("label");
+    const timeTitle = batteryNode("span", "Start (UTC, :00 or :30)", "البداية (UTC، الدقيقة 00 أو 30)");
+    const i = document.createElement("input");
     i.type = "datetime-local";
     i.step = 1800;
     i.required = true;
-    l.append(i);
-    f.append(l);
+    l.append(timeTitle, i);
+    const modeLabel = document.createElement("label");
+    const mode = document.createElement("select");
+    mode.dataset.bookingTimeMode = "true";
+    if (stationZone) {
+        const local = new Option("Station local (" + stationZone + ")", "station");
+        local.dataset.en = "Station local (" + stationZone + ")";
+        local.dataset.ar = "توقيت المحطة (" + stationZone + ")";
+        mode.append(local);
+    }
+    const utc = new Option("UTC (exact slot)", "utc");
+    utc.dataset.en = "UTC (exact slot)";
+    utc.dataset.ar = "UTC (موعد محدد)";
+    mode.append(utc);
+    modeLabel.append(batteryNode("span", "Time reference", "مرجع التوقيت"), mode);
+    const hint = batteryNode("p", "", "");
+    hint.setAttribute("role", "status");
+    const showTimeMode = () => {
+        i.value = "";
+        // A station in a quarter-hour-offset region can have valid UTC
+        // half-hour slots at :15 or :45 local. Validation remains UTC-owned.
+        i.step = mode.value === "station" ? 60 : 1800;
+        if (mode.value === "station") {
+            batteryText(timeTitle, "Station-local start (30-min UTC slot)", "البداية بتوقيت المحطة (موعد UTC بفاصل 30 دقيقة)");
+            batteryText(hint, "Uses " + stationZone + ". Some offsets require :15 or :45 locally. For repeated or missing DST times use UTC.",
+                "يستخدم توقيت " + stationZone + ". عند تكرار ساعة أو غيابها بسبب التوقيت الصيفي اختر UTC.");
+        } else {
+            batteryText(timeTitle, "UTC start (:00 or :30)", "البداية بتوقيت UTC (00 أو 30)");
+            batteryText(hint, stationZone
+                ? "Enter the exact UTC time; your device timezone is not used."
+                : "Station timezone unavailable. Enter the exact UTC time.",
+                stationZone
+                    ? "أدخل وقت UTC المحدد؛ لا يُستخدم توقيت جهازك."
+                    : "توقيت المحطة غير متاح. أدخل وقت UTC المحدد.");
+        }
+    };
+    mode.addEventListener("change", showTimeMode);
+    f.append(modeLabel, l, hint);
+    showTimeMode();
     const policy = s.reservation_terms;
     if (policy != null && !window.EvReservationPolicy?.valid(policy)) {
         f.replaceChildren(batteryNode('p', 'Reservation terms are unavailable. Refresh before booking.', 'شروط الحجز غير متاحة. حدّث قبل الحجز.'));
@@ -440,15 +520,18 @@ function reservationForm(s, mapping = null) {
                 ...(termsVersion ? {expected_reservation_terms_version:termsVersion} : {}),
                 ...(vehicle.value ? { vehicle_id: Number(vehicle.value) } : {}),
                 ...(mapping ? { connector_mapping_id: mapping.id } : {}),
-                starts_at:
-                    i.value.length === 16 ? i.value + ":00Z" : i.value + "Z",
+                starts_at: window.EvStationTime.toUtc(
+                    i.value, mode.value === "station" ? stationZone : "UTC",
+                ),
                 idempotency_key: bookingKey,
             });
             bookingKey = crypto.randomUUID();
             notice(
                 "Simulation inventory reserved. No physical charger command was sent.",
             );
-            await bookings();
+            // The canonical list is newest first. Show the freshly created
+            // reservation rather than leaving the customer on an older page.
+            await bookings(1);
         } catch (e) {
             notice(e);
         } finally {
@@ -761,15 +844,44 @@ async function stations(query = "") {
         el("stations").append(a);
     }
 }
-async function bookings() {
-    let j = await api("reservations");
-    el("reservation-list").replaceChildren();
-    if (!j.data.length)
-        empty(
-            "reservation-list",
-            "No reservations yet. Choose a simulator station to try a booking. / لا توجد حجوزات بعد",
-        );
-    for (let r of j.data) {
+async function bookings(page = reservationPage) {
+    if (!user || !Number.isSafeInteger(page) || page < 1) return;
+    const owner = client.sessionEpoch + ":" + user.id + ":" + user.role;
+    if (reservationOwner !== owner) {
+        reservationOwner = owner;
+        reservationPage = 1;
+        page = 1;
+    }
+    reservationRequest?.abort();
+    const controller = new AbortController();
+    reservationRequest = controller;
+    const generation = ++reservationGeneration;
+    const epoch = client.sessionEpoch, actor = user.id;
+    const active = () => generation === reservationGeneration &&
+        epoch === client.sessionEpoch && actor === user?.id &&
+        reservationRequest === controller && !controller.signal.aborted;
+    const list = el("reservation-list");
+    list.setAttribute("aria-busy", "true");
+    list.replaceChildren(batteryNode("p", "Loading reservations…", "جارٍ تحميل الحجوزات…"));
+    try {
+        const j = await api("reservations?page=" + page, "GET", undefined, controller.signal);
+        if (!active()) return;
+        if (!Array.isArray(j?.data) || !Number.isSafeInteger(j.current_page) ||
+            !Number.isSafeInteger(j.last_page) || !Number.isSafeInteger(j.total) ||
+            j.current_page < 1 || j.last_page < 1 || j.total < 0 ||
+            j.current_page !== page)
+            throw new Error("Unrecognized reservation response.");
+        if (page > j.last_page) {
+            await bookings(j.last_page);
+            return;
+        }
+        reservationPage = page;
+        list.replaceChildren();
+        if (!j.data.length)
+            list.append(batteryNode("p",
+                "No reservations found on this page. / No physical charger booking is implied.",
+                "لا توجد حجوزات في هذه الصفحة. هذا لا يؤكد حجز شاحن فعلي."));
+        for (let r of j.data) {
         let a = ui(
             "article",
             "#{id} · station {station} · {time} UTC · {status}",
@@ -780,6 +892,10 @@ async function bookings() {
                 status: { translate: r.status },
             },
         );
+        const stationTimeEn = window.EvStationTime.displayStationTime(r.starts_at, r.station_timezone, "en");
+        if (stationTimeEn)
+            a.append(batteryNode("p", "Station local · " + stationTimeEn,
+                "توقيت المحطة · " + window.EvStationTime.displayStationTime(r.starts_at, r.station_timezone, "ar")));
         window.EvReservationPolicy?.attach(a, r.reservation_terms_snapshot);
         if (r.vehicle_connector_type) a.append(r.vehicle_label
             ? node("p", r.vehicle_label + " · " + r.vehicle_connector_type)
@@ -857,17 +973,79 @@ async function bookings() {
             };
             a.append(start);
         }
-        el("reservation-list").append(a);
+            list.append(a);
+        }
+        const pager = document.createElement("nav");
+        pager.className = "pagination";
+        pager.dataset.reservationPagination = "true";
+        pager.setAttribute("aria-label", "Reservation pages / صفحات الحجوزات");
+        pager.append(ui("span", "Page {page} of {last} · {total} records", {
+            page: j.current_page, last: j.last_page, total: j.total,
+        }));
+        for (const [key, label, ar, targetPage, disabled] of [
+            ["previous", "Previous", "السابق", page - 1, page <= 1],
+            ["next", "Next", "التالي", page + 1, page >= j.last_page],
+            ["refresh", "Refresh", "تحديث", page, false],
+        ]) {
+            const button = batteryNode("button", label, ar);
+            button.type = "button";
+            button.dataset.reservationPageAction = key;
+            button.disabled = disabled;
+            button.addEventListener("click", () => {
+                if (active()) void bookings(targetPage);
+            });
+            pager.append(button);
+        }
+        list.append(pager);
+    } catch (error) {
+        if (!active()) return;
+        list.replaceChildren(batteryNode("p", "Reservations could not be loaded. Refresh to retry.",
+            "تعذر تحميل الحجوزات. حدّث للمحاولة مرة أخرى."));
+        const retry = batteryNode("button", "Retry reservations", "إعادة محاولة تحميل الحجوزات");
+        retry.type = "button";
+        retry.dataset.reservationRetry = "true";
+        retry.onclick = () => { if (active()) void bookings(page); };
+        list.append(retry);
+    } finally {
+        if (active()) list.removeAttribute("aria-busy");
     }
 }
-async function simulations() {
-    let j = await api("simulations");
-    el("simulation-list").replaceChildren();
+async function simulations(page = simulationPage) {
+    if (!user || !Number.isSafeInteger(page) || page < 1) return;
+    const owner = client.sessionEpoch + ":" + user.id + ":" + user.role;
+    if (simulationOwner !== owner) {
+        simulationOwner = owner;
+        simulationPage = 1;
+        page = 1;
+    }
+    simulationRequest?.abort();
+    const controller = new AbortController();
+    simulationRequest = controller;
+    const generation = ++simulationGeneration,
+        epoch = client.sessionEpoch, actor = user.id;
+    const active = () => generation === simulationGeneration &&
+        epoch === client.sessionEpoch && actor === user?.id &&
+        simulationRequest === controller && !controller.signal.aborted;
+    const list = el("simulation-list");
+    list.setAttribute("aria-busy", "true");
+    list.replaceChildren(batteryNode("p", "Loading charging sessions…",
+        "جارٍ تحميل جلسات الشحن…"));
+    try {
+    const j = await api("simulations?page=" + page, "GET", undefined, controller.signal);
+    if (!active()) return;
+    if (!Array.isArray(j?.data) || !Number.isSafeInteger(j.current_page) ||
+        !Number.isSafeInteger(j.last_page) || !Number.isSafeInteger(j.total) ||
+        j.current_page !== page || j.last_page < 1 || j.total < 0)
+        throw new Error("Unrecognized charging session response.");
+    if (page > j.last_page) {
+        await simulations(j.last_page);
+        return;
+    }
+    simulationPage = page;
+    list.replaceChildren();
     if (!j.data.length)
-        empty(
-            "simulation-list",
-            "No simulated sessions yet. Your session history will appear here. / لا توجد جلسات بعد",
-        );
+        list.append(batteryNode("p", "No charging sessions on this page.",
+            "لا توجد جلسات شحن في هذه الصفحة."));
     for (let s of j.data) {
         let a = ui(
             "article",
@@ -1063,7 +1241,40 @@ async function simulations() {
                 a.append(f);
             }
         }
-        el("simulation-list").append(a);
+        list.append(a);
+    }
+    const pager = document.createElement("nav");
+    pager.className = "pagination";
+    pager.dataset.simulationPagination = "true";
+    pager.setAttribute("aria-label", "Charging session pages / صفحات جلسات الشحن");
+    pager.append(ui("span", "Page {page} of {last} · {total} records", {
+        page: j.current_page, last: j.last_page, total: j.total,
+    }));
+    for (const [key, en, ar, target, disabled] of [
+        ["previous", "Previous", "السابق", page - 1, page <= 1],
+        ["next", "Next", "التالي", page + 1, page >= j.last_page],
+        ["refresh", "Refresh", "تحديث", page, false],
+    ]) {
+        const button = batteryNode("button", en, ar);
+        button.type = "button";
+        button.dataset.simulationPageAction = key;
+        button.disabled = disabled;
+        button.onclick = () => { if (active()) void simulations(target); };
+        pager.append(button);
+    }
+    list.append(pager);
+    } catch (error) {
+        if (!active()) return;
+        list.replaceChildren(batteryNode("p",
+            "Charging sessions could not be loaded. Retry to verify current source state.",
+            "تعذر تحميل جلسات الشحن. أعد المحاولة للتحقق من حالة المصدر."));
+        const retry = batteryNode("button", "Retry charging sessions", "إعادة تحميل جلسات الشحن");
+        retry.type = "button";
+        retry.dataset.simulationRetry = "true";
+        retry.onclick = () => { if (active()) void simulations(page); };
+        list.append(retry);
+    } finally {
+        if (active()) list.removeAttribute("aria-busy");
     }
 }
 async function regions() {
@@ -1807,18 +2018,41 @@ function resetCustomerMutationState() {
         if (submit) submit.disabled = false;
     }
 }
-async function garage() {
-    const epoch = client.sessionEpoch, actor = user?.id;
-    if (!actor) return;
-    const generation = ++garageGeneration;
+async function garage(page = garagePage, showNewest = false) {
+    if (!user || !Number.isSafeInteger(page) || page < 1) return;
+    const owner = client.sessionEpoch + ":" + user.id + ":" + user.role;
+    if (garageOwner !== owner) {
+        garageOwner = owner;
+        garagePage = 1;
+        page = 1;
+    }
+    garageRequest?.abort();
+    const controller = new AbortController();
+    garageRequest = controller;
+    const generation = ++garageGeneration,
+        epoch = client.sessionEpoch, actor = user.id;
     const active = () => generation === garageGeneration &&
-        epoch === client.sessionEpoch && actor === user?.id;
-    // Clear the previous account's vehicles before requesting the next list.
-    // A failed or delayed read must not leave private rows on screen.
-    el("vehicle-list").replaceChildren();
-    const j = await api("vehicles");
+        epoch === client.sessionEpoch && actor === user?.id &&
+        garageRequest === controller && !controller.signal.aborted;
+    const list = el("vehicle-list");
+    list.setAttribute("aria-busy", "true");
+    list.replaceChildren(batteryNode("p", "Loading vehicles…", "جارٍ تحميل المركبات…"));
+    try {
+    const j = await api("vehicles?page=" + page, "GET", undefined, controller.signal);
     if (!active()) return;
-    if (!Array.isArray(j?.data)) throw Error("Unreadable vehicle list.");
+    if (!Array.isArray(j?.data) || !Number.isSafeInteger(j.current_page) ||
+        !Number.isSafeInteger(j.last_page) || !Number.isSafeInteger(j.total) ||
+        j.current_page !== page || j.last_page < 1 || j.total < 0)
+        throw new Error("Unrecognized garage response.");
+    if (page > j.last_page || (showNewest && page < j.last_page)) {
+        await garage(j.last_page);
+        return;
+    }
+    garagePage = page;
+    list.replaceChildren();
+    if (!j.data.length)
+        list.append(batteryNode("p", "No vehicles on this page.",
+            "لا توجد مركبات في هذه الصفحة."));
     for (const v of j.data) {
         const row = node("div", "#" + v.id + " · " + v.name + " · " + v.connector_type);
         if (user.role === "customer") {
@@ -1836,12 +2070,50 @@ async function garage() {
             button.onclick = () => driverPreferences.open(v);
             row.append(button);
         }
-        el("vehicle-list").append(row);
+        row.dataset.garageVehicleId = String(v.id);
+        list.append(row);
     }
     vehicleModelCatalog.renderGarage(j.data);
     vehicleManualSoc.renderGarage(j.data);
     el("profile-form").elements.name.value = user.name;
     el("profile-form").elements.locale.value = user.locale;
+    const pager = document.createElement("nav");
+    pager.className = "pagination";
+    pager.dataset.garagePagination = "true";
+    pager.setAttribute("aria-label", "Vehicle garage pages / صفحات مرآب المركبات");
+    pager.append(ui("span", "Page {page} of {last} · {total} records", {
+        page: j.current_page, last: j.last_page, total: j.total,
+    }));
+    for (const [key, en, ar, target, disabled] of [
+        ["previous", "Previous", "السابق", page - 1, page <= 1],
+        ["next", "Next", "التالي", page + 1, page >= j.last_page],
+        ["refresh", "Refresh", "تحديث", page, false],
+    ]) {
+        const b = batteryNode("button", en, ar);
+        b.type = "button";
+        b.dataset.garagePageAction = key;
+        b.disabled = disabled;
+        b.onclick = () => { if (active()) void garage(target); };
+        pager.append(b);
+    }
+    list.append(pager);
+    } catch (error) {
+        if (!active()) return;
+        list.replaceChildren(batteryNode("p",
+            "Garage could not be loaded. Retry before using vehicle-specific tools.",
+            "تعذر تحميل المركبات. أعد المحاولة قبل استخدام أدوات المركبة."));
+        // Do not retain model or manually reported battery controls from an
+        // unverified previous page: the newly requested scope is unknown.
+        vehicleModelCatalog.renderGarage([]);
+        vehicleManualSoc.renderGarage([]);
+        const retry = batteryNode("button", "Retry garage", "إعادة تحميل المركبات");
+        retry.type = "button";
+        retry.dataset.garageRetry = "true";
+        retry.onclick = () => { if (active()) void garage(page, showNewest); };
+        list.append(retry);
+    } finally {
+        if (active()) list.removeAttribute("aria-busy");
+    }
 }
 el("vehicle-create").onsubmit = async (e) => {
     e.preventDefault();
@@ -1859,7 +2131,7 @@ el("vehicle-create").onsubmit = async (e) => {
             "POST",
             Object.fromEntries(new FormData(e.target)),
         );
-        if (active()) await garage();
+        if (active()) await garage(1, true);
     } catch (error) {
         if (active()) notice(error);
     } finally {
@@ -1900,21 +2172,92 @@ el("profile-form").onsubmit = async (e) => {
         }
     }
 };
+async function refreshSupportTickets(page = supportPage) {
+    if (!user || !Number.isSafeInteger(page) || page < 1) return;
+    const owner = client.sessionEpoch + ":" + user.id + ":" + user.role;
+    if (supportOwner !== owner) {
+        supportOwner = owner;
+        supportPage = 1;
+        page = 1;
+    }
+    supportRequest?.abort();
+    const controller = new AbortController();
+    supportRequest = controller;
+    const generation = ++supportGeneration, epoch = client.sessionEpoch, actor = user.id;
+    const active = () => generation === supportGeneration &&
+        epoch === client.sessionEpoch && actor === user?.id &&
+        supportRequest === controller && !controller.signal.aborted;
+    const list = el("ticket-list");
+    list.setAttribute("aria-busy", "true");
+    list.replaceChildren(batteryNode("p", "Loading support tickets…", "جارٍ تحميل طلبات الدعم…"));
+    try {
+        const j = await api("support?page=" + page, "GET", undefined, controller.signal);
+        if (!active()) return;
+        if (!Array.isArray(j?.data) || !Number.isSafeInteger(j.current_page) ||
+            !Number.isSafeInteger(j.last_page) || !Number.isSafeInteger(j.total) ||
+            j.current_page !== page || j.last_page < 1 || j.total < 0)
+            throw new Error("Unrecognized support ticket response.");
+        if (page > j.last_page) {
+            await refreshSupportTickets(j.last_page);
+            return;
+        }
+        supportPage = page;
+        list.replaceChildren();
+        if (!j.data.length)
+            list.append(batteryNode("p", "No support tickets on this page.",
+                "لا توجد طلبات دعم في هذه الصفحة."));
+        for (const t of j.data) {
+            const b = ui("button", "#{id} · {subject} · {status}", {
+                id: t.id, subject: t.subject, status: { translate: t.status },
+            });
+            b.dataset.supportTicketId = String(t.id);
+            b.type = "button";
+            b.onclick = () => {
+                if (active()) void ticketDetail(t.id).catch((error) => {
+                    if (active()) notice(error);
+                });
+            };
+            list.append(b);
+        }
+        const pager = document.createElement("nav");
+        pager.className = "pagination";
+        pager.dataset.supportPagination = "true";
+        pager.setAttribute("aria-label", "Support ticket pages / صفحات طلبات الدعم");
+        pager.append(ui("span", "Page {page} of {last} · {total} records", {
+            page: j.current_page, last: j.last_page, total: j.total,
+        }));
+        for (const [key, en, ar, target, disabled] of [
+            ["previous", "Previous", "السابق", page - 1, page <= 1],
+            ["next", "Next", "التالي", page + 1, page >= j.last_page],
+            ["refresh", "Refresh", "تحديث", page, false],
+        ]) {
+            const button = batteryNode("button", en, ar);
+            button.type = "button";
+            button.dataset.supportPageAction = key;
+            button.disabled = disabled;
+            button.onclick = () => { if (active()) void refreshSupportTickets(target); };
+            pager.append(button);
+        }
+        list.append(pager);
+    } catch (error) {
+        if (!active()) return;
+        list.replaceChildren(batteryNode("p",
+            "Support tickets could not be loaded. Retry without resubmitting any request.",
+            "تعذر تحميل طلبات الدعم. أعد المحاولة دون إرسال طلب جديد."));
+        const retry = batteryNode("button", "Retry support tickets", "إعادة تحميل طلبات الدعم");
+        retry.type = "button";
+        retry.dataset.supportRetry = "true";
+        retry.onclick = () => { if (active()) void refreshSupportTickets(page); };
+        list.append(retry);
+    } finally {
+        if (active()) list.removeAttribute("aria-busy");
+    }
+}
 async function support() {
     const session = client.sessionEpoch, account = user?.id;
     if (!account) return;
-    const j = await api("support");
+    await refreshSupportTickets();
     if (session !== client.sessionEpoch || account !== user?.id) return;
-    el("ticket-list").replaceChildren();
-    for (const t of j.data) {
-        const b = ui("button", "#{id} · {subject} · {status}", {
-            id: t.id,
-            subject: t.subject,
-            status: { translate: t.status },
-        });
-        b.onclick = () => ticketDetail(t.id).catch((e) => notice(e));
-        el("ticket-list").append(b);
-    }
     if (inboxPreferencesFor !== account) {
         try {
             const prefs = await api("notifications/preferences");
@@ -2487,27 +2830,65 @@ async function refreshInbox() {
         view.append(pages);
     }
 }
-let ticketDetailGeneration = 0;
-async function ticketDetail(id) {
-    const epoch = client.sessionEpoch, actor = user?.id;
-    if (!actor) return;
-    const generation = ++ticketDetailGeneration;
-    const active = () => epoch === client.sessionEpoch && actor === user?.id &&
-        generation === ticketDetailGeneration;
+async function ticketDetail(id, page = 1, showNewest = false) {
+    if (!user || !Number.isSafeInteger(id) || id < 1 ||
+        !Number.isSafeInteger(page) || page < 1) return;
+    ticketDetailRequest?.abort();
+    const controller = new AbortController();
+    ticketDetailRequest = controller;
+    const generation = ++ticketDetailGeneration,
+        epoch = client.sessionEpoch, owner = user.id;
+    const active = () => generation === ticketDetailGeneration &&
+        epoch === client.sessionEpoch && owner === user?.id &&
+        ticketDetailRequest === controller && !controller.signal.aborted;
     const d = el("ticket-detail");
-    d.replaceChildren();
-    const j = await api("support/" + id);
+    d.setAttribute("aria-busy", "true");
+    d.replaceChildren(batteryNode("p", "Loading ticket messages…", "جارٍ تحميل رسائل الدعم…"));
+    try {
+    const j = await api("support/" + id + "?page=" + page, "GET", undefined, controller.signal);
     if (!active()) return;
-    if (!j?.ticket || !Array.isArray(j?.messages?.data))
-        throw Error("Unreadable support ticket.");
+    const messages = j?.messages;
+    if (j?.ticket?.id !== id || !Array.isArray(messages?.data) ||
+        !Number.isSafeInteger(messages.current_page) ||
+        !Number.isSafeInteger(messages.last_page) ||
+        !Number.isSafeInteger(messages.total) ||
+        messages.current_page !== page || messages.last_page < 1 ||
+        messages.total < 0)
+        throw new Error("Unrecognized support conversation response.");
+    if (page > messages.last_page || (showNewest && page < messages.last_page)) {
+        await ticketDetail(id, messages.last_page);
+        return;
+    }
     d.replaceChildren(
         ui("h3", "{subject} · {status}", {
             subject: j.ticket.subject,
             status: { translate: j.ticket.status },
         }),
     );
-    for (const m of j.messages.data)
+    if (!messages.data.length) d.append(batteryNode("p",
+        "No visible messages on this page.", "لا توجد رسائل ظاهرة في هذه الصفحة."));
+    for (const m of messages.data)
         d.append(node("p", (m.internal ? "INTERNAL · " : "") + m.body));
+    const pager = document.createElement("nav");
+    pager.className = "pagination";
+    pager.dataset.supportMessagePagination = "true";
+    pager.setAttribute("aria-label", "Support conversation pages / صفحات محادثة الدعم");
+    pager.append(ui("span", "Page {page} of {last} · {total} records", {
+        page: messages.current_page, last: messages.last_page, total: messages.total,
+    }));
+    for (const [key, en, ar, target, disabled] of [
+        ["previous", "Previous", "السابق", page - 1, page <= 1],
+        ["next", "Next", "التالي", page + 1, page >= messages.last_page],
+        ["latest", "Newest messages", "أحدث الرسائل", messages.last_page, page === messages.last_page],
+    ]) {
+        const b = batteryNode("button", en, ar);
+        b.type = "button";
+        b.disabled = disabled;
+        b.dataset.supportMessagePageAction = key;
+        b.onclick = () => { if (active()) void ticketDetail(id, target); };
+        pager.append(b);
+    }
+    d.append(pager);
     if (j.ticket.status !== "closed") {
         const f = document.createElement("form"),
             body = document.createElement("textarea");
@@ -2551,7 +2932,7 @@ async function ticketDetail(id) {
                 // fails, do not leave the just-sent body ready to submit again.
                 body.value = "";
                 await support();
-                await ticketDetail(id);
+                await ticketDetail(id, 1, true);
             } catch (e) {
                 if (active()) notice(e);
             }
@@ -2598,12 +2979,25 @@ async function ticketDetail(id) {
                 pendingStatus = null;
                 reason.value = "";
                 await support();
-                await ticketDetail(id);
+                await ticketDetail(id, 1, true);
             } catch (e) {
                 if (active()) notice(e);
             }
         };
         d.append(f);
+    }
+    } catch (error) {
+        if (!active()) return;
+        d.replaceChildren(batteryNode("p",
+            "Support messages could not be loaded. Retry to check the current conversation.",
+            "تعذر تحميل رسائل الدعم. أعد المحاولة لعرض المحادثة الحالية."));
+        const retry = batteryNode("button", "Retry support messages", "إعادة تحميل رسائل الدعم");
+        retry.type = "button";
+        retry.dataset.supportMessageRetry = "true";
+        retry.onclick = () => { if (active()) void ticketDetail(id, page, showNewest); };
+        d.append(retry);
+    } finally {
+        if (active()) d.removeAttribute("aria-busy");
     }
 }
 el("support-create").onsubmit = async (e) => {
@@ -2636,6 +3030,7 @@ el("support-create").onsubmit = async (e) => {
         }
         if (pendingTicketCreate === request) pendingTicketCreate = null;
         e.target.reset();
+        supportPage = 1;
         await support();
         if (active()) await ticketDetail(t.id);
     } catch (error) {
