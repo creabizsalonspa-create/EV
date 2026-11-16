@@ -185,6 +185,12 @@ void main() {
     await tester.pump();
     expect(api.queries.length, requests);
     expect(find.text('SIM-HISTORY-7'), findsNothing);
+    await tester.ensureVisible(find.text('تحديث سجل الفواتير'));
+    await tester.tap(find.text('تحديث سجل الفواتير'));
+    await tester.pumpAndSettle();
+    expect(api.queries.length, requests + 1);
+    expect(find.text('SIM-HISTORY-7'), findsOneWidget);
+    expect(api.queries.last, {'page': '1'});
   });
   testWidgets(
     'invoice history keeps filters through pagination failure/retry and clears on expiry',
