@@ -111,6 +111,35 @@ class PartnerMapPoint {
   }
 }
 
+
+/// Groups only the map-compatible *loaded page* at an approximate 48-pixel
+/// world grid. A group represents several distinct source records, never one
+/// charger, occupancy measurement, verified operator or charging permission.
+/// Stable insertion order preserves each source's original identity and label.
+List<List<PartnerMapPoint>> clusterPublishedMapPoints(
+  List<PartnerMapPoint> points,
+  double zoom,
+) {
+  if (!zoom.isFinite || zoom < 0 || zoom > 22) {
+    return points.map((point) => [point]).toList();
+  }
+  final scale = 256 * math.pow(2, zoom) / 48;
+  final grouped = <String, List<PartnerMapPoint>>{};
+  for (final point in points) {
+    if (!point.latitude.isFinite ||
+        !point.longitude.isFinite ||
+        point.latitude.abs() > 85.05112878 ||
+        point.longitude.abs() > 180) continue;
+    final longitude = point.longitude == 180 ? -180.0 : point.longitude;
+    final phi = point.latitude * math.pi / 180;
+    final sine = math.sin(phi);
+    final x = (((longitude + 180) / 360) * scale).floor();
+    final y = ((0.5 - math.log((1 + sine) / (1 - sine)) / (4 * math.pi)) * scale).floor();
+    (grouped['$x:$y'] ??= <PartnerMapPoint>[]).add(point);
+  }
+  return grouped.values.toList();
+}
+
 /// Read-only view of just the currently loaded public partner page. It does
 /// not acquire GPS, fetch partner records, offer route planning or charging.
 class PartnerReportMap extends StatefulWidget {
@@ -131,6 +160,7 @@ class PartnerReportMap extends StatefulWidget {
 
 class _PartnerReportMapState extends State<PartnerReportMap> {
   bool enabled = false;
+  double currentZoom = 11;
   final mapController = MapController();
   @override
   void dispose() { mapController.dispose(); super.dispose(); }
@@ -180,9 +210,44 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
     );
   }
 
+
+  Future<void> showCluster(List<PartnerMapPoint> group) async {
+    if (group.length < 2) return;
+    final chosen = await showModalBottomSheet<PartnerMapPoint>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheet) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text(t(
+              '${group.length} loaded locations · availability unverified',
+              '${group.length} مواقع محملة · التوفر غير مؤكد',
+            ), style: Theme.of(sheet).textTheme.titleMedium),
+            Text(t(
+              'A cluster is not one charger or a live availability count.',
+              'التجمع ليس شاحناً واحداً ولا عدداً للتوفر المباشر.',
+            )),
+            for (final point in group)
+              ListTile(
+                title: Text(point.name),
+                subtitle: Text(point.platformCatalog
+                    ? t('Platform catalog · not live', 'كتالوج المنصة · ليست بيانات مباشرة')
+                    : t('Partner report · not live', 'تقرير شريك · ليست بيانات مباشرة')),
+                onTap: () => Navigator.of(sheet).pop(point),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (mounted && chosen != null) await details(chosen);
+  }
+
   @override
   Widget build(BuildContext context) {
     final points = widget.points;
+    final groups = clusterPublishedMapPoints(points, currentZoom);
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.points.any((p)=>p.platformCatalog) ? t('Published location map (not live)','خريطة المواقع المنشورة (ليست مباشرة)') : t('Partner report map (not live)',
@@ -253,6 +318,11 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
                     initialCenter: LatLng(
                         points.first.latitude, points.first.longitude),
                     initialZoom: 11,
+                    onPositionChanged: (camera, _) {
+                      if (mounted && (camera.zoom - currentZoom).abs() > 0.005) {
+                        setState(() => currentZoom = camera.zoom);
+                      }
+                    },
                   ),
                   children: [
                     TileLayer(
@@ -264,24 +334,43 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
                       maxZoom: 19,
                     ),
                     MarkerLayer(
-                      markers: List.generate(points.length, (index) {
-                        final point = points[index];
+                      markers: List.generate(groups.length, (index) {
+                        final group = groups[index];
+                        final point = group.first;
+                        final clustered = group.length > 1;
+                        final tooltip = clustered
+                            ? t('${group.length} loaded locations · not live',
+                                '${group.length} مواقع محملة · ليست بيانات مباشرة')
+                            : point.name;
                         return Marker(
+                          // The first published coordinate anchors a group;
+                          // a centroid would invent a new physical location.
                           point: LatLng(point.latitude, point.longitude),
-                          width: 48,
-                          height: 48,
+                          width: 56,
+                          height: 56,
                           child: Semantics(
-                            label: point.name + (point.platformCatalog ? ' — platform catalog, availability unverified' : ' — unverified partner report'),
+                            label: clustered
+                                ? t('${group.length} separate published locations, availability unverified',
+                                    '${group.length} مواقع منشورة منفصلة، التوفر غير مؤكد')
+                                : point.name + (point.platformCatalog
+                                    ? ' — platform catalog, availability unverified'
+                                    : ' — unverified partner report'),
                             button: true,
                             child: IconButton(
-                              key: ValueKey('partner-report-pin-$index'),
-                              tooltip: point.name,
-                              onPressed: () => details(point),
-                              icon: const Icon(Icons.location_on),
+                              key: ValueKey(clustered
+                                  ? 'partner-report-cluster-$index'
+                                  : 'partner-report-pin-$index'),
+                              tooltip: tooltip,
+                              onPressed: clustered
+                                  ? () => showCluster(group)
+                                  : () => details(point),
+                              icon: clustered
+                                  ? Text('${group.length}',
+                                      style: Theme.of(context).textTheme.titleMedium)
+                                  : const Icon(Icons.location_on),
                               color: Theme.of(context).colorScheme.tertiary,
                               style: IconButton.styleFrom(
-                                backgroundColor:
-                                    Theme.of(context).colorScheme.surface,
+                                backgroundColor: Theme.of(context).colorScheme.surface,
                               ),
                             ),
                           ),

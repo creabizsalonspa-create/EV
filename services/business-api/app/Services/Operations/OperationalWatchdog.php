@@ -52,16 +52,30 @@ final class OperationalWatchdog
             $email = $report['email_handoff'] ?? [];
             if (($email['state'] ?? null) !== 'available'
                 || ! is_int($email['outcome_unknown'] ?? null)
-                || ! is_int($email['stale_claimed'] ?? null)) {
+                || ! is_int($email['stale_claimed'] ?? null)
+                || ! is_int($email['overdue_queued'] ?? null)) {
                 $signals[] = 'email_handoff_metrics_unknown';
-            } elseif ($email['outcome_unknown'] > 0 || $email['stale_claimed'] > 0) {
-                $signals[] = 'email_handoff_needs_review';
+            } else {
+                if ($email['outcome_unknown'] > 0 || $email['stale_claimed'] > 0) {
+                    $signals[] = 'email_handoff_needs_review';
+                }
+                if ($email['overdue_queued'] > 0) {
+                    $signals[] = 'email_queue_overdue';
+                }
             }
 
             if (($history['store_readable'] ?? null) !== true) {
                 $signals[] = 'incident_store_unavailable';
-            } elseif (count($history['open'] ?? []) > 0) {
-                $signals[] = 'recorded_incidents_open';
+            } else {
+                // Scheduler heartbeat does not prove its incident scan completed.
+                // Trust only the timestamp committed after a successful scan.
+                $scanner = $history['scanner']['state'] ?? 'unknown';
+                if ($scanner !== 'recent') {
+                    $signals[] = $scanner === 'stale' ? 'incident_scanner_stale' : 'incident_scanner_unknown';
+                }
+                if (count($history['open'] ?? []) > 0) {
+                    $signals[] = 'recorded_incidents_open';
+                }
             }
 
             return $this->result($signals);

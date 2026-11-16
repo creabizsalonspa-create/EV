@@ -51,6 +51,13 @@ Both existing English/Arabic web and canonical Flutter advanced forms disclose t
 Candidate acceptance includes Laravel SQLite and PostgreSQL numeric-bound validation, source isolation, pre-union pagination and combined country+viewport intersections, browser DOM & live Laravel/Chromium synthetic fixtures, Flutter EN/AR filter input and page-state tests, plus hosted platform/native CI. This stacked candidate depends on Agent 8 viewport/country PR #137 and must not be merged before that dependency and all exact-head gates pass.
 
 
+### Native mixed-source pin grouping (Agent 8 independent stacked candidate)
+
+The existing opt-in Flutter report map groups *only already-loaded* published platform and authorized partner map points into an approximately 48-pixel Web-Mercator grid at the current map zoom. Grouping preserves original source order and never fabricates a centroid location; the group pin is anchored on its first existing public coordinate. A count of `N` means **N separate loaded source records, not N verified chargers**, connectors, free ports, or capacity. Opening a group displays each source-labelled location separately, allowing a read-only detail view with original provenance and the unverified-availability warning. Zoom changes recompute the display grouping, without a new API call, device GPS or additional tile permissions. Source/favorite/search API behavior is unchanged.
+
+The full text list remains usable without tiles and no marker, group or modal adds any reserve/authorize/charge/bill control. This is a presentation improvement only and is separately stacked on #137 to keep its exact-head validation intact. Candidate tests cover pure grouping (mixed provenance, invalid coordinates, approximate pixel grid), initial no-tile state, group count/source selection, and a read-only detail sheet. No live provider/device tested.
+
+
 ### Session-only recent unified search presets (Agent 8 follow-on)
 
 The existing unified discovery search on both web and Flutter holds **up to five successful explicitly submitted filter presets in memory only**. It includes search text, country, source scope, connector, bounded partner report freshness, saved-only flag where authorized, and advanced price/power/operator/address filters. Successful repeated searches move the same preset to the front rather than creating duplicates. A recent preset button **restores local form fields only**; the user must press Search separately before any network request occurs. Pagination, map viewport search, favorite updates and failed requests cannot silently populate recent history.
