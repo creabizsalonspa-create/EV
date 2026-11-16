@@ -112,32 +112,41 @@ class FinanceController extends Controller
 
     public function invoices(Request $r)
     {
-        $v = $r->validate([
-            'q' => ['sometimes', 'string', 'max:80', 'regex:/^[A-Za-z0-9-]+$/'],
-            'currency' => ['sometimes', 'string', 'regex:/^[A-Z]{3}$/'],
-            'from' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:0001-01-01'],
-            'to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:0001-01-01', Rule::when($r->filled('from'), 'after_or_equal:from')],
-        ]);
-        $q = Invoice::query();
-        if (isset($v['q'])) {
-            $q->where('number', 'like', $v['q'].'%');
-        }
-        if (isset($v['currency'])) {
-            $q->where('currency', $v['currency']);
-        }
-        if (isset($v['from'])) {
-            $q->where('created_at', '>=', $v['from'].' 00:00:00');
-        }
-        if (isset($v['to'])) {
-            $q->where('created_at', '<=', $v['to'].' 23:59:59.999999');
-        }
-        if ($r->user()->role === 'vendor') {
-            $q->where('vendor_id', $r->user()->id);
-        } elseif ($r->user()->role !== 'admin') {
-            $q->where('user_id', $r->user()->id);
-        }
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $v = $r->validate([
+                'q' => ['sometimes', 'string', 'max:80', 'regex:/^[A-Za-z0-9-]+$/'],
+                'currency' => ['sometimes', 'string', 'regex:/^[A-Z]{3}$/'],
+                'from' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:0001-01-01'],
+                'to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:0001-01-01',
+                    Rule::when($r->filled('from'), 'after_or_equal:from')],
+            ]);
+            $q = Invoice::query();
+            if (isset($v['q'])) {
+                $q->where('number', 'like', $v['q'].'%');
+            }
+            if (isset($v['currency'])) {
+                $q->where('currency', $v['currency']);
+            }
+            if (isset($v['from'])) {
+                $q->where('created_at', '>=', $v['from'].' 00:00:00');
+            }
+            if (isset($v['to'])) {
+                $q->where('created_at', '<=', $v['to'].' 23:59:59.999999');
+            }
+            if ($actor->role === 'vendor') {
+                $q->where('vendor_id', $actor->id);
+            } elseif ($actor->role !== 'admin') {
+                $q->where('user_id', $actor->id);
+            }
 
-        return $q->select('finance_invoices.*')->selectSub(DB::table('finance_unpaid_credits')->select('amount_minor')->whereColumn('invoice_id', 'finance_invoices.id')->limit(1), 'unpaid_credited_minor')->orderByDesc('id')->paginate(25);
+            return response()->json($q->select('finance_invoices.*')
+                ->selectSub(DB::table('finance_unpaid_credits')->select('amount_minor')
+                    ->whereColumn('invoice_id', 'finance_invoices.id')
+                    ->limit(1), 'unpaid_credited_minor')
+                ->orderByDesc('id')->paginate(25))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function issue(Request $r, ChargingSession $session, FinanceService $finance)
