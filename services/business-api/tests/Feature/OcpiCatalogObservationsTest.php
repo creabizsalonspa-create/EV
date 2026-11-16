@@ -75,6 +75,12 @@ class OcpiCatalogObservationsTest extends TestCase
             'publish' => true, 'country' => 'CAN', 'latitude' => '999', 'longitude' => '-79',
             'connector_standards' => [],
         ]);
+        $this->record($provider, 'uae-polar', 'locations', now()->toISOString(), [
+            // Geographically valid latitude, but outside Web Mercator.
+            // Counts as published UAE, never map-ready UAE.
+            'publish' => true, 'country' => 'ARE', 'latitude' => '89', 'longitude' => '55',
+            'connector_standards' => [],
+        ]);
         $this->record($provider, 'uae-unpublished', 'locations', now()->toISOString(), [
             'publish' => false, 'country' => 'ARE', 'latitude' => '26', 'longitude' => '54',
             'connector_standards' => ['IEC_62196_T2'],
@@ -89,8 +95,8 @@ class OcpiCatalogObservationsTest extends TestCase
         ]);
         $url = '/api/ocpi/providers/'.$provider->id.'/catalog-observations?module=locations';
         $report = $this->actingAs($owner)->getJson($url)->assertOk()
-            ->assertJsonPath('modules.locations.total', 6)
-            ->assertJsonPath('modules.locations.published_by_reported_market.AE', 1)
+            ->assertJsonPath('modules.locations.total', 7)
+            ->assertJsonPath('modules.locations.published_by_reported_market.AE', 2)
             ->assertJsonPath('modules.locations.published_by_reported_market.US', 1)
             ->assertJsonPath('modules.locations.published_by_reported_market.CA', 1)
             ->assertJsonPath('modules.locations.published_by_reported_market.other_or_unknown', 2)
