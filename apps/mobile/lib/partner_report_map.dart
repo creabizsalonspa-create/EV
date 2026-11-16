@@ -276,8 +276,14 @@ class _PartnerReportMapState extends State<PartnerReportMap>
           point.latitude.abs() > 85.05112878 || point.longitude.abs() > 180) {
         throw const LocationLookupFailure('invalid');
       }
-      // Move a consented map camera, not a station pin or an API request.
-      mapController.move(LatLng(point.latitude, point.longitude), 12);
+      // A foreground permission sheet can complete while Flutter is still
+      // building its map viewport. Defer the camera mutation until after
+      // layout; never reuse a fix after an account/map/lifecycle transition.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !foreground || !enabled || !mapReady ||
+            request != locationGeneration) return;
+        mapController.move(LatLng(point.latitude, point.longitude), 12);
+      });
     } catch (_) {
       if (mounted && foreground && request == locationGeneration) {
         setState(() => locationError = t(
