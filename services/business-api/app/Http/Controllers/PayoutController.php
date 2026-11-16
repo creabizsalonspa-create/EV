@@ -19,6 +19,24 @@ class PayoutController extends Controller
         abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $r->user()->id === $vendor), 404);
     }
 
+    /**
+     * Confirm the current, persisted identity before entering any test payout
+     * service. The read account lock is short-lived for methods that can
+     * perform external provider I/O; the provider service retains its own
+     * payout, bank account, idempotency and maker-checker transactions.
+     */
+    private function currentActor(Request $r, bool $admin = false): \App\Models\User
+    {
+        return DB::transaction(function () use ($r, $admin) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            if ($admin) {
+                abort_unless($actor->role === 'admin', 403);
+            }
+
+            return $actor;
+        }, 3);
+    }
+
     private function safe(object $row): array
     {
         $v = (array) $row;
@@ -44,45 +62,53 @@ class PayoutController extends Controller
     public function configure(Request $r, int $vendor, PayoutService $service)
     {
         $this->admin($r);
+        $actor = $this->currentActor($r, true);
         $v = $r->validate(['provider' => 'required|in:mock,stripe_test', 'currency' => ['required', 'string', 'regex:/^[A-Z]{3}$/'], 'account_reference' => ['required', 'string', 'max:100', 'regex:/^(acct_|mock_)[A-Za-z0-9]+$/D'], 'bank_reference' => ['required', 'string', 'max:100', 'regex:/^(ba_|mock_)[A-Za-z0-9]+$/D'], 'idempotency_key' => 'required|string|max:100']);
         abort_unless($v['provider'] === 'mock' ? str_starts_with($v['account_reference'], 'mock_') && str_starts_with($v['bank_reference'], 'mock_') : str_starts_with($v['account_reference'], 'acct_') && str_starts_with($v['bank_reference'], 'ba_'), 422);
 
-        return response()->json(['account' => $service->publicAccount($service->configure($vendor, $r->user()->id, $v))], 201);
+        return response()->json(['account' => $service->publicAccount($service->configure($vendor, $actor->id, $v))], 201);
     }
 
     public function consent(Request $r, int $account, PayoutService $service)
     {
+        $actor = $this->currentActor($r);
         $row = $service->account($account);
-        $this->scope($r, (int) $row->vendor_id);
+        abort_unless($actor->role === 'admin'
+            || ($actor->role === 'vendor' && $actor->id === (int) $row->vendor_id), 404);
         $v = $r->validate(['consent' => 'required|accepted', 'consent_version' => 'required|string|max:50']);
 
-        return response()->json(['account' => $service->publicAccount($service->consent($account, $r->user()->id, $v['consent_version']))]);
+        return response()->json(['account' => $service->publicAccount($service->consent($account, $actor->id, $v['consent_version']))]);
     }
 
     public function accountAction(Request $r, int $account, string $action, PayoutService $service)
     {
+        $actor = $this->currentActor($r);
         $row = $service->account($account);
-        $this->scope($r, (int) $row->vendor_id);
+        abort_unless($actor->role === 'admin'
+            || ($actor->role === 'vendor' && $actor->id === (int) $row->vendor_id), 404);
         if ($action === 'verify') {
-            $this->admin($r);
+            abort_unless($actor->role === 'admin', 403);
         }
 
-        return response()->json(['account' => $service->publicAccount($action === 'verify' ? $service->verify($account, $r->user()->id) : $service->revoke($account, $r->user()->id))]);
+        return response()->json(['account' => $service->publicAccount($action === 'verify' ? $service->verify($account, $actor->id) : $service->revoke($account, $actor->id))]);
     }
 
     public function onboarding(Request $r, int $account, PayoutService $service)
     {
+        $actor = $this->currentActor($r);
+        abort_unless($actor->role === 'vendor', 404);
         $v = $r->validate(['idempotency_key' => 'required|string|max:100']);
 
-        return response()->json($service->onboarding($account, $r->user()->id, $v['idempotency_key']))->header('Cache-Control', 'no-store, private');
+        return response()->json($service->onboarding($account, $actor->id, $v['idempotency_key']))->header('Cache-Control', 'no-store, private');
     }
 
     public function create(Request $r, int $settlement, PayoutService $service)
     {
         $this->admin($r);
+        $actor = $this->currentActor($r, true);
         $v = $r->validate(['account_id' => 'required|integer|min:1', 'idempotency_key' => 'required|string|max:100']);
 
-        return response()->json(['payout' => $this->safe($service->create($settlement, (int) $v['account_id'], $r->user()->id, $v['idempotency_key']))], 201);
+        return response()->json(['payout' => $this->safe($service->create($settlement, (int) $v['account_id'], $actor->id, $v['idempotency_key']))], 201);
     }
 
     public function index(Request $r)
@@ -129,7 +155,10 @@ class PayoutController extends Controller
     public function action(Request $r, int $payout, string $action, PayoutService $service)
     {
         $this->admin($r);
-
-        return response()->json(['payout' => $this->safe($service->{$action}($payout, $r->user()->id))]);
+        $actor = $this->currentActor($r, true);
+        // Do not wrap externally connected execute/reconcile in a transaction:
+        // PayoutService manages its own lease and uncertainty recovery gates.
+        return response()->json(['payout' => $this->safe($service->{$action}($payout, $actor->id))]);
+    }
     }
 }
