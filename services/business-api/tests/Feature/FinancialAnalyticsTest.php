@@ -91,7 +91,7 @@ class FinancialAnalyticsTest extends TestCase
             $this->getJson('/api/financial/analytics')->assertOk();
 
             foreach ([
-                ['role' => 'unauthorized'],
+                ['role' => $snapshot->role === 'vendor' ? 'customer' : 'vendor'],
                 ['account_status' => 'suspended'],
                 ['auth_epoch' => (int) $snapshot->auth_epoch + 1],
                 ['password' => Hash::make('rotated-financial-report-session')],
