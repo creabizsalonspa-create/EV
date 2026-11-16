@@ -2963,8 +2963,16 @@ async function openOperationalCase(command, parent, actor, signal) {
     }
     await events(1);
 }
+// The connector filter is ephemeral and bound to this exact authenticated
+// client epoch and actor object. Recreating the dashboard for a locale or
+// history refresh must not convert a typed station filter to a global read.
+let connectorFleetFilter = { epoch: -1, actor: null, draftStation: '', selectedStation: '' };
 async function commandHistory(page = 1) {
     if (!["vendor", "admin"].includes(user?.role)) return;
+    if (connectorFleetFilter.epoch !== client.sessionEpoch || connectorFleetFilter.actor !== user) {
+        connectorFleetFilter = { epoch: client.sessionEpoch, actor: user, draftStation: '', selectedStation: '' };
+    }
+    const actorFilter = connectorFleetFilter;
     commandRequest?.abort();
     const request = new AbortController(),
         actor = user;
@@ -2982,7 +2990,7 @@ async function commandHistory(page = 1) {
         );
         if (request.signal.aborted || user !== actor) return;
         const metrics = el("charging-dashboard");
-        window.renderConnectorFleetAction?.(metrics, { api, actor: () => user, openDiagnostics: (companyId, chargerId) => vendorWorkspace.openMonitorNotice(companyId, chargerId) });
+        window.renderConnectorFleetAction?.(metrics, { api, actor: () => user, filterState: actorFilter, openDiagnostics: (companyId, chargerId) => vendorWorkspace.openMonitorNotice(companyId, chargerId) });
         const ar = document.documentElement.lang === "ar";
         const line = (en, arabic, value) => {
             const item = document.createElement("p");
