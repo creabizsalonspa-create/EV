@@ -87,6 +87,15 @@ class GatewayService
         abort_unless($initial, 404);
         HostedCheckout::guardCanonicalConfiguration('charging', (int) $initial->id);
 
+        // Reject an unauthorized direct service call before a Stripe TEST
+        // recovery identity is prepared or a provider request can be sent.
+        // The durable operation rechecks under the same invoice->actor lock
+        // order to close a concurrent suspension/demotion after preflight.
+        DB::transaction(function () use ($initial, $actor, $kind) {
+            $invoice = Invoice::whereKey($initial->invoice_id)->lockForUpdate()->firstOrFail();
+            $this->currentActor($actor, $invoice, $kind === 'refund');
+        }, 3);
+
         return app(PaymentRecovery::class)->run('charging', $initial, $actor, $kind, $key, [$kind, $amount ?? (int) $initial->amount_minor, $token, $reason], fn () => DB::transaction(function () use ($initial, $actor, $kind, $key, $amount, $token, $reason, $provider) {
             // Invoice is the serialization root, shared with legacy payments/refunds.
             $invoice = Invoice::whereKey($initial->invoice_id)->lockForUpdate()->firstOrFail();
