@@ -154,16 +154,22 @@ class OcpiRoamingProtocolController extends Controller
     {
         try {
             [$p,$link] = $this->peer($r);
-            $v = $r->validate(['offset' => 'sometimes|integer|min:0|max:100000', 'limit' => 'sometimes|integer|min:1|max:100', 'date_from' => 'sometimes|date', 'date_to' => 'sometimes|date']);
-            // OCPI 2.2.1 token windows are inclusive from / exclusive to, and
-            // either bound is optional. Never compare raw ISO 8601 strings with
-            // UTC SQL timestamps: offsets and the T separator break SQLite
-            // lexicographic comparisons and produce inconsistent PostgreSQL reads.
-            // Some existing SQLite rows are stored at whole-second precision.
-            // Preserve their exact boundary semantics while retaining true
-            // microsecond comparisons when the peer supplies fractional time.
+            $v = $r->validate(['offset' => 'sometimes|integer|min:0|max:100000', 'limit' => 'sometimes|integer|min:1|max:100', 'date_from' => 'sometimes|required|string|max:40', 'date_to' => 'sometimes|required|string|max:40']);
+            // OCPI token window bounds may be absent, but a supplied bound
+            // must be a complete date-time instant. Laravel's generic date
+            // rule accepts relative text ("tomorrow") and invalid calendar
+            // rollovers. Never turn such input into an authorized bulk read.
+            // Explicit numeric offsets are normalized to UTC for existing
+            // managed peer compatibility; Z-free values are UTC, not local.
             $utc = static function (string $value): string {
-                $time = CarbonImmutable::parse($value, 'UTC')->utc();
+                abort_unless(preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-](?:0\d|1[0-3]):[0-5]\d|[+-]14:00)?$/D', $value) === 1, 422);
+                $zoned = str_ends_with($value, 'Z') || preg_match('/[+-]\d{2}:\d{2}$/D', $value);
+                $format = '!Y-m-d\TH:i:s'
+                    .(str_contains($value, '.') ? '.u' : '')
+                    .($zoned ? 'P' : '');
+                $date = \DateTimeImmutable::createFromFormat($format, $value, new \DateTimeZone('UTC'));
+                abort_unless($date !== false && \DateTimeImmutable::getLastErrors() === false, 422);
+                $time = CarbonImmutable::instance($date)->utc();
 
                 return $time->format($time->format('u') === '000000' ? 'Y-m-d H:i:s' : 'Y-m-d H:i:s.u');
             };
