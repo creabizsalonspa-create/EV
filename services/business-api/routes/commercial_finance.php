@@ -1,8 +1,8 @@
 <?php
 
 use App\Http\Controllers\CommercialFinanceController as C;
-use App\Http\Controllers\FinanceReconciliationAuditController as Audit;
 use App\Http\Controllers\FinanceApprovalQueueController as Approvals;
+use App\Http\Controllers\FinanceReconciliationAuditController as Audit;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/finance/report', [C::class, 'report']);
