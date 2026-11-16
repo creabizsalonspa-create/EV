@@ -8,6 +8,7 @@ use App\Services\Finance\InvoiceReconciliationAudit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 final class FinanceReconciliationAuditController extends Controller
 {
@@ -63,7 +64,15 @@ final class FinanceReconciliationAuditController extends Controller
     public function export(Request $request, InvoiceReconciliationAudit $audit)
     {
         // Same tenant-scoped, validated page as JSON; never an unbounded export.
-        $payload = DB::transaction(fn () => $this->page($request, $audit), 3);
+        try {
+            $payload = DB::transaction(fn () => $this->page($request, $audit), 3);
+        } catch (ValidationException $error) {
+            // A plain CSV GET still follows an API validation contract.
+            return response()->json([
+                'message' => 'Invalid private financial export filters.',
+                'errors' => $error->errors(),
+            ], 422)->header('Cache-Control', 'private, no-store');
+        }
 
         return response()->streamDownload(static function () use ($payload): void {
             $output = fopen('php://output', 'wb');
