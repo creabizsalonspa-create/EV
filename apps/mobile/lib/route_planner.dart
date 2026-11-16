@@ -49,6 +49,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   bool get incompatibleStops => stops.any((stop) => !matchesAdvertisedConnector(stop));
   Object? error;
   int generation = 0;
+  bool get sessionCurrent => widget.client?.currentSession() ?? true;
   String t(String en, String ar) => EvStrings.of(context).arabic ? ar : en;
   bool valid(Station station) =>
       station.latitude != null &&
@@ -61,11 +62,11 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   void initState() {
     super.initState();
     tiles = widget.tilesEnabled;
-    if (widget.origin != null) {
+    if (sessionCurrent && widget.origin != null) {
       originLat.text = '${widget.origin!.latitude}';
       originLng.text = '${widget.origin!.longitude}';
     }
-    if (widget.initialStop != null && valid(widget.initialStop!))
+    if (sessionCurrent && widget.initialStop != null && valid(widget.initialStop!))
       stops.add(widget.initialStop!);
     loadCapabilities();
   }
@@ -73,7 +74,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   @override
   void didUpdateWidget(covariant RoutePlannerView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.client, widget.client)) {
+    if (!identical(oldWidget.client, widget.client) || !sessionCurrent) {
       // A new authenticated client is a different discovery context.
       // Do not carry private coordinates, old stations, a route estimate or
       // an outstanding external-navigation consent across that boundary.
@@ -107,13 +108,14 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   Future<void> loadCapabilities() async {
     final client = widget.client;
     final current = generation;
+    if (!sessionCurrent) return;
     try {
       final result = await client?.capabilities();
-      if (mounted && current == generation && identical(widget.client, client)) {
+      if (mounted && current == generation && identical(widget.client, client) && sessionCurrent) {
         setState(() => capabilities = result);
       }
     } catch (_) {
-      if (mounted && current == generation && identical(widget.client, client)) {
+      if (mounted && current == generation && identical(widget.client, client) && sessionCurrent) {
         setState(() => capabilities = null);
       }
     }
@@ -138,7 +140,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
         double.parse(vendorDigits(lng.text.trim())),
       );
   List<GeoPoint>? points() {
-    if (!form.currentState!.validate()) return null;
+    if (!sessionCurrent || !form.currentState!.validate()) return null;
     return [
       point(originLat, originLng),
       ...stops.map((s) => GeoPoint(s.latitude!, s.longitude!)),
@@ -152,8 +154,9 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
         incompatibleStops ||
         !consent ||
         capabilities?.routing != true ||
-        widget.client == null)
+        widget.client == null || !sessionCurrent)
       return;
+    final client = widget.client!;
     final current = ++generation;
     setState(() {
       loading = true;
@@ -161,15 +164,15 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
       estimate = null;
     });
     try {
-      final result = await widget.client!.route(
+      final result = await client.route(
         currentPoints,
         EvStrings.of(context).arabic ? 'ar' : 'en',
       );
-      if (mounted && generation == current) setState(() => estimate = result);
+      if (mounted && generation == current && identical(widget.client, client) && sessionCurrent) setState(() => estimate = result);
     } catch (e) {
-      if (mounted && generation == current) setState(() => error = e);
+      if (mounted && generation == current && identical(widget.client, client) && sessionCurrent) setState(() => error = e);
     } finally {
-      if (mounted && generation == current) setState(() => loading = false);
+      if (mounted && generation == current && identical(widget.client, client) && sessionCurrent) setState(() => loading = false);
     }
   }
 
@@ -203,7 +206,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
       ),
     );
     if (accepted != true || !mounted || generation != intentGeneration ||
-        !identical(widget.client, intentClient) || incompatibleStops) return;
+        !identical(widget.client, intentClient) || !sessionCurrent || incompatibleStops) return;
     final uri = navigationUri(
       currentPoints.first,
       currentPoints.last,
@@ -297,6 +300,15 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
 
   @override
   Widget build(BuildContext context) {
+    // The widget can outlive a logout even when its DiscoveryClient object
+    // remains identical. A parent refresh must never redraw old account
+    // coordinates, catalog stops, estimates, or map tiles in the new epoch.
+    if (!sessionCurrent) {
+      return Scaffold(
+        appBar: AppBar(title: Text(t('Plan charging route', 'تخطيط مسار الشحن'))),
+        body: Center(child: Text(t('Account changed. Reopen route planning.', 'تغير الحساب. أعد فتح تخطيط المسار.'))),
+      );
+    }
     final lines =
         estimate?.segments
             .where((line) => line.every((p) => p.latitude.abs() <= 85.05112878))
