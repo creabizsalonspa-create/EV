@@ -90,7 +90,10 @@ final class VendorEarningsController extends Controller
                 'pending_reserved_minor' => $pending,
                 'completed_settlement_minor' => $completed,
                 'available_minor' => (int) ($available[(int) $invoice->id] ?? 0),
-                'evidence' => 'SIMULATED',
+                // Preserve the invoice's immutable source claim. A partner-
+                // sourced or sandbox invoice must never be relabelled as a
+                // simulator record in a financial CSV or earnings history.
+                'evidence' => (string) $invoice->evidence,
             ];
         })->values()->all();
 
