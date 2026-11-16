@@ -15,8 +15,10 @@ named per-market summaries to the **locations** module:
 - `published_by_reported_market` — count of stored partner location *records* marked
   `publish=true`, grouped as `AE`, `US`, `CA`, or `other_or_unknown`.
 - `published_with_usable_coordinates_by_reported_market` — the subset of those published
-  location records with bounded, finite geographic coordinates. Coordinates at (0,0) are valid
-  geometry; they do **not** certify that an actual charger exists there.
+  location records with finite longitude and Web-Mercator-displayable latitude
+  (within ±85.05112878°). A geographically valid polar location is counted as
+  published but excluded from the map-ready subset. Coordinates at (0,0) are
+  valid geometry; they do **not** certify that an actual charger exists there.
 
 The region is determined solely by the partner-reported location's ISO 3166-1 alpha-3 field
 (`ARE→AE`, `USA→US`, `CAN→CA`). We **never** infer a physical location from the OCPI
