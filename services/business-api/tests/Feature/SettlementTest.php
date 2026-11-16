@@ -14,6 +14,7 @@ use Illuminate\Database\Schema\Grammars\SQLiteGrammar;
 use Illuminate\Database\SQLiteConnection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -84,6 +85,65 @@ class SettlementTest extends TestCase
         $this->assertDatabaseCount('commercial_settlements', 1);
         $this->assertDatabaseCount('finance_payments', 1);
         $this->assertDatabaseCount('finance_journals', 2); // Settlement simulation never mutates invoice cash journals.
+    }
+
+    public function test_revoked_vendor_or_admin_cannot_view_settlements_or_post_financial_transitions(): void
+    {
+        $this->invoice();
+        $this->configure();
+        $settlement = $this->draft('revoked-read');
+        $base = '/settlement-test/commercial';
+        $eventsBefore = DB::table('commercial_settlement_events')->count();
+        $journalsBefore = DB::table('finance_journals')->count();
+        $auditBefore = DB::table('audit_events')->count();
+
+        foreach ([$this->vendor, $this->admin] as $reader) {
+            $row = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $row->role,
+                'account_status' => $row->account_status,
+                'auth_epoch' => $row->auth_epoch,
+                'password' => $row->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson($base.'/settlements')->assertOk();
+            $this->getJson($base.'/settlements/'.$settlement['id'])->assertOk();
+            foreach ([
+                ['role' => 'customer'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $row->auth_epoch + 1],
+                ['password' => Hash::make('rotated-settlement-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $this->getJson($base.'/settlements')->assertConflict();
+                $this->getJson($base.'/settlements/'.$settlement['id'])->assertConflict();
+                $this->getJson($base.'/vendors/'.$this->vendor->id.'/statement?currency=AED')
+                    ->assertConflict();
+                $this->postJson($base.'/vendors/'.$this->vendor->id.'/settlements', [
+                    'currency' => 'AED',
+                    'idempotency_key' => 'revoked-'.$reader->id,
+                ])->assertConflict();
+                if ($row->role === 'admin') {
+                    $this->postJson($base.'/settlements/'.$settlement['id'].'/approve')
+                        ->assertConflict();
+                    $this->postJson($base.'/vendors/'.$this->vendor->id.'/adjustments', [
+                        'currency' => 'AED', 'amount_minor' => 10,
+                        'reason' => 'Must not post revoked adjustment',
+                        'idempotency_key' => 'revoked-adjustment',
+                    ])->assertConflict();
+                }
+                DB::table('users')->where('id', $reader->id)->update($original);
+            }
+        }
+
+        $this->assertDatabaseHas('commercial_settlements', [
+            'id' => $settlement['id'], 'state' => 'pending',
+        ]);
+        $this->assertSame($eventsBefore, DB::table('commercial_settlement_events')->count());
+        $this->assertSame($journalsBefore, DB::table('finance_journals')->count());
+        $this->assertSame($auditBefore, DB::table('audit_events')->count());
+        $this->assertDatabaseCount('commercial_adjustments', 0);
     }
 
     public function test_unpaid_partial_and_unmatured_invoices_are_not_payable(): void
