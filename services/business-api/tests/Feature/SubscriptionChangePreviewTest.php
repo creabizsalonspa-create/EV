@@ -263,6 +263,59 @@ class SubscriptionChangePreviewTest extends TestCase
         $this->assertDatabaseCount('commercial_subscription_receipts', 1);
     }
 
+    public function test_stale_owner_or_admin_cannot_read_subscription_history_or_change_paid_cycle(): void
+    {
+        [$admin, $vendor, $basic, $pro, $id, $invoice] = $this->scenario();
+        $base = '/preview-test/commercial/subscriptions';
+        $eventsBefore = DB::table('commercial_subscription_events')->count();
+        $invoicesBefore = DB::table('commercial_subscription_invoices')->count();
+        $receiptsBefore = DB::table('commercial_subscription_receipts')->count();
+
+        foreach ([$vendor, $admin] as $reader) {
+            $snapshot = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $snapshot->role,
+                'account_status' => $snapshot->account_status,
+                'auth_epoch' => $snapshot->auth_epoch,
+                'password' => $snapshot->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson($base.'/'.$id)->assertOk();
+            $this->getJson($base.'/'.$id.'/events')->assertOk();
+
+            foreach ([
+                ['role' => $snapshot->role === 'vendor' ? 'customer' : 'vendor'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $snapshot->auth_epoch + 1],
+                ['password' => Hash::make('revoked-billing-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $this->getJson('/preview-test/commercial/plans')->assertConflict();
+                $this->getJson($base)->assertConflict();
+                $this->getJson($base.'/'.$id)->assertConflict();
+                $this->getJson($base.'/'.$id.'/events')->assertConflict();
+                $this->postJson($base.'/'.$id.'/change', [
+                    'action' => 'change_plan', 'plan_id' => $pro['id'],
+                    'idempotency_key' => 'revoked-no-change-'.$reader->id,
+                ])->assertConflict();
+                $this->postJson($base.'/'.$id.'/mock-payment', [
+                    'invoice_id' => $invoice, 'outcome' => 'succeeded',
+                    'idempotency_key' => 'revoked-no-payment-'.$reader->id,
+                ])->assertConflict();
+                $this->postJson($base.'/'.$id.'/renew')->assertConflict();
+                DB::table('users')->where('id', $reader->id)->update($original);
+            }
+        }
+
+        $this->assertSame($eventsBefore, DB::table('commercial_subscription_events')->count());
+        $this->assertSame($invoicesBefore, DB::table('commercial_subscription_invoices')->count());
+        $this->assertSame($receiptsBefore, DB::table('commercial_subscription_receipts')->count());
+        $this->assertDatabaseHas('commercial_subscriptions', [
+            'id' => $id, 'next_plan_id' => null, 'status' => 'active',
+        ]);
+    }
+
     public function test_bearer_native_preview_is_same_scoped_read_only_quote_without_admin_token_access(): void
     {
         [$admin, $vendor, $basic, $pro, $id] = $this->scenario();
