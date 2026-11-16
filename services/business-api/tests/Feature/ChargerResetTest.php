@@ -92,6 +92,77 @@ class ChargerResetTest extends TestCase
         }
     }
 
+    public static function malformedIdleProjections(): array
+    {
+        $out = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['station_object', 'station_string_id', 'station_string_online', 'connector_object', 'connector_string_id',
+                'connector_duplicate', 'status_object', 'status_string_connector', 'status_missing_time', 'active_transaction'] as $kind) {
+                $out[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+        }
+
+        return $out;
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('malformedIdleProjections')]
+    public function test_untrusted_idle_source_projections_never_dispatch_reset(string $protocol, string $kind): void
+    {
+        $f = $this->fixture($protocol);
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($r) use ($f, $kind) {
+            $this->assertSame('http://source.test/graphql', $r->url());
+            if (str_contains($r['query'], 'ChargingStations')) {
+                $station = ['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']];
+                if ($kind === 'station_string_id') {
+                    $station['id'] = '9';
+                }
+                if ($kind === 'station_string_online') {
+                    $station['isOnline'] = 'true';
+                }
+                $rows = $kind === 'station_object' ? ['station' => $station] : [$station];
+
+                return Http::response(['data' => ['ChargingStations' => $rows]]);
+            }
+            $connectors = [['id' => 7]];
+            if ($kind === 'connector_object') {
+                $connectors = ['connector' => $connectors[0]];
+            }
+            if ($kind === 'connector_string_id') {
+                $connectors[0]['id'] = '7';
+            }
+            if ($kind === 'connector_duplicate') {
+                $connectors[] = ['id' => 7];
+            }
+            $status = ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available',
+                'timestamp' => now()->toISOString()];
+            if ($kind === 'status_string_connector') {
+                $status['connectorDatabaseId'] = '7';
+            }
+            if ($kind === 'status_missing_time') {
+                unset($status['timestamp']);
+            }
+            $notifications = $kind === 'status_object' ? ['status' => $status] : [$status];
+
+            return Http::response(['data' => [
+                'Transactions' => $kind === 'active_transaction' ? [['id' => 11]] : [],
+                'Connectors' => $connectors,
+                'StatusNotifications' => $notifications,
+            ]]);
+        });
+        $this->actingAs($f['owner'])->postJson($f['path'], [
+            'reason' => 'Reject malformed reset source evidence safely',
+            'idempotency_key' => 'source-'.$kind,
+        ])->assertStatus(409);
+        $this->assertSame(0, DB::table('charger_reset_operations')
+            ->where('binding_id', $f['binding'])->count());
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/configuration/reset'));
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_uncertain_reset_is_not_retried_and_blocks_start_admission(): void
     {
         $f = $this->fixture();

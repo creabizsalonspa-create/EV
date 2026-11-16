@@ -54,12 +54,35 @@ class ChargerResetController extends Controller
         try {
             $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol} }', 'variables' => ['name' => $b->identifier]]);
             $rows = $r->json('data.ChargingStations');
-            abort_unless($r->successful() && ! $r->json('errors') && is_array($rows) && count($rows) === 1 && $rows[0]['isOnline'] === true && in_array($rows[0]['protocol'], [$b->protocol, 'ocpp'.$b->protocol], true), 409, 'A current online source is required.');
+            abort_unless($r->successful() && ! $r->json('errors') && is_array($rows) && array_is_list($rows) && count($rows) === 1 &&
+                is_array($rows[0]) && is_int($rows[0]['id'] ?? null) && $rows[0]['id'] > 0 &&
+                ($rows[0]['isOnline'] ?? null) === true &&
+                in_array($rows[0]['protocol'] ?? null, [$b->protocol, 'ocpp'.$b->protocol], true), 409, 'A current typed online source is required.');
             $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), ['query' => 'query($station:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},isActive:{_eq:true}},limit:1){id} Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1000){connectorDatabaseId connectorStatus timestamp}}', 'variables' => ['station' => $rows[0]['id']]]);
             $d = $r->json('data');
-            abort_unless($r->successful() && ! $r->json('errors') && is_array($d) && $d['Transactions'] === [] && count($d['Connectors']) > 0 && count($d['Connectors']) <= 100, 409, 'Idle source evidence is required.');
+            abort_unless($r->successful() && ! $r->json('errors') && is_array($d) &&
+                ($d['Transactions'] ?? null) === [] &&
+                is_array($d['Connectors'] ?? null) && array_is_list($d['Connectors']) &&
+                count($d['Connectors']) > 0 && count($d['Connectors']) <= 100 &&
+                is_array($d['StatusNotifications'] ?? null) && array_is_list($d['StatusNotifications']) &&
+                count($d['StatusNotifications']) <= 1000, 409, 'Complete idle source evidence is required.');
+            $known = [];
+            foreach ($d['Connectors'] as $connector) {
+                abort_unless(is_array($connector) && is_int($connector['id'] ?? null) &&
+                    $connector['id'] > 0 && ! isset($known[$connector['id']]), 409, 'Malformed or duplicate source connector.');
+                $known[$connector['id']] = true;
+            }
             $latest = [];
+            // GraphQL orders source observations by descending durable ID.
+            // Validate every bounded returned row before trusting the newest
+            // item; an object-shaped or string-coerced projection is not proof
+            // that a reset will leave charger capacity unoccupied.
             foreach ($d['StatusNotifications'] as $row) {
+                abort_unless(is_array($row) && is_int($row['connectorDatabaseId'] ?? null) &&
+                    $row['connectorDatabaseId'] > 0 &&
+                    is_string($row['connectorStatus'] ?? null) &&
+                    is_string($row['timestamp'] ?? null), 409, 'Malformed source connector status.');
+                SourceStatusTime::parse($row['timestamp']);
                 if (! isset($latest[$row['connectorDatabaseId']])) {
                     $latest[$row['connectorDatabaseId']] = $row;
                 }
@@ -67,7 +90,7 @@ class ChargerResetController extends Controller
             foreach ($d['Connectors'] as $connector) {
                 $status = $latest[$connector['id']] ?? null;
                 abort_unless($status && $status['connectorStatus'] === 'Available', 409, 'Every source connector must report Available.');
-                $at = SourceStatusTime::parse($status['timestamp'] ?? null);
+                $at = SourceStatusTime::parse($status['timestamp']);
                 abort_unless($at->gte(now()->subMinutes(2)) && $at->lte(now()) && ($after === null || $at->gt(CarbonImmutable::parse($after))), 409, 'Fresh connector evidence after the operation is required.');
             }
         } catch (HttpExceptionInterface $e) {
