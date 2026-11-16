@@ -234,6 +234,69 @@ class OcpiReservationTest extends TestCase
         $this->assertCount(0, $this->writes);
     }
 
+    public function test_reservation_needs_coherent_fresh_evse_and_selected_connector_source_times(): void
+    {
+        $f = $this->setupReservation();
+        $provider = $f[3];
+        $location = $f[4];
+        $this->actingAs($f[1]);
+        $url = '/api/roaming/locations/'.$location->id;
+        $original = $location->payload;
+
+        foreach (['missing_evse', 'missing_connector', 'stale_connector', 'future_evse', 'impossible_connector', 'child_newer_than_parent'] as $invalid) {
+            $this->travel(1)->seconds();
+            $raw = $original;
+            $raw['last_updated'] = now()->toISOString();
+            $raw['evses'][0]['last_updated'] = now()->subSecond()->toISOString();
+            $raw['evses'][0]['connectors'][0]['last_updated'] = now()->subSecond()->toISOString();
+            if ($invalid === 'missing_evse') {
+                unset($raw['evses'][0]['last_updated']);
+            } elseif ($invalid === 'missing_connector') {
+                unset($raw['evses'][0]['connectors'][0]['last_updated']);
+            } elseif ($invalid === 'stale_connector') {
+                $raw['evses'][0]['connectors'][0]['last_updated'] = now()->subMinutes(6)->toISOString();
+            } elseif ($invalid === 'future_evse') {
+                $raw['evses'][0]['last_updated'] = now()->addMinute()->toISOString();
+            } elseif ($invalid === 'impossible_connector') {
+                $raw['evses'][0]['connectors'][0]['last_updated'] = '2026-02-30T10:00:00Z';
+            } else {
+                $raw['evses'][0]['last_updated'] = now()->toISOString();
+                $raw['evses'][0]['connectors'][0]['last_updated'] = now()->toISOString();
+                // Slightly older than the EVSE, but newer than the previous
+                // loop's Location revision: rejects incoherent hierarchy.
+                $raw['last_updated'] = now()->subMilliseconds(250)->toISOString();
+            }
+            app(RecordSynchronizer::class)->ingest($provider, 'locations', [$raw]);
+            $offer = $this->getJson($url.'/sandbox-offers')
+                ->assertOk()
+                ->assertJsonPath('reservation_supported', false)
+                ->assertJsonPath('offers.0.reservation_supported', false)
+                ->json('offers.0');
+            $this->assertNotNull($offer, 'An unverified reservation never removes the published start offer.');
+            $this->postJson($url.'/sandbox-reservations', [
+                'request_key' => (string) Str::uuid(), 'evse_uid' => 'E1',
+                'connector_id' => '1', 'tariff_id' => 'T1',
+                'offer_hash' => $offer['offer_hash'],
+                'terms_version' => ReservationRoaming::TERMS,
+                'consent' => true, 'duration_minutes' => 5,
+            ])->assertConflict();
+            $this->assertCount(0, $this->writes);
+            $this->assertDatabaseCount('ocpi_roaming_commands', 0);
+            $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+        }
+
+        $this->travel(1)->seconds();
+        $restored = $original;
+        $restored['last_updated'] = now()->toISOString();
+        $restored['evses'][0]['last_updated'] = now()->subSecond()->toISOString();
+        $restored['evses'][0]['connectors'][0]['last_updated'] = now()->subSecond()->toISOString();
+        app(RecordSynchronizer::class)->ingest($provider, 'locations', [$restored]);
+        $this->getJson($url.'/sandbox-offers')->assertOk()
+            ->assertJsonPath('reservation_supported', true)
+            ->assertJsonPath('offers.0.reservation_supported', true);
+        $this->assertCount(0, $this->writes);
+    }
+
     public function test_reservation_consent_validation_operator_and_numeric_route_boundaries_send_nothing(): void
     {
         $f = $this->setupReservation();
