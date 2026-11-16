@@ -6,6 +6,7 @@ use App\Security\CurrentFinanceReader;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /** Read-only Admin approvals; never a bank, PSP, ledger or settlement authority. */
 final class FinanceApprovalQueueController extends Controller
@@ -98,7 +99,17 @@ final class FinanceApprovalQueueController extends Controller
      */
     public function export(Request $request)
     {
-        $payload = $this->index($request)->getData(true);
+        try {
+            $payload = $this->index($request)->getData(true);
+        } catch (ValidationException $error) {
+            // CSV downloads are often plain browser GETs, not Accept: JSON.
+            // Invalid paging must be an explicit API 422, never a 302
+            // redirect with a leaked error flash in the browser session.
+            return response()->json([
+                'message' => 'Invalid private financial export filters.',
+                'errors' => $error->errors(),
+            ], 422)->header('Cache-Control', 'private, no-store');
+        }
 
         return response()->streamDownload(static function () use ($payload): void {
             $handle = fopen('php://output', 'wb');
