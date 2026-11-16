@@ -50,9 +50,12 @@ class AdminKycQueueController extends Controller
         // Empty timezone values are accepted as the SERVER default by date
         // libraries. A missing/invalid country calendar cannot establish
         // business-license validity; accept only explicit IANA identifiers.
-        $validTimezones = array_fill_keys(\DateTimeZone::listIdentifiers(), true);
+        $validTimezones = array_fill_keys(
+            \DateTimeZone::listIdentifiers(\DateTimeZone::ALL_WITH_BC), true
+        );
         foreach (DB::table('regions')->get(['country', 'timezone']) as $region) {
             if (! is_string($region->timezone)
+                || ($region->timezone !== 'UTC' && ! str_contains($region->timezone, '/'))
                 || ! isset($validTimezones[$region->timezone])) {
                 continue;
             }
