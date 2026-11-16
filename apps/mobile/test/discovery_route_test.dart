@@ -311,6 +311,67 @@ void main() {
   );
 
   testWidgets(
+    'editing reviewed route coordinates requires renewed provider consent',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(900, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final queries = <Map<String, dynamic>>[];
+      final client = DiscoveryClient.withRequest((path, _, body) async {
+        if (path == 'capabilities') {
+          return {
+            'provider': 'geoapify',
+            'geocoding': false,
+            'routing': true,
+            'max_charging_stops': 3,
+          };
+        }
+        queries.add(Map<String, dynamic>.from(body!));
+        return estimate();
+      });
+      await tester.pumpWidget(MaterialApp(
+        home: RoutePlannerView(
+          client: client,
+          stations: [station()],
+          origin: GeoPoint(25.2, 55.3),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      for (final entry in {
+        'destination-lat': '25.3',
+        'destination-lng': '55.4',
+      }.entries) {
+        await tester.ensureVisible(find.byKey(Key(entry.key)));
+        await tester.enterText(find.byKey(Key(entry.key)), entry.value);
+      }
+      final consent = find.byKey(const Key('route-provider-consent'));
+      await tester.ensureVisible(consent);
+      await tester.tap(consent);
+      await tester.pumpAndSettle();
+      expect(tester.widget<CheckboxListTile>(consent).value, isTrue);
+      expect(tester.widget<FilledButton>(
+        find.byKey(const Key('route-preview'))).onPressed, isNotNull);
+      await tester.ensureVisible(find.byKey(const Key('destination-lat')));
+      await tester.enterText(find.byKey(const Key('destination-lat')), '25.35');
+      await tester.pumpAndSettle();
+      expect(tester.widget<CheckboxListTile>(consent).value, isFalse);
+      expect(tester.widget<FilledButton>(
+        find.byKey(const Key('route-preview'))).onPressed, isNull);
+      expect(queries, isEmpty, reason:'Editing a route never contacts Geoapify');
+      await tester.ensureVisible(consent);
+      await tester.tap(consent);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('route-preview')));
+      await tester.tap(find.byKey(const Key('route-preview')));
+      await tester.pumpAndSettle();
+      expect(queries.single['consent'], true);
+      expect((queries.single['points'] as List).last, {
+        'latitude': 25.35, 'longitude': 55.4,
+      });
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'changing authenticated discovery client invalidates pending navigation permission and private route fields',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(900, 1600));
