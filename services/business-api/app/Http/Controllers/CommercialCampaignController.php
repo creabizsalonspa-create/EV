@@ -13,9 +13,20 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 class CommercialCampaignController extends Controller
 {
     /** Call only inside a transaction that holds the current account lock. */
-    private function scope(Request $r)
+    private function scope(Request $r, int $revokedStatus = 409)
     {
-        $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+        try {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+        } catch (HttpException $error) {
+            // Campaign control must preserve its existing non-enumerating
+            // 404 for a formerly privileged reviewer, rather than exposing
+            // the private campaign's existence via a 409 response.
+            if ($revokedStatus !== 409 && $error->getStatusCode() === 409) {
+                abort($revokedStatus);
+            }
+
+            throw $error;
+        }
         abort_unless(in_array($actor->role, ['vendor', 'admin'], true), 403);
 
         return DB::table('commercial_campaigns')
@@ -127,13 +138,12 @@ class CommercialCampaignController extends Controller
     public function action(Request $r, int $campaign, string $action, CampaignService $s)
     {
         return DB::transaction(function () use ($r, $campaign, $action, $s) {
-            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
-            $this->scope($r)->where('id', $campaign)->first() ?? abort(404);
+            $this->scope($r, 404)->where('id', $campaign)->first() ?? abort(404);
             $v = $r->validate(['reason' => 'required|string|min:5|max:500',
                 'expected_control_revision' => 'sometimes|integer|min:1']);
 
             return response()->json(['campaign' => $this->safe(
-                $s->action($campaign, $actor, $action, $v['reason'],
+                $s->action($campaign, $r->user(), $action, $v['reason'],
                     isset($v['expected_control_revision'])
                         ? (int) $v['expected_control_revision'] : null), $s
             )])->header('Cache-Control', 'private, no-store');
