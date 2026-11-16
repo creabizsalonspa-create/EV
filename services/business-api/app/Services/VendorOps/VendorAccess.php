@@ -57,12 +57,24 @@ class VendorAccess
     public function licenseValid(VendorCompany $company, ?string $timezone = null): bool
     {
         $timezone ??= DB::table('regions')->where('country', $company->country)->value('timezone');
-        if (! is_string($timezone)) {
+        // Invalid/blank timezone configuration must never silently fall
+        // back to the PHP server timezone and authorize charger operations.
+        // Align this authority check with the Admin KYC unknown-date queue.
+        if (! is_string($timezone)
+            || ! in_array($timezone, \DateTimeZone::listIdentifiers(), true)
+            || ! $company->license_expires_on) {
             return false;
         }
 
-        // A license is a local calendar date, not midnight in the server zone.
-        return CarbonImmutable::createFromFormat('!Y-m-d', $company->license_expires_on->format('Y-m-d'), $timezone)->endOfDay()->isFuture();
+        // A license expires at the end of its configured country-local
+        // calendar day. Invalid historical dates remain ineligible.
+        try {
+            return CarbonImmutable::createFromFormat(
+                '!Y-m-d', $company->license_expires_on->format('Y-m-d'), $timezone
+            )->endOfDay()->isFuture();
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     public function audit(User $actor, string $action, int $subject): void
