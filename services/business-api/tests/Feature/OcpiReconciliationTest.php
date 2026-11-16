@@ -8,6 +8,10 @@ use App\Models\User;
 use App\Services\Ocpi\CdrReconciler;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\RecordSynchronizer;
+use App\Http\Controllers\OcpiController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
@@ -48,6 +52,44 @@ class OcpiReconciliationTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson($url)->assertOk();
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_private_cdr_read_rechecks_current_actor_epoch_and_provider_tenant_before_hydration(): void
+    {
+        [$provider, $cdr] = $this->source();
+        $owner = User::findOrFail($provider->owner_id);
+        $request = Request::create('/api/ocpi/providers/'.$provider->id.'/records/cdrs', 'GET');
+        // Use a deliberately retained HTTP request actor snapshot. The
+        // endpoint must not rely on the old Eloquent instance to decide
+        // access after another transaction changes account/provider authority.
+        $request->setUserResolver(static fn () => $owner);
+        $controller = app(OcpiController::class);
+        $reconciler = app(CdrReconciler::class);
+        $response = $controller->records($request, $provider, 'cdrs', $reconciler);
+        $this->assertSame(200, $response->status());
+        $this->assertStringNotContainsString('PRIVATE-DRIVER-IDENTITY', $response->getContent());
+
+        DB::table('users')->where('id', $owner->id)->increment('auth_epoch');
+        try {
+            $controller->records($request, $provider, 'cdrs', $reconciler);
+            $this->fail('A previous-login actor was allowed to read private partner source.');
+        } catch (HttpException $exception) {
+            $this->assertSame(409, $exception->getStatusCode());
+        }
+        DB::table('users')->where('id', $owner->id)->update(['auth_epoch' => $owner->auth_epoch]);
+        DB::table('ocpi_providers')->where('id', $provider->id)->update([
+            'owner_id' => User::factory()->create(['role' => 'vendor'])->id,
+        ]);
+        try {
+            $controller->records($request, $provider, 'cdrs', $reconciler);
+            $this->fail('A previous owner was allowed to read the reassigned partner.');
+        } catch (HttpException $exception) {
+            $this->assertSame(404, $exception->getStatusCode());
+        }
+
+        $this->assertSame($cdr->content_hash, $cdr->fresh()->content_hash);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
     }
 
     public function test_completed_session_identity_energy_and_cost_discrepancies_require_review(): void
