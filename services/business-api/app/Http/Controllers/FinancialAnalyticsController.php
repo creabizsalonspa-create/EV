@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\Commercial\Analytics\AnalyticsPresentation;
 use App\Security\CurrentFinanceReader;
+use App\Services\Commercial\Analytics\AnalyticsPresentation;
 use App\Services\Commercial\Analytics\FinancialAnalytics;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
