@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\OcpiRecord;
 use App\Services\Ocpi\CredentialExchange;
+use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\ReservationRoaming;
 use App\Services\Ocpi\SandboxRoaming;
@@ -186,6 +188,80 @@ class OcpiReservationTest extends TestCase
         $this->freshAvailable($f);
         $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', true);
         $this->assertSame(2, $calls);
+    }
+
+    public function test_sandbox_tariff_windows_are_strict_utc_under_non_utc_server_timezones(): void
+    {
+        $f = $this->setupReservation();
+        $this->actingAs($f[1]);
+        $tariff = OcpiRecord::query()->where('module', 'tariffs')->firstOrFail();
+        $source = $tariff->payload;
+        $url = '/api/roaming/locations/'.$f[4]->id.'/sandbox-offers';
+        $originalZone = date_default_timezone_get();
+
+        try {
+            // In Dubai, a Z-free UTC start 30 minutes ahead must be rejected;
+            // parsing it as Dubai-local would incorrectly make it historical.
+            // In New York, a Z-free UTC end 30 minutes ago must be rejected;
+            // interpreting it as New York-local would make it appear future.
+            foreach (['Asia/Dubai' => 'start_date_time',
+                'America/New_York' => 'end_date_time',
+                'UTC' => 'invalid_date',
+                'Europe/London' => 'null_start',
+                'Pacific/Auckland' => 'null_end'] as $zone => $boundary) {
+                date_default_timezone_set($zone);
+                $this->travel(1)->seconds();
+                $raw = $source;
+                $raw['last_updated'] = now()->utc()->toISOString();
+                if ($boundary === 'start_date_time') {
+                    $raw['start_date_time'] = now()->utc()->addMinutes(30)->format('Y-m-d\TH:i:s');
+                } elseif ($boundary === 'end_date_time') {
+                    $raw['end_date_time'] = now()->utc()->subMinutes(30)->format('Y-m-d\TH:i:s');
+                } elseif ($boundary === 'null_start') {
+                    $raw['start_date_time'] = null;
+                } elseif ($boundary === 'null_end') {
+                    $raw['end_date_time'] = null;
+                } else {
+                    $raw['start_date_time'] = '2026-02-30T09:00:00';
+                }
+                if ($boundary === 'invalid_date') {
+                    // Canonical OCPI ingestion now rejects impossible dates
+                    // before any source replacement. A previously valid
+                    // tariff must remain unchanged rather than be treated as
+                    // an invalid offer published by this incoming record.
+                    $previousPayload = $tariff->fresh()->payload;
+                    try {
+                        app(RecordSynchronizer::class)->ingest($f[3], 'tariffs', [$raw]);
+                        $this->fail('An impossible OCPI source timestamp was accepted.');
+                    } catch (OcpiException $error) {
+                        $this->assertStringContainsString('start_date_time', $error->getMessage());
+                    }
+                    $this->assertSame($previousPayload, $tariff->fresh()->payload);
+                } else {
+                    app(RecordSynchronizer::class)->ingest($f[3], 'tariffs', [$raw]);
+                    $this->getJson($url)->assertOk()->assertJsonCount(0, 'offers');
+                }
+                $this->assertCount(0, $this->writes);
+                $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+                $this->assertDatabaseCount('ocpi_roaming_commands', 0);
+            }
+
+            // A truly current source window remains usable in non-UTC
+            // deployment settings. This is still sandbox-only authority.
+            date_default_timezone_set('America/New_York');
+            $this->travel(1)->seconds();
+            $raw = $source;
+            $raw['last_updated'] = now()->utc()->toISOString();
+            $raw['start_date_time'] = now()->utc()->subMinutes(30)->format('Y-m-d\TH:i:s');
+            $raw['end_date_time'] = now()->utc()->addMinutes(30)->format('Y-m-d\TH:i:s');
+            app(RecordSynchronizer::class)->ingest($f[3], 'tariffs', [$raw]);
+            $this->getJson($url)->assertOk()->assertJsonCount(1, 'offers')
+                ->assertJsonPath('offers.0.reservation_supported', true);
+            $this->assertCount(0, $this->writes);
+        } finally {
+            date_default_timezone_set($originalZone);
+            $this->travelBack();
+        }
     }
 
     public function test_only_a_freshly_advertised_reservable_evse_can_be_reserved(): void
