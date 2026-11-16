@@ -40,7 +40,7 @@ return [
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
             // Bounded contention wait for local multi-process simulator reads/writes;
             // PostgreSQL remains the authoritative staging and production store.
-            'busy_timeout' => (int) env('DB_SQLITE_BUSY_TIMEOUT_MS', 5000),
+            'busy_timeout' => min(10000, max(1000, (int) env('DB_SQLITE_BUSY_TIMEOUT_MS', 5000))),
             'journal_mode' => env('DB_SQLITE_JOURNAL_MODE', null),
             'synchronous' => null,
             'transaction_mode' => 'DEFERRED',
