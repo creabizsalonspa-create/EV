@@ -45,6 +45,8 @@ probe of the exact JS head confirmed that a coherent report renders and that
 an inflated market total is rejected; this is **not** a substitute for real
 Chromium or PostgreSQL/CI verification.
 
+The existing reported/receipt clock buckets also reject impossible historical timezone offsets (for example, `+14:30`, `+99:99`) instead of accepting PHP's normalization into another instant. These remain `unknown`, not evidence of source freshness. Valid `+14:00` timestamps are still classified by their absolute UTC instant.
+
 **Validation requirements:** `OcpiCatalogObservationsTest` on SQLite and the existing
 PostgreSQL connector matrix, covering country/party separation, all three supported markets,
 unpublished records, unknown countries, malformed coordinates, privacy, no external requests,
