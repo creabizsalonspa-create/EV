@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -69,6 +70,31 @@ class HistoryApi extends FixtureApi {
   }
 }
 
+class DelayedHistoryApi extends HistoryApi {
+  final pending = Completer<dynamic>();
+  int actorEpoch = 0;
+  int invoiceReads = 0;
+  @override
+  bool Function() sessionFence() {
+    final captured = actorEpoch;
+    return () => captured == actorEpoch;
+  }
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path == 'finance/invoices') {
+      invoiceReads++;
+      return pending.future;
+    }
+    return super.request(path, method: method, body: body, query: query);
+  }
+}
+
 Widget app(HistoryApi api, VoidCallback expired) => MaterialApp(
   locale: const Locale('ar'),
   supportedLocales: const [Locale('en'), Locale('ar')],
@@ -80,6 +106,60 @@ Widget app(HistoryApi api, VoidCallback expired) => MaterialApp(
   home: InvoiceHistoryView(api: api, onExpired: expired),
 );
 void main() {
+  testWidgets('late old-account invoice list is discarded and new actor gets fresh data', (
+    tester,
+  ) async {
+    final oldApi = DelayedHistoryApi();
+    addTearDown(oldApi.close);
+    var expired = false;
+    await tester.pumpWidget(app(oldApi, () => expired = true));
+    await tester.pump();
+    oldApi.actorEpoch++;
+    oldApi.pending.complete({
+      'data': [
+        {
+          'id': 7,
+          'number': 'PRIVATE-OLD-ACCOUNT',
+          'evidence': 'SIMULATED',
+        },
+      ],
+      'current_page': 1,
+      'last_page': 1,
+      'total': 1,
+    });
+    await tester.pump();
+    await tester.pumpWidget(app(oldApi, () => expired = true));
+    await tester.pump();
+    expect(find.text('PRIVATE-OLD-ACCOUNT'), findsNothing);
+    expect(expired, isFalse);
+    expect(oldApi.invoiceReads, 1);
+
+    final newApi = HistoryApi()..failSecond = false;
+    addTearDown(newApi.close);
+    await tester.pumpWidget(app(newApi, () {}));
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-HISTORY-7'), findsOneWidget);
+    expect(find.text('PRIVATE-OLD-ACCOUNT'), findsNothing);
+  });
+
+  testWidgets('background clears private invoice list and filters without automatic reads', (
+    tester,
+  ) async {
+    final api = HistoryApi()..failSecond = false;
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, () {}));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'PRIVATE-PREFIX');
+    final requests = api.queries.length;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(find.text('SIM-HISTORY-7'), findsNothing);
+    expect(find.text('PRIVATE-PREFIX'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(api.queries.length, requests);
+    expect(find.text('SIM-HISTORY-7'), findsNothing);
+  });
   testWidgets(
     'invoice history keeps filters through pagination failure/retry and clears on expiry',
     (tester) async {
