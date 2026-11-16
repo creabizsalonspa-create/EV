@@ -34,21 +34,34 @@ class CorporateBillingController extends Controller
     {
         $v = $r->validate(['currency' => 'required|string|size:3|uppercase', 'minor_units' => 'required|integer|between:0,3', 'credit_limit_minor' => 'required|integer|min:1|max:1000000000000', 'payment_terms_days' => 'required|integer|between:0,365', 'billing_day' => 'required|integer|between:1,28', 'effective_from' => 'required|date', 'expires_at' => 'required|date|after:effective_from', 'legal_name' => 'required|string|max:200', 'terms' => 'required|string|max:2000', 'idempotency_key' => 'required|string|max:100']);
 
-        return response()->json(['agreement' => $s->publish($fleet, $r->user()->id, $v)], 201);
+        return DB::transaction(function () use ($r, $fleet, $s, $v) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($actor->role === 'admin', 403);
+
+            return response()->json(['agreement' => $s->publish($fleet, $actor->id, $v)], 201);
+        }, 3);
     }
 
     public function accept(Request $r, int $agreement, CorporateBilling $s)
     {
         $r->validate(['consent' => 'required|accepted']);
 
-        return response()->json(['agreement' => $s->accept($agreement, $r->user()->id)]);
+        return DB::transaction(function () use ($r, $agreement, $s) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+
+            return response()->json(['agreement' => $s->accept($agreement, $actor->id)]);
+        }, 3);
     }
 
     public function claim(Request $r, int $agreement, CorporateBilling $s)
     {
         $v = $r->validate(['invoice_id' => 'required|integer|min:1', 'cost_center_id' => 'required|integer|min:1', 'idempotency_key' => 'required|string|max:100']);
 
-        return response()->json(['claim' => $s->claim($agreement, $r->user()->id, $v)], 201);
+        return DB::transaction(function () use ($r, $agreement, $s, $v) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+
+            return response()->json(['claim' => $s->claim($agreement, $actor->id, $v)], 201);
+        }, 3);
     }
 
     public function claims(Request $r, int $agreement, CorporateBilling $s)
@@ -75,14 +88,24 @@ class CorporateBillingController extends Controller
     {
         $v = $r->validate(['decision' => 'required|in:approved,rejected', 'reason' => 'required|string|max:500']);
 
-        return response()->json(['decision' => $s->decide($claim, $r->user()->id, $v['decision'], $v['reason'])]);
+        return DB::transaction(function () use ($r, $claim, $s, $v) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+
+            return response()->json(['decision' => $s->decide(
+                $claim, $actor->id, $v['decision'], $v['reason']
+            )]);
+        }, 3);
     }
 
     public function issue(Request $r, int $agreement, CorporateBilling $s)
     {
         $v = $r->validate(['period' => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/D'], 'claim_ids' => 'required|array|min:1|max:100', 'claim_ids.*' => 'required|integer|min:1', 'idempotency_key' => 'required|string|max:100']);
 
-        return response()->json(['statement' => $s->issue($agreement, $r->user()->id, $v)], 201);
+        return DB::transaction(function () use ($r, $agreement, $s, $v) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+
+            return response()->json(['statement' => $s->issue($agreement, $actor->id, $v)], 201);
+        }, 3);
     }
 
     public function statements(Request $r, int $agreement, CorporateBilling $s)
