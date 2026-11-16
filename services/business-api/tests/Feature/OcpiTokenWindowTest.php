@@ -69,6 +69,36 @@ class OcpiTokenWindowTest extends TestCase
         $this->assertCount($originalWrites, $this->writes, 'Date-window reads must not dispatch any OCPI commands.');
     }
 
+    public function test_token_sender_rejects_relative_rolled_or_partial_date_bounds_without_broadening_a_source_read(): void
+    {
+        $fixture = $this->fixture();
+        $this->start($fixture[1], $fixture[4]);
+        $writes = count($this->writes);
+        $read = fn (array $filters) => $this->withHeaders($this->peer())->getJson(
+            '/api/roaming-protocol/2.2.1/tokens?'.http_build_query($filters)
+        );
+
+        foreach ([
+            'tomorrow',
+            '2026-02-30T08:00:00Z',
+            '2026-11-16 08:00:00',
+            '2026-11-16T08:00',
+            '2026-11-16T08:00:00+14:30',
+            '2026-11-16T08:00:00+12:90',
+            '2026-11-16T08:00:00.1234567Z',
+            '2026-11-16T08:00:00Ztrailing',
+            '',
+        ] as $invalid) {
+            $read(['date_from' => $invalid])->assertStatus(422);
+            $read(['date_to' => $invalid])->assertStatus(422);
+        }
+        $read(['date_from' => ['unexpected' => 'array']])->assertStatus(422);
+        $read(['date_to' => ['unexpected' => 'array']])->assertStatus(422);
+        $this->assertCount($writes, $this->writes,
+            'Malformed token windows must not dispatch new partner commands');
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_ocpi_protocol_replies_echo_safe_message_ids_across_token_credentials_and_records(): void
     {
         $this->fixture();
