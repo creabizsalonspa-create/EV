@@ -19,7 +19,16 @@ class CdrReconciler
         $n = $cdr->normalized;
         $raw = $cdr->payload;
         $sessionId = $n['session_id'] ?? ($raw['session_id'] ?? null);
-        if (! $provider->authorized || $provider->version !== '2.2.1') {
+        // Source reconciliation may run in a long-lived worker after an
+        // owner, credential configuration or authorization revision changes.
+        // A passed Eloquent model is only a snapshot; never represent a
+        // revoked or transferred provider as currently source-consistent.
+        $current = OcpiProvider::find($provider->id);
+        if (! $current || ! $provider->authorized || $provider->version !== '2.2.1'
+            || ! $current->authorized || $current->version !== '2.2.1'
+            || $current->owner_id !== $provider->owner_id
+            || $current->connection_key !== $provider->connection_key
+            || $current->authorization_revision !== $provider->authorization_revision) {
             $issues[] = 'partner_not_authorized_and_negotiated';
         }
         if (($raw['credit'] ?? false) || isset($raw['credit_reference_id'])) {
