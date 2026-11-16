@@ -104,18 +104,18 @@ class PaymentCaseEvidenceController extends Controller
             $this->access($r, $case);
             $row = DB::table('gateway_case_evidence')
                 ->where('case_id', $case)->where('id', $evidence)->first();
-        abort_unless($row, 404);
-        $cipher = Storage::disk('local')->get($row->storage_path);
-        abort_unless(is_string($cipher), 503);
-        try {
-            $content = Crypt::decryptString($cipher);
-        } catch (Throwable) {
-            abort(503, 'Private evidence integrity check failed.');
-        }
-        abort_unless(strlen($content) === (int) $row->size_bytes && hash_equals($row->sha256, hash('sha256', $content)), 503, 'Private evidence integrity check failed.');
-        $extension = match ($row->mime_type) {
-            'image/png' => 'png', 'image/jpeg' => 'jpg', default => 'pdf'
-        };
+            abort_unless($row, 404);
+            $cipher = Storage::disk('local')->get($row->storage_path);
+            abort_unless(is_string($cipher), 503);
+            try {
+                $content = Crypt::decryptString($cipher);
+            } catch (Throwable) {
+                abort(503, 'Private evidence integrity check failed.');
+            }
+            abort_unless(strlen($content) === (int) $row->size_bytes && hash_equals($row->sha256, hash('sha256', $content)), 503, 'Private evidence integrity check failed.');
+            $extension = match ($row->mime_type) {
+                'image/png' => 'png', 'image/jpeg' => 'jpg', default => 'pdf'
+            };
 
             return response($content, 200, [
                 'Content-Type' => $row->mime_type,
