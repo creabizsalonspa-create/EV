@@ -294,6 +294,14 @@ class AdminKycQueueTest extends TestCase
             $this->getJson('/api/admin/kyc-queue?status=approved&license_health=due_30_days')
                 ->assertOk()->assertJsonPath('total', 0);
         }
+        // Etc/UTC is a legitimate IANA zone even though PHP's default
+        // canonical identifier list omits backwards-compatible Etc aliases.
+        DB::table('regions')->where('country', 'AE')->update(['timezone' => 'Etc/UTC']);
+        $this->assertTrue($access->licenseValid($company));
+        $this->getJson('/api/admin/kyc-queue?status=approved&license_health=current')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.license_local_date', '2026-11-15');
+
         DB::table('regions')->where('country', 'AE')->update(['timezone' => 'Asia/Dubai']);
         $this->assertTrue($access->licenseValid($company));
         $this->assertTrue($access->capabilities($owner, $company)['inventory_operational']);
