@@ -18,6 +18,13 @@ final class CurrentFinanceReader
     {
         $snapshot = $request->user();
         abort_unless($snapshot instanceof User, 401);
+
+        return $this->requireSnapshot($snapshot);
+    }
+
+    /** For service methods that receive a typed User snapshot, not a Request. */
+    public function requireSnapshot(User $snapshot): User
+    {
         $current = User::query()->whereKey($snapshot->id)->lockForUpdate()->first();
 
         abort_unless($current && $current->account_status === 'active'
