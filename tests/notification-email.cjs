@@ -35,15 +35,18 @@ const assert = require('node:assert/strict');
             await page.addScriptTag({path:'services/business-api/public/notification-email.js'});
             await page.evaluate(async () => {
                 window.writes = [];
+                window.requestedPages = [];
                 window.active = true;
                 window.failNextHistory = false;
                 window.malformedHistory = false;
                 window.api = async (path, method = 'GET', body) => {
                     if (method === 'PUT') { window.writes.push(body); return {enabled:body.enabled}; }
                     if (path.includes('/history')) {
+                        const requested = Number(new URLSearchParams(path.split('?')[1] || '').get('page') || '1');
+                        window.requestedPages.push(requested);
                         if (window.failNextHistory) { window.failNextHistory = false; throw Error('PRIVATE HISTORY DIAGNOSTIC'); }
-                        if (window.malformedHistory) return {delivery_confirmed:false,automatic_retry:false,receipts:{data:'not-an-array',current_page:1,last_page:1}};
-                        return {delivery_confirmed:false,automatic_retry:false,receipts:{data:[],current_page:1,last_page:1}};
+                        if (window.malformedHistory) return {delivery_confirmed:false,automatic_retry:false,receipts:{data:'not-an-array',current_page:requested,last_page:2}};
+                        return {delivery_confirmed:false,automatic_retry:false,receipts:{data:[],current_page:requested,last_page:2}};
                     }
                     return {enabled:true,consent_current:true,configured:true,verified_email_required:false,revision:'4'};
                 };
@@ -72,6 +75,14 @@ const assert = require('node:assert/strict');
             await refresh.click();
             await disable.waitFor();
             assert.equal(await page.getByRole('alert').count(),0);
+            await page.getByRole('button',{name:ar?'التالي':'Next',exact:true}).click();
+            await page.getByRole('button',{name:ar?'السابق':'Previous',exact:true}).waitFor();
+            await page.evaluate(()=>window.failNextHistory=true);
+            await refresh.click();
+            await page.getByRole('alert').waitFor();
+            await refresh.click();
+            await disable.waitFor();
+            assert.deepEqual(await page.evaluate(()=>window.requestedPages.slice(-2)),[2,2], 'retry must retain the failed page');
             await page.close();
         }
         console.log('PASS email notice refresh failure and malformed-history recovery with EN/AR retry and stale-action fence');
