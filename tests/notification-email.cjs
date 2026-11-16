@@ -56,6 +56,7 @@ const assert = require('node:assert/strict');
             const refresh = page.getByRole('button',{name:ar?'تحديث':'Refresh',exact:true});
             const disable = page.getByRole('button',{name:ar?'تعطيل إشعارات البريد':'Disable email notices',exact:true});
             assert.equal(await disable.count(),1);
+            assert.equal(await page.getByText(ar?'لا توجد عمليات نقل إشعارات بالبريد في هذه الصفحة.':'No email notice handoffs on this page.').count(),1);
             await page.evaluate(()=>window.failNextHistory=true);
             await refresh.click();
             await page.getByRole('alert').waitFor();
