@@ -35,8 +35,18 @@ class InvoiceFixture extends FixtureApi {
       'paid_minor': 329,
       'refunded_minor': 329,
       'amount_due_minor': 0,
+      'unpaid_credited_minor': 0,
       'state': 'refunded',
       'ledger_balanced': true,
+      'payments': corruptField == 'payment'
+          ? [{'amount_minor': 'not-an-amount', 'created_at': '2026-11-16'}]
+          : [],
+      'refunds': corruptField == 'refund'
+          ? [{'amount_minor': 329, 'created_at': null}]
+          : [],
+      'unpaid_credit_notes': corruptField == 'credit_note'
+          ? [{'id': 'not-an-id', 'credit_note_number': 'PRIVATE-NOTE'}]
+          : [],
       'payment_provider': 'SIMULATOR_ONLY',
       'real_payment_processed': invalidEvidence,
     };
@@ -168,7 +178,7 @@ void main() {
       expect(api.requests, 2);
     },
   );
-  for (final field in ['id', 'minor_units', 'total_minor', 'currency']) {
+  for (final field in ['id', 'minor_units', 'total_minor', 'currency', 'payment', 'refund', 'credit_note']) {
     testWidgets('malformed invoice $field cannot open financial actions', (
       tester,
     ) async {
