@@ -10,7 +10,7 @@ class Element{
 }
 const sample={data:[{key:'catalog:7',kind:'catalog',station:{id:7,name:'<b>Catalog</b>',evidence:'SIMULATED'}},{key:'partner:7',kind:'partner',record_id:7,provider_label:'Private operator label',location:{name:'<img src=x>',address:'Synthetic',country:'ARE'},availability:'unknown',remote_control:false,reservable:false}],current_page:1,last_page:2,total:3};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-function fixture(lang='en',api=async()=>sample){const events=[],window={addEventListener(){},dispatchEvent(event){events.push(event);}},document={getElementById:()=>null,documentElement:{lang},createElement:tag=>new Element(tag)};vm.runInNewContext(fs.readFileSync('services/business-api/public/partner-catalog-policy.js','utf8'),{window});vm.runInNewContext(fs.readFileSync('services/business-api/public/unified-discovery.js','utf8'),{window,document,URLSearchParams,CustomEvent:class{constructor(type,data){this.type=type;this.detail=data.detail;}}});const root=new Element('section'),chosen=[],calls=[];const control=window.EvUnifiedDiscovery.install(root,async(...args)=>{calls.push(args);return api(...args);},id=>chosen.push(id));return{root,chosen,calls,control,events,form:root.children[2],list:root.children[4],nav:root.children[5]};}
+function fixture(lang='en',api=async()=>sample){const events=[],listeners=new Map(),window={addEventListener(type,fn){listeners.set(type,[...(listeners.get(type)||[]),fn]);},dispatchEvent(event){events.push(event);for(const fn of listeners.get(event.type)||[])fn(event);}},document={getElementById:()=>null,documentElement:{lang},createElement:tag=>new Element(tag)};vm.runInNewContext(fs.readFileSync('services/business-api/public/partner-catalog-policy.js','utf8'),{window});vm.runInNewContext(fs.readFileSync('services/business-api/public/unified-discovery.js','utf8'),{window,document,URLSearchParams,CustomEvent:class{constructor(type,data){this.type=type;this.detail=data.detail;}}});const root=new Element('section'),chosen=[],calls=[];const control=window.EvUnifiedDiscovery.install(root,async(...args)=>{calls.push(args);return api(...args);},id=>chosen.push(id));return{root,chosen,calls,control,events,emit:(type,detail)=>window.dispatchEvent({type,detail}),form:root.children[2],list:root.children[4],nav:root.children[5]};}
 for(const lang of ['en','ar'])test('actual unified DOM query, typed identities and safe source text '+lang,async()=>{
  const f=fixture(lang);assert.equal(f.calls.length,0);f.form.children[0].children.find(n=>n.tag==='input').value='100%_hub';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls[0][0].split('?')[1]).get('q'),'100%_hub');assert.equal(f.list.children.length,2);assert.match(f.list.textContent,/<img src=x>/);assert.equal(f.list.children[1].children.some(n=>n.tag==='button'),false);f.list.children[0].children.find(n=>n.tag==='button').onclick();assert.deepEqual(f.chosen,[7]);assert.equal(f.list.children[0].children[0].innerHTML,undefined);assert.match(f.list.textContent,lang==='ar'?/التوفر غير معروف/:/availability unknown/);f.nav.children.find(n=>n.tag==='button').onclick();await tick();assert.equal(new URLSearchParams(f.calls[1][0].split('?')[1]).get('page'),'2');assert(f.calls.every(args=>args.length===1));
 });
@@ -29,7 +29,7 @@ test('unified favorites use existing typed writers and refresh authoritative sav
  f.control.setContext({owner:1,customer:true,favorite:async(kind,id,desired)=>{const key=kind+':'+id;writes.push({key,desired});desired?saved.add(key):saved.delete(key);return desired;}});
  f.form.onsubmit({preventDefault(){}});await tick();let star=f.list.children[0].children.find(x=>x.dataset.favoriteKind);await star.onclick();assert.deepEqual(writes,[{key:'catalog:7',desired:true}]);assert.match(f.list.children[0].textContent,/Remove saved place/);
  star=f.list.children[1].children.find(x=>x.dataset.favoriteKind);await star.onclick();assert.equal(writes[1].key,'partner:7');assert.equal(saved.size,2);
- f.form.children[3].children.find(n=>n.tag==='input').checked=true;f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).get('saved_only'),'1');
+ f.form.children.flatMap(n=>n.children).find(n=>n.tag==='input'&&n.type==='checkbox').checked=true;f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).get('saved_only'),'1');
  f.control.setContext({owner:2,customer:true,favorite:async()=>{throw Error('Unexpected write');}});assert.equal(f.list.children.length,0);
 });
 test('unknown preference outcomes require explicit refresh and late account replies do not reload',async()=>{
@@ -38,14 +38,15 @@ test('unknown preference outcomes require explicit refresh and late account repl
 });
 
 test('source-report selection sends an exact bounded status and clear removes it',async()=>{
- const f=fixture();f.form.children[4].children.find(n=>n.tag==='select').value='Available';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls[0][0].split('?')[1]).get('recent_source_status'),'Available');f.control.clear();assert.equal(f.form.children[4].children.find(n=>n.tag==='select').value,'');
+ const f=fixture();f.form.children.flatMap(n=>n.children).find(n=>n.name==='recent_source_status').value='Available';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls[0][0].split('?')[1]).get('recent_source_status'),'Available');f.control.clear();assert.equal(f.form.children.flatMap(n=>n.children).find(n=>n.name==='recent_source_status').value,'');
 });
 
 test('locale application preserves nested search inputs, source dropdowns and private checkbox',async()=>{
  const f=fixture();f.form.onsubmit({preventDefault(){}});await tick();
  function apply(node){if(node.dataset.ar!==undefined&&node.textContent!==node.dataset.ar)node.textContent=node.dataset.ar;for(const child of node.children)apply(child);}
- apply(f.root);assert.match(f.root.children[3].textContent,/3 نتيجة منشورة/);assert(f.form.children[0].children.some(n=>n.tag==='input'));assert(f.form.children[1].children.some(n=>n.tag==='select'));assert(f.form.children[2].children.some(n=>n.tag==='select'));assert(f.form.children[3].children.some(n=>n.tag==='input'));
- if(f.form.children[4].tag==='label')assert(f.form.children[4].children.some(n=>n.tag==='select'));
+ apply(f.root);assert.match(f.root.children[3].textContent,/3 نتيجة منشورة/);assert(f.form.children[0].children.some(n=>n.tag==='input'));assert(f.form.children[1].children.some(n=>n.tag==='select'));assert(f.form.children[2].children.some(n=>n.tag==='select'));assert(f.form.children.flatMap(n=>n.children).some(n=>n.tag==='select'&&n.name==='country'));
+ assert(f.form.children.flatMap(n=>n.children).some(n=>n.tag==='input'&&n.type==='checkbox'));
+ assert(f.form.children.flatMap(n=>n.children).some(n=>n.tag==='select'&&n.name==='recent_source_status'));
 });
 
 for(const lang of ['en','ar'])test('partner catalog age stays explicit and unknown clocks never become fresh '+lang,async()=>{
@@ -70,4 +71,91 @@ for(const lang of ['en','ar'])test('advanced filters are explicit, normalize dig
  assert.match(details.textContent,lang==='ar'?/تستثني.*تقارير الشركاء/:/exclude partner reports/);
  controls.operator.value='unsent draft';f.nav.children.find(n=>n.tag==='button').onclick();await tick();params=new URLSearchParams(f.calls[1][0].split('?')[1]);assert.equal(params.get('operator'),'100%_operator');assert.equal(params.get('max_rate_per_kwh'),'1.50');
  f.control.clear();assert(Object.values(controls).every(n=>n.value===''));f.form.onsubmit({preventDefault(){}});await tick();params=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);assert.equal(params.has('price_currency'),false);assert.equal(params.has('operator'),false);
+});
+
+test('explicit map rectangle search preserves pagination and resets on form or account change',async()=>{
+ const f=fixture();
+ assert.equal(f.calls.length,0,'No automatic viewport lookup');
+ const view={south:'24',north:'26',west:'54',east:'56'};
+ f.emit('unified-viewport-search',view);
+ await tick();
+ const first=new URLSearchParams(f.calls[0][0].split('?')[1]);
+ for(const [key,value] of Object.entries(view))assert.equal(first.get(key),Number(value).toFixed(6));
+ assert.equal(first.get('page'),'1');
+ f.nav.children.find(n=>n.tag==='button').onclick();
+ await tick();
+ const next=new URLSearchParams(f.calls[1][0].split('?')[1]);
+ assert.equal(next.get('south'),'24.000000');
+ assert.equal(next.get('page'),'2','Viewport preserved when changing result page');
+ const before=f.calls.length;
+ f.emit('unified-viewport-search',{south:'24',north:'26',west:'54',east:'54'});
+ f.emit('unified-viewport-search',{south:'24',north:'26',west:'bad',east:'56'});
+ assert.equal(f.calls.length,before,'Invalid rectangle cannot issue a lookup');
+ f.form.onsubmit({preventDefault(){}});
+ await tick();
+ const ordinary=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(ordinary.has('south'),false,'Explicit normal search clears prior map bounds');
+ f.emit('unified-viewport-search',{south:'9',north:'11',west:'179',east:'-179'});
+ await tick();
+ const wrapped=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(wrapped.get('west'),'179.000000');
+ assert.equal(wrapped.get('east'),'-179.000000');
+ f.control.clear();
+ f.form.onsubmit({preventDefault(){}});
+ await tick();
+ assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).has('west'),false);
+});
+
+
+for(const lang of ['en','ar'])test('supported market filter preserves source pagination, viewport intersection, and clears with identity '+lang,async()=>{
+ const f=fixture(lang), market=f.form.children.flatMap(n=>n.children).find(n=>n.name==='country');
+ assert(market, 'Accessible market filter must be present on both locales');
+ assert.equal(f.calls.length,0, 'Selection alone cannot query suppliers');
+ market.value='US';
+ f.form.onsubmit({preventDefault(){}});
+ await tick();
+ let args=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(args.get('country'),'US');
+ f.nav.children.find(n=>n.tag==='button').onclick();
+ await tick();
+ args=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(args.get('country'),'US');
+ assert.equal(args.get('page'),'2');
+ f.emit('unified-viewport-search',{south:24,north:26,west:54,east:56});
+ await tick();
+ args=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(args.get('country'),'US');
+ assert.equal(args.get('south'),'24.000000');
+ f.control.clear();
+ assert.equal(market.value,'','Account reset must clear prior country');
+ f.form.onsubmit({preventDefault(){}});
+ await tick();
+ assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).has('country'),false);
+});
+
+
+for(const lang of ['en','ar'])test('published power range is explicit, normalized and retained across pages '+lang,async()=>{
+ const f=fixture(lang),details=f.form.children.find(n=>n.tag==='details');
+ const controls=Object.fromEntries(details.children.filter(n=>n.tag==='label').map(n=>{const input=n.children.find(x=>x.tag==='input');return [input.name,input];}));
+ assert.equal(f.calls.length,0);
+ assert(controls.min_power_kw&&controls.max_power_kw,'Both published power bounds are accessible');
+ controls.min_power_kw.value='٤٠';
+ controls.max_power_kw.value='٦٠';
+ f.form.onsubmit({preventDefault(){}});await tick();
+ let params=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(params.get('min_power_kw'),'40');
+ assert.equal(params.get('max_power_kw'),'60');
+ assert.match(details.textContent,lang==='ar'?/قدرة فعلية مقاسة/:/not measured live power/);
+ f.nav.children.find(n=>n.tag==='button').onclick();
+ await tick();params=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(params.get('page'),'2');
+ assert.equal(params.get('min_power_kw'),'40');
+ assert.equal(params.get('max_power_kw'),'60');
+ f.control.clear();
+ assert.equal(controls.min_power_kw.value,'');
+ assert.equal(controls.max_power_kw.value,'');
+ f.form.onsubmit({preventDefault(){}});await tick();
+ params=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(params.has('min_power_kw'),false);
+ assert.equal(params.has('max_power_kw'),false);
 });
