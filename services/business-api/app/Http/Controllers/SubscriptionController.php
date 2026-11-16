@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use App\Services\Commercial\SubscriptionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -76,12 +77,27 @@ class SubscriptionController extends Controller
 
     public function changePreview(Request $r, int $subscription, SubscriptionService $s)
     {
-        // Authorize first, before resolving any target's commercial terms.
-        $s->access($r->user(), $subscription);
-        $v = $r->validate(['plan_id' => 'required|integer|between:1,999999999999999999']);
+        // An authenticated session snapshot can outlive account suspension,
+        // password rotation or role/epoch revocation. Hold the persisted row
+        // through quote calculation so a former Admin cannot preview another
+        // company's private terms after losing cross-account authority.
+        return DB::transaction(function () use ($r, $subscription, $s) {
+            $snapshot = $r->user();
+            abort_unless($snapshot instanceof User, 401);
+            $current = User::whereKey($snapshot->id)->lockForUpdate()->first();
+            abort_unless($current && $current->account_status === 'active'
+                && $current->role === $snapshot->role
+                && (int) $current->auth_epoch === (int) $snapshot->auth_epoch
+                && hash_equals((string) $current->password, (string) $snapshot->password),
+                409, 'Account authorization changed; sign in again.');
 
-        return response()->json($s->previewChange($r->user(), $subscription, (int) $v['plan_id']))
-            ->header('Cache-Control', 'private, no-store');
+            // Authorize the CURRENT owner/Admin before resolving target terms.
+            $s->access($current, $subscription);
+            $v = $r->validate(['plan_id' => 'required|integer|between:1,999999999999999999']);
+
+            return response()->json($s->previewChange($current, $subscription, (int) $v['plan_id']))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function change(Request $r, int $subscription, SubscriptionService $s)
