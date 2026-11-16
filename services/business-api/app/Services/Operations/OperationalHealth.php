@@ -124,6 +124,7 @@ final class OperationalHealth
         return ['as_of' => $now->toISOString(), 'enabled' => $enabled, 'heartbeat_store_readable' => $readable, 'max_age_seconds' => 150,
             'scope' => 'default_queue_and_scheduler_observations', 'components' => $components,
             'queue' => $enabled ? $this->metrics($now) : ['state' => 'disabled', 'ready' => null, 'reserved' => null, 'delayed' => null, 'failed' => null, 'oldest_ready_age_seconds' => null],
+            'email_handoff' => app(EmailHandoffHealth::class)->snapshot(),
             'all_workers_verified' => false, 'job_success_verified' => false, 'charger_connectivity_verified' => false, 'production_readiness_verified' => false];
     }
 }
