@@ -1181,11 +1181,6 @@ class SupportViewState extends State<SupportView>
     );
   }
 
-  @override
-  void dispose() {
-    generation++;
-    super.dispose();
-  }
 }
 
 class TicketPage extends StatefulWidget {
