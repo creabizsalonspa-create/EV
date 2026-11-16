@@ -156,7 +156,15 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   }
 
   @override
-  Widget build(BuildContext context)=>Scaffold(
+  Widget build(BuildContext context)=>!ownSession()
+    ? Scaffold(
+        appBar:AppBar(title:Text(tr('Search all sources','البحث في كل المصادر'))),
+        // A native EvApi can change identity while the same widget/API object
+        // stays mounted. Never show a previous customer's rows, saved filters,
+        // draft coordinates, or provider labels on the next repaint.
+        body:Center(child:Text(tr('Account changed. Reopen search.', 'تغير الحساب. أعد فتح البحث.'))),
+      )
+    : Scaffold(
     appBar:AppBar(title:Text(tr('Search all sources','البحث في كل المصادر'))),
     body:ListView(key:ValueKey('unified-form-$formEpoch'),padding:const EdgeInsets.all(16),children:[
       Text(tr('Search published platform and authorized partner records. Partner reports do not authorize booking, charging or payment. External provider lookups require separate consent.','البحث في سجلات المنصة والشركاء المصرح لهم. تقارير الشركاء لا تسمح بالحجز أو الشحن أو الدفع. تتطلب الاستعلامات الخارجية موافقة منفصلة.')),
