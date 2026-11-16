@@ -15,6 +15,7 @@ use App\Services\Finance\Money;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
@@ -167,6 +168,60 @@ class FinanceTest extends TestCase
         $this->postJson($base.'/simulate-payment', ['amount_minor' => 1297, 'idempotency_key' => 'pay'])->assertCreated();
         $this->actingAs($f[0])->getJson($base.'/journal')->assertOk();
         $this->postJson($base.'/simulate-refund', ['amount_minor' => 1297, 'idempotency_key' => 'refund', 'reason' => 'Simulation refund'])->assertCreated();
+    }
+
+    public function test_revoked_customer_vendor_and_admin_cannot_read_invoices_or_issue_mock_finance(): void
+    {
+        $f = $this->fixture();
+        $invoice = $this->invoice($f);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $prefix = '/finance-test-api/finance';
+        $before = DB::table('finance_journals')->count();
+
+        foreach ([$f[1], $f[0], $admin] as $reader) {
+            $row = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $row->role, 'account_status' => $row->account_status,
+                'auth_epoch' => $row->auth_epoch, 'password' => $row->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson($prefix.'/invoices')->assertOk()->assertJsonPath('total', 1);
+            $this->getJson($prefix.'/invoices/'.$invoice->id)->assertOk();
+
+            foreach ([
+                ['role' => 'vendor'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $row->auth_epoch + 1],
+                ['password' => Hash::make('rotated-private-invoice-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $this->getJson($prefix.'/invoices')->assertConflict();
+                $this->getJson($prefix.'/invoices/'.$invoice->id)->assertConflict();
+                $this->getJson($prefix.'/invoices/'.$invoice->id.'/source-evidence')
+                    ->assertConflict();
+                if ($row->role !== 'customer') {
+                    $this->getJson($prefix.'/invoices/'.$invoice->id.'/journal')
+                        ->assertConflict();
+                    $this->getJson('/finance-test-api/stations/'.$f[2]->id.'/tariffs')
+                        ->assertConflict();
+                    $this->postJson($prefix.'/invoices/'.$invoice->id.'/simulate-refund', [
+                        'amount_minor' => 1, 'reason' => 'Revoked reviewer',
+                        'idempotency_key' => 'revoked-finance-refund',
+                    ])->assertConflict();
+                }
+                if ($row->role === 'customer') {
+                    $this->postJson($prefix.'/invoices/'.$invoice->id.'/simulate-payment', [
+                        'amount_minor' => 100, 'idempotency_key' => 'revoked-pay',
+                    ])->assertConflict();
+                }
+                DB::table('users')->where('id', $reader->id)->update($original);
+            }
+        }
+
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
     }
 
     public function test_invoice_history_filters_preserve_tenant_scope_and_validate_dates_and_literal_prefix(): void
