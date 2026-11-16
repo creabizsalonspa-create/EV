@@ -1188,11 +1188,28 @@ class TicketPage extends StatefulWidget {
   State<TicketPage> createState() => _TicketPageState();
 }
 
-class _TicketPageState extends State<TicketPage> {
+class _TicketPageState extends State<TicketPage>
+    with WidgetsBindingObserver {
   Map<String, dynamic>? ticket;
   ApiPage<Map<String, dynamic>>? messages;
-  bool loading = false;
+  bool loading = false, foreground = true, freshRead = false;
   Object? error;
+  late bool Function() authorized;
+  int generation = 0;
+  bool current(int n, bool Function() session) =>
+      mounted && foreground && authorized() && session() && n == generation;
+
+  void clearPrivate() {
+    generation++;
+    ticket = null;
+    messages = null;
+    loading = false;
+    freshRead = false;
+    error = null;
+    reply.clear();
+    pendingReplyBody = null;
+    pendingReplyKey = null;
+  }
   final reply = TextEditingController();
   final form = GlobalKey<FormState>();
   String? pendingReplyBody;
@@ -1202,35 +1219,96 @@ class _TicketPageState extends State<TicketPage> {
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
     load();
   }
 
-  void failed(Object e) {
-    if (mounted && e is ApiException && [401, 419].contains(e.status))
+  @override
+  void didUpdateWidget(covariant TicketPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api || oldWidget.id != widget.id) {
+      clearPrivate();
+      authorized = widget.api.sessionFence();
+      final nextApi = widget.api;
+      final nextId = widget.id;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && foreground && authorized() &&
+            identical(widget.api, nextApi) && widget.id == nextId) {
+          load();
+        }
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (mounted && !foreground) setState(clearPrivate);
+  }
+
+  void failed(Object e, int n, bool Function() session) {
+    if (!current(n, session)) return;
+    if (e is ApiException && [401, 419].contains(e.status)) {
+      setState(clearPrivate);
       widget.onSessionExpired();
-    if (mounted) setState(() => error = e);
+      return;
+    }
+    setState(() {
+      ticket = null;
+      messages = null;
+      freshRead = false;
+      error = e;
+    });
   }
 
   Future<void> load({int page = 1}) async {
+    if (!foreground || !authorized() || loading ||
+        page < 1 || page > 100000) return;
+    final session = widget.api.sessionFence();
+    final n = ++generation;
     setState(() {
       loading = true;
       error = null;
+      ticket = null;
+      messages = null;
+      freshRead = false;
     });
     try {
       final response = await widget.api.request(
         'support/${widget.id}',
         query: {'page': '$page'},
       );
+      if (!current(n, session)) return;
+      if (response is! Map || response['ticket'] is! Map ||
+          response['messages'] is! Map) {
+        throw const FormatException('Unverified ticket');
+      }
+      final verified = Map<String, dynamic>.from(response['ticket'] as Map);
+      if (verified['id'] != widget.id ||
+          verified['subject'] is! String ||
+          (verified['subject'] as String).isEmpty ||
+          !const {'open', 'in_progress', 'resolved', 'closed'}
+              .contains(verified['status'])) {
+        throw const FormatException('Unverified ticket');
+      }
       final list = ApiPage.fromJson(response['messages'], (row) => row);
-      if (mounted)
+      if (list.items.any((row) =>
+          row['body'] is! String ||
+          (row['internal'] != null && row['internal'] is! bool))) {
+        throw const FormatException('Unverified ticket messages');
+      }
+      if (current(n, session)) {
         setState(() {
-          ticket = Map<String, dynamic>.from(response['ticket'] as Map);
+          ticket = verified;
           messages = list;
+          freshRead = true;
         });
+      }
     } catch (e) {
-      failed(e);
+      failed(e, n, session);
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (current(n, session)) setState(() => loading = false);
     }
   }
 
