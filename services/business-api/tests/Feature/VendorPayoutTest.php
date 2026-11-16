@@ -134,6 +134,40 @@ class VendorPayoutTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_service_rechecks_current_admin_under_lock_before_approval_and_provider_dispatch(): void
+    {
+        $f = $this->fixture();
+        $id = $this->prepared($f, 'service-boundary');
+        $service = app(PayoutService::class);
+        DB::table('users')->where('id', $f['checker']->id)->update(['role' => 'vendor']);
+
+        try {
+            $service->approve($id, $f['checker']->id);
+            $this->fail('Demoted reviewer unexpectedly approved the payout.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+
+        $this->assertDatabaseHas('commercial_payouts', ['id' => $id, 'status' => 'prepared']);
+        DB::table('users')->where('id', $f['checker']->id)->update(['role' => 'admin']);
+        $service->approve($id, $f['checker']->id);
+
+        // Revoke the executing Admin after approval. The service must reject
+        // before creating an attempt, leasing or contacting the test provider.
+        DB::table('users')->where('id', $f['maker']->id)
+            ->update(['account_status' => 'suspended']);
+        try {
+            $service->execute($id, $f['maker']->id);
+            $this->fail('Suspended dispatcher unexpectedly sent a payout.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+
+        $this->assertDatabaseHas('commercial_payouts', ['id' => $id, 'status' => 'approved']);
+        $this->assertDatabaseCount('commercial_payout_attempts', 0);
+        Http::assertNothingSent();
+    }
+
     private function fixture(string $provider = 'mock'): array
     {
         return (require base_path('tests/Fixtures/vendor-payout.php'))($provider);
