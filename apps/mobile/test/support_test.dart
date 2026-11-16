@@ -649,7 +649,79 @@ class NumericVisibilityTicketFixture extends SupportFixture {
   }
 }
 
+class MalformedInboxFixture extends SupportFixture {
+  bool malformedSupport = true, malformedNotifications = true;
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    final result = await super.request(
+      path, method: method, body: body, query: query,
+    );
+    if (method == 'GET' && path == 'support' && malformedSupport) {
+      return {
+        ...Map<String, dynamic>.from(result as Map),
+        'data': [
+          {'id': '1', 'subject': 'UNVERIFIED-TICKET', 'status': 'open'},
+        ],
+      };
+    }
+    if (method == 'GET' && path == 'notifications' &&
+        malformedNotifications) {
+      return {
+        ...Map<String, dynamic>.from(result as Map),
+        'data': [
+          {
+            'id': 2, 'kind': 'support.reply',
+            'support_ticket_id': 'other-tenant',
+            'read_at': null,
+          },
+        ],
+      };
+    }
+    return result;
+  }
+}
+
 void main() {
+  testWidgets('malformed support IDs and ticket targets fail closed until reread', (
+    tester,
+  ) async {
+    final api = MalformedInboxFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('UNVERIFIED-TICKET'), findsNothing);
+    expect(find.text('Synthetic support thread'), findsNothing);
+    expect(find.byKey(const Key('support-new-ticket')), findsOneWidget);
+    expect(
+      tester.widget<OutlinedButton>(
+        find.byKey(const Key('support-new-ticket')),
+      ).onPressed,
+      isNull,
+    );
+    api.malformedSupport = false;
+    final state = tester.state<SupportViewState>(find.byType(SupportView));
+    await state.refresh();
+    await tester.pumpAndSettle();
+    expect(find.text('Synthetic support thread'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    expect(find.text('Ticket #other-tenant'), findsNothing);
+    expect(find.text('Ticket #1'), findsNothing);
+    api.malformedNotifications = false;
+    await state.refresh();
+    await tester.pumpAndSettle();
+    expect(find.text('Ticket #1'), findsOneWidget);
+    expect(api.read, isFalse);
+  });
+
   test('battery discovery notification navigation rejects untrusted metadata', () {
     final valid = {
       'kind': 'vehicle.battery.simulated',
