@@ -549,11 +549,21 @@ class _PartnerReportMapState extends State<PartnerReportMap>
                       });
                     },
                     onPositionChanged: (camera, _) {
-                      if (mounted && enabled &&
-                          mapGeneration == renderedMapGeneration &&
-                          (camera.zoom - currentZoom).abs() > 0.005) {
-                        setState(() => currentZoom = camera.zoom);
-                      }
+                      // flutter_map may report camera changes while rebuilding
+                      // MapInteractiveViewer; never rebuild its ancestor from
+                      // inside that synchronous callback. In particular this
+                      // happens after an inactive -> resumed location sheet.
+                      final zoom = camera.zoom;
+                      if (!mounted || !enabled ||
+                          mapGeneration != renderedMapGeneration ||
+                          (zoom - currentZoom).abs() <= 0.005) return;
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted && foreground && enabled &&
+                            mapGeneration == renderedMapGeneration &&
+                            (zoom - currentZoom).abs() > 0.005) {
+                          setState(() => currentZoom = zoom);
+                        }
+                      });
                     },
                   ),
                   children: [
