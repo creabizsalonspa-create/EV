@@ -265,6 +265,32 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_suspended_vendor_does_not_block_authenticated_admin_escalation_closure(): void
+    {
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $worker = app(FaultReminderEscalator::class);
+        $this->assertSame(1, $worker->scan()['escalated']);
+        DB::table('users')->where('id', $f['owner']->id)
+            ->update(['account_status' => 'suspended']);
+        DB::table('charging_fault_alerts')->where('id', $f['alert'])
+            ->update(['acknowledged_at' => now(), 'acknowledged_by' => $f['owner']->id]);
+        $this->assertSame(1, $worker->scan()['closed']);
+        $this->assertSame(0, $worker->scan()['closed']);
+        $this->assertDatabaseHas('charging_fault_admin_escalations', [
+            'alert_id' => $f['alert'], 'admin_user_id' => $admin->id,
+        ]);
+        $closed = InboxNotification::where('kind', 'charging.fault.escalation_closed.simulated')
+            ->firstOrFail();
+        $this->assertSame($admin->id, $closed->user_id);
+        $this->assertTrue($closed->metadata['admin_escalation_only']);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_escalation_closes_once_on_operator_acknowledgment_without_claiming_repair(): void
     {
         $f = $this->fixture();
@@ -358,6 +384,33 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_suspended_admin_cannot_read_historical_simulator_escalation_from_old_session(): void
+    {
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $this->assertSame(1, app(FaultReminderEscalator::class)->scan()['escalated']);
+        $id = InboxNotification::where('kind', 'charging.fault.escalated.simulated')
+            ->firstOrFail()->id;
+        $this->actingAs($admin)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+        DB::table('users')->where('id', $admin->id)
+            ->update(['account_status' => 'suspended']);
+        // Even a previously prepared query cannot display a private alert
+        // after account suspension; no recipient or metadata is disclosed.
+        $this->assertFalse(InboxNotification::visibleTo($admin)->whereKey($id)->exists());
+        $this->getJson('/api/notifications?category=charging')->assertStatus(409);
+        $this->postJson('/api/notifications/'.$id.'/read')->assertStatus(409);
+        $this->assertNull(InboxNotification::findOrFail($id)->read_at);
+        DB::table('users')->where('id', $admin->id)
+            ->update(['account_status' => 'active']);
+        $this->assertTrue(InboxNotification::visibleTo($admin)->whereKey($id)->exists());
+        $this->getJson('/api/notifications?category=charging')->assertOk();
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_escalation_closure_is_retained_during_admin_demotion_but_stays_private(): void
     {
         $f = $this->fixture();
@@ -386,11 +439,10 @@ class FaultReminderEscalatorTest extends TestCase
             'charging.fault.reminder.simulated')->count());
         foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
             $this->actingAs($admin)->getJson($prefix.'?category=charging')
-                ->assertOk()->assertJsonPath('total', 0);
-            $this->getJson($prefix.'/summary')->assertOk()
-                ->assertJsonPath('unread_count', 0);
-            $this->postJson($prefix.'/'.$closure->id.'/read')->assertNotFound();
-            $this->postJson($prefix.'/'.$initial.'/read')->assertNotFound();
+                ->assertStatus(409);
+            $this->getJson($prefix.'/summary')->assertStatus(409);
+            $this->postJson($prefix.'/'.$closure->id.'/read')->assertStatus(409);
+            $this->postJson($prefix.'/'.$initial.'/read')->assertStatus(409);
         }
         $this->assertNull($closure->fresh()->read_at);
         DB::table('users')->where('id', $admin->id)->update(['role' => 'admin']);
@@ -431,18 +483,15 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertFalse($preparedRead->exists());
         $this->assertSame(0, $preparedWrite->update(['read_at' => now()]));
         foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
-            $this->getJson($prefix.'?category=charging')
-                ->assertOk()->assertJsonPath('total', 0);
-            $this->getJson($prefix.'/summary')
-                ->assertOk()->assertJsonPath('unread_count', 0);
+            $this->getJson($prefix.'?category=charging')->assertStatus(409);
+            $this->getJson($prefix.'/summary')->assertStatus(409);
             foreach ([$openId, $closedId] as $id) {
-                $this->postJson($prefix.'/'.$id.'/read')->assertNotFound();
-                $this->postJson($prefix.'/'.$id.'/unread')->assertNotFound();
+                $this->postJson($prefix.'/'.$id.'/read')->assertStatus(409);
+                $this->postJson($prefix.'/'.$id.'/unread')->assertStatus(409);
             }
             $this->postJson($prefix.'/read-through', [
                 'through_id' => $closedId,
-            ])->assertOk()->assertJsonPath('marked_read', 0)
-                ->assertJsonPath('remaining_unread', 0);
+            ])->assertStatus(409);
         }
         $this->assertNull(InboxNotification::findOrFail($openId)->read_at);
         $this->assertNull(InboxNotification::findOrFail($closedId)->read_at);
@@ -518,16 +567,13 @@ class FaultReminderEscalatorTest extends TestCase
         DB::table('users')->where('id', $admin->id)
             ->update(['role' => 'vendor']);
         foreach (['/api/notifications', '/api/v1/notifications'] as $base) {
-            $this->getJson($base.'?category=charging')
-                ->assertOk()->assertJsonPath('total', 0);
-            $this->getJson($base.'/summary')->assertOk()
-                ->assertJsonPath('unread_count', 0);
-            $this->postJson($base.'/'.$id.'/read')->assertNotFound();
-            $this->postJson($base.'/'.$id.'/unread')->assertNotFound();
+            $this->getJson($base.'?category=charging')->assertStatus(409);
+            $this->getJson($base.'/summary')->assertStatus(409);
+            $this->postJson($base.'/'.$id.'/read')->assertStatus(409);
+            $this->postJson($base.'/'.$id.'/unread')->assertStatus(409);
             $this->postJson($base.'/read-through', [
                 'through_id' => $id,
-            ])->assertOk()->assertJsonPath('marked_read', 0)
-                ->assertJsonPath('remaining_unread', 0);
+            ])->assertStatus(409);
         }
         $this->assertNull(InboxNotification::findOrFail($id)->read_at);
         DB::table('users')->where('id', $admin->id)
@@ -552,9 +598,35 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertSame(0, $service->scan()['escalated']);
         DB::table('charging_status_observations')->where('id', $f['observation'])
             ->update(['occurred_at' => now()->subMinutes(61)]);
+        // A configured Admin who has been suspended must not receive a new
+        // escalation notification or consume the one-time escalation marker.
+        DB::table('users')->where('id', $admin->id)->update(['account_status' => 'suspended']);
+        $this->assertSame(0, $service->scan()['escalated']);
+        $this->assertDatabaseCount('charging_fault_admin_escalations', 0);
+        DB::table('users')->where('id', $admin->id)->update(['account_status' => 'active']);
         $this->assertSame(1, $service->scan()['escalated']);
         $this->assertSame(0, $service->scan()['escalated']);
         $this->assertDatabaseCount('charging_fault_admin_escalations', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_suspended_vendor_does_not_receive_new_fault_reminder_until_reactivated(): void
+    {
+        $f = $this->fixture();
+        $worker = app(FaultReminderEscalator::class);
+        DB::table('users')->where('id', $f['owner']->id)
+            ->update(['account_status' => 'suspended']);
+        $this->assertSame(0, $worker->scan()['reminded']);
+        $this->assertDatabaseCount('charging_fault_reminders', 0);
+        $this->assertDatabaseCount('inbox_notifications', 0);
+        // Reopening access is an explicit external account decision, not an
+        // automatic worker reactivation or an authenticated hardware action.
+        DB::table('users')->where('id', $f['owner']->id)
+            ->update(['account_status' => 'active']);
+        $this->assertSame(1, $worker->scan()['reminded']);
+        $this->assertSame(0, $worker->scan()['reminded']);
+        $this->assertDatabaseCount('charging_fault_reminders', 1);
+        $this->assertDatabaseCount('inbox_notifications', 1);
         $this->assertDatabaseCount('charger_commands', 0);
     }
 

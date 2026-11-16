@@ -383,3 +383,45 @@ SQLite naive timestamps and PostgreSQL timezone/fractional-second formats
 remain supported. This does **not** verify real charging hardware, physical
 repair or external message delivery. Hosted PHP/PostgreSQL acceptance is a
 separate gate.
+
+## Current-account authorization for notification reads and receipt mutations
+
+The notification listing, summary and preference GET routes now revalidate the persisted
+account role, active status, authentication epoch and credential hash before
+returning account-specific data. A legacy authenticated user object cannot
+override the current database actor after a moderation, password or role change.
+
+The preference PUT, read-through POST and individual mark-read/mark-unread POST actions now hold a
+`users` row lock and revalidate the same invariants **before** writing any
+receipt, preference or audit. The locked actor is used for tenant visibility;
+a stale role or credential aborts the transaction without changing rows.
+Lock order is current actor followed by notification preferences/inbox rows.
+Foreign inbox IDs continue to return 404 under a valid account. The existing
+read and list APIs, explicit consent requirements, and supported notification
+categories remain unchanged. This closes the covered in-app notification read/receipt mutation paths;
+it does not change support ticket authorization, external transports or
+claim production certification.
+
+Run `php artisan test --filter=NotificationCenterTest`, disposable
+PostgreSQL connector checks, web-session tests and exact-head CI before
+integration. No live messaging adapters, queue replay, charging or payment
+commands are introduced.
+
+### Active designated Admin for simulator fault escalation
+
+The local-only simulator fault reminder worker now confirms the explicitly
+configured Admin recipient is **currently active as well as currently an
+Admin**, while holding its account row lock. A suspended Admin cannot receive
+a *new* operator escalation or consume its one-time escalation marker.
+Reactivating the approved recipient allows the existing unresolved source
+fixture to be reviewed on a later bounded scan. Vendor-owned simulator fault
+reminders likewise require a currently active Vendor under a locked user row;
+a suspended owner's new reminder is suppressed without deleting fault evidence
+or blocking an authorized Admin escalation/closure transition. The canonical
+`InboxNotification::visibleTo` SQL scope independently hides historical
+Admin-only simulator escalation notices while the recipient account is
+suspended, even when a caller already holds a stale authenticated model. Historical escalation closure
+records remain durable for audit; stale signed-in Admin snapshots now receive
+HTTP 409 from the protected notification APIs instead of an empty private
+inbox, and cannot acknowledge or reopen anything. No physical charger, email,
+SMS, push or live on-call provider is contacted.

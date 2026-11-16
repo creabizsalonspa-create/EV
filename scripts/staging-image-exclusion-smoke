@@ -16,7 +16,7 @@ FROM scratch
 COPY . /audit/
 DOCKERFILE
 printf '%s\n' 'expected non-sensitive fixture' > "$context/public-marker.txt"
-for suffix in sqlite sqlite3 sqlite-wal sqlite3-journal; do
+for suffix in sqlite sqlite3 sqlite-wal sqlite-shm sqlite3-journal; do
   printf '%s\n' 'FORBIDDEN synthetic local database' > "$context/services/business-api/database/ev-image-guard.$suffix"
 done
 printf '%s\n' 'EV_IMAGE_CANARY=forbidden' > "$context/services/business-api/.env.image-canary"
@@ -34,7 +34,7 @@ if [[ ! -f "$output/audit/public-marker.txt" ]]; then
   echo 'Docker build context test did not copy its positive fixture.' >&2
   exit 1
 fi
-for suffix in sqlite sqlite3 sqlite-wal sqlite3-journal; do
+for suffix in sqlite sqlite3 sqlite-wal sqlite-shm sqlite3-journal; do
   if [[ -e "$output/audit/services/business-api/database/ev-image-guard.$suffix" ]]; then
     echo "Local .$suffix database artifact entered Docker build context." >&2
     exit 1

@@ -72,6 +72,127 @@ class OcpiIntegrationTest extends TestCase
         $this->assertArrayNotHasKey('commands', $modules);
     }
 
+    public function test_legacy_headerless_synthetic_partner_read_remains_available_without_conformance_claim(): void
+    {
+        $provider = $this->provider();
+        $provider->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        Http::fake(['https://partner.example/locations' => Http::response($this->envelope([$this->location()]))]);
+
+        $records = app(PartnerClient::class)->pull($provider->fresh(), 'locations');
+        $this->assertCount(1, $records);
+        Http::assertSentCount(1);
+    }
+
+    public function test_production_peer_reads_require_trace_ids_not_headerless_fixture_compatibility(): void
+    {
+        $provider = $this->provider();
+        $provider->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        Http::fake(['https://partner.example/locations' => Http::response($this->envelope([$this->location()]))]);
+        $previous = app()->environment();
+
+        try {
+            app()->detectEnvironment(static fn () => 'production');
+            try {
+                app(PartnerClient::class)->pull($provider->fresh(), 'locations');
+                $this->fail('Production OCPI response without echoed tracing IDs was accepted.');
+            } catch (OcpiException $error) {
+                $this->assertStringContainsString('tracing headers', $error->getMessage());
+            }
+        } finally {
+            app()->detectEnvironment(static fn () => $previous);
+        }
+        Http::assertSentCount(1);
+    }
+
+    public function test_outbound_partner_reads_accept_matching_trace_ids_and_do_not_retry(): void
+    {
+        $provider = $this->provider();
+        $provider->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        Http::fake(function ($request) {
+            $requestId = $request->header('X-Request-ID')[0];
+            $correlationId = $request->header('X-Correlation-ID')[0];
+
+            return Http::response($this->envelope([$this->location()]), 200, [
+                'X-Request-ID' => $requestId,
+                'X-Correlation-ID' => $correlationId,
+            ]);
+        });
+
+        $records = app(PartnerClient::class)->pull($provider->fresh(), 'locations');
+        $this->assertCount(1, $records);
+        $this->assertSame('fixture-1', $records[0]['id']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_outbound_partner_reads_reject_partial_or_mismatched_trace_echo_without_retry(): void
+    {
+        $provider = $this->provider();
+        $provider->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        $mode = 'partial_request';
+        Http::fake(function ($request) use (&$mode) {
+            $headers = $mode === 'partial_correlation'
+                ? ['X-Correlation-ID' => $request->header('X-Correlation-ID')[0]]
+                : ['X-Request-ID' => $request->header('X-Request-ID')[0]];
+            if ($mode === 'mismatch') {
+                $headers['X-Correlation-ID'] = 'not-the-request-correlation';
+            }
+
+            return Http::response($this->envelope([$this->location()]), 200, $headers);
+        });
+        foreach (['partial_request', 'partial_correlation', 'mismatch'] as $mode) {
+            try {
+                app(PartnerClient::class)->pull($provider->fresh(), 'locations');
+                $this->fail('An unverifiable OCPI read response was trusted.');
+            } catch (OcpiException $e) {
+                $this->assertStringContainsString('tracing headers', $e->getMessage());
+            }
+        }
+        // Each attempt is one read. No automatic replay or second-page access.
+        Http::assertSentCount(3);
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    public function test_sandbox_write_accepts_matching_peer_trace_echo_once(): void
+    {
+        $provider = $this->provider();
+        config(['ocpi.test_commands_enabled' => true, 'ocpi.connections.contract-test.test_commands' => true]);
+        $provider->update(['version' => '2.2.1', 'endpoints' => ['commands_receiver' => 'https://partner.example/commands']]);
+        Http::fake(function ($request) {
+            return Http::response($this->envelope(['result' => 'ACCEPTED', 'timeout' => 30]), 200, [
+                'X-Request-ID' => $request->header('X-Request-ID')[0],
+                'X-Correlation-ID' => $request->header('X-Correlation-ID')[0],
+            ]);
+        });
+
+        $reply = app(PartnerClient::class)->write($provider->fresh(), 'commands_receiver', 'POST', ['RESERVE_NOW'], [
+            'reservation_id' => 'synthetic-not-real',
+        ]);
+        $this->assertSame('ACCEPTED', $reply['data']['result']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_sandbox_write_rejects_wrong_trace_echo_without_replaying_unknown_command(): void
+    {
+        $provider = $this->provider();
+        config(['ocpi.test_commands_enabled' => true, 'ocpi.connections.contract-test.test_commands' => true]);
+        $provider->update(['version' => '2.2.1', 'endpoints' => ['commands_receiver' => 'https://partner.example/commands']]);
+        Http::fake(function ($request) {
+            return Http::response($this->envelope(['result' => 'ACCEPTED', 'timeout' => 30]), 200, [
+                'X-Request-ID' => $request->header('X-Request-ID')[0],
+                'X-Correlation-ID' => 'different-correlation-id',
+            ]);
+        });
+        try {
+            app(PartnerClient::class)->write($provider->fresh(), 'commands_receiver', 'POST', ['RESERVE_NOW'], [
+                'reservation_id' => 'synthetic-not-real',
+            ]);
+            $this->fail('A mismatched outbound command trace was incorrectly accepted.');
+        } catch (OcpiException $e) {
+            $this->assertStringContainsString('tracing headers', $e->getMessage());
+        }
+        Http::assertSentCount(1);
+    }
+
     public function test_endpoint_origin_escape_is_rejected_before_forwarding_credentials(): void
     {
         $p = $this->provider();
