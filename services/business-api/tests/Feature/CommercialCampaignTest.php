@@ -96,7 +96,7 @@ class CommercialCampaignTest extends TestCase
             ];
             $this->actingAs($reader);
             $this->getJson($url.'/campaigns')->assertOk()
-                ->assertHeader('Cache-Control', 'private, no-store');
+                ->assertHeader('Cache-Control', 'no-store, private');
             $this->getJson($url.'/campaigns/'.$campaign['id'])->assertOk();
             $this->getJson($url.'/campaign-packages')->assertOk();
 
