@@ -471,4 +471,25 @@ void main() {
     expect(double.parse(selected.single['east']!),greaterThan(55.3));
     expect(tester.takeException(),isNull);
   });
+
+  test('manual map coordinates normalize Arabic digits but never fabricate invalid positions',() {
+    final arabic=manualDiscoveryMapCenter('٢٥٫٢','٥٥٫٣');
+    expect(arabic,isNotNull);
+    expect(arabic!.latitude,25.2);
+    expect(arabic.longitude,55.3);
+    final negative=manualDiscoveryMapCenter('−٢٥٫٢','−٥٥٫٣');
+    expect(negative?.latitude,-25.2);
+    expect(negative?.longitude,-55.3);
+    final zero=manualDiscoveryMapCenter('٠','٠');
+    expect(zero?.latitude,0);
+    expect(zero?.longitude,0,
+      reason:'A valid neutral coordinate cannot become a fabricated station marker');
+    for(final pair in <List<String>>[
+      ['','50'],['25',''],['89','55'],['25','181'],
+      ['NaN','55'],['Infinity','55'],['1e999','55'],
+      ['25','100000000'],['25.2<script>','55'],
+    ]) {
+      expect(manualDiscoveryMapCenter(pair[0],pair[1]),isNull);
+    }
+  });
 }
