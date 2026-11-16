@@ -771,6 +771,9 @@ class SupportViewState extends State<SupportView>
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), page = data;
+    if (!authorized()) {
+      return Center(child: Text(s.t('expired')));
+    }
     return RefreshIndicator(
       onRefresh: refresh,
       child: ListView(
