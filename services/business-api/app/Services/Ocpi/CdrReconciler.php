@@ -127,19 +127,19 @@ class CdrReconciler
     private function strictUtcInstant(mixed $value): ?string
     {
         if (! is_string($value)
-            || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?Z$/D', $value)) {
+            || ! preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/D', $value)) {
             return null;
         }
 
-        $format = '!Y-m-d\\TH:i:s'.(str_contains($value, '.') ? '.u' : '').'\\Z';
-        $instant = \\DateTimeImmutable::createFromFormat($format, $value, new \\DateTimeZone('UTC'));
-        if ($instant === false || \\DateTimeImmutable::getLastErrors() !== false) {
+        $format = '!Y-m-d\TH:i:s'.(str_contains($value, '.') ? '.u' : '').'\Z';
+        $instant = \DateTimeImmutable::createFromFormat($format, $value, new \DateTimeZone('UTC'));
+        if ($instant === false || \DateTimeImmutable::getLastErrors() !== false) {
             return null;
         }
 
         // Normalization to six fractional digits makes equal instants compare
         // exactly, without floats, server timezone, or relative-date parsing.
-        return $instant->format('Y-m-d\\TH:i:s.u\\Z');
+        return $instant->format('Y-m-d\TH:i:s.u\Z');
     }
 
     private function decimal(mixed $value): ?string
