@@ -94,6 +94,44 @@ class OcpiReconciliationTest extends TestCase
         $this->assertSame($raw, $first->fresh()->payload);
     }
 
+    public function test_reused_reconciler_cannot_trust_stale_provider_authority_or_ownership_snapshot(): void
+    {
+        [$provider, $cdr] = $this->source();
+        $reviewer = app(CdrReconciler::class);
+        $this->assertSame('source_consistent', $reviewer->inspect($provider, $cdr)['status']);
+
+        // The worker's cached Eloquent provider is deliberately not refreshed.
+        // Another request revokes its authorization in the database.
+        OcpiProvider::whereKey($provider->id)->update(['authorized' => false]);
+        $revoked = $reviewer->inspect($provider, $cdr);
+        $this->assertSame('requires_review', $revoked['status']);
+        $this->assertContains('partner_not_authorized_and_negotiated', $revoked['issues']);
+        $this->assertFalse($revoked['billing_eligible']);
+
+        // A new credential revision is also distinct from the cached actor's
+        // original authorization, even after an administrator reauthorizes.
+        OcpiProvider::whereKey($provider->id)->update([
+            'authorized' => true,
+            'authorization_revision' => $provider->authorization_revision + 1,
+        ]);
+        $rotated = $reviewer->inspect($provider, $cdr);
+        $this->assertSame('requires_review', $rotated['status']);
+        $this->assertContains('partner_not_authorized_and_negotiated', $rotated['issues']);
+        $this->assertSame('source_consistent', $reviewer->inspect($provider->fresh(), $cdr)['status']);
+
+        // Reassigning a partner to another owner must not confer a clean
+        // authorization verdict on a retained previous-owner model.
+        OcpiProvider::whereKey($provider->id)->update([
+            'owner_id' => User::factory()->create(['role' => 'vendor'])->id,
+        ]);
+        $reassigned = $reviewer->inspect($provider, $cdr);
+        $this->assertSame('requires_review', $reassigned['status']);
+        $this->assertContains('partner_not_authorized_and_negotiated', $reassigned['issues']);
+        $this->assertFalse($reassigned['local_invoice_created']);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_corrupted_historical_cdr_timestamps_fail_closed_without_source_mutation(): void
     {
         [$provider, $cdr] = $this->source();
