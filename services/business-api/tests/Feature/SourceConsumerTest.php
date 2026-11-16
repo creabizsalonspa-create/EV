@@ -718,7 +718,7 @@ class SourceConsumerTest extends TestCase
         ];
         foreach ($cases as [$path, $column, $value]) {
             DB::table('csms_session_links')->where('id', $link->id)->update([$column => $value]);
-            $this->assertTrue(DB::table('csms_session_links')->whereKey($link->id)
+            $this->assertTrue(DB::table('csms_session_links')->where('id', $link->id)
                 ->whereNotNull($column)->exists());
             $migration = require database_path('migrations/'.$path);
             try {
@@ -728,7 +728,7 @@ class SourceConsumerTest extends TestCase
                 $this->assertStringContainsString('before rollback', $error->getMessage());
             }
             $this->assertTrue(Schema::hasColumn('csms_session_links', $column));
-            $this->assertTrue(DB::table('csms_session_links')->whereKey($link->id)
+            $this->assertTrue(DB::table('csms_session_links')->where('id', $link->id)
                 ->whereNotNull($column)->exists());
             if ($path === '2026_11_16_000003_unique_pinned_source_transaction_row.php') {
                 $this->assertTrue(Schema::hasIndex('csms_session_links', 'csms_link_binding_source_tx_unique'));
