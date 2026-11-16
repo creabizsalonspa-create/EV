@@ -338,6 +338,7 @@ class SettlementTest extends TestCase
             ->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonPath('total', 1)
             ->assertJsonPath('data.0.invoice_id', $invoice->id)
+            ->assertJsonPath('data.0.evidence', $invoice->evidence)
             ->assertJsonPath('data.0.subtotal_minor', 1000)
             ->assertJsonPath('data.0.commission_minor', 100)
             ->assertJsonPath('data.0.vendor_allocated_minor', 900)
