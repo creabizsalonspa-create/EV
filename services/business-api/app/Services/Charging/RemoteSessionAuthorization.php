@@ -9,6 +9,7 @@ use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use DateTimeImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -114,6 +115,20 @@ class RemoteSessionAuthorization
         abort_unless($this->verified($link->fresh(), $tag), 503, 'Remote publication requires inspection.');
     }
 
+    /** Require a real absolute expiry, never Carbon's relative date grammar. */
+    private function validSourceExpiry(mixed $value): bool
+    {
+        if (! is_string($value) || ! preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/D', $value, $parts)) {
+            return false;
+        }
+        $normalized = $parts[1].'.'.str_pad($parts[2] ?? '', 6, '0').($parts[3] === 'Z' ? '+00:00' : $parts[3]);
+        $parsed = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s.uP', $normalized);
+        $errors = DateTimeImmutable::getLastErrors();
+
+        return $parsed !== false && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))
+            && CarbonImmutable::instance($parsed)->isFuture();
+    }
+
     public function verified(SessionLink $link, string $tag): bool
     {
         $row = $this->source($link, $tag);
@@ -122,6 +137,6 @@ class RemoteSessionAuthorization
         }
         $this->owned($link, $row, $tag);
 
-        return (int) $link->remote_authorization_id === $row['id'] && $row['status'] === 'Accepted' && $row['realTimeAuth'] === 'Never' && $row['realTimeAuthUrl'] === self::CALLBACK && $row['realTimeAuthTimeout'] === 0 && $row['concurrentTransaction'] === false && $row['isPrepaid'] === false && CarbonImmutable::parse($row['cacheExpiryDateTime'])->isFuture();
+        return (int) $link->remote_authorization_id === $row['id'] && $row['status'] === 'Accepted' && $row['realTimeAuth'] === 'Never' && $row['realTimeAuthUrl'] === self::CALLBACK && $row['realTimeAuthTimeout'] === 0 && $row['concurrentTransaction'] === false && $row['isPrepaid'] === false && $this->validSourceExpiry($row['cacheExpiryDateTime'] ?? null);
     }
 }

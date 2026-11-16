@@ -147,6 +147,48 @@ class RemoteSessionAuthorizationTest extends TestCase
         $this->assertSame('pending', $command->fresh()->status);
     }
 
+    public function test_remote_source_expiry_requires_an_explicit_absolute_future_instant(): void
+    {
+        [, , , $command, $link] = $this->fixture();
+        $tag = $command->payload['id_token'];
+        $link->update(['remote_authorization_id' => 7]);
+        config([
+            'csms.graphql_secret' => str_repeat('g', 64),
+            'csms.graphql_url' => 'http://source.test/graphql',
+        ]);
+        $sourceExpiry = now()->addMinutes(15)->toISOString();
+        Http::fake(function ($request) use ($link, $tag, &$sourceExpiry) {
+            $this->assertSame('http://source.test/graphql', $request->url());
+
+            return Http::response(['data' => ['Authorizations' => [[
+                'id' => 7, 'idToken' => $tag, 'idTokenType' => 'Central',
+                'status' => 'Accepted',
+                'additionalInfo' => [[
+                    'type' => 'CREABIZ_REMOTE',
+                    'additionalIdToken' => $link->remote_registration_nonce,
+                ]],
+                'realTimeAuth' => 'Never',
+                'realTimeAuthUrl' => RemoteSessionAuthorization::CALLBACK,
+                'realTimeAuthTimeout' => 0,
+                'cacheExpiryDateTime' => $sourceExpiry,
+                'concurrentTransaction' => false, 'isPrepaid' => false,
+            ]]]]);
+        });
+        foreach (['tomorrow', '2030-02-30T12:00:00Z',
+            '2030-01-01T12:00:00', '2030-01-01T12:00:00+25:00',
+            now()->subSecond()->toISOString(), null] as $invalid) {
+            $sourceExpiry = $invalid;
+            $this->assertFalse(app(RemoteSessionAuthorization::class)->verified($link->fresh(), $tag));
+        }
+        $sourceExpiry = now()->addMinutes(15)->toISOString();
+        $this->assertTrue(app(RemoteSessionAuthorization::class)->verified($link->fresh(), $tag));
+        Http::assertSentCount(7);
+        Http::assertNotSent(fn ($request) => str_starts_with((string) $request['query'], 'mutation'));
+        $this->assertSame(7, (int) $link->fresh()->remote_authorization_id);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_unknown_service_credentials_and_unknown_remote_token_fail_closed(): void
     {
         $this->fixture();
