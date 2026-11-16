@@ -126,6 +126,53 @@ class NotificationCenterTest extends TestCase
         $this->assertDatabaseCount('notification_preferences', 1);
     }
 
+    public function test_other_category_default_persists_without_hiding_critical_notices(): void
+    {
+        $owner = User::factory()->create();
+        $otherActor = User::factory()->create();
+        $unknown = $this->makeNotification($owner, 'platform.security.notice');
+        $critical = $this->makeNotification($owner, 'charging.fault.simulated');
+        $this->makeNotification($otherActor, 'platform.security.notice');
+
+        $desired = [
+            'default_category' => 'other',
+            'default_unread_only' => true,
+            'remind_unresolved_simulator_faults' => true,
+        ];
+
+        $this->actingAs($owner);
+        foreach (['/api/notifications/preferences', '/api/v1/notifications/preferences'] as $url) {
+            $this->putJson($url, $desired)->assertOk()
+                ->assertJsonPath('default_category', 'other')
+                ->assertJsonPath('default_unread_only', true)
+                ->assertJsonPath('critical_events_always_visible', true)
+                ->assertJsonPath('external_delivery_available', false)
+                ->assertHeader('Cache-Control', 'no-store, private');
+        }
+
+        $this->getJson('/api/v1/notifications/preferences')->assertOk()
+            ->assertJsonPath('default_category', 'other');
+        $this->getJson('/api/notifications?category=other')->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $unknown->id);
+        // A saved UI default does not remove high-priority source notices.
+        $this->getJson('/api/notifications')->assertOk()
+            ->assertJsonCount(2, 'data');
+        $this->getJson('/api/v1/notifications/summary')->assertOk()
+            ->assertJsonPath('unread_count', 2)
+            ->assertJsonPath('unread_by_category.other', 1)
+            ->assertJsonPath('unread_by_category.charging', 1);
+        $this->assertDatabaseCount('notification_preferences', 1);
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('actor_id', $owner->id)
+            ->where('action', 'notifications.preferences_changed')->count());
+
+        $this->actingAs($otherActor)->getJson('/api/notifications/preferences')
+            ->assertOk()->assertJsonPath('default_category', 'all');
+        $this->actingAs($otherActor)->getJson('/api/notifications?category=other')
+            ->assertOk()->assertJsonCount(1, 'data');
+    }
+
     public function test_preference_validation_never_alters_saved_choices(): void
     {
         $user = User::factory()->create();
@@ -645,8 +692,8 @@ class NotificationCenterTest extends TestCase
         $this->getJson('/api/notifications?category=charging')
             ->assertOk()->assertJsonPath('total', 0);
         DB::table('users')->where('id', $owner->id)->update(['role' => 'customer']);
-        $this->getJson('/api/notifications?category=charging')
-            ->assertOk()->assertJsonPath('total', 0);
+        // A stale vendor session is rejected outright after role revocation.
+        $this->getJson('/api/notifications?category=charging')->assertStatus(409);
         $this->assertNull($note->fresh()->read_at);
         $this->assertNull($case->fresh()->read_at);
         $this->assertDatabaseCount('audit_events', 0);
@@ -705,6 +752,75 @@ class NotificationCenterTest extends TestCase
         $this->assertNull($fault->fresh()->read_at);
         $this->assertNotNull($safe->fresh()->read_at);
         $this->assertDatabaseCount('inbox_notifications', 2);
+    }
+
+    public function test_stale_vendor_role_cannot_change_notification_preferences_or_receipts(): void
+    {
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $unread = $this->makeNotification($vendor);
+        $alreadyRead = $this->makeNotification($vendor);
+        $alreadyRead->update(['read_at' => now()->subMinute()]);
+        $this->actingAs($vendor);
+
+        // Simulate an independent privileged role change while the browser
+        // still holds the original authenticated vendor model snapshot.
+        DB::table('users')->where('id', $vendor->id)->update(['role' => 'admin']);
+        foreach (['/api/notifications', '/api/v1/notifications',
+            '/api/notifications/summary', '/api/v1/notifications/summary',
+            '/api/notifications/preferences', '/api/v1/notifications/preferences'] as $url) {
+            $this->getJson($url)->assertStatus(409);
+        }
+        $preference = ['default_category' => 'charging', 'default_unread_only' => true,
+            'remind_unresolved_simulator_faults' => false];
+        foreach (['/api/notifications/preferences', '/api/v1/notifications/preferences'] as $url) {
+            $this->putJson($url, $preference)->assertStatus(409);
+        }
+        foreach (['/api/notifications/read-through', '/api/v1/notifications/read-through'] as $url) {
+            $this->postJson($url, ['through_id' => $alreadyRead->id])->assertStatus(409);
+        }
+        foreach (['/api/notifications/'.$alreadyRead->id.'/unread',
+            '/api/v1/notifications/'.$alreadyRead->id.'/unread',
+            '/api/notifications/'.$unread->id.'/read',
+            '/api/v1/notifications/'.$unread->id.'/read'] as $url) {
+            $this->postJson($url)->assertStatus(409);
+        }
+        $this->assertDatabaseCount('notification_preferences', 0);
+        $this->assertNull($unread->fresh()->read_at);
+        $this->assertNotNull($alreadyRead->fresh()->read_at);
+        $this->assertSame(0, DB::table('audit_events')
+            ->where('actor_id', $vendor->id)->where('action', 'like', 'notifications.%')->count());
+    }
+
+    public function test_password_rotation_and_account_suspension_block_stale_receipt_mutations(): void
+    {
+        foreach (['password' => 'completely-new-credential-hash', 'account_status' => 'suspended',
+            'auth_epoch' => 5] as $field => $changed) {
+            $actor = User::factory()->create(['role' => 'customer']);
+            $unread = $this->makeNotification($actor);
+            $read = $this->makeNotification($actor);
+            $read->update(['read_at' => now()->subMinute()]);
+            $this->actingAs($actor);
+            DB::table('users')->where('id', $actor->id)->update([$field => $changed]);
+
+            // Middleware may reject suspended/rotated browser sessions first;
+            // either way no stale snapshot can write a receipt or preference.
+            foreach ([
+                $this->putJson('/api/notifications/preferences', [
+                    'default_category' => 'all', 'default_unread_only' => true,
+                    'remind_unresolved_simulator_faults' => false,
+                ]),
+                $this->postJson('/api/notifications/read-through', ['through_id' => $read->id]),
+                $this->postJson('/api/notifications/'.$read->id.'/unread'),
+                $this->postJson('/api/notifications/'.$unread->id.'/read'),
+            ] as $response) {
+                $this->assertContains($response->getStatusCode(), [401, 403, 409]);
+            }
+            $this->assertNull($unread->fresh()->read_at);
+            $this->assertNotNull($read->fresh()->read_at);
+            $this->assertSame(0, DB::table('audit_events')->where('actor_id', $actor->id)
+                ->where('action', 'like', 'notifications.%')->count());
+        }
+        $this->assertDatabaseCount('notification_preferences', 0);
     }
 
     public function test_legacy_notification_routes_remain_available_and_scoped(): void
