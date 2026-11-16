@@ -10,6 +10,8 @@ use App\Models\User;
 use App\Services\Finance\FinanceService;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
@@ -58,6 +60,66 @@ class PaymentGatewayTest extends TestCase
     private function op(int $id, string $kind, array $body = [])
     {
         return $this->postJson('/gateway-test/commercial/checkouts/'.$id.'/'.$kind, $body + ['idempotency_key' => $kind]);
+    }
+
+    public function test_revoked_customer_vendor_or_admin_cannot_read_private_checkouts_cases_or_issue_test_charges(): void
+    {
+        [$customer, $vendor, $admin, $invoice] = $this->fixture();
+        $this->actingAs($customer);
+        $id = $this->checkout($invoice);
+        $base = '/gateway-test/commercial';
+        $before = DB::table('audit_events')->count();
+
+        foreach ([$customer, $vendor, $admin] as $reader) {
+            $snapshot = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $snapshot->role,
+                'account_status' => $snapshot->account_status,
+                'auth_epoch' => $snapshot->auth_epoch,
+                'password' => $snapshot->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson($base.'/checkouts')->assertOk()->assertJsonPath('total', 1);
+            $this->getJson($base.'/cases')->assertOk();
+
+            foreach ([
+                ['role' => $snapshot->role === 'vendor' ? 'customer' : 'vendor'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $snapshot->auth_epoch + 1],
+                ['password' => Hash::make('gateway-revoked-browser-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $this->getJson($base.'/checkouts')->assertConflict();
+                $this->getJson($base.'/cases')->assertConflict();
+                if ($reader->id === $customer->id) {
+                    $this->postJson($base.'/checkouts', [
+                        'invoice_id' => $invoice->id, 'amount_minor' => 1000,
+                        'idempotency_key' => 'revoked-payment-checkout',
+                    ])->assertConflict();
+                    $this->postJson($base.'/checkouts/'.$id.'/authorize', [
+                        'token' => 'mock_success', 'idempotency_key' => 'revoked-authorize',
+                    ])->assertConflict();
+                    $this->postJson($base.'/cases', [
+                        'invoice_id' => $invoice->id, 'kind' => 'dispute',
+                        'amount_minor' => 100,
+                        'reason' => 'Revoked users cannot submit a case',
+                        'idempotency_key' => 'revoked-payment-case',
+                    ])->assertConflict();
+                }
+                if ($reader->id === $admin->id) {
+                    $this->getJson($base.'/reconciliation/'.$invoice->id)
+                        ->assertConflict();
+                }
+                DB::table('users')->where('id', $reader->id)->update($original);
+            }
+        }
+
+        $this->assertSame($before, DB::table('audit_events')->count());
+        $this->assertDatabaseCount('gateway_checkouts', 1);
+        $this->assertDatabaseCount('gateway_operations', 0);
+        $this->assertDatabaseCount('gateway_cases', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
     }
 
     public function test_checkout_authorize_capture_replay_refund_reconcile_and_exact_ledger(): void
