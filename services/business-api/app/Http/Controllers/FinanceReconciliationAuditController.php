@@ -18,6 +18,7 @@ final class FinanceReconciliationAuditController extends Controller
             'from' => ['sometimes', 'date_format:Y-m-d'],
             'to' => ['sometimes', 'date_format:Y-m-d', Rule::when($request->filled('from'), 'after_or_equal:from')],
             'per_page' => ['sometimes', 'integer', 'between:1,25'],
+            'page' => ['sometimes', 'integer', 'between:1,10000'],
         ]);
 
         $query = Invoice::query();
@@ -34,7 +35,11 @@ final class FinanceReconciliationAuditController extends Controller
             $query->where('created_at', '<=', $values['to'].' 23:59:59.999999');
         }
 
-        $page = $query->orderByDesc('id')->paginate((int) ($values['per_page'] ?? 20));
+        // The caller's page is validated before pagination, including CSV export.
+        // Do not silently coerce non-numeric or unbounded offsets into a private read.
+        $page = $query->orderByDesc('id')->paginate(
+            (int) ($values['per_page'] ?? 20), ['*'], 'page', (int) ($values['page'] ?? 1)
+        );
 
         return [
             'data' => $page->getCollection()->map(fn (Invoice $invoice) => $audit->inspect($invoice))->values()->all(),

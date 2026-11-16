@@ -5,7 +5,7 @@ Two authenticated read-only routes add source-integrity reporting without introd
 - GET /finance/reconciliation-audit
 - GET /finance/reconciliation-audit/export
 
-Access is administrator (all) or vendor (own invoices); customers are forbidden. Filters: currency, from, to, per_page (1–25). Exports contain exactly the selected bounded page, not unbounded private data. Existing authenticated API parents, request throttles, and web CSRF protections remain in effect. Responses use private/no-store.
+Access is administrator (all) or vendor (own invoices); customers are forbidden. Filters: currency, from, to, per_page (1–25), page (1–10,000). Invalid pages return 422 for both JSON and CSV; the export reuses the exact filtered current page, including empty pages. Exports contain exactly the selected bounded page, not unbounded private data. Existing authenticated API parents, request throttles, and web CSRF protections remain in effect. Responses use private/no-store.
 
 The audit checks invoice component arithmetic, issuance journal, payment/refund/noncash-credit journal linkage, refund allocation, journal currency, per-journal debit/credit equality and exact canonical account allocations, orphan records and collection limits. Anomaly codes are read-only and never repair or modify immutable accounting. Re-run after concurrent operations settle: this is a diagnostic, not a formally frozen accounting close.
 

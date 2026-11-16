@@ -80,6 +80,17 @@ class FinanceReconciliationAuditTest extends TestCase
             ->assertJsonPath('total', 1)->assertJsonPath('data.0.invoice_id', $invoice->id);
         $this->getJson($this->url().'?currency=USD')->assertOk()->assertJsonPath('total', 0);
         $this->getJson($this->url().'?per_page=26')->assertUnprocessable();
+        foreach (['page=0', 'page=-1', 'page=10001', 'page=not-a-page'] as $invalid) {
+            $this->getJson($this->url().'?'.$invalid)->assertUnprocessable();
+            $this->get($this->url().'/export?'.$invalid)->assertUnprocessable();
+        }
+        $this->getJson($this->url().'?per_page=1&page=2')->assertOk()
+            ->assertJsonPath('current_page', 2)
+            ->assertJsonPath('total', 1)
+            ->assertJsonCount(0, 'data');
+        $this->get($this->url().'/export?per_page=1&page=2')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private');
+
         $this->getJson($this->url().'?from=2027-10-02&to=2027-10-01')->assertUnprocessable();
         $csv = $this->get($this->url().'/export?per_page=1');
         $csv->assertOk()->assertHeader('Cache-Control', 'no-store, private');
