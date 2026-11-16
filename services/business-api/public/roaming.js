@@ -816,6 +816,7 @@ window.createRoamingWorkspace = ({
                     panel.append(form);
                     if (
                         result.reservation_supported === true &&
+                        offer.reservation_supported === true &&
                         result.reservation_terms_version ===
                             "sandbox-reservation-preauthorization-v1"
                     ) {

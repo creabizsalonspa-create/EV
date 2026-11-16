@@ -38,6 +38,29 @@ final class ReservationRoaming
         }
     }
 
+    /**
+     * A sandbox contract does not imply every published EVSE is reservable.
+     * OCPI 2.2.1 EVSE.capabilities must explicitly advertise RESERVABLE.
+     * Missing, malformed or duplicate EVSE source identities fail closed.
+     */
+    public function reservableEvse(OcpiRecord $location, string $evseUid): bool
+    {
+        if ($location->module !== 'locations') {
+            return false;
+        }
+        $evses = $location->payload['evses'] ?? null;
+        if (! is_array($evses) || ! array_is_list($evses)) {
+            return false;
+        }
+        $matches = array_values(array_filter($evses, fn ($evse) => is_array($evse) && ($evse['uid'] ?? null) === $evseUid));
+        if (count($matches) !== 1) {
+            return false;
+        }
+        $capabilities = $matches[0]['capabilities'] ?? null;
+
+        return is_array($capabilities) && array_is_list($capabilities) && in_array('RESERVABLE', $capabilities, true);
+    }
+
     public function sessions(object $order): Collection
     {
         $rows = OcpiRecord::where('ocpi_provider_id', $order->provider_id)->where('module', 'sessions')->where('id', '>', $order->source_record_floor)->orderByDesc('id')->limit(1001)->get();
@@ -153,6 +176,8 @@ final class ReservationRoaming
                     $target = json_decode(Crypt::decryptString($row->target_ciphertext), true, flags: JSON_THROW_ON_ERROR);
                     $offer = $service->offer(OcpiRecord::findOrFail($row->location_record_id), $target['evse_uid'], $target['connector_id'], $target['tariff_id']);
                     abort_unless(hash_equals($row->offer_hash, $offer['hash']), 409);
+                    abort_unless($this->reservableEvse(OcpiRecord::findOrFail($row->location_record_id), $target['evse_uid']), 409,
+                        'Partner EVSE no longer advertises reservation capability.');
                 } else {
                     abort_if($this->sessions($row)->contains(fn ($s) => in_array($s->normalized['status'], ['ACTIVE', 'COMPLETED'], true)), 409);
                 }

@@ -109,13 +109,22 @@ class SandboxRoaming
         }
         $offer = $this->offer($location, $v['evse_uid'], $v['connector_id'], $v['tariff_id']);
         abort_unless($v['consent'] === true && $v['terms_version'] === ($reservationMinutes === null ? self::TERMS : ReservationRoaming::TERMS) && hash_equals($offer['hash'], $v['offer_hash']), 409, 'Review the current sandbox offer before consent.');
+        if ($reservationMinutes !== null) {
+            abort_unless(app(ReservationRoaming::class)->reservableEvse($location, $v['evse_uid']), 409,
+                'Partner EVSE does not advertise reservation capability.');
+        }
 
         return DB::transaction(function () use ($actor, $location, $v, $offer, $hash, $reservationMinutes) {
             $current = app(ChargingActorConsent::class)->capture($actor);
             $p = OcpiProvider::whereKey($offer['provider']->id)->lockForUpdate()->firstOrFail();
             abort_unless($current->role === 'customer', 403);
-            $fresh = $this->offer($location->fresh(), $v['evse_uid'], $v['connector_id'], $v['tariff_id']);
+            $freshLocation = $location->fresh();
+            $fresh = $this->offer($freshLocation, $v['evse_uid'], $v['connector_id'], $v['tariff_id']);
             abort_unless(hash_equals($offer['hash'], $fresh['hash']), 409);
+            if ($reservationMinutes !== null) {
+                abort_unless(app(ReservationRoaming::class)->reservableEvse($freshLocation, $v['evse_uid']), 409,
+                    'Partner EVSE no longer advertises reservation capability.');
+            }
             $old = DB::table('ocpi_roaming_orders')->where('user_id', $actor->id)->where('request_key', $v['request_key'])->first();
             if ($old) {
                 abort_unless(hash_equals($old->intent_hash, $hash), 409);
