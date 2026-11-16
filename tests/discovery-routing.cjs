@@ -356,6 +356,39 @@ const fs = require("node:fs");
       "",
     );
     assert.equal(await page.locator("#location-consent").isChecked(), false);
+    // A background browser tab must also discard the previous itinerary,
+    // even if there is no explicit account logout or new catalog fetch.
+    await journey.locator("[name=journey_origin_latitude]").fill("24.25");
+    await journey.locator("[name=journey_destination_longitude]").fill("56.75");
+    const beforeVisibility = routeCalls;
+    await page.evaluate(() => {
+      Object.defineProperty(document, "hidden", {
+        configurable: true, value: true,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    assert.equal(
+      await journey.locator("[name=journey_origin_latitude]").inputValue(),
+      "",
+      "Backgrounded route coordinates must be removed from the DOM",
+    );
+    assert.equal(
+      await journey.locator("[name=journey_destination_longitude]").inputValue(),
+      "",
+    );
+    assert.equal(await journey.locator("ol li").count(), 0);
+    assert.equal(
+      await journey.locator("form>label input[type=checkbox]").isChecked(),
+      false,
+    );
+    await page.evaluate(() => {
+      Object.defineProperty(document, "hidden", {
+        configurable: true, value: false,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    assert.equal(routeCalls, beforeVisibility,
+      "Browser foregrounding must not contact a route provider or replay consent");
     assert.deepEqual(errors, []);
     console.log(
       "PASS: actual unconfigured/csrf endpoints; consent/debounce/stale-safe address UI; Arabic coordinates; bounded/reordered charging stops; sourced route preview; fixed-origin consented navigation; no charging authority; RTL390 and identity-clear GPS/itinerary privacy. Provider/navigation/GPS/tiles are synthetic.",
