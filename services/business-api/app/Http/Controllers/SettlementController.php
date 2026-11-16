@@ -136,17 +136,18 @@ class SettlementController extends Controller
         abort_unless(DB::table('regions')->where('currency', $v['currency'])->exists(), 422, 'Currency must be configured.');
 
         return DB::transaction(function () use ($r, $vendor, $v) {
-            User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
-            User::whereKey($vendor)->lockForUpdate()->firstOrFail();
-            $key = hash('sha256', $r->user()->id.':'.$v['idempotency_key']);
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($actor->role === 'admin', 403);
+            User::whereKey($vendor)->where('role', 'vendor')->lockForUpdate()->firstOrFail();
+            $key = hash('sha256', $actor->id.':'.$v['idempotency_key']);
             $old = DB::table('commercial_adjustments')->where('request_key', $key)->first();
             if ($old) {
                 abort_unless((int) $old->vendor_id === $vendor && $old->currency === $v['currency'] && (int) $old->amount_minor === (int) $v['amount_minor'] && $old->reason === $v['reason'], 409, 'Adjustment key payload mismatch.');
 
                 return response()->json($old, 201);
             }
-            $id = DB::table('commercial_adjustments')->insertGetId(['vendor_id' => $vendor, 'currency' => $v['currency'], 'minor_units' => app(SettlementService::class)->currencyPrecision($vendor, $v['currency']), 'amount_minor' => (int) $v['amount_minor'], 'reason' => $v['reason'], 'request_key' => $key, 'created_by' => $r->user()->id, 'created_at' => now()]);
-            DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'finance.settlement.adjustment_requested', 'subject' => (string) $id, 'created_at' => now()]);
+            $id = DB::table('commercial_adjustments')->insertGetId(['vendor_id' => $vendor, 'currency' => $v['currency'], 'minor_units' => app(SettlementService::class)->currencyPrecision($vendor, $v['currency']), 'amount_minor' => (int) $v['amount_minor'], 'reason' => $v['reason'], 'request_key' => $key, 'created_by' => $actor->id, 'created_at' => now()]);
+            DB::table('audit_events')->insert(['actor_id' => $actor->id, 'action' => 'finance.settlement.adjustment_requested', 'subject' => (string) $id, 'created_at' => now()]);
 
             return response()->json(DB::table('commercial_adjustments')->find($id), 201);
         }, 3);
@@ -157,12 +158,14 @@ class SettlementController extends Controller
         $this->admin($r);
 
         return DB::transaction(function () use ($r, $adjustment) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($actor->role === 'admin', 403);
             $a = DB::table('commercial_adjustments')->find($adjustment);
             abort_unless($a, 404);
             User::whereKey($a->vendor_id)->lockForUpdate()->firstOrFail();
-            abort_if((int) $a->created_by === $r->user()->id, 403, 'A different administrator must approve an adjustment.');
+            abort_if((int) $a->created_by === $actor->id, 403, 'A different administrator must approve an adjustment.');
             if (! DB::table('commercial_adjustment_approvals')->where('adjustment_id', $adjustment)->exists()) {
-                DB::table('commercial_adjustment_approvals')->insert(['adjustment_id' => $adjustment, 'approved_by' => $r->user()->id, 'created_at' => now()]);
+                DB::table('commercial_adjustment_approvals')->insert(['adjustment_id' => $adjustment, 'approved_by' => $actor->id, 'created_at' => now()]);
                 $amount = abs((int) $a->amount_minor);
                 $positive = (int) $a->amount_minor > 0;
                 DB::table('commercial_adjustment_entries')->insert([
@@ -170,7 +173,7 @@ class SettlementController extends Controller
                     ['adjustment_id' => $adjustment, 'account' => 'platform_adjustment', 'debit_minor' => $positive ? $amount : 0, 'credit_minor' => $positive ? 0 : $amount, 'created_at' => now()],
                 ]);
 
-                DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'finance.settlement.adjustment_approved', 'subject' => (string) $adjustment, 'created_at' => now()]);
+                DB::table('audit_events')->insert(['actor_id' => $actor->id, 'action' => 'finance.settlement.adjustment_approved', 'subject' => (string) $adjustment, 'created_at' => now()]);
             }
 
             return response()->json(DB::table('commercial_adjustment_approvals')->where('adjustment_id', $adjustment)->first());
