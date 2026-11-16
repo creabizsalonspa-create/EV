@@ -101,16 +101,20 @@ void main(){
    roomy(tester);
    final api=UnifiedApi(),next=UnifiedApi();
    addTearDown(api.close);addTearDown(next.close);
-   await tester.pumpWidget(app(api,(_)=>fail('No booking'),customer:true));
+   var launches=0;
+   await tester.pumpWidget(app(api,(_)=>launches++,customer:true));
    await tester.enterText(find.byKey(const Key('unified-query')),'Private customer address');
    await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
    expect(find.text('Synthetic catalog'),findsOneWidget);
    expect(find.byKey(const Key('unified-recent-0')),findsOneWidget);
+   final savedNavigation=tester.widget<TextButton>(find.widgetWithText(TextButton,'View station and booking options')).onPressed!;
    final requestCount=api.calls.length;
    // EvApi may swap authenticated identity without replacing the API object.
    // Rebuilding that same widget must not expose another actor's catalog,
    // query drafts, partner label, favorite controls or recent search history.
    api.epoch++;
+   savedNavigation();
+   expect(launches,0,reason:'A stale pre-rendered booking callback must reject the previous account');
    await tester.pumpWidget(app(api,(_)=>fail('No old-account action'),customer:true));
    await tester.pumpAndSettle();
    expect(find.text('Account changed. Reopen search.'),findsOneWidget);
