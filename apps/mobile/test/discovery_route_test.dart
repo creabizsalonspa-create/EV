@@ -351,6 +351,14 @@ void main() {
         'routing': true,
       });
       await tester.pumpAndSettle();
+      // Route preview is below the fold in the lazily built ListView.
+      // Materialize it before asserting its disabled state on Android/iOS.
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('route-preview')),
+        240,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
       expect(
         tester.widget<FilledButton>(find.byKey(const Key('route-preview'))).onPressed,
         isNull,
