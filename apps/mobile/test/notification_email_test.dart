@@ -10,7 +10,8 @@ class NoticeApi extends FixtureApi {
       active = true,
       loseReply = false,
       configured = true,
-      malformedHistory = false;
+      malformedHistory = false,
+      emptyHistory = false;
   int writes = 0;
   Map<String, dynamic>? lastBody;
   @override
@@ -36,7 +37,9 @@ class NoticeApi extends FixtureApi {
         'receipts': {
           'data': malformedHistory
               ? 'untrusted private rows'
-              : [
+              : emptyHistory
+                  ? <Map<String, dynamic>>[]
+                  : [
                   {
                     'state': 'outcome_unknown',
                     'created_at': '2026-11-14',
@@ -127,6 +130,25 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsOneWidget);
       expect(find.textContaining(ar ? 'النتيجة غير متاحة.' : 'Outcome unavailable.'), findsNothing);
+      expect(api.writes, 0);
+    });
+  }
+  for (final ar in [false, true]) {
+    testWidgets('empty email history has a localized non-error state ($ar)', (
+      tester,
+    ) async {
+      final api = NoticeApi()..emptyHistory = true;
+      await tester.pumpWidget(screen(api, ar: ar));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          ar
+              ? 'لا توجد عمليات نقل إشعارات بالبريد في هذه الصفحة.'
+              : 'No email notice handoffs on this page.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Outcome unavailable.'), findsNothing);
       expect(api.writes, 0);
     });
   }
