@@ -579,6 +579,9 @@ class VendorOpsController extends Controller
             abort_unless($account->hasVerifiedEmail(), 409,
                 'Verify your email before accepting company staff permissions.');
             $m = VendorCompanyStaff::whereKey($membership->id)->lockForUpdate()->firstOrFail();
+            // A reassigned invite must not be accepted using an obsolete
+            // route-bound membership from the previous recipient.
+            abort_unless($m->user_id === $account->id, 404);
             abort_unless(in_array($m->status, ['invited', 'active']), 409);
             abort_if($m->admin_revoked_at !== null, 409, 'Staff access is under an administrator security hold.');
             abort_unless($m->invitation_version === (int) $v['expected_version'], 409, 'Invitation scopes changed; refresh and consent again.');
