@@ -19,6 +19,48 @@ class AdminSecondFactorCurrentAuthorityTest extends TestCase
         config()->set('admin_security.enforce_in_local_tests', true);
     }
 
+    public function test_private_admin_authenticator_setup_page_and_status_require_current_authority(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin, 'web');
+        $this->get('/admin/second-factor')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertHeader('Referrer-Policy', 'no-referrer');
+        $this->getJson('/api/admin/second-factor/status')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('enrolled', false);
+
+        // The browser authentication snapshot remains Admin throughout;
+        // a revoked live role can no longer access even the MFA exception.
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
+        $this->get('/admin/second-factor')->assertForbidden();
+        $this->getJson('/api/admin/second-factor/status')->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'role' => 'admin', 'account_status' => 'suspended',
+        ]);
+        $this->get('/admin/second-factor')->assertForbidden();
+        $this->getJson('/api/admin/second-factor/status')->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'account_status' => 'active', 'auth_epoch' => 1,
+        ]);
+        $this->get('/admin/second-factor')->assertStatus(409);
+        $this->getJson('/api/admin/second-factor/status')->assertStatus(409);
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'auth_epoch' => 0, 'password' => Hash::make('changed-admin-password'),
+        ]);
+        $this->get('/admin/second-factor')->assertStatus(409);
+        $this->getJson('/api/admin/second-factor/status')->assertStatus(409);
+        $this->assertDatabaseCount('admin_second_factors', 0);
+        $this->assertDatabaseCount('audit_events', 0);
+
+        $fresh = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($fresh, 'web')->getJson('/api/admin/second-factor/status')
+            ->assertOk()->assertJsonPath('authenticator_required', true);
+    }
+
     public function test_stale_admin_cannot_begin_or_confirm_authenticator_enrollment(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
