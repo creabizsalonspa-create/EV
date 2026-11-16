@@ -254,7 +254,12 @@ class OcpiReservationTest extends TestCase
             $raw['last_updated'] = now()->utc()->toISOString();
             $raw['start_date_time'] = now()->utc()->subMinutes(30)->format('Y-m-d\TH:i:s');
             $raw['end_date_time'] = now()->utc()->addMinutes(30)->format('Y-m-d\TH:i:s');
-            app(RecordSynchronizer::class)->ingest($f[3], 'tariffs', [$raw]);
+            $restored = app(RecordSynchronizer::class)->ingest($f[3], 'tariffs', [$raw]);
+            $this->assertSame(1, $restored['updated'], 'The restored UTC source tariff must replace the invalid-window snapshot.');
+            $this->assertSame($raw['start_date_time'], $tariff->fresh()->payload['start_date_time']);
+            // Inspect the actual source offer before the controller catches
+            // policy failures; do not accept a silently empty valid offer.
+            $this->assertNotEmpty(app(SandboxRoaming::class)->offer($f[4]->fresh(), 'E1', '1', 'T1'));
             $this->getJson($url)->assertOk()->assertJsonCount(1, 'offers')
                 ->assertJsonPath('offers.0.reservation_supported', true);
             $this->assertCount(0, $this->writes);
