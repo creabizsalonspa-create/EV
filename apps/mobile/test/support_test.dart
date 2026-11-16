@@ -626,6 +626,36 @@ class NumericVisibilityTicketFixture extends SupportFixture {
 }
 
 void main() {
+  test('battery discovery notification navigation rejects untrusted metadata', () {
+    final valid = {
+      'kind': 'vehicle.battery.simulated',
+      'metadata': {
+        'source': 'simulator', 'vehicle_id': 3, 'battery_percent': 15,
+      },
+    };
+    expect(batteryDiscoveryNotificationTarget(valid), 3);
+    for (final metadata in [
+      null,
+      {},
+      {'source': 'external', 'vehicle_id': 3, 'battery_percent': 15},
+      {'source': 'simulator', 'vehicle_id': '3', 'battery_percent': 15},
+      {'source': 'simulator', 'vehicle_id': 0, 'battery_percent': 15},
+      {'source': 'simulator', 'vehicle_id': 3, 'battery_percent': 101},
+      {'source': 'simulator', 'vehicle_id': 3, 'battery_percent': -1},
+      {'source': 'simulator', 'vehicle_id': 3, 'battery_percent': '15'},
+    ]) {
+      expect(
+        batteryDiscoveryNotificationTarget({
+          'kind': 'vehicle.battery.simulated', 'metadata': metadata,
+        }),
+        isNull,
+      );
+    }
+    expect(batteryDiscoveryNotificationTarget({
+      ...valid, 'kind': 'fleet.invitation',
+    }), isNull);
+  });
+
   testWidgets('numeric Laravel internal flags never reveal private messages', (
     tester,
   ) async {
