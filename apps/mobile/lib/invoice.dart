@@ -27,20 +27,64 @@ class InvoicePage extends StatefulWidget {
   State<InvoicePage> createState() => _InvoicePageState();
 }
 
-class _InvoicePageState extends State<InvoicePage> {
+class _InvoicePageState extends State<InvoicePage>
+    with WidgetsBindingObserver {
   Map<String, dynamic>? data;
   Object? error;
-  bool busy = false;
+  bool busy = false, foreground = true;
+  late bool Function() authorized;
+  int generation = 0;
+  bool current(int n, bool Function() session) =>
+      mounted && foreground && authorized() && session() && generation == n;
+
+  void clearPrivate() {
+    generation++;
+    data = null;
+    error = null;
+    busy = false;
+  }
+
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
     load();
   }
 
+  @override
+  void didUpdateWidget(covariant InvoicePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api ||
+        oldWidget.invoiceId != widget.invoiceId ||
+        oldWidget.sessionId != widget.sessionId) {
+      clearPrivate();
+      authorized = widget.api.sessionFence();
+      // An uncertain session-invoice POST must never be replayed automatically.
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (mounted && !foreground) setState(clearPrivate);
+  }
+
+  @override
+  void dispose() {
+    generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   Future<void> load() async {
+    if (!foreground || !authorized() || busy) return;
+    final session = widget.api.sessionFence();
+    final n = ++generation;
     setState(() {
       busy = true;
       error = null;
+      data = null;
     });
     try {
       // Issuance is server-idempotent by session, including already issued documents.
@@ -50,28 +94,37 @@ class _InvoicePageState extends State<InvoicePage> {
             : 'finance/sessions/${widget.sessionId}/invoice',
         method: widget.invoiceId != null ? 'GET' : 'POST',
       );
+      if (!current(n, session)) return;
       if (result['invoice']?['evidence'] != 'SIMULATED' ||
           result['payment_provider'] != 'SIMULATOR_ONLY' ||
           result['real_payment_processed'] != false) {
         throw const ApiException(409, 'Unsupported finance evidence.');
       }
-      if (mounted) setState(() => data = Map<String, dynamic>.from(result));
+      if (current(n, session))
+        setState(() => data = Map<String, dynamic>.from(result));
     } catch (e) {
-      if (mounted && e is ApiException && [401, 419].contains(e.status))
+      if (!current(n, session)) return;
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        setState(clearPrivate);
         widget.onExpired();
-      if (mounted)
-        setState(() {
-          error = e;
-          data = null;
-        });
+        return;
+      }
+      setState(() {
+        error = e;
+        data = null;
+      });
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (current(n, session)) setState(() => busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), invoice = data?['invoice'];
+    if (!authorized()) return Scaffold(
+      appBar: AppBar(title: Text(s.t('invoice'))),
+      body: Center(child: Text(s.t('expired'))),
+    );
     return Scaffold(
       appBar: AppBar(title: Text(s.t('invoice'))),
       body: ListView(
