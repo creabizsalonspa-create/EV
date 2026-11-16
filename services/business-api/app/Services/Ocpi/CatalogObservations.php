@@ -104,7 +104,12 @@ final class CatalogObservations
                             default => 'other_or_unknown',
                         };
                         $entry['published_by_reported_market'][$market]++;
-                        if ($usable) {
+                        // Geographic latitude up to ±90 is valid for stored
+                        // observations, but Web Mercator cannot display the
+                        // polar caps. Do not label those records map-usable.
+                        $mapUsable = $usable && (float) $row->latitude >= -85.05112878
+                            && (float) $row->latitude <= 85.05112878;
+                        if ($mapUsable) {
                             $entry['published_with_usable_coordinates_by_reported_market'][$market]++;
                         }
                     }
