@@ -700,6 +700,8 @@ class SupportViewState extends State<SupportView>
           accepted['remind_unresolved_simulator_faults'] !=
               desired['remind_unresolved_simulator_faults'] ||
           accepted['fault_reminder_delay_minutes'] != desired['fault_reminder_delay_minutes'] ||
+          accepted['in_app_only'] != true ||
+          accepted['critical_events_always_visible'] != true ||
           accepted['external_delivery_available'] != false) {
         throw const FormatException('Preference update not confirmed');
       }
@@ -1360,12 +1362,17 @@ class _TicketPageState extends State<TicketPage>
         pendingReplyBody = text;
         pendingReplyKey = newSupportRequestKey();
       }
-      await widget.api.request(
+      final accepted = await widget.api.request(
         'support/${widget.id}/messages',
         method: 'POST',
         body: {'body': text, 'idempotency_key': pendingReplyKey},
       );
       if (!current(n, session)) return;
+      if (accepted is! Map ||
+          accepted['id'] is! int ||
+          (accepted['id'] as int) <= 0) {
+        throw const FormatException('Support reply not confirmed');
+      }
       pendingReplyBody = null;
       pendingReplyKey = null;
       reply.clear();
