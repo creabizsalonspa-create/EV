@@ -55,3 +55,7 @@ No production acceptance, license registry integration, KYC authenticity,
 country-specific legal clearance, physical charger activation, real-user browser
 acceptance, or regulatory certification is claimed from this software slice.
 The original fixed 312-atom coverage inventory is unchanged.
+
+## Strict regional calendar provenance (Agent 3 continuation)
+
+A blank or unrecognized region timezone must not cause a date library to fall back silently to the server's default timezone. The KYC license queue now accepts only explicit supported IANA timezone identifiers before generating country-local `today` and 30-day calendars. Unconfigured or invalid timezone countries are classified as `license_health=unknown`, never `current`, `due_30_days`, or `expired`, so human reviewers do not accidentally certify a license based on an unrelated server date. Added tests use blank and invalid timezone values, preserving the private Admin queue and zero automatic vendor approval. This is a source-data quality safeguard, not official license authentication or regulator approval; exact-source PostgreSQL/browser/CI and Agent 5 integration remain required.
