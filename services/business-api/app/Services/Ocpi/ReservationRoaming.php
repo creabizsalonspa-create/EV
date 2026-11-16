@@ -45,7 +45,7 @@ final class ReservationRoaming
      * OCPI 2.2.1 EVSE.capabilities must explicitly advertise RESERVABLE.
      * Missing, malformed or duplicate EVSE source identities fail closed.
      */
-    private function sourceUtcInstant(mixed $value): ?CarbonImmutable
+    public function sourceUtcInstant(mixed $value): ?CarbonImmutable
     {
         // Strict OCPI 2.2.1 UTC DateTime (Z optional) without PHP calendar
         // rollover, local-server timezone interpretation or offset coercion.

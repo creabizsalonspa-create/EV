@@ -57,11 +57,19 @@ class SandboxRoaming
         abort_unless($tariff->source_updated_at->betweenIncluded(now()->subMinutes(5), now()), 409, 'Refresh the reported tariff before consent.');
         $rawTariff = $tariff->payload;
         abort_unless(count($rawTariff['elements'] ?? []) === 1 && empty($rawTariff['elements'][0]['restrictions']) && ! isset($rawTariff['min_price']) && ! isset($rawTariff['max_price']), 409, 'Unsupported tariff restrictions require review before sandbox consent.');
-        if (isset($rawTariff['start_date_time'])) {
-            abort_unless(CarbonImmutable::parse($rawTariff['start_date_time'])->lte(now()), 409);
+        // OCPI DateTime without a timezone suffix is UTC, *not* the PHP
+        // server timezone. Fail closed on offset, relative or rolled dates.
+        // This is pure source-window validation, never live tariff authority.
+        $utcDates = app(ReservationRoaming::class);
+        if (array_key_exists('start_date_time', $rawTariff)) {
+            $start = $utcDates->sourceUtcInstant($rawTariff['start_date_time']);
+            abort_unless($start !== null && $start->lte(now()), 409,
+                'Partner tariff start time requires UTC review.');
         }
-        if (isset($rawTariff['end_date_time'])) {
-            abort_unless(CarbonImmutable::parse($rawTariff['end_date_time'])->gt(now()), 409);
+        if (array_key_exists('end_date_time', $rawTariff)) {
+            $end = $utcDates->sourceUtcInstant($rawTariff['end_date_time']);
+            abort_unless($end !== null && $end->gt(now()), 409,
+                'Partner tariff end time requires UTC review.');
         }
         foreach ($tariff->normalized['elements'] as $element) {
             foreach ($element['price_components'] as $price) {
