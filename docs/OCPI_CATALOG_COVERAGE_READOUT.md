@@ -33,6 +33,18 @@ Top-level evidence explicitly states
 an authorized web admin with a current session/role/epoch. Customer and other-vendor access
 is still blocked. The HTTP response remains `Cache-Control: private, no-store`.
 
+The existing English/Arabic operator readout (`public/partner-catalog-observations.js`) now
+validates the complete source-only schema and shows both market counts as separate
+facets. It rejects contradictory totals, including an aggregate exceeding
+`stored_publish_true`, out-of-bounds values, and usable-coordinate counts
+greater than published counts. It does not render raw location names or party
+identifiers as market labels. The browser fixture in
+`tests/partner-catalog-observations.cjs` covers both languages, source labels,
+privacy, bad contracts, and stale-session blocking. A standalone V8 mocked-DOM
+probe of the exact JS head confirmed that a coherent report renders and that
+an inflated market total is rejected; this is **not** a substitute for real
+Chromium or PostgreSQL/CI verification.
+
 **Validation requirements:** `OcpiCatalogObservationsTest` on SQLite and the existing
 PostgreSQL connector matrix, covering country/party separation, all three supported markets,
 unpublished records, unknown countries, malformed coordinates, privacy, no external requests,
