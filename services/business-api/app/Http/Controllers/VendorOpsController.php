@@ -12,6 +12,7 @@ use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorKycDocument;
 use App\Models\VendorOps\VendorSite;
+use App\Security\AdminTransactionAuthority;
 use App\Services\VendorOps\VendorAccess;
 use App\Services\VendorOps\VendorCreation;
 use Illuminate\Contracts\Encryption\DecryptException;
@@ -132,18 +133,41 @@ class VendorOpsController extends Controller
         });
     }
 
-    public function reviews(Request $r, VendorCompany $company)
+    /**
+     * Resolve privileged KYC reads against the current reviewer and company,
+     * never an authorization decision cached by route-model binding.
+     * Call only while an enclosing database transaction is active.
+     */
+    private function currentKycReader(Request $r, VendorCompany $company): array
     {
-        abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
-
-        $history = VendorCompanyReview::where('company_id', $company->id)->orderBy('id')->paginate(25);
-        if ($r->user()->role === 'admin') {
-            // Reviewer notes are private. Audit the company-scoped metadata
-            // access without persisting those notes or customer details.
-            $this->access->audit($r->user(), 'review.history_viewed', $company->id);
+        $snapshot = $r->user();
+        abort_unless($snapshot instanceof User, 404);
+        $isAdmin = $snapshot->role === 'admin';
+        if ($isAdmin) {
+            AdminTransactionAuthority::requireCurrent($snapshot);
         }
 
-        return response()->json($history)->header('Cache-Control', 'no-store, private');
+        $currentCompany = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+        abort_unless($isAdmin || $currentCompany->owner_id === $snapshot->id, 404);
+
+        return [$currentCompany, $isAdmin];
+    }
+
+    public function reviews(Request $r, VendorCompany $company)
+    {
+        return DB::transaction(function () use ($r, $company) {
+            [$currentCompany, $isAdmin] = $this->currentKycReader($r, $company);
+            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+            $history = VendorCompanyReview::where('company_id', $currentCompany->id)
+                ->orderBy('id')->paginate(25);
+            if ($isAdmin) {
+                // Confidential reviewer notes must never be disclosed or
+                // positively audited for a revoked/rotated Admin session.
+                $this->access->audit($r->user(), 'review.history_viewed', $currentCompany->id);
+            }
+
+            return response()->json($history)->header('Cache-Control', 'no-store, private');
+        });
     }
 
     private function operationalWrite(Request $r, VendorCompany $company): VendorCompany
@@ -157,16 +181,19 @@ class VendorOpsController extends Controller
 
     public function documents(Request $r, VendorCompany $company)
     {
-        abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
+        return DB::transaction(function () use ($r, $company) {
+            [$currentCompany, $isAdmin] = $this->currentKycReader($r, $company);
+            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+            $metadata = VendorKycDocument::where('company_id', $currentCompany->id)
+                ->orderBy('id')->paginate(25);
+            if ($isAdmin) {
+                // Metadata access is auditable without exposing encrypted
+                // file paths or stored document fingerprints.
+                $this->access->audit($r->user(), 'document.metadata_viewed', $currentCompany->id);
+            }
 
-        $metadata = VendorKycDocument::where('company_id', $company->id)->paginate(25);
-        if ($r->user()->role === 'admin') {
-            // Reading private document metadata is a privileged access,
-            // separate from the already audited byte-download endpoint.
-            $this->access->audit($r->user(), 'document.metadata_viewed', $company->id);
-        }
-
-        return response()->json($metadata)->header('Cache-Control', 'no-store, private');
+            return response()->json($metadata)->header('Cache-Control', 'no-store, private');
+        });
     }
 
     public function upload(Request $r, VendorCompany $company)
@@ -204,21 +231,36 @@ class VendorOpsController extends Controller
 
     public function download(Request $r, VendorCompany $company, VendorKycDocument $document)
     {
-        abort_unless(($r->user()->role === 'admin' || $company->owner_id === $r->user()->id) && $document->company_id === $company->id, 404);
+        $result = DB::transaction(function () use ($r, $company, $document) {
+            [$currentCompany] = $this->currentKycReader($r, $company);
+            $currentDocument = VendorKycDocument::whereKey($document->id)
+                ->lockForUpdate()->firstOrFail();
+            abort_unless($currentDocument->company_id === $currentCompany->id, 404);
+
+            $contents = $this->verifiedEvidenceContents($currentDocument);
+            if ($contents === null) {
+                // Preserve a durable denial audit outside this transaction:
+                // throwing inside it would roll the audit back.
+                return ['corrupt' => $currentDocument];
+            }
+
+            // The live reviewer, live company/document relationship, file
+            // integrity and successful-view audit share one transaction.
+            $this->access->audit($r->user(), 'document.downloaded', $currentDocument->id);
+
+            return ['document' => $currentDocument, 'contents' => $contents];
+        });
+
+        if (isset($result['corrupt'])) {
+            $this->rejectCorruptEvidence($r, $result['corrupt']);
+        }
+
+        $document = $result['document'];
         $extension = match ($document->mime_type) {
-            'image/png' => 'png','image/jpeg' => 'jpg',default => 'pdf'
+            'image/png' => 'png', 'image/jpeg' => 'jpg', default => 'pdf',
         };
 
-        $contents = $this->verifiedEvidenceContents($document);
-        if ($contents === null) {
-            $this->rejectCorruptEvidence($r, $document);
-        }
-        // Log only a successful authorized access, without storage paths,
-        // plaintext document contents, trade-license IDs or download URLs.
-        // Fail closed if the compliance audit cannot be recorded.
-        $this->access->audit($r->user(), 'document.downloaded', $document->id);
-
-        return response($contents, 200, [
+        return response($result['contents'], 200, [
             'Content-Type' => $document->mime_type,
             'Content-Disposition' => 'attachment; filename="kyc-document-'.$document->id.'.'.$extension.'"',
             'X-Content-Type-Options' => 'nosniff',
