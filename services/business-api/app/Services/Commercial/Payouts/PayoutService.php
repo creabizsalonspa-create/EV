@@ -107,6 +107,10 @@ class PayoutService
     public function verify(int $id, int $actor): object
     {
         $this->enabled();
+        // A demoted or suspended reviewer must not even trigger an external
+        // TEST provider verification request. Recheck again under the final
+        // write transaction after that request returns.
+        DB::transaction(fn () => $this->currentAdmin($actor), 3);
         $account = $this->account($id);
         abort_unless(in_array($account->status, ['pending_verification', 'active'], true) && $account->consented_at && $account->consent_version === config('payouts.consent_version'), 409, 'Vendor consent is required.');
         $this->provider($account->provider)->verify($account);
@@ -149,6 +153,12 @@ class PayoutService
     public function onboarding(int $id, int $actor, string $key): array
     {
         $this->enabled();
+        DB::transaction(function () use ($actor) {
+            $vendor = User::whereKey($actor)->lockForUpdate()->first();
+            abort_unless($vendor && $vendor->role === 'vendor'
+                && $vendor->account_status === 'active', 409,
+                'Vendor onboarding authority changed.');
+        }, 3);
         $account = $this->account($id);
         abort_unless((int) $account->vendor_id === $actor, 404);
         abort_unless($account->provider === 'stripe_test' && in_array($account->status, ['pending_verification', 'active'], true) && $account->consented_at && $account->consent_version === config('payouts.consent_version'), 409, 'Active owner consent for a Stripe TEST recipient is required.');
