@@ -226,6 +226,12 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       if(row['kind']=='catalog') PartnerMapPoint.fromPublishedCatalog(Map<String,dynamic>.from(row['station'] as Map))
       else PartnerMapPoint.fromPublishedLocation(Map<String,dynamic>.from(row['location'] as Map),providerLabel: row['provider_label'] is String ? row['provider_label'] as String : null),
   ].whereType<PartnerMapPoint>().toList();
+  void openCatalog(Station station){
+    // The button closure may have been built under an earlier account epoch.
+    // Recheck identity at the actual click, not just when rendering it.
+    if(!mounted||!foreground||!ownSession())return;
+    widget.onCatalog(station);
+  }
   Widget card(Map<String,dynamic> row){
     if(row['kind']=='catalog'){
       final raw=Map<String,dynamic>.from(row['station'] as Map);
@@ -243,7 +249,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
         ));
       }
       final station=Station.fromJson(raw);
-      return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(station.name),if(widget.customer)favoriteButton(row),Text(tr('Platform catalog · ${station.source}','كتالوج المنصة · ${station.source}')),TextButton(onPressed:foreground&&ownSession()?()=>widget.onCatalog(station):null,child:Text(tr('View station and booking options','عرض المحطة وخيارات الحجز')))])));
+      return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(station.name),if(widget.customer)favoriteButton(row),Text(tr('Platform catalog · ${station.source}','كتالوج المنصة · ${station.source}')),TextButton(onPressed:foreground&&ownSession()?()=>openCatalog(station):null,child:Text(tr('View station and booking options','عرض المحطة وخيارات الحجز')))])));
     }
     final location=Map<String,dynamic>.from(row['location'] as Map);
     final nameRaw=location['name'];
