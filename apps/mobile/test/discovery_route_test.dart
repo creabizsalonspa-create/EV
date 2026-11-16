@@ -264,6 +264,53 @@ void main() {
   );
 
   testWidgets(
+    'late previous-account routing capabilities cannot enable a new account provider',
+    (tester) async {
+      final previous = Completer<dynamic>();
+      final current = Completer<dynamic>();
+      final first = DiscoveryClient.withRequest((path, method, body) {
+        expect(path, 'capabilities');
+        return previous.future;
+      });
+      final second = DiscoveryClient.withRequest((path, method, body) {
+        expect(path, 'capabilities');
+        return current.future;
+      });
+      Widget screen(DiscoveryClient client) => MaterialApp(
+        home: RoutePlannerView(
+          key: const ValueKey('same-route-context'),
+          client: client,
+          stations: const [],
+        ),
+      );
+      await tester.pumpWidget(screen(first));
+      await tester.pump();
+      await tester.pumpWidget(screen(second));
+      await tester.pump();
+      current.complete({
+        'provider': 'geoapify',
+        'max_charging_stops': 3,
+        'geocoding': false,
+        'routing': false,
+      });
+      await tester.pumpAndSettle();
+      previous.complete({
+        'provider': 'geoapify',
+        'max_charging_stops': 3,
+        'geocoding': true,
+        'routing': true,
+      });
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<FilledButton>(find.byKey(const Key('route-preview'))).onPressed,
+        isNull,
+        reason: 'Old-account routing permission cannot enable the new account',
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'changing authenticated discovery client invalidates pending navigation permission and private route fields',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(900, 1600));
