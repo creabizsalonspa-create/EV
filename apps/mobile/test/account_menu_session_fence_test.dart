@@ -58,7 +58,13 @@ Future<void> signIn(WidgetTester tester) async {
 Future<void> selectAccountMenu(WidgetTester tester, String label) async {
   await tester.tap(find.byTooltip('Account'));
   await tester.pumpAndSettle();
-  await tester.tap(find.text(label).last);
+  final item = find.text(label).last;
+  expect(item, findsOneWidget);
+  // The shared Customer/Vendor menu has many entries. The requested action
+  // can be below the visible popup viewport, where a blind tap is ignored.
+  await tester.ensureVisible(item);
+  await tester.pumpAndSettle();
+  await tester.tap(item);
   await tester.pump();
 }
 
@@ -75,7 +81,7 @@ void main() {
     final dynamic workspace = tester.state(find.byType(Workspace));
 
     await selectAccountMenu(tester, 'Sign out');
-    await api.logoutStarted.future;
+    expect(api.logoutStarted.isCompleted, isTrue, reason: 'Sign-out callback must be reached by the visible popup item');
     workspace.expiredSession();
     await tester.pumpAndSettle();
     await signIn(tester);
@@ -100,7 +106,7 @@ void main() {
     final dynamic workspace = tester.state(find.byType(Workspace));
 
     await selectAccountMenu(tester, 'Send verification email');
-    await api.verificationStarted.future;
+    expect(api.verificationStarted.isCompleted, isTrue, reason: 'Verification callback must be reached by the visible popup item');
     workspace.expiredSession();
     await tester.pumpAndSettle();
     await signIn(tester);
@@ -126,7 +132,7 @@ void main() {
     final dynamic workspace = tester.state(find.byType(Workspace));
 
     await selectAccountMenu(tester, 'Forget saved sign-in');
-    await api.forgetStarted.future;
+    expect(api.forgetStarted.isCompleted, isTrue, reason: 'Secure-session deletion callback must be reached by the visible popup item');
     workspace.expiredSession();
     await tester.pumpAndSettle();
     await signIn(tester);
