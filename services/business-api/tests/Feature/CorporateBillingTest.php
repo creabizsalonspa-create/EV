@@ -136,19 +136,19 @@ class CorporateBillingTest extends TestCase
                 'password' => $snapshot->password,
             ];
             $this->actingAs($reader);
-            $this->getJson($this->url('?fleet_id='.$this->fleet->id))->assertOk();
+            $this->getJson('/corporate-test/commercial/corporate?fleet_id='.$this->fleet->id)->assertOk();
             $this->getJson($this->url('agreements/'.$agreement['id'].'/claims'))->assertOk();
             $this->getJson($this->url('agreements/'.$agreement['id'].'/statements'))->assertOk();
             $this->getJson($this->url('statements/'.$statement['id']))->assertOk();
 
             foreach ([
-                ['role' => $snapshot->role === 'admin' ? 'vendor' : 'customer'],
+                ['role' => 'vendor'],
                 ['account_status' => 'suspended'],
                 ['auth_epoch' => (int) $snapshot->auth_epoch + 1],
                 ['password' => Hash::make('rotated-corporate-session')],
             ] as $change) {
                 DB::table('users')->where('id', $reader->id)->update($change);
-                $this->getJson($this->url('?fleet_id='.$this->fleet->id))->assertConflict();
+                $this->getJson('/corporate-test/commercial/corporate?fleet_id='.$this->fleet->id)->assertConflict();
                 $this->getJson($this->url('agreements/'.$agreement['id'].'/claims'))
                     ->assertConflict();
                 $this->getJson($this->url('agreements/'.$agreement['id'].'/statements'))
