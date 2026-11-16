@@ -83,9 +83,12 @@ const assert = require("node:assert/strict");
     await policyForm.locator("[name=enabled]").selectOption("true");
     const effective = await admin.evaluate((raw) => {
       const d = new Date(raw);
+      // Chromium/Playwright rejects redundant ":00" seconds when filling a
+      // datetime-local control. A minute-form local timestamp is canonical
+      // and remains at or before the seeded invoice's creation instant.
       return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
         .toISOString()
-        .slice(0, 19);
+        .slice(0, 16);
     }, fixture.invoice_created_at);
     await policyForm.locator("[name=effective_from]").fill(effective);
     await mutation(admin, "policies", () =>
