@@ -6,6 +6,7 @@ use App\Models\Finance\Invoice;
 use App\Models\Finance\Payment;
 use App\Models\Finance\Refund;
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Finance\FinanceService;
 use App\Services\Ocpi\CreditRefundEvidence;
 use Illuminate\Http\Request;
@@ -21,6 +22,12 @@ class CommercialFinanceController extends Controller
 
     public function report(Request $r)
     {
+        return DB::transaction(fn () => $this->currentReport($r), 3);
+    }
+
+    private function currentReport(Request $r)
+    {
+        app(CurrentFinanceReader::class)->requireCurrent($r);
         $v = $r->validate(['currency' => 'sometimes|regex:/^[A-Z]{3}$/', 'from' => 'sometimes|date_format:Y-m-d', 'to' => ['sometimes', 'date_format:Y-m-d', Rule::when($r->filled('from'), 'after_or_equal:from')]]);
         $q = $this->invoices($r)->when($r->filled('currency'), fn ($q) => $q->where('currency', $r->input('currency')));
         if (isset($v['from'])) {
@@ -58,18 +65,23 @@ class CommercialFinanceController extends Controller
             return $result;
         });
 
-        return response()->json(['groups' => $groups, 'real_money_movement' => false, 'note' => 'Invoice allocations are not payout eligibility. Settlement balances are separately reconciled.']);
+        return response()->json(['groups' => $groups, 'real_money_movement' => false, 'note' => 'Invoice allocations are not payout eligibility. Settlement balances are separately reconciled.'])
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function requests(Request $r)
     {
-        return response()->json(DB::table('finance_refund_requests')->whereIn('invoice_id', $this->invoices($r)->select('id'))->orderByDesc('id')->paginate(25)->through(function ($row) {
+        return DB::transaction(function () use ($r) {
+            app(CurrentFinanceReader::class)->requireCurrent($r);
+
+            return response()->json(DB::table('finance_refund_requests')->whereIn('invoice_id', $this->invoices($r)->select('id'))->orderByDesc('id')->paginate(25)->through(function ($row) {
             if ($row->ocpi_credit_record_id !== null) {
                 $row->source_credit_evidence = app(CreditRefundEvidence::class)->present(Invoice::findOrFail($row->invoice_id), (int) $row->ocpi_credit_record_id);
             }
 
             return $row;
         }))->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function requestRefund(Request $r, Invoice $invoice)
@@ -82,8 +94,9 @@ class CommercialFinanceController extends Controller
         }
 
         return DB::transaction(function () use ($r, $invoice, $v) {
-            User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
+            $current = app(CurrentFinanceReader::class)->requireCurrent($r);
             $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+            abort_unless($invoice->user_id === $current->id, 404);
             $old = DB::table('finance_refund_requests')->where('user_id', $r->user()->id)->where('request_key', $v['idempotency_key'])->first();
             if ($old) {
                 abort_unless($old->invoice_id === $invoice->id && (int) $old->amount_minor === (int) $v['amount_minor'] && $old->reason === $v['reason'] && ($old->ocpi_credit_record_id ?? null) === ($v['ocpi_credit_record_id'] ?? null), 409, 'Refund request key conflict.');
@@ -107,11 +120,15 @@ class CommercialFinanceController extends Controller
         $v = $r->validate(['decision' => 'required|in:approve,reject', 'note' => 'required|string|max:500']);
 
         return DB::transaction(function () use ($r, $request, $v, $finance) {
+            // Lock the current reviewer before the invoice and request. A
+            // demoted/suspended cached Admin cannot authorize money changes.
+            $current = app(CurrentFinanceReader::class)->requireCurrent($r);
             $row = DB::table('finance_refund_requests')->find($request);
             abort_unless($row, 404);
             // Same lock order as payments/settlements: invoice first, then workflow row.
             $invoice = Invoice::whereKey($row->invoice_id)->lockForUpdate()->firstOrFail();
-            abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $invoice->vendor_id === $r->user()->id), 404);
+            abort_unless($current->role === 'admin'
+                || ($current->role === 'vendor' && $invoice->vendor_id === $current->id), 404);
             $row = DB::table('finance_refund_requests')->where('id', $request)->lockForUpdate()->first();
             $status = $v['decision'] === 'approve' ? 'approved' : 'rejected';
             if ($row->status !== 'pending') {
@@ -123,9 +140,9 @@ class CommercialFinanceController extends Controller
                 app(CreditRefundEvidence::class)->require($invoice, (int) $row->ocpi_credit_record_id);
             }
             abort_if($status === 'approved' && (config('payments.provider', 'mock') !== 'mock' || DB::table('gateway_checkouts')->where('invoice_id', $invoice->id)->where('provider', '!=', 'mock')->exists()), 503, 'Provider refund execution is required; ledger-only approval is disabled.');
-            $refund = $status === 'approved' ? $finance->refund($invoice, $r->user()->id, (int) $row->amount_minor, 'request-'.$row->id, $row->reason) : null;
-            DB::table('finance_refund_requests')->where('id', $request)->update(['status' => $status, 'reviewed_by' => $r->user()->id, 'decision_note' => $v['note'], 'refund_id' => $refund?->id, 'updated_at' => now()]);
-            DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'finance.refund_request.'.$status, 'subject' => (string) $request, 'created_at' => now()]);
+            $refund = $status === 'approved' ? $finance->refund($invoice, $current->id, (int) $row->amount_minor, 'request-'.$row->id, $row->reason) : null;
+            DB::table('finance_refund_requests')->where('id', $request)->update(['status' => $status, 'reviewed_by' => $current->id, 'decision_note' => $v['note'], 'refund_id' => $refund?->id, 'updated_at' => now()]);
+            DB::table('audit_events')->insert(['actor_id' => $current->id, 'action' => 'finance.refund_request.'.$status, 'subject' => (string) $request, 'created_at' => now()]);
 
             return response()->json(DB::table('finance_refund_requests')->find($request));
         }, 3);
