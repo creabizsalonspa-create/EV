@@ -46,15 +46,20 @@ class SourceConsumerTest extends TestCase
 
     public static function inboxModes(): array
     {
-        return [[false], [true]];
+        return [
+            'ocpp201_remote' => ['2.0.1', false],
+            'ocpp201_local' => ['2.0.1', true],
+            'ocpp16_remote' => ['1.6', false],
+            'ocpp16_local' => ['1.6', true],
+        ];
     }
 
     #[DataProvider('inboxModes')]
-    public function test_source_authentication_signed_delivery_restart_cursor_and_final_reconciliation(bool $localInbox): void
+    public function test_source_authentication_signed_delivery_restart_cursor_and_final_reconciliation(string $protocol, bool $localInbox): void
     {
-        $link = $this->link();
+        $link = $this->link($protocol);
         $at = now()->toImmutable()->startOfSecond();
-        $tx = ['id' => 10, 'transactionId' => 'fixture-transaction', 'remoteStartId' => $link->start_command_id, 'meterStart' => '1.000000', 'startTime' => $at->toIso8601String(), 'endTime' => null, 'isActive' => true, 'totalKwh' => null];
+        $tx = ['id' => 10, 'transactionId' => $protocol === '1.6' ? '101' : 'fixture-transaction', 'remoteStartId' => $link->start_command_id, 'meterStart' => '1.000000', 'startTime' => $at->toIso8601String(), 'endTime' => null, 'isActive' => true, 'totalKwh' => null];
         $rows = [
             ['id' => 1, 'timestamp' => $at->toIso8601String(), 'sampledValue' => [['measurand' => 'Voltage', 'value' => 230]]],
             ['id' => 2, 'timestamp' => $at->addSecond()->toIso8601String(), 'sampledValue' => [['measurand' => 'Energy.Active.Import.Register', 'value' => '2500', 'context' => 'Sample.Periodic', 'unitOfMeasure' => ['unit' => 'Wh']]]],
@@ -62,14 +67,14 @@ class SourceConsumerTest extends TestCase
         ];
         $loseEndResponse = false;
         Http::preventStrayRequests();
-        Http::fake(function (Request $request) use (&$tx, $rows, $link, &$loseEndResponse, $localInbox) {
+        Http::fake(function (Request $request) use (&$tx, $rows, $link, &$loseEndResponse, $localInbox, $protocol) {
             if ($request->url() === 'http://127.0.0.1:8095/v1/graphql') {
                 $this->assertSame(self::KEY, $request->header('x-hasura-admin-secret')[0]);
                 $query = $request['query'];
                 if (str_contains($query, 'ChargingStations')) {
                     $this->assertSame('EV-SIM-'.$link->charging_session_id, $request['variables']['tag']);
 
-                    return Http::response(['data' => ['ChargingStations' => [['id' => 8, 'protocol' => '2.0.1']], 'Authorizations' => [['id' => 9]]]]);
+                    return Http::response(['data' => ['ChargingStations' => [['id' => 8, 'protocol' => $protocol]], 'Authorizations' => [['id' => 9]]]]);
                 }
                 if (str_contains($query, 'Transactions')) {
                     $this->assertSame(['station' => 8, 'auth' => 9], $request['variables']);
@@ -896,7 +901,9 @@ class SourceConsumerTest extends TestCase
             'later_ambiguous_register' => [$row(1), array_replace($valid[1], ['sampledValue' => [$valid[1]['sampledValue'][0], $valid[1]['sampledValue'][0]]])],
             'later_invalid_unit' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['unitOfMeasure' => ['unit' => 'MWh']])]])],
             'later_boolean_energy' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['value' => true])]])],
-            'later_float_energy' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['value' => 3500.0])]])],
+            'later_float_energy' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], [
+                'value' => 3.5, 'unitOfMeasure' => ['unit' => 'kWh'],
+            ])]])],
             'later_after_end' => [$row(1), array_replace($valid[1], ['timestamp' => $at->addSeconds(3)->toIso8601String()])],
             'later_regressing_nonenergy_time' => [
                 array_replace($row(1), ['timestamp' => $at->addSecond()->toIso8601String()]),
