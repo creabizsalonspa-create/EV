@@ -481,6 +481,23 @@ class SupportViewState extends State<SupportView>
       );
       if (!current(request, session)) return;
       final result = ApiPage.fromJson(response, (row) => row);
+      // Never render private action targets from an ambiguous or corrupted
+      // inbox projection. A malformed row requires a fresh authoritative GET.
+      if (result.items.any((row) {
+        final id = row['id'];
+        if (id is! int || id < 1) return true;
+        if (showingNotifications) {
+          final ticketId = row['support_ticket_id'];
+          return row['kind'] is! String ||
+              (ticketId != null && (ticketId is! int || ticketId < 1)) ||
+              (row['read_at'] != null && row['read_at'] is! String);
+        }
+        return row['subject'] is! String ||
+            !(const ['open', 'in_progress', 'resolved', 'closed'])
+                .contains(row['status']);
+      })) {
+        throw const FormatException('Unverified private support rows');
+      }
       final summary = showingNotifications
           ? await widget.api.request('notifications/summary')
           : null;
