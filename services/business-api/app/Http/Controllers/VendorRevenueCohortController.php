@@ -19,8 +19,19 @@ final class VendorRevenueCohortController extends Controller
      */
     private function report(Request $request, int $vendor, SettlementService $settlements): array
     {
+        // A browser session may carry a cached role after a different request
+        // suspends the account, rotates credentials or changes its role. Hold
+        // the current account row until the report snapshot is materialized;
+        // an old Admin must not retain cross-vendor finance read authority.
         $actor = $request->user();
-        abort_unless($actor->role === 'admin' || ($actor->role === 'vendor' && (int) $actor->id === $vendor), 404);
+        abort_unless($actor instanceof User, 401);
+        $current = User::query()->whereKey($actor->id)->lockForUpdate()->first();
+        abort_unless($current && $current->account_status === 'active'
+            && $current->role === $actor->role
+            && (int) $current->auth_epoch === (int) $actor->auth_epoch
+            && hash_equals((string) $current->password, (string) $actor->password),
+            409, 'Account authorization changed; sign in again.');
+        abort_unless($current->role === 'admin' || ($current->role === 'vendor' && (int) $current->id === $vendor), 404);
         abort_unless(User::whereKey($vendor)->where('role', 'vendor')->exists(), 404);
 
         $values = $request->validate([
@@ -124,13 +135,13 @@ final class VendorRevenueCohortController extends Controller
 
     public function index(Request $request, int $vendor, SettlementService $settlements)
     {
-        return response()->json($this->report($request, $vendor, $settlements))
-            ->header('Cache-Control', 'private, no-store');
+        return DB::transaction(fn () => response()->json($this->report($request, $vendor, $settlements))
+            ->header('Cache-Control', 'private, no-store'), 3);
     }
 
     public function export(Request $request, int $vendor, SettlementService $settlements)
     {
-        $report = $this->report($request, $vendor, $settlements);
+        $report = DB::transaction(fn () => $this->report($request, $vendor, $settlements), 3);
 
         return response()->streamDownload(static function () use ($report): void {
             $output = fopen('php://output', 'wb');
