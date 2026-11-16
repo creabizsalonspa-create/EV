@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\Operations\OperationalHealth;
+use App\Services\Operations\OperationalIncidents;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -18,7 +19,10 @@ final class AdminOperationalHealthController extends Controller
             abort_unless($snapshot->role === $current->role && (int) $snapshot->auth_epoch === (int) $current->auth_epoch
                 && hash_equals((string) $snapshot->password, (string) $current->password), 409, 'Account credentials changed; authenticate again.');
 
-            return response()->json($health->report())->header('Cache-Control', 'private, no-store');
+            $report = $health->report();
+            $report['incidents'] = app(OperationalIncidents::class)->summary();
+
+            return response()->json($report)->header('Cache-Control', 'private, no-store');
         });
     }
 }

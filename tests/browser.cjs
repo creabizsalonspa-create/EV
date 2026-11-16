@@ -195,13 +195,26 @@ function provisionTestRole(email, role) {
       .filter({ hasText: "Browser station " + run });
     const slot = new Date(Date.now() + 86400000);
     slot.setUTCMinutes(0, 0, 0);
+    // Vendor station uses Asia/Dubai; book the same instant via station-local entry.
+    await article.locator("select[data-booking-time-mode]").selectOption("station");
     await article
       .locator("input[type=datetime-local]")
-      .fill(slot.toISOString().slice(0, 16));
+      .fill(new Date(slot.getTime() + 4 * 3600000).toISOString().slice(0, 16));
+    const bookingRequest = customer.page.waitForRequest((request) =>
+      request.method() === "POST" && request.url().includes("/reservations"),
+    );
     await article
       .getByRole("button", { name: "Reserve simulator slot" })
       .click();
+    assert.equal(
+      (await bookingRequest).postDataJSON().starts_at,
+      slot.toISOString().replace(".000Z", "Z"),
+    );
     await customer.page.locator("#reservation-list article").waitFor();
+    assert.match(
+      await customer.page.locator("#reservation-list article").first().textContent(),
+      /Station local.*Asia\/Dubai/,
+    );
     await vendor.page.reload();
     await vendor.page.locator("#reservation-list article").waitFor();
     await customer.page
@@ -218,12 +231,97 @@ function provisionTestRole(email, role) {
       await customer.page.locator("html").getAttribute("dir"),
       "rtl",
     );
+    assert.match(
+      await customer.page.locator("#reservation-list article").first().textContent(),
+      /توقيت المحطة/,
+    );
     await customer.page.setViewportSize({ width: 390, height: 844 });
     assert(
       await customer.page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     );
+    // Synthetic 26-row server pagination projection: browser must not truncate
+    // the first page, retain stale pages after errors, or silently forge actions.
+    const firstPage = await customer.page.evaluate(() => api("reservations?page=1"));
+    assert.equal(firstPage.data.length, 1);
+    const secondId = 900000000;
+    let reservationsFail = false;
+    await customer.page.route("**/api/reservations?page=*", async (route) => {
+      if (reservationsFail) {
+        await route.fulfill({ status: 503, contentType: "application/json",
+          body: JSON.stringify({ message: "Synthetic outage" }) });
+        return;
+      }
+      const page = Number(new URL(route.request().url()).searchParams.get("page"));
+      const data = page === 2
+        ? [{ ...firstPage.data[0], id: secondId, status: "cancelled" }]
+        : firstPage.data;
+      await route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ data, current_page: page, last_page: 2,
+          total: 26, next_page_url: null, prev_page_url: null }) });
+    });
+    await customer.page.evaluate(() => bookings(1));
+    assert.equal(await customer.page.locator("#reservation-list [data-reservation-page-action=previous]").isDisabled(), true);
+    await customer.page.locator("#reservation-list [data-reservation-page-action=next]").click();
+    await customer.page.waitForFunction((id) =>
+      document.querySelector("#reservation-list article")?.textContent.includes("#" + id), secondId);
+    assert.equal(await customer.page.locator("#reservation-list [data-reservation-page-action=next]").isDisabled(), true);
+    reservationsFail = true;
+    await customer.page.locator("#reservation-list [data-reservation-page-action=refresh]").click();
+    await customer.page.locator("#reservation-list [data-reservation-retry]").waitFor();
+    assert.equal(await customer.page.locator("#reservation-list article").count(), 0,
+      "failed reload cannot leave a stale private reservation visible");
+    reservationsFail = false;
+    await customer.page.locator("#reservation-list [data-reservation-retry]").click();
+    await customer.page.waitForFunction((id) =>
+      document.querySelector("#reservation-list article")?.textContent.includes("#" + id), secondId);
+    await customer.page.unroute("**/api/reservations?page=*");
+    await customer.page.evaluate(() => bookings(1));
+    // The canonical session feed is 25/page. Synthetic catalog rows exercise
+    // navigation only; they never simulate a real charger or payment.
+    const historicalSession = {
+      id: 901000000, reservation_id: 1, status: "cancelled",
+      energy_wh: 0, currency: "AED", total_minor: null,
+      csms_linked: false, cost_projection: null,
+    };
+    let sessionOutage = false;
+    await customer.page.route("**/api/simulations?page=*", async (route) => {
+      if (sessionOutage) {
+        await route.fulfill({status:503,contentType:"application/json",
+          body:JSON.stringify({message:"Synthetic session outage"})});
+        return;
+      }
+      const page = Number(new URL(route.request().url()).searchParams.get("page"));
+      await route.fulfill({status:200,contentType:"application/json",
+        body:JSON.stringify({
+          data:[{...historicalSession,id:page===2?901000001:901000000}],
+          current_page:page,last_page:2,total:26,
+          next_page_url:null,prev_page_url:null,
+        })});
+    });
+    await customer.page.evaluate(() => simulations(1));
+    assert.equal(await customer.page.locator(
+      "#simulation-list [data-simulation-page-action=previous]").isDisabled(), true);
+    await customer.page.locator(
+      "#simulation-list [data-simulation-page-action=next]").click();
+    await customer.page.waitForFunction(() =>
+      document.querySelector("#simulation-list article")?.textContent.includes("#901000001"));
+    assert.equal(await customer.page.locator(
+      "#simulation-list [data-simulation-page-action=next]").isDisabled(), true);
+    sessionOutage = true;
+    await customer.page.locator(
+      "#simulation-list [data-simulation-page-action=refresh]").click();
+    await customer.page.locator("#simulation-list [data-simulation-retry]").waitFor();
+    assert.equal(await customer.page.locator("#simulation-list article").count(), 0,
+      "a failed source read cannot leave an old charging session visible");
+    sessionOutage = false;
+    await customer.page.locator("#simulation-list [data-simulation-retry]").click();
+    await customer.page.waitForFunction(() =>
+      document.querySelector("#simulation-list article")?.textContent.includes("#901000001"));
+    await customer.page.unroute("**/api/simulations?page=*");
+    await customer.page.evaluate(() => simulations(1));
+    assert.equal(await customer.page.locator("#simulation-list article").count(), 0);
     const outsider = await account("Outsider");
     assert.equal(
       await outsider.page.locator("#reservation-list article").count(),
@@ -238,6 +336,50 @@ function provisionTestRole(email, role) {
         document.querySelector("#vehicle-list").textContent.includes(name),
       "Browser EV " + run,
     );
+    // Vehicle garage must show pages after the first 25 and keep model /
+    // manual-SOC tooling limited to the currently verified private page.
+    const firstGaragePage = await customer.page.evaluate(() => api("vehicles?page=1"));
+    assert.equal(firstGaragePage.data.length, 1);
+    let garageOutage = false;
+    const syntheticVehicleId = 901000002;
+    await customer.page.route("**/api/vehicles?page=*", async (route) => {
+      if (garageOutage) {
+        await route.fulfill({status:503, contentType:"application/json",
+          body:JSON.stringify({message:"Synthetic garage outage"})});
+        return;
+      }
+      const page = Number(new URL(route.request().url()).searchParams.get("page"));
+      const data = page === 2
+        ? [{ ...firstGaragePage.data[0], id:syntheticVehicleId,
+             name:"Synthetic older EV" }]
+        : firstGaragePage.data;
+      await route.fulfill({status:200,contentType:"application/json",
+        body:JSON.stringify({data,current_page:page,last_page:2,total:26,
+          next_page_url:null,prev_page_url:null})});
+    });
+    await customer.page.evaluate(() => garage(1));
+    assert.equal(await customer.page.locator(
+      "#vehicle-list [data-garage-page-action=previous]").isDisabled(),true);
+    await customer.page.locator(
+      "#vehicle-list [data-garage-page-action=next]").click();
+    await customer.page.locator(
+      "#vehicle-list [data-garage-vehicle-id='" + syntheticVehicleId + "']").waitFor();
+    assert.equal(await customer.page.locator(
+      "#vehicle-list [data-garage-page-action=next]").isDisabled(),true);
+    garageOutage = true;
+    await customer.page.locator(
+      "#vehicle-list [data-garage-page-action=refresh]").click();
+    await customer.page.locator("#vehicle-list [data-garage-retry]").waitFor();
+    assert.equal(await customer.page.locator("#vehicle-list [data-garage-vehicle-id]").count(),0);
+    garageOutage = false;
+    await customer.page.locator("#vehicle-list [data-garage-retry]").click();
+    await customer.page.locator(
+      "#vehicle-list [data-garage-vehicle-id='" + syntheticVehicleId + "']").waitFor();
+    await customer.page.unroute("**/api/vehicles?page=*");
+    await customer.page.evaluate(() => garage(1));
+    assert.equal(await customer.page.locator(
+      "#vehicle-list [data-garage-vehicle-id='" + syntheticVehicleId + "']").count(),0);
+    await customer.page.locator("#vehicle-list [data-garage-vehicle-id]").first().waitFor();
     await customer.page
       .locator("#fleet-create [name=name]")
       .fill("Browser fleet " + run);
@@ -263,8 +405,9 @@ function provisionTestRole(email, role) {
       .filter({ hasText: "Browser fleet " + run })
       .waitFor();
     assert.equal(
-      await outsider.page.locator("#vehicle-list").textContent(),
-      "",
+      await outsider.page.locator("#vehicle-list [data-garage-vehicle-id]").count(),
+      0,
+      "a fleet invitation cannot expose another member's private garage",
     );
     await customer.page
       .locator('#fleet-detail input[data-i18n-aria="Cost center code"]')
@@ -326,6 +469,89 @@ function provisionTestRole(email, role) {
         (row) => row.subject === "Browser support " + run,
       ).length, 1,
     );
+    // Paginated ticket API is private; UI must honor real page boundaries
+    // and never leave stale ticket data after a failed read.
+    const firstSupportPage = await customer.page.evaluate(() => api("support?page=1"));
+    assert(firstSupportPage.data.length >= 1);
+    let supportOutage = false;
+    const syntheticSupportTicket = 900000001;
+    await customer.page.route("**/api/support?page=*", async (route) => {
+      if (supportOutage) {
+        await route.fulfill({ status: 503, contentType: "application/json",
+          body: JSON.stringify({ message: "Synthetic support outage" }) });
+        return;
+      }
+      const requested = Number(new URL(route.request().url()).searchParams.get("page"));
+      const data = requested === 2
+        ? [{ ...firstSupportPage.data[0], id: syntheticSupportTicket,
+             subject: "Synthetic older ticket" }]
+        : firstSupportPage.data;
+      await route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ data, current_page: requested,
+          last_page: 2, total: 26, next_page_url: null, prev_page_url: null }) });
+    });
+    await customer.page.evaluate(() => refreshSupportTickets(1));
+    assert.equal(await customer.page.locator("#ticket-list [data-support-page-action=previous]").isDisabled(), true);
+    await customer.page.locator("#ticket-list [data-support-page-action=next]").click();
+    await customer.page.waitForFunction((id) =>
+      document.querySelector("#ticket-list [data-support-ticket-id='" + id + "']") != null,
+      syntheticSupportTicket);
+    assert.equal(await customer.page.locator("#ticket-list [data-support-page-action=next]").isDisabled(), true);
+    supportOutage = true;
+    await customer.page.locator("#ticket-list [data-support-page-action=refresh]").click();
+    await customer.page.locator("#ticket-list [data-support-retry]").waitFor();
+    assert.equal(await customer.page.locator("#ticket-list [data-support-ticket-id]").count(), 0);
+    supportOutage = false;
+    await customer.page.locator("#ticket-list [data-support-retry]").click();
+    await customer.page.locator("#ticket-list [data-support-ticket-id='" + syntheticSupportTicket + "']").waitFor();
+    await customer.page.unroute("**/api/support?page=*");
+    await customer.page.evaluate(() => refreshSupportTickets(1));
+    await customer.page.locator("#ticket-list [data-support-ticket-id='" + createdTicket.id + "']").waitFor();
+
+    // Customer messages also paginate server-side (50/page); older and newer
+    // messages remain readable without disclosing another ticket's notes.
+    const firstConversation = await customer.page.evaluate(
+      (id) => api("support/" + id + "?page=1"), createdTicket.id);
+    const conversationRoute = (url) =>
+      url.pathname === "/api/support/" + createdTicket.id &&
+      url.searchParams.has("page");
+    let messagesOutage = false;
+    await customer.page.route(conversationRoute, async (route) => {
+      if (messagesOutage) {
+        await route.fulfill({ status: 503, contentType: "application/json",
+          body: JSON.stringify({ message: "Synthetic messages outage" }) });
+        return;
+      }
+      const requested = Number(new URL(route.request().url()).searchParams.get("page"));
+      const data = requested === 2
+        ? [{ id: 900000004, body: "Synthetic last visible message",
+             internal: false }]
+        : firstConversation.messages.data;
+      await route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({
+          ticket: firstConversation.ticket,
+          messages: { data, current_page: requested, last_page: 2,
+            total: 51, next_page_url: null, prev_page_url: null },
+        }) });
+    });
+    await customer.page.evaluate((id) => ticketDetail(id), createdTicket.id);
+    assert.equal(await customer.page.locator(
+      "#ticket-detail [data-support-message-page-action=previous]").isDisabled(), true);
+    await customer.page.locator(
+      "#ticket-detail [data-support-message-page-action=next]").click();
+    await customer.page.getByText("Synthetic last visible message").waitFor();
+    assert.equal(await customer.page.locator(
+      "#ticket-detail [data-support-message-page-action=next]").isDisabled(), true);
+    messagesOutage = true;
+    await customer.page.evaluate((id) => ticketDetail(id, 2), createdTicket.id);
+    await customer.page.locator("#ticket-detail [data-support-message-retry]").waitFor();
+    assert.equal(await customer.page.getByText("Synthetic last visible message").count(), 0);
+    messagesOutage = false;
+    await customer.page.locator("#ticket-detail [data-support-message-retry]").click();
+    await customer.page.getByText("Synthetic last visible message").waitFor();
+    await customer.page.unroute(conversationRoute);
+    await customer.page.evaluate((id) => ticketDetail(id), createdTicket.id);
+
     // Distinct role principals avoid spending one actor's entire protected-read
     // budget on repeated full-workspace reloads. Production limits stay enabled.
     const admin = await account("Admin");
@@ -654,6 +880,23 @@ function provisionTestRole(email, role) {
       "",
     );
     assert.equal(await customer.page.locator("#who").textContent(), "");
+    assert.equal(await customer.page.locator("#reservation-list article").count(), 0);
+    assert.equal(await customer.page.locator("#reservation-list [data-reservation-pagination]").count(), 0);
+    assert.equal(await customer.page.locator("#simulation-list article").count(), 0);
+    assert.equal(await customer.page.locator("#simulation-list [data-simulation-pagination]").count(), 0);
+    assert.equal(await customer.page.locator("#vehicle-list [data-garage-vehicle-id]").count(), 0);
+    assert.equal(await customer.page.locator("#vehicle-list [data-garage-pagination]").count(), 0);
+    assert.equal(await customer.page.locator("#ticket-list [data-support-ticket-id]").count(), 0);
+    assert.equal(await customer.page.locator("#ticket-list [data-support-pagination]").count(), 0);
+    assert.equal(await customer.page.locator("#reservation-list").getAttribute("aria-busy"), null);
+    // Explicit vendor logout must remove its already-loaded private reservation history.
+    assert(await vendor.page.locator("#reservation-list article").count() > 0);
+    const signedOut = vendor.page.waitForResponse((response) =>
+      response.url().endsWith("/api/logout") && response.request().method() === "POST");
+    await vendor.page.locator("#logout").click();
+    assert.equal((await signedOut).status(), 204);
+    await vendor.page.locator("#account").waitFor({state:"visible"});
+    assert.equal(await vendor.page.locator("#reservation-list article").count(), 0);
     const restricted = await browser.newContext();
     await restricted.addInitScript(() => {
       Object.defineProperty(window, "localStorage", {
