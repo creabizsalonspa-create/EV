@@ -49,6 +49,14 @@ Chromium or PostgreSQL/CI verification.
 
 The existing reported/receipt clock buckets also reject impossible historical timezone offsets (for example, `+14:30`, `+99:99`) instead of accepting PHP's normalization into another instant. These remain `unknown`, not evidence of source freshness. Valid `+14:00` timestamps are still classified by their absolute UTC instant.
 
+The Open Charge Map discovery-only projection also validates the **real**
+numeric UTC-offset bounds of each crowd-reported `DateLastStatusUpdate`.
+Malformed offsets (including `+14:30`, `-14:01` and rollover candidates) are
+treated as source clock **unknown**, not as verified or recently updated
+charging locations; existing per-record license and attribution obligations
+remain unchanged. The isolated source projection regression is in
+`OpenChargeMapDiscoveryTest`. This does not enable live partner charging.
+
 **Validation requirements:** `OcpiCatalogObservationsTest` on SQLite and the existing
 PostgreSQL connector matrix, covering country/party separation, all three supported markets,
 unpublished records, unknown countries, malformed coordinates, privacy, no external requests,
