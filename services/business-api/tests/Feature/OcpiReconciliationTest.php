@@ -186,6 +186,44 @@ class OcpiReconciliationTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_credit_reference_requires_same_charging_source_identity_not_just_a_matching_id(): void
+    {
+        [$provider, $original, $raw] = $this->source();
+        $mutations = [
+            'currency' => ['currency' => 'USD'],
+            'location' => ['cdr_location' => [
+                'id' => 'different-location', 'evse_uid' => 'evse-1', 'connector_id' => '1',
+            ]],
+            'connector' => ['cdr_location' => [
+                'id' => 'loc-1', 'evse_uid' => 'evse-1', 'connector_id' => 'different',
+            ]],
+            'session' => ['session_id' => 'another-session'],
+            'missing-session' => ['session_id' => null],
+        ];
+        foreach ($mutations as $name => $change) {
+            app(RecordSynchronizer::class)->ingest($provider, 'cdrs', [
+                array_replace($raw, [
+                    'id' => 'credit-identity-'.$name,
+                    'credit' => true,
+                    'credit_reference_id' => $original->external_id,
+                ], $change),
+            ]);
+            $credit = OcpiRecord::where('ocpi_provider_id', $provider->id)
+                ->where('module', 'cdrs')->where('external_id', 'credit-identity-'.$name)->firstOrFail();
+            $report = app(CdrReconciler::class)->inspect($provider, $credit);
+            $this->assertSame('requires_review', $report['status']);
+            $this->assertContains('credit_requires_separate_reconciliation', $report['issues']);
+            $this->assertSame('identity_mismatch', $report['credit_review']['reference_state']);
+            $this->assertFalse($report['credit_review']['financial_authority']);
+            $this->assertFalse($report['credit_review']['automatic_refund']);
+        }
+        $this->assertSame($raw, $original->fresh()->payload,
+            'Read-only comparison cannot alter the immutable original CDR');
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     #[TestWith([['credit' => true]])]
     #[TestWith([['credit' => false, 'credit_reference_id' => 'cdr-1']])]
     #[TestWith([['credit' => true, 'credit_reference_id' => ['cdr-1']]])]
