@@ -264,6 +264,94 @@ class AdminKycQueueTest extends TestCase
         ]);
     }
 
+    public function test_private_kyc_history_and_evidence_reads_fail_after_admin_credential_revocation(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($owner);
+        Storage::fake('local');
+        $contents = "%PDF-1.4\nPRIVATE-REVIEW-EVIDENCE";
+        $path = 'vendor-kyc/current-reviewer-evidence.enc';
+        Storage::disk('local')->put($path, Crypt::encryptString($contents));
+        $document = VendorKycDocument::create([
+            'company_id' => $company->id,
+            'uploaded_by' => $owner->id,
+            'kind' => 'trade_license',
+            'mime_type' => 'application/pdf',
+            'size_bytes' => strlen($contents),
+            'sha256' => hash('sha256', $contents),
+            'storage_path' => $path,
+        ]);
+        $base = '/api/vendor-ops/companies/'.$company->id;
+        $readPaths = [
+            $base.'/reviews',
+            $base.'/documents',
+            $base.'/documents/'.$document->id,
+        ];
+
+        $this->actingAs($admin, 'web');
+        $this->getJson($readPaths[0])->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->getJson($readPaths[1])->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonMissingPath('data.0.storage_path')
+            ->assertJsonMissingPath('data.0.sha256');
+        $this->get($readPaths[2])->assertOk()
+            ->assertSee('PRIVATE-REVIEW-EVIDENCE', false);
+        $positiveAuditCount = DB::table('audit_events')->count();
+
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
+        foreach ($readPaths as $pathToRead) {
+            $this->get($pathToRead)->assertForbidden();
+        }
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'role' => 'admin', 'account_status' => 'suspended',
+        ]);
+        foreach ($readPaths as $pathToRead) {
+            $this->get($pathToRead)->assertForbidden();
+        }
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'account_status' => 'active', 'auth_epoch' => 1,
+        ]);
+        foreach ($readPaths as $pathToRead) {
+            $this->get($pathToRead)->assertStatus(409);
+        }
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'auth_epoch' => 0, 'password' => Hash::make('rotated-reviewer-password'),
+        ]);
+        foreach ($readPaths as $pathToRead) {
+            $this->get($pathToRead)->assertStatus(409);
+        }
+        $this->assertSame($positiveAuditCount, DB::table('audit_events')->count());
+
+        // Owner access to their own evidence remains available.
+        $this->actingAs($owner, 'web')->get($readPaths[2])->assertOk();
+        $this->getJson($readPaths[0])->assertOk();
+    }
+
+    public function test_private_kyc_history_and_document_lists_reject_unbounded_pages(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($owner);
+        $base = '/api/vendor-ops/companies/'.$company->id;
+        $this->actingAs($admin, 'web');
+        foreach (['/reviews', '/documents'] as $suffix) {
+            foreach (['0', '-2', 'invalid', '100001'] as $badPage) {
+                $this->getJson($base.$suffix.'?page='.$badPage)->assertUnprocessable();
+            }
+        }
+        $this->assertSame(0, DB::table('audit_events')
+            ->whereIn('action', ['review.history_viewed', 'document.metadata_viewed'])->count());
+        $this->getJson($base.'/reviews?page=1')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->getJson($base.'/documents?page=1')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private');
+    }
+
     public function test_kyc_review_rechecks_revoked_admin_identity_inside_transaction(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);
