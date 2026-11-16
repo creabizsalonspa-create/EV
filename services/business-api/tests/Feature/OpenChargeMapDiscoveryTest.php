@@ -6,6 +6,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
+use App\Services\Discovery\OpenChargeMapAdapter;
 
 class OpenChargeMapDiscoveryTest extends TestCase
 {
@@ -410,4 +411,32 @@ class OpenChargeMapDiscoveryTest extends TestCase
             Carbon::setTestNow();
         }
     }
+
+    public function test_invalid_cached_calendar_date_cannot_be_promoted_to_fresh_source(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-04-15T12:00:00Z'));
+        try {
+            Http::fake(['api.openchargemap.io/*' => Http::response([$this->point()], 200, ['Content-Type' => 'application/json'])]);
+            $adapter = app(OpenChargeMapAdapter::class);
+            $source = $adapter->search(25.2, 55.3, 10, 'synthetic-private-ocm-key');
+            $this->assertSame('ocm:12345', $source['results'][0]['id']);
+
+            // A corrupted but syntactically plausible cache record would
+            // previously roll February 30 into March and appear source-dated.
+            $source['results'][0]['source_updated_at'] = '2026-02-30T00:00:00Z';
+            $filtered = $adapter->filterReported($source);
+            $this->assertNull($filtered['results'][0]['source_age_minutes']);
+            $this->assertSame('SOURCE_TIME_UNKNOWN', $filtered['results'][0]['source_clock_evidence']);
+            $this->assertSame(1, $filtered['quality_sample']['source_time_unknown_or_future_count']);
+            $this->assertSame('unknown', $filtered['availability']);
+            $this->assertFalse($filtered['reservable']);
+            $this->assertFalse($filtered['remote_control']);
+            $this->assertSame(0, $adapter->filterReported($source, maxSourceAgeHours: 1)['count']);
+            Http::assertSentCount(1);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
 }

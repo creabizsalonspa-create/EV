@@ -169,10 +169,16 @@ final class OpenChargeMapAdapter
             $sourceTime = $item['source_updated_at'] ?? null;
             $seconds = null;
             if (is_string($sourceTime) && preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/D', $sourceTime) === 1) {
-                try {
-                    $seconds = (new \DateTimeImmutable($sourceTime))->getTimestamp();
-                } catch (\Throwable) {
-                    // Unknown/malformed source time never implies freshness.
+                // PHP's free-form DateTime constructor silently rolls invalid
+                // calendar dates forward (e.g. February 30 to March 2).
+                // Untrusted cached crowd timestamps must never inherit that
+                // fabricated freshness or a valid source-clock label.
+                $parsed = \DateTimeImmutable::createFromFormat(
+                    '!Y-m-d\TH:i:s\Z', $sourceTime, new \DateTimeZone('UTC')
+                );
+                if ($parsed !== false && \DateTimeImmutable::getLastErrors() === false
+                    && $parsed->format('Y-m-d\TH:i:s\Z') === $sourceTime) {
+                    $seconds = $parsed->getTimestamp();
                 }
             }
             $sourceAgeSeconds = $seconds !== null && $seconds <= $currentTime
