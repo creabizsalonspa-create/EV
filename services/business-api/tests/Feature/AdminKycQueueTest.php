@@ -268,6 +268,37 @@ class AdminKycQueueTest extends TestCase
         ]);
     }
 
+    public function test_missing_or_unrecognized_region_timezone_is_unknown_not_license_current(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-15 21:00:00', 'UTC'));
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($owner, 'approved', 'AE');
+        $company->update(['license_expires_on' => '2027-11-15']);
+        $this->actingAs($admin);
+
+        foreach (['', 'Invalid/Not-IANA'] as $timezone) {
+            DB::table('regions')->where('country', 'AE')->update(['timezone' => $timezone]);
+            $this->getJson('/api/admin/kyc-queue?status=approved&license_health=unknown')
+                ->assertOk()
+                ->assertJsonPath('total', 1)
+                ->assertJsonPath('data.0.id', $company->id)
+                ->assertJsonPath('data.0.license_health', 'unknown')
+                ->assertJsonPath('data.0.license_local_date', null);
+            $this->getJson('/api/admin/kyc-queue?status=approved&license_health=current')
+                ->assertOk()->assertJsonPath('total', 0);
+            $this->getJson('/api/admin/kyc-queue?status=approved&license_health=due_30_days')
+                ->assertOk()->assertJsonPath('total', 0);
+        }
+
+        // The Admin can inspect the item, but a default/server-local date
+        // can never silently promote unknown license validity to current.
+        $this->assertDatabaseHas('vendor_companies', [
+            'id' => $company->id, 'license_expires_on' => '2027-11-15',
+        ]);
+        $this->assertDatabaseCount('vendor_company_reviews', 0);
+    }
+
     public function test_reassigned_company_blocks_stale_owner_kyc_writes_and_permission_mutations(): void
     {
         $oldOwner = User::factory()->create(['role' => 'vendor']);
