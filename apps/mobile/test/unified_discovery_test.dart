@@ -97,6 +97,38 @@ class IncompleteMetadataApi extends UnifiedApi {
 }
 void roomy(WidgetTester tester){tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);}
 void main(){
+ testWidgets('same API object changing account epoch hides all previous native search data and private drafts',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi(),next=UnifiedApi();
+   addTearDown(api.close);addTearDown(next.close);
+   await tester.pumpWidget(app(api,(_)=>fail('No booking'),customer:true));
+   await tester.enterText(find.byKey(const Key('unified-query')),'Private customer address');
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.text('Synthetic catalog'),findsOneWidget);
+   expect(find.byKey(const Key('unified-recent-0')),findsOneWidget);
+   final requestCount=api.calls.length;
+   // EvApi may swap authenticated identity without replacing the API object.
+   // Rebuilding that same widget must not expose another actor's catalog,
+   // query drafts, partner label, favorite controls or recent search history.
+   api.epoch++;
+   await tester.pumpWidget(app(api,(_)=>fail('No old-account action'),customer:true));
+   await tester.pumpAndSettle();
+   expect(find.text('Account changed. Reopen search.'),findsOneWidget);
+   expect(find.text('Synthetic catalog'),findsNothing);
+   expect(find.text('Synthetic partner'),findsNothing);
+   expect(find.byKey(const Key('unified-query')),findsNothing);
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   expect(find.byKey(const ValueKey('unified-favorite-catalog:7')),findsNothing);
+   expect(api.calls.length,requestCount,
+       reason:'A same-object account transition must not search for either actor');
+   await tester.pumpWidget(app(next,(_)=>fail('No implicit navigation'),customer:true));
+   await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-query')),findsOneWidget);
+   expect(tester.widget<TextField>(find.byKey(const Key('unified-query'))).controller!.text,isEmpty);
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   expect(next.calls,isEmpty);
+   expect(tester.takeException(),isNull);
+ });
  testWidgets('changing accounts clears advanced search drafts and submitted fields',(tester)async{
   roomy(tester);final first=UnifiedApi(),second=UnifiedApi();addTearDown(first.close);addTearDown(second.close);await tester.pumpWidget(app(first,(_){}));
   await tester.enterText(find.byKey(const Key('unified-query')),'Private place');
