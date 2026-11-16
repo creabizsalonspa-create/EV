@@ -370,10 +370,15 @@ class SourceConsumer
             if (count($registers) > 1) {
                 throw new RuntimeException('Ambiguous register requires reconciliation.');
             }
-            if ($registers && ($registers[0]['context'] ?? '') !== 'Transaction.Begin') {
-                // Check the unit and precision of every pending register before
-                // committing even the preceding ignored voltage/status records.
-                self::wh($registers[0]['value'] ?? null, $registers[0]['unitOfMeasure']['unit'] ?? '', $registers[0]['unitOfMeasure']['multiplier'] ?? 0);
+            if ($registers) {
+                // Even a repeated Transaction.Begin register is authenticated
+                // metering evidence, not a free pass to skip malformed data.
+                // A contradictory beginning meter must never be skipped before
+                // accepting the next terminal reading and issuing an invoice.
+                $reading = self::wh($registers[0]['value'] ?? null, $registers[0]['unitOfMeasure']['unit'] ?? '', $registers[0]['unitOfMeasure']['multiplier'] ?? 0);
+                if (($registers[0]['context'] ?? '') === 'Transaction.Begin' && $reading !== $baseline) {
+                    throw new RuntimeException('Source beginning register conflicts with transaction baseline.');
+                }
             }
             $previousId = $row['id'];
             if ($registers && ($registers[0]['context'] ?? '') === 'Transaction.End') {

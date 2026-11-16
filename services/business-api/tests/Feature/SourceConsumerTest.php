@@ -856,7 +856,7 @@ class SourceConsumerTest extends TestCase
     {
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page', 'nonenergy_before_start', 'nonenergy_after_end', 'later_ambiguous_register', 'later_invalid_unit', 'later_boolean_energy', 'later_float_energy', 'later_after_end', 'later_regressing_nonenergy_time', 'later_regressing_energy_time'] as $kind) {
+            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page', 'nonenergy_before_start', 'nonenergy_after_end', 'later_ambiguous_register', 'later_invalid_unit', 'later_boolean_energy', 'later_float_energy', 'begin_meter_mismatch', 'begin_meter_boolean', 'later_after_end', 'later_regressing_nonenergy_time', 'later_regressing_energy_time'] as $kind) {
                 $cases[$protocol.'_'.$kind] = [$protocol, $kind];
             }
         }
@@ -904,6 +904,22 @@ class SourceConsumerTest extends TestCase
             'later_float_energy' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], [
                 'value' => 3.5, 'unitOfMeasure' => ['unit' => 'kWh'],
             ])]])],
+            'begin_meter_mismatch' => [[
+                'id' => 1, 'timestamp' => $at->toIso8601String(),
+                'sampledValue' => [[
+                    'measurand' => 'Energy.Active.Import.Register',
+                    'value' => '900', 'context' => 'Transaction.Begin',
+                    'unitOfMeasure' => ['unit' => 'Wh'],
+                ]],
+            ], $valid[1]],
+            'begin_meter_boolean' => [[
+                'id' => 1, 'timestamp' => $at->toIso8601String(),
+                'sampledValue' => [[
+                    'measurand' => 'Energy.Active.Import.Register',
+                    'value' => true, 'context' => 'Transaction.Begin',
+                    'unitOfMeasure' => ['unit' => 'Wh'],
+                ]],
+            ], $valid[1]],
             'later_after_end' => [$row(1), array_replace($valid[1], ['timestamp' => $at->addSeconds(3)->toIso8601String()])],
             'later_regressing_nonenergy_time' => [
                 array_replace($row(1), ['timestamp' => $at->addSecond()->toIso8601String()]),
