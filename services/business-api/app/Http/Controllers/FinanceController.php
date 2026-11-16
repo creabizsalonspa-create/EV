@@ -11,6 +11,7 @@ use App\Models\Finance\Refund;
 use App\Models\Finance\TariffVersion;
 use App\Models\Reservation;
 use App\Models\Station;
+use App\Security\CurrentFinanceReader;
 use App\Services\Finance\ChargingProvenance;
 use App\Services\Finance\FinanceService;
 use App\Services\Ocpi\CreditRefundEvidence;
@@ -21,33 +22,54 @@ use Illuminate\Validation\Rule;
 
 class FinanceController extends Controller
 {
+    /** Must be called inside the same transaction as the private read. */
     private function invoiceAccess(Request $r, Invoice $invoice): void
     {
-        abort_unless($r->user()->id === $invoice->user_id || ($r->user()->role === 'vendor' && $r->user()->id === $invoice->vendor_id) || $r->user()->role === 'admin', 404);
+        $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+        abort_unless($actor->id === $invoice->user_id
+            || ($actor->role === 'vendor' && $actor->id === $invoice->vendor_id)
+            || $actor->role === 'admin', 404);
     }
 
     public function tariffs(Request $r, Station $station)
     {
-        abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $station->vendor_id === $r->user()->id), 404);
+        return DB::transaction(function () use ($r, $station) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($actor->role === 'admin'
+                || ($actor->role === 'vendor' && $station->vendor_id === $actor->id), 404);
+            $region = DB::table('regions')->where('country', $station->country)
+                ->where('currency', $station->currency)->first();
 
-        $region = DB::table('regions')->where('country', $station->country)->where('currency', $station->currency)->first();
-
-        return response()->json(TariffVersion::where('station_id', $station->id)->orderByDesc('id')->paginate(25)->toArray() + [
-            'pricing_context' => ['currency' => $station->currency, 'minor_units' => $region ? (int) $region->minor_units : null, 'evidence' => $station->source === 'simulator' ? 'SIMULATED' : 'DISCOVERY_ONLY'],
-        ]);
+            return response()->json(TariffVersion::where('station_id', $station->id)
+                ->orderByDesc('id')->paginate(25)->toArray() + [
+                    'pricing_context' => [
+                        'currency' => $station->currency,
+                        'minor_units' => $region ? (int) $region->minor_units : null,
+                        'evidence' => $station->source === 'simulator'
+                            ? 'SIMULATED' : 'DISCOVERY_ONLY',
+                    ],
+                ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function stations(Request $r)
     {
-        abort_unless(in_array($r->user()->role, ['vendor', 'admin'], true), 403);
-        $regions = DB::table('regions')->get()->keyBy(fn ($r) => $r->country.':'.$r->currency);
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless(in_array($actor->role, ['vendor', 'admin'], true), 403);
+            $regions = DB::table('regions')->get()
+                ->keyBy(fn ($region) => $region->country.':'.$region->currency);
 
-        return Station::where('source', 'simulator')->when($r->user()->role !== 'admin', fn ($q) => $q->where('vendor_id', $r->user()->id))
-            ->orderByDesc('id')->paginate(25)->through(fn ($s) => [
-                'id' => $s->id, 'name' => $s->name, 'country' => $s->country, 'currency' => $s->currency,
-                'minor_units' => isset($regions[$s->country.':'.$s->currency]) ? (int) $regions[$s->country.':'.$s->currency]->minor_units : null,
-                'evidence' => 'SIMULATED',
-            ]);
+            return response()->json(Station::where('source', 'simulator')
+                ->when($actor->role !== 'admin', fn ($q) => $q->where('vendor_id', $actor->id))
+                ->orderByDesc('id')->paginate(25)->through(fn ($s) => [
+                    'id' => $s->id, 'name' => $s->name,
+                    'country' => $s->country, 'currency' => $s->currency,
+                    'minor_units' => isset($regions[$s->country.':'.$s->currency])
+                        ? (int) $regions[$s->country.':'.$s->currency]->minor_units : null,
+                    'evidence' => 'SIMULATED',
+                ]))->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function createTariff(Request $r, Station $station)
