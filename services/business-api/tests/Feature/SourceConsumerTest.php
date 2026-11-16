@@ -1346,6 +1346,98 @@ class SourceConsumerTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 1);
     }
 
+    #[DataProvider('protocolVersions')]
+    public function test_ignored_diagnostic_clock_cannot_regress_across_source_pages(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond();
+        $bad = true;
+        $readCursors = [];
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($link, $protocol, $at, &$bad, &$readCursors) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10,
+                    'transactionId' => $protocol === '1.6' ? '101' : 'diagnostic-clock-cursor',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000',
+                    'startTime' => $at->toIso8601String(),
+                    'endTime' => $at->addSeconds(6)->toIso8601String(),
+                    'isActive' => false,
+                    'totalKwh' => '2.500',
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                $after = (int) ($request['variables']['after'] ?? -1);
+                $readCursors[] = $after;
+                $diagnostic = fn (int $id, int $seconds) => [
+                    'id' => $id,
+                    'timestamp' => $at->addSeconds($seconds)->toIso8601String(),
+                    'sampledValue' => [['measurand' => 'Voltage', 'value' => 230]],
+                ];
+                $energy = fn (int $id, int $seconds, string $context, string $value) => [
+                    'id' => $id,
+                    'timestamp' => $at->addSeconds($seconds)->toIso8601String(),
+                    'sampledValue' => [[
+                        'measurand' => 'Energy.Active.Import.Register',
+                        'context' => $context,
+                        'value' => $value,
+                        'unitOfMeasure' => ['unit' => 'Wh'],
+                    ]],
+                ];
+                $rows = match ($after) {
+                    0 => [$energy(1, 1, 'Sample.Periodic', '2500'), $diagnostic(2, 3)],
+                    2 => [$diagnostic(3, $bad ? 2 : 4), $energy(4, 5, 'Transaction.End', '3500')],
+                    default => $this->fail('Unexpected source cursor after diagnostic chronology check.'),
+                };
+
+                return Http::response(['data' => ['MeterValues' => $rows]]);
+            }
+
+            $this->fail('A read-only source observer attempted another network operation.');
+        });
+
+        $this->assertSame(2, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(2, $link->fresh()->source_meter_cursor);
+        $this->assertTrue($link->fresh()->source_meter_cursor_at->equalTo($at->addSeconds(3)));
+        $this->assertDatabaseCount('csms_inbox_events', 2);
+        $this->assertDatabaseCount('finance_invoices', 0);
+
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('Ignored-only source row timestamp regression across pages was accepted.');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('chronology regressed', $exception->getMessage());
+        }
+        $this->assertSame(2, $link->fresh()->source_meter_cursor);
+        $this->assertTrue($link->fresh()->source_meter_cursor_at->equalTo($at->addSeconds(3)));
+        $this->assertDatabaseCount('csms_inbox_events', 2);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+
+        $bad = false;
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame([0, 2, 2], $readCursors);
+        $this->assertSame(4, $link->fresh()->source_meter_cursor);
+        $this->assertTrue($link->fresh()->source_meter_cursor_at->equalTo($at->addSeconds(5)));
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id,
+            'energy_wh' => 2500,
+            'status' => 'stopped',
+        ]);
+        $this->assertDatabaseCount('csms_inbox_events', 3);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+    }
+
     public function test_meter_units_are_exact_and_unsupported_precision_is_not_rounded(): void
     {
         $this->assertSame(2500, SourceConsumer::wh('2.500000', 'kWh'));

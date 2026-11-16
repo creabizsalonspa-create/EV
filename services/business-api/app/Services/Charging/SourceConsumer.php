@@ -91,7 +91,7 @@ class SourceConsumer
         $link->refresh();
     }
 
-    private function advanceCursor(SessionLink $link, int $sourceRowId): void
+    private function advanceCursor(SessionLink $link, int $sourceRowId, string $sourceAt): void
     {
         // A second observer may have already committed a later page while this
         // worker was reading source rows. Never rewind its durable progress.
@@ -99,7 +99,10 @@ class SourceConsumer
         // events, so this update does not invent transaction authority.
         SessionLink::whereKey($link->id)
             ->where('source_meter_cursor', '<', $sourceRowId)
-            ->update(['source_meter_cursor' => $sourceRowId]);
+            ->update([
+                'source_meter_cursor' => $sourceRowId,
+                'source_meter_cursor_at' => SourceStatusTime::parse($sourceAt, 300)->utc()->format('Y-m-d H:i:s.u'),
+            ]);
         $link->refresh();
     }
 
@@ -317,7 +320,13 @@ class SourceConsumer
         // source transaction endTime as last_event_at. Its actual terminal
         // meter sample may legitimately precede that endTime; replay must
         // still be checked against the authenticated transaction window.
-        $previousSourceAt = $link->ended_at === null ? ($link->last_event_at ?? $startedAt) : $startedAt;
+        // The durable cursor also tracks ignored diagnostic rows. Last signed
+        // energy time alone cannot prove cross-page chronology when an earlier
+        // page finished with non-energy telemetry. Preserve an older session's
+        // limited historical evidence by falling back only when no cursor time
+        // was ever stored.
+        $previousSourceAt = $link->source_meter_cursor_at ??
+            ($link->ended_at === null ? ($link->last_event_at ?? $startedAt) : $startedAt);
         foreach ($rows as $row) {
             if (! is_array($row) || ! is_int($row['id'] ?? null) || $row['id'] <= $previousId || $row['id'] > 1000000000 ||
                 ! is_string($row['timestamp'] ?? null) || ! is_array($row['sampledValue'] ?? null) ||
@@ -360,7 +369,7 @@ class SourceConsumer
                 throw new RuntimeException('Ambiguous register requires reconciliation.');
             }
             if (! $samples || ($samples[0]['context'] ?? '') === 'Transaction.Begin') {
-                $this->advanceCursor($link, $row['id']);
+                $this->advanceCursor($link, $row['id'], $row['timestamp']);
 
                 continue;
             }
@@ -379,7 +388,7 @@ class SourceConsumer
                 throw new RuntimeException('Source sequence exceeds the inbox bound.');
             }
             $this->send($link, $tx, $ended ? 'ended' : 'meter', $row['id'], $meter, $ended ? $tx['endTime'] : $row['timestamp']);
-            $this->advanceCursor($link, $row['id']);
+            $this->advanceCursor($link, $row['id'], $row['timestamp']);
             $count++;
             if ($ended) {
                 break;
