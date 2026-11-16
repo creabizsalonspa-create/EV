@@ -5,11 +5,22 @@ namespace App\Http\Controllers;
 use App\Models\InboxNotification;
 use App\Models\SupportTicket;
 use App\Models\TicketMessage;
+use App\Models\User;
+use App\Services\Notifications\CurrentNotificationActor;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class SupportController extends Controller
 {
+    /** Only the inbox-specific APIs use this additional epoch/password guard. */
+    private function notificationActor(Request $r, bool $forMutation = false): User
+    {
+        $snapshot = $r->user();
+        abort_unless($snapshot instanceof User, 401);
+
+        return app(CurrentNotificationActor::class)->revalidate($snapshot, $forMutation);
+    }
+
     /** Role revocation must invalidate a cached authenticated Admin model. */
     private function currentRole(Request $r, bool $forUpdate = false): ?string
     {
@@ -203,7 +214,7 @@ class SupportController extends Controller
             'category' => 'sometimes|in:support,vehicle,charging,fleet,other',
         ]);
 
-        $page = InboxNotification::visibleTo($r->user())
+        $page = InboxNotification::visibleTo($this->notificationActor($r))
             ->when($r->boolean('unread_only'), fn ($q) => $q->whereNull('read_at'))
             ->when(isset($filters['category']), function ($q) use ($filters) {
                 if ($filters['category'] === 'other') {
@@ -223,25 +234,24 @@ class SupportController extends Controller
 
     public function read(Request $r, InboxNotification $notification)
     {
-        abort_unless(InboxNotification::visibleTo($r->user())
-            ->whereKey($notification->id)->exists(), 404);
-
         return DB::transaction(function () use ($r, $notification) {
-            $changed = InboxNotification::visibleTo($r->user())
+            $actor = $this->notificationActor($r, true);
+            abort_unless(InboxNotification::visibleTo($actor)->whereKey($notification->id)->exists(), 404);
+            $changed = InboxNotification::visibleTo($actor)
                 ->whereKey($notification->id)
                 ->whereNull('read_at')
                 ->update(['read_at' => now()]);
 
             if ($changed > 0) {
                 DB::table('audit_events')->insert([
-                    'actor_id' => $r->user()->id,
+                    'actor_id' => $actor->id,
                     'action' => 'notifications.read_one',
                     'subject' => (string) $notification->id,
                     'created_at' => now(),
                 ]);
             }
 
-            return response()->json(InboxNotification::visibleTo($r->user())
+            return response()->json(InboxNotification::visibleTo($actor)
                 ->whereKey($notification->id)->firstOrFail())
                 ->header('Cache-Control', 'private, no-store');
         });

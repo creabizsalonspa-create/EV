@@ -79,12 +79,12 @@ void main(){
   testWidgets('advanced filters normalize rate digits and preserve submitted pagination ($ar)',(tester)async{
    roomy(tester);final api=UnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){},ar:ar));
    final expand=find.byType(ExpansionTile);await tester.ensureVisible(expand);await tester.tap(expand);await tester.pumpAndSettle();
-   for(final field in {'operator':'100%_operator','address':'دبي','access':'Visitors','max_rate_per_kwh':'١٫٥٠','price_currency':'aed'}.entries){
+   for(final field in {'operator':'100%_operator','address':'دبي','access':'Visitors','min_power_kw':'٤٠','max_power_kw':'٦٠','max_rate_per_kwh':'١٫٥٠','price_currency':'aed'}.entries){
     final input=find.byKey(Key('unified-${field.key}'));await tester.ensureVisible(input);await tester.enterText(input,field.value);
    }
    final search=find.byType(FilledButton);await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
-   expect(api.queries.single['operator'],'100%_operator');expect(api.queries.single['address'],'دبي');expect(api.queries.single['access'],'Visitors');expect(api.queries.single['max_rate_per_kwh'],'1.50');expect(api.queries.single['price_currency'],'AED');
-   final next=find.text(ar?'التالي':'Next');await tester.ensureVisible(next);await tester.tap(next);await tester.pumpAndSettle();expect(api.queries.last['page'],'2');expect(api.queries.last['max_rate_per_kwh'],'1.50');
+   expect(api.queries.single['operator'],'100%_operator');expect(api.queries.single['address'],'دبي');expect(api.queries.single['access'],'Visitors');expect(api.queries.single['min_power_kw'],'40');expect(api.queries.single['max_power_kw'],'60');expect(api.queries.single['max_rate_per_kwh'],'1.50');expect(api.queries.single['price_currency'],'AED');
+   final next=find.text(ar?'التالي':'Next');await tester.ensureVisible(next);await tester.tap(next);await tester.pumpAndSettle();expect(api.queries.last['page'],'2');expect(api.queries.last['max_rate_per_kwh'],'1.50');expect(api.queries.last['min_power_kw'],'40');expect(api.queries.last['max_power_kw'],'60');
    expect(api.calls.every((path)=>path=='GET discovery/search'),true);
   });
  }

@@ -6,6 +6,7 @@ use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\Station;
 use App\Models\User;
+use App\Services\Discovery\CatalogPowerFilter;
 use App\Services\Discovery\CatalogPriceFilter;
 use App\Services\Discovery\CatalogTextFilters;
 use App\Services\Discovery\DiscoveryViewport;
@@ -23,7 +24,7 @@ final class UnifiedDiscoveryController extends Controller
 {
     public function index(Request $request)
     {
-        $v = $request->validate(['q' => 'nullable|string|max:80', 'operator' => 'nullable|string|max:100', 'address' => 'nullable|string|max:150', 'access' => 'nullable|string|max:150', 'max_rate_per_kwh' => ['nullable', 'required_with:price_currency', 'string', 'regex:/^[0-9]{1,6}(\.[0-9]{1,3})?$/D'], 'price_currency' => 'nullable|required_with:max_rate_per_kwh|string|size:3|uppercase', 'scope' => 'nullable|in:all,catalog,partner', 'country' => 'nullable|in:AE,CA,US',
+        $v = $request->validate(['q' => 'nullable|string|max:80', 'operator' => 'nullable|string|max:100', 'address' => 'nullable|string|max:150', 'access' => 'nullable|string|max:150', 'max_rate_per_kwh' => ['nullable', 'required_with:price_currency', 'string', 'regex:/^[0-9]{1,6}(\.[0-9]{1,3})?$/D'], 'price_currency' => 'nullable|required_with:max_rate_per_kwh|string|size:3|uppercase', 'scope' => 'nullable|in:all,catalog,partner', 'country' => 'nullable|in:AE,CA,US', 'min_power_kw' => 'nullable|integer|between:1,1000', 'max_power_kw' => 'nullable|integer|between:1,1000',
             'south' => 'nullable|required_with:north,west,east|numeric|between:-90,90',
             'north' => 'nullable|required_with:south,west,east|numeric|between:-90,90',
             'west' => 'nullable|required_with:south,north,east|numeric|between:-180,180',
@@ -49,6 +50,16 @@ final class UnifiedDiscoveryController extends Controller
                 throw ValidationException::withMessages(['east' => 'East and west must differ.']);
             }
             app(DiscoveryViewport::class)->apply($catalog, $partner, $v);
+        }
+        // Only canonical published station power is comparable: no partner
+        // crowd-reported wattage is promoted to verified charger capability.
+        if (isset($v['min_power_kw'], $v['max_power_kw'])
+            && (int) $v['min_power_kw'] > (int) $v['max_power_kw']) {
+            throw ValidationException::withMessages(['max_power_kw' => 'Maximum rated power must be at least minimum rated power.']);
+        }
+        app(CatalogPowerFilter::class)->apply($catalog, $v);
+        if (isset($v['min_power_kw']) || isset($v['max_power_kw'])) {
+            $partner->whereRaw('1 = 0');
         }
         // Apply individual filters before the SQL union and pagination.
         // Explicit access and price filters require canonical platform evidence.
