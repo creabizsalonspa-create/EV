@@ -41,6 +41,60 @@ The successful protocol-run output is retained in `docs/evidence/charging-protoc
 
 These protocol tests do not by themselves establish Laravel-to-CSMS transaction correlation, event-inbox authenticity/deduplication, final business invoice/payment reconciliation, physical charger safety, complete OCPP conformance, diagnostics/firmware controls, or production operational resilience. The Laravel business bridge and its separate end-to-end evidence must be verified independently before claiming the entire customer/vendor charging-to-invoice workflow.
 
+## Bounded meter-source page integrity
+
+The restartable OCPP simulator source reader validates the complete Hasura
+`MeterValues` page **before advancing any durable source meter cursor**,
+including voltage/non-energy records that are intentionally not billed.
+Only ordered, strictly increasing positive integer source row identifiers
+within the signed inbox's sequence bound, an actual array of sampled values,
+explicit source timestamps and a maximum of 100 rows per page are accepted.
+Missing pages, overlong pages, unknown timestamps and re-ordered/repeated
+row IDs stop reconciliation without skipping the original unread row.
+Neither a failed read nor a duplicate cumulative register issues a new
+charging command or fabricates energy. Previous signed start observations
+remain durable; final invoices are still issued only from an authenticated
+terminal cumulative register matching CitrineOS final energy.
+
+Both OCPP 1.6 and 2.0.1 are covered by `SourceConsumerTest` malformed-page,
+restart, duplicate-register and single-invoice regressions. These fixtures
+exercise the canonical local-simulator source and signed inbox; they do not
+represent full upstream conformance or physical charger acceptance.
+
+## Fault observation cursor integrity
+
+The bounded local CitrineOS fault observer validates the recognized OCPP
+connector-status vocabulary and strict timezone-qualified source timestamp
+before it commits even the first event in a source page. Unsupported device
+states, relative/naive dates and future observations fail the entire page and
+leave the durable cursor unchanged in `requires_review`. The owner receives
+a private generic review notification; an operator-approved corrected source
+page can resume from the original event ids. Recovery is sourced from a new
+valid observation, never inferred from the failed poll. The observer does not
+dispatch charger commands or alter reservations, sessions or billing.
+
+`ContinuousFaultObserverTest` covers both OCPP versions and invalid-status,
+relative-clock and naive-clock handling, followed by restart-safe source
+catch-up. These are mocked-source regression checks, not conformance or
+hardware acceptance.
+
+## Source station protocol identity and reconciliation
+
+The restartable local-simulator `SourceConsumer` now requires the authenticated
+CitrineOS station's reported protocol to match the immutable CSMS session
+binding before it reads transactions or emits signed start/meter/end events.
+The source may report the pinned version as `1.6`/`2.0.1` or
+`ocpp1.6`/`ocpp2.0.1`; missing, unknown or cross-version identities
+fail closed for operator reconciliation. A provisioned station without an
+authorization or transaction still contributes no session evidence.
+
+The protocol check runs on each observation, including after an existing
+start, so reprovisioning cannot silently reinterpret source meter readings.
+Regression coverage in `SourceConsumerTest` exercises mismatches for both
+versions, preserves the command and invoice state, and resumes only after
+an independently corrected source identity. It neither sends nor replays
+commands and does not establish physical hardware compatibility.
+
 ## Correlated business-to-CSMS-to-invoice test
 
 With the current local business service and CSMS running:

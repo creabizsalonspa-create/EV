@@ -24,6 +24,22 @@ test('duplicate JSON keys and malformed Flutter structure reject the entire inve
  const root=fixture(t);write(root,'package-lock.json','{"lockfileVersion":3,"lockfileVersion":"DO-NOT-LEAK","packages":{}}');let result=run(root);assert.equal(result.status,2);assert.equal(result.stdout,'');assert.doesNotMatch(result.stderr,/DO-NOT-LEAK/);
  fs.unlinkSync(path.join(root,'package-lock.json'));write(root,'pubspec.lock','packages:\n  demo:\n    source: hosted\n    version: "1.0.0"\n    version: "DO-NOT-LEAK"\n');result=run(root);assert.equal(result.status,2);assert.equal(result.stdout,'');assert.doesNotMatch(result.stderr,/DO-NOT-LEAK/);
 });
+test('nonstandard NaN and Infinity in ignored lockfile metadata fail closed',t=>{
+ const root=fixture(t);
+ for(const token of ['NaN','Infinity','-Infinity']){
+  write(root,'package-lock.json','{"lockfileVersion":3,"packages":{"node_modules/demo":{"version":"1.0.0","resolved":'+token+'}}}');
+  const result=run(root);
+  assert.equal(result.status,2,result.stderr);
+  assert.equal(result.stdout,'');
+  assert.doesNotMatch(result.stderr,/Traceback|DO-NOT-EMIT/);
+ }
+ fs.unlinkSync(path.join(root,'package-lock.json'));
+ write(root,'service/composer.lock','{"packages":[{"name":"vendor/demo","version":"1.0.0","opaque":NaN}]}');
+ const composer=run(root);
+ assert.equal(composer.status,2,composer.stderr);
+ assert.equal(composer.stdout,'');
+ assert.doesNotMatch(composer.stderr,/Traceback|DO-NOT-EMIT/);
+});
 test('missing versions and unresolved workspace links cannot masquerade as complete inventories',t=>{
  const root=fixture(t);for(const entry of [{name:'demo'},{link:true,resolved:'../private'}]){write(root,'package-lock.json',{lockfileVersion:3,packages:{'node_modules/demo':entry}});const result=run(root);assert.equal(result.status,2);assert.equal(result.stdout,'');}
 });

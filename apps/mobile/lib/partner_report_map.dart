@@ -5,6 +5,38 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+
+/**
+ * Bounded rectangular view over existing published records. Antimeridian
+ * crossing uses west > east. Map movement itself never performs discovery.
+ */
+Map<String, String>? discoveryViewportBounds(
+  double south, double north, double west, double east,
+) {
+  if (![south, north, west, east].every((value) => value.isFinite)) return null;
+  final s = south.clamp(-90.0, 90.0).toDouble();
+  final n = north.clamp(-90.0, 90.0).toDouble();
+  if (s >= n) return null;
+  final fullWorld = (east - west).abs() >= 360;
+  double wrap(double longitude) {
+    final shifted = ((longitude + 180) % 360 + 360) % 360;
+    return shifted - 180;
+  }
+  final w = fullWorld ? -180.0 : wrap(west);
+  final e = fullWorld ? 180.0 : wrap(east);
+  // Match the six-decimal request precision so we cannot send a
+  // degenerate rectangle after rounding tiny views.
+  final bounds = <String, String>{
+    'south': s.toStringAsFixed(6),
+    'north': n.toStringAsFixed(6),
+    'west': w.toStringAsFixed(6),
+    'east': e.toStringAsFixed(6),
+  };
+  if (bounds['south'] == bounds['north'] ||
+      bounds['west'] == bounds['east']) return null;
+  return bounds;
+}
+
 /// Presentation-only coordinates from an already public, authorized partner
 /// catalog page. This is never an OCPI command, payment or booking authority.
 class PartnerMapPoint {
@@ -84,11 +116,13 @@ class PartnerMapPoint {
 class PartnerReportMap extends StatefulWidget {
   final List<PartnerMapPoint> points;
   final TileProvider? tileProvider;
+  final bool allowViewportSearch;
 
   const PartnerReportMap({
     super.key,
     required this.points,
     this.tileProvider,
+    this.allowViewportSearch = false,
   });
 
   @override
@@ -97,6 +131,9 @@ class PartnerReportMap extends StatefulWidget {
 
 class _PartnerReportMapState extends State<PartnerReportMap> {
   bool enabled = false;
+  final mapController = MapController();
+  @override
+  void dispose() { mapController.dispose(); super.dispose(); }
   String t(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
 
@@ -179,6 +216,31 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
                 onPressed: () => setState(() => enabled = false),
                 child: Text(t('Disable report map', 'إيقاف خريطة التقارير')),
               ),
+            if (enabled && widget.allowViewportSearch && points.isNotEmpty)
+              OutlinedButton.icon(
+                key: const Key('unified-native-viewport-search'),
+                icon: const Icon(Icons.search),
+                onPressed: () {
+                  final box = mapController.camera.visibleBounds;
+                  final bounds = discoveryViewportBounds(
+                    box.south, box.north, box.west, box.east,
+                  );
+                  if (bounds == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text(t(
+                        'Visible map bounds cannot be searched. Zoom out or reposition and retry.',
+                        'لا يمكن البحث في حدود الخريطة الحالية. غيّر التكبير أو الموضع وأعد المحاولة.',
+                      )),
+                    ));
+                    return;
+                  }
+                  Navigator.of(context).pop(bounds);
+                },
+                label: Text(t(
+                  'Search platform and partner locations in this map view',
+                  'البحث في مواقع المنصة والشركاء ضمن مساحة الخريطة',
+                )),
+              ),
             if (enabled && points.isNotEmpty)
               SizedBox(
                 height: math.max(
@@ -186,6 +248,7 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
                   MediaQuery.sizeOf(context).height * 0.55,
                 ),
                 child: FlutterMap(
+                  mapController: mapController,
                   options: MapOptions(
                     initialCenter: LatLng(
                         points.first.latitude, points.first.longitude),
