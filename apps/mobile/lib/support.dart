@@ -542,13 +542,17 @@ class SupportViewState extends State<SupportView>
   }
 
   Future<void> editNotificationPreferences() async {
-    final current = savedPreferences;
-    if (!notifications || loading || current == null) return;
-    var selected = current['default_category'] as String;
-    var unread = current['default_unread_only'] as bool;
-    var repeat = current['remind_unresolved_simulator_faults'] as bool;
-    var delay = current['fault_reminder_delay_minutes'] is int
-        ? current['fault_reminder_delay_minutes'] as int : 15;
+    final prefs = savedPreferences;
+    if (!notifications || loading || prefs == null ||
+        !foreground || !authorized()) return;
+    final dialogSession = widget.api.sessionFence();
+    final dialogGeneration = generation;
+    final dialogApi = widget.api;
+    var selected = prefs['default_category'] as String;
+    var unread = prefs['default_unread_only'] as bool;
+    var repeat = prefs['remind_unresolved_simulator_faults'] as bool;
+    var delay = prefs['fault_reminder_delay_minutes'] is int
+        ? prefs['fault_reminder_delay_minutes'] as int : 15;
     if (![15, 30, 60].contains(delay)) {
       delay = 15;
     }
@@ -642,7 +646,9 @@ class SupportViewState extends State<SupportView>
         ),
       ),
     );
-    if (!mounted || desired == null) return;
+    if (desired == null || !current(dialogGeneration, dialogSession) ||
+        !identical(widget.api, dialogApi)) return;
+    final session = widget.api.sessionFence();
     final request = ++generation;
     setState(() {
       loading = true;
@@ -656,7 +662,7 @@ class SupportViewState extends State<SupportView>
         method: 'PUT',
         body: desired,
       );
-      if (!mounted || request != generation) return;
+      if (!current(request, session)) return;
       if (accepted is! Map ||
           accepted['default_category'] != desired['default_category'] ||
           accepted['default_unread_only'] != desired['default_unread_only'] ||
@@ -674,9 +680,11 @@ class SupportViewState extends State<SupportView>
       });
       await load(page: 1);
     } catch (e) {
-      if (!mounted || request != generation) return;
+      if (!current(request, session)) return;
       if (e is ApiException && [401, 419].contains(e.status)) {
+        setState(clearPrivate);
         widget.onSessionExpired();
+        return;
       }
       setState(() {
         error = e;
