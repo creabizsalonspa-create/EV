@@ -715,6 +715,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Ticket #other-tenant'), findsNothing);
     expect(find.text('Ticket #1'), findsNothing);
+    // A successful preference GET is not enough to authorize edits when the
+    // associated private inbox GET failed its ownership/shape checks.
+    final preferencesButton = find.byKey(
+      const Key('notification-preferences-open'),
+    );
+    expect(preferencesButton, findsOneWidget);
+    expect(tester.widget<TextButton>(preferencesButton).onPressed, isNull);
+    final beforeWrites = api.preferenceWrites;
+    await state.editNotificationPreferences();
+    await state.markNotification(2, read: true);
+    await state.markCurrentRead();
+    expect(api.preferenceWrites, beforeWrites);
+    expect(api.read, isFalse);
     api.malformedNotifications = false;
     await state.refresh();
     await tester.pumpAndSettle();
