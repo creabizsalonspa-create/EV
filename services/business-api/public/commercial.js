@@ -1607,6 +1607,9 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     to: String(data.to),
                 });
                 const requestGeneration = ++reportGeneration;
+                // Clear private results before the request so revoked sessions
+                // cannot retain an earlier report or downloadable CSV on errors.
+                results.replaceChildren();
                 const report = await api(
                     "commercial/vendors/" + vendor + "/revenue-cohorts?" + query,
                     "GET",
