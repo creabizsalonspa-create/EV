@@ -40,8 +40,17 @@ class RemoteSessionAuthorization
 
     private function source(SessionLink $link, string $tag): ?array
     {
-        $rows = $this->graph('query($tag:citext!){Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id idToken idTokenType status additionalInfo realTimeAuth realTimeAuthUrl realTimeAuthTimeout cacheExpiryDateTime concurrentTransaction isPrepaid}}', ['tag' => $tag])['Authorizations'];
-        abort_unless(count($rows) <= 1, 409, 'Ambiguous remote source identity.');
+        $rows = $this->graph('query($tag:citext!){Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id idToken idTokenType status additionalInfo realTimeAuth realTimeAuthUrl realTimeAuthTimeout cacheExpiryDateTime concurrentTransaction isPrepaid}}', ['tag' => $tag])['Authorizations'] ?? null;
+        // GraphQL shape is untrusted even when the HTTP request succeeds.
+        // An object-shaped one-row response must not masquerade as "absent"
+        // and trigger creation of a second authorization in publish().
+        abort_unless(is_array($rows) && array_is_list($rows) && count($rows) <= 1, 409, 'Malformed or ambiguous remote source identity.');
+        if ($rows !== []) {
+            abort_unless(is_array($rows[0]) && is_int($rows[0]['id'] ?? null)
+                && $rows[0]['id'] > 0 && is_string($rows[0]['idToken'] ?? null)
+                && is_string($rows[0]['idTokenType'] ?? null),
+                409, 'Malformed remote source identity.');
+        }
 
         return $rows[0] ?? null;
     }
@@ -49,7 +58,13 @@ class RemoteSessionAuthorization
     private function owned(SessionLink $link, array $row, string $tag): void
     {
         $info = $row['additionalInfo'] ?? null;
-        abort_unless(is_int($row['id'] ?? null) && $row['id'] > 0 && ($row['idToken'] ?? null) === $tag && ($row['idTokenType'] ?? null) === 'Central' && is_array($info) && count($info) === 1 && count($info[0]) === 2 && ($info[0]['type'] ?? null) === 'CREABIZ_REMOTE' && ($info[0]['additionalIdToken'] ?? null) === $link->remote_registration_nonce, 409, 'Source credential is not owned by this session.');
+        abort_unless(is_int($row['id'] ?? null) && $row['id'] > 0 && ($row['idToken'] ?? null) === $tag &&
+            ($row['idTokenType'] ?? null) === 'Central' && is_array($info) && array_is_list($info) &&
+            count($info) === 1 && is_array($info[0]) && count($info[0]) === 2 &&
+            ($info[0]['type'] ?? null) === 'CREABIZ_REMOTE' &&
+            is_string($info[0]['additionalIdToken'] ?? null) &&
+            hash_equals((string) $link->remote_registration_nonce, $info[0]['additionalIdToken']),
+            409, 'Source credential is not owned by this session.');
     }
 
     public function publish(ChargerCommand $command): void
@@ -104,7 +119,8 @@ class RemoteSessionAuthorization
         $row = $this->source($link, $tag);
         if (! $row) {
             return false;
-        }$this->owned($link, $row, $tag);
+        }
+        $this->owned($link, $row, $tag);
 
         return (int) $link->remote_authorization_id === $row['id'] && $row['status'] === 'Accepted' && $row['realTimeAuth'] === 'Never' && $row['realTimeAuthUrl'] === self::CALLBACK && $row['realTimeAuthTimeout'] === 0 && $row['concurrentTransaction'] === false && $row['isPrepaid'] === false && CarbonImmutable::parse($row['cacheExpiryDateTime'])->isFuture();
     }

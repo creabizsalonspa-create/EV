@@ -50,6 +50,86 @@ class RemoteSessionAuthorizationTest extends TestCase
         }
     }
 
+    public static function malformedSourceProjections(): array
+    {
+        return [
+            'missing_list' => ['missing_list'],
+            'object_list' => ['object_list'],
+            'null_row' => ['null_row'],
+            'string_row_id' => ['string_row_id'],
+            'missing_row_id' => ['missing_row_id'],
+            'object_marker' => ['object_marker'],
+            'null_marker' => ['null_marker'],
+            'additional_marker' => ['additional_marker'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('malformedSourceProjections')]
+    public function test_malformed_remote_authorization_source_does_not_claim_or_mutate_identity(string $kind): void
+    {
+        [, , , $command, $link] = $this->fixture();
+        $tag = $command->payload['id_token'];
+        config([
+            'csms.graphql_secret' => str_repeat('g', 64),
+            'csms.graphql_url' => 'http://source.test/graphql',
+        ]);
+        Http::fake(function ($request) use ($kind, $link, $tag) {
+            $this->assertSame('http://source.test/graphql', $request->url());
+            $this->assertStringContainsString('Authorizations', $request['query']);
+            $row = [
+                'id' => 7, 'idToken' => $tag, 'idTokenType' => 'Central',
+                'status' => 'Accepted',
+                'additionalInfo' => [[
+                    'type' => 'CREABIZ_REMOTE',
+                    'additionalIdToken' => $link->remote_registration_nonce,
+                ]],
+                'realTimeAuth' => 'Never',
+                'realTimeAuthUrl' => RemoteSessionAuthorization::CALLBACK,
+                'realTimeAuthTimeout' => 0,
+                'cacheExpiryDateTime' => now()->addMinutes(15)->toISOString(),
+                'concurrentTransaction' => false,
+                'isPrepaid' => false,
+            ];
+            switch ($kind) {
+                case 'missing_list':
+                    return Http::response(['data' => []]);
+                case 'object_list':
+                    return Http::response(['data' => ['Authorizations' => ['row' => $row]]]);
+                case 'null_row':
+                    return Http::response(['data' => ['Authorizations' => [null]]]);
+                case 'string_row_id':
+                    $row['id'] = '7';
+                    break;
+                case 'missing_row_id':
+                    unset($row['id']);
+                    break;
+                case 'object_marker':
+                    $row['additionalInfo'] = ['marker' => $row['additionalInfo'][0]];
+                    break;
+                case 'null_marker':
+                    $row['additionalInfo'] = [null];
+                    break;
+                case 'additional_marker':
+                    $row['additionalInfo'][] = ['type' => 'UNEXPECTED', 'additionalIdToken' => 'private'];
+                    break;
+            }
+
+            return Http::response(['data' => ['Authorizations' => [$row]]]);
+        });
+
+        try {
+            app(RemoteSessionAuthorization::class)->verified($link, $tag);
+            $this->fail('Malformed remote source identity was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn ($request) => str_starts_with((string) $request['query'], 'mutation'));
+        $this->assertNull($link->fresh()->remote_authorization_id);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_unverified_source_cannot_receive_an_accepted_remote_authorization(): void
     {
         $fixture = $this->fixture();
