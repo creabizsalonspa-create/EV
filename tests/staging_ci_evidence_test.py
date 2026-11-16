@@ -21,7 +21,7 @@ class PlatformGateTests(unittest.TestCase):
         self.folder=Path(temp.name)
         self.run={'id':RID,'run_attempt':1,'workflow_id':397762279,'name':'Platform validation','path':'.github/workflows/ci.yml','head_sha':SHA,'status':'completed','conclusion':'success','event':'pull_request',
             'repository':{'full_name':REPO,'id':1435146528},'head_repository':{'full_name':REPO,'id':1435146528}}
-        self.jobs={'total_count':4,'jobs':[{'id':100+i,'name':name,'run_id':RID,'run_attempt':1,'head_sha':SHA,'workflow_name':'Platform validation','status':'completed','conclusion':'success'} for i,name in enumerate(sorted(EXPECTED))]}
+        self.jobs={'total_count':len(EXPECTED),'jobs':[{'id':100+i,'name':name,'run_id':RID,'run_attempt':1,'head_sha':SHA,'workflow_name':'Platform validation','status':'completed','conclusion':'success'} for i,name in enumerate(sorted(EXPECTED))]}
     def test_happy_case_is_explicitly_not_independent_attestation(self):
         out=verify(self.run,self.jobs,SHA)
         self.assertEqual(out['successful_required_jobs'],sorted(EXPECTED))
@@ -47,9 +47,34 @@ class PlatformGateTests(unittest.TestCase):
             if tweak=='missing':bad['jobs'].pop()
             if tweak=='extra':bad['jobs'].append(dict(bad['jobs'][0],id=999,name='unreviewed'))
             if tweak=='duplicate':bad['jobs'][1]['name']=bad['jobs'][0]['name']
-            if tweak=='total':bad['total_count']=5
+            if tweak=='total':bad['total_count']=len(EXPECTED)+1
             if tweak=='duplicateid':bad['jobs'][1]['id']=bad['jobs'][0]['id']
             with self.subTest(tweak=tweak),self.assertRaises(EvidenceError):verify(self.run,bad,SHA)
+
+    def test_cms_recovery_and_final_acceptance_are_mandatory(self):
+        self.assertEqual(len(EXPECTED), 6)
+        for essential in ('csms-recovery', 'recovery-acceptance'):
+            self.assertIn(essential, EXPECTED)
+            incomplete = copy.deepcopy(self.jobs)
+            incomplete['jobs'] = [job for job in incomplete['jobs']
+                                  if job['name'] != essential]
+            incomplete['total_count'] = len(incomplete['jobs'])
+            with self.subTest(missing=essential), self.assertRaises(EvidenceError):
+                verify(self.run, incomplete, SHA)
+
+    def test_recovery_checks_cannot_be_skipped_or_queued(self):
+        for essential in ('csms-recovery', 'recovery-acceptance'):
+            for status, conclusion in (('completed', 'skipped'),
+                                       ('completed', 'failure'),
+                                       ('queued', None)):
+                invalid = copy.deepcopy(self.jobs)
+                job = next(item for item in invalid['jobs']
+                           if item['name'] == essential)
+                job['status'], job['conclusion'] = status, conclusion
+                with self.subTest(job=essential, status=status):
+                    with self.assertRaises(EvidenceError):
+                        verify(self.run, invalid, SHA)
+
     def test_snapshot_must_be_private_regular_unique_json(self):
         path=self.folder/'run.json'
         path.write_text(json.dumps(self.run));path.chmod(0o600)
