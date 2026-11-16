@@ -206,8 +206,15 @@ class _NotificationEmailState extends State<NotificationEmailView>
                     'إشعارات عامة اختيارية لبريد حسابك الموثق للنشاط الجديد غير المقروء فقط، بحد أقصى مرة كل 15 دقيقة. تبقى التفاصيل في الحساب. قبول النقل لا يؤكد التسليم.',
                   ),
                 ),
-                if (busy) const LinearProgressIndicator(),
-                if (error != null) Text(error!),
+                if (busy)
+                  LinearProgressIndicator(
+                    semanticsLabel: t(
+                      'Loading email notice preferences and history',
+                      'جارٍ تحميل إعدادات إشعارات البريد وسجل النقل',
+                    ),
+                  ),
+                if (error != null)
+                  Semantics(liveRegion: true, child: Text(error!)),
                 OutlinedButton(
                   onPressed: busy ? null : () => load(number: page),
                   child: Text(t('Refresh', 'تحديث')),
