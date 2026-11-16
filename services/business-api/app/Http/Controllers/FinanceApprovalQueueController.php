@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Security\CurrentFinanceReader;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -13,7 +14,15 @@ final class FinanceApprovalQueueController extends Controller
 
     public function index(Request $request)
     {
-        abort_unless($request->user()->role === 'admin', 403);
+        // Keep the live Admin identity locked until all private review rows
+        // are materialized. A revoked cached browser role is never enough.
+        return DB::transaction(fn () => $this->currentIndex($request), 3);
+    }
+
+    private function currentIndex(Request $request)
+    {
+        $current = app(CurrentFinanceReader::class)->requireCurrent($request);
+        abort_unless($current->role === 'admin', 403);
         $filters = $request->validate([
             'kind' => ['sometimes', Rule::in(['all', 'refund', 'settlement', 'adjustment'])],
             'currency' => ['sometimes', 'regex:/\A[A-Z]{3}\z/'],
