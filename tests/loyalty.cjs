@@ -83,9 +83,12 @@ const assert = require("node:assert/strict");
     await policyForm.locator("[name=enabled]").selectOption("true");
     const effective = await admin.evaluate((raw) => {
       const d = new Date(raw);
+      // Chromium/Playwright rejects redundant ":00" seconds when filling a
+      // datetime-local control. A minute-form local timestamp is canonical
+      // and remains at or before the seeded invoice's creation instant.
       return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
         .toISOString()
-        .slice(0, 19);
+        .slice(0, 16);
     }, fixture.invoice_created_at);
     await policyForm.locator("[name=effective_from]").fill(effective);
     await mutation(admin, "policies", () =>
@@ -247,6 +250,28 @@ const assert = require("node:assert/strict");
     await cp
       .getByText("Refund or chargeback reversal", { exact: true })
       .waitFor();
+    // A source read failure must not leave the previous refund/points
+    // history visible, and retry must load the canonical ledger again.
+    const failLedger = async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ message: "Synthetic private ledger read failure" }),
+      });
+    };
+    await customer.route("**/api/commercial/loyalty/ledger?page=1", failLedger);
+    await cp.getByRole("button", { name: "Refresh loyalty", exact: true }).click();
+    await cp.getByText(
+      "Loyalty records unavailable. Retry to verify points and rewards.",
+      { exact: true },
+    ).waitFor();
+    assert.equal(await cp.getByText(
+      "Refund or chargeback reversal", { exact: true },
+    ).count(), 0);
+    await customer.unroute("**/api/commercial/loyalty/ledger?page=1", failLedger);
+    await cp.getByRole("button", { name: "Retry loyalty records", exact: true }).click();
+    await cp.getByText("Refund or chargeback reversal", { exact: true }).waitFor();
     const foreign = await login("foreign");
     const hidden = await foreign.request.get(
       base + `/api/commercial/loyalty/redemptions/${redemptions[0]}`,

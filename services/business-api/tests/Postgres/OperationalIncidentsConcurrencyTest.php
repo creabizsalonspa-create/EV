@@ -81,6 +81,7 @@ class OperationalIncidentsConcurrencyTest extends TestCase
         $this->assertSame(2, array_sum(array_column($opened, 'opened')));
         $this->assertDatabaseCount('operational_incident_events', 2);
         $this->assertCount(2, app(OperationalIncidents::class)->summary()['open']);
+        $this->assertSame('recent', app(OperationalIncidents::class)->summary()['scanner']['state']);
         DB::table('operational_heartbeats')->update(['observed_at' => now()]);
         $resolved = $this->race();
         $this->assertSame(2, array_sum(array_column($resolved, 'resolved')));
