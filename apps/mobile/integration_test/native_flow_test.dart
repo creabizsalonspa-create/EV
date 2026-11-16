@@ -751,6 +751,11 @@ void main() {
             'id': 7,
             'number': 'SIM-DEVICE-INVOICE',
             'evidence': 'SIMULATED',
+            // The detail GET has the canonical owner, charging session and
+            // currency precision fields, not merely the history projection.
+            'user_id': authenticated,
+            'charging_session_id': 7,
+            'minor_units': 2,
             'created_at': '2026-10-27T00:00:00Z',
             'currency': 'AED',
             'subtotal_minor': 100,
@@ -762,6 +767,9 @@ void main() {
                   'invoice': invoice,
                   'payment_provider': 'SIMULATOR_ONLY',
                   'real_payment_processed': false,
+                  'state': 'unpaid',
+                  'unpaid_credited_minor': 0,
+                  'unpaid_credit_notes': [],
                   'paid_minor': 0,
                   'refunded_minor': 0,
                   'amount_due_minor': 105,
@@ -1346,10 +1354,17 @@ void main() {
       await tester.tap(find.text('View invoice'));
       await settle();
       expect(find.text('SIM-DEVICE-INVOICE'), findsOneWidget);
+      // Actual iPhone/iOS ListView lazily builds amounts below the verified
+      // private action buttons. Scroll; do not weaken financial validation.
+      await tester.scrollUntilVisible(
+        find.text('Amount due: 105 minor units AED'),
+        220,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Amount due: 105 minor units AED'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.text('Private financial documents'),
-        250,
+        -220,
         scrollable: find.byType(Scrollable).first,
       );
       await tester.tap(find.text('Private financial documents'));
