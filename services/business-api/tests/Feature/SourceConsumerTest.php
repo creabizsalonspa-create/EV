@@ -743,7 +743,8 @@ class SourceConsumerTest extends TestCase
     {
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['missing_stations', 'nonlist_authorizations', 'string_authorization_id', 'missing_transactions', 'nonlist_transactions', 'non_array_transaction', 'missing_transaction_id', 'missing_meter_start', 'missing_start_time', 'missing_end_time', 'missing_is_active', 'missing_total_kwh', 'array_remote_start_id', 'boolean_meter_start', 'array_start_time', 'boolean_total_kwh', 'invalid_meter_start_precision', 'invalid_total_kwh_precision'] as $kind) {
+            foreach (['missing_stations', 'nonlist_authorizations', 'string_authorization_id', 'missing_transactions', 'nonlist_transactions', 'non_array_transaction', 'missing_transaction_id', 'missing_meter_start', 'missing_start_time', 'missing_end_time', 'missing_is_active', 'missing_total_kwh', 'array_remote_start_id', 'boolean_meter_start', 'array_start_time', 'boolean_total_kwh', 'invalid_meter_start_precision', 'invalid_total_kwh_precision',
+                'invalid_protocol_transaction_id', 'oversized_protocol_transaction_id'] as $kind) {
                 $cases[$protocol.'_'.$kind] = [$protocol, $kind];
             }
         }
@@ -833,6 +834,13 @@ class SourceConsumerTest extends TestCase
                 }
                 if ($bad && $kind === 'invalid_total_kwh_precision') {
                     $data['Transactions'][0]['totalKwh'] = '2.5001';
+                }
+                if ($bad && $kind === 'invalid_protocol_transaction_id') {
+                    $data['Transactions'][0]['transactionId'] = $protocol === '1.6' ? 'not-an-integer' : 101;
+                }
+                if ($bad && $kind === 'oversized_protocol_transaction_id') {
+                    $data['Transactions'][0]['transactionId'] = $protocol === '1.6'
+                        ? '2147483648' : str_repeat('x', 37);
                 }
 
                 return Http::response(['data' => $data]);

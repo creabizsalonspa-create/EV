@@ -201,6 +201,12 @@ class SourceConsumer
             if (! is_array($candidate) || array_diff($required, array_keys($candidate)) !== [] ||
                 ! is_bool($candidate['isActive']) || ! in_array(gettype($candidate['transactionId']), ['string', 'integer'], true) ||
                 (string) $candidate['transactionId'] === '' ||
+                // OCPP 1.6 uses a signed 32-bit integer, while 2.0.1 uses
+                // a bounded opaque string. Never sign or bill an impossible
+                // protocol transaction ID based on generic GraphQL casting.
+                ($link->protocol === '1.6' && ! OcppTransactionId::valid16((string) $candidate['transactionId'])) ||
+                ($link->protocol === '2.0.1' && (! is_string($candidate['transactionId']) ||
+                    strlen($candidate['transactionId']) > 36)) ||
                 // Hasura Int identifiers must be real integers, not strings,
                 // booleans or arrays that PHP might silently coerce to 1.
                 ($candidate['remoteStartId'] !== null && ! is_int($candidate['remoteStartId'])) ||
