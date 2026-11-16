@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Services\Commercial\SubscriptionService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -132,7 +133,7 @@ class SubscriptionChangePreviewTest extends TestCase
         ])->assertOk()->assertJsonPath('entitlements.staff_limit', 2);
         $periodEnd = DB::table('commercial_subscriptions')->where('id', $id)->value('period_end');
         $this->travelTo(Carbon::parse($periodEnd)->addSecond());
-        $service = app(\App\Services\Commercial\SubscriptionService::class);
+        $service = app(SubscriptionService::class);
         $renewed = $service->renew($id);
         $nextInvoice = $renewed['invoices']->last()->id;
         $service->mockPay($vendor, $id, $nextInvoice, 'succeeded', 'monthly-upgrade-paid');
