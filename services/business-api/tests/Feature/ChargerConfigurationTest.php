@@ -79,6 +79,73 @@ class ChargerConfigurationTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public static function malformedStationCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['missing', 'object', 'missing_id', 'string_id', 'missing_online', 'string_online', 'missing_protocol', 'extra_stations'] as $kind) {
+                $cases[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('malformedStationCases')]
+    public function test_malformed_station_projection_cannot_dispatch_configuration_read(string $protocol, string $kind): void
+    {
+        $f = $this->fixture($protocol);
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($protocol, $kind) {
+            $this->assertStringEndsWith('/graphql', $request->url());
+            $stations = [['id' => 7, 'isOnline' => true, 'protocol' => 'ocpp'.$protocol]];
+            switch ($kind) {
+                case 'missing':
+                    return Http::response(['data' => []]);
+                case 'object':
+                    $stations = ['station' => $stations[0]];
+                    break;
+                case 'missing_id':
+                    unset($stations[0]['id']);
+                    break;
+                case 'string_id':
+                    $stations[0]['id'] = '7';
+                    break;
+                case 'missing_online':
+                    unset($stations[0]['isOnline']);
+                    break;
+                case 'string_online':
+                    $stations[0]['isOnline'] = 'true';
+                    break;
+                case 'missing_protocol':
+                    unset($stations[0]['protocol']);
+                    break;
+                case 'extra_stations':
+                    $stations[] = ['id' => 8, 'isOnline' => true, 'protocol' => 'ocpp'.$protocol];
+                    break;
+            }
+
+            return Http::response(['data' => ['ChargingStations' => $stations]]);
+        });
+
+        $body = ['idempotency_key' => 'malformed-'.$protocol.'-'.$kind, 'reason' => 'Test malformed authenticated station projection'];
+        $id = $this->postJson($f['path'], $body)->assertCreated()
+            ->assertJsonPath('status', 'not_dispatched')
+            ->assertJsonPath('physical_charging_verified', false)
+            ->json('id');
+        $this->postJson($f['path'], $body)->assertOk()
+            ->assertJsonPath('id', $id)
+            ->assertJsonPath('status', 'not_dispatched');
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/ocpp/'));
+        $this->assertDatabaseHas('charger_configuration_reads', ['id' => $id, 'status' => 'not_dispatched']);
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_uncertain_transport_is_not_replayed_and_source_observation_does_not_dispatch(): void
     {
         $f = $this->fixture();

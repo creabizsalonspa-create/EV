@@ -41,10 +41,21 @@ class ConfigurationProbe
 
     public function station(object $binding, bool $online = true): int
     {
-        $rows = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol}}', ['name' => $binding->identifier])['ChargingStations'];
-        abort_unless(count($rows) === 1 && in_array($rows[0]['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true) && (! $online || $rows[0]['isOnline'] === true), 409);
+        $data = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol}}', ['name' => $binding->identifier]);
+        $rows = $data['ChargingStations'] ?? null;
+        // A malformed Hasura projection must never become an online charger
+        // identity. Fail closed before retrieving an operations token or
+        // dispatching even a simulator-only read command.
+        abort_unless(is_array($rows) && array_is_list($rows) && count($rows) <= 2, 503, 'Malformed source station projection.');
+        abort_unless(count($rows) === 1, 409, 'Source station identity is absent or ambiguous.');
+        $station = $rows[0];
+        abort_unless(is_array($station) && is_int($station['id'] ?? null) && $station['id'] > 0
+            && is_string($station['protocol'] ?? null) && is_bool($station['isOnline'] ?? null),
+            503, 'Malformed source station identity.');
+        abort_unless(in_array($station['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true)
+            && (! $online || $station['isOnline'] === true), 409, 'Source station protocol or connection is not ready.');
 
-        return $rows[0]['id'];
+        return $station['id'];
     }
 
     public function serviceToken(): string
