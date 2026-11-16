@@ -11,12 +11,8 @@ class SqliteConcurrencyConfigurationTest extends TestCase
     {
         $configured = config('database.connections.sqlite.busy_timeout');
 
-        if ($configured === null) {
-            $this->markTestSkipped('SQLite contention wait not configured for this environment.');
-        }
-
         $this->assertIsInt($configured);
-        $this->assertGreaterThan(0, $configured);
+        $this->assertGreaterThanOrEqual(1000, $configured);
         $this->assertLessThanOrEqual(10000, $configured);
 
         $observed = DB::connection('sqlite')->selectOne('PRAGMA busy_timeout');
