@@ -67,12 +67,44 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
     loadCapabilities();
   }
 
+  @override
+  void didUpdateWidget(covariant RoutePlannerView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.client, widget.client)) {
+      // A new authenticated client is a different discovery context.
+      // Do not carry private coordinates, old stations, a route estimate or
+      // an outstanding external-navigation consent across that boundary.
+      generation++;
+      stops.clear();
+      if (widget.initialStop != null && valid(widget.initialStop!)) {
+        stops.add(widget.initialStop!);
+      }
+      originLat.text = widget.origin == null ? '' : '${widget.origin!.latitude}';
+      originLng.text = widget.origin == null ? '' : '${widget.origin!.longitude}';
+      destinationLat.clear();
+      destinationLng.clear();
+      requiredConnector = '';
+      consent = false;
+      estimate = null;
+      error = null;
+      loading = false;
+      capabilities = null;
+      loadCapabilities();
+    }
+  }
+
   Future<void> loadCapabilities() async {
+    final client = widget.client;
+    final current = generation;
     try {
-      final result = await widget.client?.capabilities();
-      if (mounted) setState(() => capabilities = result);
+      final result = await client?.capabilities();
+      if (mounted && current == generation && identical(widget.client, client)) {
+        setState(() => capabilities = result);
+      }
     } catch (_) {
-      if (mounted) setState(() => capabilities = null);
+      if (mounted && current == generation && identical(widget.client, client)) {
+        setState(() => capabilities = null);
+      }
     }
   }
 
@@ -129,6 +161,8 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   Future<void> navigate() async {
     final currentPoints = points();
     if (currentPoints == null || incompatibleStops) return;
+    final intentGeneration = generation;
+    final intentClient = widget.client;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -153,7 +187,8 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
         ],
       ),
     );
-    if (accepted != true || !mounted) return;
+    if (accepted != true || !mounted || generation != intentGeneration ||
+        !identical(widget.client, intentClient) || incompatibleStops) return;
     final uri = navigationUri(
       currentPoints.first,
       currentPoints.last,

@@ -264,6 +264,56 @@ void main() {
   );
 
   testWidgets(
+    'changing authenticated discovery client invalidates pending navigation permission and private route fields',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(900, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final first = DiscoveryClient.withRequest((_, _, _) async => <String, dynamic>{});
+      final second = DiscoveryClient.withRequest((_, _, _) async => <String, dynamic>{});
+      // Keep the widget identity stable, changing only its authenticated
+      // discovery client while the external-navigation dialog is present.
+      var launches = 0;
+      Widget route(DiscoveryClient client) => MaterialApp(
+        home: RoutePlannerView(
+          key: const ValueKey('same-route-planner'),
+          client: client,
+          stations: [station()],
+          origin: GeoPoint(0, 0),
+          initialStop: station(),
+          navigate: (_) async {
+            launches++;
+            return true;
+          },
+        ),
+      );
+      await tester.pumpWidget(route(first));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('destination-lat')));
+      await tester.enterText(find.byKey(const Key('destination-lat')), '25.3');
+      await tester.ensureVisible(find.byKey(const Key('destination-lng')));
+      await tester.enterText(find.byKey(const Key('destination-lng')), '55.4');
+      await tester.scrollUntilVisible(find.byKey(const Key('route-navigation')),
+          250, scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('route-navigation')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('navigation-consent')), findsOneWidget);
+      await tester.pumpWidget(route(second));
+      await tester.pumpAndSettle();
+      // The dialog may still be visible. Accepting the previous session's
+      // consent must not open any third-party navigation app.
+      await tester.tap(find.byKey(const Key('navigation-consent')));
+      await tester.pumpAndSettle();
+      expect(launches, 0);
+      final destination = tester.widget<TextField>(
+          find.byKey(const Key('destination-lat')));
+      expect(destination.controller!.text, isEmpty);
+      expect(find.text('Provider estimate only'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'route connector filter blocks mismatched selected stops but preserves an explicit removal path',
     (tester) async {
       final type2 = Station.fromJson({
