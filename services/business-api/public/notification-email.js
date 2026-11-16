@@ -67,6 +67,7 @@ window.EvNotificationEmail = {
                 }); enable.disabled = true; consent.onchange = () => enable.disabled = !consent.checked || busy;
             }
             root.append(node('h4', t('Handoff history — delivery unconfirmed', 'سجل النقل — التسليم غير مؤكد')));
+            if (history.receipts.data.length === 0) root.append(node('p', t('No email notice handoffs on this page.', 'لا توجد عمليات نقل إشعارات بالبريد في هذه الصفحة.')));
             const labels = {queued: t('Queued', 'في الانتظار'), claimed: t('Claimed; review if interrupted', 'تم الحجز؛ راجع عند الانقطاع'), handed_off: t('Transport accepted; delivery unconfirmed', 'قبله النقل؛ التسليم غير مؤكد'), outcome_unknown: t('Outcome unknown; no automatic retry', 'نتيجة غير معروفة؛ لا إعادة تلقائية'), cancelled: t('Cancelled', 'ملغى')};
             for (const row of history.receipts.data) root.append(node('p', `${row.created_at} · ${labels[row.state] || t('Review required', 'تلزم المراجعة')} · ${row.evidence || ''}`));
             if (page > 1) button(t('Previous', 'السابق'), () => load(page - 1));
