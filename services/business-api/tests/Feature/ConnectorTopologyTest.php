@@ -156,6 +156,16 @@ class ConnectorTopologyTest extends TestCase
         $this->getJson($path)->assertJsonPath('data.0.status_freshness.state', 'unknown');
     }
 
+    public function test_source_status_freshness_index_exists_on_both_supported_databases(): void
+    {
+        $indexName = 'charging_observation_event_freshness';
+        $indexes = DB::getDriverName() === 'pgsql'
+            ? DB::select('SELECT indexname AS name FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ?', ['charging_status_observations'])
+            : DB::select("PRAGMA index_list('charging_status_observations')");
+        $names = array_map(static fn ($index) => $index->name, $indexes);
+        $this->assertContains($indexName, $names);
+    }
+
     public function test_reordered_persisted_source_event_never_reuses_older_available_status(): void
     {
         $f = $this->topology('2.0.1');
