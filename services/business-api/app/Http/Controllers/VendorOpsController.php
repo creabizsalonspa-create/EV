@@ -31,38 +31,44 @@ class VendorOpsController extends Controller
 
     public function companies(Request $r)
     {
-        $actor = $r->user();
-        $query = VendorCompany::query();
-        if ($actor->role !== 'admin') {
-            $query->where(function ($q) use ($actor) {
-                $q->where('owner_id', $actor->id);
-                if ($actor->hasVerifiedEmail()) {
-                    $q->orWhereIn('id', VendorCompanyStaff::where('user_id', $actor->id)
-                        ->where('status', 'active')->whereNull('admin_revoked_at')
-                        ->select('company_id'));
-                }
-            });
-        }
-
-        // Inventory-only staff need a company picker, but membership alone
-        // does not grant company.read. Keep private company/KYC data out.
-        $page = $query->orderByDesc('id')->paginate(25)->through(function (VendorCompany $company) use ($actor) {
-            $capabilities = $this->access->capabilities($actor, $company);
-            if (! $capabilities['company_read']) {
-                return [
-                    'id' => $company->id,
-                    'legal_name' => $company->legal_name,
-                    'country' => $company->country,
-                    'status' => $company->status,
-                    'capabilities' => $capabilities,
-                    'restricted_directory_entry' => true,
-                ];
+        return DB::transaction(function () use ($r) {
+            $actor = $r->user();
+            if ($actor->role === 'admin') {
+                AdminTransactionAuthority::requireCurrent($actor);
+            }
+            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+            $query = VendorCompany::query();
+            if ($actor->role !== 'admin') {
+                $query->where(function ($q) use ($actor) {
+                    $q->where('owner_id', $actor->id);
+                    if ($actor->hasVerifiedEmail()) {
+                        $q->orWhereIn('id', VendorCompanyStaff::where('user_id', $actor->id)
+                            ->where('status', 'active')->whereNull('admin_revoked_at')
+                            ->select('company_id'));
+                    }
+                });
             }
 
-            return $company->toArray() + ['capabilities' => $capabilities];
-        });
+            // Inventory-only staff need a company picker, but membership alone
+            // does not grant company.read. Keep private company/KYC data out.
+            $page = $query->orderByDesc('id')->paginate(25)->through(function (VendorCompany $company) use ($actor) {
+                $capabilities = $this->access->capabilities($actor, $company);
+                if (! $capabilities['company_read']) {
+                    return [
+                        'id' => $company->id,
+                        'legal_name' => $company->legal_name,
+                        'country' => $company->country,
+                        'status' => $company->status,
+                        'capabilities' => $capabilities,
+                        'restricted_directory_entry' => true,
+                    ];
+                }
 
-        return response()->json($page)->header('Cache-Control', 'no-store, private');
+                return $company->toArray() + ['capabilities' => $capabilities];
+            });
+
+            return response()->json($page)->header('Cache-Control', 'no-store, private');
+        });
     }
 
     public function createCompany(Request $r)
@@ -87,35 +93,43 @@ class VendorOpsController extends Controller
 
     public function company(Request $r, VendorCompany $company)
     {
-        $this->access->require($r->user(), $company);
+        return DB::transaction(function () use ($r, $company) {
+            if ($r->user()->role === 'admin') {
+                AdminTransactionAuthority::requireCurrent($r->user());
+            }
+            // Route binding can precede a change of company ownership or KYC
+            // status. Work from the live locked company throughout this read.
+            $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $this->access->require($r->user(), $company);
 
-        $readiness = null;
-        if ($company->owner_id === $r->user()->id || $r->user()->role === 'admin') {
-            $editable = in_array($company->status, ['draft', 'changes_requested', 'rejected'], true);
-            $licenseValid = $this->access->licenseValid($company);
-            $licenseEvidence = VendorKycDocument::where('company_id', $company->id)
-                ->where('kind', 'trade_license')->orderByDesc('id')->first();
+            $readiness = null;
+            if ($company->owner_id === $r->user()->id || $r->user()->role === 'admin') {
+                $editable = in_array($company->status, ['draft', 'changes_requested', 'rejected'], true);
+                $licenseValid = $this->access->licenseValid($company);
+                $licenseEvidence = VendorKycDocument::where('company_id', $company->id)
+                    ->where('kind', 'trade_license')->orderByDesc('id')->first();
 
-            // Presence alone is not evidence of a usable encrypted file.
-            // Show owners a reliable readiness hint without disclosing
-            // plaintext, hashes or private storage paths in the response.
-            $evidenceValid = $licenseEvidence !== null
-                && $this->verifiedEvidenceContents($licenseEvidence) !== null;
-            $readiness = [
-                'editable' => $editable,
-                'license_valid' => $licenseValid,
-                'trade_license_present' => $licenseEvidence !== null,
-                'trade_license_integrity_valid' => $evidenceValid,
-                'can_submit' => $editable && $licenseValid && $evidenceValid,
-            ];
-        }
+                // Presence alone is not evidence of a usable encrypted file.
+                // Show owners a reliable readiness hint without disclosing
+                // plaintext, hashes or private storage paths in the response.
+                $evidenceValid = $licenseEvidence !== null
+                    && $this->verifiedEvidenceContents($licenseEvidence) !== null;
+                $readiness = [
+                    'editable' => $editable,
+                    'license_valid' => $licenseValid,
+                    'trade_license_present' => $licenseEvidence !== null,
+                    'trade_license_integrity_valid' => $evidenceValid,
+                    'can_submit' => $editable && $licenseValid && $evidenceValid,
+                ];
+            }
 
-        return response()->json($company->toArray() + [
-            'kyc_workflow_only' => true,
-            'physical_control_enabled' => false,
-            'capabilities' => $this->access->capabilities($r->user(), $company),
-            'submission_readiness' => $readiness,
-        ])->header('Cache-Control', 'no-store, private');
+            return response()->json($company->toArray() + [
+                'kyc_workflow_only' => true,
+                'physical_control_enabled' => false,
+                'capabilities' => $this->access->capabilities($r->user(), $company),
+                'submission_readiness' => $readiness,
+            ])->header('Cache-Control', 'no-store, private');
+        });
     }
 
     public function updateCompany(Request $r, VendorCompany $company)
