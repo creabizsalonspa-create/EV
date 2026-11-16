@@ -120,8 +120,18 @@ class ChargerFirmwareController extends Controller
 
     private function compatibleSource(object $binding, VendorCharger $charger, object $release): void
     {
-        $rows = app(RemoteSessionAuthorization::class)->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){chargePointVendor chargePointModel firmwareVersion protocol}}', ['name' => $binding->identifier])['ChargingStations'];
-        abort_unless(count($rows) === 1 && ($rows[0]['chargePointVendor'] ?? null) === $charger->manufacturer && ($rows[0]['chargePointModel'] ?? null) === $charger->model, 409, 'Registered source manufacturer and model must match the approved artifact.');
+        $data = app(RemoteSessionAuthorization::class)->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){chargePointVendor chargePointModel firmwareVersion protocol}}', ['name' => $binding->identifier]);
+        $rows = $data['ChargingStations'] ?? null;
+        abort_unless(is_array($rows) && array_is_list($rows) && count($rows) === 1 &&
+            is_array($rows[0]) &&
+            is_string($rows[0]['chargePointVendor'] ?? null) &&
+            is_string($rows[0]['chargePointModel'] ?? null) &&
+            is_string($rows[0]['firmwareVersion'] ?? null) &&
+            is_string($rows[0]['protocol'] ?? null), 409, 'Complete typed source firmware identity is required.');
+        abort_unless($rows[0]['chargePointVendor'] === $charger->manufacturer &&
+            $rows[0]['chargePointModel'] === $charger->model &&
+            in_array($rows[0]['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true),
+            409, 'Source model, protocol or manufacturer changed.');
         app(FirmwareCompatibility::class)->source($release, $binding->protocol, $rows[0]);
     }
 

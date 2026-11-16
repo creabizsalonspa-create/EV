@@ -113,6 +113,43 @@ class SignedFirmwareTest extends TestCase
         Http::assertNotSent(fn ($r) => str_ends_with($r->url(), '/dev/token') || str_contains($r->url(), '/signedUpdateFirmware?') || str_contains($r->url(), '/updateFirmware?'));
     }
 
+    public static function malformedFirmwareSourceIdentity(): array
+    {
+        $out = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['missing_collection', 'object_collection', 'null_row',
+                'nonstring_firmware', 'nonstring_protocol', 'wrong_manufacturer'] as $kind) {
+                $out[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+        }
+
+        return $out;
+    }
+
+    #[DataProvider('malformedFirmwareSourceIdentity')]
+    public function test_source_firmware_identity_requires_typed_station_and_exact_model_before_dispatch(string $protocol, string $kind): void
+    {
+        $f = $this->fixture($protocol, [
+            'protocols' => [$protocol], 'from_versions' => ['sim-fw-v1'],
+        ]);
+        $this->source($f, malformedSource: $kind);
+        $id = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Use only signed source-compatible fixture releases',
+        ])->assertCreated()->json('id');
+        $this->actingAs($f['owner'])->postJson($f['path'], [
+            'release_id' => $id,
+            'reason' => 'Fail closed on invalid firmware identity evidence',
+            'idempotency_key' => 'invalid-identity-'.$kind.'-'.$protocol,
+        ])->assertConflict();
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        Http::assertNotSent(fn ($r) => str_ends_with($r->url(), '/dev/token')
+            || str_contains($r->url(), '/signedUpdateFirmware?')
+            || str_contains($r->url(), '/updateFirmware?'));
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_changed_approved_compatibility_rows_fail_verification_before_source_access(): void
     {
         $f = $this->fixture('1.6', ['protocols' => ['1.6'], 'from_versions' => ['sim-fw-v1']]);
@@ -184,10 +221,10 @@ class SignedFirmwareTest extends TestCase
         return compact('owner', 'admin', 'station', 'company', 'charger', 'binding', 'releases', 'path', 'entry', 'bytes', 'pin', 'protocol');
     }
 
-    private function source(array $f, bool $unknown = false, bool $loss = false, ?string $statusTime = null, ?string $firmwareVersion = 'sim-fw-v1', bool $drift = false): void
+    private function source(array $f, bool $unknown = false, bool $loss = false, ?string $statusTime = null, ?string $firmwareVersion = 'sim-fw-v1', bool $drift = false, ?string $malformedSource = null): void
     {
         $compatibilityReads = 0;
-        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime, $firmwareVersion, $drift, &$compatibilityReads) {
+        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime, $firmwareVersion, $drift, $malformedSource, &$compatibilityReads) {
             if (str_contains($r->url(), '/capabilities')) {
                 parse_str(parse_url($r->url(), PHP_URL_QUERY), $query);
 
@@ -204,9 +241,33 @@ class SignedFirmwareTest extends TestCase
                     return Http::response(['data' => ['OCPPMessages' => [['payload' => ['status' => 'Installed', 'requestId' => 1]]]]]);
                 }
                 if (str_contains($q, 'ChargingStations')) {
-                    $reportedVersion = $drift && str_contains($q, 'chargePointVendor') && ++$compatibilityReads > 1 ? 'changed-source-version' : $firmwareVersion;
+                    $isCompatibility = str_contains($q, 'chargePointVendor');
+                    $reportedVersion = $drift && $isCompatibility && ++$compatibilityReads > 1 ? 'changed-source-version' : $firmwareVersion;
+                    $row = ['id' => 9, 'protocol' => $f['protocol'], 'isOnline' => true,
+                        'firmwareVersion' => $reportedVersion, 'chargePointVendor' => 'Synthetic',
+                        'chargePointModel' => 'Fixture'];
+                    if ($isCompatibility && $malformedSource !== null) {
+                        if ($malformedSource === 'missing_collection') {
+                            return Http::response(['data' => []]);
+                        }
+                        if ($malformedSource === 'object_collection') {
+                            return Http::response(['data' => ['ChargingStations' => ['station' => $row]]]);
+                        }
+                        if ($malformedSource === 'null_row') {
+                            return Http::response(['data' => ['ChargingStations' => [null]]]);
+                        }
+                        if ($malformedSource === 'nonstring_firmware') {
+                            $row['firmwareVersion'] = ['untrusted'];
+                        }
+                        if ($malformedSource === 'nonstring_protocol') {
+                            $row['protocol'] = true;
+                        }
+                        if ($malformedSource === 'wrong_manufacturer') {
+                            $row['chargePointVendor'] = 'Other';
+                        }
+                    }
 
-                    return Http::response(['data' => ['ChargingStations' => [['id' => 9, 'protocol' => $f['protocol'], 'isOnline' => true, 'firmwareVersion' => $reportedVersion, 'chargePointVendor' => 'Synthetic', 'chargePointModel' => 'Fixture']]]]);
+                    return Http::response(['data' => ['ChargingStations' => [$row]]]);
                 }
 
                 return Http::response(['data' => ['Transactions' => [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => $statusTime ?? now()->toISOString()]]]]);
