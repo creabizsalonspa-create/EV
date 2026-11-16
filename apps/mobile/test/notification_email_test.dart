@@ -6,7 +6,11 @@ import 'package:creabiz_ev/notification_email.dart';
 import 'test_support.dart';
 
 class NoticeApi extends FixtureApi {
-  bool enabled = false, active = true, loseReply = false, configured = true, malformedHistory = false;
+  bool enabled = false,
+      active = true,
+      loseReply = false,
+      configured = true,
+      malformedHistory = false;
   int writes = 0;
   Map<String, dynamic>? lastBody;
   @override
@@ -104,26 +108,28 @@ void main() {
       expect(find.text('Enabled with current consent'), findsOneWidget);
     },
   );
-  testWidgets('malformed email history fails closed and refresh recovers', (
-    tester,
-  ) async {
-    final api = NoticeApi();
-    await tester.pumpWidget(screen(api));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsOneWidget);
-    api.malformedHistory = true;
-    await tester.tap(find.text('Refresh'));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsNothing);
-    expect(find.textContaining('Outcome unavailable.'), findsOneWidget);
-    expect(find.byType(FilledButton), findsNothing);
-    api.malformedHistory = false;
-    await tester.tap(find.text('Refresh'));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsOneWidget);
-    expect(find.textContaining('Outcome unavailable.'), findsNothing);
-    expect(api.writes, 0);
-  });
+  for (final ar in [false, true]) {
+    testWidgets('malformed email history fails closed and refresh recovers ($ar)', (
+      tester,
+    ) async {
+      final api = NoticeApi();
+      await tester.pumpWidget(screen(api, ar: ar));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsOneWidget);
+      api.malformedHistory = true;
+      await tester.tap(find.text(ar ? 'تحديث' : 'Refresh'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsNothing);
+      expect(find.textContaining(ar ? 'النتيجة غير متاحة.' : 'Outcome unavailable.'), findsOneWidget);
+      expect(find.byType(FilledButton), findsNothing);
+      api.malformedHistory = false;
+      await tester.tap(find.text(ar ? 'تحديث' : 'Refresh'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsOneWidget);
+      expect(find.textContaining(ar ? 'النتيجة غير متاحة.' : 'Outcome unavailable.'), findsNothing);
+      expect(api.writes, 0);
+    });
+  }
   testWidgets('background hides private history and requires refresh', (
     tester,
   ) async {
