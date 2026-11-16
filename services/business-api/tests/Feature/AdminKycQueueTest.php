@@ -2,15 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\VendorOpsController;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorKycDocument;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class AdminKycQueueTest extends TestCase
@@ -302,6 +305,49 @@ class AdminKycQueueTest extends TestCase
         $this->actingAs($owner, 'web')->getJson($detail)
             ->assertOk()->assertJsonPath('id', $company->id);
         $this->getJson($directory)->assertOk()->assertJsonPath('total', 1);
+    }
+
+    public function test_reassigned_company_cannot_use_stale_route_binding_to_disclose_private_kyc(): void
+    {
+        $originalOwner = User::factory()->create(['role' => 'vendor']);
+        $newOwner = User::factory()->create(['role' => 'vendor']);
+        $company = $this->company($originalOwner);
+        $document = VendorKycDocument::create([
+            'company_id' => $company->id,
+            'uploaded_by' => $originalOwner->id,
+            'kind' => 'trade_license',
+            'mime_type' => 'application/pdf',
+            'size_bytes' => 0,
+            'sha256' => str_repeat('0', 64),
+            'storage_path' => 'vendor-kyc/never-authorized.enc',
+        ]);
+        // The PHP model is deliberately left stale to emulate reassignment
+        // after Laravel route binding, before the controller starts reading.
+        DB::table('vendor_companies')->where('id', $company->id)
+            ->update(['owner_id' => $newOwner->id]);
+        $request = Request::create('/api/vendor-ops/companies/'.$company->id, 'GET');
+        $request->setUserResolver(fn () => $originalOwner);
+        $controller = app(VendorOpsController::class);
+
+        foreach ([
+            fn () => $controller->company($request, $company),
+            fn () => $controller->reviews($request, $company),
+            fn () => $controller->documents($request, $company),
+            fn () => $controller->download($request, $company, $document),
+        ] as $privateRead) {
+            try {
+                $privateRead();
+                $this->fail('Stale company owner disclosed private KYC information.');
+            } catch (HttpException $error) {
+                $this->assertSame(404, $error->getStatusCode());
+            }
+        }
+        $this->assertSame(0, DB::table('audit_events')->count());
+
+        // The newly authorized owner can still inspect their own company.
+        $this->actingAs($newOwner, 'web')
+            ->getJson('/api/vendor-ops/companies/'.$company->id)
+            ->assertOk()->assertJsonPath('id', $company->id);
     }
 
     public function test_private_kyc_history_and_evidence_reads_fail_after_admin_credential_revocation(): void
