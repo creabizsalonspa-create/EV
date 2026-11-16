@@ -3,6 +3,7 @@
 namespace App\Services\Commercial\Payments;
 
 use App\Models\Finance\Invoice;
+use App\Models\User;
 use App\Services\Finance\FinanceService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +25,24 @@ class GatewayService
         };
     }
 
+    /**
+     * Direct service calls and post-preflight browser races must not reuse
+     * a suspended/demoted financial actor. Caller holds the canonical invoice
+     * lock first, then retains this account lock through the durable mutation.
+     */
+    private function currentActor(int $id, Invoice $invoice, bool $refund = false): void
+    {
+        $actor = User::whereKey($id)->lockForUpdate()->first();
+        abort_unless($actor && $actor->account_status === 'active', 409,
+            'Financial account authorization changed.');
+        if ($refund) {
+            abort_unless($actor->role === 'admin'
+                || ($actor->role === 'vendor' && $invoice->vendor_id === $actor->id), 404);
+        } else {
+            abort_unless($invoice->user_id === $actor->id, 404);
+        }
+    }
+
     private function fingerprint(array $payload): string
     {
         return hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
@@ -41,6 +60,7 @@ class GatewayService
 
         return DB::transaction(function () use ($invoice, $actor, $amount, $key) {
             $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+            $this->currentActor($actor, $invoice);
             HostedCheckout::guard('charging', (int) $invoice->id);
             CorporateHostedCollection::guardPayment((int) $invoice->id);
             $requestKey = $this->fingerprint(['checkout', $invoice->id, $actor, $key]);
@@ -70,6 +90,7 @@ class GatewayService
         return app(PaymentRecovery::class)->run('charging', $initial, $actor, $kind, $key, [$kind, $amount ?? (int) $initial->amount_minor, $token, $reason], fn () => DB::transaction(function () use ($initial, $actor, $kind, $key, $amount, $token, $reason, $provider) {
             // Invoice is the serialization root, shared with legacy payments/refunds.
             $invoice = Invoice::whereKey($initial->invoice_id)->lockForUpdate()->firstOrFail();
+            $this->currentActor($actor, $invoice, $kind === 'refund');
             $checkout = DB::table('gateway_checkouts')->where('id', $initial->id)->lockForUpdate()->first();
             HostedCheckout::guard('charging', (int) $invoice->id, (int) $checkout->id);
             abort_unless($invoice->evidence === 'SIMULATED' && $checkout->provider === config('payments.provider'), 409, 'Checkout provider or invoice evidence mismatch.');
@@ -326,6 +347,7 @@ class GatewayService
 
         return DB::transaction(function () use ($invoice, $actor, $kind, $amount, $reason, $key) {
             $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+            $this->currentActor($actor, $invoice);
             $requestKey = $this->fingerprint(['case', $invoice->id, $actor, $key]);
             $fingerprint = $this->fingerprint([$kind, $amount, $reason]);
             if ($old = DB::table('gateway_cases')->where('request_key', $requestKey)->first()) {
@@ -349,6 +371,10 @@ class GatewayService
 
         return DB::transaction(function () use ($initial, $actor, $outcome, $resolution) {
             $invoice = Invoice::whereKey($initial->invoice_id)->lockForUpdate()->firstOrFail();
+            $reviewer = User::whereKey($actor)->lockForUpdate()->first();
+            abort_unless($reviewer && $reviewer->account_status === 'active', 409,
+                'Admin dispute reviewer authority changed.');
+            abort_unless($reviewer->role === 'admin', 403);
             $case = DB::table('gateway_cases')->where('id', $initial->id)->lockForUpdate()->first();
             abort_if(Schema::hasTable('external_disputes') && DB::table('external_disputes')->where('case_id', $case->id)->exists(), 409, 'Provider dispute holds must be reconciled through the provider dispute workflow.');
             if ($case->status !== 'open') {
