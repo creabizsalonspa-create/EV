@@ -202,6 +202,10 @@ class _PartnerReportMapState extends State<PartnerReportMap>
   // flutter_map camera while its framework viewport is suspended/inactive.
   // Hold only one in-memory fix until resumed; discard on pause/dispose.
   LatLng? inactiveGpsCentre;
+  // When permission resolves while the OS sheet is inactive, initialize a
+  // fresh FlutterMap camera on resume instead of moving the old controller
+  // while its MapInteractiveViewer element may already be defunct.
+  LatLng? resumedGpsCentre;
   int? inactiveGpsGeneration;
   bool refreshAfterInactive = false;
   int locationGeneration = 0, mapGeneration = 0;
@@ -226,16 +230,25 @@ class _PartnerReportMapState extends State<PartnerReportMap>
       final request = inactiveGpsGeneration;
       inactiveGpsCentre = null;
       inactiveGpsGeneration = null;
+      if (mounted && centre != null && request == locationGeneration &&
+          enabled && mapReady) {
+        // A route/map shell may have disposed MapInteractiveViewer while
+        // Flutter was inactive. Rebuild an initialized map once, without
+        // invoking MapController.move on a stale descendant.
+        resumedGpsCentre = centre;
+        mapGeneration++;
+        mapReady = false;
+        currentZoom = 12;
+        refreshAfterInactive = true;
+      }
       if (refreshAfterInactive && mounted) {
         refreshAfterInactive = false;
         setState(() {});
       }
-      if (centre != null && request != null) {
-        scheduleGpsCamera(centre, request);
-      }
     }
     if (!foreground) {
       inactiveGpsCentre = null;
+      resumedGpsCentre = null;
       inactiveGpsGeneration = null;
       refreshAfterInactive = false;
       locationGeneration++;
@@ -258,6 +271,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
   @override
   void dispose() {
     inactiveGpsCentre = null;
+    resumedGpsCentre = null;
     inactiveGpsGeneration = null;
     locationGeneration++;
     WidgetsBinding.instance.removeObserver(this);
@@ -471,7 +485,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
             if ((points.isNotEmpty || exploratory) && !enabled)
               FilledButton(
                 key: const Key('partner-map-enable'),
-                onPressed: () => setState(() { mapGeneration++; enabled = true; mapReady = false; currentZoom = points.isEmpty ? 2 : 11; }),
+                onPressed: () => setState(() { mapGeneration++; enabled = true; mapReady = false; resumedGpsCentre = null; currentZoom = points.isEmpty ? 2 : 11; }),
                 child: Text(exploratory
                     ?t('Enable discovery area map','تفعيل خريطة منطقة البحث')
                     :t('Enable report map','تفعيل خريطة التقارير')),
@@ -479,7 +493,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
             if (enabled)
               OutlinedButton(
                 key: const Key('partner-map-disable'),
-                onPressed: () => setState(() { mapGeneration++; enabled = false; mapReady = false; locationGeneration++; inactiveGpsCentre = null; inactiveGpsGeneration = null; refreshAfterInactive = false; locating = false; locationError = null; manualLatitude.clear(); manualLongitude.clear(); }),
+                onPressed: () => setState(() { mapGeneration++; enabled = false; mapReady = false; locationGeneration++; inactiveGpsCentre = null; resumedGpsCentre = null; inactiveGpsGeneration = null; refreshAfterInactive = false; locating = false; locationError = null; manualLatitude.clear(); manualLongitude.clear(); }),
                 child: Text(t('Disable report map', 'إيقاف خريطة التقارير')),
               ),
             if (enabled && widget.allowViewportSearch)
@@ -575,15 +589,17 @@ class _PartnerReportMapState extends State<PartnerReportMap>
                   MediaQuery.sizeOf(context).height * 0.55,
                 ),
                 child: FlutterMap(
+                  key: ValueKey('published-map-$renderedMapGeneration'),
                   mapController: mapController,
                   options: MapOptions(
                     // Initial neutral world view is only a viewport-editing
                     // surface, never an invented station, GPS position or
                     // proof that any chargers exist around (0, 0).
-                    initialCenter: points.isEmpty
-                        ? const LatLng(0, 0)
-                        : LatLng(points.first.latitude, points.first.longitude),
-                    initialZoom: points.isEmpty ? 2 : 11,
+                    initialCenter: resumedGpsCentre ??
+                        (points.isEmpty
+                            ? const LatLng(0, 0)
+                            : LatLng(points.first.latitude, points.first.longitude)),
+                    initialZoom: resumedGpsCentre != null ? 12 : (points.isEmpty ? 2 : 11),
                     // The area action is disabled until FlutterMap has
                     // attached its controller, including on short screens
                     // where the lazily built map sits below the button.
