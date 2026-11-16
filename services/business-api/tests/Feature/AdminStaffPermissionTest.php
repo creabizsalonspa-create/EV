@@ -321,6 +321,25 @@ class AdminStaffPermissionTest extends TestCase
             ->assertJsonPath('total', 0);
     }
 
+    public function test_private_staff_revocation_history_rejects_invalid_pagination_without_audit(): void
+    {
+        [$admin, , , , $membership] = $this->fixture();
+        $this->actingAs($admin, 'web');
+        $base = '/api/admin/permission-grants/'.$membership->id.'/revocations';
+
+        foreach (['0', '-1', 'not-a-page', '1.5', '100001'] as $invalid) {
+            $this->getJson($base.'?page='.$invalid)->assertUnprocessable();
+        }
+        $this->assertSame(0, DB::table('audit_events')
+            ->where('action', 'admin.private_history.staff_viewed')->count());
+
+        $this->getJson($base.'?page=1')
+            ->assertOk()->assertJsonPath('total', 0)
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('action', 'admin.private_history.staff_viewed')->count());
+    }
+
     public function test_admin_staff_holds_and_releases_revalidate_fresh_identity_under_lock(): void
     {
         [$admin, , , , $membership] = $this->fixture();
