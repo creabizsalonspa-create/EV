@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
@@ -37,7 +38,87 @@ class InvoiceFixture extends FixtureApi {
   }
 }
 
+class DeferredInvoiceApi extends InvoiceFixture {
+  final pending = Completer<dynamic>();
+  int actorEpoch = 0;
+  @override
+  bool Function() sessionFence() {
+    final captured = actorEpoch;
+    return () => captured == actorEpoch;
+  }
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    expect(path, 'finance/sessions/7/invoice');
+    expect(method, 'POST');
+    requests++;
+    return pending.future;
+  }
+}
+
 void main() {
+  testWidgets('late old-account invoice result cannot repopulate financial actions', (
+    tester,
+  ) async {
+    final api = DeferredInvoiceApi();
+    addTearDown(api.close);
+    var expired = false;
+    await tester.pumpWidget(MaterialApp(
+      home: InvoicePage(api: api, sessionId: 7, onExpired: () => expired = true),
+    ));
+    await tester.pump();
+    api.actorEpoch++;
+    api.pending.complete({
+      'invoice': {
+        'number': 'PRIVATE-OLD-INVOICE',
+        'evidence': 'SIMULATED',
+        'id': 7,
+        'user_id': 123,
+        'minor_units': 2,
+        'currency': 'AED',
+      },
+      'payment_provider': 'SIMULATOR_ONLY',
+      'real_payment_processed': false,
+    });
+    await tester.pump();
+    await tester.pumpWidget(MaterialApp(
+      home: InvoicePage(api: api, sessionId: 7, onExpired: () => expired = true),
+    ));
+    await tester.pump();
+    expect(find.text('PRIVATE-OLD-INVOICE'), findsNothing);
+    expect(find.byType(OutlinedButton), findsNothing);
+    expect(expired, isFalse);
+    expect(api.requests, 1);
+  });
+
+  testWidgets('background discards invoice and never automatically replays POST', (
+    tester,
+  ) async {
+    final api = InvoiceFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: InvoicePage(api: api, sessionId: 7, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-FIXTURE'), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(find.text('SIM-FIXTURE'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(api.requests, 1);
+    expect(find.text('SIM-FIXTURE'), findsNothing);
+    await tester.ensureVisible(find.text('Refresh'));
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(api.requests, 2);
+    expect(find.text('SIM-FIXTURE'), findsOneWidget);
+  });
   testWidgets(
     'read-only simulated invoice displays actual minor-unit totals and clears private data on expiry',
     (tester) async {
