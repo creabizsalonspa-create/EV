@@ -87,6 +87,9 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($id, $actor, $version) {
+            $vendor = User::whereKey($actor)->lockForUpdate()->first();
+            abort_unless($vendor && $vendor->role === 'vendor'
+                && $vendor->account_status === 'active', 409, 'Vendor consent authority changed.');
             $hint = $this->account($id);
             User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
             $row = DB::table('commercial_payout_accounts')->where('id', $id)->lockForUpdate()->first();
@@ -109,6 +112,7 @@ class PayoutService
         $this->provider($account->provider)->verify($account);
 
         return DB::transaction(function () use ($account, $id, $actor) {
+            $this->currentAdmin($actor);
             User::whereKey($account->vendor_id)->lockForUpdate()->firstOrFail();
             $fresh = DB::table('commercial_payout_accounts')->where('id', $id)->lockForUpdate()->first();
             abort_if($fresh->status === 'revoked', 409);
@@ -124,7 +128,13 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($id, $actor) {
+            $reviewer = User::whereKey($actor)->lockForUpdate()->first();
+            abort_unless($reviewer && $reviewer->account_status === 'active'
+                && in_array($reviewer->role, ['vendor', 'admin'], true), 409,
+                'Payout account authority changed.');
             $hint = $this->account($id);
+            abort_unless($reviewer->role === 'admin'
+                || (int) $hint->vendor_id === $actor, 404);
             User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
             $row = DB::table('commercial_payout_accounts')->where('id', $id)->lockForUpdate()->first();
             if ($row->status !== 'revoked') {
