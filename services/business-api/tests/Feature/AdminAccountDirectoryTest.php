@@ -221,5 +221,4 @@ class AdminAccountDirectoryTest extends TestCase
             ->assertOk()->assertJsonPath('total', 1)
             ->assertJsonPath('data.0.id', $withSymbols->id);
     }
-
 }
