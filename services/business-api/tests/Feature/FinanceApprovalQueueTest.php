@@ -174,6 +174,58 @@ class FinanceApprovalQueueTest extends TestCase
         $this->assertDatabaseCount('commercial_adjustment_approvals', 1);
     }
 
+    public function test_revoked_admin_cannot_approve_refunds_or_read_private_financial_summary(): void
+    {
+        [$invoice, $refund] = $this->seedApprovals();
+        $this->actingAs($this->admin);
+        $record = DB::table('users')->where('id', $this->admin->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
+        $original = [
+            'role' => $record->role,
+            'account_status' => $record->account_status,
+            'auth_epoch' => $record->auth_epoch,
+            'password' => $record->password,
+        ];
+        $beforeAudits = DB::table('audit_events')->count();
+        foreach ([
+            ['role' => 'vendor'],
+            ['account_status' => 'suspended'],
+            ['auth_epoch' => (int) $record->auth_epoch + 1],
+            ['password' => Hash::make('revoked-finance-approver')],
+        ] as $change) {
+            DB::table('users')->where('id', $this->admin->id)->update($change);
+            $this->getJson('/approval-test/finance/report')->assertConflict();
+            $this->getJson('/approval-test/finance/refund-requests')->assertConflict();
+            $this->postJson('/approval-test/finance/refund-requests/'.$refund.'/review', [
+                'decision' => 'approve', 'note' => 'Must not approve under stale role',
+            ])->assertConflict();
+            DB::table('users')->where('id', $this->admin->id)->update($original);
+        }
+        $this->assertDatabaseHas('finance_refund_requests', [
+            'id' => $refund, 'status' => 'pending',
+        ]);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        $this->assertSame($beforeAudits, DB::table('audit_events')->count());
+        $this->assertDatabaseCount('finance_journals', 2);
+    }
+
+    public function test_suspended_customer_cannot_submit_new_refund_requests_using_cached_session(): void
+    {
+        [$invoice, $refund] = $this->seedApprovals();
+        $this->actingAs($this->customer);
+        DB::table('users')->where('id', $this->customer->id)
+            ->update(['account_status' => 'suspended']);
+        $this->postJson('/approval-test/finance/invoices/'.$invoice->id.'/refund-requests', [
+            'amount_minor' => 10, 'reason' => 'Suspended customer denied',
+            'idempotency_key' => 'must-not-create-second-refund',
+        ])->assertConflict();
+        $this->assertDatabaseCount('finance_refund_requests', 1);
+        $this->assertDatabaseHas('finance_refund_requests', [
+            'id' => $refund, 'status' => 'pending',
+        ]);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_unrepresentable_large_settlement_fails_closed_without_corrupting_invoice_or_payout(): void
     {
         $this->seedApprovals();
