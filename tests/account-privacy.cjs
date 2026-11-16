@@ -38,9 +38,13 @@ class Element {
 }
 function fixture() {
   const mine = new Element("div"),
-    admin = new Element("div"),
-    window = {};
+    admin = new Element("div");
   const listeners = new Map();
+  const window = {
+    addEventListener(event, handler) {
+      listeners.set("window:" + event, handler);
+    },
+  };
   const document = {
     hidden: false,
     addEventListener(event, handler) { listeners.set(event, handler); },
@@ -72,6 +76,7 @@ function fixture() {
   return { mine, admin, ...window.EvPrivacyRequests,
     hide() { document.hidden = true; listeners.get("visibilitychange")?.(); },
     show() { document.hidden = false; listeners.get("visibilitychange")?.(); },
+    pagehide() { listeners.get("window:pagehide")?.(); },
   };
 }
 function nodes(root, tag) {
@@ -629,6 +634,31 @@ test("private copy response stays sealed across a hidden-to-visible round trip",
   await view.onclick();
   assert.equal(reads, 2);
   assert.match(nodes(ui.mine, "pre")[0].textContent, /fresh-visible-copy@example.test/);
+});
+
+test("BFCache pagehide clears credentials and invalidates a pending access copy", async () => {
+  const ui = fixture();
+  let release;
+  ui.setSelfActor({ id: 3, role: "customer" }, (path, method = "GET") => {
+    if (method === "POST")
+      return new Promise(resolve => { release = resolve; });
+    return Promise.resolve(page([{ ...record, kind: "access",
+      copy: { status: "available", expires_at: "2026-11-20T00:00:00Z" } }]));
+  });
+  await tick();
+  const input = nodes(ui.mine, "input").find(x => x.type === "password");
+  input.value = "Sensitive for navigation";
+  const view = nodes(ui.mine, "button").find(x =>
+    x.textContent.startsWith("View private account copy"));
+  const pending = view.onclick();
+  ui.pagehide();
+  assert.equal(input.value, "");
+  release({ schema_version: 1, owner_id: 3, request_id: 22,
+    scope: "self_service_account_copy",
+    profile: { email: "forbidden-bfcache-reveal@example.test" } });
+  await pending;
+  assert.equal(nodes(ui.mine, "pre")[0].textContent, "");
+  assert(!ui.mine.textContent.includes("forbidden-bfcache-reveal@example.test"));
 });
 
 test("late private copy read cannot repopulate a hidden browser tab",async()=>{
