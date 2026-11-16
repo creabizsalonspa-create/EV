@@ -661,10 +661,27 @@ void main() {
     await tester.pump();
     expect(api.supportReads, 1);
     expect(find.text('Synthetic support thread'), findsNothing);
+    expect(
+      tester.widget<OutlinedButton>(
+        find.byKey(const Key('support-new-ticket')),
+      ).onPressed,
+      isNull,
+      reason: 'Unknown old ticket POST outcome requires refreshed history.',
+    );
+    expect(
+      find.text('Refresh this account history before taking another action.'),
+      findsOneWidget,
+    );
     await tester.state<SupportViewState>(find.byType(SupportView)).refresh();
     await tester.pumpAndSettle();
     expect(api.supportReads, 2);
     expect(find.text('Synthetic support thread'), findsOneWidget);
+    expect(
+      tester.widget<OutlinedButton>(
+        find.byKey(const Key('support-new-ticket')),
+      ).onPressed,
+      isNotNull,
+    );
   });
 
   testWidgets('revoked actor cannot mark notification read or load history', (
