@@ -21,6 +21,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\TestCase;
@@ -703,6 +704,39 @@ class SourceConsumerTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 1);
         $this->assertDatabaseCount('charger_commands', 1);
         $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+    }
+
+    public function test_source_identity_and_meter_cursor_history_refuse_lossy_migration_rollback(): void
+    {
+        $link = $this->link();
+        $cases = [
+            ['2026_11_16_000001_pin_charging_source_station_id.php', 'source_station_id', 8],
+            ['2026_11_16_000002_pin_source_transaction_database_row.php', 'source_transaction_database_id', 10],
+            ['2026_11_16_000003_unique_pinned_source_transaction_row.php', 'source_transaction_database_id', 10],
+            ['2026_11_16_000004_track_source_meter_cursor_time.php', 'source_meter_cursor_at',
+                now()->utc()->format('Y-m-d H:i:s.u')],
+        ];
+        foreach ($cases as [$path, $column, $value]) {
+            DB::table('csms_session_links')->where('id', $link->id)->update([$column => $value]);
+            $this->assertTrue(DB::table('csms_session_links')->whereKey($link->id)
+                ->whereNotNull($column)->exists());
+            $migration = require database_path('migrations/'.$path);
+            try {
+                $migration->down();
+                $this->fail('Retained source identity and cursor history must block schema rollback.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('before rollback', $error->getMessage());
+            }
+            $this->assertTrue(Schema::hasColumn('csms_session_links', $column));
+            $this->assertTrue(DB::table('csms_session_links')->whereKey($link->id)
+                ->whereNotNull($column)->exists());
+            if ($path === '2026_11_16_000003_unique_pinned_source_transaction_row.php') {
+                $this->assertTrue(Schema::hasIndex('csms_session_links', 'csms_link_binding_source_tx_unique'));
+            }
+            DB::table('csms_session_links')->where('id', $link->id)->update([$column => null]);
+        }
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public static function invalidSourceProjections(): array
