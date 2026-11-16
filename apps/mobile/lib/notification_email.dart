@@ -99,14 +99,203 @@ class _NotificationEmailState extends State<NotificationEmailView>
       if (!current(n)) return;
       final p = Map<String, dynamic>.from(results[0]);
       final h = Map<String, dynamic>.from(results[1]);
+      final receipts = h['receipts'];
       if (p['revision'] is! String ||
-          !RegExp(r'^(0|[1-9][0-9]{0,18})$').hasMatch(p['revision']) ||
+          !RegExp(r'^(0|[1-9][0-9]{0,18})
+    } catch (e) {
+      fail(e, n);
+    } finally {
+      if (current(n)) setState(() => busy = false);
+    }
+  }
+
+  Future<void> save(bool enabled) async {
+    if (!foreground ||
+        !authorized() ||
+        busy ||
+        preference == null ||
+        (enabled && !consent))
+      return;
+    final revision = preference!['revision'];
+    final n = ++generation;
+    setState(() {
+      busy = true;
+      consent = false;
+      error = null;
+    });
+    var success = false;
+    try {
+      await widget.api.request(
+        'notifications/email',
+        method: 'PUT',
+        body: {
+          'enabled': enabled,
+          'confirmed': enabled,
+          'expected_revision': revision,
+        },
+      );
+      if (!current(n)) return;
+      success = true;
+    } catch (e) {
+      fail(e, n);
+    } finally {
+      if (current(n)) setState(() => busy = false);
+    }
+    if (success && current(n)) await load();
+  }
+
+  String stateLabel(Object? state) => switch (state) {
+    'queued' => t('Queued', 'في الانتظار'),
+    'claimed' => t(
+      'Claimed; review if interrupted',
+      'تم الحجز؛ راجع عند الانقطاع',
+    ),
+    'handed_off' => t(
+      'Transport accepted; delivery unconfirmed',
+      'قبله النقل؛ التسليم غير مؤكد',
+    ),
+    'outcome_unknown' => t(
+      'Outcome unknown; no automatic retry',
+      'نتيجة غير معروفة؛ لا إعادة تلقائية',
+    ),
+    'cancelled' => t('Cancelled', 'ملغى'),
+    _ => t('Review required', 'تلزم المراجعة'),
+  };
+  @override
+  Widget build(BuildContext context) {
+    final p = preference;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(t('Email activity notices', 'إشعارات النشاط بالبريد')),
+      ),
+      body: !authorized()
+          ? Center(child: Text(t('Sign in again.', 'سجّل الدخول مجددًا.')))
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Text(
+                  t(
+                    'Optional generic notices to your verified account email. New unread activity only, at most once every 15 minutes. Details stay in your account. Delivery is never confirmed by transport acceptance.',
+                    'إشعارات عامة اختيارية لبريد حسابك الموثق للنشاط الجديد غير المقروء فقط، بحد أقصى مرة كل 15 دقيقة. تبقى التفاصيل في الحساب. قبول النقل لا يؤكد التسليم.',
+                  ),
+                ),
+                if (busy) const LinearProgressIndicator(),
+                if (error != null) Text(error!),
+                OutlinedButton(
+                  onPressed: busy ? null : () => load(number: page),
+                  child: Text(t('Refresh', 'تحديث')),
+                ),
+                if (p != null) ...[
+                  Text(
+                    p['consent_current'] == true
+                        ? t(
+                            'Enabled with current consent',
+                            'مفعّل بالموافقة الحالية',
+                          )
+                        : t(
+                            'No current delivery consent',
+                            'لا توجد موافقة إرسال حالية',
+                          ),
+                  ),
+                  if (p['configured'] != true)
+                    Text(
+                      t(
+                        'Server delivery is not configured.',
+                        'الإرسال غير مهيأ على الخادم.',
+                      ),
+                    ),
+                  if (p['verified_email_required'] == true)
+                    Text(
+                      t(
+                        'Verify your account email before enabling.',
+                        'وثّق بريد حسابك قبل التفعيل.',
+                      ),
+                    ),
+                  if (p['enabled'] == true)
+                    OutlinedButton(
+                      onPressed: busy ? null : () => save(false),
+                      child: Text(
+                        t('Disable email notices', 'تعطيل إشعارات البريد'),
+                      ),
+                    ),
+                  if (p['consent_current'] != true &&
+                      p['configured'] == true &&
+                      p['verified_email_required'] != true) ...[
+                    CheckboxListTile(
+                      value: consent,
+                      onChanged: busy
+                          ? null
+                          : (value) => setState(() => consent = value == true),
+                      title: Text(
+                        t(
+                          'I consent to generic email activity notices.',
+                          'أوافق على إشعارات النشاط العامة بالبريد.',
+                        ),
+                      ),
+                    ),
+                    FilledButton(
+                      onPressed: busy || !consent ? null : () => save(true),
+                      child: Text(t('Enable with consent', 'تفعيل بالموافقة')),
+                    ),
+                  ],
+                ],
+                Text(
+                  t(
+                    'Handoff history — delivery unconfirmed',
+                    'سجل النقل — التسليم غير مؤكد',
+                  ),
+                ),
+                for (final row
+                    in (history?['data'] as List? ?? const []).whereType<Map>())
+                  ListTile(
+                    title: Text(stateLabel(row['state'])),
+                    subtitle: Text(
+                      '${row['created_at']} · ${row['evidence'] ?? ''}',
+                    ),
+                  ),
+                if (page > 1)
+                  TextButton(
+                    onPressed: busy ? null : () => load(number: page - 1),
+                    child: Text(t('Previous', 'السابق')),
+                  ),
+                if (history != null &&
+                    (history!['current_page'] as int) <
+                        (history!['last_page'] as int))
+                  TextButton(
+                    onPressed: busy ? null : () => load(number: page + 1),
+                    child: Text(t('Next', 'التالي')),
+                  ),
+              ],
+            ),
+    );
+  }
+}
+).hasMatch(p['revision']) ||
+          p['enabled'] is! bool ||
+          p['consent_current'] is! bool ||
+          p['configured'] is! bool ||
+          p['verified_email_required'] is! bool ||
           h['delivery_confirmed'] != false ||
-          h['receipts'] is! Map)
+          h['automatic_retry'] != false ||
+          receipts is! Map ||
+          receipts['data'] is! List ||
+          (receipts['data'] as List).length > 25 ||
+          receipts['current_page'] is! int ||
+          receipts['last_page'] is! int ||
+          receipts['current_page'] != number ||
+          (receipts['last_page'] as int) < number ||
+          (receipts['last_page'] as int) > 100000 ||
+          (receipts['data'] as List).any(
+            (row) =>
+                row is! Map ||
+                row['state'] is! String ||
+                row['created_at'] is! String ||
+                (row['evidence'] != null && row['evidence'] is! String),
+          ))
         throw const FormatException();
       setState(() {
         preference = p;
-        history = Map<String, dynamic>.from(h['receipts']);
+        history = Map<String, dynamic>.from(receipts);
         page = number;
       });
     } catch (e) {
