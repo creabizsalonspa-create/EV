@@ -508,7 +508,7 @@ class SourceConsumerTest extends TestCase
     {
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['missing_stations', 'nonlist_authorizations', 'string_authorization_id', 'missing_transactions', 'nonlist_transactions'] as $kind) {
+            foreach (['missing_stations', 'nonlist_authorizations', 'string_authorization_id', 'missing_transactions', 'nonlist_transactions', 'non_array_transaction', 'missing_transaction_id', 'missing_meter_start', 'missing_start_time', 'missing_end_time', 'missing_is_active', 'missing_total_kwh'] as $kind) {
                 $cases[$protocol.'_'.$kind] = [$protocol, $kind];
             }
         }
@@ -561,6 +561,20 @@ class SourceConsumerTest extends TestCase
                 }
                 if ($bad && $kind === 'nonlist_transactions') {
                     $data['Transactions'] = ['record' => $records[0]];
+                }
+                if ($bad && $kind === 'non_array_transaction') {
+                    $data['Transactions'] = [null];
+                }
+                $missingFields = [
+                    'missing_transaction_id' => 'transactionId',
+                    'missing_meter_start' => 'meterStart',
+                    'missing_start_time' => 'startTime',
+                    'missing_end_time' => 'endTime',
+                    'missing_is_active' => 'isActive',
+                    'missing_total_kwh' => 'totalKwh',
+                ];
+                if ($bad && isset($missingFields[$kind])) {
+                    unset($data['Transactions'][0][$missingFields[$kind]]);
                 }
 
                 return Http::response(['data' => $data]);

@@ -192,6 +192,15 @@ class SourceConsumer
         if (count($records) > 1) {
             throw new RuntimeException('Multiple source transactions require reconciliation.');
         }
+        if ($records) {
+            $required = ['id', 'transactionId', 'remoteStartId', 'meterStart', 'startTime', 'endTime', 'isActive', 'totalKwh'];
+            if (! is_array($records[0]) || array_diff($required, array_keys($records[0])) !== [] ||
+                ! is_bool($records[0]['isActive']) || ! in_array(gettype($records[0]['transactionId']), ['string', 'integer'], true) ||
+                (string) $records[0]['transactionId'] === '' ||
+                ($records[0]['endTime'] !== null && ! is_string($records[0]['endTime']))) {
+                throw new RuntimeException('Malformed authenticated source transaction row requires reconciliation.');
+            }
+        }
         if (! $records || $records[0]['meterStart'] === null || ! $records[0]['startTime']) {
             // Initial provisioning can be incomplete. Once source start was
             // signed, disappearing/incomplete transaction evidence must never
