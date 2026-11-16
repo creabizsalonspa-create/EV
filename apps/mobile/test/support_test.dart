@@ -649,6 +649,37 @@ class NumericVisibilityTicketFixture extends SupportFixture {
   }
 }
 
+class BatteryNavigationFixture extends ActorScopedSupportFixture {
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path == 'notifications' && method == 'GET') {
+      return {
+        'data': [
+          {
+            'id': 3,
+            'kind': 'vehicle.battery.simulated',
+            'metadata': {
+              'source': 'simulator',
+              'vehicle_id': 11,
+              'battery_percent': 5,
+            },
+            'read_at': null,
+          },
+        ],
+        'current_page': 1,
+        'last_page': 1,
+        'total': 1,
+      };
+    }
+    return super.request(path, method: method, body: body, query: query);
+  }
+}
+
 class MalformedInboxFixture extends SupportFixture {
   bool malformedSupport = true, malformedNotifications = true;
 
@@ -688,6 +719,52 @@ class MalformedInboxFixture extends SupportFixture {
 }
 
 void main() {
+  testWidgets('retained notification discovery tap is fenced to the rendered account and read', (
+    tester,
+  ) async {
+    final api = BatteryNavigationFixture();
+    addTearDown(api.close);
+    final visited = <int>[];
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SupportView(
+          api: api,
+          onSessionExpired: () {},
+          onBatteryDiscovery: (id) async => visited.add(id),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    final discovery = find.widgetWithText(
+      TextButton, 'Find compatible chargers',
+    );
+    expect(discovery, findsOneWidget);
+    final retained = tester.widget<TextButton>(discovery).onPressed!;
+    retained();
+    expect(visited, [11]);
+
+    // The prior page's callback must not act even for the same account after
+    // an explicit re-read changes the page generation.
+    final state = tester.state<SupportViewState>(find.byType(SupportView));
+    await state.refresh();
+    await tester.pumpAndSettle();
+    retained();
+    expect(visited, [11]);
+
+    // A previously retained callback must never route the old vehicle for a
+    // newly authenticated actor, even if it is manually called after rotation.
+    final newRender = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, 'Find compatible chargers'),
+    ).onPressed!;
+    api.actorEpoch++;
+    newRender();
+    await tester.pump();
+    expect(visited, [11]);
+    expect(find.text('Find compatible chargers'), findsNothing);
+  });
+
   testWidgets('malformed support IDs and ticket targets fail closed until reread', (
     tester,
   ) async {
