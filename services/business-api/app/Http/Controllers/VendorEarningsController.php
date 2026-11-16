@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\SettlementService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -16,7 +17,9 @@ final class VendorEarningsController extends Controller
 {
     private function page(Request $request, int $vendor, SettlementService $service): array
     {
-        $actor = $request->user();
+        // Caller holds the account lock until the scoped earnings snapshot
+        // is materialized; cached former Vendor/Admin roles cannot read it.
+        $actor = app(CurrentFinanceReader::class)->requireCurrent($request);
         abort_unless($actor->role === 'admin' || ($actor->role === 'vendor' && (int) $actor->id === $vendor), 404);
         abort_unless(User::whereKey($vendor)->where('role', 'vendor')->exists(), 404);
 
@@ -105,13 +108,16 @@ final class VendorEarningsController extends Controller
 
     public function index(Request $request, int $vendor, SettlementService $service)
     {
-        return response()->json($this->page($request, $vendor, $service))
-            ->header('Cache-Control', 'private, no-store');
+        return DB::transaction(fn () => response()->json(
+            $this->page($request, $vendor, $service)
+        )->header('Cache-Control', 'private, no-store'), 3);
     }
 
     public function export(Request $request, int $vendor, SettlementService $service)
     {
-        $report = $this->page($request, $vendor, $service);
+        $report = DB::transaction(
+            fn () => $this->page($request, $vendor, $service), 3
+        );
 
         return response()->streamDownload(static function () use ($report): void {
             $output = fopen('php://output', 'wb');
