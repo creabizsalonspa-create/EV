@@ -28,6 +28,20 @@ int? providerDisputeNotificationTarget(Map<String, dynamic> row) {
   return metadata['external_dispute_id'] as int;
 }
 
+/// A notification is not an authority to discover another user's vehicle.
+/// Only simulator-sourced, finite percentage observations can open this route;
+/// the destination rechecks the current signed-in garage owner via the API.
+int? batteryDiscoveryNotificationTarget(Map<String, dynamic> row) {
+  if (row['kind'] != 'vehicle.battery.simulated') return null;
+  final metadata = row['metadata'];
+  if (metadata is! Map || metadata['source'] != 'simulator') return null;
+  final vehicle = metadata['vehicle_id'], percent = metadata['battery_percent'];
+  return vehicle is int && vehicle > 0 &&
+          percent is int && percent >= 0 && percent <= 100
+      ? vehicle
+      : null;
+}
+
 String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
   final data = row['metadata'];
   final metadata = data is Map ? data : const <String, Object>{};
@@ -954,13 +968,13 @@ class SupportViewState extends State<SupportView>
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       Text(s.t(row['read_at'] == null ? 'unread' : 'read')),
-                      if (row['kind'] == 'vehicle.battery.simulated' &&
-                          widget.onBatteryDiscovery != null)
+                      if (widget.onBatteryDiscovery != null &&
+                          batteryDiscoveryNotificationTarget(row) != null)
                         TextButton(
-                          onPressed: loading
+                          onPressed: loading || !authorized()
                               ? null
                               : () => widget.onBatteryDiscovery!(
-                                  row['metadata']['vehicle_id'] as int,
+                                  batteryDiscoveryNotificationTarget(row)!,
                                 ),
                           child: Text(
                             s.arabic
