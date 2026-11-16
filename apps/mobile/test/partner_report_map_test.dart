@@ -458,12 +458,19 @@ void main() {
     await tester.pump();
     pending.complete(const ForegroundFix(25.2,55.3,20));
     await tester.pumpAndSettle();
+    expect(tester.takeException(),isNull,
+      reason:'Consciously consented GPS must not mutate a building map while inactive');
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
+    expect(tester.takeException(),isNull,
+      reason:'An OS permission sheet must not leave a stale map frame on resumed');
     expect(find.byKey(const Key('unified-native-gps-error')),findsNothing);
     expect(selected,isEmpty,reason:'Permission result may pan map, never search');
     final search=find.byKey(const Key('unified-native-viewport-search'));
-    await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+    await tester.ensureVisible(search);await tester.pumpAndSettle();
+    expect(tester.takeException(),isNull,
+      reason:'Map scroll and layout must remain safe before explicit viewport submission');
+    await tester.tap(search);await tester.pumpAndSettle();
     expect(selected.length,1);
     expect(double.parse(selected.single['south']!),lessThan(25.2));
     expect(double.parse(selected.single['north']!),greaterThan(25.2));
