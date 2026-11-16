@@ -6,7 +6,7 @@ import 'package:creabiz_ev/notification_email.dart';
 import 'test_support.dart';
 
 class NoticeApi extends FixtureApi {
-  bool enabled = false, active = true, loseReply = false, configured = true;
+  bool enabled = false, active = true, loseReply = false, configured = true, malformedHistory = false;
   int writes = 0;
   Map<String, dynamic>? lastBody;
   @override
@@ -30,13 +30,15 @@ class NoticeApi extends FixtureApi {
         'delivery_confirmed': false,
         'automatic_retry': false,
         'receipts': {
-          'data': [
-            {
-              'state': 'outcome_unknown',
-              'created_at': '2026-11-14',
-              'evidence': 'SIMULATED_EMAIL_HANDOFF',
-            },
-          ],
+          'data': malformedHistory
+              ? 'untrusted private rows'
+              : [
+                  {
+                    'state': 'outcome_unknown',
+                    'created_at': '2026-11-14',
+                    'evidence': 'SIMULATED_EMAIL_HANDOFF',
+                  },
+                ],
           'current_page': 1,
           'last_page': 1,
         },
@@ -102,6 +104,26 @@ void main() {
       expect(find.text('Enabled with current consent'), findsOneWidget);
     },
   );
+  testWidgets('malformed email history fails closed and refresh recovers', (
+    tester,
+  ) async {
+    final api = NoticeApi();
+    await tester.pumpWidget(screen(api));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsOneWidget);
+    api.malformedHistory = true;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsNothing);
+    expect(find.textContaining('Outcome unavailable.'), findsOneWidget);
+    expect(find.byType(FilledButton), findsNothing);
+    api.malformedHistory = false;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsOneWidget);
+    expect(find.textContaining('Outcome unavailable.'), findsNothing);
+    expect(api.writes, 0);
+  });
   testWidgets('background hides private history and requires refresh', (
     tester,
   ) async {
