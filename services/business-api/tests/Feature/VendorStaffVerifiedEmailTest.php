@@ -2,12 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\VendorOpsController;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class VendorStaffVerifiedEmailTest extends TestCase
@@ -33,6 +36,51 @@ class VendorStaffVerifiedEmailTest extends TestCase
             'status' => 'approved',
             'trade_license_number' => 'PRIVATE-LICENSE',
             'license_expires_on' => now()->addYear()->toDateString(),
+        ]);
+    }
+
+    public function test_reassigned_invitation_cannot_be_accepted_using_stale_route_membership(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $previousRecipient = User::factory()->create(['role' => 'vendor']);
+        $currentRecipient = User::factory()->create(['role' => 'vendor']);
+        $company = $this->company($owner);
+        $membership = VendorCompanyStaff::create([
+            'company_id' => $company->id,
+            'user_id' => $previousRecipient->id,
+            'status' => 'invited',
+            'permissions' => ['company.read'],
+            'invitation_version' => 1,
+        ]);
+
+        // Keep the model from route binding in memory while another writer
+        // changes the authoritative recipient before the locked accept.
+        DB::table('vendor_company_staff')->where('id', $membership->id)
+            ->update(['user_id' => $currentRecipient->id]);
+        $request = Request::create('/api/vendor-ops/staff-invitations/'.$membership->id.'/accept', 'POST', [
+            'expected_version' => 1,
+        ]);
+        $request->setUserResolver(fn () => $previousRecipient);
+        try {
+            app(VendorOpsController::class)->accept($request, $membership);
+            $this->fail('Stale invitation recipient was granted a company scope.');
+        } catch (HttpException $exception) {
+            $this->assertSame(404, $exception->getStatusCode());
+        }
+        $this->assertDatabaseHas('vendor_company_staff', [
+            'id' => $membership->id, 'user_id' => $currentRecipient->id,
+            'status' => 'invited', 'invitation_version' => 1,
+        ]);
+        $this->assertSame(0, DB::table('audit_events')
+            ->where('action', 'vendor_ops.staff.accepted')->count());
+
+        // The persisted recipient can accept normally after email proof.
+        $this->actingAs($currentRecipient, 'web')
+            ->postJson('/api/vendor-ops/staff-invitations/'.$membership->id.'/accept', [
+                'expected_version' => 1,
+            ])->assertOk()->assertJsonPath('status', 'active');
+        $this->assertDatabaseHas('vendor_company_staff', [
+            'id' => $membership->id, 'user_id' => $currentRecipient->id, 'status' => 'active',
         ]);
     }
 
