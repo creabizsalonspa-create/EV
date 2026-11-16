@@ -55,6 +55,22 @@ class ExpiredDiscoveryApi extends EvApi {
   }) async => throw ApiException(status, 'Synthetic expired session');
 }
 
+class DeferredDiscoveryApi extends EvApi {
+  final pending = Completer<dynamic>();
+  int requests = 0;
+  DeferredDiscoveryApi() : super(Uri.parse('http://127.0.0.1:8000'));
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) {
+    requests++;
+    return pending.future;
+  }
+}
+
 void main() {
   test(
     'current expiry clears the owning native session; stale-generation conflicts never sign it out',
@@ -70,6 +86,39 @@ void main() {
       expect(expired, 1);
     },
   );
+  test('native discovery fences late old-epoch results, errors and next-account logout callbacks', () async {
+    final api = DeferredDiscoveryApi();
+    addTearDown(api.close);
+    var onExpired = 0;
+    final client = DiscoveryClient(api, onExpired: () => onExpired++);
+    final result = client.capabilities();
+    expect(api.requests, 1);
+    await api.forgetSession();
+    expect(client.currentSession(), false);
+    api.pending.completeError(const ApiException(401, 'Synthetic previous account expired'));
+    await expectLater(result, throwsA(isA<ApiException>()));
+    expect(onExpired, 0,
+        reason: 'Late previous-account 401 must never sign out the next account');
+    await expectLater(client.capabilities(), throwsA(isA<StateError>()));
+    expect(api.requests, 1,
+        reason: 'Stale discovery client must not submit another provider read');
+
+    final successApi = DeferredDiscoveryApi();
+    addTearDown(successApi.close);
+    final successClient = DiscoveryClient(successApi);
+    final pending = successClient.capabilities();
+    await successApi.forgetSession();
+    successApi.pending.complete({
+      'provider': 'geoapify',
+      'geocoding': true,
+      'routing': true,
+      'max_charging_stops': 3,
+    });
+    await expectLater(pending, throwsA(isA<StateError>()),
+        reason: 'Late previous-account provider result must not become new authority');
+    expect(successClient.currentSession(), false);
+  });
+
   test(
     'navigation URL is fixed-origin, bounded and preserves ordered stops',
     () {
