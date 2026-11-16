@@ -179,6 +179,83 @@ class ChargerConfigurationTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public static function invalidMessageProjections(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['missing_request', 'nonlist_request', 'string_request_id', 'relative_request_time',
+                'missing_reply', 'nonlist_reply', 'string_reply_id', 'relative_reply_time',
+                'wrong_reply_type', 'null_reply_payload'] as $kind) {
+                $cases[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidMessageProjections')]
+    public function test_malformed_correlated_message_projection_does_not_publish_a_configuration_snapshot(string $protocol, string $kind): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source($protocol);
+        $body = ['idempotency_key' => 'message-projection-'.$kind,
+            'reason' => 'Verify source-correlated device configuration evidence'];
+        $id = $this->postJson($f['path'], $body)->assertCreated()
+            ->assertJsonPath('status', 'transport_submitted')->json('id');
+
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($protocol, $kind) {
+            $this->assertStringEndsWith('/graphql', $request->url());
+            $query = $request->data()['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 7, 'isOnline' => true, 'protocol' => 'ocpp'.$protocol]],
+                ]]);
+            }
+            $replyQuery = str_contains($query, 'requestMessageId');
+            $row = $replyQuery
+                ? ['id' => 12, 'type' => 3, 'createdAt' => now()->toISOString(),
+                    'payload' => $protocol === '1.6'
+                        ? ['configurationKey' => [['key' => 'HeartbeatInterval', 'value' => '30']]]
+                        : ['getVariableResult' => [['component' => ['name' => 'OCPPCommCtrlr'],
+                            'variable' => ['name' => 'HeartbeatInterval'], 'attributeStatus' => 'Accepted', 'attributeValue' => '30']]]]
+                : ['id' => 11, 'createdAt' => now()->toISOString()];
+            $data = ['OCPPMessages' => [$row]];
+            if ($kind === ($replyQuery ? 'missing_reply' : 'missing_request')) {
+                unset($data['OCPPMessages']);
+            }
+            if ($kind === ($replyQuery ? 'nonlist_reply' : 'nonlist_request')) {
+                $data['OCPPMessages'] = ['row' => $row];
+            }
+            if ($kind === ($replyQuery ? 'string_reply_id' : 'string_request_id')) {
+                $data['OCPPMessages'][0]['id'] = '12';
+            }
+            if ($kind === ($replyQuery ? 'relative_reply_time' : 'relative_request_time')) {
+                $data['OCPPMessages'][0]['createdAt'] = 'tomorrow';
+            }
+            if ($replyQuery && $kind === 'wrong_reply_type') {
+                $data['OCPPMessages'][0]['type'] = '3';
+            }
+            if ($replyQuery && $kind === 'null_reply_payload') {
+                $data['OCPPMessages'][0]['payload'] = null;
+            }
+
+            return Http::response(['data' => $data]);
+        });
+
+        $this->postJson($f['path'].'/'.$id.'/observe')->assertStatus(503);
+        $this->assertDatabaseHas('charger_configuration_reads', [
+            'id' => $id, 'status' => 'transport_submitted',
+            'snapshot_ciphertext' => null, 'observed_at' => null,
+        ]);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/ocpp/'));
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_uncertain_transport_is_not_replayed_and_source_observation_does_not_dispatch(): void
     {
         $f = $this->fixture();

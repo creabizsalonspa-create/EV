@@ -39,6 +39,29 @@ class ConfigurationProbe
         return $r->json('data');
     }
 
+    /**
+     * Explicit source projection contract for a correlated configuration
+     * request/reply. The filters in a GraphQL query do not justify trusting
+     * an absent, malformed or unexpectedly typed response object.
+     */
+    public function messages(array $data, bool $reply): array
+    {
+        $rows = $data['OCPPMessages'] ?? null;
+        abort_unless(is_array($rows) && array_is_list($rows) && count($rows) <= 2, 503, 'Malformed source command messages.');
+        foreach ($rows as $row) {
+            abort_unless(is_array($row) && is_int($row['id'] ?? null) && $row['id'] > 0
+                && $row['id'] <= 2147483647 && is_string($row['createdAt'] ?? null), 503, 'Malformed source command identity.');
+            SourceStatusTime::parse($row['createdAt'], 300);
+            if ($reply) {
+                abort_unless(is_int($row['type'] ?? null) && in_array($row['type'], [3, 4], true)
+                    && array_key_exists('payload', $row)
+                    && ($row['type'] !== 3 || is_array($row['payload'])), 503, 'Malformed source command reply.');
+            }
+        }
+
+        return $rows;
+    }
+
     public function station(object $binding, bool $online = true): int
     {
         $data = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol}}', ['name' => $binding->identifier]);
