@@ -245,16 +245,21 @@ class SignedFirmwareTest extends TestCase
 
                         return Http::response(['data' => ['OCPPMessages' => $unknown ? [] : [$request]]]);
                     }
+                    // PostgreSQL sequences are not rolled back between
+                    // RefreshDatabase transactions. Correlate the fake status
+                    // to the real attempted operation instead of assuming
+                    // every test gets id=1 as on a freshly reset SQLite DB.
+                    $requestId = $r['variables']['match']['requestId'];
                     $status = ['id' => 42, 'createdAt' => now()->toISOString(),
-                        'payload' => ['status' => 'Installed', 'requestId' => 1]];
+                        'payload' => ['status' => 'Installed', 'requestId' => $requestId]];
                     if ($malformedReview === 'bad_status_list') {
                         return Http::response(['data' => ['OCPPMessages' => ['status' => $status]]]);
                     }
                     if ($malformedReview === 'wrong_status_request') {
-                        $status['payload']['requestId'] = 99;
+                        $status['payload']['requestId'] = $requestId + 1;
                     }
                     if ($malformedReview === 'string_status_request') {
-                        $status['payload']['requestId'] = '1';
+                        $status['payload']['requestId'] = (string) $requestId;
                     }
                     if ($malformedReview === 'missing_status_payload') {
                         unset($status['payload']);
