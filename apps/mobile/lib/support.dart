@@ -1247,7 +1247,8 @@ class _TicketPageState extends State<TicketPage>
     if (mounted && !foreground) setState(clearPrivate);
   }
 
-  void failed(Object e, int n, bool Function() session) {
+  void failed(Object e, int n, bool Function() session,
+      {bool preserveRetry = false}) {
     if (!current(n, session)) return;
     if (e is ApiException && [401, 419].contains(e.status)) {
       setState(clearPrivate);
@@ -1255,16 +1256,17 @@ class _TicketPageState extends State<TicketPage>
       return;
     }
     setState(() {
-      ticket = null;
-      messages = null;
-      freshRead = false;
+      if (!preserveRetry) {
+        ticket = null;
+        messages = null;
+        freshRead = false;
+      }
       error = e;
     });
   }
 
   Future<void> load({int page = 1}) async {
-    if (!foreground || !authorized() || loading ||
-        page < 1 || page > 100000) return;
+    if (!foreground || !authorized() || page < 1 || page > 100000) return;
     final session = widget.api.sessionFence();
     final n = ++generation;
     setState(() {
@@ -1313,7 +1315,10 @@ class _TicketPageState extends State<TicketPage>
   }
 
   Future<void> send() async {
-    if (!form.currentState!.validate() || loading) return;
+    if (loading || !freshRead || !foreground || !authorized() ||
+        !form.currentState!.validate()) return;
+    final session = widget.api.sessionFence();
+    final n = ++generation;
     setState(() {
       loading = true;
       error = null;
@@ -1329,17 +1334,20 @@ class _TicketPageState extends State<TicketPage>
         method: 'POST',
         body: {'body': text, 'idempotency_key': pendingReplyKey},
       );
+      if (!current(n, session)) return;
       pendingReplyBody = null;
       pendingReplyKey = null;
-      if (!mounted) return;
       reply.clear();
       await load(page: messages?.last ?? 1);
-      if (mounted && messages != null && messages!.current < messages!.last)
+      final fetched = generation;
+      if (current(fetched, session) &&
+          messages != null && messages!.current < messages!.last) {
         await load(page: messages!.last);
+      }
     } catch (e) {
-      failed(e);
+      failed(e, n, session, preserveRetry: true);
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (current(n, session)) setState(() => loading = false);
     }
   }
 
