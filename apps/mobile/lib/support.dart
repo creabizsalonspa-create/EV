@@ -598,8 +598,8 @@ class SupportViewState extends State<SupportView>
 
   Future<void> editNotificationPreferences() async {
     final prefs = savedPreferences;
-    if (!ensureActor() || !notifications || loading || prefs == null ||
-        !foreground) return;
+    if (!ensureActor() || !notifications || loading || !freshRead ||
+        prefs == null || !foreground) return;
     final dialogSession = widget.api.sessionFence();
     final dialogGeneration = generation;
     final dialogApi = widget.api;
@@ -752,8 +752,8 @@ class SupportViewState extends State<SupportView>
 
   Future<void> markCurrentRead() async {
     final throughId = latestNotificationId;
-    if (!ensureActor() || !notifications || loading || !foreground ||
-        throughId == null || throughId <= 0) return;
+    if (!ensureActor() || !notifications || loading || !freshRead ||
+        !foreground || throughId == null || throughId <= 0) return;
     final session = widget.api.sessionFence();
     final request = ++generation;
     setState(() {
@@ -782,7 +782,8 @@ class SupportViewState extends State<SupportView>
   }
 
   Future<void> markNotification(int id, {required bool read}) async {
-    if (!ensureActor() || !notifications || loading || !foreground || id <= 0) return;
+    if (!ensureActor() || !notifications || loading || !freshRead ||
+        !foreground || id <= 0) return;
     final session = widget.api.sessionFence();
     final request = ++generation;
     setState(() {
@@ -938,7 +939,8 @@ class SupportViewState extends State<SupportView>
               children: [
                 TextButton.icon(
                   key: const Key('notification-preferences-open'),
-                  onPressed: loading ? null : editNotificationPreferences,
+                  onPressed: loading || !freshRead || savedPreferences == null
+                      ? null : editNotificationPreferences,
                   icon: const Icon(Icons.tune),
                   label: Text(s.t('notificationPreferencesTitle')),
                 ),
