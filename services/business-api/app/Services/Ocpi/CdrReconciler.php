@@ -4,7 +4,6 @@ namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
-use Carbon\CarbonImmutable;
 
 /** A source comparison, never authorization to bill or a second financial ledger. */
 class CdrReconciler
@@ -49,7 +48,13 @@ class CdrReconciler
                 }
             }
             foreach (['start_date_time', 'end_date_time'] as $field) {
-                if (empty($n[$field]) || empty($s[$field]) || ! CarbonImmutable::parse($n[$field])->equalTo(CarbonImmutable::parse($s[$field]))) {
+                // Historical or corrupted normalized source rows are not
+                // guaranteed to satisfy the current strict ingestion schema.
+                // Carbon::parse would accept relative dates or silently roll
+                // invalid calendar days forward, and may throw on bad input.
+                $cdrInstant = $this->strictUtcInstant($n[$field] ?? null);
+                $sessionInstant = $this->strictUtcInstant($s[$field] ?? null);
+                if ($cdrInstant === null || $sessionInstant === null || $cdrInstant !== $sessionInstant) {
                     $issues[] = $field.'_mismatch';
                 }
             }
@@ -117,6 +122,24 @@ class CdrReconciler
         // A same-party source reference is not consent to change an invoice,
         // approve a refund, settle a partner or release a financial hold.
         return ['reference_state' => $state, 'financial_authority' => false, 'automatic_refund' => false];
+    }
+
+    private function strictUtcInstant(mixed $value): ?string
+    {
+        if (! is_string($value)
+            || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?Z$/D', $value)) {
+            return null;
+        }
+
+        $format = '!Y-m-d\\TH:i:s'.(str_contains($value, '.') ? '.u' : '').'\\Z';
+        $instant = \\DateTimeImmutable::createFromFormat($format, $value, new \\DateTimeZone('UTC'));
+        if ($instant === false || \\DateTimeImmutable::getLastErrors() !== false) {
+            return null;
+        }
+
+        // Normalization to six fractional digits makes equal instants compare
+        // exactly, without floats, server timezone, or relative-date parsing.
+        return $instant->format('Y-m-d\\TH:i:s.u\\Z');
     }
 
     private function decimal(mixed $value): ?string
