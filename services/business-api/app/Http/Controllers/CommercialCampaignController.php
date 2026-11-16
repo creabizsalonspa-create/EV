@@ -126,10 +126,18 @@ class CommercialCampaignController extends Controller
 
     public function action(Request $r, int $campaign, string $action, CampaignService $s)
     {
-        $this->scope($r)->where('id', $campaign)->first() ?? abort(404);
-        $v = $r->validate(['reason' => 'required|string|min:5|max:500', 'expected_control_revision' => 'sometimes|integer|min:1']);
+        return DB::transaction(function () use ($r, $campaign, $action, $s) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $this->scope($r)->where('id', $campaign)->first() ?? abort(404);
+            $v = $r->validate(['reason' => 'required|string|min:5|max:500',
+                'expected_control_revision' => 'sometimes|integer|min:1']);
 
-        return response()->json(['campaign' => $this->safe($s->action($campaign, $r->user(), $action, $v['reason'], isset($v['expected_control_revision']) ? (int) $v['expected_control_revision'] : null), $s)]);
+            return response()->json(['campaign' => $this->safe(
+                $s->action($campaign, $actor, $action, $v['reason'],
+                    isset($v['expected_control_revision'])
+                        ? (int) $v['expected_control_revision'] : null), $s
+            )])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function eligible(Request $r, CampaignService $s)
