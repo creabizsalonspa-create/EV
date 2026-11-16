@@ -69,6 +69,37 @@ class ChargerCommandTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_vendor_command_history_redacts_customer_tokens_without_corrupting_dispatch_input(): void
+    {
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($vendor);
+        $token = 'EV-1234567890ABCDEF';
+        $sourceSecret = 'PRIVATE-RESPONSE-ACCESS-TOKEN';
+        $command = ChargerCommand::create([
+            'actor_id' => $vendor->id, 'station_id' => $station->id,
+            'action' => 'start', 'idempotency_key' => 'redact-start',
+            'payload_hash' => str_repeat('a', 64),
+            'payload' => ['session_id' => 18, 'id_token' => $token],
+            'confirmation' => [
+                'success' => true,
+                'nested' => ['accessToken' => $sourceSecret],
+            ],
+        ]);
+        $this->actingAs($vendor)->getJson('/api/charger-commands')
+            ->assertOk()->assertJsonPath('data.0.id', $command->id)
+            ->assertJsonPath('data.0.payload.session_id', 18)
+            ->assertJsonPath('data.0.payload.id_token', '[REDACTED]')
+            ->assertJsonPath('data.0.confirmation.nested.accessToken', '[REDACTED]')
+            ->assertJsonPath('data.0.confirmation.success', true);
+        $serialized = json_encode($command->fresh(), JSON_THROW_ON_ERROR);
+        $this->assertStringNotContainsString($token, $serialized);
+        $this->assertStringNotContainsString($sourceSecret, $serialized);
+        $this->assertSame($token, $command->fresh()->payload['id_token']);
+        $this->assertSame($sourceSecret, $command->fresh()->confirmation['nested']['accessToken']);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_http_submission_does_not_claim_charger_acceptance_and_is_not_replayed(): void
     {
         config(['csms.simulator_enabled' => true]);
