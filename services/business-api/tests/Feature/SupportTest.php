@@ -355,7 +355,6 @@ class SupportTest extends TestCase
         $this->assertDatabaseCount('audit_events', 0);
     }
 
-
     public function test_stale_route_bound_support_ticket_owner_change_cannot_disclose_private_messages(): void
     {
         $firstOwner = User::factory()->create(['role' => 'customer']);
@@ -382,5 +381,4 @@ class SupportTest extends TestCase
         $this->assertSame($newOwner->id, $response->getData(true)['ticket']['user_id']);
         $this->assertSame('no-store, private', $response->headers->get('Cache-Control'));
     }
-
 }
