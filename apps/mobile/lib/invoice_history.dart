@@ -105,8 +105,30 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
       );
       if (!current(epoch, session)) return;
       final result = ApiPage.fromJson(response, (row) => row);
-      if (result.items.any((row) => row['evidence'] != 'SIMULATED'))
+      // Refuse malformed private invoice projections before building receipt
+      // navigation or formatting currency, rather than rendering null or
+      // granting a detail action with an unverified record identifier.
+      if (result.items.any((row) {
+        final id = row['id'];
+        final number = row['number'];
+        final date = row['created_at'];
+        final currency = row['currency'];
+        final total = row['total_minor'];
+        return row['evidence'] != 'SIMULATED' ||
+            id is! int ||
+            id < 1 ||
+            number is! String ||
+            number.isEmpty ||
+            number.length > 100 ||
+            date is! String ||
+            DateTime.tryParse(date) == null ||
+            currency is! String ||
+            !RegExp(r'^[A-Z]{3}$').hasMatch(currency) ||
+            total is! int ||
+            total < 0;
+      })) {
         throw const ApiException(409, 'Unsupported finance evidence.');
+      }
       if (current(epoch, session)) setState(() => data = result);
     } catch (e) {
       if (!current(epoch, session)) return;
