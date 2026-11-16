@@ -385,7 +385,7 @@ class AdminKycQueueTest extends TestCase
             }
         }
         $this->assertSame(0, DB::table('audit_events')
-            ->whereIn('action', ['review.history_viewed', 'document.metadata_viewed'])->count());
+            ->whereIn('action', ['vendor_ops.review.history_viewed', 'vendor_ops.document.metadata_viewed'])->count());
         $this->getJson($base.'/reviews?page=1')->assertOk()
             ->assertHeader('Cache-Control', 'no-store, private');
         $this->getJson($base.'/documents?page=1')->assertOk()
