@@ -121,7 +121,7 @@ void main() {
     oldApi.actorEpoch++;
     final newApi = HistoryApi()..failSecond = false;
     addTearDown(newApi.close);
-    await tester.pumpWidget(app(newApi, () => {}));
+    await tester.pumpWidget(app(newApi, () {}));
     await tester.pumpAndSettle();
     expect(find.text('SIM-HISTORY-7'), findsOneWidget);
 
