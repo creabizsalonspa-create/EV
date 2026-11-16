@@ -236,6 +236,9 @@ const { chromium } = require("playwright"),
     await refresh();
     const start = new Date(Date.now() + 3600000);
     start.setUTCMinutes(0, 0, 0);
+    // This fixture supplies a UTC instant, not a station-local wall time.
+    // Explicit UTC mode is mandatory when the station publishes a timezone.
+    await station.locator('select[data-booking-time-mode]').selectOption('utc');
     await station
       .locator("input[type=datetime-local]")
       .fill(start.toISOString().slice(0, 16));
