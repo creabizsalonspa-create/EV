@@ -15,7 +15,8 @@ class InvoiceHistoryView extends StatefulWidget {
   State<InvoiceHistoryView> createState() => _InvoiceHistoryViewState();
 }
 
-class _InvoiceHistoryViewState extends State<InvoiceHistoryView> {
+class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
+    with WidgetsBindingObserver {
   final prefix = TextEditingController(), currency = TextEditingController();
   final from = TextEditingController(), to = TextEditingController();
   final form = GlobalKey<FormState>();
@@ -24,15 +25,52 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView> {
   Object? error;
   bool busy = false;
   int generation = 0, target = 1;
+  late bool Function() authorized;
+  bool foreground = true;
+  bool current(int n, bool Function() session) =>
+      mounted && foreground && authorized() && session() && n == generation;
+
+  void clearPrivate() {
+    generation++;
+    data = null;
+    error = null;
+    busy = false;
+    target = 1;
+    filters = {};
+    prefix.clear();
+    currency.clear();
+    from.clear();
+    to.clear();
+  }
+
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
     load();
+  }
+
+  @override
+  void didUpdateWidget(covariant InvoiceHistoryView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api) {
+      clearPrivate();
+      authorized = widget.api.sessionFence();
+      if (foreground && authorized()) load();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (mounted && !foreground) setState(clearPrivate);
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
     prefix.dispose();
     currency.dispose();
     from.dispose();
@@ -41,6 +79,8 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView> {
   }
 
   Future<void> load({int page = 1}) async {
+    if (!foreground || !authorized() || busy) return;
+    final session = widget.api.sessionFence();
     final epoch = ++generation;
     target = page;
     setState(() {
@@ -49,26 +89,25 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView> {
       data = null;
     });
     try {
-      final result = ApiPage.fromJson(
-        await widget.api.request(
-          'finance/invoices',
-          query: {...filters, 'page': '$page'},
-        ),
-        (row) => row,
+      final response = await widget.api.request(
+        'finance/invoices',
+        query: {...filters, 'page': '$page'},
       );
+      if (!current(epoch, session)) return;
+      final result = ApiPage.fromJson(response, (row) => row);
       if (result.items.any((row) => row['evidence'] != 'SIMULATED'))
         throw const ApiException(409, 'Unsupported finance evidence.');
-      if (mounted && epoch == generation) setState(() => data = result);
+      if (current(epoch, session)) setState(() => data = result);
     } catch (e) {
-      if (mounted && epoch == generation) {
-        if (e is ApiException && [401, 419].contains(e.status)) {
-          widget.onExpired();
-          return;
-        }
-        setState(() => error = e);
+      if (!current(epoch, session)) return;
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        setState(clearPrivate);
+        widget.onExpired();
+        return;
       }
+      setState(() => error = e);
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch, session)) setState(() => busy = false);
     }
   }
 
@@ -86,6 +125,10 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView> {
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), page = data;
+    if (!authorized()) return Scaffold(
+      appBar: AppBar(title: Text(s.t('invoiceHistory'))),
+      body: Center(child: Text(s.t('expired'))),
+    );
     return Scaffold(
       appBar: AppBar(title: Text(s.t('invoiceHistory'))),
       body: RefreshIndicator(
