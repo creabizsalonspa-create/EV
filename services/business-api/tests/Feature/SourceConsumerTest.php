@@ -106,9 +106,9 @@ class SourceConsumerTest extends TestCase
                 $this->assertSame(2, $link->source_meter_cursor);
             }
             // The terminal source sample occurred before the source endTime,
-        // which the signed inbox recorded as last_event_at. A lost reply
-        // must not strand final cursor reconciliation or duplicate billing.
-        // Retry the exact persisted source identity after a lost response.
+            // which the signed inbox recorded as last_event_at. A lost reply
+            // must not strand final cursor reconciliation or duplicate billing.
+            // Retry the exact persisted source identity after a lost response.
             $this->assertSame(1, $consumer->consume($link->fresh(), $localInbox));
         }
         $this->assertDatabaseHas('charging_sessions', ['id' => $link->charging_session_id, 'status' => 'stopped', 'energy_wh' => 2500]);
@@ -287,6 +287,7 @@ class SourceConsumerTest extends TestCase
             }
             if (str_contains($query, 'Transactions')) {
                 $transactionReads++;
+
                 return Http::response(['data' => ['Transactions' => [[
                     'id' => $transactionRowId, 'transactionId' => $protocol === '1.6' ? '101' : 'source-station-identity',
                     'remoteStartId' => $link->start_command_id, 'meterStart' => '1.000',
