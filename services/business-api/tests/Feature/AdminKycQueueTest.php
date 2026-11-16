@@ -6,6 +6,7 @@ use App\Http\Controllers\VendorOpsController;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorKycDocument;
+use App\Models\VendorOps\VendorCompanyStaff;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -265,6 +266,67 @@ class AdminKycQueueTest extends TestCase
             'action' => 'admin.private_list.kyc_viewed',
             'subject' => 'status:approved;license:expired',
         ]);
+    }
+
+    public function test_reassigned_company_blocks_stale_owner_kyc_writes_and_permission_mutations(): void
+    {
+        $oldOwner = User::factory()->create(['role' => 'vendor']);
+        $newOwner = User::factory()->create(['role' => 'vendor']);
+        $staff = User::factory()->create(['role' => 'vendor']);
+        $company = $this->company($oldOwner, 'draft');
+        $membership = VendorCompanyStaff::create([
+            'company_id' => $company->id,
+            'user_id' => $staff->id,
+            'status' => 'active',
+            'permissions' => ['company.read'],
+            'invitation_version' => 1,
+        ]);
+        DB::table('vendor_companies')->where('id', $company->id)
+            ->update(['owner_id' => $newOwner->id]);
+
+        $controller = app(VendorOpsController::class);
+        $requestFor = function (string $method, array $data) use ($oldOwner): Request {
+            $request = Request::create('/api/vendor-ops/company', $method, $data);
+            $request->setUserResolver(fn () => $oldOwner);
+
+            return $request;
+        };
+        // The route-bound company object is deliberately still owned by the
+        // previous operator. Persisted owner checks inside the transaction
+        // must defeat it, even for staff grant revocation.
+        $attempts = [
+            fn () => $controller->updateCompany($requestFor('PATCH', [
+                'legal_name' => 'Wrong owner KYC edit',
+            ]), $company),
+            fn () => $controller->submit($requestFor('POST', []), $company),
+            fn () => $controller->invite($requestFor('POST', [
+                'email' => $staff->email, 'permissions' => ['inventory.read'],
+            ]), $company),
+            fn () => $controller->updateStaffPermissions($requestFor('PATCH', [
+                'expected_version' => 1, 'permissions' => ['inventory.read'],
+            ]), $company, $membership),
+            fn () => $controller->revoke($requestFor('DELETE', []), $company, $membership),
+        ];
+        foreach ($attempts as $attempt) {
+            try {
+                $attempt();
+                $this->fail('Stale company ownership authorized a privileged mutation.');
+            } catch (HttpException $error) {
+                $this->assertSame(404, $error->getStatusCode());
+            }
+        }
+        $this->assertDatabaseHas('vendor_companies', [
+            'id' => $company->id,
+            'owner_id' => $newOwner->id,
+            'status' => 'draft',
+            'legal_name' => $company->legal_name,
+        ]);
+        $this->assertDatabaseHas('vendor_company_staff', [
+            'id' => $membership->id,
+            'status' => 'active',
+            'invitation_version' => 1,
+        ]);
+        $this->assertDatabaseCount('audit_events', 0);
     }
 
     public function test_private_company_directory_and_detail_reject_stale_admin_sessions(): void
