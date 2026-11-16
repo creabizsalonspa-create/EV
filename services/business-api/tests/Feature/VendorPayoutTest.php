@@ -11,6 +11,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -47,6 +48,43 @@ class VendorPayoutTest extends TestCase
         $this->assertSame('vendor-payout-v1', DB::table('commercial_payout_accounts')->where('id', $f['account']->id)->value('consent_version'));
         $foreign = User::factory()->create(['role' => 'vendor']);
         $this->actingAs($foreign)->getJson('/payout-test/commercial/payout-accounts')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_revoked_vendor_or_admin_cannot_list_or_view_private_payout_accounts(): void
+    {
+        $f = $this->fixture();
+        $payout = $this->prepared($f, 'revoked-read-guard');
+        $before = DB::table('commercial_payout_events')->count();
+        foreach ([$f['vendor'], $f['maker']] as $reader) {
+            $row = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $row->role,
+                'account_status' => $row->account_status,
+                'auth_epoch' => $row->auth_epoch,
+                'password' => $row->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson('/payout-test/commercial/payout-accounts')->assertOk();
+            $this->getJson('/payout-test/commercial/payouts')->assertOk();
+            $this->getJson($this->path($payout))->assertOk();
+
+            foreach ([
+                ['role' => 'customer'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $row->auth_epoch + 1],
+                ['password' => Hash::make('rotated-private-payout-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $this->getJson('/payout-test/commercial/payout-accounts')->assertConflict();
+                $this->getJson('/payout-test/commercial/payouts')->assertConflict();
+                $this->getJson($this->path($payout))->assertConflict();
+                DB::table('users')->where('id', $reader->id)->update($original);
+            }
+        }
+        $this->assertSame($before, DB::table('commercial_payout_events')->count());
+        $this->assertDatabaseCount('commercial_payout_attempts', 0);
+        Http::assertNothingSent();
     }
 
     private function fixture(string $provider = 'mock'): array
