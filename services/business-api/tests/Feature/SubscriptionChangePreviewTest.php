@@ -7,6 +7,7 @@ use App\Services\Commercial\SubscriptionService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
@@ -173,6 +174,47 @@ class SubscriptionChangePreviewTest extends TestCase
         $this->getJson($url.'?plan_id='.$basic['id'])->assertConflict();
         $this->assertDatabaseCount('commercial_subscription_invoices', 1);
         $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+    }
+
+    public function test_cached_vendor_and_admin_credentials_cannot_read_next_cycle_terms_after_revocation(): void
+    {
+        [$admin, $vendor, $basic, $pro, $id] = $this->scenario();
+        $path = '/preview-test/commercial/subscriptions/'.$id.
+            '/change-preview?plan_id='.$pro['id'];
+        $beforeEvents = DB::table('commercial_subscription_events')->count();
+        $beforeInvoices = DB::table('commercial_subscription_invoices')->count();
+        $beforeReceipts = DB::table('commercial_subscription_receipts')->count();
+
+        foreach ([$vendor, $admin] as $reader) {
+            $snapshot = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $snapshot->role,
+                'account_status' => $snapshot->account_status,
+                'auth_epoch' => $snapshot->auth_epoch,
+                'password' => $snapshot->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson($path)->assertOk()->assertJsonPath('amount_due_now_minor', 0);
+
+            // DB-only updates keep this authenticated PHP model stale, as a
+            // concurrent suspension/credential change could in a web session.
+            foreach ([
+                ['role' => 'customer'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $snapshot->auth_epoch + 1],
+                ['password' => Hash::make('revoked-preview-session')],
+            ] as $mutation) {
+                DB::table('users')->where('id', $reader->id)->update($mutation);
+                $this->getJson($path)->assertConflict();
+                DB::table('users')->where('id', $reader->id)->update($original);
+            }
+            $this->getJson($path)->assertOk()->assertJsonPath('quote_is_binding', false);
+        }
+
+        $this->assertSame($beforeEvents, DB::table('commercial_subscription_events')->count());
+        $this->assertSame($beforeInvoices, DB::table('commercial_subscription_invoices')->count());
+        $this->assertSame($beforeReceipts, DB::table('commercial_subscription_receipts')->count());
     }
 
     public function test_bearer_native_preview_is_same_scoped_read_only_quote_without_admin_token_access(): void
