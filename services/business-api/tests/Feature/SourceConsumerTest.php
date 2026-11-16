@@ -18,6 +18,7 @@ use App\Services\Charging\SourceConsumer;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -116,8 +117,23 @@ class SourceConsumerTest extends TestCase
             // The terminal source sample occurred before the source endTime,
             // which the signed inbox recorded as last_event_at. A lost reply
             // must not strand final cursor reconciliation or duplicate billing.
-            // Retry the exact persisted source identity after a lost response.
-            $this->assertSame(1, $consumer->consume($link->fresh(), $localInbox));
+            // The daemon/one-shot selection must include already terminal
+            // links with a lagging source cursor. A manual consumer invocation
+            // previously worked, while the real worker silently skipped them.
+            $this->assertNotNull($link->fresh()->ended_at);
+            $this->assertSame(3, $link->fresh()->last_sequence);
+            $this->assertSame(2, $link->fresh()->source_meter_cursor);
+            $this->assertSame(0, Artisan::call('csms:consume', [
+                '--once' => true, '--link' => (string) $link->id,
+            ]));
+            $this->assertSame(3, $link->fresh()->source_meter_cursor);
+            $this->assertNotNull($link->fresh()->source_meter_cursor_at);
+            // Once converged, even the unfiltered command never reopens or
+            // duplicates the already finalized invoice.
+            $this->assertSame(0, Artisan::call('csms:consume', [
+                '--once' => true, '--link' => (string) $link->id,
+            ]));
+            $this->assertSame(0, $consumer->consume($link->fresh(), $localInbox));
         }
         $this->assertDatabaseHas('charging_sessions', ['id' => $link->charging_session_id, 'status' => 'stopped', 'energy_wh' => 2500]);
         $this->assertDatabaseCount('finance_invoices', 1);
