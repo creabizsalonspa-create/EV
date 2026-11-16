@@ -1355,6 +1355,12 @@ class _TicketPageState extends State<TicketPage>
   Widget build(BuildContext context) {
     final s = EvStrings.of(context);
     final page = messages;
+    if (!authorized()) {
+      return Scaffold(
+        appBar: AppBar(title: Text(s.t('ticket', {'id': widget.id}))),
+        body: Center(child: Text(s.t('expired'))),
+      );
+    }
     return Scaffold(
       appBar: AppBar(title: Text(s.t('ticket', {'id': widget.id}))),
       body: SafeArea(
@@ -1362,6 +1368,11 @@ class _TicketPageState extends State<TicketPage>
           padding: const EdgeInsets.all(16),
           children: [
             if (loading) const LinearProgressIndicator(),
+            if (!loading && ticket == null && error == null)
+              TextButton(
+                onPressed: foreground ? () => load() : null,
+                child: Text(s.t('refresh')),
+              ),
             if (error != null)
               Column(
                 children: [
@@ -1457,6 +1468,8 @@ class _TicketPageState extends State<TicketPage>
 
   @override
   void dispose() {
+    generation++;
+    WidgetsBinding.instance.removeObserver(this);
     reply.dispose();
     super.dispose();
   }
