@@ -47,7 +47,15 @@ class AdminKycQueueController extends Controller
         // license validity. Do not turn UTC midnight into an early expiry.
         // An invalid/missing region configuration is unknown, never "valid".
         $licenseCalendars = [];
+        // Empty timezone values are accepted as the SERVER default by date
+        // libraries. A missing/invalid country calendar cannot establish
+        // business-license validity; accept only explicit IANA identifiers.
+        $validTimezones = array_fill_keys(\DateTimeZone::listIdentifiers(), true);
         foreach (DB::table('regions')->get(['country', 'timezone']) as $region) {
+            if (! is_string($region->timezone)
+                || ! isset($validTimezones[$region->timezone])) {
+                continue;
+            }
             try {
                 $today = CarbonImmutable::now($region->timezone);
             } catch (\Throwable) {
