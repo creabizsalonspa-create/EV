@@ -81,13 +81,34 @@ class ConfigurationProbe
 
     public function snapshot(string $protocol, array $reply): array
     {
-        $items = $reply[$protocol === '1.6' ? 'configurationKey' : 'getVariableResult'] ?? [];
+        $field = $protocol === '1.6' ? 'configurationKey' : 'getVariableResult';
+        // An absent optional list may indicate unsupported values; an
+        // explicitly null or malformed list is not device evidence.
+        $items = array_key_exists($field, $reply) ? $reply[$field] : [];
         if (! is_array($items) || ! array_is_list($items) || count($items) > 50) {
             throw new RuntimeException('Invalid configuration reply.');
         }
-        $unknown = $reply['unknownKey'] ?? [];
-        if (! is_array($unknown) || ! array_is_list($unknown)) {
+        $unknown = array_key_exists('unknownKey', $reply) ? $reply['unknownKey'] : [];
+        if (! is_array($unknown) || ! array_is_list($unknown) || count($unknown) > 50) {
             throw new RuntimeException('Invalid configuration reply.');
+        }
+        foreach ($unknown as $key) {
+            if (! is_string($key) || strlen($key) > 120) {
+                throw new RuntimeException('Invalid configuration reply.');
+            }
+        }
+        foreach ($items as $item) {
+            if (! is_array($item) || ! is_array($item[$protocol === '1.6' ? 'key' : 'component'] ?? null)
+                && $protocol !== '1.6') {
+                throw new RuntimeException('Invalid configuration reply.');
+            }
+            if ($protocol === '1.6' && ! is_string($item['key'] ?? null)) {
+                throw new RuntimeException('Invalid configuration reply.');
+            }
+            if ($protocol === '2.0.1' && (! is_string($item['component']['name'] ?? null)
+                || ! is_string($item['variable']['name'] ?? null))) {
+                throw new RuntimeException('Invalid configuration reply.');
+            }
         }
         $rows = [];
         foreach ($this->fields($protocol) as $key) {

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Station;
+use App\Services\Charging\ConfigurationProbe;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
@@ -11,6 +12,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 use Tests\TestCase;
 
 class ChargerConfigurationTest extends TestCase
@@ -142,6 +144,37 @@ class ChargerConfigurationTest extends TestCase
             || str_contains($request->url(), '/ocpp/'));
         $this->assertDatabaseHas('charger_configuration_reads', ['id' => $id, 'status' => 'not_dispatched']);
         $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_malformed_configuration_reply_lists_never_provide_observed_source_settings(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $field = $protocol === '1.6' ? 'configurationKey' : 'getVariableResult';
+            $validItem = $protocol === '1.6'
+                ? ['key' => 'HeartbeatInterval', 'value' => '30']
+                : ['component' => ['name' => 'OCPPCommCtrlr'], 'variable' => ['name' => 'HeartbeatInterval'], 'attributeStatus' => 'Accepted', 'attributeValue' => '30'];
+            $malformed = [
+                [$field => null],
+                [$field => ['record' => $validItem]],
+                [$field => [null]],
+                [$field => [$protocol === '1.6' ? ['value' => '30'] : ['component' => ['name' => 'OCPPCommCtrlr']]]],
+                ['unknownKey' => null],
+                ['unknownKey' => ['record' => 'HeartbeatInterval']],
+                ['unknownKey' => [true]],
+                ['unknownKey' => array_fill(0, 51, 'unknown')],
+            ];
+            foreach ($malformed as $reply) {
+                try {
+                    app(ConfigurationProbe::class)->snapshot($protocol, $reply);
+                    $this->fail('Malformed authenticated OCPP configuration data was accepted.');
+                } catch (RuntimeException $error) {
+                    $this->assertSame('Invalid configuration reply.', $error->getMessage());
+                }
+            }
+        }
+        $this->assertDatabaseCount('charger_configuration_reads', 0);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
