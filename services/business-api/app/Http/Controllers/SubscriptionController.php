@@ -74,7 +74,7 @@ class SubscriptionController extends Controller
             $current = $this->currentActor($r);
             abort_unless($current->role === 'admin', 403);
             abort_unless(DB::table('commercial_plan_availability')->where('plan_id', $plan)
-                ->lockForUpdate()->exists(), 404);
+                ->lockForUpdate()->first(), 404);
             DB::table('commercial_plan_availability')->where('plan_id', $plan)
                 ->update(['available' => $v['available']]);
             DB::table('audit_events')->insert(['actor_id' => $current->id,
