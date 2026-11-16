@@ -160,7 +160,7 @@ class CorporateHostedCollectionTest extends TestCase
 
         $this->assertSame($before, DB::table('corporate_hosted_events')->count());
         $this->assertDatabaseHas('corporate_hosted_checkouts', [
-            'id' => $h['id'], 'status' => 'prepared',
+            'id' => $h['id'], 'status' => 'open',
         ]);
         $this->assertDatabaseCount('corporate_receipts', 0);
         Http::assertNothingSent();
