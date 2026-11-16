@@ -71,6 +71,18 @@ void main() {
         TextDirection.rtl);
     expect(tester.takeException(), isNull);
 
+    // Rotate back to a compact viewport after tablet navigation. The
+    // authenticated destination and Arabic direction must survive without
+    // rebuilding the account session or exposing a stale destination.
+    tester.view.physicalSize = const Size(800, 360);
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byType(NavigationRail), findsNothing);
+    expect(workspace.tab, 4);
+    expect(Directionality.of(tester.element(find.byType(Workspace))),
+        TextDirection.rtl);
+    expect(tester.takeException(), isNull);
+
     nextLink = 'reservations';
     NativeNavigationBridge.pending.value++;
     await tester.pump();
