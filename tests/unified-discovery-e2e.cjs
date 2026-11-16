@@ -25,6 +25,17 @@ let stage='fixture';
   await root.locator('input[name=access]').fill('');await root.locator('input[name=max_rate_per_kwh]').fill('١٫٥٠');await root.locator('input[name=price_currency]').fill('aed');
   advancedRead=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/discovery/search');await root.getByRole('button',{name:'Search all sources',exact:true}).click();advancedReply=await advancedRead;assert.equal(advancedReply.status(),200);assert.equal(new URL(advancedReply.url()).searchParams.get('max_rate_per_kwh'),'1.50');assert.equal(new URL(advancedReply.url()).searchParams.get('price_currency'),'AED');assert.equal((await advancedReply.json()).total,0);
   for(const key of ['operator','address','access','max_rate_per_kwh','price_currency'])await root.locator('input[name='+key+']').fill('');
+  stage='published-power';await root.locator('input[name=min_power_kw]').fill('١');
+  await root.locator('input[name=max_power_kw]').fill('١٠٠');
+  advancedRead=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/discovery/search');
+  await root.getByRole('button',{name:'Search all sources',exact:true}).click();
+  advancedReply=await advancedRead;assert.equal(advancedReply.status(),200);
+  assert.equal(new URL(advancedReply.url()).searchParams.get('min_power_kw'),'1');
+  assert.equal(new URL(advancedReply.url()).searchParams.get('max_power_kw'),'100');
+  advancedData=await advancedReply.json();assert.equal(advancedData.total,1,'Only the canonical published station has a comparable rated power');
+  assert.equal(advancedData.data[0].key,'catalog:'+f.station_id);
+  await root.locator('input[name=min_power_kw]').fill('');
+  await root.locator('input[name=max_power_kw]').fill('');
   advancedRead=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/discovery/search');await root.getByRole('button',{name:'Search all sources',exact:true}).click();assert.equal((await (await advancedRead).json()).total,2);await root.locator('[data-discovery-key="partner:'+f.record_id+'"]').waitFor();
   stage='favorites';for(const [kind,id,path] of [['catalog',f.station_id,'favorites'],['partner',f.record_id,'roaming/favorites']]){
    const saved=page.waitForResponse(r=>new URL(r.url()).pathname===`/api/${path}/${id}`&&r.request().method()==='PUT');

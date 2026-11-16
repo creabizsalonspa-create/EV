@@ -42,6 +42,15 @@ Platform station location country uses ISO alpha-2; normalized OCPI **location**
 Candidate tests: full Laravel SQLite/PostgreSQL supported-country filtering and source scoping, native EN/AR market selection and account reset, browser DOM pagination/viewport intersection and a real Laravel/Chromium combined-market search. Do not mark these tests as passed until exact-head CI completes. Other countries and actual provider acceptance remain pending product/contract scope.
 
 
+### Published rated-power filter — Agent 8 stacked candidate
+
+The unified authenticated search now accepts optional `min_power_kw` and `max_power_kw`, each a whole number from 1 to 1000. If both are supplied, minimum must not exceed maximum; invalid bounds return HTTP 422. The predicate applies to **existing `stations.power_kw` values**, the published platform station rating, before SQL union/count/pagination. It composes with optional supported country, explicit rectangular viewport, existing source/connector/text and saved filters. Partner OCPI reports are **excluded** whenever either power bound is supplied: their crowd/partner-reported power is not an authorized, comparable, current station power rating. An empty matching result is not a claim that no real charging location has the requested power.
+
+Both existing English/Arabic web and canonical Flutter advanced forms disclose this source limitation and normalize Arabic numerals. Empty values do not change unfiltered inventory. Submitted values persist across pagination and are cleared on session/context reset. No charger operation, connector-state claim, external provider lookup, licensed data call or physical-device change is added.
+
+Candidate acceptance includes Laravel SQLite and PostgreSQL numeric-bound validation, source isolation, pre-union pagination and combined country+viewport intersections, browser DOM & live Laravel/Chromium synthetic fixtures, Flutter EN/AR filter input and page-state tests, plus hosted platform/native CI. This stacked candidate depends on Agent 8 viewport/country PR #137 and must not be merged before that dependency and all exact-head gates pass.
+
+
 ### Native mixed-source pin grouping (Agent 8 independent stacked candidate)
 
 The existing opt-in Flutter report map groups *only already-loaded* published platform and authorized partner map points into an approximately 48-pixel Web-Mercator grid at the current map zoom. Grouping preserves original source order and never fabricates a centroid location; the group pin is anchored on its first existing public coordinate. A count of `N` means **N separate loaded source records, not N verified chargers**, connectors, free ports, or capacity. Opening a group displays each source-labelled location separately, allowing a read-only detail view with original provenance and the unverified-availability warning. Zoom changes recompute the display grouping, without a new API call, device GPS or additional tile permissions. Source/favorite/search API behavior is unchanged.
