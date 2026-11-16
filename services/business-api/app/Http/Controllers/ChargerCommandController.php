@@ -40,6 +40,9 @@ class ChargerCommandController extends Controller
 
     public function index(Request $r)
     {
+        // Station ownership can outlive a role demotion. Former vendors must
+        // not retain historical command-access privileges after demotion.
+        abort_unless(in_array($r->user()->role, ['admin', 'vendor'], true), 403);
         $q = ChargerCommand::query();
         if ($r->user()->role !== 'admin') {
             $q->whereIn('station_id', Station::where('vendor_id', $r->user()->id)->select('id'));

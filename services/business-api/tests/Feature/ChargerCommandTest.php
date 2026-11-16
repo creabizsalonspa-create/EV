@@ -101,6 +101,30 @@ class ChargerCommandTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_role_demoted_vendor_cannot_read_charging_command_history(): void
+    {
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($vendor);
+        $command = ChargerCommand::create([
+            'actor_id' => $vendor->id, 'station_id' => $station->id,
+            'action' => 'start', 'idempotency_key' => 'history-before-demotion',
+            'payload_hash' => str_repeat('f', 64),
+            'payload' => ['id_token' => 'EV-DEADBEEF01234567'],
+        ]);
+        $this->actingAs($vendor)->getJson('/api/charger-commands')
+            ->assertOk()->assertJsonPath('data.0.id', $command->id)
+            ->assertJsonPath('data.0.payload.id_token', '[REDACTED]');
+        DB::table('users')->where('id', $vendor->id)->update([
+            'role' => 'customer', 'auth_epoch' => $vendor->auth_epoch + 1,
+        ]);
+        $this->actingAs($vendor->fresh())->getJson('/api/charger-commands')->assertForbidden();
+        $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->getJson('/api/charger-commands')->assertOk()
+            ->assertJsonPath('data.0.id', $command->id);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_http_submission_does_not_claim_charger_acceptance_and_is_not_replayed(): void
     {
         config(['csms.simulator_enabled' => true]);
