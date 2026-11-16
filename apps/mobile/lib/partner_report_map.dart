@@ -389,6 +389,10 @@ class _PartnerReportMapState extends State<PartnerReportMap>
       ),
       body: SafeArea(
         child: ListView(
+          // The map comes after the optional manual/GPS controls. Once
+          // consented, build it within a short-screen cache region so the
+          // controller can attach before the area Search button is used.
+          cacheExtent: enabled ? 2000.0 : null,
           padding: const EdgeInsets.all(12),
           children: [
             if (points.any((p)=>p.platformCatalog)) Text(t('Only the loaded platform and authorized partner results are shown. Source labels remain distinct; no verified live availability, charging or billing.','تُعرض نتائج المنصة والشركاء المصرح لهم المحملة فقط. تظل تسميات المصادر مميزة؛ لا تحقق من التوفر المباشر أو الشحن أو الفوترة.'))
