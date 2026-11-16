@@ -147,11 +147,12 @@ class SubscriptionController extends Controller
 
     public function change(Request $r, int $subscription, SubscriptionService $s)
     {
-        $v = $r->validate(['action' => ['required', Rule::in(['change_plan', 'cancel_at_period_end', 'cancel_now', 'resume'])], 'plan_id' => 'required_if:action,change_plan|nullable|integer|min:1', 'idempotency_key' => 'required|string|max:100']);
-
-        return DB::transaction(function () use ($r, $subscription, $s, $v) {
+        return DB::transaction(function () use ($r, $subscription, $s) {
             $current = $this->currentActor($r);
+            // Never disclose a private subscription's existence through
+            // validation errors before current-account owner authorization.
             $s->access($current, $subscription);
+            $v = $r->validate(['action' => ['required', Rule::in(['change_plan', 'cancel_at_period_end', 'cancel_now', 'resume'])], 'plan_id' => 'required_if:action,change_plan|nullable|integer|min:1', 'idempotency_key' => 'required|string|max:100']);
 
             return response()->json($s->change($current, $subscription, $v['action'],
                 isset($v['plan_id']) ? (int) $v['plan_id'] : null, $v['idempotency_key']));
@@ -160,11 +161,11 @@ class SubscriptionController extends Controller
 
     public function mockPayment(Request $r, int $subscription, SubscriptionService $s)
     {
-        $v = $r->validate(['invoice_id' => 'required|integer|min:1', 'outcome' => ['required', Rule::in(['succeeded', 'failed'])], 'idempotency_key' => 'required|string|max:100']);
-
-        return DB::transaction(function () use ($r, $subscription, $s, $v) {
+        return DB::transaction(function () use ($r, $subscription, $s) {
             $current = $this->currentActor($r);
+            // Authorize private subscription before revealing form validity.
             $s->access($current, $subscription);
+            $v = $r->validate(['invoice_id' => 'required|integer|min:1', 'outcome' => ['required', Rule::in(['succeeded', 'failed'])], 'idempotency_key' => 'required|string|max:100']);
 
             return response()->json($s->mockPay($current, $subscription,
                 (int) $v['invoice_id'], $v['outcome'], $v['idempotency_key']));
