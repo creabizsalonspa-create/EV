@@ -41,6 +41,26 @@ The successful protocol-run output is retained in `docs/evidence/charging-protoc
 
 These protocol tests do not by themselves establish Laravel-to-CSMS transaction correlation, event-inbox authenticity/deduplication, final business invoice/payment reconciliation, physical charger safety, complete OCPP conformance, diagnostics/firmware controls, or production operational resilience. The Laravel business bridge and its separate end-to-end evidence must be verified independently before claiming the entire customer/vendor charging-to-invoice workflow.
 
+## Bounded meter-source page integrity
+
+The restartable OCPP simulator source reader validates the complete Hasura
+`MeterValues` page **before advancing any durable source meter cursor**,
+including voltage/non-energy records that are intentionally not billed.
+Only ordered, strictly increasing positive integer source row identifiers
+within the signed inbox's sequence bound, an actual array of sampled values,
+explicit source timestamps and a maximum of 100 rows per page are accepted.
+Missing pages, overlong pages, unknown timestamps and re-ordered/repeated
+row IDs stop reconciliation without skipping the original unread row.
+Neither a failed read nor a duplicate cumulative register issues a new
+charging command or fabricates energy. Previous signed start observations
+remain durable; final invoices are still issued only from an authenticated
+terminal cumulative register matching CitrineOS final energy.
+
+Both OCPP 1.6 and 2.0.1 are covered by `SourceConsumerTest` malformed-page,
+restart, duplicate-register and single-invoice regressions. These fixtures
+exercise the canonical local-simulator source and signed inbox; they do not
+represent full upstream conformance or physical charger acceptance.
+
 ## Fault observation cursor integrity
 
 The bounded local CitrineOS fault observer validates the recognized OCPP

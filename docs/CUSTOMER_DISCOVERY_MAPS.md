@@ -15,6 +15,33 @@ Tests: new browser suite verifies no pre-consent tiles, GPS opt-in, null-coordin
 Not complete: partner favorites and unified partner maps; native GPS; approved-provider address autocomplete; route planning/stops, verified road distances/times; reviews/moderation; saved places; fuller amenities/garage/preferences; commercial estimates and reminders. No physical charger, live roaming, provider SLA, real-device GPS or production navigation acceptance is inferred. The fixed original42-category/312-item inventory and weights remain unchanged, with no broad discovery credit for this partial scope.
 
 
+## Agent 8 viewport search candidate — 15 November 2026
+
+The authenticated unified discovery browser now offers **Search platform and partner locations in this map view** when the user has explicitly enabled Leaflet. This is a distinct action from the existing bounded-radius partner lookup. Panning, zooming, enabling tiles, setting GPS, changing pin layers and displaying an already-loaded page never trigger the unified search. The button sends only the visible north/south/west/east bounds on an explicit click; no raw GPS fix, saved preference or third-party provider lookup is added.
+
+`GET /api/discovery/search` and `GET /api/v1/discovery/search` accept optional `south,north,west,east` (all four or none; latitude -90..90, longitude -180..180, north > south, east != west). West > east represents an antimeridian-crossing view. A viewport covering the whole Earth uses west=-180, east=180. Filtering happens against both existing authorized/published inventories **before** the SQL union/count/pagination, so an empty result is not an assertion that every site on Earth is known or that no physical charger exists. Partner candidates with missing or nonnumeric normalized coordinates are excluded. Bounds are never interpolated into SQL and no provider credentials or private OCPI records enter the public projection.
+
+The existing form filters, saved-state permissions, 25-row pagination, literal source evidence, unknown physical availability and existing role/authentication gates remain in force. Search results persist within the page until another explicit query or account reset. A regular form search clears the old viewport. Map pins remain the loaded page only, not a comprehensive viewport overlay.
+
+**Candidate validation to complete on the exact branch head:** Laravel `UnifiedDiscoveryTest` for web/native endpoints and PostgreSQL/SQLite, Node `tests/unified-discovery.cjs`, real Chromium `tests/discovery-map.cjs`, existing mapping/OCM suites and the hosted integration matrix. No live provider or device was contacted by implementation. Do not mark the original 312-item inventory as fully tested or production accepted based on an unmerged candidate.
+
+
+### Native Flutter viewport parity (Agent 8 candidate)
+
+The existing canonical `UnifiedDiscoveryView` now opens the existing, opt-in, source-labelled `PartnerReportMap` with a **Search platform and partner locations in this map view** action. Map taps, pan/zoom, tiles and ordinary map opening never query the catalog. The map returns sanitized, six-decimal bounds to the already-authenticated `discovery/search` client only when the driver explicitly taps that action. Bounds persist across pagination and are cleared by ordinary form search or account change. The view rechecks session epoch and app foreground state after the map route returns, preventing an expired account or backgrounded map from sending stale coordinates. No second native app, provider adapter, OCPI command or charging authority is added.
+
+Viewport geometry has focused pure-data tests for antimeridian/whole-world and invalid/degenerate bounds. Existing map tests gain a consent-based route-result contract. Unified native widget tests cover EN/AR map-to-query, pagination, no implicit tile/API requests and ordinary-search reset. These must pass with the pinned Flutter toolchain and device matrices on the exact final PR head before integration.
+
+
+### Explicit supported-market filtering (Agent 8 candidate, November 2026)
+
+The authenticated unified discovery endpoint and both web/Flutter clients now accept a **user-selected country** for the initial launch markets: `AE` (United Arab Emirates), `US` (United States), and `CA` (Canada). An empty selection means no country restriction and does **not** imply that the provider inventory covers every country. The filter is applied to the published platform and authorized, published partner catalogs **before** stable union pagination and composes with viewport rectangles, existing connector/text/access/price filters and saved-place rules.
+
+Platform station location country uses ISO alpha-2; normalized OCPI **location** country is alpha-3 (`AE→ARE`, `US→USA`, `CA→CAN`). The OCPI party's `country_code` is intentionally ignored as a location classifier. These three explicitly mapped markets are the supported combined-search rollout, not a declaration of complete worldwide ISO mapping. Other country values fail request validation (422), rather than silently returning incomplete cross-source results. Both clients keep submitted country across paging, and clear it on account-context change. This adds no location collection, external provider query, authenticated charging authority or live availability claim.
+
+Candidate tests: full Laravel SQLite/PostgreSQL supported-country filtering and source scoping, native EN/AR market selection and account reset, browser DOM pagination/viewport intersection and a real Laravel/Chromium combined-market search. Do not mark these tests as passed until exact-head CI completes. Other countries and actual provider acceptance remain pending product/contract scope.
+
+
 ### Native route-stop connector suitability control — Agent 8 isolated candidate
 
 The existing read-only web and Flutter route planners now include an **explicit advertised-connector filter** for CCS2, Type2, CHAdeMO, or all catalog labels. It only consults the already-loaded station records; selecting a connector does not call a provider or device. Candidate stops with different advertised connector types are visible but cannot be newly added. An already-selected incompatible stop is retained and visibly identified as a conflict rather than silently removed from the itinerary. Both route preview and external-navigation actions remain disabled until the user removes conflicting stops or changes the filter. Changing the filter invalidates a previous route estimate and fences any in-flight response by generation.

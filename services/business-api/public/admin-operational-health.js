@@ -7,6 +7,7 @@ window.EvAdminOperationalHealth = (() => {
     const plain = (tag, value) => {const e=document.createElement(tag);e.textContent=String(value);return e;};
     const states = {recent:['Recent observation at snapshot','ملاحظة حديثة عند القراءة'],stale:['Observation expired','انتهت صلاحية الملاحظة'],unknown:['Unknown','غير معروف'],disabled:['Monitoring disabled','المراقبة متوقفة']};
     const exact = x => Number.isSafeInteger(x) && x >= 0;
+    const incidentNames = {queue_worker_stale:['Queue worker observation expired','انتهت صلاحية ملاحظة عامل قائمة الانتظار'],scheduler_stale:['Scheduler observation expired','انتهت صلاحية ملاحظة المجدول'],queue_backlog:['Ready queue is backed up','تراكم المهام الجاهزة'],queue_failed_jobs:['Recorded queue failures','إخفاقات مسجلة في قائمة الانتظار'],email_handoff_uncertain:['Uncertain email handoff needs operator review','تسليم البريد الإلكتروني غير المؤكد يحتاج إلى مراجعة المشغل']};
     function erase() {sequence++;request?.abort();request=null;output?.replaceChildren();if(refresh)refresh.disabled=false;}
     function clear() {revision++;erase();api=null;root.replaceChildren();}
     function valid(d) {
@@ -16,7 +17,18 @@ window.EvAdminOperationalHealth = (() => {
         const q=d.queue;if(!q||!['available','unavailable','unsupported','disabled'].includes(q.state))return false;
         const keys=['ready','reserved','delayed','failed','oldest_ready_age_seconds'];
         if(!d.enabled&&(q.state!=='disabled'||!d.components.every(c=>c.state==='disabled')))return false;
-        return q.state==='available' ? keys.every(k=>q[k]===null||exact(q[k]))&&['ready','reserved','delayed'].every(k=>exact(q[k])) : keys.every(k=>q[k]===null);
+        const validQueue=q.state==='available' ? keys.every(k=>q[k]===null||exact(q[k]))&&['ready','reserved','delayed'].every(k=>exact(q[k])) : keys.every(k=>q[k]===null);
+        const i=d.incidents;
+        if(i!==undefined) {
+            if(!i || typeof i.store_readable!=='boolean' || typeof i.monitoring_enabled!=='boolean' || i.automatic_retry!==false || i.external_alert_delivery!==false || i.production_recovery_verified!==false || !Array.isArray(i.open) || !Array.isArray(i.recent_events) || i.open.length>5 || i.recent_events.length>20) return false;
+            if(!i.open.every(v=>Object.hasOwn(incidentNames,v.condition_key)&&v.state==='open'&&typeof v.opened_at==='string'))return false;
+            if(!i.recent_events.every(v=>exact(v.id)&&Object.hasOwn(incidentNames,v.condition_key)&&['opened','resolved'].includes(v.transition)&&typeof v.observed_at==='string'))return false;
+        }
+        const e=d.email_handoff;
+        if(e!==undefined && (!e || !['available','unavailable'].includes(e.state) || e.age_threshold_seconds!==900 ||
+            e.delivery_confirmed!==false || e.automatic_retry!==false || (e.state==='available' ?
+            !exact(e.outcome_unknown)||!exact(e.stale_claimed) : e.outcome_unknown!==null||e.stale_claimed!==null)))return false;
+        return validQueue;
     }
     async function load() {
         if(!api||document.hidden)return;erase();const own=revision, run=sequence, controller=new AbortController();request=controller;refresh.disabled=true;
@@ -32,6 +44,26 @@ window.EvAdminOperationalHealth = (() => {
             const q=d.queue;output.append(n('h4','Default queue snapshot','لقطة قائمة الانتظار الافتراضية'));
             if(q.state!=='available')output.append(n('p','Queue counts unavailable for this snapshot or transport. Unknown is not zero.','أعداد قائمة الانتظار غير متاحة لهذه اللقطة أو وسيلة النقل. المجهول ليس صفراً.'));
             for(const [key,en,ar]of[['ready','Ready jobs','المهام الجاهزة'],['reserved','Reserved jobs','المهام المحجوزة'],['delayed','Delayed jobs','المهام المؤجلة'],['failed','Recorded failed jobs','المهام الفاشلة المسجلة'],['oldest_ready_age_seconds','Oldest ready job age (seconds)','عمر أقدم مهمة جاهزة (ثوانٍ)']]){const line=document.createElement('p');line.append(n('span',en+': ',ar+': '),q[key]===null?n('span','Unknown','غير معروف'):plain('span',q[key]));output.append(line);}
+            if(d.email_handoff) {
+                output.append(n('h4','Email handoff review (no automatic resend)','مراجعة تسليم البريد الإلكتروني (دون إعادة إرسال تلقائي)'));
+                const e=d.email_handoff;
+                if(e.state!=='available')output.append(n('p','Email handoff receipts unavailable. Unknown is not zero.','سجلات تسليم البريد غير متاحة. المجهول ليس صفراً.'));
+                else for(const [key,en,ar] of [['outcome_unknown','Unknown transport outcomes','نتائج نقل غير مؤكدة'],['stale_claimed','Claims awaiting review (15+ minutes)','مطالبات تنتظر المراجعة (15 دقيقة فأكثر)']]) {
+                    const line=document.createElement('p');line.append(n('span',en+': ',ar+': '),plain('span',e[key]));output.append(line);
+                }
+                output.append(n('p','Handoff never confirms mailbox delivery. No automatic retries occur.','تسليم الرسالة إلى الناقل لا يؤكد وصولها للبريد. لا تحدث إعادات إرسال تلقائية.'));
+            }
+            if(d.incidents) {
+                const i=d.incidents;output.append(n('h4','Operational incident timeline (read-only)','السجل الزمني للحوادث التشغيلية (للقراءة فقط)'));
+                output.append(n('p','Conditions are derived from local observations only. No external alert was delivered or command retried.','الحالات مستمدة من الملاحظات المحلية فقط. لم يُرسل تنبيه خارجي ولم تُعَد أي أوامر.'));
+                if(!i.store_readable)output.append(n('p','Incident history unavailable; do not assume there are no incidents.','سجل الحوادث غير متاح؛ لا تفترض عدم وجود حوادث.'));
+                else {
+                    if(!i.open.length)output.append(n('p','No currently recorded open incidents. Unknown monitoring is not proof of health.','لا توجد حوادث مفتوحة مسجلة حالياً. عدم معرفة حالة المراقبة ليس دليلاً على السلامة.'));
+                    for(const item of i.open){const a=document.createElement('article');a.append(n('h5',...incidentNames[item.condition_key]),n('p','Open / مفتوح','مفتوح / Open'),plain('p',item.opened_at));output.append(a);}
+                    output.append(n('h5','Recent incident transitions','التغييرات الأخيرة في الحوادث'));
+                    for(const event of i.recent_events){const a=document.createElement('article');a.append(n('p',...incidentNames[event.condition_key]),n('p',event.transition==='opened'?'Opened':'Resolved',event.transition==='opened'?'فُتحت':'تم حلها'),plain('p',event.observed_at));output.append(a);}
+                }
+            }
         } catch(error) {
             if(own===revision&&run===sequence&&!controller.signal.aborted){erase();status.replaceChildren(n('span','Process observations could not load. Refresh explicitly to retry.','تعذر تحميل ملاحظات العمليات. حدّث صراحة للمحاولة.'));}
         } finally {if(own===revision&&run===sequence)refresh.disabled=false;}

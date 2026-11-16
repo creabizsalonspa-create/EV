@@ -90,4 +90,59 @@ void main() {
     expect(find.byType(FlutterMap), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  test('search viewport is bounded, normalized, and wraps the date line without source authority', () {
+    expect(discoveryViewportBounds(24,26,54,56), {
+      'south':'24.000000','north':'26.000000','west':'54.000000','east':'56.000000',
+    });
+    expect(discoveryViewportBounds(9,11,179,181)?['east'],'-179.000000');
+    expect(discoveryViewportBounds(-90,90,-300,300),{
+      'south':'-90.000000','north':'90.000000','west':'-180.000000','east':'180.000000',
+    });
+    for(final bounds in [
+      [double.nan,2,3,4], [2,double.infinity,3,4], [10,9,3,4],
+      [1,2,5,5], [1,1,5,7], [10,10.00000001,5,7],
+    ]) {
+      expect(discoveryViewportBounds(bounds[0].toDouble(),bounds[1].toDouble(),bounds[2].toDouble(),bounds[3].toDouble()),isNull);
+    }
+  });
+
+  testWidgets('view search remains user-initiated after native tile consent and returns bounds only', (tester) async {
+    final tiles=FakeMapTiles();
+    final chosen=<Map<String,String>>[];
+    final point=PartnerMapPoint.fromPublishedLocation({
+      'name':'Unverified network','latitude':25.2,'longitude':55.3,
+    })!;
+    await tester.pumpWidget(MaterialApp(home:Builder(builder:(context)=>Scaffold(
+      body:FilledButton(key:const Key('open-native-map'),onPressed:()async{
+        final bounds=await Navigator.of(context).push<Map<String,String>>(
+          MaterialPageRoute(builder:(_)=>PartnerReportMap(
+            points:[point],tileProvider:tiles,allowViewportSearch:true,
+          )),
+        );
+        if(bounds!=null)chosen.add(bounds);
+      },child:const Text('Open map')),
+    ))));
+    await tester.tap(find.byKey(const Key('open-native-map')));
+    await tester.pumpAndSettle();
+    expect(tiles.requests,0);
+    expect(chosen,isEmpty);
+    expect(find.byKey(const Key('unified-native-viewport-search')),findsNothing);
+    await tester.tap(find.byKey(const Key('partner-map-enable')));
+    await tester.pumpAndSettle();
+    expect(tiles.requests,greaterThan(0));
+    expect(chosen,isEmpty,reason:'Enabling a map must never issue search');
+    final button=find.byKey(const Key('unified-native-viewport-search'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(chosen.length,1);
+    final bounds=chosen.single;
+    expect(double.parse(bounds['south']!),lessThan(25.2));
+    expect(double.parse(bounds['north']!),greaterThan(25.2));
+    expect(double.parse(bounds['west']!),lessThan(55.3));
+    expect(double.parse(bounds['east']!),greaterThan(55.3));
+    expect(find.byType(FlutterMap),findsNothing);
+    expect(tester.takeException(),isNull);
+  });
 }

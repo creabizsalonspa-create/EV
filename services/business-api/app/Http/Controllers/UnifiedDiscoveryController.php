@@ -8,25 +8,48 @@ use App\Models\Station;
 use App\Models\User;
 use App\Services\Discovery\CatalogPriceFilter;
 use App\Services\Discovery\CatalogTextFilters;
+use App\Services\Discovery\DiscoveryViewport;
 use App\Services\Discovery\PartnerCatalogAge;
 use App\Services\Discovery\PublicPartnerLocation;
 use App\Services\Discovery\SourceReportFilter;
 use App\Services\Discovery\StationCatalog;
+use App\Services\Discovery\UnifiedCountryFilter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /** One database-paginated search over already-published inventory; no provider calls. */
 final class UnifiedDiscoveryController extends Controller
 {
     public function index(Request $request)
     {
-        $v = $request->validate(['q' => 'nullable|string|max:80', 'operator' => 'nullable|string|max:100', 'address' => 'nullable|string|max:150', 'access' => 'nullable|string|max:150', 'max_rate_per_kwh' => ['nullable', 'required_with:price_currency', 'string', 'regex:/^[0-9]{1,6}(\.[0-9]{1,3})?$/D'], 'price_currency' => 'nullable|required_with:max_rate_per_kwh|string|size:3|uppercase', 'scope' => 'nullable|in:all,catalog,partner', 'connector' => 'nullable|in:CCS2,Type2,CHAdeMO', 'page' => 'nullable|integer|between:1,1000000', 'saved_only' => 'nullable|boolean', 'max_source_age_hours' => 'nullable|integer|between:1,168', 'recent_source_status' => 'nullable|in:Available,Occupied,Preparing,Charging,SuspendedEV,SuspendedEVSE,Finishing,Reserved,Unavailable,Faulted']);
+        $v = $request->validate(['q' => 'nullable|string|max:80', 'operator' => 'nullable|string|max:100', 'address' => 'nullable|string|max:150', 'access' => 'nullable|string|max:150', 'max_rate_per_kwh' => ['nullable', 'required_with:price_currency', 'string', 'regex:/^[0-9]{1,6}(\.[0-9]{1,3})?$/D'], 'price_currency' => 'nullable|required_with:max_rate_per_kwh|string|size:3|uppercase', 'scope' => 'nullable|in:all,catalog,partner', 'country' => 'nullable|in:AE,CA,US',
+            'south' => 'nullable|required_with:north,west,east|numeric|between:-90,90',
+            'north' => 'nullable|required_with:south,west,east|numeric|between:-90,90',
+            'west' => 'nullable|required_with:south,north,east|numeric|between:-180,180',
+            'east' => 'nullable|required_with:south,north,west|numeric|between:-180,180', 'connector' => 'nullable|in:CCS2,Type2,CHAdeMO', 'page' => 'nullable|integer|between:1,1000000', 'saved_only' => 'nullable|boolean', 'max_source_age_hours' => 'nullable|integer|between:1,168', 'recent_source_status' => 'nullable|in:Available,Occupied,Preparing,Charging,SuspendedEV,SuspendedEVSE,Finishing,Reserved,Unavailable,Faulted']);
         $actor = $this->currentActor($request);
         $customer = $actor->role === 'customer' ? $actor->id : null;
         abort_if($request->boolean('saved_only') && $customer === null, 403);
         $catalog = Station::query();
         $partner = OcpiRecord::query()->where('module', 'locations')->where('normalized->publish', true)
             ->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'));
+        // Explicit market filter uses the charging location's country,
+        // never the OCPI partner party's country code.
+        if (! empty($v['country'])) {
+            UnifiedCountryFilter::apply($catalog, $partner, $v['country']);
+        }
+        // Viewport bounds are opt-in and evaluated on both sources in SQL
+        // before the union and pagination, including date-line crossings.
+        if (isset($v['south'], $v['north'], $v['west'], $v['east'])) {
+            if ((float) $v['south'] >= (float) $v['north']) {
+                throw ValidationException::withMessages(['north' => 'North must be greater than south.']);
+            }
+            if ((float) $v['west'] === (float) $v['east']) {
+                throw ValidationException::withMessages(['east' => 'East and west must differ.']);
+            }
+            app(DiscoveryViewport::class)->apply($catalog, $partner, $v);
+        }
         // Apply individual filters before the SQL union and pagination.
         // Explicit access and price filters require canonical platform evidence.
         app(CatalogTextFilters::class)->apply($catalog, array_intersect_key($v, array_flip(['operator', 'address', 'access'])));

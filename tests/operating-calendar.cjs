@@ -68,6 +68,9 @@ const {execFileSync} = require('node:child_process');
     await card.locator('.station-information summary').click();
     assert.match(await card.innerText(),/يُطبق جدول العمل/);
     const booking=card.locator('form');
+    // This fixture supplies an authoritative UTC start, not the station's
+    // Dubai-local wall time. Choose UTC explicitly before entering it.
+    await booking.locator('select[data-booking-time-mode]').selectOption('utc');
     await booking.locator('input[type=datetime-local]').fill(start.slice(0,16));
     const denied=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/reservations' && r.request().method()==='POST');
     await booking.locator('button').last().click();
