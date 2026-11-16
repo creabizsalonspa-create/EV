@@ -543,7 +543,122 @@ class PendingSupport extends FixtureApi {
   }) => response.future;
 }
 
+/// Simulates a revocation during an unresolved private Customer inbox GET.
+class ActorScopedSupportFixture extends SupportFixture {
+  int actorEpoch = 0, supportReads = 0;
+  final Completer<dynamic>? firstSupportResponse;
+  ActorScopedSupportFixture({bool deferFirst = false})
+      : firstSupportResponse = deferFirst ? Completer<dynamic>() : null;
+
+  @override
+  bool Function() sessionFence() {
+    final captured = actorEpoch;
+    return () => actorEpoch == captured;
+  }
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path == 'support' && method == 'GET') {
+      supportReads++;
+      if (supportReads == 1 && firstSupportResponse != null) {
+        return firstSupportResponse!.future;
+      }
+    }
+    return super.request(path, method: method, body: body, query: query);
+  }
+}
+
 void main() {
+  testWidgets('private support GET cannot outlive a switched account', (
+    tester,
+  ) async {
+    final previous = ActorScopedSupportFixture(deferFirst: true);
+    final current = ActorScopedSupportFixture();
+    addTearDown(previous.close);
+    addTearDown(current.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(
+        api: previous, accountId: 10, onSessionExpired: () {},
+      )),
+    ));
+    await tester.pump();
+    expect(previous.supportReads, 1);
+    previous.actorEpoch++;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(
+        api: current, accountId: 20, onSessionExpired: () {},
+      )),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Synthetic support thread'), findsOneWidget);
+
+    previous.firstSupportResponse!.complete({
+      'data': [
+        {'id': 71, 'subject': 'PRIVATE-OLD-TICKET', 'status': 'open'},
+      ],
+      'current_page': 1,
+      'last_page': 1,
+      'total': 1,
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('PRIVATE-OLD-TICKET'), findsNothing);
+    expect(find.text('Synthetic support thread'), findsOneWidget);
+    expect(previous.supportReads, 1);
+    expect(current.supportReads, 1);
+  });
+
+  testWidgets('inactive app clears inbox and requires explicit foreground refresh', (
+    tester,
+  ) async {
+    final api = ActorScopedSupportFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Synthetic support thread'), findsOneWidget);
+    expect(api.supportReads, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(find.text('Synthetic support thread'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(api.supportReads, 1);
+    expect(find.text('Synthetic support thread'), findsNothing);
+    await tester.state<SupportViewState>(find.byType(SupportView)).refresh();
+    await tester.pumpAndSettle();
+    expect(api.supportReads, 2);
+    expect(find.text('Synthetic support thread'), findsOneWidget);
+  });
+
+  testWidgets('revoked actor cannot mark notification read or load history', (
+    tester,
+  ) async {
+    final api = ActorScopedSupportFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    final state = tester.state<SupportViewState>(find.byType(SupportView));
+    final before = api.supportReads;
+    api.actorEpoch++;
+    await state.markNotification(2, read: true);
+    await state.markCurrentRead();
+    await state.refresh();
+    await tester.pump();
+    expect(api.read, isFalse);
+    expect(api.supportReads, before);
+    expect(find.text('Synthetic support thread'), findsNothing);
+  });
+
   testWidgets('persistent notification defaults load across native inbox instances', (
     tester,
   ) async {
