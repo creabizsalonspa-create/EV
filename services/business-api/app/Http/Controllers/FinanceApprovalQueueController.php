@@ -82,4 +82,30 @@ final class FinanceApprovalQueueController extends Controller
             'not_a_payment_or_payout_authority' => true,
         ])->header('Cache-Control', 'private, no-store');
     }
+
+    /**
+     * One page only, identical authorization and filters as the JSON review.
+     * An export must never silently broaden access or lose a page bound.
+     */
+    public function export(Request $request)
+    {
+        $payload = $this->index($request)->getData(true);
+
+        return response()->streamDownload(static function () use ($payload): void {
+            $handle = fopen('php://output', 'wb');
+            $fields = [
+                'kind', 'record_id', 'vendor_id', 'invoice_id', 'currency',
+                'minor_units', 'amount_minor', 'status', 'created_at',
+            ];
+            fputcsv($handle, $fields, ',', '"', '');
+            foreach ($payload['data'] as $item) {
+                fputcsv($handle, array_map(static fn (string $field) => $item[$field] ?? '', $fields), ',', '"', '');
+            }
+            fclose($handle);
+        }, 'simulated-pending-finance-approvals.csv', [
+            'Content-Type' => 'text/csv; charset=utf-8',
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
 }

@@ -241,6 +241,17 @@ const assert = require("node:assert/strict");
       0,
       "The triage screen must not silently create approval/payment actions",
     );
+    const approvalCsv = maker.locator("[data-finance-approval-queue]")
+      .getByRole("link", { name: "Download current approval page CSV", exact: true });
+    assert.match(await approvalCsv.getAttribute("href"),
+      /^\/api\/finance\/approval-queue\/export\?kind=all&per_page=20&page=1$/);
+    const approvalDownload = maker.waitForEvent("download");
+    await approvalCsv.click();
+    const exportFile = await approvalDownload;
+    await exportFile.saveAs(dir + "/admin-approval-queue.csv");
+    const exportText = fs.readFileSync(dir + "/admin-approval-queue.csv", "utf8");
+    assert.match(exportText, /^kind,record_id,vendor_id,invoice_id,currency/);
+    assert.doesNotMatch(exportText, /provider_reference|request_key|secret/i);
     const wrongRole = await vendor.request.get(
       base + "/api/finance/approval-queue?kind=refund",
       { headers: { Accept: "application/json" } },

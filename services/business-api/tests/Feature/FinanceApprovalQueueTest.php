@@ -38,6 +38,21 @@ class FinanceApprovalQueueTest extends TestCase
         return '/approval-test/finance/approval-queue';
     }
 
+    public function test_indexed_canonical_review_sources_on_sqlite_and_postgresql(): void
+    {
+        foreach ([
+            'finance_refund_requests' => 'fin_ref_req_status_created_idx',
+            'commercial_settlements' => 'comm_settle_state_created_idx',
+            'commercial_adjustments' => 'comm_adjust_created_idx',
+        ] as $table => $expected) {
+            $indexes = DB::getDriverName() === 'pgsql'
+                ? DB::select('SELECT indexname AS name FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ?', [$table])
+                : DB::select("PRAGMA index_list('".$table."')");
+            $names = array_map(static fn ($index) => $index->name, $indexes);
+            $this->assertContains($expected, $names, 'Missing review source index for '.$table);
+        }
+    }
+
     private function seedApprovals(): array
     {
         $station = Station::create([
@@ -147,6 +162,29 @@ class FinanceApprovalQueueTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 2);
     }
 
+    public function test_admin_csv_export_is_same_private_single_page_and_contains_no_secret_or_approval(): void
+    {
+        [$invoice, $refund, $settlement, $adjustment] = $this->seedApprovals();
+        $url = $this->base().'/export?kind=refund&per_page=1';
+        $this->actingAs($this->customer)->get($url)->assertForbidden();
+        $this->actingAs($this->vendor)->get($url)->assertForbidden();
+        $csv = $this->actingAs($this->admin)->get($url)
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->streamedContent();
+        $this->assertStringContainsString('kind,record_id,vendor_id,invoice_id,currency', $csv);
+        $this->assertStringContainsString('refund,'.$refund.','.$this->vendor->id.','.$invoice->id.',AED,2,25,pending', $csv);
+        $this->assertStringNotContainsString('Private customer complaint', $csv);
+        $this->assertStringNotContainsString('Private merchant adjustment', $csv);
+        $this->assertStringNotContainsString("\nsettlement,", $csv);
+        $this->assertStringNotContainsString("\nadjustment,", $csv);
+        $this->get($this->base().'/export?per_page=26')->assertUnprocessable();
+        $this->assertDatabaseCount('commercial_settlement_events', 0);
+        $this->assertDatabaseCount('finance_journals', 2);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_kind_currency_vendor_paging_and_native_admin_token_boundaries(): void
     {
         [$invoice, $refund, $settlement, $adjustment] = $this->seedApprovals();
@@ -177,6 +215,8 @@ class FinanceApprovalQueueTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->withToken($this->admin->createToken('approval-admin-pat')->plainTextToken)
             ->getJson('/api/v1/finance/approval-queue')->assertForbidden();
+        $this->get('/api/v1/finance/approval-queue/export?kind=refund')
+            ->assertForbidden();
         $this->assertDatabaseCount('finance_journals', 2);
         $this->assertDatabaseCount('finance_refund_requests', 1);
     }

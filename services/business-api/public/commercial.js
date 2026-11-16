@@ -1646,6 +1646,16 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 button(pager, "Next finance reviews", "المراجعات التالية",
                     () => show(payload.current_page + 1));
             list.append(pager);
+            const exportLink = translated(
+                "a",
+                "Download current approval page CSV",
+                "تنزيل صفحة الموافقات الحالية CSV",
+            );
+            exportLink.href = "/api/finance/approval-queue/export?kind=" +
+                encodeURIComponent(select.value) +
+                "&per_page=20&page=" + payload.current_page;
+            exportLink.download = "simulated-pending-finance-approvals.csv";
+            list.append(exportLink);
         }
         button(parent, "Load pending finance reviews", "عرض المراجعات المالية المعلقة", () => show(1));
     }
