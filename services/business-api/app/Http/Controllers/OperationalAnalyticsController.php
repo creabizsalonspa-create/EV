@@ -2,46 +2,51 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\OperationalAnalytics;
 use App\Services\VendorOps\VendorAccess;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class OperationalAnalyticsController extends Controller
 {
     private function report(Request $r, VendorCompany $company): array
     {
-        $actor = User::findOrFail($r->user()->id);
-        $company = $company->fresh();
+        // A cached account or stale route-bound company can no longer expose
+        // another owner's operations or private invoice aggregates. The
+        // caller holds this account and company lock until report completion.
+        $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+        $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
         $access = app(VendorAccess::class);
         $access->require($actor, $company, 'inventory.read');
         $v = $r->validate(['from' => 'sometimes|date_format:Y-m-d', 'to' => 'sometimes|date_format:Y-m-d', 'site_id' => 'sometimes|integer|min:1', 'locale' => 'sometimes|in:en,ar', 'vendor_id' => 'prohibited', 'user_id' => 'prohibited']);
         $financial = $actor->role === 'admin' || $actor->id === $company->owner_id;
         $report = app(OperationalAnalytics::class)->report($company, $v, $financial);
-        $current = User::findOrFail($actor->id);
-        $company = $company->fresh();
-        $access->require($current, $company, 'inventory.read');
-        abort_if($financial && $current->role !== 'admin' && $current->id !== $company->owner_id, 404);
+        // Recheck the live staff grant before the response is released.
+        // Account and company identities remain locked within the transaction.
+        $access->require($actor, $company, 'inventory.read');
+        abort_if($financial && $actor->role !== 'admin' && $actor->id !== $company->owner_id, 404);
 
         return $report + ['financial_visible' => $financial];
     }
 
     public function show(Request $r, VendorCompany $company)
     {
-        return response()->json($this->report($r, $company))->header('Cache-Control', 'private, no-store');
+        return DB::transaction(fn () => response()->json($this->report($r, $company))
+            ->header('Cache-Control', 'private, no-store'), 3);
     }
 
     public function export(Request $r, VendorCompany $company)
     {
-        $report = $this->report($r, $company);
+        $report = DB::transaction(fn () => $this->report($r, $company), 3);
 
         return response(app(OperationalAnalytics::class)->csv($report))->header('Content-Type', 'text/csv; charset=UTF-8')->header('Content-Disposition', 'attachment; filename="charging-operations.csv"')->header('Cache-Control', 'private, no-store')->header('X-Content-Type-Options', 'nosniff');
     }
 
     public function pdf(Request $r, VendorCompany $company)
     {
-        $report = $this->report($r, $company);
+        $report = DB::transaction(fn () => $this->report($r, $company), 3);
         abort_if(count($report['sites']) > 100, 409, 'Select a site for a smaller PDF.');
         if (! defined('K_TCPDF_EXTERNAL_CONFIG')) {
             define('K_TCPDF_EXTERNAL_CONFIG', true);
