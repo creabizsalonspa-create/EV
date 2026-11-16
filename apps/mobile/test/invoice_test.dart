@@ -153,6 +153,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('SIM-FIXTURE'), findsOneWidget);
       expect(find.text('Tax: 16 minor units AED'), findsOneWidget);
+      // The verified detail screen contains several safe, read-only actions;
+      // its ListView lazily builds the lower amount rows on small viewports.
+      await tester.scrollUntilVisible(
+        find.text('Amount due: 0 minor units AED'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Amount due: 0 minor units AED'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.text('Ledger balanced'),
