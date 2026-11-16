@@ -413,9 +413,14 @@ void main() {
       await tester.tap(find.byKey(const Key('navigation-consent')));
       await tester.pumpAndSettle();
       expect(launches, 0);
-      final destination = tester.widget<TextFormField>(
-          find.byKey(const Key('destination-lat')));
-      expect(destination.controller!.text, isEmpty);
+      // The next RoutePlannerView was deliberately given the SAME old
+      // initial origin. A client rotation must reject that cached location
+      // rather than silently exposing it to the next signed-in customer.
+      for (final key in ['origin-lat', 'origin-lng', 'destination-lat', 'destination-lng']) {
+        final coordinate = tester.widget<TextFormField>(find.byKey(Key(key)));
+        expect(coordinate.controller!.text, isEmpty,
+            reason: 'Private route input $key must not cross account rotation');
+      }
       expect(find.textContaining('1. Synthetic stop'), findsNothing,
         reason:'Previous account stop must not survive source change');
       expect(find.byKey(const Key('route-stop-1')), findsNothing,
