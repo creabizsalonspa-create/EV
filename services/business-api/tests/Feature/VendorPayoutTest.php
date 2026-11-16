@@ -168,6 +168,43 @@ class VendorPayoutTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_payout_account_service_revalidates_vendor_consent_and_admin_verification(): void
+    {
+        $f = $this->fixture();
+        $service = app(PayoutService::class);
+        $account = $f['account']->id;
+        $vendor = $f['vendor']->id;
+        $checker = $f['checker']->id;
+
+        DB::table('users')->where('id', $vendor)->update(['account_status' => 'suspended']);
+        foreach ([
+            fn () => $service->consent($account, $vendor, 'vendor-payout-v1'),
+            fn () => $service->revoke($account, $vendor),
+        ] as $action) {
+            try {
+                $action();
+                $this->fail('Suspended Vendor performed private payout-account change.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+        $this->assertDatabaseHas('commercial_payout_accounts', [
+            'id' => $account, 'status' => 'pending_verification',
+        ]);
+
+        DB::table('users')->where('id', $checker)->update(['role' => 'vendor']);
+        try {
+            $service->verify($account, $checker);
+            $this->fail('Demoted Admin verified a bank account.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('commercial_payout_accounts', [
+            'id' => $account, 'verified_by' => null,
+        ]);
+        Http::assertNothingSent();
+    }
+
     private function fixture(string $provider = 'mock'): array
     {
         return (require base_path('tests/Fixtures/vendor-payout.php'))($provider);
