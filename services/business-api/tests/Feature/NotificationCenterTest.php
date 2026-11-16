@@ -490,20 +490,25 @@ class NotificationCenterTest extends TestCase
         }
         $this->getJson('/api/notifications/summary')->assertOk()
             ->assertJsonPath('unread_by_category.other', 2);
-        // Older deployed clients only understand the original saved defaults.
-        // The new other category is a transient filter, never a breaking
-        // persisted preference that would prevent legacy inbox loading.
+        // Both API versions now permit a saved "other" default. Persist it
+        // without dropping critical notices from the unfiltered inbox; the
+        // server still returns explicit category-scoped results when asked.
         $this->putJson('/api/notifications/preferences', [
             'default_category' => 'other',
             'default_unread_only' => true,
             'remind_unresolved_simulator_faults' => true,
-        ])->assertUnprocessable();
+        ])->assertOk()->assertJsonPath('default_category', 'other')
+            ->assertJsonPath('default_unread_only', true)
+            ->assertJsonPath('critical_events_always_visible', true);
         $system->update(['read_at' => now()]);
         $this->getJson('/api/v1/notifications?category=other&unread_only=1')
             ->assertOk()->assertJsonPath('total', 1)
             ->assertJsonPath('data.0.id', $unknown->id);
         $this->getJson('/api/v1/notifications/preferences')->assertOk()
-            ->assertJsonPath('default_category', 'all');
+            ->assertJsonPath('default_category', 'other')
+            ->assertJsonPath('default_unread_only', true);
+        $this->getJson('/api/notifications')->assertOk()
+            ->assertJsonPath('total', 4);
         $this->actingAs($outsider)->getJson('/api/notifications?category=other')
             ->assertOk()->assertJsonPath('total', 1);
     }
