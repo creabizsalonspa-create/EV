@@ -5,8 +5,8 @@ namespace Tests\Feature;
 use App\Http\Controllers\VendorOpsController;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
-use App\Models\VendorOps\VendorKycDocument;
 use App\Models\VendorOps\VendorCompanyStaff;
+use App\Models\VendorOps\VendorKycDocument;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -280,6 +280,7 @@ class AdminKycQueueTest extends TestCase
             'status' => 'active',
             'permissions' => ['company.read'],
             'invitation_version' => 1,
+            'accepted_at' => now(),
         ]);
         DB::table('vendor_companies')->where('id', $company->id)
             ->update(['owner_id' => $newOwner->id]);
