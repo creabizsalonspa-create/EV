@@ -117,7 +117,9 @@ class ChargerCommandTest extends TestCase
         DB::table('users')->where('id', $vendor->id)->update([
             'role' => 'customer', 'auth_epoch' => $vendor->auth_epoch + 1,
         ]);
-        $this->actingAs($vendor->fresh())->getJson('/api/charger-commands')->assertForbidden();
+        // Changing the authorization epoch revokes the existing token
+        // before endpoint RBAC is reached: 401 is the intended stronger gate.
+        $this->actingAs($vendor->fresh())->getJson('/api/charger-commands')->assertUnauthorized();
         $this->actingAs(User::factory()->create(['role' => 'admin']))
             ->getJson('/api/charger-commands')->assertOk()
             ->assertJsonPath('data.0.id', $command->id);

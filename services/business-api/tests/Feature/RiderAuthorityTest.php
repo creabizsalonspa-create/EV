@@ -66,15 +66,19 @@ class RiderAuthorityTest extends TestCase
         $customer = User::factory()->create(['role' => 'customer']);
         $company = VendorCompany::create(['owner_id' => $owner->id, 'legal_name' => 'Synthetic rider operator', 'country' => 'AE', 'trade_license_number' => 'SYNTHETIC', 'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved']);
         $station = Station::create(['vendor_id' => $owner->id, 'name' => 'Synthetic authority station', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
-        $token = app(RiderTokenRegistry::class)->issue($customer, $this->payload())['token'];
+        // Each same-test publication fixture needs a distinct real token
+        // digest. A repeated fixed value is correctly rejected by the
+        // production uniqueness guard before source-projection assertions.
+        $raw = strtoupper(bin2hex(random_bytes(6)));
+        $token = app(RiderTokenRegistry::class)->issue($customer, array_replace($this->payload(), ['value' => $raw]))['token'];
         DB::table('rider_charging_grants')->insert(['token_id' => $token->id, 'company_id' => $company->id, 'station_id' => $station->id, 'state' => 'approved', 'expires_at' => now()->addDay(), 'created_at' => now(), 'updated_at' => now()]);
 
-        return compact('owner', 'company', 'token');
+        return compact('owner', 'company', 'token', 'raw');
     }
 
     private function source(array $fixture, ?callable $during = null): object
     {
-        $state = (object) ['lookups' => 0, 'writes' => 0, 'projection' => null, 'row' => ['id' => 88, 'idToken' => 'AABBCC123456', 'idTokenType' => 'ISO14443', 'status' => 'Blocked', 'additionalInfo' => [['type' => 'CREABIZ_RIDER', 'additionalIdToken' => $fixture['token']->source_registration_nonce]]]];
+        $state = (object) ['lookups' => 0, 'writes' => 0, 'projection' => null, 'row' => ['id' => 88, 'idToken' => $fixture['raw'], 'idTokenType' => 'ISO14443', 'status' => 'Blocked', 'additionalInfo' => [['type' => 'CREABIZ_RIDER', 'additionalIdToken' => $fixture['token']->source_registration_nonce]]]];
         $transactionBaseline = DB::transactionLevel();
         Http::fake(function ($request) use ($state, $during, $transactionBaseline) {
             // No database transaction may span capability or GraphQL HTTP.
