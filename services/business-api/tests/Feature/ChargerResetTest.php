@@ -12,6 +12,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -105,7 +106,7 @@ class ChargerResetTest extends TestCase
         return $out;
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('malformedIdleProjections')]
+    #[DataProvider('malformedIdleProjections')]
     public function test_untrusted_idle_source_projections_never_dispatch_reset(string $protocol, string $kind): void
     {
         $f = $this->fixture($protocol);

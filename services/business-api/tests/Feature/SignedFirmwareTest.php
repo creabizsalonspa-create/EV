@@ -242,6 +242,7 @@ class SignedFirmwareTest extends TestCase
                         if ($malformedReview === 'string_request_id') {
                             $request['id'] = '41';
                         }
+
                         return Http::response(['data' => ['OCPPMessages' => $unknown ? [] : [$request]]]);
                     }
                     $status = ['id' => 42, 'createdAt' => now()->toISOString(),
@@ -258,6 +259,7 @@ class SignedFirmwareTest extends TestCase
                     if ($malformedReview === 'missing_status_payload') {
                         unset($status['payload']);
                     }
+
                     return Http::response(['data' => ['OCPPMessages' => [$status]]]);
                 }
                 if (str_contains($q, 'ChargingStations')) {

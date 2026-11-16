@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -64,7 +65,7 @@ class RemoteSessionAuthorizationTest extends TestCase
         ];
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('malformedSourceProjections')]
+    #[DataProvider('malformedSourceProjections')]
     public function test_malformed_remote_authorization_source_does_not_claim_or_mutate_identity(string $kind): void
     {
         [, , , $command, $link] = $this->fixture();

@@ -3,15 +3,16 @@
 namespace Tests\Feature;
 
 use App\Models\Station;
-use App\Services\Charging\ConfigurationProbe;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\ConfigurationProbe;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -93,7 +94,7 @@ class ChargerConfigurationTest extends TestCase
         return $cases;
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('malformedStationCases')]
+    #[DataProvider('malformedStationCases')]
     public function test_malformed_station_projection_cannot_dispatch_configuration_read(string $protocol, string $kind): void
     {
         $f = $this->fixture($protocol);
@@ -193,7 +194,7 @@ class ChargerConfigurationTest extends TestCase
         return $cases;
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('invalidMessageProjections')]
+    #[DataProvider('invalidMessageProjections')]
     public function test_malformed_correlated_message_projection_does_not_publish_a_configuration_snapshot(string $protocol, string $kind): void
     {
         $f = $this->fixture($protocol);
