@@ -160,6 +160,30 @@ class LostAckSupportFixture extends SupportFixture {
   }
 }
 
+class UnconfirmedReplyFixture extends SupportFixture {
+  int attempts = 0;
+  String? originalKey;
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path == 'support/1/messages' && method == 'POST') {
+      attempts++;
+      final key = body?['idempotency_key'] as String?;
+      if (attempts == 1) {
+        originalKey = key;
+        return {'accepted': true}; // Not an actual confirmed Laravel reply.
+      }
+      expect(key, originalKey);
+    }
+    return super.request(path, method: method, body: body, query: query);
+  }
+}
+
 class LostAckCreateTicketFixture extends SupportFixture {
   int attempts = 0;
   String? firstKey;
@@ -1227,6 +1251,40 @@ void main() {
       expect(find.byKey(const Key('ticket-reply')), findsNothing);
     },
   );
+  testWidgets('unconfirmed support reply never clears draft or changes idempotency key', (
+    tester,
+  ) async {
+    final api = UnconfirmedReplyFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: TicketPage(api: api, id: 1, onSessionExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('ticket-reply')), 'Customer reply exact intent',
+    );
+    await tester.ensureVisible(find.text('Send reply'));
+    await tester.tap(find.text('Send reply'));
+    await tester.pumpAndSettle();
+    expect(api.attempts, 1);
+    expect(api.originalKey, matches(RegExp(r'^[a-f0-9]{32}$')));
+    expect(
+      tester.widget<TextFormField>(
+        find.byKey(const Key('ticket-reply')),
+      ).controller!.text,
+      'Customer reply exact intent',
+    );
+    expect(api.publicMessages.contains('Customer reply exact intent'), isFalse);
+    await tester.tap(find.text('Send reply'));
+    await tester.pumpAndSettle();
+    expect(api.attempts, 2);
+    expect(api.lastReplyKey, api.originalKey);
+    expect(
+      api.publicMessages.where((x) => x == 'Customer reply exact intent').length,
+      1,
+    );
+  });
+
   testWidgets('lost support reply acknowledgement retries the same key', (tester) async {
     final api = LostAckSupportFixture();
     addTearDown(api.close);
