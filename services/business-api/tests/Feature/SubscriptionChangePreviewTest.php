@@ -217,6 +217,52 @@ class SubscriptionChangePreviewTest extends TestCase
         $this->assertSame($beforeReceipts, DB::table('commercial_subscription_receipts')->count());
     }
 
+    public function test_revoked_admin_cannot_publish_subscription_plans_or_change_availability(): void
+    {
+        [$admin, $vendor, $basic, $pro, $id] = $this->scenario();
+        $this->actingAs($admin);
+        $before = DB::table('commercial_plan_versions')->count();
+        $snapshot = DB::table('users')->where('id', $admin->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
+        $original = [
+            'role' => $snapshot->role,
+            'account_status' => $snapshot->account_status,
+            'auth_epoch' => $snapshot->auth_epoch,
+            'password' => $snapshot->password,
+        ];
+
+        $payload = [
+            'code' => 'must_not_publish', 'name' => 'Blocked Plan',
+            'audience' => 'vendor', 'currency' => 'AED', 'minor_units' => 2,
+            'price_minor' => 599, 'tax_bps' => 500, 'interval' => 'month',
+            'entitlements' => ['staff_limit' => 1],
+        ];
+        foreach ([
+            ['role' => 'customer'],
+            ['account_status' => 'suspended'],
+            ['auth_epoch' => (int) $snapshot->auth_epoch + 1],
+            ['password' => Hash::make('revoked-admin-plan-session')],
+        ] as $change) {
+            // Current DB role/status/hash is deliberately changed without
+            // changing the authenticated session's cached User instance.
+            DB::table('users')->where('id', $admin->id)->update($change);
+            $this->postJson('/preview-test/commercial/plans', $payload)->assertConflict();
+            $this->patchJson('/preview-test/commercial/plans/'.$pro['id'].'/availability', [
+                'available' => false,
+            ])->assertConflict();
+            DB::table('users')->where('id', $admin->id)->update($original);
+        }
+
+        $this->assertSame($before, DB::table('commercial_plan_versions')->count());
+        $this->assertDatabaseHas('commercial_plan_availability', ['plan_id' => $pro['id'], 'available' => true]);
+        $this->assertDatabaseMissing('audit_events', [
+            'action' => 'finance.subscription_plan_availability',
+            'subject' => (string) $pro['id'],
+        ]);
+        $this->assertDatabaseCount('commercial_subscription_invoices', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+    }
+
     public function test_bearer_native_preview_is_same_scoped_read_only_quote_without_admin_token_access(): void
     {
         [$admin, $vendor, $basic, $pro, $id] = $this->scenario();
