@@ -457,7 +457,11 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     await tester.pump();
     pending.complete(const ForegroundFix(25.2,55.3,20));
-    await tester.pumpAndSettle();
+    // Inactive permission sheets are not animation-idle; a map tile ticker
+    // can keep scheduling frames. Drive a finite layout frame instead of
+    // waiting for app-wide settle while the OS sheet is still foreground.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 32));
     expect(tester.takeException(),isNull,
       reason:'Consciously consented GPS must not mutate a building map while inactive');
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
