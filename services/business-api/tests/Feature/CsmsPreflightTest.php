@@ -59,6 +59,7 @@ class CsmsPreflightTest extends TestCase
             ['csms.graphql_url' => 'http://source.example/graphql?admin_secret=PRIVATE-KEY'],
             ['csms.graphql_url' => 'http://operator:PRIVATE-PASSWORD@source.example/graphql'],
             ['csms.graphql_url' => 'javascript:PRIVATE-SECRET'],
+            ['csms.graphql_url' => 'http://source.example/graphql'],
         ] as $changes) {
             $original = [];
             foreach ($changes as $key => $value) {

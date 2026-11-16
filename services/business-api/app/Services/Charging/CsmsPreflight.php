@@ -16,11 +16,24 @@ final class CsmsPreflight
         }
         $parts = parse_url($url);
 
-        return is_array($parts)
-            && in_array($parts['scheme'] ?? null, ['http', 'https'], true)
-            && is_string($parts['host'] ?? null) && $parts['host'] !== ''
-            && ! isset($parts['user']) && ! isset($parts['pass'])
-            && ! isset($parts['query']) && ! isset($parts['fragment']);
+        if (! is_array($parts) || ! in_array($parts['scheme'] ?? null, ['http', 'https'], true)
+            || ! is_string($parts['host'] ?? null) || $parts['host'] === ''
+            || isset($parts['user']) || isset($parts['pass'])
+            || isset($parts['query']) || isset($parts['fragment'])) {
+            return false;
+        }
+        // An admin-authenticated GraphQL source URL must never be advertised
+        // as ready if its secret would be sent in cleartext to an external
+        // HTTP hostname. Dedicated staging endpoints need HTTPS; only fixed
+        // local simulator/container service labels may use internal HTTP.
+        if ($parts['scheme'] === 'http') {
+            return in_array(strtolower($parts['host']), [
+                'localhost', '127.0.0.1', '[::1]',
+                'citrine', 'hasura', 'citrine-hasura', 'ev-hasura',
+            ], true);
+        }
+
+        return true;
     }
 
     private function schemaReady(): bool
