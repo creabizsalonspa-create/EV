@@ -198,6 +198,12 @@ class _PartnerReportMapState extends State<PartnerReportMap>
   bool enabled = false, mapReady = false;
   bool locating = false, foreground = true;
   String? locationError;
+  // Inactive OS permission prompts are not true backgrounding. Never move a
+  // flutter_map camera while its framework viewport is suspended/inactive.
+  // Hold only one in-memory fix until resumed; discard on pause/dispose.
+  LatLng? inactiveGpsCentre;
+  int? inactiveGpsGeneration;
+  bool refreshAfterInactive = false;
   int locationGeneration = 0, mapGeneration = 0;
   double currentZoom = 11;
   final mapController = MapController();
@@ -215,7 +221,23 @@ class _PartnerReportMapState extends State<PartnerReportMap>
     // Paused/hidden/detached always invalidate pending GPS responses.
     foreground = state == AppLifecycleState.resumed ||
         state == AppLifecycleState.inactive;
+    if (state == AppLifecycleState.resumed) {
+      final centre = inactiveGpsCentre;
+      final request = inactiveGpsGeneration;
+      inactiveGpsCentre = null;
+      inactiveGpsGeneration = null;
+      if (refreshAfterInactive && mounted) {
+        refreshAfterInactive = false;
+        setState(() {});
+      }
+      if (centre != null && request != null) {
+        scheduleGpsCamera(centre, request);
+      }
+    }
     if (!foreground) {
+      inactiveGpsCentre = null;
+      inactiveGpsGeneration = null;
+      refreshAfterInactive = false;
       locationGeneration++;
       mapGeneration++;
       if (mounted) {
@@ -235,12 +257,26 @@ class _PartnerReportMapState extends State<PartnerReportMap>
   }
   @override
   void dispose() {
+    inactiveGpsCentre = null;
+    inactiveGpsGeneration = null;
     locationGeneration++;
     WidgetsBinding.instance.removeObserver(this);
     mapController.dispose();
     manualLatitude.dispose();
     manualLongitude.dispose();
     super.dispose();
+  }
+
+  void scheduleGpsCamera(LatLng centre, int request) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // The OS may still be showing its permission sheet after this frame.
+      // Never mutate MapInteractiveViewer during inactive, or after a route,
+      // map-toggle, or auth/lifecycle generation has been replaced.
+      if (!mounted || !enabled || !mapReady || !foreground ||
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.inactive ||
+          request != locationGeneration) return;
+      mapController.move(centre, 12);
+    });
   }
 
   /// One foreground fix, gated twice: this dialog and the native runtime
@@ -276,24 +312,37 @@ class _PartnerReportMapState extends State<PartnerReportMap>
           point.latitude.abs() > 85.05112878 || point.longitude.abs() > 180) {
         throw const LocationLookupFailure('invalid');
       }
-      // A foreground permission sheet can complete while Flutter is still
-      // building its map viewport. Defer the camera mutation until after
-      // layout; never reuse a fix after an account/map/lifecycle transition.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !foreground || !enabled || !mapReady ||
-            request != locationGeneration) return;
-        mapController.move(LatLng(point.latitude, point.longitude), 12);
-      });
+      final centre = LatLng(point.latitude, point.longitude);
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.inactive) {
+        // Permission succeeded while the OS sheet made Flutter inactive.
+        // Preserve the explicit one-shot fix without touching map layout
+        // until the actual resume event. This is not background tracking.
+        inactiveGpsCentre = centre;
+        inactiveGpsGeneration = request;
+      } else {
+        scheduleGpsCamera(centre, request);
+      }
     } catch (_) {
       if (mounted && foreground && request == locationGeneration) {
-        setState(() => locationError = t(
+        final message = t(
           'Location unavailable or outside this map area. Move the map manually.',
           'الموقع غير متاح أو خارج نطاق عرض الخريطة. حرّك الخريطة يدوياً.',
-        ));
+        );
+        if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.inactive) {
+          locationError = message;
+          refreshAfterInactive = true;
+        } else {
+          setState(() => locationError = message);
+        }
       }
     } finally {
       if (mounted && request == locationGeneration) {
-        setState(() => locating = false);
+        if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.inactive) {
+          locating = false;
+          refreshAfterInactive = true;
+        } else {
+          setState(() => locating = false);
+        }
       }
     }
   }
@@ -430,7 +479,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
             if (enabled)
               OutlinedButton(
                 key: const Key('partner-map-disable'),
-                onPressed: () => setState(() { mapGeneration++; enabled = false; mapReady = false; locationGeneration++; locating = false; locationError = null; manualLatitude.clear(); manualLongitude.clear(); }),
+                onPressed: () => setState(() { mapGeneration++; enabled = false; mapReady = false; locationGeneration++; inactiveGpsCentre = null; inactiveGpsGeneration = null; refreshAfterInactive = false; locating = false; locationError = null; manualLatitude.clear(); manualLongitude.clear(); }),
                 child: Text(t('Disable report map', 'إيقاف خريطة التقارير')),
               ),
             if (enabled && widget.allowViewportSearch)
