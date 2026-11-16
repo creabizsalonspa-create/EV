@@ -30,6 +30,12 @@ def pairs(items):
     return result
 
 
+def reject_json_constant(_value):
+    # Python's json.loads accepts NaN/Infinity by default, although they
+    # are not JSON. Even unreported lockfile metadata must fail closed.
+    raise InventoryError('Nonstandard numeric constant in a lockfile.')
+
+
 def declared_licenses(raw):
     if raw is None:
         return []
@@ -54,7 +60,7 @@ def component(ecosystem, lock, instance, name, version, licenses=None, dev=False
 
 
 def json_components(text, lock, composer):
-    data = json.loads(text, object_pairs_hook=pairs)
+    data = json.loads(text, object_pairs_hook=pairs, parse_constant=reject_json_constant)
     if not isinstance(data, dict):
         raise InventoryError('A JSON lockfile must contain an object.')
     result = []
