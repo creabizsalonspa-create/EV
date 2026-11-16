@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'foreground_location.dart';
+import 'vendor_forms.dart' show vendorDigits;
 
 
 /**
@@ -36,6 +37,16 @@ Map<String, String>? discoveryViewportBounds(
   if (bounds['south'] == bounds['north'] ||
       bounds['west'] == bounds['east']) return null;
   return bounds;
+}
+
+/// A manually typed map centre is a viewport instruction, never a station
+/// location, saved preference, GPS fix or external-provider lookup.
+LatLng? manualDiscoveryMapCenter(String latitude, String longitude) {
+  final lat = double.tryParse(vendorDigits(latitude.trim()));
+  final lon = double.tryParse(vendorDigits(longitude.trim()));
+  if (lat == null || lon == null || !lat.isFinite || !lon.isFinite ||
+      lat.abs() > 85.05112878 || lon.abs() > 180) return null;
+  return LatLng(lat, lon);
 }
 
 /// Presentation-only coordinates from an already public, authorized partner
@@ -190,6 +201,8 @@ class _PartnerReportMapState extends State<PartnerReportMap>
   int locationGeneration = 0, mapGeneration = 0;
   double currentZoom = 11;
   final mapController = MapController();
+  final manualLatitude=TextEditingController();
+  final manualLongitude=TextEditingController();
   @override
   void initState() {
     super.initState();
@@ -214,6 +227,8 @@ class _PartnerReportMapState extends State<PartnerReportMap>
           mapReady = false;
           locating = false;
           locationError = null;
+          manualLatitude.clear();
+          manualLongitude.clear();
         });
       }
     }
@@ -223,6 +238,8 @@ class _PartnerReportMapState extends State<PartnerReportMap>
     locationGeneration++;
     WidgetsBinding.instance.removeObserver(this);
     mapController.dispose();
+    manualLatitude.dispose();
+    manualLongitude.dispose();
     super.dispose();
   }
 
@@ -403,7 +420,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
             if (enabled)
               OutlinedButton(
                 key: const Key('partner-map-disable'),
-                onPressed: () => setState(() { mapGeneration++; enabled = false; mapReady = false; locationGeneration++; locating = false; locationError = null; }),
+                onPressed: () => setState(() { mapGeneration++; enabled = false; mapReady = false; locationGeneration++; locating = false; locationError = null; manualLatitude.clear(); manualLongitude.clear(); }),
                 child: Text(t('Disable report map', 'إيقاف خريطة التقارير')),
               ),
             if (enabled && widget.allowViewportSearch)
@@ -417,6 +434,56 @@ class _PartnerReportMapState extends State<PartnerReportMap>
               const LinearProgressIndicator(key: Key('unified-native-gps-loading')),
             if (locationError != null)
               Text(locationError!, key: const Key('unified-native-gps-error')),
+            if (enabled && widget.allowViewportSearch) ...[
+              Text(t(
+                'Manual map centre (optional). Coordinates only move this opted-in map; press Search separately to query published locations.',
+                'مركز الخريطة اليدوي (اختياري). تحرك الإحداثيات هذه الخريطة المفعّلة فقط؛ اضغط بحث بشكل منفصل للاستعلام عن المواقع المنشورة.',
+              )),
+              Row(children: [
+                Expanded(child:TextField(
+                  key: const Key('unified-map-manual-latitude'),
+                  controller:manualLatitude,
+                  maxLength:30,
+                  textDirection:TextDirection.ltr,
+                  keyboardType:const TextInputType.numberWithOptions(
+                    signed:true,decimal:true),
+                  decoration:InputDecoration(
+                    labelText:t('Latitude','خط العرض'),
+                  ),
+                )),
+                const SizedBox(width:8),
+                Expanded(child:TextField(
+                  key: const Key('unified-map-manual-longitude'),
+                  controller:manualLongitude,
+                  maxLength:30,
+                  textDirection:TextDirection.ltr,
+                  keyboardType:const TextInputType.numberWithOptions(
+                    signed:true,decimal:true),
+                  decoration:InputDecoration(
+                    labelText:t('Longitude','خط الطول'),
+                  ),
+                )),
+              ]),
+              OutlinedButton.icon(
+                key:const Key('unified-native-manual-centre'),
+                icon:const Icon(Icons.place_outlined),
+                onPressed:!mapReady||!foreground||locating?null:(){
+                  final centre=manualDiscoveryMapCenter(
+                    manualLatitude.text,manualLongitude.text);
+                  if(centre==null){
+                    setState(()=>locationError=t(
+                      'Map coordinates invalid. Use latitude within ±85.0511 and longitude within ±180.',
+                      'إحداثيات الخريطة غير صالحة. أدخل خط عرض ضمن ±85.0511 وخط طول ضمن ±180.',
+                    ));
+                    return;
+                  }
+                  setState(()=>locationError=null);
+                  mapController.move(centre,12);
+                },
+                label:Text(t('Move map to these coordinates',
+                  'تحريك الخريطة إلى هذه الإحداثيات')),
+              ),
+            ],
             if (enabled && widget.allowViewportSearch)
               OutlinedButton.icon(
                 key: const Key('unified-native-viewport-search'),
