@@ -401,7 +401,7 @@ void main() {
         tester.widget<TextFormField>(find.byKey(const Key('origin-lat'))).controller!.text,
         '25.2',
       );
-      expect(find.text('Synthetic stop'), findsWidgets);
+      expect(find.textContaining('Synthetic stop'), findsWidgets);
       for (final field in {
         'destination-lat': '25.3',
         'destination-lng': '55.4',
@@ -439,7 +439,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const Key('origin-lat')), findsNothing);
-      expect(find.text('Synthetic stop'), findsNothing);
+      expect(find.textContaining('Synthetic stop'), findsNothing);
 
       lateRoute.complete(estimate());
       await tester.pump();
@@ -468,7 +468,7 @@ void main() {
           isEmpty,
         );
       }
-      expect(find.text('Synthetic stop'), findsNothing);
+      expect(find.textContaining('Synthetic stop'), findsNothing);
       await tester.scrollUntilVisible(
         find.byKey(const Key('route-provider-consent')),
         240,
