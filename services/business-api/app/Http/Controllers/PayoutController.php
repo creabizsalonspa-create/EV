@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Payouts\PayoutService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -28,9 +29,16 @@ class PayoutController extends Controller
 
     public function accounts(Request $r, PayoutService $service)
     {
-        abort_unless(in_array($r->user()->role, ['vendor', 'admin'], true), 403);
+        return DB::transaction(function () use ($r, $service) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless(in_array($actor->role, ['vendor', 'admin'], true), 403);
 
-        return DB::table('commercial_payout_accounts')->when($r->user()->role !== 'admin', fn ($q) => $q->where('vendor_id', $r->user()->id))->orderByDesc('id')->paginate(25)->through(fn ($row) => $service->publicAccount($row));
+            return response()->json(DB::table('commercial_payout_accounts')
+                ->when($actor->role !== 'admin', fn ($q) => $q->where('vendor_id', $actor->id))
+                ->orderByDesc('id')->paginate(25)
+                ->through(fn ($row) => $service->publicAccount($row)))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function configure(Request $r, int $vendor, PayoutService $service)
@@ -79,24 +87,43 @@ class PayoutController extends Controller
 
     public function index(Request $r)
     {
-        abort_unless(in_array($r->user()->role, ['vendor', 'admin'], true), 403);
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless(in_array($actor->role, ['vendor', 'admin'], true), 403);
 
-        return DB::table('commercial_payouts')->when($r->user()->role !== 'admin', fn ($q) => $q->where('vendor_id', $r->user()->id))->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->safe($row));
+            return response()->json(DB::table('commercial_payouts')
+                ->when($actor->role !== 'admin', fn ($q) => $q->where('vendor_id', $actor->id))
+                ->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->safe($row)))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function show(Request $r, int $payout, PayoutService $service)
     {
-        $row = DB::table('commercial_payouts')->find($payout);
-        abort_unless($row, 404);
-        $this->scope($r, (int) $row->vendor_id);
-        $attempts = DB::table('commercial_payout_attempts')->where('payout_id', $payout)->orderBy('number')->get()->map(function ($a) {
-            $v = (array) $a;
-            unset($v['lease']);
+        return DB::transaction(function () use ($r, $payout, $service) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $row = DB::table('commercial_payouts')->find($payout);
+            abort_unless($row, 404);
+            abort_unless($actor->role === 'admin'
+                || ($actor->role === 'vendor' && $actor->id === (int) $row->vendor_id), 404);
+            $attempts = DB::table('commercial_payout_attempts')
+                ->where('payout_id', $payout)->orderBy('number')->get()->map(function ($a) {
+                    $v = (array) $a;
+                    unset($v['lease']);
 
-            return $v;
-        });
+                    return $v;
+                });
 
-        return response()->json(['payout' => $this->safe($row), 'account' => $service->publicAccount(DB::table('commercial_payout_accounts')->find($row->account_id)), 'attempts' => $attempts, 'events' => DB::table('commercial_payout_events')->where('payout_id', $payout)->orderBy('id')->get(), 'real_money_moved' => false]);
+            return response()->json([
+                'payout' => $this->safe($row),
+                'account' => $service->publicAccount(DB::table('commercial_payout_accounts')
+                    ->find($row->account_id)),
+                'attempts' => $attempts,
+                'events' => DB::table('commercial_payout_events')
+                    ->where('payout_id', $payout)->orderBy('id')->get(),
+                'real_money_moved' => false,
+            ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function action(Request $r, int $payout, string $action, PayoutService $service)
