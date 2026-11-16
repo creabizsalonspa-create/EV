@@ -41,7 +41,10 @@ const fs = require("node:fs");
       addressCalls = 0,
       routeBody = null,
       routeCalls = 0,
-      tiles = 0;
+      tiles = 0,
+      holdNextCapabilities = false,
+      signalHeldCapabilities = null,
+      releaseHeldCapabilities = null;
     await page.route("https://tile.openstreetmap.org/**", (r) => {
       tiles++;
       return r.abort();
@@ -70,16 +73,21 @@ const fs = require("node:fs");
         json: { data: stations, total: stations.length, current_page: 1, last_page: 1 },
       }),
     );
-    await page.route("**/api/discovery/capabilities", (r) =>
-      r.fulfill({
+    await page.route("**/api/discovery/capabilities", async (r) => {
+      if (holdNextCapabilities) {
+        holdNextCapabilities = false;
+        signalHeldCapabilities?.();
+        await new Promise((resolve) => { releaseHeldCapabilities = resolve; });
+      }
+      return r.fulfill({
         json: {
           provider: "geoapify",
           geocoding: enabled,
           routing: enabled,
           max_charging_stops: 3,
         },
-      }),
-    );
+      });
+    });
     await page.route("**/api/discovery/addresses", async (r) => {
       addressCalls++;
       const body = r.request().postDataJSON();
@@ -301,9 +309,24 @@ const fs = require("node:fs");
     await page
       .getByRole("button", { name: "استخدام موقعي مرة واحدة", exact: true })
       .click();
+    // Keep an old-account capability response deliberately in flight.
+    // Logging out must invalidate it even if it later says routing=true.
+    const awaitingCapability = new Promise((resolve) => {
+      signalHeldCapabilities = resolve;
+    });
+    holdNextCapabilities = true;
+    await journey.locator("summary").first().click();
+    await journey.locator("summary").first().click();
+    await Promise.race([
+      awaitingCapability,
+      new Promise((_, reject) => setTimeout(
+        () => reject(Error("Pending capability fixture never started")), 10000)),
+    ]);
     await page.evaluate(() =>
       window.dispatchEvent(new CustomEvent("catalog-map-clear")),
     );
+    releaseHeldCapabilities();
+    await page.waitForTimeout(100);
     await page.evaluate(() =>
       window.pendingGps({ coords: { latitude: 12, longitude: 34 } }),
     );
