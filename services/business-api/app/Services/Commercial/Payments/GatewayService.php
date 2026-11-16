@@ -193,7 +193,15 @@ class GatewayService
                 if ($existing) {
                     abort_unless($existing->kind === $kind && (int) $existing->amount_minor === (int) $v['amount_minor'], 409, 'Provider evidence does not match the committed operation.');
                 } else {
-                    $this->operate($initial->id, $invoice->user_id, $kind, 'webhook:'.$v['event_id'], (int) $v['amount_minor'], null, $kind === 'refund' ? 'Mock provider refund webhook' : '');
+                    // A verified provider refund is financial evidence, not
+                    // a Customer-initiated refund instruction. Use the
+                    // invoice's authorized Vendor reviewer for this MOCK-only
+                    // canonical operation; an ordinary Customer calling
+                    // operate('refund') remains forbidden by currentActor().
+                    $reviewer = $kind === 'refund' ? $invoice->vendor_id : $invoice->user_id;
+                    $this->operate($initial->id, $reviewer, $kind, 'webhook:'.$v['event_id'],
+                        (int) $v['amount_minor'], null,
+                        $kind === 'refund' ? 'Mock provider refund webhook' : '');
                 }
                 HostedCheckout::observed('charging', (int) $initial->id, DB::table('gateway_checkouts')->find($initial->id)->status);
                 DB::table('gateway_webhook_events')->insert(['provider_event_id' => $eventId, 'fingerprint' => $hash, 'checkout_id' => $initial->id, 'type' => $v['type'], 'created_at' => now()]);
