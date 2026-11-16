@@ -7,6 +7,8 @@ use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Charging\ChargingActorConsent;
 use Carbon\CarbonImmutable;
+use DateTimeImmutable;
+use DateTimeZone;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -43,7 +45,23 @@ final class ReservationRoaming
      * OCPI 2.2.1 EVSE.capabilities must explicitly advertise RESERVABLE.
      * Missing, malformed or duplicate EVSE source identities fail closed.
      */
-    public function reservableEvse(OcpiRecord $location, string $evseUid): bool
+    private function sourceUtcInstant(mixed $value): ?CarbonImmutable
+    {
+        // Strict OCPI 2.2.1 UTC DateTime (Z optional) without PHP calendar
+        // rollover, local-server timezone interpretation or offset coercion.
+        if (! is_string($value) || preg_match('/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?Z?$/D', $value) !== 1) {
+            return null;
+        }
+        $format = '!Y-m-d\\TH:i:s'.(str_contains($value, '.') ? '.u' : '').(str_ends_with($value, 'Z') ? '\\Z' : '');
+        $instant = DateTimeImmutable::createFromFormat($format, $value, new DateTimeZone('UTC'));
+        if ($instant === false || DateTimeImmutable::getLastErrors() !== false) {
+            return null;
+        }
+
+        return CarbonImmutable::instance($instant);
+    }
+
+    public function reservableEvse(OcpiRecord $location, string $evseUid, string $connectorId): bool
     {
         if ($location->module !== 'locations') {
             return false;
@@ -53,12 +71,37 @@ final class ReservationRoaming
             return false;
         }
         $matches = array_values(array_filter($evses, fn ($evse) => is_array($evse) && ($evse['uid'] ?? null) === $evseUid));
-        if (count($matches) !== 1) {
+        if (count($matches) !== 1 || ($matches[0]['status'] ?? null) !== 'AVAILABLE') {
             return false;
         }
-        $capabilities = $matches[0]['capabilities'] ?? null;
+        $evse = $matches[0];
+        $capabilities = $evse['capabilities'] ?? null;
+        if (! is_array($capabilities) || ! array_is_list($capabilities) || ! in_array('RESERVABLE', $capabilities, true)) {
+            return false;
+        }
+        $connectors = $evse['connectors'] ?? null;
+        if (! is_array($connectors) || ! array_is_list($connectors)) {
+            return false;
+        }
+        $selected = array_values(array_filter($connectors, fn ($connector) => is_array($connector) && ($connector['id'] ?? null) === $connectorId));
+        if (count($selected) !== 1) {
+            return false;
+        }
+        $evseTime = $this->sourceUtcInstant($evse['last_updated'] ?? null);
+        $connectorTime = $this->sourceUtcInstant($selected[0]['last_updated'] ?? null);
+        if ($evseTime === null || $connectorTime === null) {
+            return false;
+        }
+        $now = now();
+        $cutoff = $now->copy()->subMinutes(5);
 
-        return is_array($capabilities) && array_is_list($capabilities) && in_array('RESERVABLE', $capabilities, true);
+        // All three OCPI timestamps must describe a coherent, recently
+        // reported connector. This is only source freshness evidence:
+        // physical occupancy and charging authorization stay unverified.
+        return $evseTime->betweenIncluded($cutoff, $now)
+            && $connectorTime->betweenIncluded($cutoff, $now)
+            && $connectorTime->lte($evseTime)
+            && $evseTime->lte($location->source_updated_at);
     }
 
     public function sessions(object $order): Collection
@@ -176,7 +219,7 @@ final class ReservationRoaming
                     $target = json_decode(Crypt::decryptString($row->target_ciphertext), true, flags: JSON_THROW_ON_ERROR);
                     $offer = $service->offer(OcpiRecord::findOrFail($row->location_record_id), $target['evse_uid'], $target['connector_id'], $target['tariff_id']);
                     abort_unless(hash_equals($row->offer_hash, $offer['hash']), 409);
-                    abort_unless($this->reservableEvse(OcpiRecord::findOrFail($row->location_record_id), $target['evse_uid']), 409,
+                    abort_unless($this->reservableEvse(OcpiRecord::findOrFail($row->location_record_id), $target['evse_uid'], $target['connector_id']), 409,
                         'Partner EVSE no longer advertises reservation capability.');
                 } else {
                     abort_if($this->sessions($row)->contains(fn ($s) => in_array($s->normalized['status'], ['ACTIVE', 'COMPLETED'], true)), 409);
