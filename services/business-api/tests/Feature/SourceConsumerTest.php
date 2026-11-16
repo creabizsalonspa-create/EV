@@ -851,7 +851,7 @@ class SourceConsumerTest extends TestCase
     {
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page', 'nonenergy_before_start', 'nonenergy_after_end', 'later_ambiguous_register', 'later_invalid_unit', 'later_after_end', 'later_regressing_nonenergy_time', 'later_regressing_energy_time'] as $kind) {
+            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page', 'nonenergy_before_start', 'nonenergy_after_end', 'later_ambiguous_register', 'later_invalid_unit', 'later_boolean_energy', 'later_float_energy', 'later_after_end', 'later_regressing_nonenergy_time', 'later_regressing_energy_time'] as $kind) {
                 $cases[$protocol.'_'.$kind] = [$protocol, $kind];
             }
         }
@@ -895,6 +895,8 @@ class SourceConsumerTest extends TestCase
             'nonenergy_after_end' => [array_replace($row(1), ['timestamp' => $at->addSeconds(3)->toIso8601String()])],
             'later_ambiguous_register' => [$row(1), array_replace($valid[1], ['sampledValue' => [$valid[1]['sampledValue'][0], $valid[1]['sampledValue'][0]]])],
             'later_invalid_unit' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['unitOfMeasure' => ['unit' => 'MWh']])]])],
+            'later_boolean_energy' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['value' => true])]])],
+            'later_float_energy' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['value' => 3500.0])]])],
             'later_after_end' => [$row(1), array_replace($valid[1], ['timestamp' => $at->addSeconds(3)->toIso8601String()])],
             'later_regressing_nonenergy_time' => [
                 array_replace($row(1), ['timestamp' => $at->addSecond()->toIso8601String()]),
@@ -1593,6 +1595,15 @@ class SourceConsumerTest extends TestCase
     {
         $this->assertSame(2500, SourceConsumer::wh('2.500000', 'kWh'));
         $this->assertSame(2500, SourceConsumer::wh('2500.0', 'Wh'));
+        $this->assertSame(2500, SourceConsumer::wh(2500, 'Wh'));
+        foreach ([true, false, ['2500'], 2.5, 3500.0] as $invalid) {
+            try {
+                SourceConsumer::wh($invalid, 'Wh');
+                $this->fail('Coerced non-exact source meter type was accepted.');
+            } catch (RuntimeException) {
+                $this->addToAssertionCount(1);
+            }
+        }
         foreach ([['0.5', 'Wh', 0], ['1.0001', 'kWh', 0], ['1', 'MWh', 0], ['1', 'Wh', 3], ['1e3', 'Wh', 0]] as $args) {
             try {
                 SourceConsumer::wh(...$args);

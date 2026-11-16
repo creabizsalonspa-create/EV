@@ -37,6 +37,12 @@ class SourceConsumer
 
     public static function wh(mixed $value, string $unit, int $multiplier = 0): int
     {
+        // Decimal energy values must be original text or exact integers.
+        // JSON booleans cast to "1" and floating-point conversions may
+        // silently manufacture billable Wh: never accept either as evidence.
+        if (! is_string($value) && ! is_int($value)) {
+            throw new RuntimeException('Unsupported source meter scalar type.');
+        }
         $text = (string) $value;
         if (str_contains($text, '.')) {
             $text = rtrim(rtrim($text, '0'), '.');
