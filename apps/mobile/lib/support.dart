@@ -829,6 +829,16 @@ class SupportViewState extends State<SupportView>
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), page = data;
+    // Bind every inbox deep link to the exact page/actor that rendered it.
+    // A retained callback must never navigate for a revoked account or an
+    // older filtered notification page after its private read was replaced.
+    final navigationGeneration = generation;
+    final navigationApi = widget.api;
+    final navigationSession = navigationApi.sessionFence();
+    bool canNavigate() =>
+        notifications && freshRead && !loading && foreground &&
+        identical(widget.api, navigationApi) &&
+        current(navigationGeneration, navigationSession);
     if (!authorized()) {
       return Center(child: Text(s.t('expired')));
     }
@@ -1014,9 +1024,16 @@ class SupportViewState extends State<SupportView>
                         TextButton(
                           onPressed: loading || !authorized()
                               ? null
-                              : () => widget.onBatteryDiscovery!(
-                                  batteryDiscoveryNotificationTarget(row)!,
-                                ),
+                              : () {
+                                  if (!canNavigate()) {
+                                    ensureActor();
+                                    return;
+                                  }
+                                  final target = batteryDiscoveryNotificationTarget(row);
+                                  if (target != null) {
+                                    widget.onBatteryDiscovery?.call(target);
+                                  }
+                                },
                           child: Text(
                             s.arabic
                                 ? 'البحث عن شواحن متوافقة'
@@ -1033,6 +1050,10 @@ class SupportViewState extends State<SupportView>
                               onPressed: loading
                                   ? null
                                   : () async {
+                                      if (!canNavigate()) {
+                                        ensureActor();
+                                        return;
+                                      }
                                       await Navigator.of(context).push(
                                         MaterialPageRoute<void>(
                                           builder: (_) => Scaffold(
@@ -1058,6 +1079,10 @@ class SupportViewState extends State<SupportView>
                               onPressed: loading
                                   ? null
                                   : () async {
+                                      if (!canNavigate()) {
+                                        ensureActor();
+                                        return;
+                                      }
                                       final commandId = operationalCaseTarget(row);
                                       if (commandId == null) return;
                                       await Navigator.of(context).push(
@@ -1075,6 +1100,10 @@ class SupportViewState extends State<SupportView>
                             ),
                           if (providerDisputeNotificationTarget(row) != null)
                             TextButton(onPressed: loading ? null : () async {
+                              if (!canNavigate()) {
+                                ensureActor();
+                                return;
+                              }
                               final id = providerDisputeNotificationTarget(row);
                               if (id == null) return;
                               await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
@@ -1087,6 +1116,10 @@ class SupportViewState extends State<SupportView>
                               onPressed: loading
                                   ? null
                                   : () async {
+                                      if (!canNavigate()) {
+                                        ensureActor();
+                                        return;
+                                      }
                                       final target = simulatedMonitorTarget(row);
                                       if (target == null) return;
                                       await Navigator.of(context).push(
@@ -1109,6 +1142,10 @@ class SupportViewState extends State<SupportView>
                               onPressed: loading
                                   ? null
                                   : () async {
+                                      if (!canNavigate()) {
+                                        ensureActor();
+                                        return;
+                                      }
                                       final target = simulatedRepairTarget(row);
                                       if (target == null) return;
                                       await Navigator.of(context).push(
@@ -1133,6 +1170,10 @@ class SupportViewState extends State<SupportView>
                               onPressed: loading
                                   ? null
                                   : () async {
+                                      if (!canNavigate()) {
+                                        ensureActor();
+                                        return;
+                                      }
                                       final target = simulatedFaultTarget(row);
                                       if (target == null) return;
                                       await Navigator.of(context).push(
@@ -1154,7 +1195,10 @@ class SupportViewState extends State<SupportView>
                             TextButton(
                               onPressed: loading
                                   ? null
-                                  : () => open(row['support_ticket_id'] as int),
+                                  : () {
+                                      if (!canNavigate()) return;
+                                      open(row['support_ticket_id'] as int);
+                                    },
                               child: Text(
                                 s.t('ticket', {'id': row['support_ticket_id']}),
                               ),
@@ -1163,10 +1207,13 @@ class SupportViewState extends State<SupportView>
                             TextButton(
                               onPressed: loading
                                   ? null
-                                  : () => markNotification(
-                                      row['id'] as int,
-                                      read: row['read_at'] == null,
-                                    ),
+                                  : () {
+                                      if (!canNavigate()) return;
+                                      markNotification(
+                                        row['id'] as int,
+                                        read: row['read_at'] == null,
+                                      );
+                                    },
                               child: Text(s.t(
                                 row['read_at'] == null ? 'markRead' : 'markUnread',
                               )),
