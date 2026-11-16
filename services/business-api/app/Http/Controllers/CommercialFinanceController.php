@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Finance\Invoice;
 use App\Models\Finance\Payment;
 use App\Models\Finance\Refund;
-use App\Models\User;
 use App\Security\CurrentFinanceReader;
 use App\Services\Finance\FinanceService;
 use App\Services\Ocpi\CreditRefundEvidence;
@@ -74,13 +73,17 @@ class CommercialFinanceController extends Controller
         return DB::transaction(function () use ($r) {
             app(CurrentFinanceReader::class)->requireCurrent($r);
 
-            return response()->json(DB::table('finance_refund_requests')->whereIn('invoice_id', $this->invoices($r)->select('id'))->orderByDesc('id')->paginate(25)->through(function ($row) {
-            if ($row->ocpi_credit_record_id !== null) {
-                $row->source_credit_evidence = app(CreditRefundEvidence::class)->present(Invoice::findOrFail($row->invoice_id), (int) $row->ocpi_credit_record_id);
-            }
+            return response()->json(DB::table('finance_refund_requests')
+                ->whereIn('invoice_id', $this->invoices($r)->select('id'))
+                ->orderByDesc('id')->paginate(25)->through(function ($row) {
+                    if ($row->ocpi_credit_record_id !== null) {
+                        $row->source_credit_evidence = app(CreditRefundEvidence::class)->present(
+                            Invoice::findOrFail($row->invoice_id), (int) $row->ocpi_credit_record_id
+                        );
+                    }
 
-            return $row;
-        }))->header('Cache-Control', 'private, no-store');
+                    return $row;
+                }))->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -97,7 +100,7 @@ class CommercialFinanceController extends Controller
             $current = app(CurrentFinanceReader::class)->requireCurrent($r);
             $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
             abort_unless($invoice->user_id === $current->id, 404);
-            $old = DB::table('finance_refund_requests')->where('user_id', $r->user()->id)->where('request_key', $v['idempotency_key'])->first();
+            $old = DB::table('finance_refund_requests')->where('user_id', $current->id)->where('request_key', $v['idempotency_key'])->first();
             if ($old) {
                 abort_unless($old->invoice_id === $invoice->id && (int) $old->amount_minor === (int) $v['amount_minor'] && $old->reason === $v['reason'] && ($old->ocpi_credit_record_id ?? null) === ($v['ocpi_credit_record_id'] ?? null), 409, 'Refund request key conflict.');
 
@@ -109,7 +112,7 @@ class CommercialFinanceController extends Controller
             }
             $available = (int) Payment::where('invoice_id', $invoice->id)->sum('amount_minor') - (int) Refund::where('invoice_id', $invoice->id)->sum('amount_minor') - (int) DB::table('finance_refund_requests')->where('invoice_id', $invoice->id)->where('status', 'pending')->sum('amount_minor');
             abort_unless((int) $v['amount_minor'] <= $available, 409, 'Requested amount exceeds unreserved captured funds.');
-            $id = DB::table('finance_refund_requests')->insertGetId(['invoice_id' => $invoice->id, 'user_id' => $r->user()->id, 'request_key' => $v['idempotency_key'], 'ocpi_credit_record_id' => $v['ocpi_credit_record_id'] ?? null, 'amount_minor' => (int) $v['amount_minor'], 'reason' => $v['reason'], 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
+            $id = DB::table('finance_refund_requests')->insertGetId(['invoice_id' => $invoice->id, 'user_id' => $current->id, 'request_key' => $v['idempotency_key'], 'ocpi_credit_record_id' => $v['ocpi_credit_record_id'] ?? null, 'amount_minor' => (int) $v['amount_minor'], 'reason' => $v['reason'], 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
 
             return response()->json(DB::table('finance_refund_requests')->find($id), 201);
         }, 3);
