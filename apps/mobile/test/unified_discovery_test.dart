@@ -103,6 +103,11 @@ void main(){
   await tester.ensureVisible(find.byType(ExpansionTile));await tester.tap(find.byType(ExpansionTile));await tester.pumpAndSettle();
   final operator=find.byKey(const Key('unified-operator'));await tester.ensureVisible(operator);await tester.enterText(operator,'Private operator');
   await tester.pumpWidget(app(second,(_){}));await tester.pumpAndSettle();
+  // Identity change remounts the form with collapsed private inputs.
+  // Reopen it to verify the previous account's advanced draft is absent.
+  expect(operator,findsNothing);
+  await tester.ensureVisible(find.byType(ExpansionTile));
+  await tester.tap(find.byType(ExpansionTile));await tester.pumpAndSettle();
   expect(tester.widget<TextField>(operator).controller!.text,isEmpty);
   await tester.scrollUntilVisible(find.byKey(const Key('unified-query')),-300,scrollable:find.byType(Scrollable).first);
   expect(tester.widget<TextField>(find.byKey(const Key('unified-query'))).controller!.text,isEmpty);
@@ -119,7 +124,13 @@ void main(){
    }
    final search=find.byType(FilledButton);await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
    expect(api.queries.single['operator'],'100%_operator');expect(api.queries.single['address'],'دبي');expect(api.queries.single['access'],'Visitors');expect(api.queries.single['min_power_kw'],'40');expect(api.queries.single['max_power_kw'],'60');expect(api.queries.single['max_rate_per_kwh'],'1.50');expect(api.queries.single['price_currency'],'AED');
-   final next=find.text(ar?'التالي':'Next');await tester.ensureVisible(next);await tester.tap(next);await tester.pumpAndSettle();expect(api.queries.last['page'],'2');expect(api.queries.last['max_rate_per_kwh'],'1.50');expect(api.queries.last['min_power_kw'],'40');expect(api.queries.last['max_power_kw'],'60');
+   // Expanded advanced fields and in-memory history extend the list;
+   // collapse the panel, then finish scrolling before pagination.
+   await tester.ensureVisible(expand);await tester.tap(expand);await tester.pumpAndSettle();
+   final next=find.text(ar?'التالي':'Next');
+   await tester.ensureVisible(next);await tester.pumpAndSettle();
+   await tester.tap(next);await tester.pumpAndSettle();
+   expect(api.queries.last['page'],'2');expect(api.queries.last['max_rate_per_kwh'],'1.50');expect(api.queries.last['min_power_kw'],'40');expect(api.queries.last['max_power_kw'],'60');
    expect(api.calls.every((path)=>path=='GET discovery/search'),true);
   });
  }
@@ -298,9 +309,16 @@ void main(){
    api.invalid=false;
    await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
    expect(find.byKey(const Key('unified-recent-0')),findsOneWidget);
-   tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-   await tester.pump();
-   tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+   // Follow actual lifecycle transitions: paused directly from resumed
+   // is invalid in AppLifecycleListener and never occurs on a device.
+   for(final state in [
+     AppLifecycleState.inactive,AppLifecycleState.hidden,
+     AppLifecycleState.paused,AppLifecycleState.hidden,
+     AppLifecycleState.inactive,AppLifecycleState.resumed,
+   ]) {
+     tester.binding.handleAppLifecycleStateChanged(state);
+     await tester.pump();
+   }
    await tester.pumpAndSettle();
    expect(find.byKey(const Key('unified-recent-0')),findsNothing);
    api.epoch++;
