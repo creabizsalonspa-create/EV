@@ -170,7 +170,8 @@ class FinanceApprovalQueueTest extends TestCase
         }
         $this->assertSame($beforeAudits, DB::table('audit_events')->count());
         $this->assertDatabaseCount('finance_refunds', 0);
-        $this->assertDatabaseCount('commercial_adjustment_approvals', 0);
+        // The one pre-existing approved adjustment is preserved, not erased.
+        $this->assertDatabaseCount('commercial_adjustment_approvals', 1);
     }
 
     public function test_unrepresentable_large_settlement_fails_closed_without_corrupting_invoice_or_payout(): void
