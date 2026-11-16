@@ -8,6 +8,7 @@ use App\Models\Station;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\ChargingActorConsent;
+use App\Services\Charging\OcppTransactionId;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -53,6 +54,11 @@ class ChargerCommandController extends Controller
         abort_unless($station->source === 'simulator' && DB::table('csms_bindings')->where('station_id', $station->id)->exists(), 409, 'No provisioned simulator binding.');
         abort_if(ConnectorMapping::where('station_id', $station->id)->exists() || DB::table('csms_bindings')->where('station_id', $station->id)->count() !== 1, 409, 'Use an explicitly mapped reservation and session.');
         $v = $r->validate(['action' => 'required|in:start,stop', 'idempotency_key' => 'required|string|max:100', 'transaction_id' => 'required_if:action,stop|string|max:36']);
+        if ($v['action'] === 'stop') {
+            $protocol = DB::table('csms_bindings')->where('station_id', $station->id)->value('protocol');
+            abort_unless($protocol !== '1.6' || OcppTransactionId::valid16($v['transaction_id']),
+                422, 'OCPP 1.6 stop requires a canonical signed 32-bit transaction ID.');
+        }
         $payload = $v['action'] === 'start' ? [] : ['transaction_id' => $v['transaction_id']];
         $hash = hash('sha256', json_encode([$station->id, $v['action'], $payload]));
         $old = ChargerCommand::where('actor_id', $r->user()->id)->where('idempotency_key', $v['idempotency_key'])->first();

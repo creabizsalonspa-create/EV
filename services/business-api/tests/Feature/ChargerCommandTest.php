@@ -78,6 +78,47 @@ class ChargerCommandTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_ocpp16_stop_rejects_noncanonical_source_transaction_id_without_dispatch(): void
+    {
+        config(['csms.simulator_enabled' => true]);
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($vendor);
+        DB::table('csms_bindings')->insert([
+            'station_id' => $station->id, 'identifier' => 'ev-test-stop-range',
+            'protocol' => '1.6', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        Http::preventStrayRequests();
+        Http::fake();
+        $this->actingAs($vendor);
+        foreach (['-1', '01', 'abc', '2.0', '2147483648'] as $n => $value) {
+            $this->postJson('/api/stations/'.$station->id.'/commands', [
+                'action' => 'stop', 'transaction_id' => $value,
+                'idempotency_key' => 'bad-stop-'.$n,
+            ])->assertUnprocessable();
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        foreach (['0', '2147483647'] as $n => $value) {
+            $this->postJson('/api/stations/'.$station->id.'/commands', [
+                'action' => 'stop', 'transaction_id' => $value,
+                'idempotency_key' => 'good-stop-'.$n,
+            ])->assertAccepted()->assertJsonPath('payload.transaction_id', $value);
+        }
+        Http::assertNothingSent();
+
+        $bad = ChargerCommand::create([
+            'actor_id' => $vendor->id, 'station_id' => $station->id,
+            'action' => 'stop', 'payload' => ['transaction_id' => '2147483648'],
+            'payload_hash' => str_repeat('f', 64),
+            'idempotency_key' => 'legacy-overflow',
+        ]);
+        $blocked = app(CsmsDispatcher::class)->dispatch($bad->id);
+        $this->assertSame('pending', $blocked->status);
+        $this->assertSame('pre_dispatch_invalid_transaction_id', $blocked->failure_code);
+        app(CsmsDispatcher::class)->dispatch($bad->id);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_production_guard_rejects_dev_token_dispatch(): void
     {
         $this->expectException(HttpException::class);

@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\Charging\ChargingActorConsent;
 use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\OperatingCalendar;
+use App\Services\Charging\OcppTransactionId;
 use App\Services\Charging\StationGate;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +39,19 @@ class CsmsDispatcher
                     $linked = SessionLink::where('charging_session_id', $c->payload['session_id'])->first();
                     if ($linked && ($linked->closed_without_dispatch_at !== null || ($c->action === 'start' ? $linked->started_at !== null : $linked->ended_at !== null))) {
                         $c->update(['failure_code' => 'source_observation_requires_reconciliation']);
+
+                        return null;
+                    }
+                }
+                if ($c->action === 'stop') {
+                    $linked = isset($c->payload['session_id'])
+                        ? SessionLink::where('charging_session_id', $c->payload['session_id'])->first()
+                        : null;
+                    $protocol = $linked?->protocol
+                        ?? DB::table('csms_bindings')->where('station_id', $stationId)->value('protocol');
+                    if ($protocol === '1.6' && ! OcppTransactionId::valid16($c->payload['transaction_id'] ?? null)) {
+                        $c->failure_code = 'pre_dispatch_invalid_transaction_id';
+                        $c->save();
 
                         return null;
                     }
@@ -142,7 +156,7 @@ class CsmsDispatcher
             }
             if ($b->protocol === '1.6') {
                 $action = $command->action === 'start' ? 'remoteStartTransaction' : 'remoteStopTransaction';
-                if ($command->action === 'stop' && ! ctype_digit($command->payload['transaction_id'])) {
+                if ($command->action === 'stop' && ! OcppTransactionId::valid16($command->payload['transaction_id'] ?? null)) {
                     throw new \RuntimeException('OCPP 1.6 transaction id must be numeric');
                 }
                 $payload = $command->action === 'start' ? ['idTag' => $command->payload['id_token'] ?? 'EV-SIMULATOR', 'connectorId' => $sourceConnector] : ['transactionId' => (int) $command->payload['transaction_id']];
