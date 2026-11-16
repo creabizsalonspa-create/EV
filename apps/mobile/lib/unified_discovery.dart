@@ -3,6 +3,7 @@ import 'partner_catalog_policy.dart';
 import 'connector_freshness.dart';
 import 'partner_report_map.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart' show TileProvider;
 import 'api.dart';
 
 /// Published local records only. This view never grants remote charging rights.
@@ -21,17 +22,18 @@ class UnifiedDiscoveryView extends StatefulWidget {
   final EvApi api;
   final ValueChanged<Station> onCatalog;
   final bool customer;
-  const UnifiedDiscoveryView({super.key, required this.api, required this.onCatalog, this.customer=false});
+  final TileProvider? mapTileProvider;
+  const UnifiedDiscoveryView({super.key, required this.api, required this.onCatalog, this.customer=false, this.mapTileProvider});
   @override
   State<UnifiedDiscoveryView> createState() => _UnifiedDiscoveryViewState();
 }
 class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with WidgetsBindingObserver {
   final query=TextEditingController();
   final advanced={for(final key in ['operator','address','access','max_rate_per_kwh','price_currency'])key:TextEditingController()};
-  Map<String,String> submittedAdvanced={};
+  Map<String,String> submittedAdvanced={}, submittedViewport={};
   late bool Function() ownSession;
   String sourceStatus='',submittedSourceStatus='',sourceAge='',submittedSourceAge='';
-  String scope='all',connector='',submitted='',submittedScope='all',submittedConnector='';
+  String scope='all',country='',connector='',submitted='',submittedScope='all',submittedCountry='',submittedConnector='';
   int generation=0,page=1,last=1,total=0;
   bool busy=false,foreground=true,savedOnly=false,submittedSaved=false,writing=false,uncertain=false;
   String? error;
@@ -45,7 +47,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     if(!foreground){generation++;if(mounted)setState((){rows=[];busy=false;writing=false;uncertain=false;error=null;});}
   }
   @override
-  void didUpdateWidget(covariant UnifiedDiscoveryView old){super.didUpdateWidget(old);if(!identical(old.api,widget.api)){query.clear();for(final control in advanced.values){control.clear();}submittedAdvanced={};submitted='';submittedSaved=false;savedOnly=false;ownSession=widget.api.sessionFence();generation++;rows=[];busy=false;writing=false;uncertain=false;error=null;}}
+  void didUpdateWidget(covariant UnifiedDiscoveryView old){super.didUpdateWidget(old);if(!identical(old.api,widget.api)){query.clear();for(final control in advanced.values){control.clear();}submittedAdvanced={};submittedViewport={};submitted='';submittedCountry='';country='';submittedSaved=false;savedOnly=false;ownSession=widget.api.sessionFence();generation++;rows=[];busy=false;writing=false;uncertain=false;error=null;}}
   Future<void> load(int target)async{
     if(!foreground||writing)return;
     if(!ownSession()){setState((){rows=[];busy=false;writing=false;error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');});return;}
@@ -53,7 +55,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     bool active()=>mounted&&foreground&&turn==generation&&ownSession()&&fence();
     setState((){busy=true;uncertain=false;error=null;rows=[];});
     try{
-      final data=await api.request('discovery/search',query:{...submittedAdvanced,'q':submitted,'scope':submittedScope,'connector':submittedConnector,'page':'$target','saved_only':submittedSaved?'1':'0',if(submittedSourceStatus.isNotEmpty)'recent_source_status':submittedSourceStatus,if(submittedSourceAge.isNotEmpty)'max_source_age_hours':submittedSourceAge});
+      final data=await api.request('discovery/search',query:{...submittedAdvanced,...submittedViewport,'q':submitted,'scope':submittedScope,if(submittedCountry.isNotEmpty)'country':submittedCountry,'connector':submittedConnector,'page':'$target','saved_only':submittedSaved?'1':'0',if(submittedSourceStatus.isNotEmpty)'recent_source_status':submittedSourceStatus,if(submittedSourceAge.isNotEmpty)'max_source_age_hours':submittedSourceAge});
       if(!active())return;
       if(data is! Map||data['data'] is! List||data['current_page'] is! int||data['last_page'] is! int||data['total'] is! int)throw const FormatException('Invalid search page');
       final parsed=(data['data'] as List).map((row)=>Map<String,dynamic>.from(row as Map)).toList();
@@ -67,6 +69,26 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     }catch(_){if(active())setState(()=>error=tr('Search failed. Retry explicitly.','تعذر البحث. أعد المحاولة صراحةً.'));}
     finally{if(mounted&&foreground&&turn==generation)setState((){busy=false;if(!ownSession()){rows=[];error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');}});}
   }
+  /// Only an explicit map action can submit this transient rectangle.
+  /// Session/lifecycle revalidation prevents another account from inheriting
+  /// a route result or a backgrounded map from triggering a private search.
+  Future<void> searchFromMap() async {
+    if (!foreground || busy || writing || !ownSession()) return;
+    final snapshot = generation;
+    final fence = widget.api.sessionFence();
+    final bounds = await Navigator.of(context).push<Map<String,String>>(
+      MaterialPageRoute(builder: (_) => PartnerReportMap(
+        points: mapPoints(),
+        tileProvider: widget.mapTileProvider,
+        allowViewportSearch: true,
+      )),
+    );
+    if (!mounted || !foreground || generation != snapshot ||
+        !ownSession() || !fence() || bounds == null) return;
+    setState(() => submittedViewport = Map<String,String>.of(bounds));
+    await load(1);
+  }
+
   @override
   Widget build(BuildContext context)=>Scaffold(
     appBar:AppBar(title:Text(tr('Search all sources','البحث في كل المصادر'))),
@@ -74,6 +96,26 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       Text(tr('Search published platform and authorized partner records. Partner reports do not authorize booking, charging or payment. External provider lookups require separate consent.','البحث في سجلات المنصة والشركاء المصرح لهم. تقارير الشركاء لا تسمح بالحجز أو الشحن أو الدفع. تتطلب الاستعلامات الخارجية موافقة منفصلة.')),
       TextField(key:const Key('unified-query'),controller:query,maxLength:80,decoration:InputDecoration(labelText:tr('Name, address or operator','الاسم أو العنوان أو المشغل'))),
       DropdownButtonFormField<String>(initialValue:scope,decoration:InputDecoration(labelText:tr('Source','المصدر')),items:[for(final choice in [('all','All published sources','كل المصادر المنشورة'),('catalog','Platform catalog','كتالوج المنصة'),('partner','Authorized partner reports','تقارير الشركاء المصرح لهم')])DropdownMenuItem(value:choice.$1,child:Text(tr(choice.$2,choice.$3)))],onChanged:busy?null:(value)=>setState(()=>scope=value!)),
+      InputDecorator(
+        decoration: InputDecoration(labelText: tr('Country (supported markets)', 'الدولة (الأسواق المدعومة)')),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            key: const Key('unified-country'),
+            value: country,
+            isExpanded: true,
+            items: [
+              for(final option in [
+                ('','No country filter (available records)','بدون تصفية حسب الدولة (السجلات المتاحة)'),
+                ('AE','United Arab Emirates','الإمارات العربية المتحدة'),
+                ('US','United States','الولايات المتحدة'),
+                ('CA','Canada','كندا'),
+              ])
+                DropdownMenuItem(value:option.$1,child:Text(tr(option.$2,option.$3))),
+            ],
+            onChanged:busy||writing?null:(value)=>setState(()=>country=value!),
+          ),
+        ),
+      ),
       DropdownButtonFormField<String>(initialValue:connector,decoration:InputDecoration(labelText:tr('Connector','الموصل')),items:[for(final value in ['','CCS2','Type2','CHAdeMO'])DropdownMenuItem(value:value,child:Text(value.isEmpty?tr('All connectors','كل الموصلات'):value))],onChanged:busy?null:(value)=>setState(()=>connector=value!)),
       DropdownButtonFormField<String>(key:const Key('unified-source-status'),initialValue:sourceStatus,decoration:InputDecoration(labelText:tr('Simulated source state at search','حالة مصدر المحاكاة عند البحث')),items:[DropdownMenuItem(value:'',child:Text(tr('All states','كل الحالات'))),for(final status in reportedConnectorStatuses)DropdownMenuItem(value:status,child:Text(connectorStatusLabel(status,Localizations.localeOf(context).languageCode=='ar')))],onChanged:busy||writing?null:(value)=>setState(()=>sourceStatus=value!)),
       DropdownButtonFormField<String>(key:const Key('unified-source-age'),initialValue:sourceAge,decoration:InputDecoration(labelText:tr('Partner source updates within (platform results unchanged)','تحديثات مصدر الشريك خلال (نتائج المنصة دون تغيير)')),items:[for(final choice in [('','All report ages','كل أعمار التقارير'),('1','Last hour','آخر ساعة'),('24','Last 24 hours','آخر 24 ساعة'),('168','Last 7 days','آخر 7 أيام')])DropdownMenuItem(value:choice.$1,child:Text(tr(choice.$2,choice.$3)))],onChanged:busy||writing?null:(value)=>setState(()=>sourceAge=value!)),
@@ -84,10 +126,10 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
           TextField(key:Key('unified-${field.$1}'),controller:advanced[field.$1],maxLength:field.$4,decoration:InputDecoration(labelText:tr(field.$2,field.$3))),
         Text(tr('Access and price filters exclude partner reports. Price matches current simulated energy rates excluding tax, not a total-cost quote. Enter both rate and currency.','تستثني مرشحات الوصول والسعر تقارير الشركاء. يطابق السعر أسعار الطاقة المحاكاة الحالية دون الضريبة وليس عرضاً للتكلفة الإجمالية. أدخل السعر والعملة معاً.')),
       ]),
-      FilledButton(onPressed:busy||writing?null:(){submittedAdvanced={};for(final field in advanced.entries){var value=field.value.text.trim();if(field.key=='max_rate_per_kwh')value=vendorDigits(value);if(field.key=='price_currency')value=value.toUpperCase();if(value.isNotEmpty)submittedAdvanced[field.key]=value;}submitted=query.text.trim();submittedScope=scope;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;submittedSourceAge=sourceAge;load(1);},child:Text(tr('Search all sources','البحث في كل المصادر'))),
+      FilledButton(onPressed:busy||writing?null:(){submittedAdvanced={};for(final field in advanced.entries){var value=field.value.text.trim();if(field.key=='max_rate_per_kwh')value=vendorDigits(value);if(field.key=='price_currency')value=value.toUpperCase();if(value.isNotEmpty)submittedAdvanced[field.key]=value;}submitted=query.text.trim();submittedScope=scope;submittedCountry=country;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;submittedSourceAge=sourceAge;submittedViewport={};load(1);},child:Text(tr('Search all sources','البحث في كل المصادر'))),
       if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!),
       Text(tr('$total published results','$total نتيجة منشورة')),
-      if (mapPoints().isNotEmpty) OutlinedButton(key:const Key('unified-map-open'),onPressed:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>PartnerReportMap(points:mapPoints()))),child:Text(tr('Map these loaded results','عرض هذه النتائج المحملة على الخريطة'))),
+      if (mapPoints().isNotEmpty) OutlinedButton(key:const Key('unified-map-open'),onPressed:busy||writing?null:searchFromMap,child:Text(tr('Map these loaded results','عرض هذه النتائج المحملة على الخريطة'))),
       for(final row in rows)card(row),
       Wrap(children:[if(page>1)TextButton(onPressed:busy||writing?null:()=>load(page-1),child:Text(tr('Previous','السابق'))),Text('$page / $last'),if(page<last)TextButton(onPressed:busy||writing?null:()=>load(page+1),child:Text(tr('Next','التالي')))]),
     ]),

@@ -337,6 +337,116 @@ class SourceConsumerTest extends TestCase
         return [['1.6'], ['2.0.1']];
     }
 
+    public static function invalidMeterPages(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page'] as $kind) {
+                $cases[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('invalidMeterPages')]
+    public function test_malformed_source_meter_pages_cannot_skip_evidence_or_finalize_after_restart(string $protocol, string $kind): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond();
+        $stationQueries = 0;
+        $transactionQueries = 0;
+        $row = fn (int $id) => [
+            'id' => $id, 'timestamp' => $at->toIso8601String(),
+            'sampledValue' => [['measurand' => 'Voltage', 'value' => 230]],
+        ];
+        $valid = [
+            $row(1),
+            ['id' => 2, 'timestamp' => $at->addSeconds(2)->toIso8601String(),
+                'sampledValue' => [['measurand' => 'Energy.Active.Import.Register',
+                    'value' => '3500', 'context' => 'Transaction.End',
+                    'unitOfMeasure' => ['unit' => 'Wh']]]],
+        ];
+        $rows = match ($kind) {
+            'duplicate_id' => [$row(1), $row(1)],
+            'regressing_id' => [$row(2), $row(1)],
+            'zero_id' => [$row(0)],
+            'oversized_id' => [$row(1000000001)],
+            'string_id' => [array_replace($row(1), ['id' => '1'])],
+            'non_absolute_time' => [array_replace($row(1), ['timestamp' => '2026-11-15 10:00:00'])],
+            'future_non_energy' => [array_replace($row(1), ['timestamp' => $at->addMinutes(6)->toIso8601String()])],
+            'missing_samples' => [array_replace($row(1), ['sampledValue' => null])],
+            'non_array_sample' => [array_replace($row(1), ['sampledValue' => [null]])],
+            'non_list_samples' => [array_replace($row(1), ['sampledValue' => ['voltage' => ['measurand' => 'Voltage', 'value' => 230]]])],
+            'non_list_page' => ['first' => $row(1)],
+            'oversized_page' => array_map($row, range(1, 101)),
+            'missing_page' => null,
+        };
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($protocol, $link, $at, &$rows, &$stationQueries, &$transactionQueries) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                $stationQueries++;
+
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => 'ocpp'.$protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                $transactionQueries++;
+
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10,
+                    'transactionId' => $protocol === '1.6' ? '101' : 'source-meter-page',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000',
+                    'startTime' => $at->toIso8601String(),
+                    'endTime' => $at->addSeconds(2)->toIso8601String(),
+                    'isActive' => false,
+                    'totalKwh' => '2.500',
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                // A real source query filters id > the durable cursor. After
+                // finalization, replaying old rows would violate that contract.
+                $after = (int) ($request['variables']['after'] ?? 0);
+
+                return Http::response(['data' => ['MeterValues' => $after > 0 ? [] : $rows]]);
+            }
+
+            $this->fail('Source reader attempted an unauthorized network operation.');
+        });
+
+        try {
+            app(SourceConsumer::class)->consume($link, true);
+            $this->fail('Invalid source page was accepted or skipped.');
+        } catch (RuntimeException) {
+            $this->assertSame(0, $link->fresh()->source_meter_cursor);
+            $this->assertDatabaseCount('finance_invoices', 0);
+            $this->assertDatabaseCount('charger_commands', 1);
+        }
+        $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertSame(1, $stationQueries);
+        $this->assertSame(1, $transactionQueries);
+
+        // Re-examine the original first row, then finalize from genuine source
+        // evidence. This does not replay the already observed start command.
+        $rows = $valid;
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(2, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id,
+            'status' => 'stopped',
+            'energy_wh' => 2500,
+        ]);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertDatabaseCount('finance_invoices', 1);
+    }
+
     public function test_meter_units_are_exact_and_unsupported_precision_is_not_rounded(): void
     {
         $this->assertSame(2500, SourceConsumer::wh('2.500000', 'kWh'));

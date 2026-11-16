@@ -294,4 +294,204 @@ class UnifiedDiscoveryTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
         Http::assertNothingSent();
     }
+
+    public function test_exact_map_view_filters_both_sources_before_union_pagination_without_provider_calls(): void
+    {
+        $f = $this->fixtures();
+        $f['record']->update(['normalized' => array_merge($f['record']->normalized, [
+            'latitude' => '25.1', 'longitude' => '55.1',
+        ])]);
+        $excluded = Station::create([
+            'vendor_id' => $f['station']->vendor_id, 'name' => 'Outside view',
+            'source' => 'discovery', 'country' => 'AE', 'currency' => 'AED',
+            'timezone' => 'Asia/Dubai', 'latitude' => 40, 'longitude' => 70,
+            'connector_type' => 'CCS2', 'power_kw' => 50,
+        ]);
+        // Newer records outside the viewport must not consume page slots.
+        foreach (range(1, 26) as $i) {
+            Station::create([
+                'vendor_id' => $f['station']->vendor_id, 'name' => 'Outside '.$i,
+                'source' => 'discovery', 'country' => 'AE', 'currency' => 'AED',
+                'timezone' => 'Asia/Dubai', 'latitude' => 45, 'longitude' => 70,
+                'connector_type' => 'CCS2', 'power_kw' => 50,
+            ]);
+        }
+        foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $route) {
+            $query = '?south=24&north=26&west=54&east=56';
+            $response = $this->getJson($route.$query)->assertOk()
+                ->assertJsonPath('total', 2)->assertJsonCount(2, 'data')
+                ->assertJsonPath('current_page', 1)
+                ->assertHeader('Cache-Control');
+            $directives = array_map('trim', explode(',', strtolower((string) $response->headers->get('Cache-Control'))));
+            $this->assertContains('private', $directives, 'Discovery must be private.');
+            $this->assertContains('no-store', $directives, 'Discovery must never be cached publicly.');
+            $keys = array_column($response->json('data'), 'key');
+            $this->assertEqualsCanonicalizing([
+                'catalog:'.$f['station']->id, 'partner:'.$f['record']->id,
+            ], $keys);
+            $this->assertNotContains('catalog:'.$excluded->id, $keys);
+            $this->getJson($route.$query.'&scope=partner')
+                ->assertJsonPath('total', 1)->assertJsonPath('data.0.availability', 'unknown')
+                ->assertJsonPath('data.0.reservable', false)->assertJsonPath('data.0.remote_control', false);
+            $this->getJson($route.$query.'&scope=catalog')->assertJsonPath('total', 1);
+            $this->getJson($route.'?south=25.05&north=25.2&west=55.05&east=55.2')
+                ->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'partner');
+            $this->getJson($route.'?south=24&north=26&west=54&east=56&page=2')
+                ->assertJsonPath('total', 2)->assertJsonCount(0, 'data');
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_map_view_antimeridian_and_missing_coordinates_do_not_produce_false_pins(): void
+    {
+        $f = $this->fixtures();
+        $f['station']->update(['latitude' => 10, 'longitude' => -179.8]);
+        $f['record']->update(['normalized' => array_merge($f['record']->normalized, [
+            'latitude' => '10.1', 'longitude' => '179.8',
+        ])]);
+        $other = Station::create([
+            'vendor_id' => $f['station']->vendor_id, 'name' => 'Greenwich station',
+            'source' => 'discovery', 'country' => 'AE', 'currency' => 'AED',
+            'timezone' => 'Asia/Dubai', 'latitude' => 10, 'longitude' => 0,
+            'connector_type' => 'CCS2', 'power_kw' => 50,
+        ]);
+        $missing = OcpiRecord::create([
+            'ocpi_provider_id' => $f['provider']->id, 'module' => 'locations',
+            'country_code' => 'AE', 'party_id' => 'TST', 'external_id' => 'no-coordinates',
+            'payload' => ['secret' => 'never project'], 'content_hash' => str_repeat('b', 64),
+            'normalized' => ['name' => 'No coordinates', 'publish' => true, 'latitude' => null, 'longitude' => null],
+            'source_updated_at' => now(), 'received_at' => now(),
+        ]);
+        $malformed = OcpiRecord::create([
+            'ocpi_provider_id' => $f['provider']->id, 'module' => 'locations',
+            'country_code' => 'AE', 'party_id' => 'TST', 'external_id' => 'bad-coordinates',
+            'payload' => ['secret' => 'never project'], 'content_hash' => str_repeat('c', 64),
+            'normalized' => ['name' => 'Malformed location', 'publish' => true, 'latitude' => 'not-a-number', 'longitude' => '0'],
+            'source_updated_at' => now(), 'received_at' => now(),
+        ]);
+        foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $route) {
+            $url = $route.'?south=9&north=11&west=179&east=-179';
+            $response = $this->getJson($url)->assertOk()->assertJsonPath('total', 2);
+            $this->assertEqualsCanonicalizing([
+                'catalog:'.$f['station']->id, 'partner:'.$f['record']->id,
+            ], array_column($response->json('data'), 'key'));
+            $this->assertNotContains('catalog:'.$other->id, array_column($response->json('data'), 'key'));
+            $this->assertNotContains('partner:'.$missing->id, array_column($response->json('data'), 'key'));
+            $this->assertNotContains('partner:'.$malformed->id, array_column($response->json('data'), 'key'));
+            $this->getJson($route.'?south=9&north=11&west=-180&east=180')
+                ->assertJsonPath('total', 3);
+            $this->getJson($route.'?south=9&north=11&west=-1&east=1')
+                ->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'catalog');
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_map_view_requires_complete_finite_and_nondegenerate_bounds(): void
+    {
+        $this->fixtures();
+        $invalid = [
+            'south=24', 'south=24&north=26&west=54',
+            'south=26&north=24&west=54&east=56',
+            'south=24&north=24&west=54&east=56',
+            'south=24&north=26&west=54&east=54',
+            'south=-91&north=26&west=54&east=56',
+            'south=24&north=91&west=54&east=56',
+            'south=24&north=26&west=-181&east=56',
+            'south=24&north=26&west=54&east=181',
+            'south=24&north=26&west=NaN&east=56',
+            'south[]=24&north=26&west=54&east=56',
+        ];
+        foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $route) {
+            foreach ($invalid as $query) {
+                $this->getJson($route.'?'.$query)->assertUnprocessable();
+            }
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_supported_country_filters_exact_location_not_ocpi_party_before_pagination(): void
+    {
+        $f = $this->fixtures();
+
+        $usStation = $f['station']->replicate();
+        $usStation->country = 'US';
+        $usStation->currency = 'USD';
+        $usStation->name = 'United States station';
+        $usStation->save();
+
+        $canadaStation = $f['station']->replicate();
+        $canadaStation->country = 'CA';
+        $canadaStation->currency = 'CAD';
+        $canadaStation->name = 'Canada station';
+        $canadaStation->save();
+
+        $usPartner = $f['record']->replicate();
+        $usPartner->external_id = 'us-location-from-ca-party';
+        $usPartner->country_code = 'CA'; // Party registration is NOT the station country.
+        $usPartner->content_hash = str_repeat('b', 64);
+        $usPartner->normalized = array_merge($f['record']->normalized, [
+            'name' => 'United States partner', 'country' => 'USA',
+            'latitude' => '25.1', 'longitude' => '55.1',
+        ]);
+        $usPartner->save();
+
+        $canadaPartner = $f['record']->replicate();
+        $canadaPartner->external_id = 'ca-location-from-ae-party';
+        $canadaPartner->country_code = 'AE';
+        $canadaPartner->content_hash = str_repeat('c', 64);
+        $canadaPartner->normalized = array_merge($f['record']->normalized, [
+            'name' => 'Canada partner', 'country' => 'CAN',
+            'latitude' => '25.2', 'longitude' => '55.2',
+        ]);
+        $canadaPartner->save();
+
+        // Out-of-country high IDs must not consume the target country's page.
+        foreach (range(1, 26) as $n) {
+            $out = $f['station']->replicate();
+            $out->name = 'Other-market-'.$n;
+            $out->save();
+        }
+
+        foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $route) {
+            foreach ([
+                'AE' => ['catalog:'.$f['station']->id, 'partner:'.$f['record']->id],
+                'US' => ['catalog:'.$usStation->id, 'partner:'.$usPartner->id],
+                'CA' => ['catalog:'.$canadaStation->id, 'partner:'.$canadaPartner->id],
+            ] as $country => $expected) {
+                $reply = $this->getJson($route.'?country='.$country)->assertOk()
+                    ->assertJsonPath('total', $country === 'AE' ? 28 : 2);
+                // The AE fixtures span two pages: out-of-country US/CA
+                // records must not consume page slots in their own searches.
+                $allKeys = array_column($reply->json('data'), 'key');
+                if ($country === 'AE') {
+                    $reply->assertJsonPath('last_page', 2);
+                    $second = $this->getJson($route.'?country=AE&page=2')->assertOk()->assertJsonPath('total', 28);
+                    $allKeys = array_merge($allKeys, array_column($second->json('data'), 'key'));
+                }
+                $this->assertEqualsCanonicalizing(
+                    $expected,
+                    array_values(array_intersect($expected, $allKeys))
+                );
+                if ($country !== 'AE') {
+                    $reply->assertJsonCount(2, 'data')->assertJsonPath('last_page', 1);
+                    $this->getJson($route.'?country='.$country.'&scope=partner')
+                        ->assertJsonPath('total', 1)->assertJsonPath('data.0.availability', 'unknown')
+                        ->assertJsonPath('data.0.reservable', false);
+                    $this->getJson($route.'?country='.$country.'&scope=catalog')
+                        ->assertJsonPath('total', 1);
+                }
+            }
+            $this->getJson($route.'?country=US&south=24&north=26&west=54&east=56')
+                ->assertJsonPath('total', 2);
+            $this->getJson($route.'?country=US&page=2')->assertJsonPath('total', 2)->assertJsonCount(0, 'data');
+            foreach (['GB', 'USA', 'ae', 'XX', 'AE%25', 'country[]=US'] as $bad) {
+                $suffix = str_starts_with($bad, 'country[') ? $bad : 'country='.$bad;
+                $this->getJson($route.'?'.$suffix)->assertUnprocessable();
+            }
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('reservations', 0);
+        Http::assertNothingSent();
+    }
 }

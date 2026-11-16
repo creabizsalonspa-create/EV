@@ -7,6 +7,7 @@ on:
       - 'scripts/agent10-*.cjs'
       - 'tests/staging-agent10-*.cjs'
       - 'tests/operational-connected.cjs'
+      - 'tests/connector-fleet-e2e.cjs'
       - 'docs/evidence/requirements/**'
       - '.github/workflows/agent10-fast-qa.yml'
 permissions:
@@ -37,6 +38,7 @@ jobs:
           node --check scripts/agent10-ci-source-gate.cjs
           node --check scripts/agent10-strict-json.cjs
           node --check tests/operational-connected.cjs
+          node --check tests/connector-fleet-e2e.cjs
           for file in tests/staging-agent10-*.cjs; do node --check "$file"; done
       - name: Run every read-only Agent 10 negative and fixed-denominator test
         shell: bash
