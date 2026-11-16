@@ -94,6 +94,39 @@ class OcpiReconciliationTest extends TestCase
         $this->assertSame($raw, $first->fresh()->payload);
     }
 
+    public function test_corrupted_historical_cdr_timestamps_fail_closed_without_source_mutation(): void
+    {
+        [$provider, $cdr] = $this->source();
+        $original = $cdr->normalized;
+        $reconciler = app(CdrReconciler::class);
+        $this->assertSame('source_consistent', $reconciler->inspect($provider, $cdr)['status']);
+
+        // These values can exist in legacy/corrupt normalized evidence even
+        // when new OCPI ingress rejects them. Never parse relative/local
+        // dates or silently normalize impossible days during reconciliation.
+        foreach ([
+            'not-a-date',
+            'tomorrow',
+            '2026-02-30T00:00:00Z',
+            '2026-11-16T10:00:00+00:00',
+            123,
+        ] as $untrusted) {
+            $cdr->normalized = array_replace($original, ['start_date_time' => $untrusted]);
+            $review = $reconciler->inspect($provider, $cdr);
+            $this->assertSame('requires_review', $review['status']);
+            $this->assertContains('start_date_time_mismatch', $review['issues']);
+            $this->assertFalse($review['billing_eligible']);
+            $this->assertFalse($review['local_invoice_created']);
+        }
+
+        $cdr->normalized = array_replace($original, ['end_date_time' => 'bad end date']);
+        $this->assertContains('end_date_time_mismatch', $reconciler->inspect($provider, $cdr)['issues']);
+        $this->assertSame($original, $cdr->fresh()->normalized,
+            'Comparing malformed in-memory evidence must not rewrite immutable source records');
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_multiple_cdr_claims_and_credits_never_double_count_or_rewrite_source_records(): void
     {
         [$provider, $first, $raw] = $this->source();
