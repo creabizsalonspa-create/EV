@@ -719,15 +719,17 @@ window.EvPrivacyRequests = (() => {
 
     // Background tabs cannot retain a revealed account copy, an authenticator
     // input or an Admin review password in a hidden DOM. No request is replayed.
+    function obscurePrivateViews() {
+        // A hidden tab or BFCache navigation invalidates every pending
+        // private-copy reveal, including a response delivered after pageshow.
+        states.mine.visibilityVersion++;
+        states.admin.visibilityVersion++;
+        wipeSensitive(states.mine);
+        wipeSensitive(states.admin);
+    }
     document.addEventListener?.("visibilitychange", () => {
-        if (document.hidden) {
-            // Do not allow a prior, still-pending private response to become
-            // visible after the tab is foregrounded again.
-            states.mine.visibilityVersion++;
-            states.admin.visibilityVersion++;
-            wipeSensitive(states.mine);
-            wipeSensitive(states.admin);
-        }
+        if (document.hidden) obscurePrivateViews();
     });
+    window.addEventListener?.("pagehide", obscurePrivateViews);
     return { setSelfActor, setAdminActor };
 })();
