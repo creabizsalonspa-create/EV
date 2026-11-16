@@ -327,7 +327,8 @@ class SupportView extends StatefulWidget {
   SupportViewState createState() => SupportViewState();
 }
 
-class SupportViewState extends State<SupportView> {
+class SupportViewState extends State<SupportView>
+    with WidgetsBindingObserver {
   bool notifications = false, unreadOnly = false, loading = false;
   bool preferencesLoaded = false;
   String category = 'all';
@@ -338,24 +339,87 @@ class SupportViewState extends State<SupportView> {
   Object? error;
   ApiPage<Map<String, dynamic>>? data;
   int generation = 0;
+  late bool Function() authorized;
+  bool foreground = true;
+  bool current(int request, bool Function() session) =>
+      mounted && foreground && authorized() && session() &&
+      generation == request;
+
+  void clearPrivate() {
+    generation++;
+    data = null;
+    error = null;
+    loading = false;
+    preferencesLoaded = false;
+    savedPreferences = null;
+    category = 'all';
+    unreadOnly = false;
+    unreadCount = null;
+    latestNotificationId = null;
+    unreadByCategory = null;
+    pendingTicketSubject = null;
+    pendingTicketBody = null;
+    pendingTicketKey = null;
+  }
+
   Future<void> refresh() => load(page: data?.current ?? 1);
+
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
     load();
   }
 
+  @override
+  void didUpdateWidget(covariant SupportView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api ||
+        oldWidget.accountId != widget.accountId) {
+      clearPrivate();
+      authorized = widget.api.sessionFence();
+      final nextApi = widget.api;
+      final nextId = widget.accountId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && foreground && authorized() &&
+            identical(widget.api, nextApi) && widget.accountId == nextId) {
+          load();
+        }
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (mounted && !foreground) setState(clearPrivate);
+  }
+
+  @override
+  void dispose() {
+    generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   Future<void> load({int page = 1}) async {
+    if (!foreground || !authorized() || page < 1 || page > 100000) return;
+    final session = widget.api.sessionFence();
     final request = ++generation;
     final showingNotifications = notifications;
     setState(() {
       loading = true;
       error = null;
+      data = null;
+      unreadCount = null;
+      unreadByCategory = null;
+      latestNotificationId = null;
     });
     try {
       if (showingNotifications && !preferencesLoaded) {
         final prefs = await widget.api.request('notifications/preferences');
-        if (!mounted || request != generation) return;
+        if (!current(request, session)) return;
         if (prefs is! Map ||
             !['all', 'support', 'vehicle', 'charging', 'fleet', 'other']
                 .contains(prefs['default_category']) ||
@@ -379,11 +443,12 @@ class SupportViewState extends State<SupportView> {
           if (showingNotifications && category != 'all') 'category': category,
         },
       );
+      if (!current(request, session)) return;
       final result = ApiPage.fromJson(response, (row) => row);
       final summary = showingNotifications
           ? await widget.api.request('notifications/summary')
           : null;
-      if (mounted && request == generation) {
+      if (current(request, session)) {
         setState(() {
           data = result;
           unreadCount = summary is Map && summary['unread_count'] is int
@@ -404,14 +469,15 @@ class SupportViewState extends State<SupportView> {
         });
       }
     } catch (e) {
-      if (mounted &&
-          request == generation &&
-          e is ApiException &&
-          [401, 419].contains(e.status))
+      if (!current(request, session)) return;
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        setState(clearPrivate);
         widget.onSessionExpired();
-      if (mounted && request == generation) setState(() => error = e);
+        return;
+      }
+      setState(() => error = e);
     } finally {
-      if (mounted && request == generation) setState(() => loading = false);
+      if (current(request, session)) setState(() => loading = false);
     }
   }
 
