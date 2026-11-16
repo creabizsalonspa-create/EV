@@ -114,6 +114,7 @@ final class OpenChargeMapAdapter
             throw new LookupFailure('invalid_response');
         }
         $values = [];
+        $seenSourceIds = [];
         $currentTime = class_exists(Carbon::class)
             ? Carbon::now()->getTimestamp()
             : (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->getTimestamp();
@@ -150,6 +151,22 @@ final class OpenChargeMapAdapter
                 || ! array_is_list($item['connections'])
                 || count($item['connections']) > 20) {
                 throw new LookupFailure('invalid_response');
+            }
+            if (isset($seenSourceIds[$item['id']])) {
+                throw new LookupFailure('invalid_response');
+            }
+            $seenSourceIds[$item['id']] = true;
+            // Cache storage is untrusted. A fabricated "true" string or
+            // integer must never turn uncertain crowd status into a boolean.
+            foreach (['reported_operational', 'reported_membership_required', 'reported_access_key_required'] as $flag) {
+                if (($item[$flag] ?? null) !== null && ! is_bool($item[$flag])) {
+                    throw new LookupFailure('invalid_response');
+                }
+            }
+            foreach (['name', 'address', 'city', 'country', 'operator_label', 'reported_access', 'reported_cost_note'] as $label) {
+                if (! is_string($item[$label] ?? null)) {
+                    throw new LookupFailure('invalid_response');
+                }
             }
             foreach ($item['connections'] as $connection) {
                 if (! is_array($connection)

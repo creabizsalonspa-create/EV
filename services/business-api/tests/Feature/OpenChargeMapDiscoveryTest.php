@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\Discovery\OpenChargeMapAdapter;
+use App\Services\Discovery\LookupFailure;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -411,6 +412,40 @@ class OpenChargeMapDiscoveryTest extends TestCase
         } finally {
             Carbon::setTestNow();
         }
+    }
+
+    public function test_corrupted_cached_quality_sample_cannot_duplicate_or_forge_reported_flags(): void
+    {
+        Http::fake(['api.openchargemap.io/*' => Http::response([$this->point()], 200, ['Content-Type' => 'application/json'])]);
+        $adapter = app(OpenChargeMapAdapter::class);
+        $source = $adapter->search(25.2, 55.3, 10, 'synthetic-private-ocm-key');
+        $this->assertSame(1, $source['count']);
+
+        foreach (['duplicate', 'operational', 'membership', 'access_key', 'label'] as $tamper) {
+            $corrupt = $source;
+            if ($tamper === 'duplicate') {
+                $corrupt['results'][] = $corrupt['results'][0];
+            } elseif ($tamper === 'operational') {
+                $corrupt['results'][0]['reported_operational'] = 'true';
+            } elseif ($tamper === 'membership') {
+                $corrupt['results'][0]['reported_membership_required'] = 1;
+            } elseif ($tamper === 'access_key') {
+                $corrupt['results'][0]['reported_access_key_required'] = ['unexpected' => true];
+            } else {
+                $corrupt['results'][0]['reported_access'] = ['untrusted' => 'metadata'];
+            }
+
+            try {
+                $adapter->filterReported($corrupt);
+                $this->fail('Corrupted crowd report was accepted: '.$tamper);
+            } catch (LookupFailure $failure) {
+                $this->assertSame('invalid_response', $failure->reason);
+            }
+        }
+        Http::assertSentCount(1);
+        $this->assertSame('unknown', $source['availability']);
+        $this->assertFalse($source['remote_control']);
+        $this->assertFalse($source['reservable']);
     }
 
     public function test_impossible_upstream_calendar_date_remains_unknown_and_cannot_pass_freshness(): void
