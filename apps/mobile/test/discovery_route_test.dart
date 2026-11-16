@@ -508,4 +508,86 @@ void main() {
     expect(tester.widget<FilledButton>(find.byKey(const Key('route-preview'))).onPressed,isNull);
     expect(tester.takeException(),isNull);
   });
+
+  testWidgets(
+    'same discovery client cannot retain old account route or launch stale navigation after session epoch change',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(900, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      var authenticated = true;
+      var launches = 0;
+      final pendingCapabilities = Completer<dynamic>();
+      final client = DiscoveryClient.withRequest(
+        (path, _, __) {
+          expect(path, 'capabilities');
+          return pendingCapabilities.future;
+        },
+        currentSession: () => authenticated,
+      );
+      Widget route() => MaterialApp(
+        home: RoutePlannerView(
+          key: const ValueKey('same-client-new-account'),
+          client: client,
+          origin: GeoPoint(25.2, 55.3),
+          stations: [station()],
+          initialStop: station(),
+          navigate: (_) async { launches++; return true; },
+        ),
+      );
+      await tester.pumpWidget(route());
+      await tester.pump();
+      expect(
+        tester.widget<TextFormField>(find.byKey(const Key('origin-lat'))).controller!.text,
+        '25.2',
+      );
+      await tester.ensureVisible(find.byKey(const Key('destination-lat')));
+      await tester.enterText(find.byKey(const Key('destination-lat')), '25.3');
+      await tester.ensureVisible(find.byKey(const Key('destination-lng')));
+      await tester.enterText(find.byKey(const Key('destination-lng')), '55.4');
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('route-navigation')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('route-navigation')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('navigation-consent')), findsOneWidget);
+
+      // The EvApi account epoch can change without changing the
+      // DiscoveryClient object. An already-open Google Maps confirmation
+      // and an in-flight provider capability read must both lose authority.
+      authenticated = false;
+      pendingCapabilities.complete({
+        'provider': 'geoapify',
+        'routing': true,
+        'geocoding': true,
+        'max_charging_stops': 3,
+      });
+      await tester.pump();
+      await tester.pumpWidget(route());
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('navigation-consent')));
+      await tester.pumpAndSettle();
+      expect(launches, 0);
+      expect(find.text('Account changed. Reopen route planning.'), findsOneWidget);
+      expect(find.byKey(const Key('origin-lat')), findsNothing);
+      expect(find.text('Synthetic stop'), findsNothing);
+      expect(find.byKey(const Key('route-provider-consent')), findsNothing);
+      expect(find.byType(FlutterMap), findsNothing);
+
+      // Re-entering with the very same client object does not resurrect
+      // stale origin/destination, old stops or earlier provider consent.
+      authenticated = true;
+      await tester.pumpWidget(route());
+      await tester.pumpAndSettle();
+      for (final key in ['origin-lat', 'origin-lng', 'destination-lat', 'destination-lng']) {
+        final field = tester.widget<TextFormField>(find.byKey(Key(key)));
+        expect(field.controller!.text, isEmpty);
+      }
+      expect(find.byKey(const Key('route-stop-1')), findsNothing);
+      expect(find.byKey(const Key('route-provider-consent')), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
