@@ -275,3 +275,7 @@ a calendar never pretends an admitted/unknown command ended. Pending RFID replay
 cannot bypass current hours; ongoing authorization and finalization remain possible.
 Controlled OCPP1.6/2.0.1 GraphQL/OAuth contracts verify these boundaries, without
 claiming physical hardware acceptance. See API.md and calendar evidence.
+
+## Strict source transaction scalar identities
+
+The OCPP 1.6/2.0.1 source observer treats authenticated GraphQL projections as **untrusted schema data**. A malformed non-null `remoteStartId` is never coerced to the canonical start-command ID (in PHP, a one-element array casts to integer `1`). Non-scalar/boolean `meterStart` and `totalKwh`, and non-string non-null `startTime`, are rejected **before** source-row pinning or signed inbox publication. This keeps the existing typed transaction reconciliation and exact Wh/kWh behavior, without dispatching or retrying a command. Paired protocol regression fixtures verify no synthetic start, invoice, cursor or ledger action on the malformed source, then recovery from the corrected original record. Production-hardware acceptance remains separate.

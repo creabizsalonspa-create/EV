@@ -192,7 +192,15 @@ class SourceConsumer
             if (! is_array($candidate) || array_diff($required, array_keys($candidate)) !== [] ||
                 ! is_bool($candidate['isActive']) || ! in_array(gettype($candidate['transactionId']), ['string', 'integer'], true) ||
                 (string) $candidate['transactionId'] === '' ||
-                ($candidate['endTime'] !== null && ! is_string($candidate['endTime']))) {
+                // Hasura Int identifiers must be real integers, not strings,
+                // booleans or arrays that PHP might silently coerce to 1.
+                ($candidate['remoteStartId'] !== null && (! is_int($candidate['remoteStartId']) || $candidate['remoteStartId'] <= 0)) ||
+                // An upstream boolean converts to "1" through a plain cast,
+                // making a fabricated one-kWh baseline look billable.
+                ($candidate['meterStart'] !== null && (! is_scalar($candidate['meterStart']) || is_bool($candidate['meterStart']))) ||
+                ($candidate['startTime'] !== null && ! is_string($candidate['startTime'])) ||
+                ($candidate['endTime'] !== null && ! is_string($candidate['endTime'])) ||
+                ($candidate['totalKwh'] !== null && (! is_scalar($candidate['totalKwh']) || is_bool($candidate['totalKwh'])))) {
                 throw new RuntimeException('Malformed authenticated source transaction row requires reconciliation.');
             }
         }

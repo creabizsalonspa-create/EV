@@ -553,7 +553,7 @@ class SourceConsumerTest extends TestCase
     {
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['missing_stations', 'nonlist_authorizations', 'string_authorization_id', 'missing_transactions', 'nonlist_transactions', 'non_array_transaction', 'missing_transaction_id', 'missing_meter_start', 'missing_start_time', 'missing_end_time', 'missing_is_active', 'missing_total_kwh'] as $kind) {
+            foreach (['missing_stations', 'nonlist_authorizations', 'string_authorization_id', 'missing_transactions', 'nonlist_transactions', 'non_array_transaction', 'missing_transaction_id', 'missing_meter_start', 'missing_start_time', 'missing_end_time', 'missing_is_active', 'missing_total_kwh', 'array_remote_start_id', 'boolean_meter_start', 'array_start_time', 'boolean_total_kwh'] as $kind) {
                 $cases[$protocol.'_'.$kind] = [$protocol, $kind];
             }
         }
@@ -620,6 +620,23 @@ class SourceConsumerTest extends TestCase
                 ];
                 if ($bad && isset($missingFields[$kind])) {
                     unset($data['Transactions'][0][$missingFields[$kind]]);
+                }
+                if ($bad && $kind === 'array_remote_start_id') {
+                    // A one-element array coerces to integer 1 in PHP. The
+                    // first simulator start command has ID 1, so coercion
+                    // could otherwise fabricate a matching OCPP 2.0.1 start.
+                    $data['Transactions'][0]['remoteStartId'] = [$link->start_command_id];
+                }
+                if ($bad && $kind === 'boolean_meter_start') {
+                    // True casts to "1", which could create a false 1000 Wh
+                    // baseline and an otherwise matching terminal invoice.
+                    $data['Transactions'][0]['meterStart'] = true;
+                }
+                if ($bad && $kind === 'array_start_time') {
+                    $data['Transactions'][0]['startTime'] = ['invalid'];
+                }
+                if ($bad && $kind === 'boolean_total_kwh') {
+                    $data['Transactions'][0]['totalKwh'] = true;
                 }
 
                 return Http::response(['data' => $data]);
