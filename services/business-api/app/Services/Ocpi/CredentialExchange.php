@@ -4,6 +4,7 @@ namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -96,13 +97,46 @@ class CredentialExchange
         return ['token' => $body['token']];
     }
 
+    /** A credentials response timestamp is OCPI UTC evidence, never relative time. */
+    private function validPeerTimestamp(mixed $value): bool
+    {
+        if (! is_string($value)
+            || ! preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z?$/D', $value)) {
+            return false;
+        }
+        $format = '!Y-m-d\TH:i:s'
+            .(str_contains($value, '.') ? '.u' : '')
+            .(str_ends_with($value, 'Z') ? '\Z' : '');
+        $date = \DateTimeImmutable::createFromFormat($format, $value, new \DateTimeZone('UTC'));
+
+        return $date !== false && \DateTimeImmutable::getLastErrors() === false;
+    }
+
+    /** Verify credential peer replies against this exact one-shot request. */
+    private function verifyCredentialTrace(Response $response, array $sent): void
+    {
+        $peer = $response->toPsrResponse();
+        $request = $peer->hasHeader('X-Request-ID');
+        $correlation = $peer->hasHeader('X-Correlation-ID');
+        if (! $request && ! $correlation && app()->environment(['local', 'testing'])) {
+            // Headerless legacy fixtures are compatible only outside production.
+            return;
+        }
+        if (! $request || ! $correlation
+            || ! hash_equals($sent['X-Request-ID'], $peer->getHeaderLine('X-Request-ID'))
+            || ! hash_equals($sent['X-Correlation-ID'], $peer->getHeaderLine('X-Correlation-ID'))) {
+            throw new OcpiException('Unverified partner credentials transport trace.');
+        }
+    }
+
     private function wire(OcpiProvider $p, string $url, string $encodedToken, string $method = 'GET', ?array $body = null): array
     {
         $current = OcpiProvider::findOrFail($p->id);
         abort_unless($current->authorized && $current->owner_id === $p->owner_id && $current->connection_key === $p->connection_key && $current->authorization_revision === $p->authorization_revision, 409, 'Partner authority changed before transport.');
         $url = app(PartnerClient::class)->guardedUrl($p, $url);
         try {
-            $response = Http::connectTimeout(5)->timeout(20)->withoutRedirecting()->withOptions(['stream' => true])->withHeaders(['Accept' => 'application/json', 'Authorization' => 'Token '.$encodedToken, 'X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()])->send($method, $url, $body === null ? [] : ['json' => $body]);
+            $trace = ['X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()];
+            $response = Http::connectTimeout(5)->timeout(20)->withoutRedirecting()->withOptions(['stream' => true])->withHeaders(['Accept' => 'application/json', 'Authorization' => 'Token '.$encodedToken] + $trace)->send($method, $url, $body === null ? [] : ['json' => $body]);
             abort_unless($response->successful(), 503);
             $stream = $response->toPsrResponse()->getBody();
             $text = '';
@@ -114,8 +148,9 @@ class CredentialExchange
                 $stream->close();
             }
             abort_unless(strlen($text) <= 65536, 503);
+            $this->verifyCredentialTrace($response, $trace);
             $reply = json_decode($text, true, flags: JSON_THROW_ON_ERROR);
-            abort_unless(is_array($reply) && ($reply['status_code'] ?? null) === 1000 && is_string($reply['timestamp'] ?? null) && strtotime($reply['timestamp']) !== false && ($method === 'DELETE' || array_key_exists('data', $reply)), 503);
+            abort_unless(is_array($reply) && ($reply['status_code'] ?? null) === 1000 && $this->validPeerTimestamp($reply['timestamp'] ?? null) && ($method === 'DELETE' || array_key_exists('data', $reply)), 503);
 
             return $reply;
         } catch (Throwable) {
