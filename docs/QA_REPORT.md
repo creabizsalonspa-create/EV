@@ -1,3 +1,9 @@
+# 19 November 2026 — OCPI reservation PostgreSQL receipt-clock repair (PR #130; integration pending)
+
+Normal-merged verified integration `171b9c035dbbccd8bf3054d3a41ed00c2500464b` into the existing reservation branch, preserving both histories. Reproduced the failed PostgreSQL freshness assertion deterministically: `timestamp(0)` rounded receipt `05:10:00.987654Z` to future `05:10:01Z`. An additive migration preserves future receipts at microsecond precision; it does not reconstruct historical fractions or modify immutable CDR payloads. Non-disposable rollback refuses to round retained evidence. Existing freshness assertions, security, command idempotency and rate limits are unchanged.
+
+Local verification: full Laravel **1349 passed / 25895 assertions, one PostgreSQL-only skip**; PostgreSQL contracts **497 / 6977**, process concurrency **30 / 448**, migration preservation/rollback **2 / 13**; deterministic receipt regression red before migration and green after, including Dubai/New York/Auckland host zones; actual isolated Laravel synthetic-CPO browser EN/AR and native consent/replay/cancellation/tenant-privacy journeys passed. These are synthetic integrations, not authorized live OCPI, hardware or production acceptance. Required exact-head hosted Android/iOS and platform gates remain pending; Agent5 controls integration. Fixed 42/312 tracker unchanged. Historical PR source checks do not attest this new source.
+
 Final successor local verification:962 Laravel tests/19386 assertions;644 PHP files
 pass Pint;377 Python guards;52 offline security/diagnostic tests;11 scheduler/diagnostic
 tests. Actual unchanged-read and anonymous-bootstrap cookie browsers, existing controlled

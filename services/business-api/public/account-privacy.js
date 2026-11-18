@@ -9,12 +9,18 @@ window.EvPrivacyRequests = (() => {
             generation: 0,
             controller: null,
             request: null,
+            previews: new Set(),
+            secrets: new Set(),
+            visibilityVersion: 0,
         },
         admin: {
             root: adminRoot,
             generation: 0,
             controller: null,
             request: null,
+            previews: new Set(),
+            secrets: new Set(),
+            visibilityVersion: 0,
         },
     };
 
@@ -44,12 +50,25 @@ window.EvPrivacyRequests = (() => {
         s.value = options[0][0];
         return s;
     }
+    function wipeSensitive(state, detach = false) {
+        for (const preview of state.previews) preview.textContent = "";
+        for (const input of state.secrets) input.value = "";
+        // Backgrounding does not remove the forms. Keep references so a
+        // second background transition still wipes newly entered secrets.
+        // Discard references only when the owning DOM nodes are replaced.
+        if (detach) {
+            state.previews.clear();
+            state.secrets.clear();
+        }
+    }
     function clear(state) {
+        wipeSensitive(state, true);
         state.generation++;
         state.controller?.abort();
         state.controller = null;
         state.request = null;
         state.pending = null;
+        state.submitting = false;
         state.root.replaceChildren();
     }
     function active(state, generation, controller) {
@@ -94,6 +113,10 @@ window.EvPrivacyRequests = (() => {
         const results = el("div");
         const reset = button("Start different request / طلب مختلف", () => {
             if (viewGeneration !== state.generation || !state.request) return;
+            if (state.submitting) {
+                message.textContent = "Wait for the current request to settle before starting a different one. / انتظر اكتمال الطلب الحالي قبل بدء طلب مختلف.";
+                return;
+            }
             state.pending = null;
             details.value = "";
             message.textContent =
@@ -109,6 +132,13 @@ window.EvPrivacyRequests = (() => {
             const controller = new AbortController();
             state.controller = controller;
             const generation = state.generation;
+            // Sensitive access-copy controls and previews are no longer
+            // authoritative once a refresh begins; never retain them while
+            // waiting for a failed or unresponsive read.
+            wipeSensitive(state, true);
+            results.replaceChildren();
+            results.setAttribute("aria-busy", "true");
+            message.textContent = "Refreshing your private request history… / جارٍ تحديث سجل طلباتك الخاص…";
             try {
                 const page = await state.request(
                     "account/privacy-requests" +
@@ -118,8 +148,15 @@ window.EvPrivacyRequests = (() => {
                     controller.signal,
                 );
                 if (!active(state, generation, controller)) return;
+                if (!Array.isArray(page?.data) ||
+                    !Number.isSafeInteger(page.current_page) ||
+                    !Number.isSafeInteger(page.last_page) ||
+                    page.current_page < 1 || page.last_page < 1 ||
+                    page.current_page > page.last_page)
+                    throw Error("Unreadable private request page");
                 results.replaceChildren();
-                for (const row of page.data || []) {
+                message.textContent = "";
+                for (const row of page.data) {
                     const card = el("article");
                     card.append(
                         el(
@@ -142,6 +179,9 @@ window.EvPrivacyRequests = (() => {
                         factor.autocomplete = "one-time-code";
                         factor.maxLength = 64;
                         const preview = el("pre");
+                        state.previews.add(preview);
+                        state.secrets.add(password);
+                        state.secrets.add(factor);
                         preview.style.whiteSpace = "pre-wrap";
                         preview.style.overflowWrap = "anywhere";
                         card.append(
@@ -163,8 +203,8 @@ window.EvPrivacyRequests = (() => {
                         const view = button(
                             "View private account copy / عرض نسخة الحساب الخاصة",
                             async () => {
-                                if (!active(state, generation, controller))
-                                    return;
+                                if (!active(state, generation, controller) ||
+                                    document.hidden) return;
                                 const body = {
                                     password: password.value,
                                     second_factor_code: factor.value,
@@ -172,6 +212,9 @@ window.EvPrivacyRequests = (() => {
                                 password.value = "";
                                 factor.value = "";
                                 preview.textContent = "";
+                                // A hidden-to-visible round trip invalidates an in-flight
+                                // private-copy read even when the response arrives visible.
+                                const visibilityVersion = state.visibilityVersion;
                                 view.disabled = true;
                                 try {
                                     const copy = await state.request(
@@ -180,8 +223,9 @@ window.EvPrivacyRequests = (() => {
                                         body,
                                         controller.signal,
                                     );
-                                    if (!active(state, generation, controller))
-                                        return;
+                                    if (!active(state, generation, controller) ||
+                                        document.hidden ||
+                                        visibilityVersion !== state.visibilityVersion) return;
                                     if (
                                         copy.schema_version !== 1 ||
                                         copy.owner_id !== user.id ||
@@ -316,14 +360,19 @@ window.EvPrivacyRequests = (() => {
                 return page.data || [];
             } catch {
                 if (active(state, generation, controller)) {
+                    results.replaceChildren();
                     message.textContent =
-                        "Could not load your request history.";
+                        "Could not load your request history. Refresh to verify access-copy and withdrawal status. / تعذر تحميل السجل؛ حدّث للتحقق من النسخ وسحب الطلبات.";
                 }
+            } finally {
+                if (active(state, generation, controller))
+                    results.removeAttribute("aria-busy");
             }
         }
         form.onsubmit = async (event) => {
             event.preventDefault();
-            if (!state.request || viewGeneration !== state.generation) return;
+            if (!state.request || viewGeneration !== state.generation ||
+                state.submitting) return;
             if (details.value.trim().length < 10) {
                 message.textContent =
                     "Please explain your request in at least 10 characters.";
@@ -344,7 +393,9 @@ window.EvPrivacyRequests = (() => {
                 ...body,
                 idempotency_key: crypto.randomUUID(),
             });
+            state.submitting = true;
             submit.disabled = true;
+            reset.disabled = true;
             try {
                 const receipt = await state.request(
                     "account/privacy-requests",
@@ -366,7 +417,11 @@ window.EvPrivacyRequests = (() => {
                         "Request could not be confirmed. Check history or retry the unchanged request safely.";
                 }
             } finally {
-                submit.disabled = false;
+                if (generation === state.generation) {
+                    state.submitting = false;
+                    submit.disabled = false;
+                    reset.disabled = false;
+                }
             }
         };
         refresh();
@@ -418,6 +473,7 @@ window.EvPrivacyRequests = (() => {
                 page: String(page),
             });
             if (kind.value) params.set("kind", kind.value);
+            wipeSensitive(state, true);
             message.textContent = "Loading private review queue…";
             results.replaceChildren();
             try {
@@ -461,6 +517,7 @@ window.EvPrivacyRequests = (() => {
                         const adminPassword = el("input");
                         adminPassword.type = "password";
                         adminPassword.autocomplete = "current-password";
+                        state.secrets.add(adminPassword);
                         const requestKey = crypto.randomUUID();
                         const prepare = button(
                             "Prepare private account copy / إعداد نسخة الحساب الخاصة",
@@ -660,5 +717,19 @@ window.EvPrivacyRequests = (() => {
         load(1);
     }
 
+    // Background tabs cannot retain a revealed account copy, an authenticator
+    // input or an Admin review password in a hidden DOM. No request is replayed.
+    function obscurePrivateViews() {
+        // A hidden tab or BFCache navigation invalidates every pending
+        // private-copy reveal, including a response delivered after pageshow.
+        states.mine.visibilityVersion++;
+        states.admin.visibilityVersion++;
+        wipeSensitive(states.mine);
+        wipeSensitive(states.admin);
+    }
+    document.addEventListener?.("visibilitychange", () => {
+        if (document.hidden) obscurePrivateViews();
+    });
+    window.addEventListener?.("pagehide", obscurePrivateViews);
     return { setSelfActor, setAdminActor };
 })();
