@@ -11,6 +11,7 @@ class Element {
     this.children = [];
     this.value = "";
     this.attributes = {};
+    this.style = {};
     this._text = "";
     this.disabled = false;
   }
@@ -31,12 +32,22 @@ class Element {
   setAttribute(k, v) {
     this.attributes[k] = v;
   }
+  removeAttribute(k) {
+    delete this.attributes[k];
+  }
 }
 function fixture() {
   const mine = new Element("div"),
-    admin = new Element("div"),
-    window = {};
+    admin = new Element("div");
+  const listeners = new Map();
+  const window = {
+    addEventListener(event, handler) {
+      listeners.set("window:" + event, handler);
+    },
+  };
   const document = {
+    hidden: false,
+    addEventListener(event, handler) { listeners.set(event, handler); },
     getElementById(id) {
       if (id === "account-privacy") return mine;
       if (id === "admin-privacy") return admin;
@@ -62,7 +73,11 @@ function fixture() {
       crypto: { randomUUID: require("node:crypto").randomUUID },
     },
   );
-  return { mine, admin, ...window.EvPrivacyRequests };
+  return { mine, admin, ...window.EvPrivacyRequests,
+    hide() { document.hidden = true; listeners.get("visibilitychange")?.(); },
+    show() { document.hidden = false; listeners.get("visibilitychange")?.(); },
+    pagehide() { listeners.get("window:pagehide")?.(); },
+  };
 }
 function nodes(root, tag) {
   const out = [];
@@ -499,4 +514,169 @@ test("owner request history pages without retaining another accounts private con
   await tick();
   assert.equal(calls.length, 2);
   assert.equal(ui.mine.textContent, "");
+});
+
+test("privacy create is single-flight; new-request reset cannot create parallel unconfirmed writes",async()=>{
+  const ui=fixture(),posts=[];
+  let release;
+  const pending=new Promise(resolve=>release=resolve);
+  let committed=[];
+  ui.setSelfActor({id:3,role:"customer"},async (path,method="GET",body)=>{
+    if(method==="POST"){
+      posts.push(body);
+      await pending;
+      committed=[{...record,details:body.details,kind:body.kind}];
+      return {id:record.id,status:"pending"};
+    }
+    return page(committed);
+  });
+  await tick();
+  const form=nodes(ui.mine,"form")[0],details=nodes(form,"textarea")[0];
+  details.value="Review all my retained account history before deletion.";
+  const first=form.onsubmit({preventDefault(){}});
+  await form.onsubmit({preventDefault(){}});
+  assert.equal(posts.length,1,"one server mutation while a POST is unresolved");
+  const reset=nodes(ui.mine,"button").find(x=>x.textContent.startsWith("Start different request"));
+  assert.equal(reset.disabled,true);
+  reset.onclick();
+  assert.equal(details.value,"Review all my retained account history before deletion.");
+  release();
+  await first;
+  assert.equal(reset.disabled,false);
+  assert.equal(details.value,"");
+  assert.match(ui.mine.textContent,/Request recorded for manual review/);
+});
+test("failed privacy refresh revokes stale access-copy controls and clears busy state",async()=>{
+  const ui=fixture();
+  let calls=0;
+  ui.setSelfActor({id:3,role:"customer"},async()=>{
+    calls++;
+    if(calls>1)throw Error("Lost authenticated read");
+    return page([{...record,kind:"access",copy:{status:"available",expires_at:"2026-11-17T00:00:00Z"}}]);
+  });
+  await tick();
+  assert(nodes(ui.mine,"button").some(x=>x.textContent.startsWith("View private account copy")));
+  const reload=nodes(ui.mine,"button").find(x=>x.textContent.startsWith("Refresh requests"));
+  const reading=reload.onclick();
+  assert(!nodes(ui.mine,"button").some(x=>x.textContent.startsWith("View private account copy")),
+    "any access-copy view controls must disappear before a refresh reply");
+  await reading;
+  assert(!nodes(ui.mine,"button").some(x=>x.textContent.startsWith("View private account copy")));
+  assert.match(ui.mine.textContent,/Could not load your request history/);
+  const list=ui.mine.children.find(x=>x.tag==="div");
+  assert.equal(list.attributes["aria-busy"],undefined);
+});
+test("malformed private history fails closed rather than showing false empty results",async()=>{
+  const ui=fixture();
+  ui.setSelfActor({id:3,role:"customer"},async()=>({data:"corrupt",current_page:1,last_page:1}));
+  await tick();
+  assert.match(ui.mine.textContent,/Could not load your request history/);
+  assert(!ui.mine.textContent.includes("No privacy requests submitted"));
+});
+
+test("hidden browser tab wipes revealed private account copy and password inputs",async()=>{
+  const ui=fixture();
+  const accountCopy={schema_version:1,owner_id:3,request_id:22,
+    scope:"self_service_account_copy",profile:{email:"confidential@example.test"}};
+  ui.setSelfActor({id:3,role:"customer"},async (path,method="GET")=>{
+    if(method==="POST") return accountCopy;
+    return page([{...record,kind:"access",copy:{status:"available",expires_at:"2026-11-20T00:00:00Z"}}]);
+  });
+  await tick();
+  const view=nodes(ui.mine,"button").find(x=>x.textContent.startsWith("View private account copy"));
+  const inputs=nodes(ui.mine,"input");
+  inputs.find(x=>x.type==="password").value="SensitiveTestPassword";
+  inputs.find(x=>x.autocomplete==="one-time-code").value="123456";
+  await view.onclick();
+  const preview=nodes(ui.mine,"pre")[0];
+  assert.match(preview.textContent,/confidential@example.test/);
+  ui.hide();
+  assert.equal(preview.textContent,"");
+  assert.equal(inputs.find(x=>x.type==="password").value,"");
+  assert.equal(inputs.find(x=>x.autocomplete==="one-time-code").value,"");
+  ui.show();
+  inputs.find(x=>x.type==="password").value="Entered after foreground";
+  inputs.find(x=>x.autocomplete==="one-time-code").value="654321";
+  ui.hide();
+  assert.equal(inputs.find(x=>x.type==="password").value,"");
+  assert.equal(inputs.find(x=>x.autocomplete==="one-time-code").value,"");
+});
+test("private copy response stays sealed across a hidden-to-visible round trip", async () => {
+  const ui = fixture();
+  let releaseFirst;
+  let reads = 0;
+  ui.setSelfActor({ id: 3, role: "customer" }, async (path, method = "GET") => {
+    if (method === "POST") {
+      reads++;
+      if (reads === 1)
+        return new Promise((resolve) => { releaseFirst = resolve; });
+      return { schema_version: 1, owner_id: 3, request_id: 22,
+        scope: "self_service_account_copy",
+        profile: { email: "fresh-visible-copy@example.test" } };
+    }
+    return page([{ ...record, kind: "access",
+      copy: { status: "available", expires_at: "2026-11-20T00:00:00Z" } }]);
+  });
+  await tick();
+  const view = nodes(ui.mine, "button").find(x =>
+    x.textContent.startsWith("View private account copy"));
+  const inFlight = view.onclick();
+  assert.equal(typeof releaseFirst, "function");
+  ui.hide();
+  ui.show();
+  releaseFirst({ schema_version: 1, owner_id: 3, request_id: 22,
+    scope: "self_service_account_copy",
+    profile: { email: "old-background-copy@example.test" } });
+  await inFlight;
+  assert.equal(nodes(ui.mine, "pre")[0].textContent, "");
+  assert(!ui.mine.textContent.includes("old-background-copy@example.test"));
+  // A new, intentional visible read remains available after the old one is rejected.
+  await view.onclick();
+  assert.equal(reads, 2);
+  assert.match(nodes(ui.mine, "pre")[0].textContent, /fresh-visible-copy@example.test/);
+});
+
+test("BFCache pagehide clears credentials and invalidates a pending access copy", async () => {
+  const ui = fixture();
+  let release;
+  ui.setSelfActor({ id: 3, role: "customer" }, (path, method = "GET") => {
+    if (method === "POST")
+      return new Promise(resolve => { release = resolve; });
+    return Promise.resolve(page([{ ...record, kind: "access",
+      copy: { status: "available", expires_at: "2026-11-20T00:00:00Z" } }]));
+  });
+  await tick();
+  const input = nodes(ui.mine, "input").find(x => x.type === "password");
+  const view = nodes(ui.mine, "button").find(x =>
+    x.textContent.startsWith("View private account copy"));
+  const pending = view.onclick();
+  // The user may enter another secret while the first request is pending.
+  input.value = "Sensitive for navigation";
+  ui.pagehide();
+  assert.equal(input.value, "");
+  release({ schema_version: 1, owner_id: 3, request_id: 22,
+    scope: "self_service_account_copy",
+    profile: { email: "forbidden-bfcache-reveal@example.test" } });
+  await pending;
+  assert.equal(nodes(ui.mine, "pre")[0].textContent, "");
+  assert(!ui.mine.textContent.includes("forbidden-bfcache-reveal@example.test"));
+});
+
+test("late private copy read cannot repopulate a hidden browser tab",async()=>{
+  const ui=fixture();
+  let resolveCopy;
+  const copyPending=new Promise(resolve=>resolveCopy=resolve);
+  ui.setSelfActor({id:3,role:"customer"},async (path,method="GET")=>{
+    if(method==="POST") return copyPending;
+    return page([{...record,kind:"access",copy:{status:"available",expires_at:"2026-11-20T00:00:00Z"}}]);
+  });
+  await tick();
+  const view=nodes(ui.mine,"button").find(x=>x.textContent.startsWith("View private account copy"));
+  const pending=view.onclick();
+  ui.hide();
+  resolveCopy({schema_version:1,owner_id:3,request_id:22,
+    scope:"self_service_account_copy",profile:{email:"not-visible@example.test"}});
+  await pending;
+  assert.equal(nodes(ui.mine,"pre")[0].textContent,"");
+  assert(!ui.mine.textContent.includes("not-visible@example.test"));
 });

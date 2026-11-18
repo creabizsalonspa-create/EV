@@ -1,0 +1,38 @@
+{
+  "status": "LOCAL_VERIFIED_HOSTED_PENDING",
+  "merge_source_before_regressions": "d728a4a7",
+  "parent": "bdaae6f7",
+  "verification": {
+    "trace": {
+      "passed": 8,
+      "assertions": 43
+    },
+    "laravel": {
+      "passed": 1357,
+      "assertions": 25938,
+      "skipped": 1
+    },
+    "postgres_contracts_sequential": {
+      "passed": 505,
+      "assertions": 7020
+    },
+    "postgres_process_concurrency": {
+      "passed": 30,
+      "assertions": 448
+    },
+    "postgres_precision": {
+      "passed": 2,
+      "assertions": 13
+    },
+    "pint_files": 792
+  },
+  "failed_invocations_retained": true,
+  "production_accepted": false,
+  "tracker_credit_added": 0,
+  "integration_order": [
+    130,
+    144,
+    179
+  ],
+  "shared_filter_coordination": "Preserve reconciliation/token-window/credential-trace filters and separate receipt-precision runner."
+}

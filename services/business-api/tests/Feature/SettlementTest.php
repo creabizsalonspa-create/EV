@@ -14,6 +14,7 @@ use Illuminate\Database\Schema\Grammars\SQLiteGrammar;
 use Illuminate\Database\SQLiteConnection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -84,6 +85,65 @@ class SettlementTest extends TestCase
         $this->assertDatabaseCount('commercial_settlements', 1);
         $this->assertDatabaseCount('finance_payments', 1);
         $this->assertDatabaseCount('finance_journals', 2); // Settlement simulation never mutates invoice cash journals.
+    }
+
+    public function test_revoked_vendor_or_admin_cannot_view_settlements_or_post_financial_transitions(): void
+    {
+        $this->invoice();
+        $this->configure();
+        $settlement = $this->draft('revoked-read');
+        $base = '/settlement-test/commercial';
+        $eventsBefore = DB::table('commercial_settlement_events')->count();
+        $journalsBefore = DB::table('finance_journals')->count();
+        $auditBefore = DB::table('audit_events')->count();
+
+        foreach ([$this->vendor, $this->admin] as $reader) {
+            $row = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $row->role,
+                'account_status' => $row->account_status,
+                'auth_epoch' => $row->auth_epoch,
+                'password' => $row->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson($base.'/settlements')->assertOk();
+            $this->getJson($base.'/settlements/'.$settlement['id'])->assertOk();
+            foreach ([
+                ['role' => 'customer'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $row->auth_epoch + 1],
+                ['password' => Hash::make('rotated-settlement-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $this->getJson($base.'/settlements')->assertConflict();
+                $this->getJson($base.'/settlements/'.$settlement['id'])->assertConflict();
+                $this->getJson($base.'/vendors/'.$this->vendor->id.'/statement?currency=AED')
+                    ->assertConflict();
+                $this->postJson($base.'/vendors/'.$this->vendor->id.'/settlements', [
+                    'currency' => 'AED',
+                    'idempotency_key' => 'revoked-'.$reader->id,
+                ])->assertConflict();
+                if ($row->role === 'admin') {
+                    $this->postJson($base.'/settlements/'.$settlement['id'].'/approve')
+                        ->assertConflict();
+                    $this->postJson($base.'/vendors/'.$this->vendor->id.'/adjustments', [
+                        'currency' => 'AED', 'amount_minor' => 10,
+                        'reason' => 'Must not post revoked adjustment',
+                        'idempotency_key' => 'revoked-adjustment',
+                    ])->assertConflict();
+                }
+                DB::table('users')->where('id', $reader->id)->update($original);
+            }
+        }
+
+        $this->assertDatabaseHas('commercial_settlements', [
+            'id' => $settlement['id'], 'state' => 'pending',
+        ]);
+        $this->assertSame($eventsBefore, DB::table('commercial_settlement_events')->count());
+        $this->assertSame($journalsBefore, DB::table('finance_journals')->count());
+        $this->assertSame($auditBefore, DB::table('audit_events')->count());
+        $this->assertDatabaseCount('commercial_adjustments', 0);
     }
 
     public function test_unpaid_partial_and_unmatured_invoices_are_not_payable(): void
@@ -266,5 +326,105 @@ class SettlementTest extends TestCase
         $this->actingAs($this->admin)->getJson('/settlement-test/commercial/vendors/'.$this->vendor->id.'/statement?currency=AED')->assertJsonPath('available_minor', 0);
         $this->postJson('/api/commercial/cases/'.$case['id'].'/resolve', ['outcome' => 'rejected', 'resolution' => 'Resolved'])->assertOk();
         $this->getJson('/settlement-test/commercial/vendors/'.$this->vendor->id.'/statement?currency=AED')->assertJsonPath('available_minor', 900);
+    }
+
+    public function test_vendor_earnings_report_reuses_settlement_policy_and_refund_debt(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings?currency=AED';
+
+        $this->actingAs($this->vendor)->getJson($path)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.invoice_id', $invoice->id)
+            ->assertJsonPath('data.0.evidence', $invoice->evidence)
+            ->assertJsonPath('data.0.subtotal_minor', 1000)
+            ->assertJsonPath('data.0.commission_minor', 100)
+            ->assertJsonPath('data.0.vendor_allocated_minor', 900)
+            ->assertJsonPath('data.0.paid_minor', 1050)
+            ->assertJsonPath('data.0.available_minor', 900)
+            ->assertJsonPath('overall_available_minor', 900)
+            ->assertJsonPath('external_psp_or_bank_verified', false);
+
+        $settlement = $this->draft('earnings');
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('data.0.available_minor', 0)
+            ->assertJsonPath('data.0.pending_reserved_minor', 900);
+        $base = '/settlement-test/commercial/settlements/'.$settlement['id'];
+        $this->actingAs($this->admin)->postJson($base.'/approve')->assertOk();
+        $this->postJson($base.'/simulate-payout')->assertOk();
+        app(FinanceService::class)->refund(
+            $invoice, $this->admin->id, 525, 'earnings-refund', 'Credit after settlement'
+        );
+
+        $this->actingAs($this->vendor)->getJson($path)->assertOk()
+            ->assertJsonPath('data.0.refunded_minor', 525)
+            ->assertJsonPath('data.0.vendor_refunded_minor', 450)
+            ->assertJsonPath('data.0.completed_settlement_minor', 900)
+            ->assertJsonPath('data.0.pending_reserved_minor', 0)
+            ->assertJsonPath('data.0.available_minor', -450)
+            ->assertJsonPath('overall_available_minor', -450)
+            ->assertJsonPath('real_payout_enabled', false);
+        $this->assertDatabaseCount('finance_journals', 3);
+    }
+
+    public function test_revoked_vendor_or_admin_cannot_read_private_earnings_or_csv(): void
+    {
+        $this->invoice();
+        $this->configure();
+        $url = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings?currency=AED';
+        $csv = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings/export?currency=AED';
+        $before = DB::table('finance_journals')->count();
+
+        foreach ([$this->vendor, $this->admin] as $actor) {
+            $row = DB::table('users')->where('id', $actor->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $row->role,
+                'account_status' => $row->account_status,
+                'auth_epoch' => $row->auth_epoch,
+                'password' => $row->password,
+            ];
+            $this->actingAs($actor);
+            $this->getJson($url)->assertOk()->assertJsonPath('total', 1);
+            foreach ([
+                ['role' => 'customer'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $row->auth_epoch + 1],
+                ['password' => Hash::make('revoked-earnings-export-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $actor->id)->update($change);
+                $this->getJson($url)->assertConflict();
+                $this->get($csv)->assertConflict();
+                DB::table('users')->where('id', $actor->id)->update($original);
+            }
+        }
+
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('commercial_settlements', 0);
+    }
+
+    public function test_earnings_export_is_page_bounded_currency_exact_and_tenant_private(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $base = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
+        $other = User::factory()->create(['role' => 'vendor']);
+        $this->actingAs($other)->getJson($base.'?currency=AED')->assertNotFound();
+        $this->get($base.'/export?currency=AED')->assertNotFound();
+        $this->actingAs($this->customer)->getJson($base.'?currency=AED')->assertNotFound();
+        $this->actingAs($this->vendor)->getJson($base)->assertUnprocessable();
+        $this->getJson($base.'?currency=AED&per_page=26')->assertUnprocessable();
+        $this->getJson($base.'?currency=AED&from=2027-01-02&to=2027-01-01')->assertUnprocessable();
+        $this->getJson($base.'?currency=AED&from=2035-01-01')->assertOk()->assertJsonCount(0, 'data');
+        $export = $this->get($base.'/export?currency=AED&per_page=1');
+        $export->assertOk()->assertHeader('Cache-Control', 'no-store, private');
+        $csv = $export->streamedContent();
+        $this->assertStringContainsString($invoice->number, $csv);
+        $this->assertStringContainsString('SIMULATED', $csv);
+        $this->actingAs($this->admin)->getJson($base.'?currency=AED')
+            ->assertOk()->assertJsonPath('data.0.invoice_id', $invoice->id);
+        $this->assertDatabaseCount('finance_journals', 2);
     }
 }

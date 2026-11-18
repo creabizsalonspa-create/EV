@@ -11,6 +11,7 @@ use App\Models\Finance\Refund;
 use App\Models\Finance\TariffVersion;
 use App\Models\Reservation;
 use App\Models\Station;
+use App\Security\CurrentFinanceReader;
 use App\Services\Finance\ChargingProvenance;
 use App\Services\Finance\FinanceService;
 use App\Services\Ocpi\CreditRefundEvidence;
@@ -21,33 +22,54 @@ use Illuminate\Validation\Rule;
 
 class FinanceController extends Controller
 {
+    /** Must be called inside the same transaction as the private read. */
     private function invoiceAccess(Request $r, Invoice $invoice): void
     {
-        abort_unless($r->user()->id === $invoice->user_id || ($r->user()->role === 'vendor' && $r->user()->id === $invoice->vendor_id) || $r->user()->role === 'admin', 404);
+        $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+        abort_unless($actor->id === $invoice->user_id
+            || ($actor->role === 'vendor' && $actor->id === $invoice->vendor_id)
+            || $actor->role === 'admin', 404);
     }
 
     public function tariffs(Request $r, Station $station)
     {
-        abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $station->vendor_id === $r->user()->id), 404);
+        return DB::transaction(function () use ($r, $station) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($actor->role === 'admin'
+                || ($actor->role === 'vendor' && $station->vendor_id === $actor->id), 404);
+            $region = DB::table('regions')->where('country', $station->country)
+                ->where('currency', $station->currency)->first();
 
-        $region = DB::table('regions')->where('country', $station->country)->where('currency', $station->currency)->first();
-
-        return response()->json(TariffVersion::where('station_id', $station->id)->orderByDesc('id')->paginate(25)->toArray() + [
-            'pricing_context' => ['currency' => $station->currency, 'minor_units' => $region ? (int) $region->minor_units : null, 'evidence' => $station->source === 'simulator' ? 'SIMULATED' : 'DISCOVERY_ONLY'],
-        ]);
+            return response()->json(TariffVersion::where('station_id', $station->id)
+                ->orderByDesc('id')->paginate(25)->toArray() + [
+                    'pricing_context' => [
+                        'currency' => $station->currency,
+                        'minor_units' => $region ? (int) $region->minor_units : null,
+                        'evidence' => $station->source === 'simulator'
+                            ? 'SIMULATED' : 'DISCOVERY_ONLY',
+                    ],
+                ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function stations(Request $r)
     {
-        abort_unless(in_array($r->user()->role, ['vendor', 'admin'], true), 403);
-        $regions = DB::table('regions')->get()->keyBy(fn ($r) => $r->country.':'.$r->currency);
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless(in_array($actor->role, ['vendor', 'admin'], true), 403);
+            $regions = DB::table('regions')->get()
+                ->keyBy(fn ($region) => $region->country.':'.$region->currency);
 
-        return Station::where('source', 'simulator')->when($r->user()->role !== 'admin', fn ($q) => $q->where('vendor_id', $r->user()->id))
-            ->orderByDesc('id')->paginate(25)->through(fn ($s) => [
-                'id' => $s->id, 'name' => $s->name, 'country' => $s->country, 'currency' => $s->currency,
-                'minor_units' => isset($regions[$s->country.':'.$s->currency]) ? (int) $regions[$s->country.':'.$s->currency]->minor_units : null,
-                'evidence' => 'SIMULATED',
-            ]);
+            return response()->json(Station::where('source', 'simulator')
+                ->when($actor->role !== 'admin', fn ($q) => $q->where('vendor_id', $actor->id))
+                ->orderByDesc('id')->paginate(25)->through(fn ($s) => [
+                    'id' => $s->id, 'name' => $s->name,
+                    'country' => $s->country, 'currency' => $s->currency,
+                    'minor_units' => isset($regions[$s->country.':'.$s->currency])
+                        ? (int) $regions[$s->country.':'.$s->currency]->minor_units : null,
+                    'evidence' => 'SIMULATED',
+                ]))->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function createTariff(Request $r, Station $station)
@@ -62,9 +84,12 @@ class FinanceController extends Controller
         unset($v['idempotency_key'], $v['expected_minor_units'], $v['expected_currency']);
         try {
             return DB::transaction(function () use ($r, $station, $v, $key, $fingerprint, $expectedUnits, $expectedCurrency) {
-                // All publishers serialize on the station; a vendor price change cannot erase a commission policy.
+                $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+                // All publishers serialize on the station; a vendor price
+                // change cannot erase an Admin's commission policy.
                 $station = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
-                abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $station->vendor_id === $r->user()->id), 404);
+                abort_unless($actor->role === 'admin'
+                    || ($actor->role === 'vendor' && $station->vendor_id === $actor->id), 404);
                 abort_unless($station->source === 'simulator', 409, 'Only simulated tariffs are enabled.');
                 if ($key && ($old = TariffVersion::where('publishing_key', $key)->first())) {
                     abort_unless(hash_equals($old->publishing_fingerprint, $fingerprint), 409, 'Tariff publishing key payload mismatch.');
@@ -75,11 +100,11 @@ class FinanceController extends Controller
                 abort_unless($region, 409, 'Configure the matching region/currency first.');
                 abort_if(($expectedUnits !== null && $expectedUnits !== (int) $region->minor_units) || ($expectedCurrency !== null && $expectedCurrency !== $station->currency), 409, 'Pricing currency or precision changed; refresh the station.');
                 $values = $v;
-                if ($r->user()->role !== 'admin') {
+                if ($actor->role !== 'admin') {
                     $values['commission_bps'] = TariffVersion::where('station_id', $station->id)->where('effective_from', '<=', now())->orderByDesc('effective_from')->orderByDesc('id')->value('commission_bps') ?? 0;
                 }
-                $t = TariffVersion::create($values + ['station_id' => $station->id, 'created_by' => $r->user()->id, 'currency' => $station->currency, 'minor_units' => $region->minor_units, 'effective_from' => now(), 'publishing_key' => $key, 'publishing_fingerprint' => $key ? $fingerprint : null]);
-                DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'finance.simulated_tariff_published', 'subject' => (string) $t->id, 'created_at' => now()]);
+                $t = TariffVersion::create($values + ['station_id' => $station->id, 'created_by' => $actor->id, 'currency' => $station->currency, 'minor_units' => $region->minor_units, 'effective_from' => now(), 'publishing_key' => $key, 'publishing_fingerprint' => $key ? $fingerprint : null]);
+                DB::table('audit_events')->insert(['actor_id' => $actor->id, 'action' => 'finance.simulated_tariff_published', 'subject' => (string) $t->id, 'created_at' => now()]);
 
                 return response()->json($t, 201);
             }, 3);
@@ -90,87 +115,136 @@ class FinanceController extends Controller
 
     public function invoices(Request $r)
     {
-        $v = $r->validate([
-            'q' => ['sometimes', 'string', 'max:80', 'regex:/^[A-Za-z0-9-]+$/'],
-            'currency' => ['sometimes', 'string', 'regex:/^[A-Z]{3}$/'],
-            'from' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:0001-01-01'],
-            'to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:0001-01-01', Rule::when($r->filled('from'), 'after_or_equal:from')],
-        ]);
-        $q = Invoice::query();
-        if (isset($v['q'])) {
-            $q->where('number', 'like', $v['q'].'%');
-        }
-        if (isset($v['currency'])) {
-            $q->where('currency', $v['currency']);
-        }
-        if (isset($v['from'])) {
-            $q->where('created_at', '>=', $v['from'].' 00:00:00');
-        }
-        if (isset($v['to'])) {
-            $q->where('created_at', '<=', $v['to'].' 23:59:59.999999');
-        }
-        if ($r->user()->role === 'vendor') {
-            $q->where('vendor_id', $r->user()->id);
-        } elseif ($r->user()->role !== 'admin') {
-            $q->where('user_id', $r->user()->id);
-        }
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $v = $r->validate([
+                'q' => ['sometimes', 'string', 'max:80', 'regex:/^[A-Za-z0-9-]+$/'],
+                'currency' => ['sometimes', 'string', 'regex:/^[A-Z]{3}$/'],
+                'from' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:0001-01-01'],
+                'to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:0001-01-01',
+                    Rule::when($r->filled('from'), 'after_or_equal:from')],
+            ]);
+            $q = Invoice::query();
+            if (isset($v['q'])) {
+                $q->where('number', 'like', $v['q'].'%');
+            }
+            if (isset($v['currency'])) {
+                $q->where('currency', $v['currency']);
+            }
+            if (isset($v['from'])) {
+                $q->where('created_at', '>=', $v['from'].' 00:00:00');
+            }
+            if (isset($v['to'])) {
+                $q->where('created_at', '<=', $v['to'].' 23:59:59.999999');
+            }
+            if ($actor->role === 'vendor') {
+                $q->where('vendor_id', $actor->id);
+            } elseif ($actor->role !== 'admin') {
+                $q->where('user_id', $actor->id);
+            }
 
-        return $q->select('finance_invoices.*')->selectSub(DB::table('finance_unpaid_credits')->select('amount_minor')->whereColumn('invoice_id', 'finance_invoices.id')->limit(1), 'unpaid_credited_minor')->orderByDesc('id')->paginate(25);
+            return response()->json($q->select('finance_invoices.*')
+                ->selectSub(DB::table('finance_unpaid_credits')->select('amount_minor')
+                    ->whereColumn('invoice_id', 'finance_invoices.id')
+                    ->limit(1), 'unpaid_credited_minor')
+                ->orderByDesc('id')->paginate(25))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function issue(Request $r, ChargingSession $session, FinanceService $finance)
     {
-        $b = Reservation::findOrFail($session->reservation_id);
-        $s = Station::findOrFail($b->station_id);
-        abort_unless($r->user()->id === $b->user_id || ($r->user()->role === 'vendor' && $r->user()->id === $s->vendor_id) || $r->user()->role === 'admin', 404);
+        return DB::transaction(function () use ($r, $session, $finance) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $reservation = Reservation::findOrFail($session->reservation_id);
+            $station = Station::findOrFail($reservation->station_id);
+            abort_unless($actor->id === $reservation->user_id
+                || ($actor->role === 'vendor' && $actor->id === $station->vendor_id)
+                || $actor->role === 'admin', 404);
 
-        return response()->json($finance->summary($finance->issue($session, $r->user()->id)), 201);
+            return response()->json(
+                $finance->summary($finance->issue($session, $actor->id)), 201
+            )->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function show(Request $r, Invoice $invoice, FinanceService $finance)
     {
-        $this->invoiceAccess($r, $invoice);
+        return DB::transaction(function () use ($r, $invoice, $finance) {
+            $this->invoiceAccess($r, $invoice);
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $operator = $actor->role === 'admin'
+                || ($actor->role === 'vendor' && $actor->id === $invoice->vendor_id);
 
-        $operator = $r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $r->user()->id === $invoice->vendor_id);
-
-        return response()->json($finance->summary($invoice) + ['can_review_unpaid_credit' => $operator && DB::table('ocpi_test_invoice_receipts')->where('invoice_id', $invoice->id)->exists(), 'can_issue_unpaid_credit' => $operator && $finance->unpaidCreditAvailable($invoice), 'payments' => Payment::where('invoice_id', $invoice->id)->get(), 'refunds' => Refund::where('invoice_id', $invoice->id)->get()])->header('Cache-Control', 'private, no-store');
+            return response()->json($finance->summary($invoice) + [
+                'can_review_unpaid_credit' => $operator
+                    && DB::table('ocpi_test_invoice_receipts')
+                        ->where('invoice_id', $invoice->id)->exists(),
+                'can_issue_unpaid_credit' => $operator
+                    && $finance->unpaidCreditAvailable($invoice),
+                'payments' => Payment::where('invoice_id', $invoice->id)->get(),
+                'refunds' => Refund::where('invoice_id', $invoice->id)->get(),
+            ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function sourceEvidence(Request $r, Invoice $invoice, ChargingProvenance $provenance)
     {
-        $this->invoiceAccess($r, $invoice);
+        return DB::transaction(function () use ($r, $invoice, $provenance) {
+            $this->invoiceAccess($r, $invoice);
 
-        return response()->json($provenance->inspect($invoice))->header('Cache-Control', 'private, no-store');
+            return response()->json($provenance->inspect($invoice))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function sourceCredits(Request $r, Invoice $invoice, CreditRefundEvidence $evidence)
     {
-        $this->invoiceAccess($r, $invoice);
-        $v = $r->validate(['page' => 'sometimes|integer|min:1|max:100000', 'full_reversal' => 'sometimes|boolean']);
+        return DB::transaction(function () use ($r, $invoice, $evidence) {
+            $this->invoiceAccess($r, $invoice);
+            $v = $r->validate([
+                'page' => 'sometimes|integer|min:1|max:100000',
+                'full_reversal' => 'sometimes|boolean',
+            ]);
 
-        return response()->json($evidence->options($invoice, (int) ($v['page'] ?? 1), (bool) ($v['full_reversal'] ?? false)))->header('Cache-Control', 'private, no-store');
+            return response()->json($evidence->options(
+                $invoice, (int) ($v['page'] ?? 1), (bool) ($v['full_reversal'] ?? false)
+            ))->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function unpaidCredit(Request $r, Invoice $invoice, FinanceService $finance)
     {
-        abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $r->user()->id === $invoice->vendor_id), 404);
+        $actor = DB::transaction(function () use ($r, $invoice) {
+            $current = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($current->role === 'admin'
+                || ($current->role === 'vendor' && $current->id === $invoice->vendor_id), 404);
+
+            return $current;
+        }, 3);
         $v = $r->validate(['expected_actor_id' => 'required|integer|min:1', 'expected_invoice_number' => 'required|string|max:100', 'credit_record_id' => 'required|integer|min:1', 'idempotency_key' => 'required|uuid', 'reason' => 'required|string|min:10|max:500', 'consent' => 'required|boolean', 'expected_total_minor' => 'required|integer|min:1', 'expected_currency' => 'required|regex:/^[A-Z]{3}$/D', 'expected_minor_units' => 'required|integer|between:0,3']);
         foreach (['expected_actor_id', 'credit_record_id', 'expected_total_minor', 'expected_minor_units'] as $field) {
             $v[$field] = (int) $v[$field];
         }
         $v['consent'] = (bool) $v['consent'];
 
-        return response()->json(['credit_note' => $finance->creditUnpaid($invoice, $r->user()->id, $v), 'invoice_id' => $invoice->id, 'cash_moved' => false, 'refund_created' => false])->header('Cache-Control', 'private, no-store');
+        return response()->json(['credit_note' => $finance->creditUnpaid($invoice, $actor->id, $v), 'invoice_id' => $invoice->id, 'cash_moved' => false, 'refund_created' => false])->header('Cache-Control', 'private, no-store');
     }
 
     public function resolveUnpaidCredit(Request $r, Invoice $invoice, FinanceService $finance)
     {
-        abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $r->user()->id === $invoice->vendor_id), 404);
+        $actor = DB::transaction(function () use ($r, $invoice) {
+            $current = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($current->role === 'admin'
+                || ($current->role === 'vendor' && $current->id === $invoice->vendor_id), 404);
+
+            return $current;
+        }, 3);
         $v = $r->validate(['expected_actor_id' => 'required|integer|min:1', 'expected_invoice_number' => 'required|string|max:100', 'idempotency_key' => 'required|uuid', 'cancel_unissued' => 'required|boolean']);
         $v['expected_actor_id'] = (int) $v['expected_actor_id'];
         $v['cancel_unissued'] = (bool) $v['cancel_unissued'];
 
-        return response()->json($finance->resolveUnpaidCredit($invoice, $r->user()->id, $v))->header('Cache-Control', 'private, no-store');
+        return response()->json($finance->resolveUnpaidCredit($invoice, $actor->id, $v))->header('Cache-Control', 'private, no-store');
     }
 
     private function mockOnly(Invoice $invoice): void
@@ -180,28 +254,47 @@ class FinanceController extends Controller
 
     public function payment(Request $r, Invoice $invoice, FinanceService $finance)
     {
-        abort_unless($invoice->user_id === $r->user()->id, 404);
+        $actor = DB::transaction(function () use ($r, $invoice) {
+            $current = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($invoice->user_id === $current->id, 404);
+
+            return $current;
+        }, 3);
         $this->mockOnly($invoice);
         $v = $r->validate(['amount_minor' => 'required|integer|between:1,2000000000', 'idempotency_key' => 'required|string|max:100']);
 
-        return response()->json($finance->pay($invoice, $r->user()->id, (int) $v['amount_minor'], $v['idempotency_key']), 201);
+        return response()->json($finance->pay($invoice, $actor->id, (int) $v['amount_minor'], $v['idempotency_key']), 201);
     }
 
     public function refund(Request $r, Invoice $invoice, FinanceService $finance)
     {
-        abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $invoice->vendor_id === $r->user()->id), 404);
+        $actor = DB::transaction(function () use ($r, $invoice) {
+            $current = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($current->role === 'admin'
+                || ($current->role === 'vendor' && $invoice->vendor_id === $current->id), 404);
+
+            return $current;
+        }, 3);
         $this->mockOnly($invoice);
         $v = $r->validate(['amount_minor' => 'required|integer|between:1,2000000000', 'idempotency_key' => 'required|string|max:100', 'reason' => 'required|string|max:500']);
 
-        return response()->json($finance->refund($invoice, $r->user()->id, (int) $v['amount_minor'], $v['idempotency_key'], $v['reason']), 201);
+        return response()->json($finance->refund($invoice, $actor->id, (int) $v['amount_minor'], $v['idempotency_key'], $v['reason']), 201);
     }
 
     public function journal(Request $r, Invoice $invoice)
     {
-        $this->invoiceAccess($r, $invoice);
-        abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $r->user()->id === $invoice->vendor_id), 403);
-        $journals = Journal::where('invoice_id', $invoice->id)->orderBy('id')->get();
+        return DB::transaction(function () use ($r, $invoice) {
+            $this->invoiceAccess($r, $invoice);
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($actor->role === 'admin'
+                || ($actor->role === 'vendor' && $actor->id === $invoice->vendor_id), 403);
+            $journals = Journal::where('invoice_id', $invoice->id)->orderBy('id')->get();
 
-        return response()->json(['journals' => $journals, 'entries' => JournalEntry::whereIn('journal_id', $journals->pluck('id'))->orderBy('id')->get()]);
+            return response()->json([
+                'journals' => $journals,
+                'entries' => JournalEntry::whereIn('journal_id', $journals->pluck('id'))
+                    ->orderBy('id')->get(),
+            ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 }
