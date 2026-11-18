@@ -1,0 +1,33 @@
+{
+  "status": "LOCAL_VERIFIED_COMBINED_HOSTED_PENDING",
+  "pre_repair_integrated_source": "e2d1c529b4f425a20131ad91485b53e3e5205346",
+  "red": "Existing overlap process blocks before durable lease; first provider barrier expires",
+  "green_recovery": {
+    "passed": 2,
+    "assertions": 31
+  },
+  "laravel": {
+    "passed": 1369,
+    "assertions": 26634,
+    "skipped": 1
+  },
+  "finance_postgres": {
+    "cases": 434,
+    "assertions": 10943,
+    "skipped": 1
+  },
+  "postgres_process_and_migration_cases": {
+    "passed": 95,
+    "assertions": 1416
+  },
+  "flutter_focused": {
+    "passed": 28,
+    "new_itemized_cases": 22
+  },
+  "flutter_analysis": "clean",
+  "native_actual_laravel": "passed; three roles, own itemized source and denied outsider/customer, private PDF; mock only",
+  "browser_actual_laravel": "passed EN/AR currency/report/CSV/Arabic PDF; mock only",
+  "full_flutter": "pending combined source",
+  "production_accepted": false,
+  "tracker_credit_added": 0
+}

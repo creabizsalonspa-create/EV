@@ -27,12 +27,17 @@ class GatewayService
 
     /**
      * Direct service calls and post-preflight browser races must not reuse
-     * a suspended/demoted financial actor. Caller holds the canonical invoice
-     * lock first, then retains this account lock through the durable mutation.
+     * a suspended/demoted financial actor. Durable callers lock the invoice
+     * first and retain this account lock through the mutation. Only the read-only
+     * preflight omits locks; it cannot replace the durable authority recheck.
      */
-    private function currentActor(int $id, Invoice $invoice, bool $refund = false): void
+    private function currentActor(int $id, Invoice $invoice, bool $refund = false, bool $lock = true): void
     {
-        $actor = User::whereKey($id)->lockForUpdate()->first();
+        $query = User::whereKey($id);
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+        $actor = $query->first();
         abort_unless($actor && $actor->account_status === 'active', 409,
             'Financial account authorization changed.');
         if ($refund) {
@@ -92,8 +97,12 @@ class GatewayService
         // The durable operation rechecks under the same invoice->actor lock
         // order to close a concurrent suspension/demotion after preflight.
         DB::transaction(function () use ($initial, $actor, $kind) {
-            $invoice = Invoice::whereKey($initial->invoice_id)->lockForUpdate()->firstOrFail();
-            $this->currentActor($actor, $invoice, $kind === 'refund');
+            // This is a read-only preflight, not the durable mutation. Waiting
+            // on its invoice/account locks would block behind a provider call
+            // before PaymentRecovery can reject the existing execution lease.
+            // The mutation below still locks invoice then actor and rechecks.
+            $invoice = Invoice::whereKey($initial->invoice_id)->firstOrFail();
+            $this->currentActor($actor, $invoice, $kind === 'refund', lock: false);
         }, 3);
 
         return app(PaymentRecovery::class)->run('charging', $initial, $actor, $kind, $key, [$kind, $amount ?? (int) $initial->amount_minor, $token, $reason], fn () => DB::transaction(function () use ($initial, $actor, $kind, $key, $amount, $token, $reason, $provider) {

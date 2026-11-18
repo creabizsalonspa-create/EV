@@ -84,3 +84,10 @@ Canonical finance invoice history, individual invoice detail, invoice source/cre
 Historical PR #135 Platform failed on local demo charging-review moderation with `sqlite_locked` after 1313 Laravel tests passed and many browser cases, not on KYC tests. A rerun was requested for its precise failed job. PR #150 Platform Arabic connector-fleet timeout was also rerun; neither is authoritative until the rerun completes. PR #164 already passed all source-branch Platform and Finance CI but has not been integrated by Agent 5.
 
 No production merchant activation, live payout dispatch, production customer wallet, bank/PSP acceptance or live charging operation is asserted by this documentation.
+
+
+## Durable lease access and native readout — 19 November 2026
+
+Gateway authorization preflight now reads current ownership/status without invoice/account row locks. Its transaction grants no durable authority: the operation still locks invoice then actor and rechecks within its mutation. This allows an overlapping Stripe TEST request to reach the existing execution lease and immediately return409 while the first provider operation is in flight. The original two-process release barrier, crash test, provider idempotency key, single-capture/journal and balance checks are unchanged and pass. No financial arithmetic or provider mode changed.
+
+Flutter's Vendor overview now consumes itemized earnings via the existing server endpoint, with original invoice provenance and no locally computed settlement. Its explicit all-invoice overall-scope label, EN/AR pagination, signed precision and current-account/foreground guards are tested. Full financial mobile scope and external bank/PSP acceptance remain uncredited.
