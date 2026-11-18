@@ -12,6 +12,7 @@ use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorKycDocument;
 use App\Models\VendorOps\VendorSite;
+use App\Security\AdminTransactionAuthority;
 use App\Services\VendorOps\VendorAccess;
 use App\Services\VendorOps\VendorCreation;
 use Illuminate\Contracts\Encryption\DecryptException;
@@ -30,38 +31,44 @@ class VendorOpsController extends Controller
 
     public function companies(Request $r)
     {
-        $actor = $r->user();
-        $query = VendorCompany::query();
-        if ($actor->role !== 'admin') {
-            $query->where(function ($q) use ($actor) {
-                $q->where('owner_id', $actor->id);
-                if ($actor->hasVerifiedEmail()) {
-                    $q->orWhereIn('id', VendorCompanyStaff::where('user_id', $actor->id)
-                        ->where('status', 'active')->whereNull('admin_revoked_at')
-                        ->select('company_id'));
-                }
-            });
-        }
-
-        // Inventory-only staff need a company picker, but membership alone
-        // does not grant company.read. Keep private company/KYC data out.
-        $page = $query->orderByDesc('id')->paginate(25)->through(function (VendorCompany $company) use ($actor) {
-            $capabilities = $this->access->capabilities($actor, $company);
-            if (! $capabilities['company_read']) {
-                return [
-                    'id' => $company->id,
-                    'legal_name' => $company->legal_name,
-                    'country' => $company->country,
-                    'status' => $company->status,
-                    'capabilities' => $capabilities,
-                    'restricted_directory_entry' => true,
-                ];
+        return DB::transaction(function () use ($r) {
+            $actor = $r->user();
+            if ($actor->role === 'admin') {
+                AdminTransactionAuthority::requireCurrent($actor);
+            }
+            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+            $query = VendorCompany::query();
+            if ($actor->role !== 'admin') {
+                $query->where(function ($q) use ($actor) {
+                    $q->where('owner_id', $actor->id);
+                    if ($actor->hasVerifiedEmail()) {
+                        $q->orWhereIn('id', VendorCompanyStaff::where('user_id', $actor->id)
+                            ->where('status', 'active')->whereNull('admin_revoked_at')
+                            ->select('company_id'));
+                    }
+                });
             }
 
-            return $company->toArray() + ['capabilities' => $capabilities];
-        });
+            // Inventory-only staff need a company picker, but membership alone
+            // does not grant company.read. Keep private company/KYC data out.
+            $page = $query->orderByDesc('id')->paginate(25)->through(function (VendorCompany $company) use ($actor) {
+                $capabilities = $this->access->capabilities($actor, $company);
+                if (! $capabilities['company_read']) {
+                    return [
+                        'id' => $company->id,
+                        'legal_name' => $company->legal_name,
+                        'country' => $company->country,
+                        'status' => $company->status,
+                        'capabilities' => $capabilities,
+                        'restricted_directory_entry' => true,
+                    ];
+                }
 
-        return response()->json($page)->header('Cache-Control', 'no-store, private');
+                return $company->toArray() + ['capabilities' => $capabilities];
+            });
+
+            return response()->json($page)->header('Cache-Control', 'no-store, private');
+        });
     }
 
     public function createCompany(Request $r)
@@ -86,35 +93,43 @@ class VendorOpsController extends Controller
 
     public function company(Request $r, VendorCompany $company)
     {
-        $this->access->require($r->user(), $company);
+        return DB::transaction(function () use ($r, $company) {
+            if ($r->user()->role === 'admin') {
+                AdminTransactionAuthority::requireCurrent($r->user());
+            }
+            // Route binding can precede a change of company ownership or KYC
+            // status. Work from the live locked company throughout this read.
+            $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $this->access->require($r->user(), $company);
 
-        $readiness = null;
-        if ($company->owner_id === $r->user()->id || $r->user()->role === 'admin') {
-            $editable = in_array($company->status, ['draft', 'changes_requested', 'rejected'], true);
-            $licenseValid = $this->access->licenseValid($company);
-            $licenseEvidence = VendorKycDocument::where('company_id', $company->id)
-                ->where('kind', 'trade_license')->orderByDesc('id')->first();
+            $readiness = null;
+            if ($company->owner_id === $r->user()->id || $r->user()->role === 'admin') {
+                $editable = in_array($company->status, ['draft', 'changes_requested', 'rejected'], true);
+                $licenseValid = $this->access->licenseValid($company);
+                $licenseEvidence = VendorKycDocument::where('company_id', $company->id)
+                    ->where('kind', 'trade_license')->orderByDesc('id')->first();
 
-            // Presence alone is not evidence of a usable encrypted file.
-            // Show owners a reliable readiness hint without disclosing
-            // plaintext, hashes or private storage paths in the response.
-            $evidenceValid = $licenseEvidence !== null
-                && $this->verifiedEvidenceContents($licenseEvidence) !== null;
-            $readiness = [
-                'editable' => $editable,
-                'license_valid' => $licenseValid,
-                'trade_license_present' => $licenseEvidence !== null,
-                'trade_license_integrity_valid' => $evidenceValid,
-                'can_submit' => $editable && $licenseValid && $evidenceValid,
-            ];
-        }
+                // Presence alone is not evidence of a usable encrypted file.
+                // Show owners a reliable readiness hint without disclosing
+                // plaintext, hashes or private storage paths in the response.
+                $evidenceValid = $licenseEvidence !== null
+                    && $this->verifiedEvidenceContents($licenseEvidence) !== null;
+                $readiness = [
+                    'editable' => $editable,
+                    'license_valid' => $licenseValid,
+                    'trade_license_present' => $licenseEvidence !== null,
+                    'trade_license_integrity_valid' => $evidenceValid,
+                    'can_submit' => $editable && $licenseValid && $evidenceValid,
+                ];
+            }
 
-        return response()->json($company->toArray() + [
-            'kyc_workflow_only' => true,
-            'physical_control_enabled' => false,
-            'capabilities' => $this->access->capabilities($r->user(), $company),
-            'submission_readiness' => $readiness,
-        ])->header('Cache-Control', 'no-store, private');
+            return response()->json($company->toArray() + [
+                'kyc_workflow_only' => true,
+                'physical_control_enabled' => false,
+                'capabilities' => $this->access->capabilities($r->user(), $company),
+                'submission_readiness' => $readiness,
+            ])->header('Cache-Control', 'no-store, private');
+        });
     }
 
     public function updateCompany(Request $r, VendorCompany $company)
@@ -123,7 +138,7 @@ class VendorOpsController extends Controller
         $v = $r->validate(['legal_name' => 'sometimes|required|string|max:150', 'country' => 'sometimes|required|string|size:2|exists:regions,country', 'trade_license_number' => 'sometimes|required|string|max:100', 'license_expires_on' => 'sometimes|required|date_format:Y-m-d|after:today']);
 
         return DB::transaction(function () use ($r, $company, $v) {
-            $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $c = $this->currentOwnedCompany($r, $company);
             abort_unless(in_array($c->status, ['draft', 'changes_requested', 'rejected']), 409, 'Submitted or approved company details cannot change.');
             $c->update($v);
             $this->access->audit($r->user(), 'company.updated', $c->id);
@@ -132,18 +147,50 @@ class VendorOpsController extends Controller
         });
     }
 
-    public function reviews(Request $r, VendorCompany $company)
+    /** Authorize an owner against the locked current row, not a route snapshot. */
+    private function currentOwnedCompany(Request $request, VendorCompany $company): VendorCompany
     {
-        abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
+        $current = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+        $this->access->owner($request->user(), $current);
 
-        $history = VendorCompanyReview::where('company_id', $company->id)->orderBy('id')->paginate(25);
-        if ($r->user()->role === 'admin') {
-            // Reviewer notes are private. Audit the company-scoped metadata
-            // access without persisting those notes or customer details.
-            $this->access->audit($r->user(), 'review.history_viewed', $company->id);
+        return $current;
+    }
+
+    /**
+     * Resolve privileged KYC reads against the current reviewer and company,
+     * never an authorization decision cached by route-model binding.
+     * Call only while an enclosing database transaction is active.
+     */
+    private function currentKycReader(Request $r, VendorCompany $company): array
+    {
+        $snapshot = $r->user();
+        abort_unless($snapshot instanceof User, 404);
+        $isAdmin = $snapshot->role === 'admin';
+        if ($isAdmin) {
+            AdminTransactionAuthority::requireCurrent($snapshot);
         }
 
-        return response()->json($history)->header('Cache-Control', 'no-store, private');
+        $currentCompany = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+        abort_unless($isAdmin || $currentCompany->owner_id === $snapshot->id, 404);
+
+        return [$currentCompany, $isAdmin];
+    }
+
+    public function reviews(Request $r, VendorCompany $company)
+    {
+        return DB::transaction(function () use ($r, $company) {
+            [$currentCompany, $isAdmin] = $this->currentKycReader($r, $company);
+            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+            $history = VendorCompanyReview::where('company_id', $currentCompany->id)
+                ->orderBy('id')->paginate(25);
+            if ($isAdmin) {
+                // Confidential reviewer notes must never be disclosed or
+                // positively audited for a revoked/rotated Admin session.
+                $this->access->audit($r->user(), 'review.history_viewed', $currentCompany->id);
+            }
+
+            return response()->json($history)->header('Cache-Control', 'no-store, private');
+        });
     }
 
     private function operationalWrite(Request $r, VendorCompany $company): VendorCompany
@@ -157,16 +204,19 @@ class VendorOpsController extends Controller
 
     public function documents(Request $r, VendorCompany $company)
     {
-        abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
+        return DB::transaction(function () use ($r, $company) {
+            [$currentCompany, $isAdmin] = $this->currentKycReader($r, $company);
+            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+            $metadata = VendorKycDocument::where('company_id', $currentCompany->id)
+                ->orderBy('id')->paginate(25);
+            if ($isAdmin) {
+                // Metadata access is auditable without exposing encrypted
+                // file paths or stored document fingerprints.
+                $this->access->audit($r->user(), 'document.metadata_viewed', $currentCompany->id);
+            }
 
-        $metadata = VendorKycDocument::where('company_id', $company->id)->paginate(25);
-        if ($r->user()->role === 'admin') {
-            // Reading private document metadata is a privileged access,
-            // separate from the already audited byte-download endpoint.
-            $this->access->audit($r->user(), 'document.metadata_viewed', $company->id);
-        }
-
-        return response()->json($metadata)->header('Cache-Control', 'no-store, private');
+            return response()->json($metadata)->header('Cache-Control', 'no-store, private');
+        });
     }
 
     public function upload(Request $r, VendorCompany $company)
@@ -189,7 +239,7 @@ class VendorOpsController extends Controller
         }
         try {
             return DB::transaction(function () use ($r, $company, $v, $file, $path) {
-                $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+                $c = $this->currentOwnedCompany($r, $company);
                 abort_unless(in_array($c->status, ['draft', 'changes_requested', 'rejected']), 409);
                 $d = VendorKycDocument::create(['company_id' => $c->id, 'uploaded_by' => $r->user()->id, 'kind' => $v['kind'], 'storage_path' => $path, 'mime_type' => $file->getMimeType(), 'size_bytes' => $file->getSize(), 'sha256' => hash_file('sha256', $file->getRealPath())]);
                 $this->access->audit($r->user(), 'document.uploaded', $d->id);
@@ -204,21 +254,36 @@ class VendorOpsController extends Controller
 
     public function download(Request $r, VendorCompany $company, VendorKycDocument $document)
     {
-        abort_unless(($r->user()->role === 'admin' || $company->owner_id === $r->user()->id) && $document->company_id === $company->id, 404);
+        $result = DB::transaction(function () use ($r, $company, $document) {
+            [$currentCompany] = $this->currentKycReader($r, $company);
+            $currentDocument = VendorKycDocument::whereKey($document->id)
+                ->lockForUpdate()->firstOrFail();
+            abort_unless($currentDocument->company_id === $currentCompany->id, 404);
+
+            $contents = $this->verifiedEvidenceContents($currentDocument);
+            if ($contents === null) {
+                // Preserve a durable denial audit outside this transaction:
+                // throwing inside it would roll the audit back.
+                return ['corrupt' => $currentDocument];
+            }
+
+            // The live reviewer, live company/document relationship, file
+            // integrity and successful-view audit share one transaction.
+            $this->access->audit($r->user(), 'document.downloaded', $currentDocument->id);
+
+            return ['document' => $currentDocument, 'contents' => $contents];
+        });
+
+        if (isset($result['corrupt'])) {
+            $this->rejectCorruptEvidence($r, $result['corrupt']);
+        }
+
+        $document = $result['document'];
         $extension = match ($document->mime_type) {
-            'image/png' => 'png','image/jpeg' => 'jpg',default => 'pdf'
+            'image/png' => 'png', 'image/jpeg' => 'jpg', default => 'pdf',
         };
 
-        $contents = $this->verifiedEvidenceContents($document);
-        if ($contents === null) {
-            $this->rejectCorruptEvidence($r, $document);
-        }
-        // Log only a successful authorized access, without storage paths,
-        // plaintext document contents, trade-license IDs or download URLs.
-        // Fail closed if the compliance audit cannot be recorded.
-        $this->access->audit($r->user(), 'document.downloaded', $document->id);
-
-        return response($contents, 200, [
+        return response($result['contents'], 200, [
             'Content-Type' => $document->mime_type,
             'Content-Disposition' => 'attachment; filename="kyc-document-'.$document->id.'.'.$extension.'"',
             'X-Content-Type-Options' => 'nosniff',
@@ -264,7 +329,7 @@ class VendorOpsController extends Controller
         $this->access->owner($r->user(), $company);
 
         $result = DB::transaction(function () use ($r, $company) {
-            $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $c = $this->currentOwnedCompany($r, $company);
             $alreadySubmitted = $c->status === 'submitted';
             abort_unless($alreadySubmitted || in_array($c->status, ['draft', 'changes_requested', 'rejected'], true), 409);
             if (! $alreadySubmitted) {
@@ -304,7 +369,9 @@ class VendorOpsController extends Controller
 
     public function review(Request $r, VendorCompany $company)
     {
-        abort_unless($r->user()->role === 'admin', 403);
+        $actor = $r->user();
+        abort_unless($actor instanceof User && $actor->role === 'admin'
+            && $actor->account_status === 'active', 403);
         // Validate the persisted explanation even without global input trimming.
         // The Admin UI requires an explanatory note; enforce the same
         // minimum on direct API calls before any transition or audit writes.
@@ -319,7 +386,17 @@ class VendorOpsController extends Controller
             'reason' => 'required|string|min:10|max:2000',
         ]);
 
-        $result = DB::transaction(function () use ($r, $company, $v) {
+        $result = DB::transaction(function () use ($r, $company, $v, $actor) {
+            // The middleware authenticated a snapshot. A suspended, demoted
+            // or credential-rotated reviewer must not finish a privileged
+            // decision using that now-stale snapshot. Lock the current actor
+            // before any company/owner rows to serialize revocation vs review.
+            $reviewer = User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            abort_unless($reviewer->role === 'admin' && $reviewer->account_status === 'active', 403);
+            abort_unless((int) $reviewer->auth_epoch === (int) $actor->auth_epoch
+                && hash_equals((string) $reviewer->password, (string) $actor->password),
+                409, 'Administrator credentials changed. Sign in again.');
+
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             // An Admin must not review a company they also own.
             // A role change can make a former vendor into an administrator.
@@ -404,7 +481,7 @@ class VendorOpsController extends Controller
         $u = User::where('email', $v['email'])->first();
         if ($u && $u->id !== $company->owner_id) {
             DB::transaction(function () use ($r, $company, $u, $v) {
-                VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+                $this->currentOwnedCompany($r, $company);
                 $existing = VendorCompanyStaff::where('company_id', $company->id)->where('user_id', $u->id)->lockForUpdate()->first();
                 abort_if($existing?->admin_revoked_at !== null, 409,
                     'Staff access is under an administrator security hold.');
@@ -440,7 +517,7 @@ class VendorOpsController extends Controller
         $desired = array_values($v['permissions']);
 
         return DB::transaction(function () use ($r, $company, $membership, $v, $desired) {
-            VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $this->currentOwnedCompany($r, $company);
             $grant = VendorCompanyStaff::whereKey($membership->id)
                 ->where('company_id', $company->id)
                 ->lockForUpdate()->firstOrFail();
@@ -502,6 +579,9 @@ class VendorOpsController extends Controller
             abort_unless($account->hasVerifiedEmail(), 409,
                 'Verify your email before accepting company staff permissions.');
             $m = VendorCompanyStaff::whereKey($membership->id)->lockForUpdate()->firstOrFail();
+            // A reassigned invite must not be accepted using an obsolete
+            // route-bound membership from the previous recipient.
+            abort_unless($m->user_id === $account->id, 404);
             abort_unless(in_array($m->status, ['invited', 'active']), 409);
             abort_if($m->admin_revoked_at !== null, 409, 'Staff access is under an administrator security hold.');
             abort_unless($m->invitation_version === (int) $v['expected_version'], 409, 'Invitation scopes changed; refresh and consent again.');
@@ -520,8 +600,10 @@ class VendorOpsController extends Controller
         $this->access->owner($r->user(), $company);
         abort_unless($membership->company_id === $company->id, 404);
 
-        return DB::transaction(function () use ($r, $membership) {
-            $m = VendorCompanyStaff::whereKey($membership->id)->lockForUpdate()->firstOrFail();
+        return DB::transaction(function () use ($r, $company, $membership) {
+            $this->currentOwnedCompany($r, $company);
+            $m = VendorCompanyStaff::whereKey($membership->id)
+                ->where('company_id', $company->id)->lockForUpdate()->firstOrFail();
             if ($m->status !== 'revoked') {
                 $m->update(['status' => 'revoked', 'invitation_version' => $m->invitation_version + 1]);
                 $this->access->audit($r->user(), 'staff.revoked', $m->id);
