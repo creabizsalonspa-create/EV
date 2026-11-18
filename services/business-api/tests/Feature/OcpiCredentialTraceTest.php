@@ -8,6 +8,7 @@ use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\OcpiException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class OcpiCredentialTraceTest extends TestCase
@@ -99,6 +100,47 @@ class OcpiCredentialTraceTest extends TestCase
         Http::assertSentCount(2);
         $this->assertDatabaseCount('ocpi_credential_links', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[TestWith(['replayed'])]
+    #[TestWith(['partial'])]
+    #[TestWith(['swapped'])]
+    public function test_second_discovery_response_cannot_reuse_or_change_the_first_request_trace(string $mode): void
+    {
+        $provider = $this->fixture();
+        $first = null;
+        Http::fake(function ($request) use (&$first, $mode) {
+            $headers = [
+                'X-Request-ID' => $request->header('X-Request-ID')[0],
+                'X-Correlation-ID' => $request->header('X-Correlation-ID')[0],
+            ];
+            if ($first === null) {
+                $first = $headers;
+            } elseif ($mode === 'replayed') {
+                $headers = $first;
+            } elseif ($mode === 'partial') {
+                unset($headers['X-Correlation-ID']);
+            } else {
+                $headers = [
+                    'X-Request-ID' => $headers['X-Correlation-ID'],
+                    'X-Correlation-ID' => $headers['X-Request-ID'],
+                ];
+            }
+
+            return Http::response($this->reply($request->url()), 200, $headers);
+        });
+        try {
+            app(CredentialExchange::class)->endpoint($provider, base64_encode('SYNTHETIC-NON-LIVE-BOOTSTRAP'));
+            $this->fail('Second-page credentials evidence was accepted with an unrelated trace.');
+        } catch (OcpiException $error) {
+            $this->assertSame('Partner credentials request failed; private transport details are withheld.', $error->getMessage());
+            $this->assertStringNotContainsString('SYNTHETIC', $error->getMessage());
+        }
+        Http::assertSentCount(2);
+        $this->assertDatabaseCount('ocpi_credential_links', 0);
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('ocpi_roaming_commands', 0);
     }
 
     public function test_credentials_discovery_rejects_invalid_peer_envelope_dates_without_followup_requests(): void
