@@ -5,10 +5,13 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\User;
 use App\Services\Ocpi\CredentialExchange;
+use App\Services\Ocpi\OcpiMessageHeaders;
 use App\Services\Ocpi\SandboxRoaming;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
@@ -16,7 +19,9 @@ class OcpiRoamingProtocolController extends Controller
 {
     private function reply(mixed $data, int $code = 1000, int $http = 200)
     {
-        return response()->json(['status_code' => $code, 'timestamp' => now()->toISOString(), 'data' => $data], $http)->header('Cache-Control', 'private, no-store');
+        $ids = OcpiMessageHeaders::response(request());
+
+        return response()->json(['status_code' => $code, 'timestamp' => now()->toISOString(), 'data' => $data], $http)->header('Cache-Control', 'private, no-store')->header('X-Request-ID', $ids['X-Request-ID'])->header('X-Correlation-ID', $ids['X-Correlation-ID']);
     }
 
     private function peer(Request $r): array
@@ -150,8 +155,29 @@ class OcpiRoamingProtocolController extends Controller
     {
         try {
             [$p,$link] = $this->peer($r);
-            $v = $r->validate(['offset' => 'sometimes|integer|min:0|max:100000', 'limit' => 'sometimes|integer|min:1|max:100', 'date_from' => 'sometimes|date', 'date_to' => 'sometimes|date|after_or_equal:date_from']);
-            $query = DB::table('ocpi_roaming_orders')->where('provider_id', $p->id)->where('provider_owner_id', $p->owner_id)->where('counterparty_hash', $link->configuration_hash)->when(isset($v['date_from']), fn ($q) => $q->where('updated_at', '>=', $v['date_from']))->when(isset($v['date_to']), fn ($q) => $q->where('updated_at', '<', $v['date_to']));
+            $v = $r->validate(['offset' => 'sometimes|integer|min:0|max:100000', 'limit' => 'sometimes|integer|min:1|max:100', 'date_from' => 'sometimes|required|string|max:40', 'date_to' => 'sometimes|required|string|max:40']);
+            // OCPI token window bounds may be absent, but a supplied bound
+            // must be a complete date-time instant. Laravel's generic date
+            // rule accepts relative text ("tomorrow") and invalid calendar
+            // rollovers. Never turn such input into an authorized bulk read.
+            // Explicit numeric offsets are normalized to UTC for existing
+            // managed peer compatibility; Z-free values are UTC, not local.
+            $utc = static function (string $value): string {
+                abort_unless(preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-](?:0\d|1[0-3]):[0-5]\d|[+-]14:00)?$/D', $value) === 1, 422);
+                $zoned = str_ends_with($value, 'Z') || preg_match('/[+-]\d{2}:\d{2}$/D', $value);
+                $format = '!Y-m-d\TH:i:s'
+                    .(str_contains($value, '.') ? '.u' : '')
+                    .($zoned ? 'P' : '');
+                $date = \DateTimeImmutable::createFromFormat($format, $value, new \DateTimeZone('UTC'));
+                abort_unless($date !== false && \DateTimeImmutable::getLastErrors() === false, 422);
+                $time = CarbonImmutable::instance($date)->utc();
+
+                return $time->format($time->format('u') === '000000' ? 'Y-m-d H:i:s' : 'Y-m-d H:i:s.u');
+            };
+            $from = isset($v['date_from']) ? $utc($v['date_from']) : null;
+            $to = isset($v['date_to']) ? $utc($v['date_to']) : null;
+            abort_if($from !== null && $to !== null && $to < $from, 422);
+            $query = DB::table('ocpi_roaming_orders')->where('provider_id', $p->id)->where('provider_owner_id', $p->owner_id)->where('counterparty_hash', $link->configuration_hash)->when($from !== null, fn ($q) => $q->where('updated_at', '>=', $from))->when($to !== null, fn ($q) => $q->where('updated_at', '<', $to));
             $total = (clone $query)->count();
             $rows = $query->orderBy('id')->offset($v['offset'] ?? 0)->limit($v['limit'] ?? 25)->get();
             $service = app(SandboxRoaming::class);
@@ -175,7 +201,11 @@ class OcpiRoamingProtocolController extends Controller
 
             return $reply;
         } catch (Throwable $e) {
-            $http = $e instanceof HttpExceptionInterface ? $e->getStatusCode() : 409;
+            // Laravel validation failures are domain-safe 422 responses, not
+            // generic 409 upstream conflicts. Keep details and source data
+            // private while preserving OCPI tracing on malformed peer input.
+            $http = $e instanceof HttpExceptionInterface ? $e->getStatusCode()
+                : ($e instanceof ValidationException ? 422 : 409);
 
             return $this->reply(null, 2000, $http);
         }

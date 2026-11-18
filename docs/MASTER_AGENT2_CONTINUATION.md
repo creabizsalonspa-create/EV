@@ -1,3 +1,9 @@
+# CURRENT OWNER DIRECTIVE — SINGLE PLATFORM COMPLETION OWNER (19 NOVEMBER 2026)
+
+The owner's latest uploaded **FINAL EXECUTIVE DIRECTIVE — COMPLETE THE ENTIRE EV PLATFORM AND PREPARE PRODUCTION RELEASE**, resumed by `continue`, explicitly replaces prior ownership restrictions. One accountable engineer owns backend, customer/vendor web, canonical `apps/mobile`, Admin, integration, QA and release preparation. The older five-agent and other allocations below are historical, not a restriction on the currently authorized scope. Preserve all existing implementations and finance invariants; inspect current code/PRs before developing any module.
+
+Normal commits, pushes and safe PR integration are authorized after all applicable exact-source checks and reviews pass. Do not force-push, bypass a failed check, remove required tests or credit queued/cancelled/skipped checks. Keep the original 42-category/312-atom inventory and its stage weights unchanged. Physical charging, live partners/financial transactions, production deployment and store publication still require the specific external authorization, access and actual acceptance evidence. No autonomous execution continues after an active session ends.
+
 # 12 November 2026 — single-agent verified integration and continued source delivery
 
 **Verified integration main: `a9e291e6e541f4f4da7c39fa823ede7941b572a0`.**
