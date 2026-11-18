@@ -8,6 +8,7 @@ use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\ReservationRoaming;
 use App\Services\Ocpi\SandboxRoaming;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
@@ -188,6 +189,34 @@ class OcpiReservationTest extends TestCase
         $this->freshAvailable($f);
         $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', true);
         $this->assertSame(2, $calls);
+    }
+
+    public function test_persisted_receipt_clock_preserves_subseconds_without_rounding_into_the_future(): void
+    {
+        $f = $this->setupReservation();
+        $tariff = OcpiRecord::where('module', 'tariffs')->firstOrFail();
+        $source = $tariff->payload;
+        $zone = date_default_timezone_get();
+        try {
+            foreach (['Asia/Dubai', 'America/New_York', 'Pacific/Auckland'] as $index => $hostZone) {
+                date_default_timezone_set($hostZone);
+                $observed = CarbonImmutable::parse('2026-11-19T05:10:00.987654Z')->addSeconds($index);
+                $this->travelTo($observed);
+                $raw = $source;
+                $raw['last_updated'] = $observed->toISOString();
+                app(RecordSynchronizer::class)->ingest($f[3], 'tariffs', [$raw]);
+                $stored = $tariff->fresh();
+                $this->assertSame($observed->toISOString(), $stored->received_at->toISOString(), 'The receipt clock must retain the actual instant, never a rounded future second.');
+                $this->assertSame($observed->toISOString(), $stored->source_updated_at->toISOString());
+                $this->assertTrue($stored->received_at->lte(now()));
+                $this->assertCount(0, $this->writes);
+            }
+            $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+            $this->assertDatabaseCount('ocpi_roaming_commands', 0);
+        } finally {
+            $this->travelBack();
+            date_default_timezone_set($zone);
+        }
     }
 
     public function test_sandbox_tariff_windows_are_strict_utc_under_non_utc_server_timezones(): void
