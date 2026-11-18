@@ -142,23 +142,43 @@ class OcpiController extends Controller
 
     public function records(Request $r, OcpiProvider $provider, string $module, CdrReconciler $reconciler)
     {
-        $this->owner($r, $provider);
         abort_unless(in_array($module, PartnerClient::MODULES, true), 404);
 
-        $page = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', $module)->orderByDesc('id')->paginate(25);
-        $retired = [];
-        if ($module === 'tariffs' && $page->count() > 0) {
-            $retired = DB::table('ocpi_catalog_retirements')->where(function ($q) use ($page) {
-                foreach ($page as $record) {
-                    $q->orWhere(fn ($pair) => $pair->where('record_id', $record->id)->where('content_hash', $record->content_hash));
-                }
-            })->pluck('record_id')->all();
-        }
+        return DB::transaction(function () use ($r, $provider, $module, $reconciler) {
+            // A request may retain the previous actor and provider model while
+            // a concurrent role/epoch change or provider reassignment commits.
+            // Lock in the same actor-then-provider order as catalog observations
+            // and never return another vendor's private source records.
+            $snapshot = $r->user();
+            $actor = User::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
+            abort_unless($actor->account_status === 'active'
+                && in_array($actor->role, ['vendor', 'admin'], true), 403);
+            abort_unless($actor->role === $snapshot->role
+                && (int) $actor->auth_epoch === (int) $snapshot->auth_epoch
+                && hash_equals((string) $actor->password, (string) $snapshot->password), 409,
+                'Account credentials changed. Sign in again.');
+            $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            abort_unless($actor->role === 'admin' || $current->owner_id === $actor->id, 404);
 
-        return response()->json($page->through(function ($record) use ($provider, $module, $reconciler, $retired) {
-            return $record->toArray() + ($module === 'cdrs' ? ['reconciliation' => $reconciler->inspect($provider, $record)] : [])
-                + ($module === 'tariffs' ? ['catalog_retired' => in_array($record->id, $retired, true)] : []);
-        }))->header('Cache-Control', 'private, no-store');
+            $page = OcpiRecord::where('ocpi_provider_id', $current->id)
+                ->where('module', $module)->orderByDesc('id')->paginate(25);
+            $retired = [];
+            if ($module === 'tariffs' && $page->count() > 0) {
+                $retired = DB::table('ocpi_catalog_retirements')->where(function ($q) use ($page) {
+                    foreach ($page as $record) {
+                        $q->orWhere(fn ($pair) => $pair->where('record_id', $record->id)
+                            ->where('content_hash', $record->content_hash));
+                    }
+                })->pluck('record_id')->all();
+            }
+
+            return response()->json($page->through(function ($record) use ($current, $module, $reconciler, $retired) {
+                return $record->toArray() + ($module === 'cdrs'
+                    ? ['reconciliation' => $reconciler->inspect($current, $record)] : [])
+                    + ($module === 'tariffs'
+                        ? ['catalog_retired' => in_array($record->id, $retired, true)] : []);
+            }))->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function locations(Request $request)
