@@ -1,3 +1,11 @@
+# 19 November 2026 — combined OCPI integration candidate (existing PR #189)
+
+Preserved all source commits through normal merges: reservations and receipt precision (#130, `9f08c448`), token windows/server trace binding (#144, `4ad1f6e2`), credential echo/envelope/replay guards (#179, `b860782d`), private CDR reconciliation and explicit fleet-scope bootstrap repair (#173, `4637d2b5`), and country-quality web/native parity (#189, `b212dba9`). Combined executable source is `2581448c24256a8f35d354fe97d011aab158055a`. Documentation conflicts retain both histories; PostgreSQL filter conflicts were resolved as the union of every test registration, preserving separate migration checks. Both new native connected groups remain registered. Latest owner single-engineer mandate is retained at the top of AGENTS and continuation records.
+
+Combined local verification: Laravel **1370 passed / 26210 assertions, one PG-only skip**; PostgreSQL contracts **524 / 7290**, independent-process concurrency **30 / 448**, precision migrations **2 / 13**; Flutter **557 passed / 34 explicit fixture skips**, clean analysis; Pint **794 files**; actual Laravel native country observations/customer denial, reservation consent/replay/cancel/privacy, and credential peer rotation/revocation all passed in separately paced unchanged authentication windows. Actual Laravel EN/AR fleet scope and forced login429/revocation browser journeys, strict country-quality web contract and private session fencing passed. Additional full finance PostgreSQL verification is running separately; fresh exact-head hosted platform/native checks are required after push. Prior green Android/iOS at `b212dba9` attest that source only, not this combined candidate.
+
+This is integration verification, not completion of the original platform or live acceptance. Preserve all sibling PRs until canonical integration and ancestry are verified. No physical charger, live OCPI/PSP/bank, signed store release or customer infrastructure deployment is accepted. Fixed42/312 tracker remains unchanged: coded58.20, tested57.81, merged57.81, production0. Continue independently with existing map/native and commercial backlog while hosted validation runs.
+
 # 19 November 2026 — Agent2 OCPI country-readout repair (local candidate)
 
 Current integrated base: `171b9c035dbbccd8bf3054d3a41ed00c2500464b`.
