@@ -48,7 +48,11 @@ class OcpiReconciliationTest extends TestCase
         $url = '/api/ocpi/providers/'.$provider->id.'/records/cdrs';
         $this->actingAs(User::findOrFail($provider->owner_id))->getJson($url)->assertOk()->assertJsonPath('data.0.reconciliation.status', 'source_consistent')->assertDontSee('PRIVATE-DRIVER-IDENTITY')->assertJsonMissingPath('data.0.payload')->assertJsonMissingPath('data.0.content_hash');
         $this->actingAs(User::factory()->create(['role' => 'vendor']))->getJson($url)->assertNotFound();
-        $this->actingAs(User::factory()->create(['role' => 'customer']))->getJson($url)->assertNotFound();
+        // Role denial precedes private source hydration; only eligible vendor
+        // identities reach the separate, existence-hiding tenant check above.
+        $this->actingAs(User::factory()->create(['role' => 'customer']))->getJson($url)
+            ->assertForbidden()->assertJsonMissingPath('data')
+            ->assertDontSee('PRIVATE-DRIVER-IDENTITY');
         $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson($url)->assertOk();
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charging_sessions', 0);

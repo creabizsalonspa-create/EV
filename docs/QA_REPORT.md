@@ -1,3 +1,11 @@
+# 19 November 2026 — retained OCPI CDR reconciliation verification (PR #173; integration pending)
+
+Preserved the existing claim-cache freshness, strict historical timestamp parsing, source-credit identity comparison and current actor/provider authority implementation, then normal-merged integration `171b9c03`. Fixed the reproduced customer API test expectation: current role denial is 403 before source hydration; an otherwise eligible foreign vendor still receives existence-hiding 404. Added explicit missing-data/private-token assertions without changing authorization behavior. Mandatory PostgreSQL coverage now includes `OcpiReconciliationTest`; on integration retain PR130's separate receipt-precision migration runner as well.
+
+Local verification: full Laravel **1337 passed / 25620 assertions, one PG-only skip**; reconciliation **12 / 132** on SQLite and PostgreSQL; full PG contracts **492 / 6763**, process concurrency **30 / 448**; Pint **786 files**, Flutter analysis clean; actual isolated Laravel roaming browser EN/AR and controlled catalog UI passed. The first shared-database browser attempt encountered additional synthetic public locations rather than the fixture's exact26; a separate disposable review database passed without deleting shared records. An initial PG invocation's shell file was edited while running and invalidated that invocation; the complete final runner was rerun successfully from stable source. No failed invocation is credited as success.
+
+Exact-head hosted platform/native gates and Agent5 integration remain pending. No accounting, invoice, payment, live source command, partner activation, production deployment or 312-atom score credit is added.
+
 Final successor local verification:962 Laravel tests/19386 assertions;644 PHP files
 pass Pint;377 Python guards;52 offline security/diagnostic tests;11 scheduler/diagnostic
 tests. Actual unchanged-read and anonymous-bootstrap cookie browsers, existing controlled
