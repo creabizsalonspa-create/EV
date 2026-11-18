@@ -24,6 +24,24 @@ the historical single-agent records below. Continue Agent2 OCPI/discovery work;
 Agent5 verifies and integrates current exact-source checks. Full product remains
 INCOMPLETE; no live external integration, signed release or deployed acceptance.
 
+# 19 November 2026 — revocation browser response causality (PR #130)
+
+Hosted business run44414638040 reached real roaming QA and failed because its response listener could accept an identical catalog URL already requested during login/locale refresh before revocation. The test now observes the successful authorization PATCH, verifies its actual `authorized:false` body, and accepts only a new scoped catalog request issued after that acknowledgement. Exact HTTP200, zero records, empty data and visible matching empty state assertions remain mandatory; stale in-flight responses cannot satisfy them. No API, authorization, timeout or rate-limit rule changed.
+
+Actual isolated Laravel EN/AR browser validation passed with `EV_ROAMING_VERIFY_RATE_LIMIT=1`: intentional login429 observed, bounded server Retry-After honored, then owner isolation/revocation/RTL/logout passed. Earlier receipt-precision backend/PostgreSQL proof remains applicable; new exact-head hosted business verification is required. Single-owner integration authority comes from the latest direct owner instruction; old Agent5-only notes are historical.
+
+# 19 November 2026 — OCPI reservation PostgreSQL receipt-clock repair (PR #130; integration pending)
+
+Normal-merged verified integration `171b9c035dbbccd8bf3054d3a41ed00c2500464b` into the existing reservation branch, preserving both histories. Reproduced the failed PostgreSQL freshness assertion deterministically: `timestamp(0)` rounded receipt `05:10:00.987654Z` to future `05:10:01Z`. An additive migration preserves future receipts at microsecond precision; it does not reconstruct historical fractions or modify immutable CDR payloads. Non-disposable rollback refuses to round retained evidence. Existing freshness assertions, security, command idempotency and rate limits are unchanged.
+
+Local verification: full Laravel **1349 passed / 25895 assertions, one PostgreSQL-only skip**; PostgreSQL contracts **497 / 6977**, process concurrency **30 / 448**, migration preservation/rollback **2 / 13**; deterministic receipt regression red before migration and green after, including Dubai/New York/Auckland host zones; actual isolated Laravel synthetic-CPO browser EN/AR and native consent/replay/cancellation/tenant-privacy journeys passed. These are synthetic integrations, not authorized live OCPI, hardware or production acceptance. Required exact-head hosted Android/iOS and platform gates remain pending; Agent5 controls integration. Fixed 42/312 tracker unchanged. Historical PR source checks do not attest this new source.
+
+# 15 November 2026 — connected sandbox reservations (integration pending)
+
+Implemented canonical OCPI RESERVE_NOW/CANCEL_RESERVATION with explicit, separate time-bounded token-preauthorization consent, shared EVSE holds, immutable one-shot commands, uncertain-response replay protection, source RESERVATION→ACTIVE→existing STOP/COMPLETED and source-backed unused-capacity closure. Original reserve/cancel notices remain distinct. Local timers/ACKs never prove release; reservation orders cannot enter energy-only TEST invoicing. EN/AR customer web/Flutter consent/duration/cancellation and private Vendor/Admin history are connected. No live provider/hardware/payment authority is enabled.
+
+Focused PostgreSQL authority/lifecycle/source/invoice regressions, Flutter consent/replay/cancel/operator tests, clean Flutter analysis and actual isolated Laravel browser/native reservation journeys are verified locally. New PostgreSQL and native connected cases are registered in mandatory CI; exact-source hosted checks and merge remain pending. PR129 source meter history was merged at28701c08 after all eight gates; source/merge trees match. Fixed312 inventory unchanged; no broad completion or production credit inferred.
+
 # 15 November 2026 — connected source meter history (integration pending)
 
 Canonical OCPI ingestion now retains accepted scalar meter observations atomically,
