@@ -142,6 +142,9 @@ const { chromium } = require("playwright"),
     const slot = start.toISOString().slice(0, 16);
     async function reserve(index, status = 201) {
       const form = card.locator(`[data-mapping-id="${maps[index].id}"] form`);
+      // The fixture's source instant is UTC; never interpret it as the
+      // station-local wall clock while validating connector occupancy.
+      await form.locator('select[data-booking-time-mode]').selectOption('utc');
       await form.locator("input[type=datetime-local]").fill(slot);
       return (
         await action(

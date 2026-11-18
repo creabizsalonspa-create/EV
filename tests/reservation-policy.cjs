@@ -1,4 +1,5 @@
 'use strict';
+require('./station-time.cjs');
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),{test}=require('node:test');
 class Element{constructor(tag){this.tag=tag;this.children=[];this.dataset={};this.textContent='';}append(...children){this.children.push(...children);}}
 const terms={version:1,slot_minutes:30,arrival_before_minutes:15,unused_expiry_minutes:30,no_show_fee_minor:0,cancellation_fee_minor:0,cancellation_rule:'BEFORE_ADMITTED_OR_UNCERTAIN_START',occupancy_basis:'CANONICAL_LOGICAL_SESSION_ONLY',occupancy_enforcement:'START_ADMISSION',physical_occupancy_verified:false,unresolved_session_requires_reconciliation:true,automatic_stop:false,evidence:'SIMULATED_BUSINESS_POLICY'};

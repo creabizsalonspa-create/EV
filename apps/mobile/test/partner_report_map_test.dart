@@ -90,4 +90,114 @@ void main() {
     expect(find.byType(FlutterMap), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  test('search viewport is bounded, normalized, and wraps the date line without source authority', () {
+    expect(discoveryViewportBounds(24,26,54,56), {
+      'south':'24.000000','north':'26.000000','west':'54.000000','east':'56.000000',
+    });
+    expect(discoveryViewportBounds(9,11,179,181)?['east'],'-179.000000');
+    expect(discoveryViewportBounds(-90,90,-300,300),{
+      'south':'-90.000000','north':'90.000000','west':'-180.000000','east':'180.000000',
+    });
+    for(final bounds in [
+      [double.nan,2,3,4], [2,double.infinity,3,4], [10,9,3,4],
+      [1,2,5,5], [1,1,5,7], [10,10.00000001,5,7],
+    ]) {
+      expect(discoveryViewportBounds(bounds[0].toDouble(),bounds[1].toDouble(),bounds[2].toDouble(),bounds[3].toDouble()),isNull);
+    }
+  });
+
+  testWidgets('view search remains user-initiated after native tile consent and returns bounds only', (tester) async {
+    final tiles=FakeMapTiles();
+    final chosen=<Map<String,String>>[];
+    final point=PartnerMapPoint.fromPublishedLocation({
+      'name':'Unverified network','latitude':25.2,'longitude':55.3,
+    })!;
+    await tester.pumpWidget(MaterialApp(home:Builder(builder:(context)=>Scaffold(
+      body:FilledButton(key:const Key('open-native-map'),onPressed:()async{
+        final bounds=await Navigator.of(context).push<Map<String,String>>(
+          MaterialPageRoute(builder:(_)=>PartnerReportMap(
+            points:[point],tileProvider:tiles,allowViewportSearch:true,
+          )),
+        );
+        if(bounds!=null)chosen.add(bounds);
+      },child:const Text('Open map')),
+    ))));
+    await tester.tap(find.byKey(const Key('open-native-map')));
+    await tester.pumpAndSettle();
+    expect(tiles.requests,0);
+    expect(chosen,isEmpty);
+    expect(find.byKey(const Key('unified-native-viewport-search')),findsNothing);
+    await tester.tap(find.byKey(const Key('partner-map-enable')));
+    await tester.pumpAndSettle();
+    expect(tiles.requests,greaterThan(0));
+    expect(chosen,isEmpty,reason:'Enabling a map must never issue search');
+    final button=find.byKey(const Key('unified-native-viewport-search'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(chosen.length,1);
+    final bounds=chosen.single;
+    expect(double.parse(bounds['south']!),lessThan(25.2));
+    expect(double.parse(bounds['north']!),greaterThan(25.2));
+    expect(double.parse(bounds['west']!),lessThan(55.3));
+    expect(double.parse(bounds['east']!),greaterThan(55.3));
+    expect(find.byType(FlutterMap),findsNothing);
+    expect(tester.takeException(),isNull);
+  });
+
+  test('loaded published sources group into separate identified records at map zoom', () {
+    final platform = PartnerMapPoint.fromPublishedCatalog({
+      'id':17,'name':'Platform source','latitude':25.2,'longitude':55.3,'evidence':'DISCOVERY_ONLY',
+    })!;
+    final partner = PartnerMapPoint.fromPublishedLocation({
+      'name':'Partner source','latitude':'25.2','longitude':'55.3',
+    }, providerLabel:'Unverified operator')!;
+    final other = PartnerMapPoint.fromPublishedLocation({
+      'name':'Remote source','latitude':-25.2,'longitude':-55.3,
+    })!;
+    final groups = clusterPublishedMapPoints([platform,partner,other],11);
+    expect(groups.length,2);
+    expect(groups.first.length,2);
+    expect(groups.first.first.platformCatalog,true);
+    expect(groups.first[1].platformCatalog,false);
+    expect(groups.last.single.name,'Remote source');
+    final missing = PartnerMapPoint(latitude:double.infinity,longitude:0,name:'Invalid');
+    expect(clusterPublishedMapPoints([platform,missing],11).single.single.name,'Platform source');
+    expect(clusterPublishedMapPoints([platform,partner],double.nan).length,2);
+  });
+
+  testWidgets('cluster marker discloses two separate sources with no charging control', (tester) async {
+    final tiles=FakeMapTiles();
+    final platform=PartnerMapPoint.fromPublishedCatalog({
+      'id':3,'name':'Published station','latitude':25.2,'longitude':55.3,'evidence':'SIMULATED',
+    })!;
+    final partner=PartnerMapPoint.fromPublishedLocation({
+      'name':'Unverified network','latitude':25.2,'longitude':55.3,
+    },providerLabel:'Crowd supplier')!;
+    await tester.pumpWidget(MaterialApp(home:PartnerReportMap(
+      points:[platform,partner],tileProvider:tiles,
+    )));
+    expect(find.byKey(const Key('partner-report-cluster-0')),findsNothing);
+    expect(tiles.requests,0);
+    await tester.tap(find.byKey(const Key('partner-map-enable')));
+    await tester.pumpAndSettle();
+    expect(tiles.requests,greaterThan(0));
+    final cluster=find.byKey(const Key('partner-report-cluster-0'));
+    expect(cluster,findsOneWidget);
+    expect(find.byKey(const Key('partner-report-pin-0')),findsNothing);
+    await tester.tap(cluster);await tester.pumpAndSettle();
+    expect(find.textContaining('2 loaded locations'),findsOneWidget);
+    expect(find.textContaining('A cluster is not one charger'),findsOneWidget);
+    expect(find.text('Published station'),findsWidgets);
+    expect(find.text('Unverified network'),findsWidgets);
+    await tester.tap(find.text('Unverified network').last);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Partner-reported place; live availability'),findsOneWidget);
+    expect(find.text('Reserve connector'),findsNothing);
+    expect(find.text('Start charging'),findsNothing);
+    await tester.tap(find.byKey(const Key('partner-report-details-close')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(),isNull);
+  });
 }
