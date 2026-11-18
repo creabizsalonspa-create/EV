@@ -7,6 +7,7 @@ use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Ocpi\CatalogObservations;
 use Carbon\Carbon;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -121,7 +122,7 @@ class OcpiCatalogObservationsTest extends TestCase
         // reporting an error, but those are not valid ISO/RFC offsets for
         // catalog quality metrics. No request, DB write or network required.
         $bucket = new \ReflectionMethod(CatalogObservations::class, 'bucket');
-        $at = \Carbon\CarbonImmutable::parse('2026-11-16T12:00:00Z');
+        $at = CarbonImmutable::parse('2026-11-16T12:00:00Z');
         foreach ([
             '2026-11-16T10:00:00+14:30',
             '2026-11-16T10:00:00+99:99',

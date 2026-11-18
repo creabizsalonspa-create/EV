@@ -63,3 +63,39 @@ unpublished records, unknown countries, malformed coordinates, privacy, no exter
 and no charger/financial writes. The hosted exact-head Platform/Native matrices are mandatory
 before the sole integration controller (Agent 5) may merge this PR. Real OCPI partner coverage
 agreements, external provider completeness and production/hardware acceptance remain separate.
+
+## 19 November 2026 — native contract repair and connected parity
+
+The previous PR189 source `f647de5` failed hosted job `133088673823`
+(run `43803432671`) at Pint: `fully_qualified_strict_types` in
+`OcpiCatalogObservationsTest`. The local failure was reproduced; importing
+`CarbonImmutable` preserves the exact test and fixes the style failure.
+
+A separate functional regression was reproduced against the original Flutter
+client: its fixed locations-field count rejects the two new country facets.
+The canonical native observations view now validates and renders both facets
+in English and Arabic, including `other_or_unknown`. It requires the stated
+location-country classification and non-exhaustive coverage flag, and rejects
+missing/extra market keys, negative/noninteger counts, contradictory publication
+or usable-coordinate totals, wrong provider/module and upgraded authority. The
+10,000-record bound applies to the combined modules in both web and native.
+No partial report is rendered after a failed contract. Existing session,
+provider, foreground and stale-response fences are preserved. The phone
+regression also exposed a dropdown overflow; the field now expands within its
+available width.
+
+`tests/native-partner-catalog-observations.cjs` reuses the existing disposable
+local catalog fixture and executes `live_ocpi_catalog_observations_test.dart`
+against real Laravel for all/locations/tariffs and customer403 denial. Its
+private mode0600 input is removed after the run. The fixture creates only
+synthetic local inventory/source records; the client sends no partner lookup,
+charger command, booking or financial action. A dedicated connected-CI batch
+keeps its two logins inside the unchanged authentication budget.
+
+Local evidence and source-file fingerprints are recorded under
+`docs/evidence/ocpi-country-coverage/`. Fresh hosted current-source Platform,
+PostgreSQL, Android and iOS checks remain required. Agent5 retains sole merge
+and release authority under the current five-agent mandate. This remains an
+incremental source-quality implementation: original atom6.2.4 is not declared
+complete, the 42/312 inventory and percentages are unchanged, and no live
+OCPI partner, hardware, payment, deployment or production acceptance is claimed.

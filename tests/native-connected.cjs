@@ -28,6 +28,7 @@ const { spawnSync } = require("node:child_process");
     ["native-charger-certificates", "native-charger-certificate-chains"], // isolated certificate API lifecycle; own login window
     ["native-charging-reviews"], // five private synthetic identities; independent auth window
     ["native-ocpi-test-invoice", "native-ocpi-credit-picker"], // owned TEST invoice and source-credit review: at most 7 logins; unchanged auth window
+    ["native-partner-catalog-observations"], // two logins; real source-only private read with unchanged authentication budget
     ["native-ocpi-unpaid-credit"], // no collection; own unchanged authentication window
     ["native-sandbox-roaming"], // own auth window; sandbox only, no limiter bypass
     ["native-privacy"], // three ordinary bearer logins; canonical private rights requests, no erasure

@@ -11,6 +11,7 @@ window.EvPartnerCatalogObservations=(()=>{
   if(d?.scope!=='stored_partner_catalog_observations'||d.provider?.id!==id||typeof d.provider.name!=='string'||typeof d.provider.authorized!=='boolean'||typeof d.as_of!=='string'||d.record_limit!==10000)return false;
   if(!['all','locations','tariffs'].includes(d.module_filter)||d.market_classification!=='PARTNER_REPORTED_LOCATION_COUNTRY_ONLY'||d.coverage_exhaustive!==false||!['receipt_refreshes_source_age','live_availability_verified','physical_charging_verified','remote_control','billing_authority'].every(k=>d[k]===false))return false;
   const expected=d.module_filter==='all'?['locations','tariffs']:[d.module_filter];if(!d.modules||Object.keys(d.modules).length!==expected.length)return false;
+  if(expected.reduce((total,key)=>total+(count(d.modules[key]?.total)?d.modules[key].total:10001),0)>d.record_limit)return false;
   return expected.every(key=>{const m=d.modules[key];if(!m||!count(m.total))return false;
    if(!['reported_age','receipt_age'].every(kind=>m[kind]&&Object.keys(m[kind]).length===6&&Object.keys(ageLabels).every(k=>count(m[kind][k]))&&Object.values(m[kind]).reduce((n,v)=>n+v,0)===m.total))return false;
    const metrics=key==='locations'?Object.keys(labels).filter(k=>k!=='current_version_retired'):['current_version_retired'];if(!metrics.every(k=>count(m[k])&&m[k]<=m.total))return false;

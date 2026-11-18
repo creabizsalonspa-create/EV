@@ -1,3 +1,29 @@
+# 19 November 2026 — Agent2 OCPI country-readout repair (local candidate)
+
+Current integrated base: `171b9c035dbbccd8bf3054d3a41ed00c2500464b`.
+Existing PR189/branch `development/ocpi-coverage-quality-20261116` now safely
+incorporates that main without force-pushing. Reproduced hosted Pint failure
+in the country-observation test is repaired without changing its assertions.
+The canonical Flutter client now accepts the country facets already emitted
+by the candidate backend, renders both source-only facets in EN/AR, and rejects
+contradictory counts and unsupported coverage/charging authority. Web/native
+also enforce the combined10000-record limit. A phone dropdown overflow is fixed.
+
+Local full Laravel1335 pass/25602 assertions, one PostgreSQL-specific rollback
+case explicitly skipped on SQLite; full Flutter552 pass/33 explicit fixture
+skips;17 focused native cases, clean analysis,380 Python guards and9 scheduler
+guards pass. Actual Laravel/vendor EN/AR browser and native all/locations/tariffs
+reads plus customer403 denial pass. PostgreSQL482/6657 and30 concurrency races/448 assertions pass on the
+current candidate. Fresh hosted gates remain pending; no pending job is credited.
+
+See `OCPI_CATALOG_COVERAGE_READOUT.md` and
+`docs/evidence/ocpi-country-coverage/`. The fixed42/312 coverage remains186 coded,
+185 tested/merged (58.20/57.81/57.81 weighted), production0. No broad atom credit
+is inferred. Current five-agent ownership/Agent5-only merge authority supersedes
+the historical single-agent records below. Continue Agent2 OCPI/discovery work;
+Agent5 verifies and integrates current exact-source checks. Full product remains
+INCOMPLETE; no live external integration, signed release or deployed acceptance.
+
 # 15 November 2026 — connected source meter history (integration pending)
 
 Canonical OCPI ingestion now retains accepted scalar meter observations atomically,
