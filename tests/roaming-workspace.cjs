@@ -285,21 +285,42 @@ const assert = require("node:assert/strict");
     // Revocation must remove every location from this run's already-scoped
     // public search. Other test suites may still publish unrelated locations.
     // Assert the real API is empty AND the correct filtered empty-state UI.
-    const revokedCatalogResponse = page.waitForResponse((response) => {
-      const url = new URL(response.url());
-      return (
-        url.pathname === "/api/roaming/locations" &&
-        url.searchParams.get("q") === run &&
-        url.searchParams.get("page") === "1"
-      );
-    });
+    // Login/locale refreshes may already have this identical URL in flight.
+    // A response arriving after the click is not proof its read began after
+    // revocation. Observe the server acknowledgement, then bind to a NEW read.
+    let revocationAcknowledged = false;
+    const postRevocationReads = new WeakSet();
+    const isRevocation = response =>
+      /^\/api\/ocpi\/providers\/\d+\/authorization$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === "PATCH";
+    const observeRevocation = response => {
+      if (isRevocation(response) && response.status() === 200) revocationAcknowledged = true;
+    };
+    const observeCatalog = request => {
+      const url = new URL(request.url());
+      if (revocationAcknowledged && request.method() === "GET" &&
+          url.pathname === "/api/roaming/locations" &&
+          url.searchParams.get("q") === run && url.searchParams.get("page") === "1") {
+        postRevocationReads.add(request);
+      }
+    };
+    page.on("response", observeRevocation);
+    page.on("request", observeCatalog);
+    const authorizationResponse = page.waitForResponse(isRevocation);
+    const revokedCatalogResponse = page.waitForResponse(response =>
+      postRevocationReads.has(response.request()));
     await card
       .getByRole("button", { name: "Revoke authorization", exact: true })
       .click();
     await card
       .getByText("Connection authorization revoked.", { exact: true })
       .waitFor();
+    const authorization = await authorizationResponse;
+    assert.equal(authorization.status(), 200, "Revocation must be acknowledged by the server.");
+    assert.equal((await authorization.json()).authorized, false, "Server must retain the revoked authority.");
     const revokedCatalog = await revokedCatalogResponse;
+    page.off("response", observeRevocation);
+    page.off("request", observeCatalog);
     assert.equal(
       revokedCatalog.status(),
       200,
