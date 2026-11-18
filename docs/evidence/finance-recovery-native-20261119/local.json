@@ -25,7 +25,7 @@
     "new_itemized_cases": 22
   },
   "flutter_analysis": "clean",
-  "native_actual_laravel": "passed; three roles, own itemized source and denied outsider/customer, private PDF; mock only",
+  "native_actual_laravel": "passed; three identities, own itemized source and denied outsider/customer, private PDF; mock only",
   "browser_actual_laravel": "passed EN/AR currency/report/CSV/Arabic PDF; mock only",
   "full_flutter": "pending combined source",
   "production_accepted": false,
