@@ -75,12 +75,12 @@ final class SessionMeterHistory
             return null;
         }
         $source = OcpiRecord::whereKey($order->source_session_record_id)->where('module', 'sessions')->where('ocpi_provider_id', $order->provider_id)->first();
-        $command = DB::table('ocpi_roaming_commands')->where('order_id', $order->id)->where('action', 'START_SESSION')->first();
+        $command = DB::table('ocpi_roaming_commands')->where('order_id', $order->id)->where('action', ($order->intent_kind ?? 'start') === 'reservation' ? 'RESERVE_NOW' : 'START_SESSION')->first();
         if (! $source || ! $command || $command->attempted_at === null) {
             return null;
         }
         $payload = json_decode(Crypt::decryptString($command->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
-        abort_unless(hash_equals($command->intent_hash, hash('sha256', json_encode([$order->id, 'START_SESSION', $payload], JSON_THROW_ON_ERROR))), 409);
+        abort_unless(hash_equals($command->intent_hash, hash('sha256', json_encode([$order->id, $command->action, $payload], JSON_THROW_ON_ERROR))), 409);
         $target = json_decode(Crypt::decryptString($order->target_ciphertext), true, flags: JSON_THROW_ON_ERROR);
 
         return $this->lineage(['cdr_token' => $payload['token'], 'authorization_reference' => $order->authorization_reference], [

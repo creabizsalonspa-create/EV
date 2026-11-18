@@ -353,6 +353,9 @@ async function identity() {
         if (error.status !== 401) notice(error);
     }
     renderIdentity();
+    // Capture only after /me established the current actor. A user may refresh
+    // history while later workspaces bootstrap; keep that newer scoped draft.
+    const initialCommandRequest = commandRequest;
     await vehicleModelCatalog.setActor(user);
     if (epoch !== client.sessionEpoch) return;
     vehicleManualSoc.setActor(user);
@@ -380,7 +383,8 @@ async function identity() {
     await commercialWorkspace.setActor(user);
     window.EvAdminOperatorRoleHistory?.setActor(user, api);
     if (user?.role === "admin") await adminOverview();
-    if (["vendor", "admin"].includes(user?.role)) await commandHistory();
+    if (["vendor", "admin"].includes(user?.role) && commandRequest === initialCommandRequest)
+        await commandHistory();
 }
 // Catalog ownership: startup must not replace an explicit page/form already rendered for this account.
 let stationRequest = null,
