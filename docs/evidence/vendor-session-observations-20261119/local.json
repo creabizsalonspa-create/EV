@@ -1,6 +1,6 @@
 {
-  "recorded_at_utc": "2026-11-19T08:46:54.150313+00:00",
-  "source_code_sha": "68afdb67916af840e0c2164e7cacb1a62322d2e2",
+  "recorded_at_utc": "2026-11-19T08:53:57.762048+00:00",
+  "source_code_sha": "29674c0f511d4abc938006980960b096af8f6e52",
   "verified_canonical_parent": "ed112b4a5e3dd65cc88c210bd55f92d8df56add6",
   "pending_dependency": {
     "pr": 190,
@@ -31,12 +31,12 @@
       "process_and_migration_assertions": 1459
     },
     "flutter": {
-      "passed": 755,
+      "passed": 757,
       "explicit_opt_in_skips": 37,
       "analyzer": "passed",
       "separate_actual_laravel_contract": 1
     },
-    "controlled_web_scheduler_admin_cases": 24,
+    "controlled_web_scheduler_admin_cases": 25,
     "actual_laravel_browser": {
       "passed": true,
       "languages": [
@@ -96,18 +96,46 @@
     "coverage-final": {
       "local_log": "/tmp/ev-staff-coverage-final.txt",
       "sha256": "4aa732697366238e804d49ab53c98016bb1fb5c2119a781e011ce82fb0b1f2cb"
+    },
+    "auth-web-before": {
+      "local_log": "/tmp/ev-staff-auth-web-before.txt",
+      "sha256": "959b1e8fcf1f66982c7cf259626df820135f7d9da4df2c5fec1b80a6aa6f3d00"
+    },
+    "auth-native-before": {
+      "local_log": "/tmp/ev-staff-auth-native-before.txt",
+      "sha256": "626af5497bd2953c1b45ee418bde3afdec903fa66a2e1a15c4cad00457fbccbd"
+    },
+    "auth-web-after": {
+      "local_log": "/tmp/ev-staff-auth-web-after.txt",
+      "sha256": "3d27a7972c0bb68fb02fb265299655816774dff70390bcc318c5d05f8d510846"
+    },
+    "auth-native-after": {
+      "local_log": "/tmp/ev-staff-auth-native-after.txt",
+      "sha256": "1f5a9ed65e252c1d39aa0af7a382f74ddf9a022e0c7f33c7ae855c2a3df02395"
+    },
+    "auth-analyze": {
+      "local_log": "/tmp/ev-staff-auth-analyze.txt",
+      "sha256": "bcf25145934be601e387156a7663a3c7902452da474d61331170bbc2fde9edac"
+    },
+    "auth-native-full": {
+      "local_log": "/tmp/ev-staff-auth-native-full.txt",
+      "sha256": "c6196943bd453ab4de3b9afe07f43223959471baabeda0edb5ac97a23dccec43"
+    },
+    "auth-actual": {
+      "local_log": "/tmp/ev-staff-auth-actual.txt",
+      "sha256": "b2a982ae0014ae6a3eb44b3abb59d88b4f19738085326d56aac72362e9dcf334"
     }
   },
   "screenshots": [
     {
-      "path": "artifacts/vendor-session-observations/ar-390.png",
-      "sha256": "3d11a1c6b975a34cc4ef0b3e05e59a04d51425cc2178a0d8b948a5e0b02a9008",
-      "bytes": 60294
+      "path": "artifacts/vendor-session-observations/29674c0f/ar-390.png",
+      "sha256": "c127e11ac0a7d045ba79351fd99df97c943acdeb8e8a3ca279be2fce6ebfbd68",
+      "bytes": 59624
     },
     {
-      "path": "artifacts/vendor-session-observations/en-390.png",
-      "sha256": "7c32b255254a6952d427c6b9658a45cd76f3008e2fe6df39e8ed3598b6df30b8",
-      "bytes": 62157
+      "path": "artifacts/vendor-session-observations/29674c0f/en-390.png",
+      "sha256": "02ff76864d1f3b0e78972c0d1443ae67162277d16ba0764b6e60af3de3c39b09",
+      "bytes": 62168
     }
   ],
   "hosted_android_ios_for_this_source": "not_yet_run",
@@ -131,5 +159,14 @@
     "Complete original OCPP/OCPI and nonfinancial/commercial/native/Admin software scope",
     "Current-source hosted gates and ordered PR integration",
     "Real hardware/partner/PSP/bank, signed/store and deployment acceptance"
-  ]
+  ],
+  "backend_verification_code_checkpoint": "68afdb67916af840e0c2164e7cacb1a62322d2e2",
+  "backend_changed_since_that_checkpoint": false,
+  "credential_conflict_regression": {
+    "before_web": "failed: current conflict did not expire view",
+    "before_flutter": "failed: current409 did not expire view",
+    "after_web": "passed25 cases including current401/409/419 and old409",
+    "after_flutter": "passed25 focused cases plus full757",
+    "semantics": "Only this private GET has credential-conflict409 semantics; global financial/business conflict handling is unchanged."
+  }
 }
