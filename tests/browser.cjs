@@ -5,6 +5,7 @@ const { randomUUID } = require("node:crypto");
 const phpRunner = process.env.EV_TEST_PHP_RUNNER || "./scripts/php";
 
 const {provisionTestRole}=require('./helpers/browser-role.cjs');
+const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
 (async () => {
   const browser = await chromium.launch({
     headless: true,
@@ -834,6 +835,46 @@ const {provisionTestRole}=require('./helpers/browser-role.cjs');
     );
     assert.equal(
       await customer.page.locator("#notification-fault-delay").inputValue(), "60",
+    );
+    // A second full authenticated bootstrap is a separate protected-read
+    // phase. Respect its unchanged 60/minute window before sending any new
+    // mutation; never raise quotas, replay a failed write or retry assertions.
+    await waitForFreshWindow({wait: ms => new Promise(resolve => setTimeout(resolve, ms))});
+    // "Other" is a real tenant-scoped list category and can also be saved
+    // as the account's default; it must round-trip across browser sessions
+    // without hiding critical notifications or enabling external delivery.
+    await customer.page.locator("#notification-default-category").selectOption("other");
+    const otherSaved = customer.page.waitForResponse(
+      (response) => response.url().endsWith("/api/notifications/preferences") &&
+        response.request().method() === "PUT",
+    );
+    await customer.page.locator("#notification-preference-save").click();
+    assert.equal((await otherSaved).status(), 200);
+    assert.equal(
+      (await customer.page.evaluate(() => api("notifications/preferences"))).default_category,
+      "other",
+    );
+    await customer.page.reload();
+    await customer.page.locator("#notification-preferences").waitFor();
+    assert.equal(
+      await customer.page.locator("#notification-category").inputValue(), "other",
+    );
+    assert.equal(
+      await customer.page.locator("#notification-default-category").inputValue(), "other",
+    );
+    const otherSummary = await customer.page.evaluate(() => api("notifications/summary"));
+    assert(otherSummary.unread_by_category.support >= 0);
+    // Restore the earlier explicit choice so later logout/privacy assertions
+    // continue exercising their original scenario without changing scope.
+    await customer.page.locator("#notification-default-category").selectOption("charging");
+    const restored = customer.page.waitForResponse(
+      (response) => response.url().endsWith("/api/notifications/preferences") &&
+        response.request().method() === "PUT",
+    );
+    await customer.page.locator("#notification-preference-save").click();
+    assert.equal((await restored).status(), 200);
+    await customer.page.waitForFunction(() =>
+      document.querySelector("#notification-category")?.value === "charging",
     );
     await vendor.page.setViewportSize({ width: 390, height: 844 });
     assert(

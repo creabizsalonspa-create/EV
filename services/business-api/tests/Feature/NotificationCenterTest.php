@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -124,6 +125,53 @@ class NotificationCenterTest extends TestCase
         $this->actingAs($b)->getJson('/api/notifications/preferences')
             ->assertOk()->assertJsonPath('fault_reminder_delay_minutes', 15);
         $this->assertDatabaseCount('notification_preferences', 1);
+    }
+
+    public function test_other_category_default_persists_without_hiding_critical_notices(): void
+    {
+        $owner = User::factory()->create();
+        $otherActor = User::factory()->create();
+        $unknown = $this->makeNotification($owner, 'platform.security.notice');
+        $critical = $this->makeNotification($owner, 'charging.fault.simulated');
+        $this->makeNotification($otherActor, 'platform.security.notice');
+
+        $desired = [
+            'default_category' => 'other',
+            'default_unread_only' => true,
+            'remind_unresolved_simulator_faults' => true,
+        ];
+
+        $this->actingAs($owner);
+        foreach (['/api/notifications/preferences', '/api/v1/notifications/preferences'] as $url) {
+            $this->putJson($url, $desired)->assertOk()
+                ->assertJsonPath('default_category', 'other')
+                ->assertJsonPath('default_unread_only', true)
+                ->assertJsonPath('critical_events_always_visible', true)
+                ->assertJsonPath('external_delivery_available', false)
+                ->assertHeader('Cache-Control', 'no-store, private');
+        }
+
+        $this->getJson('/api/v1/notifications/preferences')->assertOk()
+            ->assertJsonPath('default_category', 'other');
+        $this->getJson('/api/notifications?category=other')->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $unknown->id);
+        // A saved UI default does not remove high-priority source notices.
+        $this->getJson('/api/notifications')->assertOk()
+            ->assertJsonCount(2, 'data');
+        $this->getJson('/api/v1/notifications/summary')->assertOk()
+            ->assertJsonPath('unread_count', 2)
+            ->assertJsonPath('unread_by_category.other', 1)
+            ->assertJsonPath('unread_by_category.charging', 1);
+        $this->assertDatabaseCount('notification_preferences', 1);
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('actor_id', $owner->id)
+            ->where('action', 'notifications.preferences_changed')->count());
+
+        $this->actingAs($otherActor)->getJson('/api/notifications/preferences')
+            ->assertOk()->assertJsonPath('default_category', 'all');
+        $this->actingAs($otherActor)->getJson('/api/notifications?category=other')
+            ->assertOk()->assertJsonCount(1, 'data');
     }
 
     public function test_preference_validation_never_alters_saved_choices(): void
@@ -443,20 +491,25 @@ class NotificationCenterTest extends TestCase
         }
         $this->getJson('/api/notifications/summary')->assertOk()
             ->assertJsonPath('unread_by_category.other', 2);
-        // Older deployed clients only understand the original saved defaults.
-        // The new other category is a transient filter, never a breaking
-        // persisted preference that would prevent legacy inbox loading.
+        // Both API versions now permit a saved "other" default. Persist it
+        // without dropping critical notices from the unfiltered inbox; the
+        // server still returns explicit category-scoped results when asked.
         $this->putJson('/api/notifications/preferences', [
             'default_category' => 'other',
             'default_unread_only' => true,
             'remind_unresolved_simulator_faults' => true,
-        ])->assertUnprocessable();
+        ])->assertOk()->assertJsonPath('default_category', 'other')
+            ->assertJsonPath('default_unread_only', true)
+            ->assertJsonPath('critical_events_always_visible', true);
         $system->update(['read_at' => now()]);
         $this->getJson('/api/v1/notifications?category=other&unread_only=1')
             ->assertOk()->assertJsonPath('total', 1)
             ->assertJsonPath('data.0.id', $unknown->id);
         $this->getJson('/api/v1/notifications/preferences')->assertOk()
-            ->assertJsonPath('default_category', 'all');
+            ->assertJsonPath('default_category', 'other')
+            ->assertJsonPath('default_unread_only', true);
+        $this->getJson('/api/notifications')->assertOk()
+            ->assertJsonPath('total', 4);
         $this->actingAs($outsider)->getJson('/api/notifications?category=other')
             ->assertOk()->assertJsonPath('total', 1);
     }
@@ -686,9 +739,24 @@ class NotificationCenterTest extends TestCase
                 'physical_verification' => false,
             ],
         ]);
-        // A historical raw row might contain a truncated JSON document.
-        DB::table('inbox_notifications')->where('id', $fault->id)
-            ->update(['metadata' => '{"company_id":']);
+        // SQLite can retain truncated historical JSON. PostgreSQL rejects it
+        // at the storage boundary: prove that constraint inside a savepoint,
+        // then exercise the same private-read guards with a valid JSON scalar
+        // whose operational metadata shape is still untrustworthy.
+        if (DB::getDriverName() === 'pgsql') {
+            try {
+                DB::transaction(fn () => DB::table('inbox_notifications')->where('id', $fault->id)
+                    ->update(['metadata' => '{"company_id":']));
+                $this->fail('PostgreSQL must reject malformed JSON before storage.');
+            } catch (QueryException $error) {
+                $this->assertSame('22P02', $error->errorInfo[0]);
+            }
+            DB::table('inbox_notifications')->where('id', $fault->id)
+                ->update(['metadata' => json_encode('Invalid operational metadata shape', JSON_THROW_ON_ERROR)]);
+        } else {
+            DB::table('inbox_notifications')->where('id', $fault->id)
+                ->update(['metadata' => '{"company_id":']);
+        }
         $this->actingAs($owner);
         foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
             $this->getJson($prefix)->assertOk()

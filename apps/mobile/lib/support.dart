@@ -28,6 +28,20 @@ int? providerDisputeNotificationTarget(Map<String, dynamic> row) {
   return metadata['external_dispute_id'] as int;
 }
 
+/// A notification is not an authority to discover another user's vehicle.
+/// Only simulator-sourced, finite percentage observations can open this route;
+/// the destination rechecks the current signed-in garage owner via the API.
+int? batteryDiscoveryNotificationTarget(Map<String, dynamic> row) {
+  if (row['kind'] != 'vehicle.battery.simulated') return null;
+  final metadata = row['metadata'];
+  if (metadata is! Map || metadata['source'] != 'simulator') return null;
+  final vehicle = metadata['vehicle_id'], percent = metadata['battery_percent'];
+  return vehicle is int && vehicle > 0 &&
+          percent is int && percent >= 0 && percent <= 100
+      ? vehicle
+      : null;
+}
+
 String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
   final data = row['metadata'];
   final metadata = data is Map ? data : const <String, Object>{};
@@ -327,7 +341,8 @@ class SupportView extends StatefulWidget {
   SupportViewState createState() => SupportViewState();
 }
 
-class SupportViewState extends State<SupportView> {
+class SupportViewState extends State<SupportView>
+    with WidgetsBindingObserver {
   bool notifications = false, unreadOnly = false, loading = false;
   bool preferencesLoaded = false;
   String category = 'all';
@@ -338,24 +353,112 @@ class SupportViewState extends State<SupportView> {
   Object? error;
   ApiPage<Map<String, dynamic>>? data;
   int generation = 0;
-  Future<void> refresh() => load(page: data?.current ?? 1);
+  late bool Function() authorized;
+  bool foreground = true, freshRead = false;
+  bool current(int request, bool Function() session) =>
+      mounted && foreground && authorized() && session() &&
+      generation == request;
+
+  void clearPrivate() {
+    generation++;
+    data = null;
+    error = null;
+    loading = false;
+    freshRead = false;
+    preferencesLoaded = false;
+    savedPreferences = null;
+    category = 'all';
+    unreadOnly = false;
+    unreadCount = null;
+    latestNotificationId = null;
+    unreadByCategory = null;
+    pendingTicketSubject = null;
+    pendingTicketBody = null;
+    pendingTicketKey = null;
+  }
+
+  bool ensureActor() {
+    if (!mounted) return false;
+    if (authorized()) return true;
+    // A revoked session may be observed through a user action before a
+    // parent rebuild. Never leave the prior actor's private rows visible.
+    setState(clearPrivate);
+    return false;
+  }
+
+  Future<void> refresh() async {
+    if (!ensureActor()) return;
+    await load(page: data?.current ?? 1);
+  }
+
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
+    // An observer receives future transitions, not the state at first mount.
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
     load();
   }
 
+  @override
+  void didUpdateWidget(covariant SupportView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api ||
+        oldWidget.accountId != widget.accountId) {
+      clearPrivate();
+      authorized = widget.api.sessionFence();
+      final nextApi = widget.api;
+      final nextId = widget.accountId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && foreground && authorized() &&
+            identical(widget.api, nextApi) && widget.accountId == nextId) {
+          load();
+        }
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (!mounted) return;
+    if (!foreground) {
+      setState(clearPrivate);
+    } else {
+      // Rebuild the explicit Refresh affordance, but do not silently reload
+      // private history or replay an uncertain ticket/notice mutation.
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   Future<void> load({int page = 1}) async {
+    if (!ensureActor() || !foreground ||
+        page < 1 || page > 100000) return;
+    final session = widget.api.sessionFence();
     final request = ++generation;
     final showingNotifications = notifications;
     setState(() {
       loading = true;
       error = null;
+      data = null;
+      freshRead = false;
+      unreadCount = null;
+      unreadByCategory = null;
+      latestNotificationId = null;
     });
     try {
       if (showingNotifications && !preferencesLoaded) {
         final prefs = await widget.api.request('notifications/preferences');
-        if (!mounted || request != generation) return;
+        if (!current(request, session)) return;
         if (prefs is! Map ||
             !['all', 'support', 'vehicle', 'charging', 'fleet', 'other']
                 .contains(prefs['default_category']) ||
@@ -379,13 +482,32 @@ class SupportViewState extends State<SupportView> {
           if (showingNotifications && category != 'all') 'category': category,
         },
       );
+      if (!current(request, session)) return;
       final result = ApiPage.fromJson(response, (row) => row);
+      // Never render private action targets from an ambiguous or corrupted
+      // inbox projection. A malformed row requires a fresh authoritative GET.
+      if (result.items.any((row) {
+        final id = row['id'];
+        if (id is! int || id < 1) return true;
+        if (showingNotifications) {
+          final ticketId = row['support_ticket_id'];
+          return row['kind'] is! String ||
+              (ticketId != null && (ticketId is! int || ticketId < 1)) ||
+              (row['read_at'] != null && row['read_at'] is! String);
+        }
+        return row['subject'] is! String ||
+            !(const ['open', 'in_progress', 'resolved', 'closed'])
+                .contains(row['status']);
+      })) {
+        throw const FormatException('Unverified private support rows');
+      }
       final summary = showingNotifications
           ? await widget.api.request('notifications/summary')
           : null;
-      if (mounted && request == generation) {
+      if (current(request, session)) {
         setState(() {
           data = result;
+          freshRead = true;
           unreadCount = summary is Map && summary['unread_count'] is int
               ? summary['unread_count'] as int
               : null;
@@ -404,19 +526,24 @@ class SupportViewState extends State<SupportView> {
         });
       }
     } catch (e) {
-      if (mounted &&
-          request == generation &&
-          e is ApiException &&
-          [401, 419].contains(e.status))
+      if (!current(request, session)) return;
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        setState(clearPrivate);
         widget.onSessionExpired();
-      if (mounted && request == generation) setState(() => error = e);
+        return;
+      }
+      setState(() => error = e);
     } finally {
-      if (mounted && request == generation) setState(() => loading = false);
+      if (current(request, session)) setState(() => loading = false);
     }
   }
 
   Future<void> createTicket() async {
-    if (loading || notifications) return;
+    if (!ensureActor() || loading || notifications || !freshRead ||
+        !foreground) return;
+    final dialogSession = widget.api.sessionFence();
+    final dialogGeneration = generation;
+    final dialogApi = widget.api;
     // A popped dialog remains in the widget tree for its reverse route
     // animation. Controllers are owned and disposed by that dialog's State,
     // not immediately when the showDialog future resolves.
@@ -427,7 +554,8 @@ class SupportViewState extends State<SupportView> {
         initialBody: pendingTicketBody,
       ),
     );
-    if (!mounted || desired == null) return;
+    if (desired == null || !current(dialogGeneration, dialogSession) ||
+        !identical(widget.api, dialogApi)) return;
     if (pendingTicketKey == null ||
         pendingTicketSubject != desired['subject'] ||
         pendingTicketBody != desired['body']) {
@@ -435,6 +563,7 @@ class SupportViewState extends State<SupportView> {
       pendingTicketSubject = desired['subject'];
       pendingTicketBody = desired['body'];
     }
+    final session = widget.api.sessionFence();
     final request = ++generation;
     setState(() {
       loading = true;
@@ -446,7 +575,7 @@ class SupportViewState extends State<SupportView> {
         method: 'POST',
         body: {...desired, 'idempotency_key': pendingTicketKey},
       );
-      if (!mounted || request != generation) return;
+      if (!current(request, session)) return;
       if (accepted is! Map ||
           accepted['id'] is! int ||
           (accepted['id'] as int) <= 0) {
@@ -457,9 +586,11 @@ class SupportViewState extends State<SupportView> {
       pendingTicketKey = null;
       await load(page: 1);
     } catch (errorValue) {
-      if (!mounted || request != generation) return;
+      if (!current(request, session)) return;
       if (errorValue is ApiException && [401, 419].contains(errorValue.status)) {
+        setState(clearPrivate);
         widget.onSessionExpired();
+        return;
       }
       setState(() {
         error = errorValue;
@@ -469,13 +600,17 @@ class SupportViewState extends State<SupportView> {
   }
 
   Future<void> editNotificationPreferences() async {
-    final current = savedPreferences;
-    if (!notifications || loading || current == null) return;
-    var selected = current['default_category'] as String;
-    var unread = current['default_unread_only'] as bool;
-    var repeat = current['remind_unresolved_simulator_faults'] as bool;
-    var delay = current['fault_reminder_delay_minutes'] is int
-        ? current['fault_reminder_delay_minutes'] as int : 15;
+    final prefs = savedPreferences;
+    if (!ensureActor() || !notifications || loading || !freshRead ||
+        prefs == null || !foreground) return;
+    final dialogSession = widget.api.sessionFence();
+    final dialogGeneration = generation;
+    final dialogApi = widget.api;
+    var selected = prefs['default_category'] as String;
+    var unread = prefs['default_unread_only'] as bool;
+    var repeat = prefs['remind_unresolved_simulator_faults'] as bool;
+    var delay = prefs['fault_reminder_delay_minutes'] is int
+        ? prefs['fault_reminder_delay_minutes'] as int : 15;
     if (![15, 30, 60].contains(delay)) {
       delay = 15;
     }
@@ -569,7 +704,9 @@ class SupportViewState extends State<SupportView> {
         ),
       ),
     );
-    if (!mounted || desired == null) return;
+    if (desired == null || !current(dialogGeneration, dialogSession) ||
+        !identical(widget.api, dialogApi)) return;
+    final session = widget.api.sessionFence();
     final request = ++generation;
     setState(() {
       loading = true;
@@ -583,13 +720,15 @@ class SupportViewState extends State<SupportView> {
         method: 'PUT',
         body: desired,
       );
-      if (!mounted || request != generation) return;
+      if (!current(request, session)) return;
       if (accepted is! Map ||
           accepted['default_category'] != desired['default_category'] ||
           accepted['default_unread_only'] != desired['default_unread_only'] ||
           accepted['remind_unresolved_simulator_faults'] !=
               desired['remind_unresolved_simulator_faults'] ||
           accepted['fault_reminder_delay_minutes'] != desired['fault_reminder_delay_minutes'] ||
+          accepted['in_app_only'] != true ||
+          accepted['critical_events_always_visible'] != true ||
           accepted['external_delivery_available'] != false) {
         throw const FormatException('Preference update not confirmed');
       }
@@ -601,9 +740,11 @@ class SupportViewState extends State<SupportView> {
       });
       await load(page: 1);
     } catch (e) {
-      if (!mounted || request != generation) return;
+      if (!current(request, session)) return;
       if (e is ApiException && [401, 419].contains(e.status)) {
+        setState(clearPrivate);
         widget.onSessionExpired();
+        return;
       }
       setState(() {
         error = e;
@@ -614,7 +755,9 @@ class SupportViewState extends State<SupportView> {
 
   Future<void> markCurrentRead() async {
     final throughId = latestNotificationId;
-    if (!notifications || loading || throughId == null || throughId <= 0) return;
+    if (!ensureActor() || !notifications || loading || !freshRead ||
+        !foreground || throughId == null || throughId <= 0) return;
+    final session = widget.api.sessionFence();
     final request = ++generation;
     setState(() {
       loading = true;
@@ -626,22 +769,25 @@ class SupportViewState extends State<SupportView> {
         method: 'POST',
         body: {'through_id': throughId},
       );
-      if (mounted && request == generation) await load(page: 1);
+      if (current(request, session)) await load(page: 1);
     } catch (e) {
-      if (mounted && request == generation) {
-        if (e is ApiException && [401, 419].contains(e.status)) {
-          widget.onSessionExpired();
-        }
-        setState(() {
-          error = e;
-          loading = false;
-        });
+      if (!current(request, session)) return;
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        setState(clearPrivate);
+        widget.onSessionExpired();
+        return;
       }
+      setState(() {
+        error = e;
+        loading = false;
+      });
     }
   }
 
   Future<void> markNotification(int id, {required bool read}) async {
-    if (!notifications || loading || id <= 0) return;
+    if (!ensureActor() || !notifications || loading || !freshRead ||
+        !foreground || id <= 0) return;
+    final session = widget.api.sessionFence();
     final request = ++generation;
     setState(() {
       loading = true;
@@ -652,21 +798,25 @@ class SupportViewState extends State<SupportView> {
         'notifications/$id/${read ? 'read' : 'unread'}',
         method: 'POST',
       );
-      if (mounted && request == generation) await load(page: data?.current ?? 1);
+      if (current(request, session)) await load(page: data?.current ?? 1);
     } catch (e) {
-      if (mounted && request == generation) {
-        if (e is ApiException && [401, 419].contains(e.status)) {
-          widget.onSessionExpired();
-        }
-        setState(() {
-          error = e;
-          loading = false;
-        });
+      if (!current(request, session)) return;
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        setState(clearPrivate);
+        widget.onSessionExpired();
+        return;
       }
+      setState(() {
+        error = e;
+        loading = false;
+      });
     }
   }
 
   Future<void> open(int id) async {
+    if (!ensureActor() || !foreground || id <= 0) return;
+    final session = widget.api.sessionFence();
+    final request = generation;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => TicketPage(
@@ -676,12 +826,25 @@ class SupportViewState extends State<SupportView> {
         ),
       ),
     );
-    if (mounted) await refresh();
+    if (current(request, session)) await refresh();
   }
 
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), page = data;
+    // Bind every inbox deep link to the exact page/actor that rendered it.
+    // A retained callback must never navigate for a revoked account or an
+    // older filtered notification page after its private read was replaced.
+    final navigationGeneration = generation;
+    final navigationApi = widget.api;
+    final navigationSession = navigationApi.sessionFence();
+    bool canNavigate() =>
+        notifications && freshRead && !loading && foreground &&
+        identical(widget.api, navigationApi) &&
+        current(navigationGeneration, navigationSession);
+    if (!authorized()) {
+      return Center(child: Text(s.t('expired')));
+    }
     return RefreshIndicator(
       onRefresh: refresh,
       child: ListView(
@@ -712,7 +875,7 @@ class SupportViewState extends State<SupportView> {
               if (!notifications)
                 OutlinedButton.icon(
                   key: const Key('support-new-ticket'),
-                  onPressed: loading ? null : createTicket,
+                  onPressed: loading || !freshRead ? null : createTicket,
                   icon: const Icon(Icons.add_comment_outlined),
                   label: Text(s.t('openTicket')),
                 ),
@@ -789,7 +952,8 @@ class SupportViewState extends State<SupportView> {
               children: [
                 TextButton.icon(
                   key: const Key('notification-preferences-open'),
-                  onPressed: loading ? null : editNotificationPreferences,
+                  onPressed: loading || !freshRead || savedPreferences == null
+                      ? null : editNotificationPreferences,
                   icon: const Icon(Icons.tune),
                   label: Text(s.t('notificationPreferencesTitle')),
                 ),
@@ -821,6 +985,15 @@ class SupportViewState extends State<SupportView> {
               child: Text(s.t('markCurrentNotificationsRead')),
             ),
           if (loading) const LinearProgressIndicator(),
+          if (!loading && !freshRead && foreground)
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                Localizations.localeOf(context).languageCode == 'ar'
+                    ? 'حدّث سجل الحساب قبل اتخاذ إجراء جديد.'
+                    : 'Refresh this account history before taking another action.',
+              ),
+            ),
           if (error != null)
             Column(
               children: [
@@ -849,14 +1022,21 @@ class SupportViewState extends State<SupportView> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       Text(s.t(row['read_at'] == null ? 'unread' : 'read')),
-                      if (row['kind'] == 'vehicle.battery.simulated' &&
-                          widget.onBatteryDiscovery != null)
+                      if (widget.onBatteryDiscovery != null &&
+                          batteryDiscoveryNotificationTarget(row) != null)
                         TextButton(
-                          onPressed: loading
+                          onPressed: loading || !authorized()
                               ? null
-                              : () => widget.onBatteryDiscovery!(
-                                  row['metadata']['vehicle_id'] as int,
-                                ),
+                              : () {
+                                  if (!canNavigate()) {
+                                    ensureActor();
+                                    return;
+                                  }
+                                  final target = batteryDiscoveryNotificationTarget(row);
+                                  if (target != null) {
+                                    widget.onBatteryDiscovery?.call(target);
+                                  }
+                                },
                           child: Text(
                             s.arabic
                                 ? 'البحث عن شواحن متوافقة'
@@ -873,6 +1053,10 @@ class SupportViewState extends State<SupportView> {
                               onPressed: loading
                                   ? null
                                   : () async {
+                                      if (!canNavigate()) {
+                                        ensureActor();
+                                        return;
+                                      }
                                       await Navigator.of(context).push(
                                         MaterialPageRoute<void>(
                                           builder: (_) => Scaffold(
@@ -898,6 +1082,10 @@ class SupportViewState extends State<SupportView> {
                               onPressed: loading
                                   ? null
                                   : () async {
+                                      if (!canNavigate()) {
+                                        ensureActor();
+                                        return;
+                                      }
                                       final commandId = operationalCaseTarget(row);
                                       if (commandId == null) return;
                                       await Navigator.of(context).push(
@@ -915,6 +1103,10 @@ class SupportViewState extends State<SupportView> {
                             ),
                           if (providerDisputeNotificationTarget(row) != null)
                             TextButton(onPressed: loading ? null : () async {
+                              if (!canNavigate()) {
+                                ensureActor();
+                                return;
+                              }
                               final id = providerDisputeNotificationTarget(row);
                               if (id == null) return;
                               await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
@@ -927,6 +1119,10 @@ class SupportViewState extends State<SupportView> {
                               onPressed: loading
                                   ? null
                                   : () async {
+                                      if (!canNavigate()) {
+                                        ensureActor();
+                                        return;
+                                      }
                                       final target = simulatedMonitorTarget(row);
                                       if (target == null) return;
                                       await Navigator.of(context).push(
@@ -949,6 +1145,10 @@ class SupportViewState extends State<SupportView> {
                               onPressed: loading
                                   ? null
                                   : () async {
+                                      if (!canNavigate()) {
+                                        ensureActor();
+                                        return;
+                                      }
                                       final target = simulatedRepairTarget(row);
                                       if (target == null) return;
                                       await Navigator.of(context).push(
@@ -973,6 +1173,10 @@ class SupportViewState extends State<SupportView> {
                               onPressed: loading
                                   ? null
                                   : () async {
+                                      if (!canNavigate()) {
+                                        ensureActor();
+                                        return;
+                                      }
                                       final target = simulatedFaultTarget(row);
                                       if (target == null) return;
                                       await Navigator.of(context).push(
@@ -994,7 +1198,10 @@ class SupportViewState extends State<SupportView> {
                             TextButton(
                               onPressed: loading
                                   ? null
-                                  : () => open(row['support_ticket_id'] as int),
+                                  : () {
+                                      if (!canNavigate()) return;
+                                      open(row['support_ticket_id'] as int);
+                                    },
                               child: Text(
                                 s.t('ticket', {'id': row['support_ticket_id']}),
                               ),
@@ -1003,10 +1210,13 @@ class SupportViewState extends State<SupportView> {
                             TextButton(
                               onPressed: loading
                                   ? null
-                                  : () => markNotification(
-                                      row['id'] as int,
-                                      read: row['read_at'] == null,
-                                    ),
+                                  : () {
+                                      if (!canNavigate()) return;
+                                      markNotification(
+                                        row['id'] as int,
+                                        read: row['read_at'] == null,
+                                      );
+                                    },
                               child: Text(s.t(
                                 row['read_at'] == null ? 'markRead' : 'markUnread',
                               )),
@@ -1062,11 +1272,6 @@ class SupportViewState extends State<SupportView> {
     );
   }
 
-  @override
-  void dispose() {
-    generation++;
-    super.dispose();
-  }
 }
 
 class TicketPage extends StatefulWidget {
@@ -1083,11 +1288,37 @@ class TicketPage extends StatefulWidget {
   State<TicketPage> createState() => _TicketPageState();
 }
 
-class _TicketPageState extends State<TicketPage> {
+class _TicketPageState extends State<TicketPage>
+    with WidgetsBindingObserver {
   Map<String, dynamic>? ticket;
   ApiPage<Map<String, dynamic>>? messages;
-  bool loading = false;
+  bool loading = false, foreground = true, freshRead = false;
   Object? error;
+  late bool Function() authorized;
+  int generation = 0;
+  bool current(int n, bool Function() session) =>
+      mounted && foreground && authorized() && session() && n == generation;
+
+  bool knownMessageVisibility(Object? flag) =>
+      flag is bool || flag == 0 || flag == 1 ||
+      flag == '0' || flag == '1';
+
+  bool publiclyVisible(Map<String, dynamic> row) =>
+      row['internal'] == false ||
+      row['internal'] == 0 ||
+      row['internal'] == '0';
+
+  void clearPrivate() {
+    generation++;
+    ticket = null;
+    messages = null;
+    loading = false;
+    freshRead = false;
+    error = null;
+    reply.clear();
+    pendingReplyBody = null;
+    pendingReplyKey = null;
+  }
   final reply = TextEditingController();
   final form = GlobalKey<FormState>();
   String? pendingReplyBody;
@@ -1097,40 +1328,116 @@ class _TicketPageState extends State<TicketPage> {
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
+    // An observer receives future transitions, not the state at first mount.
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
     load();
   }
 
-  void failed(Object e) {
-    if (mounted && e is ApiException && [401, 419].contains(e.status))
+  @override
+  void didUpdateWidget(covariant TicketPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api || oldWidget.id != widget.id) {
+      clearPrivate();
+      authorized = widget.api.sessionFence();
+      final nextApi = widget.api;
+      final nextId = widget.id;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && foreground && authorized() &&
+            identical(widget.api, nextApi) && widget.id == nextId) {
+          load();
+        }
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (!mounted) return;
+    if (!foreground) {
+      setState(clearPrivate);
+    } else {
+      // Rebuild the explicit Refresh affordance, but do not silently reload
+      // private history or replay an uncertain ticket/notice mutation.
+      setState(() {});
+    }
+  }
+
+  void failed(Object e, int n, bool Function() session,
+      {bool preserveRetry = false}) {
+    if (!current(n, session)) return;
+    if (e is ApiException && [401, 419].contains(e.status)) {
+      setState(clearPrivate);
       widget.onSessionExpired();
-    if (mounted) setState(() => error = e);
+      return;
+    }
+    setState(() {
+      if (!preserveRetry) {
+        ticket = null;
+        messages = null;
+        freshRead = false;
+      }
+      error = e;
+    });
   }
 
   Future<void> load({int page = 1}) async {
+    if (!foreground || !authorized() || page < 1 || page > 100000) return;
+    final session = widget.api.sessionFence();
+    final n = ++generation;
     setState(() {
       loading = true;
       error = null;
+      ticket = null;
+      messages = null;
+      freshRead = false;
     });
     try {
       final response = await widget.api.request(
         'support/${widget.id}',
         query: {'page': '$page'},
       );
+      if (!current(n, session)) return;
+      if (response is! Map || response['ticket'] is! Map ||
+          response['messages'] is! Map) {
+        throw const FormatException('Unverified ticket');
+      }
+      final verified = Map<String, dynamic>.from(response['ticket'] as Map);
+      if (verified['id'] != widget.id ||
+          verified['subject'] is! String ||
+          (verified['subject'] as String).isEmpty ||
+          !const {'open', 'in_progress', 'resolved', 'closed'}
+              .contains(verified['status'])) {
+        throw const FormatException('Unverified ticket');
+      }
       final list = ApiPage.fromJson(response['messages'], (row) => row);
-      if (mounted)
+      if (list.items.any((row) =>
+          row['body'] is! String ||
+          !knownMessageVisibility(row['internal']))) {
+        throw const FormatException('Unverified ticket messages');
+      }
+      if (current(n, session)) {
         setState(() {
-          ticket = Map<String, dynamic>.from(response['ticket'] as Map);
+          ticket = verified;
           messages = list;
+          freshRead = true;
         });
+      }
     } catch (e) {
-      failed(e);
+      failed(e, n, session);
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (current(n, session)) setState(() => loading = false);
     }
   }
 
   Future<void> send() async {
-    if (!form.currentState!.validate() || loading) return;
+    if (loading || !freshRead || !foreground || !authorized() ||
+        !form.currentState!.validate()) return;
+    final session = widget.api.sessionFence();
+    final n = ++generation;
     setState(() {
       loading = true;
       error = null;
@@ -1141,22 +1448,30 @@ class _TicketPageState extends State<TicketPage> {
         pendingReplyBody = text;
         pendingReplyKey = newSupportRequestKey();
       }
-      await widget.api.request(
+      final accepted = await widget.api.request(
         'support/${widget.id}/messages',
         method: 'POST',
         body: {'body': text, 'idempotency_key': pendingReplyKey},
       );
+      if (!current(n, session)) return;
+      if (accepted is! Map ||
+          accepted['id'] is! int ||
+          (accepted['id'] as int) <= 0) {
+        throw const FormatException('Support reply not confirmed');
+      }
       pendingReplyBody = null;
       pendingReplyKey = null;
-      if (!mounted) return;
       reply.clear();
       await load(page: messages?.last ?? 1);
-      if (mounted && messages != null && messages!.current < messages!.last)
+      final fetched = generation;
+      if (current(fetched, session) &&
+          messages != null && messages!.current < messages!.last) {
         await load(page: messages!.last);
+      }
     } catch (e) {
-      failed(e);
+      failed(e, n, session, preserveRetry: true);
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (current(n, session)) setState(() => loading = false);
     }
   }
 
@@ -1164,6 +1479,12 @@ class _TicketPageState extends State<TicketPage> {
   Widget build(BuildContext context) {
     final s = EvStrings.of(context);
     final page = messages;
+    if (!authorized()) {
+      return Scaffold(
+        appBar: AppBar(title: Text(s.t('ticket', {'id': widget.id}))),
+        body: Center(child: Text(s.t('expired'))),
+      );
+    }
     return Scaffold(
       appBar: AppBar(title: Text(s.t('ticket', {'id': widget.id}))),
       body: SafeArea(
@@ -1171,6 +1492,11 @@ class _TicketPageState extends State<TicketPage> {
           padding: const EdgeInsets.all(16),
           children: [
             if (loading) const LinearProgressIndicator(),
+            if (!loading && ticket == null && error == null)
+              TextButton(
+                onPressed: foreground ? () => load() : null,
+                child: Text(s.t('refresh')),
+              ),
             if (error != null)
               Column(
                 children: [
@@ -1190,7 +1516,7 @@ class _TicketPageState extends State<TicketPage> {
               ),
               Text(s.t(ticket!['status'])),
               for (final row in page?.items ?? <Map<String, dynamic>>[])
-                if (row['internal'] != true)
+                if (publiclyVisible(row))
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -1266,6 +1592,8 @@ class _TicketPageState extends State<TicketPage> {
 
   @override
   void dispose() {
+    generation++;
+    WidgetsBinding.instance.removeObserver(this);
     reply.dispose();
     super.dispose();
   }
