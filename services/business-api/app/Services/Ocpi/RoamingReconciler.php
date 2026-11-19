@@ -25,7 +25,7 @@ class RoamingReconciler
             $records = OcpiRecord::where('ocpi_provider_id', $p->id)->where('module', 'sessions')->where('country_code', $target['country_code'])->where('party_id', $target['party_id'])->where('id', '>', $row->source_record_floor)->orderByDesc('id')->limit(1001)->get();
             abort_if($records->count() > 1000, 409, 'Partner history needs bounded manual review.');
             $matches = $records->filter(fn ($r) => app(SandboxRoaming::class)->ownsSourceSession($row, $r));
-            $dispatched = DB::table('ocpi_roaming_commands')->where('order_id', $row->id)->where('action', 'START_SESSION')->whereNotNull('attempted_at')->exists();
+            $dispatched = DB::table('ocpi_roaming_commands')->where('order_id', $row->id)->where('action', ($row->intent_kind ?? 'start') === 'reservation' ? 'RESERVE_NOW' : 'START_SESSION')->whereNotNull('attempted_at')->exists();
             if ($matches->count() !== 1 || ! $dispatched) {
                 if ($matches->count() > 1 || ($matches->isNotEmpty() && ! $dispatched) || ($matches->isEmpty() && $row->source_session_record_id !== null)) {
                     DB::table('ocpi_roaming_orders')->where('id', $row->id)->update(['reconciliation_state' => 'requires_review', 'updated_at' => now()]);
@@ -56,15 +56,22 @@ class RoamingReconciler
             $review = $review || app(SessionMeterHistory::class)->requiresReview($session);
             // Price/meter discrepancies must not hide a proven owned active session from stop.
 
-            abort_unless(in_array($n['status'], ['PENDING', 'ACTIVE', 'COMPLETED', 'INVALID'], true), 409, 'Unsupported partner session transition.');
+            abort_unless(in_array($n['status'], ['PENDING', 'ACTIVE', 'COMPLETED', 'INVALID', 'RESERVATION'], true), 409, 'Unsupported partner session transition.');
             abort_if($row->source_status === 'COMPLETED' && $n['status'] !== 'COMPLETED', 409, 'Completed source history is immutable.');
             $values = ['source_session_record_id' => $session->id, 'source_session_hash' => $session->content_hash, 'energy_wh' => $wh, 'source_status' => $n['status'], 'source_observed_at' => now(), 'reconciliation_state' => 'awaiting_cdr', 'updated_at' => now()];
+            if ($n['status'] === 'RESERVATION') {
+                abort_unless(($row->intent_kind ?? 'start') === 'reservation', 409);
+                $values['state'] = 'source_reserved';
+            }
             if ($n['status'] === 'ACTIVE') {
                 $values['state'] = 'source_active';
             }
             if ($n['status'] === 'COMPLETED') {
                 $values['state'] = 'source_completed';
                 $values['active_target_key'] = null;
+                if (($row->intent_kind ?? 'start') === 'reservation' && $row->reservation_closed_at === null) {
+                    $values['reservation_closed_at'] = $session->received_at;
+                }
             }
             if ($n['status'] === 'INVALID') {
                 $values['reconciliation_state'] = 'requires_review';

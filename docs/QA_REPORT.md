@@ -1,3 +1,79 @@
+# 19 November 2026 — combined OCPI integration candidate (existing PR #189)
+
+Preserved all source commits through normal merges: reservations and receipt precision (#130, `9f08c448`), token windows/server trace binding (#144, `4ad1f6e2`), credential echo/envelope/replay guards (#179, `b860782d`), private CDR reconciliation and explicit fleet-scope bootstrap repair (#173, `4637d2b5`), and country-quality web/native parity (#189, `b212dba9`). Combined executable source is `2581448c24256a8f35d354fe97d011aab158055a`. Documentation conflicts retain both histories; PostgreSQL filter conflicts were resolved as the union of every test registration, preserving separate migration checks. Both new native connected groups remain registered. Latest owner single-engineer mandate is retained at the top of AGENTS and continuation records.
+
+Combined local verification: Laravel **1370 passed / 26210 assertions, one PG-only skip**; PostgreSQL contracts **524 / 7290**, independent-process concurrency **30 / 448**, precision migrations **2 / 13**; Flutter **557 passed / 34 explicit fixture skips**, clean analysis; Pint **794 files**; actual Laravel native country observations/customer denial, reservation consent/replay/cancel/privacy, and credential peer rotation/revocation all passed in separately paced unchanged authentication windows. Actual Laravel EN/AR fleet scope and forced login429/revocation browser journeys, strict country-quality web contract and private session fencing passed. Additional full finance PostgreSQL verification is running separately; fresh exact-head hosted platform/native checks are required after push. Prior green Android/iOS at `b212dba9` attest that source only, not this combined candidate.
+
+This is integration verification, not completion of the original platform or live acceptance. Preserve all sibling PRs until canonical integration and ancestry are verified. No physical charger, live OCPI/PSP/bank, signed store release or customer infrastructure deployment is accepted. Fixed42/312 tracker remains unchanged: coded58.20, tested57.81, merged57.81, production0. Continue independently with existing map/native and commercial backlog while hosted validation runs.
+
+# 19 November 2026 — Agent2 OCPI country-readout repair (local candidate)
+
+Current integrated base: `171b9c035dbbccd8bf3054d3a41ed00c2500464b`.
+Existing PR189/branch `development/ocpi-coverage-quality-20261116` now safely
+incorporates that main without force-pushing. Reproduced hosted Pint failure
+in the country-observation test is repaired without changing its assertions.
+The canonical Flutter client now accepts the country facets already emitted
+by the candidate backend, renders both source-only facets in EN/AR, and rejects
+contradictory counts and unsupported coverage/charging authority. Web/native
+also enforce the combined10000-record limit. A phone dropdown overflow is fixed.
+
+Local full Laravel1335 pass/25602 assertions, one PostgreSQL-specific rollback
+case explicitly skipped on SQLite; full Flutter552 pass/33 explicit fixture
+skips;17 focused native cases, clean analysis,380 Python guards and9 scheduler
+guards pass. Actual Laravel/vendor EN/AR browser and native all/locations/tariffs
+reads plus customer403 denial pass. PostgreSQL482/6657 and30 concurrency races/448 assertions pass on the
+current candidate. Fresh hosted gates remain pending; no pending job is credited.
+
+See `OCPI_CATALOG_COVERAGE_READOUT.md` and
+`docs/evidence/ocpi-country-coverage/`. The fixed42/312 coverage remains186 coded,
+185 tested/merged (58.20/57.81/57.81 weighted), production0. No broad atom credit
+is inferred. Current five-agent ownership/Agent5-only merge authority supersedes
+the historical single-agent records below. Continue Agent2 OCPI/discovery work;
+Agent5 verifies and integrates current exact-source checks. Full product remains
+INCOMPLETE; no live external integration, signed release or deployed acceptance.
+
+# 19 November 2026 — revocation browser response causality (PR #130)
+
+Hosted business run44414638040 reached real roaming QA and failed because its response listener could accept an identical catalog URL already requested during login/locale refresh before revocation. The test now observes the successful authorization PATCH, verifies its actual `authorized:false` body, and accepts only a new scoped catalog request issued after that acknowledgement. Exact HTTP200, zero records, empty data and visible matching empty state assertions remain mandatory; stale in-flight responses cannot satisfy them. No API, authorization, timeout or rate-limit rule changed.
+
+Actual isolated Laravel EN/AR browser validation passed with `EV_ROAMING_VERIFY_RATE_LIMIT=1`: intentional login429 observed, bounded server Retry-After honored, then owner isolation/revocation/RTL/logout passed. Earlier receipt-precision backend/PostgreSQL proof remains applicable; new exact-head hosted business verification is required. Single-owner integration authority comes from the latest direct owner instruction; old Agent5-only notes are historical.
+
+# 19 November 2026 — token-window stack verified against repaired reservation parent (PR #144)
+
+Normal merge `6601619e` incorporates repaired PR130 parent `bdaae6f7` into the existing token/trace branch without replacing child changes or rewriting history. Existing UTC fractional/window boundaries, independent date bounds, exact-second SQLite text behavior, protocol trace response IDs and withdrawn-tariff UTC fences remain intact. Parent receipt freshness assertions remain unchanged and now pass PostgreSQL.
+
+Local combined-source verification: full Laravel **1354 passed / 26011 assertions, one PG-only skip**; PostgreSQL contracts **502 / 7089**, independent-process concurrency **30 / 448**, precision migration preservation/rollback **2 / 13**; full Flutter **544 passed / 33 explicit fixture skips**; Pint **793 files**; real synthetic protocol-peer/Admin EN/AR390px credential rotation/revocation/old-token denial browser and actual Laravel native credential workflow passed. No external provider, charging or billing action. Original 42/312 generated tracker check passes unchanged: weighted coded58.20, tested57.81, merged57.81, production0. Fresh exact-source hosted checks are required; merge PR130 before integrating this child, then revalidate combined source.
+
+Ownership correction: the latest direct owner instruction explicitly establishes single-person full-platform development and integration, superseding the repository's former five-agent restriction. Current AGENTS/MASTER/NON_FINANCE records now state that scope and preserve historical directives. Earlier Agent5-only references in prior checkpoints describe the superseded model, not a present approval dependency.
+
+# 19 November 2026 — credential peer trace stack and replay regressions (PR #179)
+
+Normal-merged repaired reservation parent `bdaae6f7` into the existing trace branch (`d728a4a7`), preserving both histories. Added three second-response cases: a peer cannot replay the first request's trace pair, omit correlation or swap request/correlation IDs. Each fails at the second discovery GET, with the same private generic error and no credential operation/link, OCPI command or charger command. Mandatory PostgreSQL contracts now include the trace suite. Production echo requirements and strict UTC envelope validation remain unchanged.
+
+Local verification: trace **8 / 43**; full Laravel **1357 passed / 25938 assertions, one PG-only skip**; final sequential PostgreSQL contracts **505 / 7020**, independent-process concurrency **30 / 448**, precision migration guards **2 / 13**; Pint **792 files**. Initial added-test invocations used an incorrect test-only table/error expectation, corrected before the final runs. A parallel full-suite run also encountered a firmware test failure while both suites shared `Storage::fake('local')`; it is retained as failed evidence, not credited. The final complete PostgreSQL run was executed after Laravel finished and passed. Do not concurrently run these storage-sharing suites in this checkout.
+
+Integrate repaired parent #130 first; #144 supplies matching protocol server trace-response binding and must also precede combined production interoperability verification. Shared PostgreSQL filter edits must retain #173 reconciliation, #144 token-window and this credential-trace suite, plus #130's separate precision migration tests. Fresh exact-source hosted checks remain required. Latest direct owner instruction authorizes single-owner integration, superseding historical Agent4/Agent5 allocation. No live partner/hardware/payment/deployment/store acceptance or 312-atom credit added.
+
+# 19 November 2026 — OCPI reservation PostgreSQL receipt-clock repair (PR #130; integration pending)
+
+Normal-merged verified integration `171b9c035dbbccd8bf3054d3a41ed00c2500464b` into the existing reservation branch, preserving both histories. Reproduced the failed PostgreSQL freshness assertion deterministically: `timestamp(0)` rounded receipt `05:10:00.987654Z` to future `05:10:01Z`. An additive migration preserves future receipts at microsecond precision; it does not reconstruct historical fractions or modify immutable CDR payloads. Non-disposable rollback refuses to round retained evidence. Existing freshness assertions, security, command idempotency and rate limits are unchanged.
+
+Local verification: full Laravel **1349 passed / 25895 assertions, one PostgreSQL-only skip**; PostgreSQL contracts **497 / 6977**, process concurrency **30 / 448**, migration preservation/rollback **2 / 13**; deterministic receipt regression red before migration and green after, including Dubai/New York/Auckland host zones; actual isolated Laravel synthetic-CPO browser EN/AR and native consent/replay/cancellation/tenant-privacy journeys passed. These are synthetic integrations, not authorized live OCPI, hardware or production acceptance. Required exact-head hosted Android/iOS and platform gates remain pending; Agent5 controls integration. Fixed 42/312 tracker unchanged. Historical PR source checks do not attest this new source.
+
+# 19 November 2026 — preserve explicit connector scope during identity bootstrap (PR #173)
+
+Reproduced hosted fleet/browser scope drift with a deterministic real-Laravel regression: pause identity initialization at the provider read, explicitly open a newer connector history widget, select a station, then finish the delayed identity initialization. Original code erased the station draft before the Arabic read. Identity initialization now captures the command request only after `/me` establishes the current actor and skips its final automatic history reload when the user has already requested newer history. Existing actor/epoch/visibility/request guards remain; account changes do not inherit a previous actor's draft. No finance, operational command or rate-limit behavior changed.
+
+Red proof: `late-identity-preserves-explicit-scope` failed against the original source. Green: actual isolated Laravel EN/AR scoped connector reads, exact source metadata/counts, no automatic connector request, retained station scope and background clearing; controlled connector-fleet contract; web-session client and full controlled session/privacy browser; three catalog startup cases; vendor bootstrap and independent section reads all passed. Earlier backend/PostgreSQL reconciliation proof remains applicable. This fixes the actual product race exposed by hosted job135194799163 rather than accepting an unscoped request or removing assertions. Fresh exact-head hosted checks still required. Latest direct owner instruction grants single-owner integration; historical role restrictions are superseded.
+
+# 19 November 2026 — retained OCPI CDR reconciliation verification (PR #173; integration pending)
+
+Preserved the existing claim-cache freshness, strict historical timestamp parsing, source-credit identity comparison and current actor/provider authority implementation, then normal-merged integration `171b9c03`. Fixed the reproduced customer API test expectation: current role denial is 403 before source hydration; an otherwise eligible foreign vendor still receives existence-hiding 404. Added explicit missing-data/private-token assertions without changing authorization behavior. Mandatory PostgreSQL coverage now includes `OcpiReconciliationTest`; on integration retain PR130's separate receipt-precision migration runner as well.
+
+Local verification: full Laravel **1337 passed / 25620 assertions, one PG-only skip**; reconciliation **12 / 132** on SQLite and PostgreSQL; full PG contracts **492 / 6763**, process concurrency **30 / 448**; Pint **786 files**, Flutter analysis clean; actual isolated Laravel roaming browser EN/AR and controlled catalog UI passed. The first shared-database browser attempt encountered additional synthetic public locations rather than the fixture's exact26; a separate disposable review database passed without deleting shared records. An initial PG invocation's shell file was edited while running and invalidated that invocation; the complete final runner was rerun successfully from stable source. No failed invocation is credited as success.
+
+Exact-head hosted platform/native gates and Agent5 integration remain pending. No accounting, invoice, payment, live source command, partner activation, production deployment or 312-atom score credit is added.
+
 Final successor local verification:962 Laravel tests/19386 assertions;644 PHP files
 pass Pint;377 Python guards;52 offline security/diagnostic tests;11 scheduler/diagnostic
 tests. Actual unchanged-read and anonymous-bootstrap cookie browsers, existing controlled

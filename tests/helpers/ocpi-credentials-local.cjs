@@ -10,9 +10,10 @@ async function withCredentialsFixture(
     receiving = false,
     roaming = false,
     billing = false,
+    reservations = false,
   } = {},
 ) {
-  if (billing) roaming = true;
+  if (billing || reservations) roaming = true;
   const reuse = process.env.EV_OCPI_REUSE_PHP === "1";
   const phpContainer = process.env.EV_OCPI_PHP_CONTAINER || "ev-business-api";
   assert(
@@ -48,6 +49,7 @@ async function withCredentialsFixture(
             test_command_contract: "synthetic_roaming_" + run,
           }
         : {}),
+      ...(reservations ? {test_reservations: true, test_reservation_contract: "synthetic_reservations_" + run} : {}),
       ...(billing
         ? {
             test_billing_contract: {

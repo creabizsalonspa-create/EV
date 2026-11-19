@@ -7,6 +7,7 @@ use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Ocpi\CatalogObservations;
 use Carbon\Carbon;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -54,6 +55,88 @@ class OcpiCatalogObservationsTest extends TestCase
         $this->getJson('/api/ocpi/providers/'.$p->id.'/catalog-observations?module=sessions')->assertUnprocessable();
         Http::assertNothingSent();
         $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_published_reported_market_coverage_uses_location_country_only_and_never_claims_live_capacity(): void
+    {
+        Http::preventStrayRequests();
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $provider = $this->provider($owner);
+        // Every fixture has the same OCPI party country (AE), which must
+        // never be mistaken for the location's actual reported market.
+        $this->record($provider, 'uae-published', 'locations', now()->toISOString(), [
+            'publish' => true, 'country' => 'ARE', 'latitude' => '25.1', 'longitude' => '55.2',
+            'connector_standards' => ['IEC_62196_T2'],
+        ]);
+        $this->record($provider, 'usa-published', 'locations', now()->toISOString(), [
+            'publish' => true, 'country' => 'USA', 'latitude' => '40.7', 'longitude' => '-74',
+            'connector_standards' => ['IEC_62196_T2_COMBO'],
+        ]);
+        $this->record($provider, 'canada-bad-geometry', 'locations', now()->toISOString(), [
+            'publish' => true, 'country' => 'CAN', 'latitude' => '999', 'longitude' => '-79',
+            'connector_standards' => [],
+        ]);
+        $this->record($provider, 'uae-polar', 'locations', now()->toISOString(), [
+            // Geographically valid latitude, but outside Web Mercator.
+            // Counts as published UAE, never map-ready UAE.
+            'publish' => true, 'country' => 'ARE', 'latitude' => '89', 'longitude' => '55',
+            'connector_standards' => [],
+        ]);
+        $this->record($provider, 'uae-unpublished', 'locations', now()->toISOString(), [
+            'publish' => false, 'country' => 'ARE', 'latitude' => '26', 'longitude' => '54',
+            'connector_standards' => ['IEC_62196_T2'],
+        ]);
+        $this->record($provider, 'unexpected-partner-country', 'locations', now()->toISOString(), [
+            'publish' => true, 'country' => 'ZZZ', 'latitude' => '0', 'longitude' => '0',
+            'connector_standards' => [],
+        ]);
+        $this->record($provider, 'missing-country', 'locations', now()->toISOString(), [
+            'publish' => true, 'latitude' => '0', 'longitude' => '0',
+            'connector_standards' => [],
+        ]);
+        $url = '/api/ocpi/providers/'.$provider->id.'/catalog-observations?module=locations';
+        $report = $this->actingAs($owner)->getJson($url)->assertOk()
+            ->assertJsonPath('modules.locations.total', 7)
+            ->assertJsonPath('modules.locations.published_by_reported_market.AE', 2)
+            ->assertJsonPath('modules.locations.published_by_reported_market.US', 1)
+            ->assertJsonPath('modules.locations.published_by_reported_market.CA', 1)
+            ->assertJsonPath('modules.locations.published_by_reported_market.other_or_unknown', 2)
+            ->assertJsonPath('modules.locations.published_with_usable_coordinates_by_reported_market.AE', 1)
+            ->assertJsonPath('modules.locations.published_with_usable_coordinates_by_reported_market.US', 1)
+            ->assertJsonPath('modules.locations.published_with_usable_coordinates_by_reported_market.CA', 0)
+            ->assertJsonPath('modules.locations.published_with_usable_coordinates_by_reported_market.other_or_unknown', 2)
+            ->assertJsonPath('market_classification', 'PARTNER_REPORTED_LOCATION_COUNTRY_ONLY')
+            ->assertJsonPath('coverage_exhaustive', false)
+            ->assertJsonPath('live_availability_verified', false)
+            ->assertJsonPath('physical_charging_verified', false)
+            ->assertJsonMissingPath('modules.tariffs');
+        $this->assertStringNotContainsString('PRIVATE SOURCE DATA', $report->getContent());
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_historical_catalog_clocks_reject_impossible_offsets_instead_of_silent_rollover(): void
+    {
+        // PHP's DateTime parser can normalize +99:99 and +14:30 without
+        // reporting an error, but those are not valid ISO/RFC offsets for
+        // catalog quality metrics. No request, DB write or network required.
+        $bucket = new \ReflectionMethod(CatalogObservations::class, 'bucket');
+        $at = CarbonImmutable::parse('2026-11-16T12:00:00Z');
+        foreach ([
+            '2026-11-16T10:00:00+14:30',
+            '2026-11-16T10:00:00+99:99',
+            '2026-11-16T10:00:00+00:61',
+            '2026-11-16T10:00:00-14:01',
+            '2026-02-30T09:00:00Z',
+        ] as $invalid) {
+            $this->assertSame('unknown', $bucket->invoke(app(CatalogObservations::class), $invalid, $at),
+                'Invalid historical source date or offset cannot become a trusted freshness bucket');
+        }
+        $this->assertSame('within_24_hours', $bucket->invoke(app(CatalogObservations::class),
+            '2026-11-16T09:00:00+14:00', $at));
+        $this->assertSame('within_1_hour', $bucket->invoke(app(CatalogObservations::class),
+            '2026-11-16T12:00:00Z', $at));
     }
 
     public function test_catalog_observations_are_current_owner_or_admin_only(): void
