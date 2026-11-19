@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -738,9 +739,24 @@ class NotificationCenterTest extends TestCase
                 'physical_verification' => false,
             ],
         ]);
-        // A historical raw row might contain a truncated JSON document.
-        DB::table('inbox_notifications')->where('id', $fault->id)
-            ->update(['metadata' => '{"company_id":']);
+        // SQLite can retain truncated historical JSON. PostgreSQL rejects it
+        // at the storage boundary: prove that constraint inside a savepoint,
+        // then exercise the same private-read guards with a valid JSON scalar
+        // whose operational metadata shape is still untrustworthy.
+        if (DB::getDriverName() === 'pgsql') {
+            try {
+                DB::transaction(fn () => DB::table('inbox_notifications')->where('id', $fault->id)
+                    ->update(['metadata' => '{"company_id":']));
+                $this->fail('PostgreSQL must reject malformed JSON before storage.');
+            } catch (QueryException $error) {
+                $this->assertSame('22P02', $error->errorInfo[0]);
+            }
+            DB::table('inbox_notifications')->where('id', $fault->id)
+                ->update(['metadata' => json_encode('Invalid operational metadata shape', JSON_THROW_ON_ERROR)]);
+        } else {
+            DB::table('inbox_notifications')->where('id', $fault->id)
+                ->update(['metadata' => '{"company_id":']);
+        }
         $this->actingAs($owner);
         foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
             $this->getJson($prefix)->assertOk()
