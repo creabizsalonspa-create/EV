@@ -132,6 +132,18 @@
       "test_result": "passed",
       "merge_sha": "54b50ea16045fd41965ddb7a474fb7f70edda779",
       "evidence": "docs/evidence/integrated-checkpoints-20261119/catalog-policy-verified.json"
+    },
+    "pr190_verified": {
+      "source_sha": "b67b46177b974e49e0c8ece995facf51a7f75ad4",
+      "test_result": "passed",
+      "merge_sha": "f694c03f934f9bb3e00b154d512cdabc2a4287b6",
+      "evidence": "docs/evidence/integrated-checkpoints-20261120/pr190-verified.json"
+    },
+    "pr191_verified": {
+      "source_sha": "6beb0ee269ed27a248cb5836bdd027a8d61958da",
+      "test_result": "passed",
+      "merge_sha": "151acd73e94e12b2e1cdfbe46ce859928d186b92",
+      "evidence": "docs/evidence/integrated-checkpoints-20261120/pr191-verified.json"
     }
   },
   "weighted_percent": {
