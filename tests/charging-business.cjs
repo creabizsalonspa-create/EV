@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const { BusinessClient } = require("./helpers/business-client.cjs");
+const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
 const fs = require("node:fs");
 const { randomUUID, createHash, createHmac } = require("node:crypto");
 const { promisify } = require("node:util");
@@ -294,7 +295,7 @@ async function session(version, actors, revokedTag = null, meterUnit = "Wh") {
         dispatcher = null;
         // changeRole performed normal current-role login. A separate owned
         // reservation obtains fresh consent; the old remote intent is not replayed.
-        await session(version, actors, tag);
+        const completed = await session(version, actors, tag, meterUnit);
         const replay = await charger.call(
           "Authorize",
           version === "1.6"
@@ -320,7 +321,7 @@ async function session(version, actors, revokedTag = null, meterUnit = "Wh") {
           0,
           "Revoked unstarted intent must not create a financial record",
         );
-        return;
+        return completed;
       }
 
       const online = await charger.call(
@@ -473,7 +474,9 @@ async function session(version, actors, revokedTag = null, meterUnit = "Wh") {
       );
       return d.MeterValues.find((m) =>
         m.sampledValue.some(
-          (s) => s.context === "Sample.Periodic" && Number(s.value) === (meterUnit === "kWh" ? 2.5 : 2500),
+          (s) =>
+            s.context === "Sample.Periodic" &&
+            Number(s.value) === (meterUnit === "kWh" ? 2.5 : 2500),
         ),
       );
     }, "persisted periodic meter");
@@ -741,6 +744,9 @@ async function session(version, actors, revokedTag = null, meterUnit = "Wh") {
         real_payment_processed: false,
       }),
     );
+    // These values follow the persisted meter-unit and complete source/finance
+    // assertions above; the outer matrix checks the actual nested case result.
+    return { protocol: version, periodic_meter_unit: meterUnit };
   } finally {
     await stopWorker(worker);
     await stopWorker(dispatcher);
@@ -753,8 +759,28 @@ async function session(version, actors, revokedTag = null, meterUnit = "Wh") {
     vendor = await new BusinessClient().register("vendor"),
     admin = await new BusinessClient().register("admin");
   for (const meterUnit of useConsumer ? ["Wh", "kWh"] : ["Wh"]) {
-    await session("1.6", { customer, vendor, admin }, null, meterUnit);
-    await session("2.0.1", { customer, vendor, admin }, null, meterUnit);
+    for (const version of ["1.6", "2.0.1"]) {
+      // Remote callbacks share the ingress identity bucket (20/minute).
+      // A case includes deliberate station/role/revocation denials and a fresh
+      // nested session. Give each complete case its own unchanged quota;
+      // never retry an authorization assertion or clear production counters.
+      if (autoDispatch)
+        await waitForFreshWindow({
+          wait: (milliseconds) =>
+            new Promise((resolve) => setTimeout(resolve, milliseconds)),
+        });
+      const completed = await session(
+        version,
+        { customer, vendor, admin },
+        null,
+        meterUnit,
+      );
+      assert.deepEqual(
+        completed,
+        { protocol: version, periodic_meter_unit: meterUnit },
+        "Every requested protocol/unit must survive fresh-consent recursion",
+      );
+    }
   }
 })().catch((e) => {
   console.error(e.message);

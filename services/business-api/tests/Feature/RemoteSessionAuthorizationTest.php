@@ -21,6 +21,23 @@ class RemoteSessionAuthorizationTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_remote_callback_requests_share_the_unchanged_identity_budget(): void
+    {
+        config(['csms.rider_enabled' => true, 'csms.session_bridge_enabled' => true, 'csms.ingress_allow_local_http' => true]);
+        // Unlike provisioning, online callbacks carry ocppConnectionName rather
+        // than identity. Distinct stations still share this middleware bucket.
+        for ($i = 0; $i < 20; $i++) {
+            $this->postJson('/api/internal/remote-session-authorize', [
+                'ocppConnectionName' => 'ev-test-budget-'.$i,
+            ])->assertUnauthorized();
+        }
+        $this->postJson('/api/internal/remote-session-authorize', [
+            'ocppConnectionName' => 'ev-test-budget-new-station',
+        ])->assertStatus(429)->assertHeader('Retry-After');
+        $this->travel(61)->seconds();
+        $this->postJson('/api/internal/remote-session-authorize')->assertUnauthorized();
+    }
+
     private function fixture(): array
     {
         Http::preventStrayRequests();
