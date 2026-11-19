@@ -104,7 +104,7 @@ jobs:
           ./scripts/start > /tmp/finance-v3-start.txt
           # Loyalty test switch is now effective in the restarted local mock API.
           node tests/loyalty.cjs
-          node --test tests/financial-connected.test.cjs tests/admin-directory-response.test.cjs tests/reservation-fixture-window.test.cjs tests/admin-command-secret-storage.cjs
+          node --test tests/financial-connected.test.cjs tests/admin-directory-response.test.cjs tests/operating-calendar-filter.test.cjs tests/reservation-fixture-window.test.cjs tests/admin-command-secret-storage.cjs
           node tests/financial-connected.cjs
       - uses: actions/upload-artifact@v4
         if: always()

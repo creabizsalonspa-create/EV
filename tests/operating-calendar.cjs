@@ -5,7 +5,21 @@ const {BusinessClient} = require('./helpers/business-client.cjs');
 const {randomUUID} = require('node:crypto');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const {execFileSync} = require('node:child_process');
-(async () => {
+function matchesStationFilter(response, base, name) {
+  const url = new URL(response.url());
+  return url.origin === new URL(base).origin && url.pathname === '/api/stations' &&
+    response.request().method() === 'GET' && url.searchParams.get('q') === name;
+}
+async function readStationFilter(page, base, name) {
+  const pending = page.waitForResponse(response => matchesStationFilter(response, base, name));
+  await page.locator('#filters button').click();
+  const response = await pending;
+  assert.equal(response.status(), 200, 'The exact filtered catalog read must succeed');
+  // The customer catalog also awaits its scoped favorite-status read. Its
+  // existing busy boundary clears in the same task that replaces the cards.
+  await page.waitForFunction(() => !document.querySelector('#stations').hasAttribute('aria-busy'));
+}
+async function main() {
   const local = {base:process.env.EV_CALENDAR_TEST_URL || 'http://127.0.0.1:8000'};
   const vendor = await new BusinessClient(local).register('vendor');
   const customer = await new BusinessClient(local).register('customer');
@@ -61,9 +75,37 @@ const {execFileSync} = require('node:child_process');
     await page.locator('#account [name=password]').fill(customer.testCredentials.password);
     await page.locator('button[value=login]').click();
     await page.locator('#account').waitFor({state:'hidden'});
-    await page.locator('#filters [name=q]').fill(station.name);
-    await page.locator('#filters button').click();
+    // The just-created station already appears in the initial catalog. Merely
+    // waiting for its card can therefore return a stale form during filtering.
+    await page.waitForLoadState('networkidle');
     const card=page.locator('#stations article').filter({has:page.getByRole('heading',{name:station.name,exact:true})});
+    await card.waitFor();
+    const oldInput=await card.locator('input[type=datetime-local]').elementHandle();
+    await page.locator('#filters [name=q]').fill(station.name);
+    let release, captured;
+    const held=new Promise(resolve=>captured=resolve);
+    const predicate=url=>url.origin===new URL(vendor.base).origin && url.pathname==='/api/stations' && url.searchParams.get('q')===station.name;
+    const handler=async route=>{
+      const response=await route.fetch();
+      await new Promise(resolve=>{release=()=>{resolve();};captured();});
+      await route.fulfill({response});
+    };
+    await page.route(predicate,handler);
+    const refreshed=readStationFilter(page,vendor.base,station.name);
+    await Promise.race([held,refreshed.then(()=>{throw Error('Filtered read settled before its held response');})]);
+    try {
+      assert.equal(await page.locator('#stations').getAttribute('aria-busy'),'true');
+      await card.locator('select[data-booking-time-mode]').selectOption('utc');
+      await oldInput.fill(start.slice(0,16));
+      assert.equal(await oldInput.inputValue(),start.slice(0,16));
+      // Reproduce the prior race using actual Laravel JSON, without submitting
+      // a reservation, retrying an assertion or changing any limiter.
+      release();
+      await refreshed;
+      assert.equal(await oldInput.evaluate(node=>node.isConnected),false);
+      assert.equal(await card.locator('input[type=datetime-local]').inputValue(),'');
+      assert.equal(await card.locator('input[type=datetime-local]').evaluate(node=>node.checkValidity()),false);
+    } finally {release?.();await page.unroute(predicate,handler);}
     await card.waitFor();
     await card.locator('.station-information summary').click();
     assert.match(await card.innerText(),/يُطبق جدول العمل/);
@@ -73,7 +115,7 @@ const {execFileSync} = require('node:child_process');
     await booking.locator('select[data-booking-time-mode]').selectOption('utc');
     await booking.locator('input[type=datetime-local]').fill(start.slice(0,16));
     const denied=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/reservations' && r.request().method()==='POST');
-    await booking.locator('button').last().click();
+    await booking.getByRole('button',{name:'حجز موعد تجريبي',exact:true}).click();
     assert.equal((await denied).status(),409);
     await page.locator('#notice').filter({hasText:'الوقت المحدد خارج جدول عمل المحطة.'}).waitFor();
     await page.locator('#language').click();
@@ -105,4 +147,6 @@ const {execFileSync} = require('node:child_process');
     }
   } finally {await browser.close();}
   console.log('PASS actual vendor opt-in/public policy, phone EN/AR persistence, holiday booking denial, immutable replay, cancellation and logout; no charging or money.');
-})().catch(error=>{console.error(error);process.exitCode=1;});
+}
+if(require.main===module)main().catch(error=>{console.error(error);process.exitCode=1;});
+module.exports={matchesStationFilter,readStationFilter};
