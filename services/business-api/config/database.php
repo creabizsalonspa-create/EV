@@ -43,7 +43,10 @@ return [
             'busy_timeout' => min(10000, max(1000, (int) env('DB_SQLITE_BUSY_TIMEOUT_MS', 5000))),
             'journal_mode' => env('DB_SQLITE_JOURNAL_MODE', null),
             'synchronous' => null,
-            'transaction_mode' => 'DEFERRED',
+            // Reserve the SQLite writer before a read-then-write cache/session
+            // transaction. Deferred upgrades can fail immediately while the
+            // live source workers commit, despite a configured busy timeout.
+            'transaction_mode' => 'IMMEDIATE',
         ],
 
         'mysql' => [

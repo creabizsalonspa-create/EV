@@ -4,30 +4,8 @@ const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
 const phpRunner = process.env.EV_TEST_PHP_RUNNER || "./scripts/php";
 
-// Shell role changes are privileged test mutations. Never print raw SQL or email.
-function provisionTestRole(email, role) {
-  try {
-    execFileSync(phpRunner, ["artisan", "platform:role", email, role], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch (error) {
-    const output = String(error.stdout || "") + String(error.stderr || "");
-    const sqlstate = output.match(/SQLSTATE\[([A-Z0-9]{5})\]/);
-    const diagnosis = /database is locked|database table is locked/i.test(output)
-      ? "SQLITE_BUSY_OR_LOCKED"
-      : /readonly database/i.test(output) ? "SQLITE_READONLY"
-      : /unable to open database file/i.test(output) ? "SQLITE_CANTOPEN"
-      : /database or disk is full/i.test(output) ? "SQLITE_FULL"
-      : "DATABASE_CAUSE_UNCLASSIFIED";
-    throw new Error(
-      "Synthetic role provisioning failed: " +
-        (sqlstate ? "SQLSTATE " + sqlstate[1] : "SQLSTATE unavailable") + " · " + diagnosis +
-        "; inspect private CI evidence for cause.",
-      { cause: { exitCode: error.status } },
-    );
-  }
-}
+const {provisionTestRole}=require('./helpers/browser-role.cjs');
+const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
 (async () => {
   const browser = await chromium.launch({
     headless: true,
@@ -153,7 +131,11 @@ function provisionTestRole(email, role) {
       /Email verified/,
     );
     assert.equal(await vendor.page.locator("#verify-email").isVisible(), false);
-    provisionTestRole(vendor.email, "vendor");
+    if(process.env.EV_ROLE_SQLITE_PROBE==='1'){
+      await require('./helpers/sqlite-role-probe.cjs').provisionWithSqliteProbe(vendor.email,'vendor',{page:vendor.page,runner:phpRunner});
+    }else{
+      await provisionTestRole(vendor.email, "vendor", {pages: [vendor.page], runner: phpRunner});
+    }
     // The audited role promotion revokes the old browser authorization
     // epoch. Verify that boundary, then sign in again as the vendor.
     const staleVendorIdentity = vendor.page.waitForResponse(
@@ -720,7 +702,7 @@ function provisionTestRole(email, role) {
     await admin.page.getByRole("heading", { name: /Email verified/ }).waitFor();
     await admin.page.getByRole("link", { name: /Return to your account/ }).click();
     await admin.page.locator("#signed").waitFor({ state: "visible" });
-    provisionTestRole(admin.email, "admin");
+    await provisionTestRole(admin.email, "admin", {pages: [vendor.page, customer.page, admin.page], runner: phpRunner});
     const staleAdminIdentity = admin.page.waitForResponse(
       (response) =>
         response.url().endsWith("/api/me") &&
@@ -989,6 +971,46 @@ function provisionTestRole(email, role) {
     assert.equal(
       await customer.page.locator("#notification-fault-delay").inputValue(), "60",
     );
+    // A second full authenticated bootstrap is a separate protected-read
+    // phase. Respect its unchanged 60/minute window before sending any new
+    // mutation; never raise quotas, replay a failed write or retry assertions.
+    await waitForFreshWindow({wait: ms => new Promise(resolve => setTimeout(resolve, ms))});
+    // "Other" is a real tenant-scoped list category and can also be saved
+    // as the account's default; it must round-trip across browser sessions
+    // without hiding critical notifications or enabling external delivery.
+    await customer.page.locator("#notification-default-category").selectOption("other");
+    const otherSaved = customer.page.waitForResponse(
+      (response) => response.url().endsWith("/api/notifications/preferences") &&
+        response.request().method() === "PUT",
+    );
+    await customer.page.locator("#notification-preference-save").click();
+    assert.equal((await otherSaved).status(), 200);
+    assert.equal(
+      (await customer.page.evaluate(() => api("notifications/preferences"))).default_category,
+      "other",
+    );
+    await customer.page.reload();
+    await customer.page.locator("#notification-preferences").waitFor();
+    assert.equal(
+      await customer.page.locator("#notification-category").inputValue(), "other",
+    );
+    assert.equal(
+      await customer.page.locator("#notification-default-category").inputValue(), "other",
+    );
+    const otherSummary = await customer.page.evaluate(() => api("notifications/summary"));
+    assert(otherSummary.unread_by_category.support >= 0);
+    // Restore the earlier explicit choice so later logout/privacy assertions
+    // continue exercising their original scenario without changing scope.
+    await customer.page.locator("#notification-default-category").selectOption("charging");
+    const restored = customer.page.waitForResponse(
+      (response) => response.url().endsWith("/api/notifications/preferences") &&
+        response.request().method() === "PUT",
+    );
+    await customer.page.locator("#notification-preference-save").click();
+    assert.equal((await restored).status(), 200);
+    await customer.page.waitForFunction(() =>
+      document.querySelector("#notification-category")?.value === "charging",
+    );
     await vendor.page.setViewportSize({ width: 390, height: 844 });
     assert(
       await vendor.page.evaluate(
@@ -1030,10 +1052,28 @@ function provisionTestRole(email, role) {
     assert.equal(await customer.page.locator("#reservation-list").getAttribute("aria-busy"), null);
     // Explicit vendor logout must remove its already-loaded private reservation history.
     assert(await vendor.page.locator("#reservation-list article").count() > 0);
-    const signedOut = vendor.page.waitForResponse((response) =>
-      response.url().endsWith("/api/logout") && response.request().method() === "POST");
-    await vendor.page.locator("#logout").click();
-    assert.equal((await signedOut).status(), 204);
+    for(let attempt=0;attempt<2;attempt++){
+      const outcome=vendor.page.waitForResponse(response=>{
+        const path=new URL(response.url()).pathname;
+        return (path==='/api/csrf'&&response.status()!==200)||
+          (path==='/api/logout'&&response.request().method()==='POST');
+      });
+      const [response]=await Promise.all([outcome,
+        vendor.page.locator(attempt===0?'#logout':'#logout-retry').click()]);
+      if(response.status()===429&&attempt===0){
+        const seconds=Number(response.headers()['retry-after']);
+        assert(Number.isFinite(seconds)&&Number.isInteger(seconds)&&seconds>=0&&seconds<=60,'Bounded logout Retry-After required');
+        await vendor.page.locator('#logout-retry').waitFor({state:'visible'});
+        assert.equal(await vendor.page.locator('#reservation-list article').count(),0,'Unconfirmed logout must already erase private rows');
+        // Only a received middleware rejection permits the existing Retry
+        // sign-out action. Unknown outcomes and all other statuses fail.
+        await vendor.page.waitForTimeout((seconds+1)*1000);
+        continue;
+      }
+      assert.equal(new URL(response.url()).pathname,'/api/logout');
+      assert.equal(response.status(),204);
+      break;
+    }
     await vendor.page.locator("#account").waitFor({state:"visible"});
     assert.equal(await vendor.page.locator("#reservation-list article").count(), 0);
     const restricted = await browser.newContext();

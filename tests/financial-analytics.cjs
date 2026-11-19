@@ -115,6 +115,36 @@ const assert = require("node:assert/strict");
       .getByRole("button", { name: "Apply financial filters", exact: true })
       .click();
     await collected.waitFor();
+    // End-to-end vendor workspace: canonical itemized earnings, scoped CSV
+    // and source-only integrity evidence via authenticated Laravel endpoints.
+    const earningsForm = vendor.locator("form").filter({
+      has: vendor.getByRole("button", { name: "View earnings statement", exact: true }),
+    });
+    await earningsForm.locator("[name=vendor]").fill(String(f.vendor));
+    await earningsForm.locator("[name=currency]").fill("AED");
+    await earningsForm.getByRole("button", { name: "View earnings statement", exact: true }).click();
+    await vendor.getByRole("button", { name: "View itemized earnings", exact: true }).click();
+    const earningsPane = vendor.locator("[data-vendor-earnings]");
+    await earningsPane.locator('[data-earnings-invoice-id="' + f.invoice + '"]').waitFor();
+    assert.match(await earningsPane.innerText(), /Vendor allocation/);
+    const earningsDownload = vendor.waitForEvent("download");
+    await earningsPane.getByRole("link", { name: "Download earnings CSV", exact: true }).click();
+    await (await earningsDownload).saveAs(dir + "/vendor-earnings.csv");
+    const earnedCsv = fs.readFileSync(dir + "/vendor-earnings.csv", "utf8");
+    assert(earnedCsv.includes("vendor_allocated_minor"));
+    assert(earnedCsv.includes("pending_reserved_minor"));
+    await vendor.getByRole("button", {
+      name: "Inspect accessible ledger integrity", exact: true,
+    }).click();
+    const integrityPane = vendor.locator("[data-financial-integrity]");
+    await integrityPane.locator('[data-audit-invoice-id="' + f.invoice + '"]').waitFor();
+    const auditResponse = await vendor.request.get(base + "/api/finance/reconciliation-audit");
+    assert.equal(auditResponse.status(), 200);
+    assert.equal((await auditResponse.json()).external_psp_or_bank_verified, false);
+    const stranger = await vendor.request.get(
+      base + "/api/commercial/vendors/" + (Number(f.vendor) + 1000000) + "/earnings?currency=AED",
+    );
+    assert.equal(stranger.status(), 404);
     for (const theme of ["light", "dark"])
       for (const width of [390, 768, 1440]) {
         await vendor.setViewportSize({ width, height: 1000 });
@@ -178,6 +208,55 @@ const assert = require("node:assert/strict");
         .count(),
       0,
     );
+    // Admin financial triage is a read-only source union, not a second
+    // approval authority. Native Admin tokens remain denied by API middleware.
+    assert.equal(
+      await customer.getByRole("button", {
+        name: "Load pending finance reviews", exact: true,
+      }).count(), 0,
+      "Customer must not be offered privileged finance approval controls",
+    );
+    const maker = await login("maker");
+    const queueResponse = maker.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/finance/approval-queue" &&
+        response.request().method() === "GET";
+    });
+    await maker.getByRole("button", {
+      name: "Load pending finance reviews", exact: true,
+    }).click();
+    const queueHttp = await queueResponse;
+    assert.equal(queueHttp.status(), 200);
+    const queueBody = await queueHttp.json();
+    assert.equal(queueBody.admin_only, true);
+    assert.equal(queueBody.read_only, true);
+    assert.equal(queueBody.real_money_moved, false);
+    assert.equal(queueBody.mutations_performed, false);
+    assert.equal(queueBody.not_a_payment_or_payout_authority, true);
+    await maker.locator("[data-finance-approval-queue]")
+      .getByRole("heading", { name: "Pending financial reviews" }).waitFor();
+    assert.equal(
+      await maker.locator("[data-finance-approval-queue]")
+        .getByRole("button", { name: /Approve|Pay|Refund|Send/ }).count(),
+      0,
+      "The triage screen must not silently create approval/payment actions",
+    );
+    const approvalCsv = maker.locator("[data-finance-approval-queue]")
+      .getByRole("link", { name: "Download current approval page CSV", exact: true });
+    assert.match(await approvalCsv.getAttribute("href"),
+      /^\/api\/finance\/approval-queue\/export\?kind=all&per_page=20&page=1$/);
+    const approvalDownload = maker.waitForEvent("download");
+    await approvalCsv.click();
+    const exportFile = await approvalDownload;
+    await exportFile.saveAs(dir + "/admin-approval-queue.csv");
+    const exportText = fs.readFileSync(dir + "/admin-approval-queue.csv", "utf8");
+    assert.match(exportText, /^kind,record_id,vendor_id,invoice_id,currency/);
+    assert.doesNotMatch(exportText, /provider_reference|request_key|secret/i);
+    const wrongRole = await vendor.request.get(
+      base + "/api/finance/approval-queue?kind=refund",
+      { headers: { Accept: "application/json" } },
+    );
+    assert.equal(wrongRole.status(), 403);
     const anonymous = await browser.newContext();
     assert.equal(
       (

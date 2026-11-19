@@ -18,6 +18,21 @@ class PayoutService
         abort_unless(config('payouts.enabled') && ! app()->environment('production'), 503, 'Test payout execution is disabled; real payouts are prohibited.');
     }
 
+    /**
+     * No request snapshot is available to this service; verify the persisted
+     * reviewer state under a row lock in each write transaction. Controller
+     * entrypoints independently verify the request's credential snapshot.
+     */
+    private function currentAdmin(int $id): User
+    {
+        $admin = User::whereKey($id)->lockForUpdate()->first();
+        abort_unless($admin && $admin->role === 'admin'
+            && $admin->account_status === 'active', 409,
+            'The administrator must sign in again before a payout decision.');
+
+        return $admin;
+    }
+
     public function provider(string $name): PayoutProvider
     {
         abort_unless(in_array($name, ['mock', 'stripe_test'], true), 422);
@@ -51,7 +66,7 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($vendor, $actor, $v) {
-            User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            $this->currentAdmin($actor);
             User::whereKey($vendor)->where('role', 'vendor')->lockForUpdate()->firstOrFail();
             $key = hash('sha256', $actor.':'.$v['idempotency_key']);
             $fingerprint = hash('sha256', json_encode([$vendor, $v['provider'], $v['currency'], $v['account_reference'], $v['bank_reference']], JSON_THROW_ON_ERROR));
@@ -72,6 +87,11 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($id, $actor, $version) {
+            $vendor = User::whereKey($actor)->lockForUpdate()->first();
+            abort_unless($vendor && $vendor->account_status === 'active', 409,
+                'Vendor consent authority changed.');
+            abort_unless($vendor->role === 'vendor', 403,
+                'Only the Vendor owner can accept payout consent.');
             $hint = $this->account($id);
             User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
             $row = DB::table('commercial_payout_accounts')->where('id', $id)->lockForUpdate()->first();
@@ -89,11 +109,16 @@ class PayoutService
     public function verify(int $id, int $actor): object
     {
         $this->enabled();
+        // A demoted or suspended reviewer must not even trigger an external
+        // TEST provider verification request. Recheck again under the final
+        // write transaction after that request returns.
+        DB::transaction(fn () => $this->currentAdmin($actor), 3);
         $account = $this->account($id);
         abort_unless(in_array($account->status, ['pending_verification', 'active'], true) && $account->consented_at && $account->consent_version === config('payouts.consent_version'), 409, 'Vendor consent is required.');
         $this->provider($account->provider)->verify($account);
 
         return DB::transaction(function () use ($account, $id, $actor) {
+            $this->currentAdmin($actor);
             User::whereKey($account->vendor_id)->lockForUpdate()->firstOrFail();
             $fresh = DB::table('commercial_payout_accounts')->where('id', $id)->lockForUpdate()->first();
             abort_if($fresh->status === 'revoked', 409);
@@ -109,7 +134,13 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($id, $actor) {
+            $reviewer = User::whereKey($actor)->lockForUpdate()->first();
+            abort_unless($reviewer && $reviewer->account_status === 'active'
+                && in_array($reviewer->role, ['vendor', 'admin'], true), 409,
+                'Payout account authority changed.');
             $hint = $this->account($id);
+            abort_unless($reviewer->role === 'admin'
+                || (int) $hint->vendor_id === $actor, 404);
             User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
             $row = DB::table('commercial_payout_accounts')->where('id', $id)->lockForUpdate()->first();
             if ($row->status !== 'revoked') {
@@ -124,6 +155,12 @@ class PayoutService
     public function onboarding(int $id, int $actor, string $key): array
     {
         $this->enabled();
+        DB::transaction(function () use ($actor) {
+            $vendor = User::whereKey($actor)->lockForUpdate()->first();
+            abort_unless($vendor && $vendor->role === 'vendor'
+                && $vendor->account_status === 'active', 409,
+                'Vendor onboarding authority changed.');
+        }, 3);
         $account = $this->account($id);
         abort_unless((int) $account->vendor_id === $actor, 404);
         abort_unless($account->provider === 'stripe_test' && in_array($account->status, ['pending_verification', 'active'], true) && $account->consented_at && $account->consent_version === config('payouts.consent_version'), 409, 'Active owner consent for a Stripe TEST recipient is required.');
@@ -168,7 +205,7 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($settlementId, $accountId, $actor, $key) {
-            User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            $this->currentAdmin($actor);
             $hint = DB::table('commercial_settlements')->find($settlementId);
             abort_unless($hint, 404);
             User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
@@ -195,6 +232,7 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($id, $actor) {
+            $this->currentAdmin($actor);
             [$row, $settlement] = $this->lock($id);
             abort_if((int) $row->created_by === $actor, 403, 'Another administrator must approve the payout.');
             if ($row->status === 'approved') {
@@ -215,6 +253,7 @@ class PayoutService
         abort_unless(DB::transactionLevel() === 0 || app()->runningUnitTests(), 409, 'Payout execution must run outside caller transactions.');
         $lease = Str::random(48);
         [$payout, $attempt, $done] = DB::transaction(function () use ($id, $actor, $lease) {
+            $this->currentAdmin($actor);
             [$row, $settlement] = $this->lock($id);
             if (in_array($row->status, ['paid', 'pending'], true)) {
                 return [$row, null, true];
@@ -251,7 +290,10 @@ class PayoutService
             if (! $sent) {
                 abort_unless($provider->balance($account) >= (int) $payout->amount_minor, 409, 'The approved connected TEST account must be pre-funded before a bank payout.');
             }
-            DB::transaction(function () use ($id, $attempt, $lease) {
+            DB::transaction(function () use ($id, $attempt, $lease, $actor) {
+                // One last account-status check immediately before the
+                // durable request_sent boundary and outbound TEST payout POST.
+                $this->currentAdmin($actor);
                 [$row, $settlement] = $this->lock($id);
                 $this->eligible($settlement);
                 abort_unless(DB::table('commercial_payout_accounts')->where('id', $row->account_id)->where('status', 'active')->exists(), 409, 'Payout account has been revoked.');
@@ -363,6 +405,7 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($id, $actor) {
+            $this->currentAdmin($actor);
             [$row, $settlement] = $this->lock($id);
             abort_unless(in_array($row->status, ['failed', 'reversed'], true), 409, 'Only a known failed or reversed payout may create a replacement attempt.');
             $this->eligible($settlement);
@@ -378,6 +421,7 @@ class PayoutService
         $this->enabled();
 
         return DB::transaction(function () use ($id, $actor) {
+            $this->currentAdmin($actor);
             [$row] = $this->lock($id);
             if ($row->status === 'cancelled') {
                 return $row;

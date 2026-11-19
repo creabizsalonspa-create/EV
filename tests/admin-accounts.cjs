@@ -192,3 +192,26 @@ test('Pending moderation response cannot restore private UI after Admin logout',
   assert.equal(ui.root.textContent, '');
   assert.equal(ui.root.children.length, 0);
 });
+
+
+test('business directory combines owner lookup with one-company country and KYC state filters', async () => {
+  const ui = fixture();
+  const requests = [];
+  ui.setActor({role:'admin'}, async path => { requests.push(path); return data; });
+  await tick();
+  const inputs = nodes(ui.root, 'input');
+  assert.equal(inputs.length, 3);
+  inputs[1].value = 'Retail East';
+  inputs[2].value = 'ca';
+  const selects = nodes(ui.root, 'select');
+  selects[3].value = 'changes_requested';
+  const form = nodes(ui.root, 'form')[0];
+  form.onsubmit({preventDefault() {}});
+  await tick();
+  assert.match(requests[1], /company_q=Retail\+East/);
+  assert.match(requests[1], /company_country=CA/);
+  assert.match(requests[1], /company_status=changes_requested/);
+  assert.equal(nodes(ui.root, 'script').length, 0);
+  ui.setActor({role:'vendor'}, () => { throw Error('vendor must not query Admin accounts'); });
+  assert.equal(ui.root.children.length, 0);
+});

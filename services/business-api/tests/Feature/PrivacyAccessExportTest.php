@@ -11,6 +11,7 @@ use App\Services\Privacy\AccountDataExport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Tests\Support\CreatesUnpaidCreditInvoice;
 use Tests\TestCase;
 
@@ -186,5 +187,53 @@ class PrivacyAccessExportTest extends TestCase
         }
         $this->assertDatabaseCount('charging_price_consents', 2);
         $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_stale_admin_cannot_prepare_private_access_copy_after_role_epoch_or_password_change(): void
+    {
+        [$owner, $admin, , $case] = $this->scenario();
+        $path = '/api/admin/privacy-requests/'.$case->id.'/access-copy';
+        $payload = ['password' => 'password', 'request_key' => 'stale-admin-copy-identity'];
+        $this->actingAs($admin, 'web');
+
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
+        $this->postJson($path, $payload)->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'role' => 'admin',
+            'account_status' => 'suspended',
+        ]);
+        $this->postJson($path, $payload)->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'account_status' => 'active',
+            'auth_epoch' => 1,
+        ]);
+        $this->postJson($path, $payload)->assertStatus(409);
+
+        // The old Admin request snapshot must not prepare an encrypted
+        // copy even if the caller supplies the freshly rotated password.
+        DB::table('users')->where('id', $admin->id)->update([
+            'auth_epoch' => 0,
+            'password' => Hash::make('current-admin-secret'),
+        ]);
+        $this->postJson($path, [
+            'password' => 'current-admin-secret',
+            'request_key' => 'stale-admin-copy-identity',
+        ])->assertStatus(409);
+
+        $this->assertDatabaseCount('account_privacy_exports', 0);
+        $this->assertDatabaseCount('account_privacy_request_reviews', 0);
+        $this->assertSame('reviewing', $case->fresh()->status);
+        $this->assertSame(0, DB::table('audit_events')
+            ->where('action', 'privacy.copy.prepared')->count());
+
+        $currentAdmin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($currentAdmin, 'web')->postJson($path, $payload)
+            ->assertCreated()->assertJsonPath('copy.status', 'available');
+        $this->assertDatabaseCount('account_privacy_exports', 1);
+        $this->assertDatabaseHas('account_privacy_exports', [
+            'user_id' => $owner->id, 'prepared_by' => $currentAdmin->id,
+        ]);
     }
 }

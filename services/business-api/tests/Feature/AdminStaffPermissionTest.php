@@ -320,4 +320,74 @@ class AdminStaffPermissionTest extends TestCase
         $this->actingAs($admin)->getJson($history)->assertOk()
             ->assertJsonPath('total', 0);
     }
+
+    public function test_private_staff_revocation_history_rejects_invalid_pagination_without_audit(): void
+    {
+        [$admin, , , , $membership] = $this->fixture();
+        $this->actingAs($admin, 'web');
+        $base = '/api/admin/permission-grants/'.$membership->id.'/revocations';
+
+        foreach (['0', '-1', 'not-a-page', '1.5', '100001'] as $invalid) {
+            $this->getJson($base.'?page='.$invalid)->assertUnprocessable();
+        }
+        $this->assertSame(0, DB::table('audit_events')
+            ->where('action', 'admin.private_history.staff_viewed')->count());
+
+        $this->getJson($base.'?page=1')
+            ->assertOk()->assertJsonPath('total', 0)
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('action', 'admin.private_history.staff_viewed')->count());
+    }
+
+    public function test_admin_staff_holds_and_releases_revalidate_fresh_identity_under_lock(): void
+    {
+        [$admin, , , , $membership] = $this->fixture();
+        $revoke = '/api/admin/permission-grants/'.$membership->id.'/revoke';
+        $release = '/api/admin/permission-grants/'.$membership->id.'/release';
+        $this->actingAs($admin, 'web');
+
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'customer']);
+        $this->postJson($revoke, $this->payload())->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'role' => 'admin',
+            'auth_epoch' => 1,
+        ]);
+        $this->postJson($revoke, $this->payload())->assertStatus(409);
+        $this->assertDatabaseCount('admin_permission_revocations', 0);
+        $this->assertDatabaseHas('vendor_company_staff', [
+            'id' => $membership->id, 'status' => 'active', 'invitation_version' => 1,
+        ]);
+
+        DB::table('users')->where('id', $admin->id)->update(['auth_epoch' => 0]);
+        $this->postJson($revoke, $this->payload())->assertOk();
+
+        DB::table('users')->where('id', $admin->id)->update(['auth_epoch' => 1]);
+        $this->postJson($release, $this->payload(2))->assertStatus(409);
+        $this->assertDatabaseCount('admin_permission_revocations', 1);
+        $this->assertNotNull($membership->fresh()->admin_revoked_at);
+        $this->assertDatabaseHas('vendor_company_staff', [
+            'id' => $membership->id, 'status' => 'revoked', 'invitation_version' => 2,
+        ]);
+    }
+
+    public function test_private_grants_and_hold_history_recheck_current_admin(): void
+    {
+        [$admin, , , , $membership] = $this->fixture();
+        $this->actingAs($admin, 'web');
+        DB::table('users')->where('id', $admin->id)
+            ->update(['account_status' => 'suspended']);
+
+        $this->getJson('/api/admin/permission-grants')->assertForbidden();
+        $this->getJson('/api/admin/permission-grants/'.$membership->id.'/revocations')
+            ->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)
+            ->update(['account_status' => 'active', 'auth_epoch' => 1]);
+        $this->getJson('/api/admin/permission-grants')->assertStatus(409);
+        $this->getJson('/api/admin/permission-grants/'.$membership->id.'/revocations')
+            ->assertStatus(409);
+        $this->assertDatabaseCount('audit_events', 0);
+    }
 }

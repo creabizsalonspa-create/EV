@@ -26,13 +26,28 @@ final class SourceStatusDurations
             // current second exists, although it contributes no whole elapsed
             // second yet. DateTime bindings otherwise truncate microseconds.
             ->where('occurred_at', '<=', $asOf->format('Y-m-d H:i:s.u'))
-            ->orderBy('occurred_at')->orderBy('id')->limit(self::MAX_EVENTS + 1)->get();
+            ->orderBy('occurred_at')->orderBy('source_event_id')->limit(self::MAX_EVENTS + 1)->get();
         $base = ['window_started_at' => $start->toISOString(), 'window_ended_at' => $end->toISOString(),
             'window_seconds' => self::WINDOW_SECONDS, 'max_observation_hold_seconds' => self::MAX_HOLD_SECONDS,
             'basis' => 'BOUNDED_SIMULATED_STATUS_OBSERVATIONS', 'physical_uptime_verified' => false,
             'commands_sent' => false, 'components' => []];
         if ($rows->count() > self::MAX_EVENTS) {
             return $base + ['state' => 'requires_review', 'reason' => 'observation_budget_exceeded'];
+        }
+        // The source event ID is the canonical progression boundary. If the
+        // stored observation timestamp order disagrees with source ID order,
+        // historical imports or corruption may make older "Available" states
+        // appear newer than a subsequent fault. Do not publish partial uptime
+        // durations from such contradictory evidence.
+        $lastSourceId = 0;
+        foreach ($rows as $row) {
+            if (! is_int($row->source_event_id) && ! ctype_digit((string) $row->source_event_id)) {
+                return $base + ['state' => 'requires_review', 'reason' => 'source_event_order_conflict'];
+            }
+            if ((int) $row->source_event_id <= $lastSourceId) {
+                return $base + ['state' => 'requires_review', 'reason' => 'source_event_order_conflict'];
+            }
+            $lastSourceId = (int) $row->source_event_id;
         }
         $components = [];
         foreach ($rows as $row) {

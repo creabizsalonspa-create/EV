@@ -107,7 +107,7 @@ async function sourceTransaction(station, tx) {
   );
   return d.Transactions.find((t) => t.stationId === d.ChargingStations[0]?.id);
 }
-async function session(version, actors, revokedTag = null) {
+async function session(version, actors, revokedTag = null, meterUnit = "Wh") {
   const { customer, vendor, admin } = actors;
   const name =
     "ev-test-business-" +
@@ -432,9 +432,9 @@ async function session(version, actors, revokedTag = null) {
             timestamp: periodicAt,
             sampledValue: [
               {
-                value: "2500",
+                value: meterUnit === "kWh" ? "2.500" : "2500",
                 measurand: "Energy.Active.Import.Register",
-                unit: "Wh",
+                unit: meterUnit,
                 context: "Sample.Periodic",
               },
             ],
@@ -457,9 +457,9 @@ async function session(version, actors, revokedTag = null) {
             timestamp: periodicAt,
             sampledValue: [
               {
-                value: 2500,
+                value: meterUnit === "kWh" ? 2.5 : 2500,
                 measurand: "Energy.Active.Import.Register",
-                unitOfMeasure: { unit: "Wh" },
+                unitOfMeasure: { unit: meterUnit },
                 context: "Sample.Periodic",
               },
             ],
@@ -473,14 +473,14 @@ async function session(version, actors, revokedTag = null) {
       );
       return d.MeterValues.find((m) =>
         m.sampledValue.some(
-          (s) => s.context === "Sample.Periodic" && Number(s.value) === 2500,
+          (s) => s.context === "Sample.Periodic" && Number(s.value) === (meterUnit === "kWh" ? 2.5 : 2500),
         ),
       );
     }, "persisted periodic meter");
     const reading = middle.sampledValue.find(
       (s) => s.measurand === "Energy.Active.Import.Register",
     );
-    assert.equal(reading.unitOfMeasure.unit, "Wh");
+    assert.equal(reading.unitOfMeasure.unit, meterUnit);
     const meterEvent = event(
       sessionId,
       name,
@@ -488,7 +488,7 @@ async function session(version, actors, revokedTag = null) {
       transactionId,
       "meter",
       1,
-      Number(reading.value),
+      2500, // Independent exact fixture expectation, without float formatting.
       middle.timestamp,
     );
     if (useConsumer) {
@@ -716,6 +716,7 @@ async function session(version, actors, revokedTag = null) {
         daemon_restart_verified: useDaemon,
         continuous_dispatch_verified: autoDispatch,
         protocol: version,
+        periodic_meter_unit: meterUnit,
         station: name,
         session_id: sessionId,
         source_transaction_id: transactionId,
@@ -751,8 +752,10 @@ async function session(version, actors, revokedTag = null) {
   const customer = await new BusinessClient().register("customer"),
     vendor = await new BusinessClient().register("vendor"),
     admin = await new BusinessClient().register("admin");
-  await session("1.6", { customer, vendor, admin });
-  await session("2.0.1", { customer, vendor, admin });
+  for (const meterUnit of useConsumer ? ["Wh", "kWh"] : ["Wh"]) {
+    await session("1.6", { customer, vendor, admin }, null, meterUnit);
+    await session("2.0.1", { customer, vendor, admin }, null, meterUnit);
+  }
 })().catch((e) => {
   console.error(e.message);
   process.exitCode = 1;

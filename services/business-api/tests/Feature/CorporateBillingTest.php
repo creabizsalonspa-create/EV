@@ -18,6 +18,7 @@ use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -116,6 +117,80 @@ class CorporateBillingTest extends TestCase
         $this->assertSame(0, app(FinanceService::class)->summary($invoice)['amount_due_minor']);
         $this->assertTrue(app(FinanceService::class)->summary($invoice)['ledger_balanced']);
         $this->getJson($this->url('statements/'.$s['id']))->assertOk()->assertJsonPath('state', 'simulated_paid');
+    }
+
+    public function test_revoked_corporate_owner_and_admin_cannot_read_or_collect_private_statements(): void
+    {
+        $agreement = $this->agreement();
+        $claim = $this->approved($agreement, $this->invoice());
+        $statement = $this->issue($agreement, [$claim])->assertCreated()->json('statement');
+        $before = DB::table('finance_journals')->count();
+
+        foreach ([$this->owner, $this->admin] as $reader) {
+            $snapshot = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $snapshot->role,
+                'account_status' => $snapshot->account_status,
+                'auth_epoch' => $snapshot->auth_epoch,
+                'password' => $snapshot->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson('/corporate-test/commercial/corporate?fleet_id='.$this->fleet->id)->assertOk();
+            $this->getJson($this->url('agreements/'.$agreement['id'].'/claims'))->assertOk();
+            $this->getJson($this->url('agreements/'.$agreement['id'].'/statements'))->assertOk();
+            $this->getJson($this->url('statements/'.$statement['id']))->assertOk();
+
+            foreach ([
+                ['role' => 'vendor'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $snapshot->auth_epoch + 1],
+                ['password' => Hash::make('rotated-corporate-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $this->getJson('/corporate-test/commercial/corporate?fleet_id='.$this->fleet->id)->assertConflict();
+                $this->getJson($this->url('agreements/'.$agreement['id'].'/claims'))
+                    ->assertConflict();
+                $this->getJson($this->url('agreements/'.$agreement['id'].'/statements'))
+                    ->assertConflict();
+                $this->getJson($this->url('statements/'.$statement['id']))->assertConflict();
+                $this->get($this->url('statements/'.$statement['id'].'/export'))
+                    ->assertConflict();
+                $this->postJson($this->url('statements/'.$statement['id'].'/simulate-payment'), [
+                    'idempotency_key' => 'revoked-no-corporate-ledger-post',
+                ])->assertConflict();
+                $this->postJson($this->url('agreements/'.$agreement['id'].'/accept'), [
+                    'consent' => true,
+                ])->assertConflict();
+                $this->postJson($this->url('agreements/'.$agreement['id'].'/claims'), [
+                    'invoice_id' => $claim['invoice_id'], 'cost_center_id' => $this->center,
+                    'idempotency_key' => 'revoked-corporate-claim',
+                ])->assertConflict();
+                $this->postJson($this->url('claims/'.$claim['id'].'/review'), [
+                    'decision' => 'approved', 'reason' => 'Revoked actor must not review',
+                ])->assertConflict();
+                $this->postJson($this->url('agreements/'.$agreement['id'].'/statements'), [
+                    'period' => now()->format('Y-m'), 'claim_ids' => [$claim['id']],
+                    'idempotency_key' => 'revoked-corporate-invoice',
+                ])->assertConflict();
+                if ($snapshot->role === 'admin') {
+                    $this->postJson($this->url('fleets/'.$this->fleet->id.'/agreements'), [
+                        'currency' => 'AED', 'minor_units' => 2,
+                        'credit_limit_minor' => 100000, 'payment_terms_days' => 30,
+                        'billing_day' => 1,
+                        'effective_from' => now()->addDays(2)->toIso8601String(),
+                        'expires_at' => now()->addYear()->toIso8601String(),
+                        'legal_name' => 'Must not publish when revoked',
+                        'terms' => 'A revoked Admin cannot create this agreement.',
+                        'idempotency_key' => 'revoked-new-agreement',
+                    ])->assertConflict();
+                }
+                DB::table('users')->where('id', $reader->id)->update($original);
+            }
+        }
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('corporate_receipts', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
     }
 
     public function test_unaccepted_expired_foreign_and_revoked_membership_cannot_claim(): void

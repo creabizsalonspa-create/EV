@@ -1,0 +1,82 @@
+{
+  "status": "MODULE_LOCAL_VERIFIED_COMBINED_SOURCE_PENDING",
+  "parent": "895de6fd53582ef52aee849952a730edcb892881",
+  "verification": {
+    "focused_cases": 168,
+    "assertions": 2559,
+    "real_red_regressions": 19,
+    "actual_citrine_cases": [
+      {
+        "protocol": "1.6",
+        "periodic_meter_unit": "Wh",
+        "energy_wh": 2500,
+        "invoice_total_minor": 329,
+        "one_invoice": true,
+        "ledger_balanced": true,
+        "daemon_restart_verified": true,
+        "source_outcome_reconciled": true,
+        "real_payment_processed": false
+      },
+      {
+        "protocol": "2.0.1",
+        "periodic_meter_unit": "Wh",
+        "energy_wh": 2500,
+        "invoice_total_minor": 329,
+        "one_invoice": true,
+        "ledger_balanced": true,
+        "daemon_restart_verified": true,
+        "source_outcome_reconciled": true,
+        "real_payment_processed": false
+      },
+      {
+        "protocol": "1.6",
+        "periodic_meter_unit": "kWh",
+        "energy_wh": 2500,
+        "invoice_total_minor": 329,
+        "one_invoice": true,
+        "ledger_balanced": true,
+        "daemon_restart_verified": true,
+        "source_outcome_reconciled": true,
+        "real_payment_processed": false
+      },
+      {
+        "protocol": "2.0.1",
+        "periodic_meter_unit": "kWh",
+        "energy_wh": 2500,
+        "invoice_total_minor": 329,
+        "one_invoice": true,
+        "ledger_balanced": true,
+        "daemon_restart_verified": true,
+        "source_outcome_reconciled": true,
+        "real_payment_processed": false
+      }
+    ]
+  },
+  "source_sha256": {
+    "services/business-api/app/Services/Charging/SourceConsumer.php": "11629d51881550f0dfeb918d2ffe5ac583a0883c8099db631ddbfd6c703e65b8",
+    "services/business-api/app/Services/Charging/SourceGraphJson.php": "00a8c35c95fd945b2fedf46d77442ff6d36f5931eb2709a0cec431284bfc9943",
+    "services/business-api/tests/Feature/SourceConsumerTest.php": "69db0badc5003ba96f80af37497d8a57ee97da5a8c7816bdf08639689a04a361",
+    "services/business-api/tests/Feature/SourceGraphJsonTest.php": "c5c0f26bcdf760322205d816ccd1ebae3aaa8c3ee9c779a1e707486b57beac03",
+    "tests/charging-business.cjs": "e1ee4fe14b2c798aa14655bd6fd895469283536e8dec1036a5614d473256e0df"
+  },
+  "log_sha256": {
+    "red": "38622e6c353c19e5b67fb40fd36ebc1fb9192d22178b0f2a82c891a810766ad5",
+    "focused_final": "c7ba6a50ff1bc919acdfacbc103275f70e96f4b87a93e05fb51cad0ac133d676",
+    "actual": "bfcd9b3d6f5970226c0dcdac05aac8b73f236ab80e269e40a03b9c66b8c7a1bc"
+  },
+  "preserved_required_checks": [
+    "Direct floating-point values still rejected without authenticated raw lexemes",
+    "Existing malformed-page negative cases retained; valid3.5kWh replaced with genuinely fractional-Wh3.5001kWh",
+    "JSON_PRESERVE_ZERO_FRACTION ensures float-multiplier fixtures actually send0.0 rather than accidentally valid0",
+    "No actor/ID/multiplier/diagnostic-value coercion",
+    "All original Wh protocol cases remain; consumer cases additionally run kWh without new accounts"
+  ],
+  "unsupported_still_requires_reconciliation": [
+    "sub-Wh readings",
+    "exponent lexemes",
+    "nonzero or noninteger multipliers",
+    "undeclared or malformed unit projections"
+  ],
+  "production_or_hardware_acceptance": false,
+  "tracker_credit_added": 0
+}

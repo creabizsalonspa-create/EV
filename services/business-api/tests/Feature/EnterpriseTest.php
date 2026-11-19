@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class EnterpriseTest extends TestCase
@@ -114,6 +115,59 @@ class EnterpriseTest extends TestCase
         $this->getJson('/api/fleet-invitations?page=1')
             ->assertOk()->assertJsonPath('total', 25)
             ->assertJsonPath('data.0.id', $invitationIds[24]);
+    }
+
+    public function test_region_configuration_rechecks_live_admin_role_status_and_credentials(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin, 'web');
+        $payload = [
+            'currency' => 'XZZ',
+            'minor_units' => 2,
+            'timezone' => 'Asia/Dubai',
+            'tax_bps' => 1200,
+            'commerce_enabled' => true,
+        ];
+        $country = 'XZ';
+
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
+        $this->putJson('/api/regions/'.$country, $payload)->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'role' => 'admin',
+            'account_status' => 'suspended',
+        ]);
+        $this->putJson('/api/regions/'.$country, $payload)->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'account_status' => 'active',
+            'auth_epoch' => 1,
+        ]);
+        $this->putJson('/api/regions/'.$country, $payload)->assertStatus(409);
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'auth_epoch' => 0,
+            'password' => Hash::make('rotated-owner-password'),
+        ]);
+        $this->putJson('/api/regions/'.$country, $payload)->assertStatus(409);
+        $this->assertDatabaseMissing('regions', ['country' => $country]);
+        $this->assertDatabaseMissing('audit_events', [
+            'action' => 'region.configured',
+            'subject' => $country,
+        ]);
+
+        $freshAdmin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($freshAdmin, 'web')
+            ->putJson('/api/regions/'.$country, $payload)
+            ->assertOk()->assertJsonPath('country', $country)
+            ->assertJsonPath('currency', 'XZZ')
+            ->assertJsonPath('commerce_enabled', fn ($enabled) => $enabled === false || $enabled === 0);
+
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $freshAdmin->id,
+            'action' => 'region.configured',
+            'subject' => $country,
+        ]);
     }
 
     public function test_invitation_requires_recipient_acceptance_and_tenant_privacy(): void

@@ -138,7 +138,13 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
       await approval
         .locator("[name=note]")
         .fill("Reviewed independently trusted synthetic signature");
-      await approval.getByRole("button", { name: "Save", exact: true }).click();
+      const approvedReply=a.p.waitForResponse(r=>new URL(r.url()).pathname===`/api/vendor-ops/companies/${f.company_id}/firmware-releases`&&r.request().method()==='POST');
+      const [approved]=await Promise.all([approvedReply,approval.getByRole("button", { name: "Save", exact: true }).click()]);
+      assert.equal(approved.status(),201);
+      const release=await approved.json();assert.equal(release.signature_verified,true);
+      const approvedPage=await admin.request(`vendor-ops/companies/${f.company_id}/firmware-releases`);
+      const evidence=approvedPage.data.find(row=>row.id===release.id);
+      assert.deepEqual(evidence.compatibility_policy,{protocols:[f.protocol],from_versions:[f.initial_version],manifest_sha256:f.compatibility_manifest_sha256});
       await releases.getByText(f.sha256, { exact: true }).waitFor();
       const o = await open(owner);
       await o.ops
@@ -159,9 +165,19 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
       const releaseId = Number(
         await form.locator("[name=release_id]").inputValue(),
       );
-      await form.getByRole("button", { name: "Save", exact: true }).click();
-      await pane.getByText("transport_submitted", { exact: true }).waitFor();
       const path = `vendor-ops/companies/${f.company_id}/chargers/${f.charger_id}/firmware-operations`;
+      // The first Boot intentionally omitted current firmware identity. The
+      // production guard must reject it without a command or durable operation.
+      await assert.rejects(owner.request(path,'POST',{release_id:releaseId,reason:'Signed synthetic firmware demonstration only',idempotency_key:key}),/failed \(409\): Complete typed source firmware identity/);
+      assert.equal((await owner.request(path)).data.length,0);
+      assert.equal(charger.commands.filter(c=>['SignedUpdateFirmware','UpdateFirmware'].includes(c.action)).length,0);
+      await charger.call('BootNotification',f.protocol==='1.6'
+        ?{chargePointVendor:'Synthetic',chargePointModel:'Fixture',firmwareVersion:f.initial_version}
+        :{reason:'PowerUp',chargingStation:{vendorName:'Synthetic',model:'Fixture',firmwareVersion:f.initial_version}});
+      const submittedReply=o.p.waitForResponse(r=>new URL(r.url()).pathname==='/api/'+path&&r.request().method()==='POST');
+      const [submitted]=await Promise.all([submittedReply,form.getByRole("button", { name: "Save", exact: true }).click()]);
+      assert.equal(submitted.status(),201);assert.equal((await submitted.json()).status,'transport_submitted');
+      await pane.getByText("transport_submitted", { exact: true }).waitFor();
       await owner.request(path, "POST", {
         release_id: releaseId,
         reason: "Signed synthetic firmware demonstration only",
