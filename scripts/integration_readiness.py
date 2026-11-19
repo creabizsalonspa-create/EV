@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only, fail-closed PR merge-candidate audit for the ten-agent EV team.
+"""Read-only, fail-closed PR merge-candidate audit for the EV integration controller.
 
 This tool NEVER merges, changes repository settings or bypasses checks.
 A 'candidate' means manual exact-source, review, security and dependency
@@ -369,6 +369,27 @@ class GitHub:
         raise ValueError("Pagination exceeded safe review limit")
 
 
+def integration_target_sha(github, target):
+    """Read the actual ref; a PR's cached base SHA is not current-target proof."""
+    data = github.get("/git/ref/heads/" + target)
+    sha = data.get("object", {}).get("sha")
+    if not isinstance(sha, str) or not re.fullmatch(r"[a-f0-9]{40}", sha):
+        raise ValueError("Invalid current integration target SHA")
+    return sha
+
+
+def source_contains_target(github, target_sha, source_sha):
+    """Conservatively require tested source to contain the current target.
+
+    This does not replace the controller's local merge-tree verification.
+    Diverged candidates must first integrate the target and rerun their gates.
+    """
+    comparison = github.get("/compare/" + target_sha + "..." + source_sha)
+    return (comparison.get("status") in ("ahead", "identical")
+            and comparison.get("merge_base_commit", {}).get("sha") == target_sha
+            and comparison.get("base_commit", {}).get("sha") == target_sha)
+
+
 def inspect_live(repo=REPOSITORY, target=TARGET, limit=100, only_pr=None,
                  non_draft_target=False):
     if non_draft_target and only_pr is not None:
@@ -392,10 +413,7 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=100, only_pr=None,
     }
     # Exact merged-ancestor attestation is needed only for prerequisites that
     # have disappeared from the open list; open prerequisites are blocked.
-    target_sha = None
-    if any(n not in active for n in required_parents):
-        info = github.get("/branches/" + target)
-        target_sha = info["commit"]["sha"]
+    target_sha = integration_target_sha(github, target)
     verified_dependencies = {
         n: dependency_status(github, n, target, target_sha, active)
         for n in sorted(required_parents)
@@ -431,6 +449,12 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=100, only_pr=None,
             prerequisites=dependency_graph.get(number, ()),
             prerequisite_status=verified_dependencies,
         )
+        evaluated["integration_target_sha"] = target_sha
+        evaluated["source_contains_current_target"] = source_contains_target(
+            github, target_sha, before["head"]["sha"])
+        if not evaluated["source_contains_current_target"]:
+            evaluated["status"] = "blocked"
+            evaluated["blockers"].append("tested_source_missing_current_target")
         if not complete_files:
             evaluated["status"] = "blocked"
             evaluated["blockers"].append("incomplete_changed_file_inventory")
@@ -450,6 +474,11 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=100, only_pr=None,
             evaluated["status"] = "blocked"
             evaluated["blockers"].append("pr_readiness_changed_during_inspection")
         results.append(evaluated)
+    final_target_sha = integration_target_sha(github, target)
+    if final_target_sha != target_sha:
+        for evaluated in results:
+            evaluated["status"] = "blocked"
+            evaluated["blockers"].append("integration_target_changed_during_inspection")
     overlap = shared_changed_files(changed_by_pr)
     for evaluated in results:
         own = evaluated["pr"]
@@ -463,7 +492,9 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=100, only_pr=None,
         {"path": path, "prs": numbers, "risk": risk_rank(path)}
         for path, numbers in overlap.items()
     ]
-    return {"repository": repo, "target": target, "audited_prs": len(results),
+    return {"repository": repo, "target": target,
+            "integration_target_sha": target_sha,
+            "final_integration_target_sha": final_target_sha, "audited_prs": len(results),
             "audit_scope": ("single_pr" if only_pr is not None else
                              "non_draft_target" if non_draft_target else
                              "all_open_prs"),
