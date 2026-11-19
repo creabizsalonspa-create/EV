@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/unified_discovery.dart';
 import 'package:creabiz_ev/api.dart';
+import 'package:creabiz_ev/partner_report_map.dart';
 import 'test_support.dart';
 
 Map<String,dynamic> catalogRow()=>{'key':'catalog:7','kind':'catalog','station':{'id':7,'name':'Synthetic catalog','connector_type':'CCS2','power_kw':50,'evidence':'SIMULATED','reservable':false}};
@@ -155,7 +156,7 @@ void main(){
   testWidgets('advanced filters normalize rate digits and preserve submitted pagination ($ar)',(tester)async{
    roomy(tester);final api=UnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){},ar:ar));
    final expand=find.byType(ExpansionTile);await tester.ensureVisible(expand);await tester.tap(expand);await tester.pumpAndSettle();
-   for(final field in {'operator':'100%_operator','address':'دبي','access':'Visitors','max_rate_per_kwh':'١٫٥٠','price_currency':'aed'}.entries){
+   for(final field in {'operator':'100%_operator','address':'دبي','access':'Visitors','min_power_kw':'٤٠','max_power_kw':'٦٠','max_rate_per_kwh':'١٫٥٠','price_currency':'aed'}.entries){
     final input=find.byKey(Key('unified-${field.key}'));await tester.ensureVisible(input);await tester.enterText(input,field.value);
    }
    final search=find.byType(FilledButton);await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
@@ -404,7 +405,13 @@ void main(){
    expect(find.textContaining(ar?'تفاصيل العنوان غير متاحة':'Address details unavailable'),findsOneWidget);
    expect(find.textContaining(ar?'إحداثيات الخريطة غير متاحة':'Map coordinates unavailable'),findsOneWidget);
    expect(find.textContaining('[object Object]'),findsNothing);
-   expect(find.byKey(const Key('unified-map-open')),findsNothing);
+   // Integrated zero-pin exploration remains available, but missing
+   // coordinates must never become a station marker or implicit lookup.
+   final explore=find.byKey(const Key('unified-map-open'));
+   await tester.ensureVisible(explore);await tester.tap(explore);await tester.pumpAndSettle();
+   expect(tester.widget<PartnerReportMap>(find.byType(PartnerReportMap)).points,isEmpty);
+   expect(find.byType(TileLayer),findsNothing);
+   expect(api.calls.length,1);
    expect(tester.takeException(),isNull);
   });
  }
@@ -639,4 +646,33 @@ void main(){
    expect(bbox.containsKey('longitude'),false);
    expect(tester.takeException(),isNull);
  });
+ for(final ar in [false,true])for(final transition in ['account','role','clear']){
+  testWidgets('discarded recent-filter callback cannot enter current native form ($ar $transition)',(tester)async{
+   roomy(tester);
+   final first=UnifiedApi(),second=UnifiedApi();
+   addTearDown(first.close);addTearDown(second.close);
+   await tester.pumpWidget(app(first,(_){},ar:ar,customer:true));
+   final input=find.byKey(const Key('unified-query'));
+   await tester.enterText(input,'Private old location');
+   final submit=find.byType(FilledButton);
+   await tester.ensureVisible(submit);await tester.tap(submit);await tester.pumpAndSettle();
+   final restore=tester.widget<OutlinedButton>(find.byKey(const Key('unified-recent-0'))).onPressed!;
+   if(transition=='account'){
+    await tester.pumpWidget(app(second,(_){},ar:ar,customer:true));
+   }else if(transition=='role'){
+    await tester.pumpWidget(app(first,(_){},ar:ar,customer:false));
+   }else{
+    final clear=find.byKey(const Key('unified-recent-clear'));
+    await tester.ensureVisible(clear);await tester.tap(clear);
+   }
+   await tester.pumpAndSettle();
+   await tester.enterText(input,'Current draft');
+   final before=first.calls.length+second.calls.length;
+   restore();await tester.pumpAndSettle();
+   expect(tester.widget<TextField>(input).controller!.text,'Current draft');
+   expect(first.calls.length+second.calls.length,before);
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+  });
+ }
+
 }

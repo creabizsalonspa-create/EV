@@ -337,3 +337,17 @@ for(const lang of ['en','ar'])test('forged published station evidence never crea
   'Valid partner preferences must remain independent');
  assert.equal(f.chosen.length,0);
 });
+
+for(const lang of ['en','ar'])for(const transition of ['account','role','clear'])test('detached recent-filter callback cannot restore a discarded private preset '+lang+' '+transition,async()=>{
+ const f=fixture(lang);f.control.setContext({owner:'owner-A',customer:true});
+ const input=f.form.children[0].children.find(n=>n.tag==='input');input.value='Private old location';
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const panel=f.root.children[7],restore=panel.children[1].children[0].onclick;
+ if(transition==='account')f.control.setContext({owner:'owner-B',customer:true});
+ else if(transition==='role')f.control.setContext({owner:'owner-A',customer:false});
+ else panel.children[2].onclick();
+ input.value='Current draft';const before=f.calls.length;restore();
+ assert.equal(input.value,'Current draft','A discarded actor/history callback must not overwrite current form fields');
+ assert.equal(f.calls.length,before,'Discarded callbacks must not issue requests');
+ assert.equal(panel.hidden,true);
+});

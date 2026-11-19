@@ -152,6 +152,9 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   // the ListView key remounts dropdowns with the restored initialValue.
   void restoreRecent(Map<String,String> old){
     if(!mounted||!foreground||busy||writing||!ownSession())return;
+    // A detached callback may outlive account/role changes or Clear history.
+    // Only a preset still owned by this view may re-enter its current draft.
+    if(!recentPresets.any((preset)=>identical(preset,old)))return;
     query.text=old['q']??'';
     for(final field in advanced.entries) {
       field.value.text=old['advanced_${field.key}']??'';

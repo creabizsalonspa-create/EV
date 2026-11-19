@@ -49,6 +49,8 @@
       const displayAr=[record.q||'كل المواقع',record.country||'كل الدول',sourceLabel[1]].join(' · ').slice(0,120);
       const restore=button('Restore filters: '+displayEn,'استعادة المرشحات: '+displayAr,()=>{
         if(writing||submit.disabled)return;
+        // Discarded actor/history callbacks cannot repopulate a new form.
+        if(!recentPresets.includes(record))return;
         input.value=record.q;source.value=record.scope;market.value=record.country;
         plug.value=record.connector;report.value=record.recentStatus;
         ageFilter.value=record.maxSourceAge;savedInput.checked=customer&&record.savedOnly;
