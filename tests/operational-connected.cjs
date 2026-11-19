@@ -5,7 +5,7 @@ const { runPacedSuites } = require("./helpers/auth-batches.cjs");
 const OPERATIONAL_SUITE_TIMEOUT_MS = 12 * 60 * 1000;
 const OPERATIONAL_PREP_TIMEOUT_MS = 2 * 60 * 1000;
 const groups = [
-  ["auth-bootstrap", "session-cookie-read"], // real cookie ordering/account-switch regressions; 3+4 authentication requests
+  ["auth-bootstrap", "session-cookie-read", "admin-current-authority-e2e"], // real cookie/current-Admin regressions; 3+4+2 = 9 authentication requests
   ["invoice-history", "money-input", "tariffs", "managed-gate"], // 3+0+4+2 = 9 logins
   [
     "canonical-topology",
