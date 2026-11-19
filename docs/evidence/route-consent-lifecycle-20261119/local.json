@@ -1,0 +1,78 @@
+{
+  "status": "LOCAL_VERIFIED_CURRENT_HOSTED_HEAD_PENDING",
+  "original_source_preserved": "612cf9b74f93379c18b13825b6c3c023587db147",
+  "code_checkpoint": "d92d7c90",
+  "flutter": {
+    "passed": 694,
+    "explicit_fixture_skips": 35,
+    "focused_passed": 18,
+    "analysis": "No issues found",
+    "real_initial_mount_red_cases": 2
+  },
+  "native_config_and_artifact_guards": 15,
+  "retained_customer_session_pacing_tests": 25,
+  "browser": "Owned candidate Laravel8025 serves current web source; unconfigured/csrf endpoints are actual, provider/address/GPS/navigation/tiles and station catalog are controlled synthetic fixtures. EN/AR editing revokes route consent, three-stop order/filter conflicts, old-identity capabilities/navigation and real visibility-change clearing are preserved.",
+  "map_regressions": [
+    "Reviewed self-hosted Leaflet/BSD asset hashes",
+    "Mixed source map/privacy/refit and scoped capabilities",
+    "Partner nearby km/source-age/Arabic with no controls",
+    "OpenChargeMap explicit consent/licenses/XSS/identity reset"
+  ],
+  "backend_unchanged_from_verified_parent": {
+    "app": {
+      "parent": "0c7b383f058273a87a4a239c3a83fd27127ade57",
+      "candidate": "0c7b383f058273a87a4a239c3a83fd27127ade57"
+    },
+    "routes": {
+      "parent": "92e9d926879fab21e47b3e8b22298d07cbffaf7f",
+      "candidate": "92e9d926879fab21e47b3e8b22298d07cbffaf7f"
+    },
+    "database": {
+      "parent": "df2b60c4bbc672d1b13cfa005c4151b27ebc012c",
+      "candidate": "df2b60c4bbc672d1b13cfa005c4151b27ebc012c"
+    },
+    "config": {
+      "parent": "8db2c0cebf21d0ca1059d896eb3a0c7bc7933c83",
+      "candidate": "8db2c0cebf21d0ca1059d896eb3a0c7bc7933c83"
+    },
+    "composer.lock": {
+      "parent": "aaea228b1fecabfde3e2740c689177d4f1b5b3dd",
+      "candidate": "aaea228b1fecabfde3e2740c689177d4f1b5b3dd"
+    }
+  },
+  "inherited_backend_evidence": "acd89465:1715Laravel/31290assertions, PostgreSQL890/12243+32/478+2/13; no fresh backend rerun claimed because executable PHP/API/schema/config/dependencies match exactly.",
+  "failed_attempts": [
+    "Initial new native fixture omitted the required source evidence string; corrected fixture before counting any production red.",
+    "Two valid initially-inactive EN/AR cases reproduced before lifecycle fix.",
+    "Adding a real indeterminate capability spinner exposed an old test pumpAndSettle while its future is intentionally held; two bounded animation pumps preserve every epoch/dialog assertion.",
+    "New retry test text was outside its initial small test viewport; corrected test surface.",
+    "First browser attempt targeted older server8000; corrected isolated current-source8025, retained original web input handler unchanged."
+  ],
+  "software_scope": "Advertised connector labels and read-only route intent only; no physical compatibility, energy, availability, reservation or charging authorization. Unknown routing configuration gets explicit single-flight retry; inactive mount discards initial coordinates/stops/tile opt-in.",
+  "source_sha256": {
+    "apps/mobile/lib/discovery_client.dart": "6cb3ea2c4725a3fc6005d98c208be67fb59ee5b7ddc9c8f89cf85876ef028fd3",
+    "apps/mobile/lib/route_planner.dart": "20d5cd87a0a0cb57ca873c038a6bbec3556b643f074f29008386c7d0a590f4f1",
+    "apps/mobile/test/discovery_route_test.dart": "be708a51509d958026d0b3a93df9da8d3549143d97186b91cbd4ccfd4cdd0498",
+    "apps/mobile/test/route_initial_lifecycle_test.dart": "a468e3ae1ea5644fba22f227fc38c946d29a71800217c075ee00a6c0614f360b",
+    "services/business-api/public/discovery-tools.js": "73445694cfa3da248ae599d67a065b59358816677d6e6adaf91d4c6d1cd4ff94",
+    "tests/discovery-routing.cjs": "db8d7cc2533f10c1a4857be7a5d9fd80bb608bd2771f12b119d35ba219091a2d"
+  },
+  "local_log_sha256": {
+    "/tmp/ev-routes-focused-initial.txt": "41036cb4c36fe352a981d78da4fff01fac80b410cd1848794d32dc740ab21702",
+    "/tmp/ev-routes-initial-red.txt": "1cb6cb2773013c162dca9aee750952f37eece1c3aaef7ab3c92c1b1185063700",
+    "/tmp/ev-routes-initial-valid-red.txt": "7d8cc0499b7ab18930f8aa2bcdad5ec000f44c6af373d24875026bed747bb7a5",
+    "/tmp/ev-routes-first-green.txt": "687c0c6960750ed2ebf700a47e123e04d5dbe545fb4b82139fe38e966f16e657",
+    "/tmp/ev-routes-focused-corrected.txt": "65fb3526e29966a16c06733677c05f0d62a168e3b21235415e43b2c41e3ae783",
+    "/tmp/ev-routes-flutter.txt": "f50f543713872ea10d3a0e1d8ed585995edbb28988f4f39ca3bbaafecb2d6007",
+    "/tmp/ev-routes-analyze.txt": "4d56dd1e1a5974ee05c052c2d4aa9f3279dfc986301d0bea9414a332bc630cc8",
+    "/tmp/ev-routes-web-controlled.txt": "2a88f988dc8aae51639df1f7d5e224f88c7cccd1f6648dd8b09b2667ce2cfd5d",
+    "/tmp/ev-routes-web-own-source.txt": "ae939b164b52b267d26a623603951adfa679d475a765ac9199fcda68d7db3e5d",
+    "/tmp/ev-routes-map-assets.txt": "4fcb7bc333e51ea68ed62b6da3e5576932bae1b7d20a9545f5bb71e2d4a70eb4",
+    "/tmp/ev-routes-discovery-map.txt": "db8e421468ef68287cd2c54c7becdc7360d8715b0144d6bcfb96b40cef6ba32b",
+    "/tmp/ev-routes-partner-nearby.txt": "defa590fb3042d55c7806a7888a8973ee279a45348975ad476653a2ffda31b90",
+    "/tmp/ev-routes-open-charge-map.txt": "60d3f0d4242c75ee8f2c0034aa8543e1eaa17ac3095b5a04fd67fa2d257b7f0b",
+    "/tmp/ev-routes-native-guards.txt": "e8ce395dc18e2908407247d77c587c34b2545ad5b422e8c0b8e7963bf95e29ca",
+    "/tmp/ev-routes-browser-unit.txt": "a36ac842a3c02d3f5b354ec7c7b3f1b94d54dcdc8c8f0b37154543e1a44dab88"
+  },
+  "production_accepted": false
+}
