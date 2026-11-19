@@ -252,7 +252,7 @@ class _VendorSessionObservationsState
       if (current(run)) setState(() => data = parsed);
     } catch (e) {
       if (current(run)) {
-        if (e is ApiException && [401, 419].contains(e.status))
+        if (e is ApiException && [401, 409, 419].contains(e.status))
           widget.onExpired();
         if (current(run))
           setState(() {

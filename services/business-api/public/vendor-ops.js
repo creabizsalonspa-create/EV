@@ -308,7 +308,7 @@ window.createVendorWorkspace = ({
         const current=()=>valid(epoch)&&version===detailGeneration;
         if(!current()||document.hidden||company.capabilities?.charging_read!==true)return;
         selected=company;
-        window.EvCompanySessionObservations.open({host:root.querySelector('[data-company-detail]'),api,company,current});
+        window.EvCompanySessionObservations.open({host:root.querySelector('[data-company-detail]'),api,company,current,onExpired:expired});
     }
     async function detail(company) {
         const epoch = generation,

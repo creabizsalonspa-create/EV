@@ -325,27 +325,30 @@ void main() {
       expect(api.reads.length, 1);
     },
   );
-  testWidgets(
-    'current 401 expires only current view and single flight blocks duplicate read',
-    (tester) async {
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      final api = OperationsApi();
-      var expired = 0;
-      await tester.pumpWidget(panel(api, expired: () => expired++));
-      await tester.pumpAndSettle();
-      final callback = tester
-          .widget<OutlinedButton>(
-            find.widgetWithText(OutlinedButton, 'Read first page'),
-          )
-          .onPressed!;
-      api.pending = Completer<dynamic>();
-      callback();
-      callback();
-      expect(api.reads.length, 2);
-      api.pending!.completeError(const ApiException(401, 'PRIVATE'));
-      await tester.pumpAndSettle();
-      expect(expired, 1);
-      expect(find.text('Owned station 27'), findsNothing);
-    },
-  );
+  for (final authStatus in [401, 409, 419])
+    testWidgets(
+      'current $authStatus expires only current view and single flight blocks duplicate read',
+      (tester) async {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        final api = OperationsApi();
+        var expired = 0;
+        await tester.pumpWidget(panel(api, expired: () => expired++));
+        await tester.pumpAndSettle();
+        final callback = tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(OutlinedButton, 'Read first page'),
+            )
+            .onPressed!;
+        api.pending = Completer<dynamic>();
+        callback();
+        callback();
+        expect(api.reads.length, 2);
+        api.pending!.completeError(ApiException(authStatus, 'PRIVATE'));
+        await tester.pumpAndSettle();
+        expect(expired, 1);
+        expect(find.text('Owned station 27'), findsNothing);
+      },
+    );
 }

@@ -130,7 +130,7 @@ window.EvCompanySessionObservations = (() => {
         dispose?.();
         dispose = null;
     };
-    function open({ host, api, company, current }) {
+    function open({ host, api, company, current, onExpired }) {
         clear();
         if (!current() || document.hidden || !integer(company?.id, true))
             return;
@@ -317,7 +317,12 @@ window.EvCompanySessionObservations = (() => {
                     ),
                     observed,
                 );
-            } catch {
+            } catch (error) {
+                if (active(own) && [401, 409, 419].includes(error?.status)) {
+                    cleanup();
+                    onExpired?.();
+                    return;
+                }
                 if (active(own)) {
                     rows.replaceChildren();
                     retry.hidden = false;

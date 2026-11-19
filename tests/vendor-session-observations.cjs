@@ -74,12 +74,13 @@ function fixture(ar = false) {
     events,
     windowEvents,
     revoke: () => (current = false),
-    open: (api) =>
+    open: (api, onExpired) =>
       window.EvCompanySessionObservations.open({
         host: root,
         api,
         company: { id: 4, legal_name: "Company" },
         current: () => current,
+        onExpired,
       }),
     clear: window.EvCompanySessionObservations.clear,
   };
@@ -257,4 +258,33 @@ test("malformed and acceptance-promoting responses render generic failure withou
     assert(!f.root.textContent.includes("Station 27"));
     assert.equal(buttons(f)[3].hidden, false);
   }
+});
+
+test("current credential conflicts expire the view; old conflicts cannot expire a new view", async () => {
+  for (const code of [401, 409, 419]) {
+    const f = fixture();
+    let expired = 0;
+    f.open(
+      async () => {
+        throw Object.assign(Error("PRIVATE"), { status: code });
+      },
+      () => expired++,
+    );
+    await flush();
+    assert.equal(expired, 1);
+    assert.equal(buttons(f).length, 0);
+  }
+  const f = fixture();
+  let reject,
+    expired = 0;
+  f.open(
+    () => new Promise((yes, no) => (reject = no)),
+    () => expired++,
+  );
+  f.open(async () => page());
+  await flush();
+  reject(Object.assign(Error("PRIVATE"), { status: 409 }));
+  await flush();
+  assert.equal(expired, 0);
+  assert(f.root.textContent.includes("Station 27"));
 });
