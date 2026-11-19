@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CostCenter;
 use App\Models\Fleet;
+use App\Models\FleetMember;
+use App\Models\FleetVehicle;
 use App\Models\User;
 use App\Services\Enterprise\FleetReport;
 use Illuminate\Http\Request;
@@ -22,12 +25,25 @@ final class FleetReportController extends Controller
 
     public function index(Request $request)
     {
-        $v = $request->validate(['q' => 'nullable|string|max:80', 'country' => ['nullable', 'regex:/^[A-Z]{2}$/D'], 'page' => 'nullable|integer|between:1,1000000']);
+        $v = $request->validate([
+            'q' => 'nullable|string|max:80',
+            'country' => ['nullable', 'regex:/^[A-Z]{2}$/D'],
+            'owner_id' => 'nullable|integer|between:1,9007199254740991',
+            'include' => 'nullable|in:owner_inventory',
+            'page' => 'nullable|integer|between:1,1000000',
+        ]);
 
         return DB::transaction(function () use ($request, $v) {
             $actor = $this->actor($request);
             abort_unless($actor->role === 'admin', 403);
+
+            // Apply the owner filter BEFORE the fixed-size page is selected.
+            // Explicit fields only: no fleet owner password, token, or KYC.
+            $includeOwnerInventory = ($v['include'] ?? null) === 'owner_inventory';
             $query = Fleet::query()->select('id', 'name', 'country', 'created_at');
+            if ($includeOwnerInventory) {
+                $query->addSelect('owner_id');
+            }
             $text = trim($v['q'] ?? '');
             if ($text !== '') {
                 $operator = match (DB::connection()->getDriverName()) {
@@ -41,8 +57,61 @@ final class FleetReportController extends Controller
             if (isset($v['country'])) {
                 $query->where('country', $v['country']);
             }
+            if (isset($v['owner_id'])) {
+                $query->where('owner_id', (int) $v['owner_id']);
+            }
 
-            return response()->json($query->orderBy('id')->paginate(25))->header('Cache-Control', 'private, no-store');
+            $page = $query->orderBy('id')->paginate(25);
+            $view = $page;
+            if ($includeOwnerInventory) {
+                $fleetIds = $page->getCollection()->pluck('id');
+                $owners = User::query()->whereIn('id', $page->getCollection()->pluck('owner_id'))
+                    ->get(['id', 'name', 'email'])->keyBy('id');
+                $activeMembers = FleetMember::query()->whereIn('fleet_id', $fleetIds)
+                    ->where('status', 'active')->select('fleet_id')
+                    ->selectRaw('COUNT(*) as count')->groupBy('fleet_id')
+                    ->pluck('count', 'fleet_id');
+                $assignedVehicles = FleetVehicle::query()->whereIn('fleet_id', $fleetIds)
+                    ->select('fleet_id')->selectRaw('COUNT(*) as count')
+                    ->groupBy('fleet_id')->pluck('count', 'fleet_id');
+                $costCenters = CostCenter::query()->whereIn('fleet_id', $fleetIds)
+                    ->select('fleet_id')->selectRaw('COUNT(*) as count')
+                    ->groupBy('fleet_id')->pluck('count', 'fleet_id');
+
+                $view = $page->through(function (Fleet $fleet) use (
+                    $owners, $activeMembers, $assignedVehicles, $costCenters
+                ) {
+                    $owner = $owners->get($fleet->owner_id);
+
+                    return [
+                        'id' => (int) $fleet->id,
+                        'name' => $fleet->name,
+                        'country' => $fleet->country,
+                        'created_at' => $fleet->created_at,
+                        'owner' => $owner ? [
+                            'id' => (int) $owner->id,
+                            'name' => $owner->name,
+                            'email' => $owner->email,
+                        ] : null,
+                        'inventory' => [
+                            'active_members' => (int) ($activeMembers->get($fleet->id) ?? 0),
+                            'assigned_vehicles' => (int) ($assignedVehicles->get($fleet->id) ?? 0),
+                            'cost_centers' => (int) ($costCenters->get($fleet->id) ?? 0),
+                        ],
+                    ];
+                });
+            }
+
+            // Owner identity is private even without financial report access.
+            // Record only the review scope, never email or private contents.
+            DB::table('audit_events')->insert([
+                'actor_id' => $actor->id,
+                'action' => 'admin.private_list.fleets_viewed',
+                'subject' => isset($v['owner_id']) ? 'owner:'.$v['owner_id'] : 'all',
+                'created_at' => now(),
+            ]);
+
+            return response()->json($view)->header('Cache-Control', 'private, no-store');
         });
     }
 

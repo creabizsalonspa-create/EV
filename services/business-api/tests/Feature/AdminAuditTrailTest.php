@@ -101,4 +101,19 @@ class AdminAuditTrailTest extends TestCase
             ->assertOk()->assertJsonPath('events', []);
         $this->postJson('/api/admin/audit-events', ['action' => 'admin.fake'])->assertStatus(405);
     }
+
+    public function test_private_audit_explorer_rejects_revoked_admin_authority(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin, 'web');
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'customer']);
+        $this->getJson('/api/admin/audit-events')->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'role' => 'admin',
+            'auth_epoch' => 1,
+        ]);
+        $this->getJson('/api/admin/audit-events')->assertStatus(409);
+        $this->assertDatabaseCount('audit_events', 0);
+    }
 }

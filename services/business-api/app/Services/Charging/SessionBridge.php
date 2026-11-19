@@ -165,7 +165,7 @@ class SessionBridge
         } catch (HttpExceptionInterface) {
             abort(422, 'Source event requires a valid absolute timestamp within the clock tolerance.');
         }
-        abort_if($v['protocol'] === '1.6' && (! ctype_digit($v['transaction_id']) || (int) $v['transaction_id'] > 2147483647), 422, 'Invalid OCPP 1.6 transaction identifier.');
+        abort_if($v['protocol'] === '1.6' && ! OcppTransactionId::valid16($v['transaction_id']), 422, 'Invalid OCPP 1.6 transaction identifier.');
         abort_if($at->gt(now()->addMinutes(5)), 422, 'Source event time is in the future.');
         $identity = [(int) $v['session_id'], $v['identifier'], $v['protocol'], $v['transaction_id'], $v['type'], (int) $v['sequence'], (int) $v['meter_wh'], $at->format('Y-m-d\TH:i:s.u\Z')];
         if (array_key_exists('source_evse_number', $v) || array_key_exists('source_connector_number', $v)) {

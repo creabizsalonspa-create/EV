@@ -4,11 +4,26 @@ let inboxPreferences = null;
 let inboxPreferencesFor = null;
 let inboxPage = 1;
 let inboxGeneration = 0;
+// Fleet and invitation pages are independently scoped private reads.
+let fleetPage = 1, fleetGeneration = 0, fleetRequest = null, fleetOwner = null;
+let invitationPage = 1, invitationGeneration = 0,
+    invitationRequest = null, invitationOwner = null;
+let fleetDetailGeneration = 0, fleetDetailRequest = null;
+let fleetCreatePending = false;
+// Startup's pending-logout branch can clear identity before lower sections
+// initialize. Every mutation lock read by clearPrivateViews must exist now.
+let vehicleCreatePending = false,
+    vehicleCreateGeneration = 0, profileUpdateGeneration = 0,
+    profileUpdatePending = false;
+let pendingTicketCreate = null, ticketCreatePending = false, ticketCreateGeneration = 0;
 let unconfirmedFavorite = null;
 let favoriteMode = false,
     previousCatalogQuery = "";
 let commandRequest = null,
     commandPage = 1;
+// Private draft references must be initialized before any identity callback
+// and dropped on logout as well as on a new authenticated actor/epoch.
+let connectorFleetFilter = { epoch: -1, actor: null, draftStation: '', selectedStation: '' };
 let reservationPage = 1,
     reservationGeneration = 0,
     reservationRequest = null,
@@ -129,6 +144,25 @@ function clearPrivateViews() {
     inboxPreferencesFor = null;
     inboxPage = 1;
     inboxGeneration++;
+    resetCustomerMutationState();
+    fleetRequest?.abort();
+    fleetRequest = null;
+    fleetGeneration++;
+    fleetOwner = null;
+    fleetPage = 1;
+    invitationRequest?.abort();
+    invitationRequest = null;
+    invitationGeneration++;
+    invitationOwner = null;
+    invitationPage = 1;
+    fleetDetailRequest?.abort();
+    fleetDetailRequest = null;
+    fleetDetailGeneration++;
+    fleetCreatePending = false;
+    const createFleetButton = el("fleet-create").querySelector("button");
+    if (createFleetButton) createFleetButton.disabled = false;
+    for (const id of ["fleet-list", "fleet-invitations", "fleet-detail"])
+        el(id).removeAttribute("aria-busy");
     reservationRequest?.abort();
     reservationRequest = null;
     reservationGeneration++;
@@ -175,6 +209,7 @@ function clearPrivateViews() {
     window.EvPhoneVerification?.clear();
     window.EvAccountSecondFactor?.clear();
     commandRequest?.abort();
+    connectorFleetFilter = { epoch: -1, actor: null, draftStation: '', selectedStation: '' };
     el("charging-dashboard").replaceChildren();
     el("commands-state").textContent = "";
     delete el("commands-state").dataset.i18n;
@@ -353,6 +388,9 @@ async function identity() {
         if (error.status !== 401) notice(error);
     }
     renderIdentity();
+    // Capture only after /me established the current actor. A user may refresh
+    // history while later workspaces bootstrap; keep that newer scoped draft.
+    const initialCommandRequest = commandRequest;
     await vehicleModelCatalog.setActor(user);
     if (epoch !== client.sessionEpoch) return;
     vehicleManualSoc.setActor(user);
@@ -380,7 +418,8 @@ async function identity() {
     await commercialWorkspace.setActor(user);
     window.EvAdminOperatorRoleHistory?.setActor(user, api);
     if (user?.role === "admin") await adminOverview();
-    if (["vendor", "admin"].includes(user?.role)) await commandHistory();
+    if (["vendor", "admin"].includes(user?.role) && commandRequest === initialCommandRequest)
+        await commandHistory();
 }
 // Catalog ownership: startup must not replace an explicit page/form already rendered for this account.
 let stationRequest = null,
@@ -1258,39 +1297,198 @@ async function regions() {
             ),
         );
 }
-async function fleets() {
-    let j = await api("fleets");
-    el("fleet-list").replaceChildren();
-    if (!j.data.length)
-        empty(
-            "fleet-list",
-            "Create a fleet or accept an invitation to get started. / أنشئ أسطولاً أو اقبل دعوة",
-        );
-    for (let f of j.data) {
-        let b = node("button", f.name);
-        b.onclick = () => fleetDetail(f.id).catch((e) => notice(e));
-        el("fleet-list").append(b);
+// The server owns tenant scope, membership status and page ordering.
+function fleetPageResponse(value, expected) {
+    return value && Array.isArray(value.data) &&
+        Number.isSafeInteger(value.current_page) &&
+        Number.isSafeInteger(value.last_page) &&
+        Number.isSafeInteger(value.total) &&
+        value.current_page === expected && expected >= 1 &&
+        value.last_page >= 1 && value.total >= 0;
+}
+function fleetNavigation(list, pageData, page, prefix, label, onPage, active) {
+    const nav = document.createElement("nav");
+    nav.className = "pagination";
+    nav.dataset[prefix + "Pagination"] = "true";
+    nav.setAttribute("aria-label", label);
+    nav.append(batteryNode("span",
+        "Page " + pageData.current_page + " of " + pageData.last_page +
+            " · " + pageData.total + " records",
+        "الصفحة " + pageData.current_page + " من " + pageData.last_page +
+            " · " + pageData.total + " سجل"));
+    for (const [key, en, ar, target, disabled] of [
+        ["previous", "Previous", "السابق", page - 1, page <= 1],
+        ["next", "Next", "التالي", page + 1, page >= pageData.last_page],
+        ["refresh", "Refresh", "تحديث", page, false],
+    ]) {
+        const button = batteryNode("button", en, ar);
+        button.type = "button";
+        button.dataset[prefix + "PageAction"] = key;
+        button.disabled = disabled;
+        button.onclick = () => { if (active()) void onPage(target); };
+        nav.append(button);
     }
-    let invites = await api("fleet-invitations");
-    el("fleet-invitations").replaceChildren();
-    for (let i of invites.data) {
-        let b = ui("button", "Accept fleet #{id}", { id: i.fleet_id });
-        b.onclick = async () => {
-            try {
-                await api("fleet-invitations/" + i.id + "/accept", "POST");
-                await fleets();
-            } catch (e) {
-                notice(e);
-            }
-        };
-        el("fleet-invitations").append(b);
+    list.append(nav);
+}
+async function loadFleetAccounts(page = fleetPage) {
+    if (!user || !Number.isSafeInteger(page) || page < 1) return;
+    const scope = client.sessionEpoch + ":" + user.id + ":" + user.role;
+    if (fleetOwner !== scope) {
+        fleetOwner = scope;
+        fleetPage = 1;
+        page = 1;
+    }
+    // Any new list read invalidates previously rendered detail authority:
+    // the membership may have been revoked even if the requested page stays
+    // the same, or the refresh may fail entirely.
+    fleetDetailRequest?.abort();
+    fleetDetailRequest = null;
+    fleetDetailGeneration++;
+    el("fleet-detail").replaceChildren();
+    el("fleet-detail").removeAttribute("aria-busy");
+    fleetRequest?.abort();
+    const controller = new AbortController();
+    fleetRequest = controller;
+    const generation = ++fleetGeneration, epoch = client.sessionEpoch, actor = user.id;
+    const active = () => fleetGeneration === generation &&
+        epoch === client.sessionEpoch && user?.id === actor &&
+        fleetRequest === controller && !controller.signal.aborted;
+    const list = el("fleet-list");
+    list.setAttribute("aria-busy", "true");
+    list.replaceChildren(batteryNode("p", "Loading fleets…", "جارٍ تحميل الأساطيل…"));
+    try {
+        const j = await api("fleets?page=" + page, "GET", undefined, controller.signal);
+        if (!active()) return;
+        if (!fleetPageResponse(j, page)) throw Error("Unreadable fleet page.");
+        if (page > j.last_page) { await loadFleetAccounts(j.last_page); return; }
+        fleetPage = page;
+        list.replaceChildren();
+        if (!j.data.length)
+            list.append(batteryNode("p",
+                "Create a fleet or accept an invitation to get started.",
+                "أنشئ أسطولاً أو اقبل دعوة للبدء."));
+        for (const f of j.data) {
+            if (!Number.isSafeInteger(f.id) || f.id <= 0 || typeof f.name !== "string")
+                throw Error("Unreadable fleet record.");
+            const b = node("button", f.name);
+            b.type = "button";
+            b.dataset.fleetId = String(f.id);
+            b.onclick = () => {
+                if (active()) void fleetDetail(f.id).catch(e => { if (active()) notice(e); });
+            };
+            list.append(b);
+        }
+        fleetNavigation(list, j, page, "fleet", "Fleet pages / صفحات الأساطيل",
+            loadFleetAccounts, active);
+    } catch (error) {
+        if (!active()) return;
+        list.replaceChildren(batteryNode("p",
+            "Fleets could not be loaded. Retry to verify your memberships.",
+            "تعذر تحميل الأساطيل. أعد المحاولة للتحقق من عضوياتك."));
+        const retry = batteryNode("button", "Retry fleets", "إعادة تحميل الأساطيل");
+        retry.type = "button";
+        retry.dataset.fleetRetry = "true";
+        retry.onclick = () => { if (active()) void loadFleetAccounts(page); };
+        list.append(retry);
+    } finally {
+        if (active()) list.removeAttribute("aria-busy");
     }
 }
+async function loadFleetInvitations(page = invitationPage) {
+    if (!user || !Number.isSafeInteger(page) || page < 1) return;
+    const scope = client.sessionEpoch + ":" + user.id + ":" + user.role;
+    if (invitationOwner !== scope) {
+        invitationOwner = scope;
+        invitationPage = 1;
+        page = 1;
+    }
+    invitationRequest?.abort();
+    const controller = new AbortController();
+    invitationRequest = controller;
+    const generation = ++invitationGeneration,
+        epoch = client.sessionEpoch, actor = user.id;
+    const active = () => invitationGeneration === generation &&
+        epoch === client.sessionEpoch && user?.id === actor &&
+        invitationRequest === controller && !controller.signal.aborted;
+    const list = el("fleet-invitations");
+    list.setAttribute("aria-busy", "true");
+    list.replaceChildren(batteryNode("p", "Loading invitations…", "جارٍ تحميل الدعوات…"));
+    try {
+        const j = await api("fleet-invitations?page=" + page, "GET", undefined, controller.signal);
+        if (!active()) return;
+        if (!fleetPageResponse(j, page)) throw Error("Unreadable fleet invitation page.");
+        if (page > j.last_page) { await loadFleetInvitations(j.last_page); return; }
+        invitationPage = page;
+        list.replaceChildren();
+        if (!j.data.length)
+            list.append(batteryNode("p", "No pending fleet invitations.",
+                "لا توجد دعوات أسطول معلقة."));
+        for (const invitation of j.data) {
+            if (!Number.isSafeInteger(invitation.id) || invitation.id <= 0 ||
+                !Number.isSafeInteger(invitation.fleet_id) || invitation.fleet_id <= 0)
+                throw Error("Unreadable fleet invitation.");
+            const button = ui("button", "Accept fleet #{id}", {id: invitation.fleet_id});
+            button.type = "button";
+            button.dataset.fleetInvitationId = String(invitation.id);
+            button.onclick = async () => {
+                if (!active() || button.disabled) return;
+                button.disabled = true;
+                try {
+                    await api("fleet-invitations/" + invitation.id + "/accept", "POST");
+                    if (!active()) return;
+                    // A confirmed acceptance removes the invitation and adds
+                    // the fleet membership; neither read repeats the POST.
+                    await Promise.all([loadFleetInvitations(page), loadFleetAccounts(1)]);
+                } catch (error) {
+                    if (active()) notice(error);
+                } finally {
+                    if (button.isConnected) button.disabled = false;
+                }
+            };
+            list.append(button);
+        }
+        fleetNavigation(list, j, page, "invitation",
+            "Pending fleet invitation pages / صفحات دعوات الأساطيل المعلقة",
+            loadFleetInvitations, active);
+    } catch (error) {
+        if (!active()) return;
+        list.replaceChildren(batteryNode("p",
+            "Fleet invitations could not be loaded. Retry without repeating acceptance.",
+            "تعذر تحميل دعوات الأساطيل. أعد المحاولة دون تكرار القبول."));
+        const retry = batteryNode("button", "Retry invitations", "إعادة تحميل الدعوات");
+        retry.type = "button";
+        retry.dataset.invitationRetry = "true";
+        retry.onclick = () => { if (active()) void loadFleetInvitations(page); };
+        list.append(retry);
+    } finally {
+        if (active()) list.removeAttribute("aria-busy");
+    }
+}
+async function fleets() {
+    await Promise.all([loadFleetAccounts(), loadFleetInvitations()]);
+}
 async function fleetDetail(id) {
-    const reportActor = user;
-    let j = await api("fleets/" + id),
-        d = el("fleet-detail");
-    if (user !== reportActor || document.hidden) return;
+    if (!user || !Number.isSafeInteger(id) || id <= 0) return;
+    fleetDetailRequest?.abort();
+    const controller = new AbortController();
+    fleetDetailRequest = controller;
+    const generation = ++fleetDetailGeneration,
+        epoch = client.sessionEpoch, actor = user.id;
+    const active = () => generation === fleetDetailGeneration &&
+        epoch === client.sessionEpoch && actor === user?.id &&
+        fleetDetailRequest === controller && !controller.signal.aborted;
+    const d = el("fleet-detail");
+    d.setAttribute("aria-busy", "true");
+    d.replaceChildren(batteryNode("p", "Loading fleet details…",
+        "جارٍ تحميل تفاصيل الأسطول…"));
+    try {
+    const j = await api("fleets/" + id, "GET", undefined, controller.signal);
+    if (!active()) return;
+    // Never leave a stale "Loading" pane on return from a background tab.
+    if (document.hidden) { d.replaceChildren(); return; }
+    if (j?.fleet?.id !== id || !Array.isArray(j.members) ||
+        !Array.isArray(j.cost_centers) || !Array.isArray(j.vehicles))
+        throw Error("Unreadable fleet details.");
     d.replaceChildren(node("h3", j.fleet.name));
     let owner = j.fleet.owner_id === user.id;
     if (owner) {
@@ -1304,15 +1502,17 @@ async function fleetDetail(id) {
             });
             if (m.status !== "revoked") {
                 let b = ui("button", "Revoke");
+                b.type = "button";
                 b.onclick = async () => {
+                    if (!active() || b.disabled) return;
+                    b.disabled = true;
                     try {
-                        await api(
-                            "fleets/" + id + "/members/" + m.id,
-                            "DELETE",
-                        );
-                        await fleetDetail(id);
+                        await api("fleets/" + id + "/members/" + m.id, "DELETE");
+                        if (active()) await fleetDetail(id);
                     } catch (e) {
-                        notice(e);
+                        if (active()) notice(e);
+                    } finally {
+                        if (b.isConnected && active()) b.disabled = false;
                     }
                 };
                 row.append(b);
@@ -1325,20 +1525,23 @@ async function fleetDetail(id) {
         EvLocale.attribute(i, "placeholder", "Driver email");
         EvLocale.attribute(i, "aria-label", "Driver email");
         i.required = true;
-        f.append(i, ui("button", "Invite existing account"));
+        const inviteButton = ui("button", "Invite existing account");
+        inviteButton.type = "submit";
+        f.append(i, inviteButton);
         f.onsubmit = async (e) => {
             e.preventDefault();
+            if (!active() || inviteButton.disabled) return;
+            inviteButton.disabled = true;
             try {
-                notice(
-                    (
-                        await api("fleets/" + id + "/invitations", "POST", {
-                            email: i.value,
-                        })
-                    ).message,
-                );
+                const result = await api("fleets/" + id + "/invitations",
+                    "POST", {email: i.value});
+                if (!active()) return;
+                notice(result.message);
                 await fleetDetail(id);
             } catch (e) {
-                notice(e);
+                if (active()) notice(e);
+            } finally {
+                if (inviteButton.isConnected && active()) inviteButton.disabled = false;
             }
         };
         d.append(f);
@@ -1350,17 +1553,23 @@ async function fleetDetail(id) {
         EvLocale.attribute(name, "placeholder", "Cost center name");
         EvLocale.attribute(name, "aria-label", "Cost center name");
         code.required = name.required = true;
-        cf.append(code, name, ui("button", "Add cost center"));
+        const createCenter = ui("button", "Add cost center");
+        createCenter.type = "submit";
+        cf.append(code, name, createCenter);
         cf.onsubmit = async (e) => {
             e.preventDefault();
+            if (!active() || createCenter.disabled) return;
+            createCenter.disabled = true;
             try {
                 await api("fleets/" + id + "/cost-centers", "POST", {
                     code: code.value,
                     name: name.value,
                 });
-                await fleetDetail(id);
+                if (active()) await fleetDetail(id);
             } catch (e) {
-                notice(e);
+                if (active()) notice(e);
+            } finally {
+                if (createCenter.isConnected && active()) createCenter.disabled = false;
             }
         };
         d.append(cf);
@@ -1374,14 +1583,27 @@ async function fleetDetail(id) {
             }),
         );
     if (j.cost_centers.length) {
-        const own = await api("vehicles");
+        const own = await api("vehicles?page=1", "GET", undefined, controller.signal);
+        if (!active()) return;
+        if (document.hidden) { d.replaceChildren(); return; }
+        if (!fleetPageResponse(own, 1)) throw Error("Unreadable vehicle selection.");
         if (own.data.length) {
             const form = document.createElement("form");
             form.id = "fleet-assign";
             const vehicleLabel = ui("label", "Your vehicle / مركبتك"),
                 vehicle = document.createElement("select");
             vehicle.name = "vehicle_id";
-            for (const v of own.data) vehicle.append(new Option(v.name, v.id));
+            const seen = new Set();
+            const addVehicles = (rows) => {
+                for (const v of rows) {
+                    if (!Number.isSafeInteger(v.id) || v.id <= 0 ||
+                        typeof v.name !== "string") throw Error("Unreadable owned vehicle.");
+                    if (seen.has(v.id)) continue;
+                    seen.add(v.id);
+                    vehicle.append(new Option(v.name, String(v.id)));
+                }
+            };
+            addVehicles(own.data);
             vehicleLabel.append(vehicle);
             const centerLabel = ui("label", "Cost center / مركز التكلفة"),
                 center = document.createElement("select");
@@ -1389,22 +1611,54 @@ async function fleetDetail(id) {
             for (const c of j.cost_centers)
                 center.append(new Option(c.name, c.id));
             centerLabel.append(center);
-            form.append(
-                vehicleLabel,
-                centerLabel,
-                ui("button", "Assign vehicle"),
-            );
+            form.append(vehicleLabel, centerLabel);
+            let vehiclePage = 1, vehicleLast = own.last_page;
+            if (vehiclePage < vehicleLast) {
+                const more = batteryNode("button", "More of your vehicles",
+                    "المزيد من مركباتك");
+                more.type = "button";
+                more.dataset.fleetMoreVehicles = "true";
+                more.onclick = async () => {
+                    if (!active() || more.disabled || vehiclePage >= vehicleLast) return;
+                    more.disabled = true;
+                    const target = vehiclePage + 1;
+                    try {
+                        const result = await api("vehicles?page=" + target,
+                            "GET", undefined, controller.signal);
+                        if (!active() || !more.isConnected) return;
+                        if (!fleetPageResponse(result, target))
+                            throw Error("Unreadable vehicle selection page.");
+                        addVehicles(result.data);
+                        vehiclePage = target;
+                        vehicleLast = result.last_page;
+                        if (vehiclePage >= vehicleLast) {
+                            batteryText(more, "All your vehicles loaded",
+                                "تم تحميل جميع مركباتك");
+                        }
+                    } catch (error) {
+                        if (active()) notice(error);
+                    } finally {
+                        if (more.isConnected && active())
+                            more.disabled = vehiclePage >= vehicleLast;
+                    }
+                };
+                form.append(more);
+            }
+            const submit = ui("button", "Assign vehicle");
+            submit.type = "submit";
+            form.append(submit);
             form.onsubmit = async (event) => {
                 event.preventDefault();
+                if (!active() || submit.disabled) return;
+                submit.disabled = true;
                 try {
-                    await api(
-                        "fleets/" + id + "/vehicles",
-                        "POST",
-                        Object.fromEntries(new FormData(form)),
-                    );
-                    await fleetDetail(id);
+                    await api("fleets/" + id + "/vehicles", "POST",
+                        Object.fromEntries(new FormData(form)));
+                    if (active()) await fleetDetail(id);
                 } catch (error) {
-                    notice(error);
+                    if (active()) notice(error);
+                } finally {
+                    if (submit.isConnected) submit.disabled = false;
                 }
             };
             d.append(form);
@@ -1417,14 +1671,46 @@ async function fleetDetail(id) {
                 center: v.cost_center_id,
             }),
         );
+    } catch (error) {
+        if (!active()) return;
+        d.replaceChildren(batteryNode("p",
+            "Fleet details could not be loaded. Retry before changing memberships.",
+            "تعذر تحميل تفاصيل الأسطول. أعد المحاولة قبل تغيير العضويات."));
+        const retry = batteryNode("button", "Retry fleet details", "إعادة تحميل تفاصيل الأسطول");
+        retry.type = "button";
+        retry.dataset.fleetDetailRetry = "true";
+        retry.onclick = () => { if (active()) void fleetDetail(id); };
+        d.append(retry);
+    } finally {
+        if (active()) d.removeAttribute("aria-busy");
+    }
 }
 el("fleet-create").onsubmit = async (e) => {
     e.preventDefault();
+    if (!user || fleetCreatePending) return;
+    const epoch = client.sessionEpoch, actor = user.id;
+    const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const submit = e.target.querySelector("button");
+    fleetCreatePending = true;
+    if (submit) submit.disabled = true;
     try {
-        await api("fleets", "POST", Object.fromEntries(new FormData(e.target)));
+        const created = await api("fleets", "POST", Object.fromEntries(new FormData(e.target)));
+        if (!active()) return;
+        if (!Number.isSafeInteger(created?.id) || created.id <= 0)
+            throw Error("Fleet creation could not be confirmed.");
+        fleetPage = 1;
+        fleetDetailRequest?.abort();
+        fleetDetailGeneration++;
+        el("fleet-detail").replaceChildren();
+        e.target.reset();
         await fleets();
     } catch (e) {
-        notice(e);
+        if (active()) notice(e);
+    } finally {
+        if (active()) {
+            fleetCreatePending = false;
+            if (submit) submit.disabled = false;
+        }
     }
 };
 el("region-config").onsubmit = async (e) => {
@@ -1725,6 +2011,21 @@ async function batteryEditor(id, row) {
     row.append(box);
 }
 
+function resetCustomerMutationState() {
+    // Increment tokens before unlocking the new account's form. Late
+    // acknowledgements from the previous actor cannot release a newer write.
+    vehicleCreateGeneration++;
+    profileUpdateGeneration++;
+    ticketCreateGeneration++;
+    vehicleCreatePending = false;
+    profileUpdatePending = false;
+    ticketCreatePending = false;
+    pendingTicketCreate = null;
+    for (const id of ["vehicle-create", "profile-form", "support-create"]) {
+        const submit = el(id).querySelector("button");
+        if (submit) submit.disabled = false;
+    }
+}
 async function garage(page = garagePage, showNewest = false) {
     if (!user || !Number.isSafeInteger(page) || page < 1) return;
     const owner = client.sessionEpoch + ":" + user.id + ":" + user.role;
@@ -1824,30 +2125,59 @@ async function garage(page = garagePage, showNewest = false) {
 }
 el("vehicle-create").onsubmit = async (e) => {
     e.preventDefault();
+    if (!user || vehicleCreatePending) return;
+    const epoch = client.sessionEpoch, actor = user.id;
+    const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const token = ++vehicleCreateGeneration;
+    // The existing garage form uses the implicit submit type.
+    const submit = e.target.querySelector("button");
+    vehicleCreatePending = true;
+    if (submit) submit.disabled = true;
     try {
         await api(
             "vehicles",
             "POST",
             Object.fromEntries(new FormData(e.target)),
         );
-        await garage(1, true);
-    } catch (e) {
-        notice(e);
+        if (active()) await garage(1, true);
+    } catch (error) {
+        if (active()) notice(error);
+    } finally {
+        if (token === vehicleCreateGeneration) {
+            vehicleCreatePending = false;
+            if (submit?.isConnected) submit.disabled = false;
+        }
     }
 };
 el("profile-form").onsubmit = async (e) => {
     e.preventDefault();
+    if (!user || profileUpdatePending) return;
+    const epoch = client.sessionEpoch, actor = user.id;
+    const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const token = ++profileUpdateGeneration;
+    const submit = e.target.querySelector("button");
+    profileUpdatePending = true;
+    if (submit) submit.disabled = true;
     try {
-        user = await api(
+        const updated = await api(
             "profile",
             "PATCH",
             Object.fromEntries(new FormData(e.target)),
         );
+        // A previous account's PATCH must never overwrite a newer login,
+        // even if the server completed it after the user switched accounts.
+        if (!active()) return;
+        user = updated;
         EvLocale.set(user.locale);
         notice("Profile updated.");
         await identity();
-    } catch (e) {
-        notice(e);
+    } catch (error) {
+        if (active()) notice(error);
+    } finally {
+        if (token === profileUpdateGeneration) {
+            profileUpdatePending = false;
+            if (submit?.isConnected) submit.disabled = false;
+        }
     }
 };
 async function refreshSupportTickets(page = supportPage) {
@@ -2060,6 +2390,7 @@ async function refreshInbox() {
             ["vehicle", "Vehicle notifications"],
             ["charging", "Charging notifications"],
             ["fleet", "Fleet notifications"],
+            ["other", "Other operational notifications"],
         ]) {
             const option = ui("option", label);
             option.value = value;
@@ -2587,6 +2918,7 @@ async function ticketDetail(id, page = 1, showNewest = false) {
         let pendingReply = null;
         f.onsubmit = async (e) => {
             e.preventDefault();
+            if (!active()) return;
             const payload = {
                 body: body.value,
                 internal: !!f.elements.internal?.checked,
@@ -2603,6 +2935,7 @@ async function ticketDetail(id, page = 1, showNewest = false) {
                     ...payload,
                     idempotency_key: pendingReply.key,
                 });
+                if (!active()) return;
                 pendingReply = null;
                 // The API accepted the message. If the subsequent refresh
                 // fails, do not leave the just-sent body ready to submit again.
@@ -2610,7 +2943,7 @@ async function ticketDetail(id, page = 1, showNewest = false) {
                 await support();
                 await ticketDetail(id, 1, true);
             } catch (e) {
-                notice(e);
+                if (active()) notice(e);
             }
         };
         d.append(f);
@@ -2637,6 +2970,7 @@ async function ticketDetail(id, page = 1, showNewest = false) {
         let pendingStatus = null;
         f.onsubmit = async (e) => {
             e.preventDefault();
+            if (!active()) return;
             const payload = { status: select.value, reason: reason.value };
             const signature = JSON.stringify(payload);
             if (!pendingStatus || pendingStatus.signature !== signature) {
@@ -2650,12 +2984,13 @@ async function ticketDetail(id, page = 1, showNewest = false) {
                     ...payload,
                     idempotency_key: pendingStatus.key,
                 });
+                if (!active()) return;
                 pendingStatus = null;
                 reason.value = "";
                 await support();
                 await ticketDetail(id, 1, true);
             } catch (e) {
-                notice(e);
+                if (active()) notice(e);
             }
         };
         d.append(f);
@@ -2674,32 +3009,46 @@ async function ticketDetail(id, page = 1, showNewest = false) {
         if (active()) d.removeAttribute("aria-busy");
     }
 }
-let pendingTicketCreate = null;
 el("support-create").onsubmit = async (e) => {
     e.preventDefault();
+    if (!user || ticketCreatePending) return;
+    const epoch = client.sessionEpoch, actor = user.id;
+    const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const token = ++ticketCreateGeneration;
+    const submit = e.target.querySelector("button");
     const payload = Object.fromEntries(new FormData(e.target));
     const signature = JSON.stringify(payload);
-    if (!pendingTicketCreate || pendingTicketCreate.signature !== signature) {
+    if (!pendingTicketCreate || pendingTicketCreate.signature !== signature ||
+        pendingTicketCreate.actor !== actor || pendingTicketCreate.epoch !== epoch) {
         pendingTicketCreate = {
-            signature,
+            signature, actor, epoch,
             key: crypto.randomUUID().replace(/-/g, ""),
         };
     }
+    const request = pendingTicketCreate;
+    ticketCreatePending = true;
+    if (submit) submit.disabled = true;
     try {
         const t = await api("support", "POST", {
             ...payload,
-            idempotency_key: pendingTicketCreate.key,
+            idempotency_key: request.key,
         });
+        if (!active()) return;
         if (!Number.isSafeInteger(t?.id) || t.id <= 0) {
             throw new Error("Ticket creation was not confirmed");
         }
-        pendingTicketCreate = null;
+        if (pendingTicketCreate === request) pendingTicketCreate = null;
         e.target.reset();
         supportPage = 1;
         await support();
-        await ticketDetail(t.id);
-    } catch (e) {
-        notice(e);
+        if (active()) await ticketDetail(t.id);
+    } catch (error) {
+        if (active()) notice(error);
+    } finally {
+        if (token === ticketCreateGeneration) {
+            ticketCreatePending = false;
+            if (submit?.isConnected) submit.disabled = false;
+        }
     }
 };
 
@@ -2963,8 +3312,15 @@ async function openOperationalCase(command, parent, actor, signal) {
     }
     await events(1);
 }
+// The connector filter is ephemeral and bound to this exact authenticated
+// client epoch and actor object. Recreating the dashboard for a locale or
+// history refresh must not convert a typed station filter to a global read.
 async function commandHistory(page = 1) {
     if (!["vendor", "admin"].includes(user?.role)) return;
+    if (connectorFleetFilter.epoch !== client.sessionEpoch || connectorFleetFilter.actor !== user) {
+        connectorFleetFilter = { epoch: client.sessionEpoch, actor: user, draftStation: '', selectedStation: '' };
+    }
+    const actorFilter = connectorFleetFilter;
     commandRequest?.abort();
     const request = new AbortController(),
         actor = user;
@@ -2982,7 +3338,7 @@ async function commandHistory(page = 1) {
         );
         if (request.signal.aborted || user !== actor) return;
         const metrics = el("charging-dashboard");
-        window.renderConnectorFleetAction?.(metrics, { api, actor: () => user, openDiagnostics: (companyId, chargerId) => vendorWorkspace.openMonitorNotice(companyId, chargerId) });
+        window.renderConnectorFleetAction?.(metrics, { api, actor: () => user, filterState: actorFilter, openDiagnostics: (companyId, chargerId) => vendorWorkspace.openMonitorNotice(companyId, chargerId) });
         const ar = document.documentElement.lang === "ar";
         const line = (en, arabic, value) => {
             const item = document.createElement("p");

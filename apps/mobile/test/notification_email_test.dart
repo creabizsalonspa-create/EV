@@ -6,7 +6,12 @@ import 'package:creabiz_ev/notification_email.dart';
 import 'test_support.dart';
 
 class NoticeApi extends FixtureApi {
-  bool enabled = false, active = true, loseReply = false, configured = true;
+  bool enabled = false,
+      active = true,
+      loseReply = false,
+      configured = true,
+      malformedHistory = false,
+      emptyHistory = false;
   int writes = 0;
   Map<String, dynamic>? lastBody;
   @override
@@ -30,13 +35,17 @@ class NoticeApi extends FixtureApi {
         'delivery_confirmed': false,
         'automatic_retry': false,
         'receipts': {
-          'data': [
-            {
-              'state': 'outcome_unknown',
-              'created_at': '2026-11-14',
-              'evidence': 'SIMULATED_EMAIL_HANDOFF',
-            },
-          ],
+          'data': malformedHistory
+              ? 'untrusted private rows'
+              : emptyHistory
+                  ? <Map<String, dynamic>>[]
+                  : [
+                  {
+                    'state': 'outcome_unknown',
+                    'created_at': '2026-11-14',
+                    'evidence': 'SIMULATED_EMAIL_HANDOFF',
+                  },
+                ],
           'current_page': 1,
           'last_page': 1,
         },
@@ -102,6 +111,47 @@ void main() {
       expect(find.text('Enabled with current consent'), findsOneWidget);
     },
   );
+  for (final ar in [false, true]) {
+    testWidgets('malformed email history fails closed and refresh recovers ($ar)', (
+      tester,
+    ) async {
+      final api = NoticeApi();
+      await tester.pumpWidget(screen(api, ar: ar));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsOneWidget);
+      api.malformedHistory = true;
+      await tester.tap(find.text(ar ? 'تحديث' : 'Refresh'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsNothing);
+      expect(find.textContaining(ar ? 'النتيجة غير متاحة.' : 'Outcome unavailable.'), findsOneWidget);
+      expect(find.byType(FilledButton), findsNothing);
+      api.malformedHistory = false;
+      await tester.tap(find.text(ar ? 'تحديث' : 'Refresh'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsOneWidget);
+      expect(find.textContaining(ar ? 'النتيجة غير متاحة.' : 'Outcome unavailable.'), findsNothing);
+      expect(api.writes, 0);
+    });
+  }
+  for (final ar in [false, true]) {
+    testWidgets('empty email history has a localized non-error state ($ar)', (
+      tester,
+    ) async {
+      final api = NoticeApi()..emptyHistory = true;
+      await tester.pumpWidget(screen(api, ar: ar));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          ar
+              ? 'لا توجد عمليات نقل إشعارات بالبريد في هذه الصفحة.'
+              : 'No email notice handoffs on this page.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Outcome unavailable.'), findsNothing);
+      expect(api.writes, 0);
+    });
+  }
   testWidgets('background hides private history and requires refresh', (
     tester,
   ) async {

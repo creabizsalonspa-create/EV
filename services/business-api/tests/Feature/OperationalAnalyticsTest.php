@@ -17,6 +17,7 @@ use App\Services\Finance\FinanceService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
@@ -102,6 +103,42 @@ class OperationalAnalyticsTest extends TestCase
         DB::table('csms_inbox_events')->where('link_id', $link->id)->where('type', 'ended')->update(['occurred_at' => '2026-11-06 10:00:01']);
         $this->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertStatus(409);
         $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
+    public function test_revoked_vendor_or_admin_session_cannot_export_private_operational_finance(): void
+    {
+        [$owner, $company, , , , , $url] = $this->setupReport();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $before = DB::table('finance_journals')->count();
+
+        foreach ([$owner, $admin] as $reader) {
+            $row = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $row->role,
+                'account_status' => $row->account_status,
+                'auth_epoch' => $row->auth_epoch,
+                'password' => $row->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson($url)->assertOk()
+                ->assertJsonPath('physical_uptime_verified', false);
+
+            foreach ([
+                ['role' => 'customer'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $row->auth_epoch + 1],
+                ['password' => Hash::make('rotated-vendor-report-credential')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $this->getJson($url)->assertConflict();
+                $this->get($url.'/export')->assertConflict();
+                $this->get($url.'/pdf')->assertConflict();
+                DB::table('users')->where('id', $reader->id)->update($original);
+            }
+        }
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        Http::assertNothingSent();
     }
 
     public function test_inventory_staff_can_read_operations_but_not_owner_financial_facts_and_cross_scope_fails(): void

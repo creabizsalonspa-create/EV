@@ -99,14 +99,34 @@ class _NotificationEmailState extends State<NotificationEmailView>
       if (!current(n)) return;
       final p = Map<String, dynamic>.from(results[0]);
       final h = Map<String, dynamic>.from(results[1]);
+      final receipts = h['receipts'];
       if (p['revision'] is! String ||
           !RegExp(r'^(0|[1-9][0-9]{0,18})$').hasMatch(p['revision']) ||
+          p['enabled'] is! bool ||
+          p['consent_current'] is! bool ||
+          p['configured'] is! bool ||
+          p['verified_email_required'] is! bool ||
           h['delivery_confirmed'] != false ||
-          h['receipts'] is! Map)
+          h['automatic_retry'] != false ||
+          receipts is! Map ||
+          receipts['data'] is! List ||
+          (receipts['data'] as List).length > 25 ||
+          receipts['current_page'] is! int ||
+          receipts['last_page'] is! int ||
+          receipts['current_page'] != number ||
+          (receipts['last_page'] as int) < number ||
+          (receipts['last_page'] as int) > 100000 ||
+          (receipts['data'] as List).any(
+            (row) =>
+                row is! Map ||
+                row['state'] is! String ||
+                row['created_at'] is! String ||
+                (row['evidence'] != null && row['evidence'] is! String),
+          ))
         throw const FormatException();
       setState(() {
         preference = p;
-        history = Map<String, dynamic>.from(h['receipts']);
+        history = Map<String, dynamic>.from(receipts);
         page = number;
       });
     } catch (e) {
@@ -186,8 +206,15 @@ class _NotificationEmailState extends State<NotificationEmailView>
                     'إشعارات عامة اختيارية لبريد حسابك الموثق للنشاط الجديد غير المقروء فقط، بحد أقصى مرة كل 15 دقيقة. تبقى التفاصيل في الحساب. قبول النقل لا يؤكد التسليم.',
                   ),
                 ),
-                if (busy) const LinearProgressIndicator(),
-                if (error != null) Text(error!),
+                if (busy)
+                  LinearProgressIndicator(
+                    semanticsLabel: t(
+                      'Loading email notice preferences and history',
+                      'جارٍ تحميل إعدادات إشعارات البريد وسجل النقل',
+                    ),
+                  ),
+                if (error != null)
+                  Semantics(liveRegion: true, child: Text(error!)),
                 OutlinedButton(
                   onPressed: busy ? null : () => load(number: page),
                   child: Text(t('Refresh', 'تحديث')),
@@ -252,6 +279,14 @@ class _NotificationEmailState extends State<NotificationEmailView>
                     'سجل النقل — التسليم غير مؤكد',
                   ),
                 ),
+                if (history != null &&
+                    (history!['data'] as List).isEmpty)
+                  Text(
+                    t(
+                      'No email notice handoffs on this page.',
+                      'لا توجد عمليات نقل إشعارات بالبريد في هذه الصفحة.',
+                    ),
+                  ),
                 for (final row
                     in (history?['data'] as List? ?? const []).whereType<Map>())
                   ListTile(

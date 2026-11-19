@@ -1,0 +1,50 @@
+{
+  "status": "LOCAL_VERIFIED_COMBINED_HOSTED_REQUIRED",
+  "original_source": "b763f794ebe67bc21ece37ebacb3a3a61c9f316b",
+  "merged_parent": "105b05ac1d83107e17ec3084897726c136bf15a3",
+  "source_parent": "5e20248fa5df331834b6e3d1aab36117f150c373",
+  "verification": {
+    "flutter_passed": 663,
+    "explicit_live_fixture_skips": 34,
+    "analyzer": "clean",
+    "artifact_cases": 7,
+    "artifact_red_cases": 4,
+    "navigation_source_cases": 3,
+    "lifecycle_source_cases": 3,
+    "hosted_return_source_cases": 2,
+    "backend_business_source_identical_to_parent": true,
+    "backend_rerun_claimed": false
+  },
+  "features": [
+    "Authenticated foreground Customer/Vendor allowlisted read-only tab links",
+    "No URL identity, commands, payment outcomes, query/fragment/encoded path or token authority",
+    "Action/login/session restore/profile/vehicle preference/account menu/navigation response fences",
+    "Existing Navigator/OS privacy and first-inactive-frame protection retained"
+  ],
+  "packaging_guard_repair": "Select one canonical launcher independent of manifest order; reject any other activity/alias VIEW ingress and duplicate launchers",
+  "source_sha256": {
+    "apps/mobile/lib/main.dart": "c564e9d9751f63ff8dfc6bce6af7e175f49bca50bcbc60d0583d76fb353fa196",
+    "apps/mobile/lib/navigation_links.dart": "0830a9a963e9ae4ef857cfc41da4b89d40a7a2411c728249a85c98bfd182ef0e",
+    "apps/mobile/android/app/src/main/AndroidManifest.xml": "56f361b6ed0bc2abd040a9a1c9163bf9818582362f436067c327666e42684ed8",
+    "apps/mobile/android/app/src/main/kotlin/com/creabiz/creabiz_ev/MainActivity.kt": "40691ae445a0c3e42d829e47118d78a86a8c0163e999ea4f389a914c23549913",
+    "apps/mobile/ios/Runner/AppDelegate.swift": "0b234dae386b335ef12fe74caa1e3780ef319778ed17ee7198c8d547f27fac23",
+    "apps/mobile/tool/check_navigation_build.py": "5f57f61d2957c2035ee47f98e4cee8a66a5eefd3fd341ddbc78befa0d884f2d4",
+    "apps/mobile/tool/test_navigation_build.py": "96d5251d8a87a2d8261a5e8a30ecede87b4ff4a08f49121a5c3a9d30a50adb15",
+    ".github/workflows/mobile.yml": "3af8eb90547e4003369b4bc15c5da652f5c13ed81b5df7cc14f882867ad547a1"
+  },
+  "local_log_sha256": {
+    "flutter": "35ddb0fc9559930235c857c1e245391fb009e2de433b22a852c39a059e66abac",
+    "analysis": "59b6782b3297615df1980c2d5c0d73c92a1291becdf4a32001f415caa8ee62e1",
+    "artifact_red": "bc8cc7537d2cf36fcfdf7073d583dc3d403aa48cc364cc0b1f26ae85903f853e",
+    "artifact_green": "e586fc0f3bb2a05f4c80f07d1b4c6171e830592f6c7aaf70d4af3b0aa3ebd072",
+    "source_config": "921b60a7fd52e978fbb551cacd29df2d6708879400278e1fcc70fceeb0c6f8e0",
+    "privacy_config": "33060fd73862c5e1af97335504d5b45211fce6d229657f556d8deceeadc52ce4",
+    "return_config": "cbe4b84d897ac017db0552ccb3a31855ff0fb172bc344c967c4c4c92eb19e624",
+    "requirements": "5d1c006faed8d5baa52a5b0fc860698248b647a331bb9c45a714e3348a2b4262"
+  },
+  "compiled_android_ios_current_source": "hosted required; static fixtures are not actual build evidence",
+  "os_intent_dispatch_or_physical_acceptance_verified": false,
+  "universal_entity_or_recovery_links_completed": false,
+  "production_accepted": false,
+  "tracker_credit_added": 0
+}

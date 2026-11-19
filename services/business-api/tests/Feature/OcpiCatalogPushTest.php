@@ -129,6 +129,46 @@ class OcpiCatalogPushTest extends TestCase
         $this->assertDatabaseCount('ocpi_record_receipts', 1);
     }
 
+    public function test_withdrawn_tariff_rejects_implicit_utc_prewitdrawal_push_under_non_utc_server_timezone(): void
+    {
+        [$provider, , $headers] = $this->context();
+        $path = '/api/roaming-protocol/2.2.1/tariffs/NL/ABC/tariff-utc-guard';
+        $initial = [
+            'country_code' => 'NL', 'party_id' => 'ABC', 'id' => 'tariff-utc-guard',
+            'last_updated' => now()->subMinute()->toISOString(), 'currency' => 'EUR',
+            'elements' => [['price_components' => [[
+                'type' => 'ENERGY', 'price' => '0.50', 'step_size' => 1,
+            ]]]],
+        ];
+        $this->putJson($path, $initial, $headers)->assertCreated();
+        $record = OcpiRecord::where('external_id', 'tariff-utc-guard')->firstOrFail();
+        $hash = $record->content_hash;
+        $this->deleteJson($path, [], $headers)->assertOk();
+
+        // OCPI 2.2.1 §16.2 means UTC even without Z. A server running in
+        // New York must not reinterpret the old source instant as future UTC.
+        $serverTimeZone = date_default_timezone_get();
+        date_default_timezone_set('America/New_York');
+        try {
+            $oldUtc = now()->subSeconds(30)->utc()->format('Y-m-d\\TH:i:s');
+            $delayed = array_replace($initial, [
+                'last_updated' => $oldUtc,
+                'elements' => [['price_components' => [[
+                    'type' => 'ENERGY', 'price' => '999.00', 'step_size' => 1,
+                ]]]],
+            ]);
+            $this->putJson($path, $delayed, $headers)->assertConflict();
+        } finally {
+            date_default_timezone_set($serverTimeZone);
+        }
+
+        $this->getJson($path, $headers)->assertNotFound();
+        $this->assertSame($hash, $record->fresh()->content_hash);
+        $this->assertDatabaseCount('ocpi_catalog_retirements', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_tariff_withdrawal_keeps_encrypted_source_history_and_fences_delayed_push_and_pull_reactivation(): void
     {
         [$provider, $owner, $headers] = $this->context();

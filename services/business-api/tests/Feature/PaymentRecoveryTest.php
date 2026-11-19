@@ -12,6 +12,7 @@ use App\Services\Commercial\Payments\StripeSandboxProvider;
 use App\Services\Finance\FinanceService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
@@ -133,12 +134,16 @@ class PaymentRecoveryTest extends TestCase
 
     public function test_uncertain_refund_rejects_changed_payload_or_replacement_key_without_another_provider_request(): void
     {
-        [$user, , $checkout] = $this->fixture(true);
+        [$user, $invoice, $checkout] = $this->fixture(true);
         Http::fake(['*' => Http::failedConnection()]);
         $gateway = app(GatewayService::class);
-        $this->failure(fn () => $gateway->operate($checkout->id, $user->id, 'refund', 'refund-original', 50, null, 'Original'), 503);
-        $this->failure(fn () => $gateway->operate($checkout->id, $user->id, 'refund', 'refund-original', 51, null, 'Original'), 409, 'payload');
-        $this->failure(fn () => $gateway->operate($checkout->id, $user->id, 'refund', 'refund-replacement', 50, null, 'Original'), 409, 'unresolved');
+        // Provider refund recovery must be initiated by the invoice Vendor
+        // (or Admin), never by the Customer who paid the charge.
+        $reviewer = $invoice->vendor_id;
+        $this->failure(fn () => $gateway->operate($checkout->id, $user->id, 'refund', 'customer-forbidden', 50, null, 'Original'), 404);
+        $this->failure(fn () => $gateway->operate($checkout->id, $reviewer, 'refund', 'refund-original', 50, null, 'Original'), 503);
+        $this->failure(fn () => $gateway->operate($checkout->id, $reviewer, 'refund', 'refund-original', 51, null, 'Original'), 409, 'payload');
+        $this->failure(fn () => $gateway->operate($checkout->id, $reviewer, 'refund', 'refund-replacement', 50, null, 'Original'), 409, 'unresolved');
         $this->assertDatabaseCount('payment_recovery_intents', 1);
         $this->assertDatabaseCount('finance_refunds', 0);
         Http::assertSentCount(1);
@@ -252,6 +257,50 @@ class PaymentRecoveryTest extends TestCase
         Http::assertSentCount(1);
         Http::assertNotSent(fn ($request) => $request->method() === 'POST');
         Http::assertSent(fn ($request) => $request->method() === 'GET' && $request->url() === 'https://api.stripe.com/v1/payment_intents/pi_recovery');
+    }
+
+    public function test_revoked_customer_vendor_and_admin_cannot_read_or_reconcile_private_intents(): void
+    {
+        [$user, $invoice, $checkout] = $this->fixture();
+        Http::fake(['*' => Http::failedConnection()]);
+        $this->failure(fn () => app(GatewayService::class)->operate(
+            $checkout->id, $user->id, 'capture', 'revoked-recovery-guard'
+        ), 503);
+        $intent = DB::table('payment_recovery_intents')->sole();
+        $base = '/api/commercial/payment-recovery';
+        $admin = User::factory()->create(['role' => 'admin']);
+        $readers = [$user, User::findOrFail($invoice->vendor_id), $admin];
+        $before = DB::table('payment_recovery_events')->count();
+
+        foreach ($readers as $reader) {
+            $record = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $record->role,
+                'account_status' => $record->account_status,
+                'auth_epoch' => $record->auth_epoch,
+                'password' => $record->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson($base)->assertOk()->assertJsonCount(1, 'data');
+
+            foreach ([
+                ['role' => $record->role === 'vendor' ? 'customer' : 'vendor'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $record->auth_epoch + 1],
+                ['password' => Hash::make('rotated-private-recovery-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $this->getJson($base)->assertConflict();
+                $this->getJson($base.'/'.$intent->id.'/events')->assertConflict();
+                $this->postJson($base.'/'.$intent->id.'/reconcile')->assertConflict();
+                DB::table('users')->where('id', $reader->id)->update($original);
+            }
+        }
+        $this->assertSame($before, DB::table('payment_recovery_events')->count());
+        $this->assertSame('uncertain',
+            DB::table('payment_recovery_intents')->where('id', $intent->id)->value('status'));
+        $this->assertDatabaseCount('finance_payments', 0);
     }
 
     public function test_read_only_reconciliation_rejects_another_payment_identity_even_when_amount_and_currency_match(): void

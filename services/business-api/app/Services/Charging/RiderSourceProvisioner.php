@@ -33,7 +33,13 @@ class RiderSourceProvisioner
     private function lookup(string $raw): ?array
     {
         $rows = $this->graph('query($tag:citext!){Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id idToken idTokenType status realTimeAuth realTimeAuthUrl realTimeAuthTimeout additionalInfo cacheExpiryDateTime concurrentTransaction isPrepaid}}', ['tag' => $raw])['Authorizations'] ?? null;
-        abort_unless(is_array($rows) && count($rows) <= 1, 409, 'Ambiguous source identity requires reconciliation.');
+        abort_unless(is_array($rows) && array_is_list($rows) && count($rows) <= 1, 409, 'Malformed or ambiguous source identity requires reconciliation.');
+        if ($rows !== []) {
+            $row = $rows[0];
+            abort_unless(is_array($row) && is_int($row['id'] ?? null) && $row['id'] > 0 &&
+                is_string($row['idToken'] ?? null) && is_string($row['idTokenType'] ?? null),
+                409, 'Malformed source identity requires reconciliation.');
+        }
 
         return $rows[0] ?? null;
     }

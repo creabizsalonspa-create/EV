@@ -8,7 +8,7 @@ class Element{
  set textContent(value){this.text=String(value);this.children=[];}
  get textContent(){return this.text+this.children.map(x=>x.textContent||'').join('');}
 }
-const sample={data:[{key:'catalog:7',kind:'catalog',station:{id:7,name:'<b>Catalog</b>',evidence:'SIMULATED'}},{key:'partner:7',kind:'partner',record_id:7,provider_label:'Private operator label',location:{name:'<img src=x>',address:'Synthetic',country:'ARE'},availability:'unknown',remote_control:false,reservable:false}],current_page:1,last_page:2,total:3};
+const sample={data:[{key:'catalog:7',kind:'catalog',station:{id:7,name:'<b>Catalog</b>',evidence:'SIMULATED',connector_type:'CCS2',power_kw:50}},{key:'partner:7',kind:'partner',record_id:7,provider_label:'Private operator label',location:{name:'<img src=x>',address:'Synthetic',country:'ARE'},availability:'unknown',remote_control:false,reservable:false}],current_page:1,last_page:2,total:3};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function fixture(lang='en',api=async()=>sample){const events=[],listeners=new Map(),window={addEventListener(type,fn){listeners.set(type,[...(listeners.get(type)||[]),fn]);},dispatchEvent(event){events.push(event);for(const fn of listeners.get(event.type)||[])fn(event);}},document={getElementById:()=>null,documentElement:{lang},createElement:tag=>new Element(tag)};vm.runInNewContext(fs.readFileSync('services/business-api/public/partner-catalog-policy.js','utf8'),{window});vm.runInNewContext(fs.readFileSync('services/business-api/public/unified-discovery.js','utf8'),{window,document,URLSearchParams,CustomEvent:class{constructor(type,data){this.type=type;this.detail=data.detail;}}});const root=new Element('section'),chosen=[],calls=[];const control=window.EvUnifiedDiscovery.install(root,async(...args)=>{calls.push(args);return api(...args);},id=>chosen.push(id));return{root,chosen,calls,control,events,emit:(type,detail)=>window.dispatchEvent({type,detail}),form:root.children[2],list:root.children[4],nav:root.children[5]};}
 for(const lang of ['en','ar'])test('actual unified DOM query, typed identities and safe source text '+lang,async()=>{
@@ -158,4 +158,196 @@ for(const lang of ['en','ar'])test('published power range is explicit, normalize
  params=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
  assert.equal(params.has('min_power_kw'),false);
  assert.equal(params.has('max_power_kw'),false);
+});
+
+
+for(const lang of ['en','ar'])test('recent search filters are private, deduplicated, restored locally, and cleared by identity '+lang,async()=>{
+ const f=fixture(lang);
+ f.control.setContext({owner:'private-A',customer:true});
+ const q=f.form.children[0].children.find(n=>n.tag==='input');
+ const market=f.form.children.flatMap(n=>n.children).find(n=>n.name==='country');
+ const details=f.form.children.find(n=>n.tag==='details');
+ const operator=details.children.flatMap(n=>n.children).find(n=>n.name==='operator');
+ const panel=f.root.children[7];
+ assert.equal(panel.id,'unified-recent-presets');
+ assert.equal(panel.hidden,true);
+ q.value='Private first stop';market.value='CA';operator.value='Personal filter';
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.calls.length,1);
+ assert.equal(panel.hidden,false);
+ assert.equal(panel.children[1].children.length,1);
+ q.value='Another stop';market.value='AE';operator.value='Different operator';
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(panel.children[1].children.length,2);
+ const beforeRestore=f.calls.length;
+ // Restore an older saved filter, but do not send it to the backend.
+ panel.children[1].children[1].onclick();
+ assert.equal(f.calls.length,beforeRestore);
+ assert.equal(q.value,'Private first stop');assert.equal(market.value,'CA');
+ assert.equal(operator.value,'Personal filter');
+ assert.match(f.root.children[3].textContent,lang==='ar'?/استُعيدت المرشحات/:/Filters restored locally/);
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const params=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(params.get('q'),'Private first stop');assert.equal(params.get('country'),'CA');
+ assert.equal(params.get('operator'),'Personal filter');
+ assert.equal(panel.children[1].children.length,2,'Same successful query must be deduplicated');
+ const calls=f.calls.length;
+ panel.children[2].onclick();
+ assert.equal(panel.hidden,true);assert.equal(f.calls.length,calls,'Clearing history cannot search');
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(panel.children[1].children.length,1);
+ f.control.setContext({owner:'private-B',customer:true});
+ assert.equal(panel.hidden,true,'Account transition must destroy prior private presets');
+ assert.equal(panel.children[1].children.length,0);
+ assert.equal(q.value,'');
+});
+test('failed catalog or map-only queries cannot enter recent search history',async()=>{
+ const error=fixture('en',async()=>{throw Error('Offline');});
+ error.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(error.root.children[7].hidden,true);
+ const f=fixture();
+ f.emit('unified-viewport-search',{south:24,north:26,west:54,east:56});
+ await tick();
+ assert.equal(f.calls.length,1);
+ assert.equal(f.root.children[7].hidden,true,'Viewport lookup is not a newly saved search');
+});
+
+
+for(const lang of ['en','ar'])test('incomplete catalog metadata stays readable but has no booking or favorite action '+lang,async()=>{
+ const partial={...sample,data:[
+  {...sample.data[0],station:{id:7,name:'<img src=x>',evidence:'SIMULATED',connector_type:'CCS2'}},
+  sample.data[1],
+ ]};
+ const f=fixture(lang,async()=>partial);
+ f.control.setContext({owner:'private',customer:true,favorite:()=>{throw Error('No write allowed');}});
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.list.children.length,2,'Valid partner must remain visible despite incomplete station');
+ const station=f.list.children[0];
+ assert.equal(station.children.some(child=>child.tag==='button'),false);
+ assert.match(station.textContent,lang==='ar'?/غير مكتملة/:/details incomplete/);
+ assert.equal(station.children[0].children.length,0,'Untrusted station name is always text');
+ assert.equal(f.chosen.length,0);
+ assert.equal(f.list.children[1].children.some(child=>child.tag==='button'),true,
+  'Independent authorized favorite action on the partner remains');
+});
+test('unknown station identity fails closed and cannot navigate to a guessed ID',async()=>{
+ const f=fixture('en',async()=>({...sample,data:[
+  {...sample.data[0],key:'catalog:7',station:{name:'No identifier',connector_type:'CCS2',power_kw:50,evidence:'SIMULATED'}},
+  sample.data[1],
+ ]}));
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.list.children.length,1);
+ assert.equal(f.list.children[0].dataset.partnerLocationId,'7');
+ assert.equal(f.chosen.length,0);
+});
+
+
+for(const lang of ['en','ar'])test('missing partner name, provider, address and coordinates are explicitly unknown '+lang,async()=>{
+ const row={...sample.data[1],provider_label:{unexpected:'Untrusted'},
+  location:{id:null,name:null,address:{unexpected:'Untrusted'},city:null,country:null}};
+ const f=fixture(lang,async()=>({...sample,data:[sample.data[0],row]}));
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const card=f.list.children[1];
+ assert.equal(f.list.children.length,2);
+ assert.match(card.textContent,lang==='ar'?/سجل الشريك #7/:/Partner record #7/);
+ assert.match(card.textContent,lang==='ar'?/اسم مقدم الخدمة غير متاح/:/Provider label unavailable/);
+ assert.match(card.textContent,lang==='ar'?/تفاصيل العنوان غير متاحة/:/Address details unavailable/);
+ assert.match(card.textContent,lang==='ar'?/إحداثيات الخريطة غير متاحة/:/Map coordinates unavailable/);
+ assert.equal(card.textContent.includes('[object Object]'),false);
+ assert.equal(card.textContent.includes('0,0'),false);
+ assert.equal(card.children.some(child=>child.textContent.includes('no booking or remote control')),lang==='en');
+});
+
+
+test('recent presets are capped at five and empty filters have localized Arabic labels',async()=>{
+ const f=fixture('ar'),q=f.form.children[0].children.find(node=>node.tag==='input');
+ // First empty query demonstrates the localized fallback, with no automatic request.
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const panel=f.root.children[7];
+ assert.match(panel.children[1].children[0].dataset.ar,/كل المواقع/);
+ assert.match(panel.children[1].children[0].dataset.ar,/كل الدول/);
+ assert.match(panel.children[1].children[0].dataset.ar,/كل المصادر المنشورة/);
+ for(let i=0;i<7;i++){q.value='Session place '+i;f.form.onsubmit({preventDefault(){}});await tick();}
+ assert.equal(panel.children[1].children.length,5);
+ assert.match(panel.children[1].children[0].textContent,/Session place 6/);
+ assert.equal(panel.children[1].textContent.includes('Session place 0'),false);
+ assert.equal(f.calls.length,8);
+ panel.children[2].onclick();
+ assert.equal(panel.hidden,true);
+ assert.equal(f.calls.length,8,'Clearing in-memory entries never calls an API');
+});
+
+
+test('account transition resets source and connector controls in addition to country and private search history',async()=>{
+ const f=fixture();
+ f.control.setContext({owner:'A',customer:true});
+ const selects=f.form.children.flatMap(node=>node.children).filter(node=>node.tag==='select');
+ const scope=selects.find(node=>node!==null&&node.name==='scope')||f.form.children[1].children.find(node=>node.tag==='select');
+ const plug=f.form.children.find(node=>node.tag==='label'&&node.textContent.includes('Connector')).children.find(node=>node.tag==='select');
+ const country=selects.find(node=>node.name==='country');
+ const age=selects.find(node=>node.name==='max_source_age_hours');
+ scope.value='partner';plug.value='CCS2';country.value='US';age.value='24';
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.root.children[7].hidden,false);
+ f.control.setContext({owner:'B',customer:true});
+ assert.equal(scope.value,'all');assert.equal(plug.value,'');
+ assert.equal(country.value,'');assert.equal(age.value,'');
+ assert.equal(f.root.children[7].hidden,true);
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const params=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(params.get('scope'),'all');
+ assert.equal(params.get('connector'),'');
+ assert.equal(params.has('country'),false);
+ assert.equal(params.has('max_source_age_hours'),false);
+});
+
+
+test('same-account customer-to-vendor role change also clears query history and saved-only filter',async()=>{
+ const f=fixture();
+ f.control.setContext({owner:7,customer:true,favorite:async()=>true});
+ f.form.children[0].children.find(n=>n.tag==='input').value='Customer private';
+ const saved=f.form.children.flatMap(n=>n.children).find(n=>n.tag==='input'&&n.type==='checkbox');
+ saved.checked=true;
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.root.children[7].hidden,false);
+ assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).get('saved_only'),'1');
+ f.control.setContext({owner:7,customer:false});
+ assert.equal(f.root.children[7].hidden,true);
+ assert.equal(saved.checked,false);
+ assert.equal(f.form.children[0].children.find(n=>n.tag==='input').value,'');
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).get('saved_only'),'0');
+});
+
+
+for(const lang of ['en','ar'])test('forged published station evidence never creates a booking or saved-place action '+lang,async()=>{
+ const source={...sample.data[0],station:{
+  ...sample.data[0].station,evidence:'LIVE_VERIFIED',
+ }};
+ const f=fixture(lang,async()=>({...sample,data:[source,sample.data[1]]}));
+ f.control.setContext({owner:'customer',customer:true,
+  favorite:async()=>{throw Error('Forged evidence cannot create a customer write');}});
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.list.children.length,2);
+ assert.equal(f.list.children[0].children.some(x=>x.tag==='button'),false,
+  'Unrecognized source cannot be a booking action');
+ assert.match(f.list.children[0].textContent,
+  lang==='ar'?/غير مكتملة/:/details incomplete/);
+ assert.equal(f.list.children[1].children.some(x=>x.tag==='button'),true,
+  'Valid partner preferences must remain independent');
+ assert.equal(f.chosen.length,0);
+});
+
+for(const lang of ['en','ar'])for(const transition of ['account','role','clear'])test('detached recent-filter callback cannot restore a discarded private preset '+lang+' '+transition,async()=>{
+ const f=fixture(lang);f.control.setContext({owner:'owner-A',customer:true});
+ const input=f.form.children[0].children.find(n=>n.tag==='input');input.value='Private old location';
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const panel=f.root.children[7],restore=panel.children[1].children[0].onclick;
+ if(transition==='account')f.control.setContext({owner:'owner-B',customer:true});
+ else if(transition==='role')f.control.setContext({owner:'owner-A',customer:false});
+ else panel.children[2].onclick();
+ input.value='Current draft';const before=f.calls.length;restore();
+ assert.equal(input.value,'Current draft','A discarded actor/history callback must not overwrite current form fields');
+ assert.equal(f.calls.length,before,'Discarded callbacks must not issue requests');
+ assert.equal(panel.hidden,true);
 });

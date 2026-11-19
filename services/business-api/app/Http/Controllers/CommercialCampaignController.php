@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Campaigns\CampaignService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -11,11 +12,25 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class CommercialCampaignController extends Controller
 {
-    private function scope(Request $r)
+    /** Call only inside a transaction that holds the current account lock. */
+    private function scope(Request $r, int $revokedStatus = 409)
     {
-        abort_unless(in_array($r->user()->role, ['vendor', 'admin'], true), 403);
+        try {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+        } catch (HttpException $error) {
+            // Campaign control must preserve its existing non-enumerating
+            // 404 for a formerly privileged reviewer, rather than exposing
+            // the private campaign's existence via a 409 response.
+            if ($revokedStatus !== 409 && $error->getStatusCode() === 409) {
+                abort($revokedStatus);
+            }
 
-        return DB::table('commercial_campaigns')->when($r->user()->role !== 'admin', fn ($q) => $q->where('vendor_id', $r->user()->id));
+            throw $error;
+        }
+        abort_unless(in_array($actor->role, ['vendor', 'admin'], true), 403);
+
+        return DB::table('commercial_campaigns')
+            ->when($actor->role !== 'admin', fn ($q) => $q->where('vendor_id', $actor->id));
     }
 
     private function safe(object $row, CampaignService $service): array
@@ -28,31 +43,58 @@ class CommercialCampaignController extends Controller
 
     public function index(Request $r, CampaignService $s)
     {
-        return response()->json($this->scope($r)->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->safe($row, $s))->toArray() + ['adapter_enabled' => (bool) config('campaigns.enabled')]);
+        return DB::transaction(fn () => response()->json(
+            $this->scope($r)->orderByDesc('id')->paginate(25)
+                ->through(fn ($row) => $this->safe($row, $s))->toArray()
+                    + ['adapter_enabled' => (bool) config('campaigns.enabled')]
+        )->header('Cache-Control', 'private, no-store'), 3);
     }
 
     public function stations(Request $r)
     {
-        abort_unless($r->user()->role === 'vendor', 403);
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($actor->role === 'vendor', 403);
 
-        return DB::table('stations')->where('vendor_id', $r->user()->id)->orderBy('id')->select('id', 'name', 'country')->paginate(25);
+            return response()->json(DB::table('stations')->where('vendor_id', $actor->id)
+                ->orderBy('id')->select('id', 'name', 'country')->paginate(25))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function packages(Request $r, CampaignService $s)
     {
-        abort_unless(in_array($r->user()->role, ['vendor', 'admin'], true), 403);
-        $q = DB::table('commercial_subscription_invoices as i')->join('commercial_subscriptions as s', 's.id', '=', 'i.subscription_id')->join('commercial_plan_versions as p', 'p.id', '=', 'i.plan_id')->where('p.audience', 'vendor')->when($r->user()->role !== 'admin', fn ($q) => $q->where('s.user_id', $r->user()->id))->select('i.*', 's.user_id');
+        return DB::transaction(function () use ($r, $s) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless(in_array($actor->role, ['vendor', 'admin'], true), 403);
+            $q = DB::table('commercial_subscription_invoices as i')
+                ->join('commercial_subscriptions as s', 's.id', '=', 'i.subscription_id')
+                ->join('commercial_plan_versions as p', 'p.id', '=', 'i.plan_id')
+                ->where('p.audience', 'vendor')
+                ->when($actor->role !== 'admin', fn ($q) => $q->where('s.user_id', $actor->id))
+                ->select('i.*', 's.user_id');
 
-        return $q->orderByDesc('i.id')->paginate(25)->through(function ($i) use ($s) {
-            $eligible = true;
-            try {
-                $s->billing($i->id, $i->user_id);
-            } catch (HttpException $error) {
-                $eligible = false;
-            }
+            return response()->json($q->orderByDesc('i.id')->paginate(25)
+                ->through(function ($i) use ($s) {
+                    $eligible = true;
+                    try {
+                        $s->billing($i->id, $i->user_id);
+                    } catch (HttpException $error) {
+                        $eligible = false;
+                    }
 
-            return ['invoice_id' => $i->id, 'vendor_id' => $i->user_id, 'number' => $i->number, 'currency' => $i->currency, 'minor_units' => $i->minor_units, 'total_minor' => $i->total_minor, 'period_start' => $i->period_start, 'period_end' => $i->period_end, 'campaign_eligible' => $eligible, 'entitlements' => json_decode($i->entitlements, true), 'evidence' => DB::table('commercial_subscription_receipts')->where('invoice_id', $i->id)->value('evidence') ?? 'UNPAID'];
-        });
+                    return [
+                        'invoice_id' => $i->id, 'vendor_id' => $i->user_id,
+                        'number' => $i->number, 'currency' => $i->currency,
+                        'minor_units' => $i->minor_units, 'total_minor' => $i->total_minor,
+                        'period_start' => $i->period_start, 'period_end' => $i->period_end,
+                        'campaign_eligible' => $eligible,
+                        'entitlements' => json_decode($i->entitlements, true),
+                        'evidence' => DB::table('commercial_subscription_receipts')
+                            ->where('invoice_id', $i->id)->value('evidence') ?? 'UNPAID',
+                    ];
+                }))->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function create(Request $r, CampaignService $s)
@@ -79,17 +121,33 @@ class CommercialCampaignController extends Controller
 
     public function show(Request $r, int $campaign, CampaignService $s)
     {
-        $row = $this->scope($r)->where('id', $campaign)->first() ?? abort(404);
+        return DB::transaction(function () use ($r, $campaign, $s) {
+            $row = $this->scope($r)->where('id', $campaign)->first() ?? abort(404);
 
-        return response()->json(['campaign' => $this->safe($row, $s), 'currently_eligible' => $s->eligible($row), 'events' => DB::table('commercial_campaign_events')->where('campaign_id', $campaign)->orderBy('id')->get(), 'deliveries' => DB::table('commercial_campaign_deliveries')->where('campaign_id', $campaign)->orderByDesc('id')->paginate(25)]);
+            return response()->json([
+                'campaign' => $this->safe($row, $s),
+                'currently_eligible' => $s->eligible($row),
+                'events' => DB::table('commercial_campaign_events')
+                    ->where('campaign_id', $campaign)->orderBy('id')->get(),
+                'deliveries' => DB::table('commercial_campaign_deliveries')
+                    ->where('campaign_id', $campaign)->orderByDesc('id')->paginate(25),
+            ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function action(Request $r, int $campaign, string $action, CampaignService $s)
     {
-        $this->scope($r)->where('id', $campaign)->first() ?? abort(404);
-        $v = $r->validate(['reason' => 'required|string|min:5|max:500', 'expected_control_revision' => 'sometimes|integer|min:1']);
+        return DB::transaction(function () use ($r, $campaign, $action, $s) {
+            $this->scope($r, 404)->where('id', $campaign)->first() ?? abort(404);
+            $v = $r->validate(['reason' => 'required|string|min:5|max:500',
+                'expected_control_revision' => 'sometimes|integer|min:1']);
 
-        return response()->json(['campaign' => $this->safe($s->action($campaign, $r->user(), $action, $v['reason'], isset($v['expected_control_revision']) ? (int) $v['expected_control_revision'] : null), $s)]);
+            return response()->json(['campaign' => $this->safe(
+                $s->action($campaign, $r->user(), $action, $v['reason'],
+                    isset($v['expected_control_revision'])
+                        ? (int) $v['expected_control_revision'] : null), $s
+            )])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function eligible(Request $r, CampaignService $s)

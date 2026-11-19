@@ -102,4 +102,37 @@ class AdminOperationsMapTest extends TestCase
             }
         }
     }
+
+    public function test_authorized_private_map_reads_are_scope_audited_without_search_or_vendor_data(): void
+    {
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->station(['name' => 'PRIVATE-PLATFORM-MAP-SECRET']);
+
+        $this->actingAs($vendor)->getJson('/api/admin/operations/map?country=AE')
+            ->assertForbidden();
+        $this->assertSame(0, DB::table('audit_events')
+            ->where('action', 'admin.private_list.operations_map_viewed')->count());
+
+        $this->actingAs($admin)->getJson('/api/admin/operations/map?country=AE')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private');
+        $this->getJson('/api/admin/operations/map')->assertOk();
+        $this->getJson('/api/admin/operations/map?country=ZZ')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/admin/operations/map?country=ae')->assertUnprocessable();
+        // Global TrimStrings normalization is intentional: trailing input
+        // whitespace cannot become a newline-bearing private audit subject.
+        $this->getJson('/api/admin/operations/map?country=AE%0A')
+            ->assertOk()->assertJsonPath('total', 1);
+
+        $audit = DB::table('audit_events')
+            ->where('action', 'admin.private_list.operations_map_viewed')
+            ->orderBy('id')->get();
+        $this->assertCount(4, $audit);
+        $this->assertSame(['country:AE', 'all', 'country:ZZ', 'country:AE'], $audit->pluck('subject')->all());
+        foreach ($audit as $event) {
+            $this->assertSame($admin->id, (int) $event->actor_id);
+        }
+        $this->assertStringNotContainsString('PRIVATE-PLATFORM-MAP-SECRET', $audit->toJson());
+    }
 }

@@ -25,6 +25,8 @@ class FinanceTypedRouteBoundaryTest extends TestCase
             ['POST', '/commercial/payouts/{id}/execute'],
             ['POST', '/commercial/payout-accounts/{id}/onboarding'],
             ['GET', '/commercial/vendors/{id}/statement'],
+            ['GET', '/commercial/vendors/{id}/earnings'],
+            ['GET', '/commercial/vendors/{id}/earnings/export'],
             ['PUT', '/commercial/vendors/{id}/schedule'],
             ['POST', '/commercial/vendors/{id}/settlements'],
             ['POST', '/commercial/vendors/{id}/adjustments'],
@@ -37,7 +39,7 @@ class FinanceTypedRouteBoundaryTest extends TestCase
             ['GET', '/financial/documents/{id}'],
             ['GET', '/financial/documents/{id}/download/pdf'],
         ];
-        $this->assertCount(19, $routes);
+        $this->assertCount(21, $routes);
 
         foreach (['/api', '/api/v1'] as $prefix) {
             foreach ($routes as [$method, $uri]) {

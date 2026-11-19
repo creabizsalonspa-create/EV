@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use App\Services\Charging\FirmwareCompatibility;
 use Illuminate\Support\Facades\File;
 
 ob_start();
@@ -23,6 +24,11 @@ file_put_contents($root.'/'.$run.'.pem', $pem, LOCK_EX);
 chmod($root.'/'.$run.'.bin', 0600);
 chmod($root.'/'.$run.'.pem', 0600);
 $entry = ['key' => 'synthetic-'.$run, 'version' => 'sim-'.$run, 'manufacturer' => 'Synthetic', 'model' => 'Fixture', 'sha256' => hash('sha256', $bytes), 'file' => $run.'.bin', 'certificate' => $run.'.pem', 'signature' => base64_encode($signature)];
+$initialVersion = 'baseline-'.$run;
+$policy = ['protocols' => [$f['protocol']], 'from_versions' => [$initialVersion]];
+$message = app(FirmwareCompatibility::class)->message($entry, $policy);
+openssl_sign($message, $compatibilitySignature, $key, OPENSSL_ALGO_SHA256);
+$entry += ['compatibility' => $policy, 'compatibility_signature' => base64_encode($compatibilitySignature)];
 $entries = is_file($root.'/catalog.json') ? json_decode(file_get_contents($root.'/catalog.json'), true, flags: JSON_THROW_ON_ERROR) : [];
 $entries[] = $entry;
 file_put_contents($root.'/catalog.json', json_encode($entries, JSON_THROW_ON_ERROR), LOCK_EX);
@@ -34,4 +40,4 @@ $value = implode(',', $pins);
 $text = preg_match('/^CSMS_FIRMWARE_SIGNER_PINS=/m', $text) ? preg_replace('/^CSMS_FIRMWARE_SIGNER_PINS=.*$/m', 'CSMS_FIRMWARE_SIGNER_PINS='.$value, $text) : $text."\nCSMS_FIRMWARE_SIGNER_PINS=".$value."\n";
 file_put_contents($env, $text, LOCK_EX);
 chmod($env, 0600);
-echo json_encode([...$f, 'catalog_key' => $entry['key'], 'version' => $entry['version'], 'sha256' => $entry['sha256'], 'signer_fingerprint' => $pin, 'fixture_only' => true], JSON_THROW_ON_ERROR);
+echo json_encode([...$f, 'catalog_key' => $entry['key'], 'version' => $entry['version'], 'sha256' => $entry['sha256'], 'signer_fingerprint' => $pin, 'initial_version' => $initialVersion, 'compatibility_manifest_sha256' => hash('sha256', $message), 'fixture_only' => true], JSON_THROW_ON_ERROR);

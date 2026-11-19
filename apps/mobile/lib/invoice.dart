@@ -27,20 +27,64 @@ class InvoicePage extends StatefulWidget {
   State<InvoicePage> createState() => _InvoicePageState();
 }
 
-class _InvoicePageState extends State<InvoicePage> {
+class _InvoicePageState extends State<InvoicePage>
+    with WidgetsBindingObserver {
   Map<String, dynamic>? data;
   Object? error;
-  bool busy = false;
+  bool busy = false, foreground = true;
+  late bool Function() authorized;
+  int generation = 0;
+  bool current(int n, bool Function() session) =>
+      mounted && foreground && authorized() && session() && generation == n;
+
+  void clearPrivate() {
+    generation++;
+    data = null;
+    error = null;
+    busy = false;
+  }
+
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
     load();
   }
 
+  @override
+  void didUpdateWidget(covariant InvoicePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api ||
+        oldWidget.invoiceId != widget.invoiceId ||
+        oldWidget.sessionId != widget.sessionId) {
+      clearPrivate();
+      authorized = widget.api.sessionFence();
+      // An uncertain session-invoice POST must never be replayed automatically.
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (mounted && !foreground) setState(clearPrivate);
+  }
+
+  @override
+  void dispose() {
+    generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   Future<void> load() async {
+    if (!foreground || !authorized() || busy) return;
+    final session = widget.api.sessionFence();
+    final n = ++generation;
     setState(() {
       busy = true;
       error = null;
+      data = null;
     });
     try {
       // Issuance is server-idempotent by session, including already issued documents.
@@ -50,28 +94,96 @@ class _InvoicePageState extends State<InvoicePage> {
             : 'finance/sessions/${widget.sessionId}/invoice',
         method: widget.invoiceId != null ? 'GET' : 'POST',
       );
-      if (result['invoice']?['evidence'] != 'SIMULATED' ||
+      if (!current(n, session)) return;
+      // Never create financial action routes from an unverified or partial
+      // invoice projection. Real-payment authority cannot come from this
+      // simulator-only endpoint.
+      final invoice = result is Map ? result['invoice'] : null;
+      bool validMinor(Object? value) => value is int && value >= 0;
+      bool validTransactions(Object? rows) =>
+          rows == null ||
+          (rows is List &&
+              rows.every((row) =>
+                  row is Map &&
+                  validMinor(row['amount_minor']) &&
+                  row['created_at'] is String &&
+                  (row['reason'] == null || row['reason'] is String)));
+      bool validCreditNotes(Object? notes) =>
+          notes == null ||
+          (notes is List &&
+              notes.every((note) =>
+                  note is Map &&
+                  note['id'] is int &&
+                  (note['id'] as int) > 0 &&
+                  note['credit_note_number'] is String));
+      if (result is! Map ||
+          invoice is! Map ||
+          invoice['evidence'] != 'SIMULATED' ||
+          invoice['id'] is! int ||
+          (invoice['id'] as int) <= 0 ||
+          (widget.invoiceId != null && invoice['id'] != widget.invoiceId) ||
+          invoice['charging_session_id'] is! int ||
+          (invoice['charging_session_id'] as int) <= 0 ||
+          (widget.sessionId != null &&
+              invoice['charging_session_id'] != widget.sessionId) ||
+          invoice['user_id'] is! int ||
+          (invoice['user_id'] as int) <= 0 ||
+          invoice['number'] is! String ||
+          (invoice['number'] as String).isEmpty ||
+          (invoice['number'] as String).length > 100 ||
+          invoice['currency'] is! String ||
+          !RegExp(r'^[A-Z]{3}$').hasMatch(invoice['currency'] as String) ||
+          invoice['minor_units'] is! int ||
+          (invoice['minor_units'] as int) < 0 ||
+          (invoice['minor_units'] as int) > 3 ||
+          !validMinor(invoice['subtotal_minor']) ||
+          !validMinor(invoice['tax_minor']) ||
+          !validMinor(invoice['total_minor']) ||
+          !validMinor(result['paid_minor']) ||
+          !validMinor(result['refunded_minor']) ||
+          !validMinor(result['amount_due_minor']) ||
+          result['ledger_balanced'] is! bool ||
+          !const {
+            'unpaid',
+            'partially_paid',
+            'paid',
+            'refunded',
+            'partially_refunded',
+            'credited',
+          }.contains(result['state']) ||
           result['payment_provider'] != 'SIMULATOR_ONLY' ||
-          result['real_payment_processed'] != false) {
+          result['real_payment_processed'] != false ||
+          !validMinor(result['unpaid_credited_minor']) ||
+          !validTransactions(result['payments']) ||
+          !validTransactions(result['refunds']) ||
+          !validCreditNotes(result['unpaid_credit_notes'])) {
         throw const ApiException(409, 'Unsupported finance evidence.');
       }
-      if (mounted) setState(() => data = Map<String, dynamic>.from(result));
+      if (current(n, session))
+        setState(() => data = Map<String, dynamic>.from(result));
     } catch (e) {
-      if (mounted && e is ApiException && [401, 419].contains(e.status))
+      if (!current(n, session)) return;
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        setState(clearPrivate);
         widget.onExpired();
-      if (mounted)
-        setState(() {
-          error = e;
-          data = null;
-        });
+        return;
+      }
+      setState(() {
+        error = e;
+        data = null;
+      });
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (current(n, session)) setState(() => busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), invoice = data?['invoice'];
+    if (!authorized()) return Scaffold(
+      appBar: AppBar(title: Text(s.t('invoice'))),
+      body: Center(child: Text(s.t('expired'))),
+    );
     return Scaffold(
       appBar: AppBar(title: Text(s.t('invoice'))),
       body: ListView(

@@ -130,4 +130,43 @@ class AdminSessionRevocationTest extends TestCase
             ->assertNoContent();
         $this->assertSame(1, $admin->fresh()->auth_epoch);
     }
+
+    public function test_stale_admin_cannot_revoke_newer_sessions_after_demotion_or_credential_rotation(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tokenId = $admin->createToken('prior-admin')->accessToken->id;
+        $this->createSession($admin, 'stale-admin-revocation-proof');
+        $route = '/api/admin/sessions/revoke-all';
+        $this->actingAs($admin, 'web');
+
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
+        $this->postJson($route, ['password' => 'password'])->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'role' => 'admin', 'account_status' => 'suspended',
+        ]);
+        $this->postJson($route, ['password' => 'password'])->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'account_status' => 'active', 'auth_epoch' => 1,
+        ]);
+        $this->postJson($route, ['password' => 'password'])->assertStatus(409);
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'auth_epoch' => 0,
+            'password' => Hash::make('new-admin-password'),
+        ]);
+        // Knowing the current password does not restore a revoked
+        // authenticated snapshot's ability to destroy newer sessions.
+        $this->postJson($route, ['password' => 'new-admin-password'])
+            ->assertStatus(409);
+
+        $this->assertDatabaseHas('personal_access_tokens', ['id' => $tokenId]);
+        $this->assertDatabaseHas('sessions', ['id' => 'stale-admin-revocation-proof']);
+        $this->assertSame(0, $admin->fresh()->auth_epoch);
+        $this->assertDatabaseMissing('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.sessions.revoked_all',
+        ]);
+    }
 }

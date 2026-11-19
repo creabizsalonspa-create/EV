@@ -1,10 +1,20 @@
 /* Explicit stored-source snapshots; no polling or operational commands. */
-window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics }) => {
+window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filterState }) => {
     const viewer = actor();
     if (!viewer || !['vendor', 'admin'].includes(viewer.role)) return;
     const panel = document.createElement('section');
     root.append(panel);
-    let generation = 0, request, selectedStation = '', disposed = false;
+    // A locale/command-history refresh re-creates this widget. Preserve only
+    // the current authenticated actor's in-memory form draft; never issue a
+    // station read automatically or persist the scoped ID across accounts.
+    const validStation = value => value === '' ||
+        (typeof value === 'string' && /^[1-9][0-9]*$/.test(value) &&
+         Number.isSafeInteger(Number(value)));
+    let selectedStation = validStation(filterState?.selectedStation)
+        ? filterState.selectedStation : '';
+    let draftStation = validStation(filterState?.draftStation)
+        ? filterState.draftStation : selectedStation;
+    let generation = 0, request, disposed = false;
     const t = (en, ar) => document.documentElement.lang === 'ar' ? ar : en;
     const node = (tag, text) => { const n = document.createElement(tag); n.textContent = text; return n; };
     const current = n => !disposed && panel.isConnected && !document.hidden && actor() === viewer && n === generation;
@@ -19,14 +29,29 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics }) => {
         if (actor() !== viewer || document.hidden) return;
         const form = document.createElement('form');
         const field = node('label', t('Station ID (optional)', 'معرف المحطة (اختياري)'));
-        const station = document.createElement('input'); station.name = 'fleet-station'; station.type = 'number'; station.min = '1'; station.step = '1'; station.value = selectedStation; field.append(station);
+        const station = document.createElement('input'); station.name = 'fleet-station'; station.type = 'number'; station.min = '1'; station.step = '1'; station.value = draftStation; field.append(station);
+        // Input is draft-only, not permission to send a request. Rebuilding
+        // this same-actor panel must not silently erase an explicitly typed
+        // station before the user clicks Read.
+        station.oninput = () => {
+            if (!form.isConnected || actor() !== viewer || document.hidden) return;
+            draftStation = station.value.trim();
+            if (filterState) filterState.draftStation = draftStation;
+        };
         const submit = node('button', t('Read connector snapshot', 'قراءة لقطة الموصلات')); submit.type = 'submit';
         form.append(field, submit); panel.append(form);
         form.onsubmit = e => {
             e.preventDefault();
+            if (!form.isConnected || actor() !== viewer || document.hidden) return;
             const id = station.value.trim();
-            if (id && (!/^[1-9][0-9]*$/.test(id) || !Number.isSafeInteger(Number(id)))) return;
-            selectedStation = id; void load(1);
+            if (!validStation(id)) return;
+            selectedStation = id;
+            draftStation = id;
+            if (filterState) {
+                filterState.selectedStation = id;
+                filterState.draftStation = id;
+            }
+            void load(1);
         };
     }
     async function load(page) {
