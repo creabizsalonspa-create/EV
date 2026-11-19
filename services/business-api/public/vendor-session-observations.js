@@ -114,6 +114,89 @@ window.EvCompanySessionObservations = (() => {
             asOf: instant(value.as_of),
         });
     }
+    function projectMeters(v, company, session, page, through) {
+        if (
+            v?.scope !== "company_csms_meter_history" ||
+            v.company_id !== company ||
+            !integer(v.company_id, true) ||
+            v.session_id !== session ||
+            !integer(v.session_id, true) ||
+            !integer(v.through_id) ||
+            (through !== null && v.through_id !== through) ||
+            typeof v.source_linked !== "boolean" ||
+            v.coverage !== "RECORDED_APPLIED_CSMS_EVENTS" ||
+            [
+                "history_complete",
+                "billing_authority",
+                "physical_energy_verified",
+                "commands_sent",
+            ].some((k) => v[k] !== false) ||
+            v.network_requests !== 0
+        )
+            throw Error("Invalid recorded meter scope");
+        const p = v.observations;
+        if (
+            !p ||
+            !Array.isArray(p.data) ||
+            p.data.length > 25 ||
+            p.per_page !== 25 ||
+            p.current_page !== page ||
+            !integer(page, true) ||
+            page > 100000 ||
+            !integer(p.last_page, true) ||
+            !integer(p.total) ||
+            p.data.length > p.total ||
+            p.last_page !==
+                (p.total === 0 ? 1 : Math.floor((p.total - 1) / 25) + 1) ||
+            (page > p.last_page && p.data.length)
+        )
+            throw Error("Invalid recorded meter page");
+        const records = p.data.map((r) => {
+            if (
+                !r ||
+                !integer(r.id, true) ||
+                r.id > v.through_id ||
+                !integer(r.sequence) ||
+                !integer(r.cumulative_meter_wh) ||
+                !["started", "meter", "ended"].includes(r.kind)
+            )
+                throw Error("Invalid recorded counter");
+            return Object.freeze({
+                id: r.id,
+                sequence: r.sequence,
+                counter: r.cumulative_meter_wh,
+                kind: r.kind,
+                occurred: instant(r.source_occurred_at),
+                recorded: instant(r.recorded_at),
+            });
+        });
+        if (
+            new Set(records.map((r) => r.id)).size !== records.length ||
+            records.some((r, i) => i > 0 && records[i - 1].id <= r.id) ||
+            (v.through_id === 0 && p.total !== 0) ||
+            (v.source_linked
+                ? !["1.6", "2.0.1"].includes(v.protocol) ||
+                  !["SIMULATED_CSMS", "RECORDED_SOURCE_UNVERIFIED"].includes(
+                      v.evidence,
+                  )
+                : v.protocol !== null ||
+                  v.evidence !== "NO_RECORDED_CSMS_LINK" ||
+                  p.total !== 0 ||
+                  v.through_id !== 0)
+        )
+            throw Error("Incoherent recorded history");
+        return Object.freeze({
+            records: Object.freeze(records),
+            current: page,
+            last: p.last_page,
+            total: p.total,
+            asOf: instant(v.as_of),
+            through: v.through_id,
+            linked: v.source_linked,
+            protocol: v.protocol,
+            evidence: v.evidence,
+        });
+    }
     const n = (tag, en, ar = en) => {
         const node = document.createElement(tag);
         node.dataset.en = en;
@@ -130,9 +213,14 @@ window.EvCompanySessionObservations = (() => {
         dispose?.();
         dispose = null;
     };
-    function open({ host, api, company, current, onExpired }) {
+    function open({ host, api, company, current, onExpired, session = null }) {
         clear();
-        if (!current() || document.hidden || !integer(company?.id, true))
+        if (
+            !current() ||
+            document.hidden ||
+            !integer(company?.id, true) ||
+            (session !== null && !integer(session, true))
+        )
             return;
         host.replaceChildren();
         const root = document.createElement("section");
@@ -146,19 +234,46 @@ window.EvCompanySessionObservations = (() => {
             page = 1,
             last = 1,
             filter = null,
-            hasData = false;
+            hasData = false,
+            through = null;
         const live = () =>
             !closed && current() && root.isConnected && !document.hidden;
         const active = (value) => live() && value === run;
         root.append(
-            n("h3", "Recorded charging sessions", "جلسات الشحن المسجلة"),
+            n(
+                "h3",
+                session === null
+                    ? "Recorded charging sessions"
+                    : "Recorded meter history",
+                session === null
+                    ? "جلسات الشحن المسجلة"
+                    : "سجل العدادات المسجل",
+            ),
             plain("h4", company.legal_name || ""),
             n(
                 "p",
-                "Read-only company records from currently owned, linked stations. Customer identities, financial fields and charger actions are excluded. Recorded state is not live availability or verified physical charging.",
-                "سجلات للقراءة فقط من المحطات المملوكة والمرتبطة بالشركة حالياً. تُستبعد هوية العملاء والحقول المالية وإجراءات الشواحن. الحالة المسجلة ليست إتاحة مباشرة أو شحناً فعلياً موثقاً.",
+                session === null
+                    ? "Read-only company records from currently owned, linked stations. Customer identities, financial fields and charger actions are excluded. Recorded state is not live availability or verified physical charging."
+                    : "Source counter readings are not consumed or billed energy. This snapshot covers retained applied events; it does not verify physical charging or a complete history.",
+                session === null
+                    ? "سجلات للقراءة فقط من المحطات المملوكة والمرتبطة بالشركة حالياً. تُستبعد هوية العملاء والحقول المالية وإجراءات الشواحن. الحالة المسجلة ليست إتاحة مباشرة أو شحناً فعلياً موثقاً."
+                    : "قراءات عداد المصدر ليست طاقة مستهلكة أو مفوترة. تعرض اللقطة الأحداث المطبقة المحتفظ بها؛ لا توثق الشحن الفعلي أو اكتمال السجل.",
             ),
         );
+        if (session !== null) {
+            root.append(n("p", `Session #${session}`, `الجلسة #${session}`));
+            const back = n(
+                "button",
+                "Back to recorded sessions",
+                "العودة إلى الجلسات المسجلة",
+            );
+            back.type = "button";
+            back.onclick = () => {
+                if (live() && !busy)
+                    open({ host, api, company, current, onExpired });
+            };
+            root.append(back);
+        }
         const label = document.createElement("label"),
             select = document.createElement("select");
         label.append(
@@ -174,10 +289,14 @@ window.EvCompanySessionObservations = (() => {
             select.append(option);
         }
         label.append(select);
-        root.append(label);
+        if (session === null) root.append(label);
         const controls = document.createElement("div");
         controls.className = "session-observation-actions";
-        const first = n("button", "Read first page", "قراءة الصفحة الأولى"),
+        const first = n(
+                "button",
+                session === null ? "Read first page" : "Refresh snapshot",
+                session === null ? "قراءة الصفحة الأولى" : "تحديث اللقطة",
+            ),
             previous = n("button", "Previous", "السابق"),
             next = n("button", "Next", "التالي"),
             retry = n("button", "Retry this page", "إعادة قراءة هذه الصفحة");
@@ -204,7 +323,7 @@ window.EvCompanySessionObservations = (() => {
             previous.disabled ||= !hasData || page <= 1;
             next.disabled ||= !hasData || page >= last;
             first.onclick = () => {
-                if (allowed()) read(1);
+                if (allowed()) read(1, true);
             };
             previous.onclick = () => {
                 if (allowed() && hasData && selected === page && page > 1)
@@ -227,10 +346,11 @@ window.EvCompanySessionObservations = (() => {
                 }
             };
         }
-        async function read(target) {
+        async function read(target, refresh = false) {
             if (!live() || busy) return;
             const own = ++run;
             page = target;
+            if (refresh) through = null;
             busy = true;
             hasData = false;
             retry.hidden = true;
@@ -248,63 +368,182 @@ window.EvCompanySessionObservations = (() => {
             try {
                 const query = new URLSearchParams({
                     page: String(target),
-                    ...(filter === null ? {} : { status: filter }),
+                    ...(session === null
+                        ? filter === null
+                            ? {}
+                            : { status: filter }
+                        : through === null
+                          ? {}
+                          : { through: String(through) }),
                 });
                 const raw = await api(
-                    `vendor-ops/companies/${company.id}/charging-sessions?${query}`,
+                    `vendor-ops/companies/${company.id}/charging-sessions${session === null ? "" : "/" + session + "/meter-history"}?${query}`,
                     "GET",
                     undefined,
                     controller.signal,
                 );
                 if (!active(own)) return;
-                const data = project(raw, company.id, target, filter);
+                const data =
+                    session === null
+                        ? project(raw, company.id, target, filter)
+                        : projectMeters(
+                              raw,
+                              company.id,
+                              session,
+                              target,
+                              through,
+                          );
+                if (session !== null) through = data.through;
                 last = data.last;
                 hasData = true;
-                for (const record of data.records) {
-                    const card = document.createElement("article");
-                    card.className = "session-observation-card";
-                    card.append(
-                        plain("h4", record.station),
-                        n("p", `Session #${record.id}`, `الجلسة #${record.id}`),
-                        n("p", ...states[record.state]),
+                if (session !== null) {
+                    rows.append(
                         n(
                             "p",
-                            record.energy === null
-                                ? "Recorded energy unavailable"
-                                : `Recorded energy: ${record.energy} Wh`,
-                            record.energy === null
-                                ? "الطاقة المسجلة غير متاحة"
-                                : `الطاقة المسجلة: ${record.energy} Wh`,
-                        ),
-                        n("p", ...evidenceText[record.evidence]),
-                        n(
-                            "p",
-                            "Record updated at UTC",
-                            "تحديث السجل بالتوقيت العالمي",
+                            ...(data.linked
+                                ? evidenceText[data.evidence]
+                                : [
+                                      "No recorded CSMS link. No meter history is invented.",
+                                      "لا يوجد ربط مسجل بنظام الشحن. لا يتم إنشاء سجل عداد افتراضي.",
+                                  ]),
                         ),
                     );
-                    const time = plain("time", record.updated);
-                    time.dateTime = record.updated;
-                    time.dir = "ltr";
-                    time.className = "session-observation-time";
-                    card.append(time);
-                    rows.append(card);
+                    if (data.protocol !== null)
+                        rows.append(plain("p", "OCPP " + data.protocol));
+                    for (const record of data.records) {
+                        const card = document.createElement("article");
+                        card.className = "session-observation-card";
+                        card.append(
+                            n(
+                                "h4",
+                                ...{
+                                    started: ["Recorded start", "بداية مسجلة"],
+                                    meter: ["Recorded meter", "عداد مسجل"],
+                                    ended: ["Recorded end", "نهاية مسجلة"],
+                                }[record.kind],
+                            ),
+
+                            n(
+                                "p",
+                                `Sequence: ${record.sequence}`,
+                                `التسلسل: ${record.sequence}`,
+                            ),
+                        );
+                        const counter = document.createElement("p"),
+                            amount = plain("bdi", `${record.counter} Wh`);
+                        amount.dir = "ltr";
+                        counter.append(
+                            n(
+                                "span",
+                                "Cumulative counter: ",
+                                "العداد التراكمي: ",
+                            ),
+                            amount,
+                        );
+                        card.append(counter);
+                        for (const [text, value] of [
+                            [
+                                [
+                                    "Source timestamp UTC",
+                                    "توقيت المصدر بالتوقيت العالمي",
+                                ],
+                                record.occurred,
+                            ],
+                            [
+                                [
+                                    "Recorded at UTC",
+                                    "وقت التسجيل بالتوقيت العالمي",
+                                ],
+                                record.recorded,
+                            ],
+                        ]) {
+                            const time = plain("time", value);
+                            time.dateTime = value;
+                            time.dir = "ltr";
+                            time.className = "session-observation-time";
+                            card.append(n("p", ...text), time);
+                        }
+                        rows.append(card);
+                    }
+                } else {
+                    for (const record of data.records) {
+                        const card = document.createElement("article");
+                        card.className = "session-observation-card";
+                        card.append(
+                            plain("h4", record.station),
+                            n(
+                                "p",
+                                `Session #${record.id}`,
+                                `الجلسة #${record.id}`,
+                            ),
+                            n("p", ...states[record.state]),
+                            n(
+                                "p",
+                                record.energy === null
+                                    ? "Recorded energy unavailable"
+                                    : `Recorded energy: ${record.energy} Wh`,
+                                record.energy === null
+                                    ? "الطاقة المسجلة غير متاحة"
+                                    : `الطاقة المسجلة: ${record.energy} Wh`,
+                            ),
+                            n("p", ...evidenceText[record.evidence]),
+                            n(
+                                "p",
+                                "Record updated at UTC",
+                                "تحديث السجل بالتوقيت العالمي",
+                            ),
+                        );
+                        const time = plain("time", record.updated);
+                        time.dateTime = record.updated;
+                        time.dir = "ltr";
+                        time.className = "session-observation-time";
+                        card.append(time);
+                        const meters = n(
+                            "button",
+                            "Recorded meter history",
+                            "سجل العدادات المسجل",
+                        );
+                        meters.type = "button";
+                        meters.onclick = () => {
+                            if (active(own) && !busy)
+                                open({
+                                    host,
+                                    api,
+                                    company,
+                                    current,
+                                    onExpired,
+                                    session: record.id,
+                                });
+                        };
+                        card.append(meters);
+                        rows.append(card);
+                    }
                 }
                 if (!data.records.length)
                     rows.append(
                         n(
                             "p",
-                            "No records in this filtered scope.",
-                            "لا توجد سجلات ضمن النطاق المرشح.",
+                            session === null
+                                ? "No records in this filtered scope."
+                                : "No applied source events in this recorded snapshot.",
+                            session === null
+                                ? "لا توجد سجلات ضمن النطاق المرشح."
+                                : "لا توجد أحداث مصدر مطبقة في هذه اللقطة المسجلة.",
                         ),
                     );
-                status.replaceChildren(
+                const pageInfo = document.createElement("span"),
+                    fraction = plain("bdi", `${data.current} / ${data.last}`);
+                fraction.dir = "ltr";
+                pageInfo.append(
+                    n("span", "Page ", "الصفحة "),
+                    fraction,
                     n(
                         "span",
-                        `Page ${data.current} / ${data.last} · ${data.total} recorded sessions`,
-                        `الصفحة ${data.current} / ${data.last} · ${data.total} جلسات مسجلة`,
+                        ` · ${data.total} ${session === null ? "recorded sessions" : "recorded source events"}`,
+                        ` · ${data.total} ${session === null ? "جلسات مسجلة" : "أحداث مصدر مسجلة"}`,
                     ),
                 );
+                status.replaceChildren(pageInfo);
                 const observed = plain("time", data.asOf);
                 observed.dir = "ltr";
                 observed.dateTime = data.asOf;

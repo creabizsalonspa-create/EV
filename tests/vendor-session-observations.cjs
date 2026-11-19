@@ -74,13 +74,14 @@ function fixture(ar = false) {
     events,
     windowEvents,
     revoke: () => (current = false),
-    open: (api, onExpired) =>
+    open: (api, onExpired, session = null) =>
       window.EvCompanySessionObservations.open({
         host: root,
         api,
         company: { id: 4, legal_name: "Company" },
         current: () => current,
         onExpired,
+        session,
       }),
     clear: window.EvCompanySessionObservations.clear,
   };
@@ -287,4 +288,160 @@ test("current credential conflicts expire the view; old conflicts cannot expire 
   await flush();
   assert.equal(expired, 0);
   assert(f.root.textContent.includes("Station 27"));
+});
+
+function meterPage(number = 1, cut = 27, linked = true) {
+  return {
+    scope: "company_csms_meter_history",
+    company_id: 4,
+    session_id: 27,
+    through_id: linked ? cut : 0,
+    source_linked: linked,
+    protocol: linked ? "2.0.1" : null,
+    coverage: "RECORDED_APPLIED_CSMS_EVENTS",
+    history_complete: false,
+    billing_authority: false,
+    physical_energy_verified: false,
+    commands_sent: false,
+    network_requests: 0,
+    evidence: linked ? "SIMULATED_CSMS" : "NO_RECORDED_CSMS_LINK",
+    as_of: "2026-11-19T09:59:00Z",
+    observations: {
+      data: linked
+        ? [
+            {
+              id: number === 1 ? cut : 1,
+              sequence: 26,
+              kind: "ended",
+              cumulative_meter_wh: 1002500,
+              source_occurred_at: "2026-11-19T09:59:00.123456Z",
+              recorded_at: "2026-11-19T10:00:00Z",
+              event_id: "PRIVATE-EXTRA",
+            },
+          ]
+        : [],
+      current_page: number,
+      last_page: linked ? 2 : 1,
+      total: linked ? 26 : 0,
+      per_page: 25,
+    },
+  };
+}
+const byLabel = (f, label) =>
+  buttons(f).find((button) => button.textContent === label);
+for (const ar of [false, true])
+  test(
+    "meter timeline keeps snapshot cursor, redacts source identifiers and refreshes explicitly " +
+      ar,
+    async () => {
+      const f = fixture(ar),
+        calls = [];
+      let newer = false;
+      f.open(
+        async (path) => {
+          calls.push(path);
+          const q = new URL("http://localhost/" + path).searchParams;
+          return meterPage(
+            Number(q.get("page")),
+            q.has("through") ? Number(q.get("through")) : newer ? 28 : 27,
+          );
+        },
+        undefined,
+        27,
+      );
+      await flush();
+      assert(f.root.textContent.includes("1002500 Wh"));
+      assert(!f.root.textContent.includes("PRIVATE"));
+      assert(
+        f.root.textContent.includes(
+          ar ? "ليست طاقة مستهلكة" : "not consumed or billed",
+        ),
+      );
+      newer = true;
+      byLabel(f, ar ? "التالي" : "Next").onclick();
+      await flush();
+      assert(calls[1].endsWith("page=2&through=27"));
+      byLabel(f, ar ? "تحديث اللقطة" : "Refresh snapshot").onclick();
+      await flush();
+      assert(calls[2].endsWith("meter-history?page=1"));
+      assert(!calls[2].includes("through="));
+    },
+  );
+test("meter navigation clears old session records and invalidates detached actions", async () => {
+  const f = fixture(),
+    calls = [];
+  f.open(async (path) => {
+    calls.push(path);
+    return path.includes("/meter-history") ? meterPage() : page();
+  });
+  await flush();
+  const old = byLabel(f, "Recorded meter history").onclick;
+  old();
+  await flush();
+  assert(!f.root.textContent.includes("Station 27"));
+  assert(f.root.textContent.includes("1002500 Wh"));
+  old();
+  await flush();
+  assert.equal(calls.length, 2);
+  byLabel(f, "Back to recorded sessions").onclick();
+  await flush();
+  assert(f.root.textContent.includes("Station 27"));
+  assert(!f.root.textContent.includes("1002500 Wh"));
+});
+test("history read failure clears old counters and retries only failed page/cursor", async () => {
+  const f = fixture(),
+    calls = [];
+  let fail = true;
+  f.open(
+    async (path) => {
+      calls.push(path);
+      if (path.includes("page=2") && fail) throw Error("PRIVATE");
+      return meterPage(path.includes("page=2") ? 2 : 1);
+    },
+    undefined,
+    27,
+  );
+  await flush();
+  byLabel(f, "Next").onclick();
+  await flush();
+  assert(!f.root.textContent.includes("1002500 Wh"));
+  fail = false;
+  byLabel(f, "Retry this page").onclick();
+  await flush();
+  assert(calls[2].endsWith("page=2&through=27"));
+  assert(f.root.textContent.includes("1002500 Wh"));
+});
+test("no CSMS link yields an explicit empty history rather than invented readings", async () => {
+  const f = fixture();
+  f.open(async () => meterPage(1, 0, false), undefined, 27);
+  await flush();
+  assert(f.root.textContent.includes("No recorded CSMS link"));
+  assert(!f.root.textContent.includes("Cumulative counter:"));
+});
+test("unsafe, foreign or acceptance-promoting meter replies cannot render a counter", async () => {
+  for (const change of [
+    (v) => (v.company_id = 5),
+    (v) => (v.session_id = 28),
+    (v) => (v.billing_authority = true),
+    (v) => (v.history_complete = true),
+    (v) => (v.commands_sent = true),
+    (v) => (v.protocol = null),
+    (v) => (v.through_id = 1),
+    (v) => (v.observations.data[0].cumulative_meter_wh = -1),
+    (v) => (v.observations.data[0].source_occurred_at = "2026-02-30T00:00:00Z"),
+  ]) {
+    const f = fixture();
+    f.open(
+      async () => {
+        const d = meterPage();
+        change(d);
+        return d;
+      },
+      undefined,
+      27,
+    );
+    await flush();
+    assert(!f.root.textContent.includes("1002500 Wh"));
+    assert.equal(byLabel(f, "Retry this page").hidden, false);
+  }
 });

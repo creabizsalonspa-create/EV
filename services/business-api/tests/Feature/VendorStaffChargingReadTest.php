@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\VendorStaffChargingReadController;
+use App\Models\ChargerCommand;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
@@ -86,6 +87,8 @@ class VendorStaffChargingReadTest extends TestCase
         $other['station']->update(['vendor_id' => $f['owner']->id]);
         $this->actingAs($f['owner'])->getJson($this->url($f['company']))->assertOk()->assertJsonPath('total', 27)->assertJsonCount(25, 'data');
         $this->getJson($this->url($f['company']).'?page=2&status=stopped')->assertOk()->assertJsonPath('total', 27)->assertJsonCount(2, 'data');
+        $filtered = $this->getJson($this->url($f['company']).'?status=stopped')->assertOk();
+        $this->getJson($filtered->json('next_page_url'))->assertOk()->assertJsonPath('status_filter', 'stopped');
         $this->getJson($this->url($f['company']).'?status=charging')->assertOk()->assertJsonPath('total', 0);
         $this->getJson($this->url($other['company']))->assertOk()->assertJsonPath('total', 2);
         $f['membership']->update(['permissions' => ['charging.read']]);
@@ -149,6 +152,7 @@ class VendorStaffChargingReadTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->withToken($login->json('token'))->getJson('/api/v1/vendor-ops/companies/'.$f['company']->id.'/charging-sessions')->assertOk()->assertJsonPath('total', 1);
         $this->getJson('/api/v1/vendor-ops/companies')->assertOk()->assertJsonPath('data.0.capabilities.charging_read', true)->assertJsonPath('data.0.capabilities.company_read', false)->assertJsonPath('data.0.capabilities.inventory_read', false)->assertJsonPath('data.0.restricted_directory_entry', true);
+        $this->getJson('/api/v1/vendor-ops/companies/'.$f['company']->id.'/charging-sessions/'.ChargingSession::firstOrFail()->id.'/meter-history')->assertOk()->assertJsonPath('source_linked', false)->assertJsonPath('observations.total', 0);
         $this->getJson('/api/v1/charging-operations')->assertForbidden();
     }
 
@@ -161,5 +165,109 @@ class VendorStaffChargingReadTest extends TestCase
             $this->actingAs($f['owner'])->patchJson('/api/vendor-ops/companies/'.$f['company']->id.'/staff/'.$f['membership']->id.'/permissions', ['expected_version' => 1, 'permissions' => $permissions])->assertUnprocessable();
         }
         $this->assertSame(['inventory.read'], $f['membership']->fresh()->permissions);
+    }
+
+    private function meterFixture(array $f, int $count = 27, string $protocol = '1.6'): array
+    {
+        $session = ChargingSession::where('reservation_id', Reservation::where('station_id', $f['station']->id)->value('id'))->firstOrFail();
+        $binding = DB::table('csms_bindings')->insertGetId(['station_id' => $f['station']->id, 'identifier' => 'PRIVATE-device-'.$session->id, 'protocol' => $protocol, 'created_at' => now(), 'updated_at' => now()]);
+        $command = ChargerCommand::create(['actor_id' => $f['owner']->id, 'station_id' => $f['station']->id, 'action' => 'start', 'idempotency_key' => 'meter-private-'.$session->id, 'payload_hash' => hash('sha256', 'meter-'.$session->id), 'payload' => ['id_token' => 'PRIVATE-TOKEN']]);
+        $link = DB::table('csms_session_links')->insertGetId(['charging_session_id' => $session->id, 'binding_id' => $binding, 'start_command_id' => $command->id, 'identifier' => 'PRIVATE-device-'.$session->id, 'protocol' => $protocol, 'transaction_id' => 'PRIVATE-transaction-'.$session->id, 'created_at' => now(), 'updated_at' => now()]);
+        foreach (range(1, $count) as $i) {
+            DB::table('csms_inbox_events')->insert(['link_id' => $link, 'event_id' => 'PRIVATE-event-'.$link.'-'.$i, 'fingerprint' => hash('sha256', 'PRIVATE-'.$i), 'type' => $i === 1 ? 'started' : 'meter', 'sequence' => $i - 1, 'meter_wh' => 1000000 + $i * 100, 'occurred_at' => '2026-11-19 09:00:00.123456', 'outcome' => 'applied', 'created_at' => '2026-11-19 09:00:01.654321']);
+        }
+        $f['membership']->update(['permissions' => ['charging.read']]);
+
+        return ['url' => $this->url($f['company']).'/'.$session->id.'/meter-history', 'session' => $session, 'binding' => $binding, 'link' => $link];
+    }
+
+    #[TestWith(['1.6'])]
+    #[TestWith(['2.0.1'])]
+    public function test_staff_meter_history_uses_recorded_counters_without_customer_money_or_control_fields(string $protocol): void
+    {
+        Http::preventStrayRequests();
+        $f = $this->fixture();
+        $m = $this->meterFixture($f, 27, $protocol);
+        DB::table('csms_inbox_events')->insert(['link_id' => $m['link'], 'event_id' => 'PRIVATE-stale', 'fingerprint' => hash('sha256', 'stale'), 'type' => 'meter', 'sequence' => 99, 'meter_wh' => 900, 'occurred_at' => now(), 'outcome' => 'stale', 'created_at' => now()]);
+        $before = DB::table('csms_inbox_events')->orderBy('id')->get()->toJson();
+        $commands = DB::table('charger_commands')->orderBy('id')->get()->toJson();
+        // Existing PostgreSQL inbox columns retain whole seconds; never
+        // reconstruct fractional wire timestamps that the store did not retain.
+        // timestamp(0) rounds .654321 into the next retained second.
+        $postgres = DB::connection()->getDriverName() === 'pgsql';
+        $occurred = $postgres ? '2026-11-19T09:00:00.000000Z' : '2026-11-19T09:00:00.123456Z';
+        $recorded = $postgres ? '2026-11-19T09:00:02.000000Z' : '2026-11-19T09:00:01.654321Z';
+        $reply = $this->actingAs($f['staff'])->getJson($m['url'])->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('scope', 'company_csms_meter_history')->assertJsonPath('company_id', $f['company']->id)
+            ->assertJsonPath('session_id', $m['session']->id)->assertJsonPath('source_linked', true)->assertJsonPath('protocol', $protocol)
+            ->assertJsonPath('observations.total', 27)->assertJsonCount(25, 'observations.data')
+            ->assertJsonPath('observations.data.0.cumulative_meter_wh', 1002700)
+            ->assertJsonPath('observations.data.0.source_occurred_at', $occurred)
+            ->assertJsonPath('observations.data.0.recorded_at', $recorded)
+            ->assertJsonPath('history_complete', false)->assertJsonPath('billing_authority', false)
+            ->assertJsonPath('physical_energy_verified', false)->assertJsonPath('commands_sent', false)->assertJsonPath('network_requests', 0);
+        foreach (['PRIVATE-', 'fingerprint', 'event_id', 'transaction_id', 'token', 'payload', 'reservation_id', 'user_id', 'total_minor', 'currency'] as $private) {
+            $this->assertStringNotContainsString($private, $reply->getContent());
+        }
+        $this->assertSame($before, DB::table('csms_inbox_events')->orderBy('id')->get()->toJson());
+        $this->assertSame($commands, DB::table('charger_commands')->orderBy('id')->get()->toJson());
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_meter_snapshot_pages_exclude_later_events_until_explicit_refresh(): void
+    {
+        $f = $this->fixture();
+        $m = $this->meterFixture($f);
+        $this->actingAs($f['staff']);
+        $first = $this->getJson($m['url'])->assertOk();
+        $through = $first->json('through_id');
+        DB::table('csms_inbox_events')->insert(['link_id' => $m['link'], 'event_id' => 'PRIVATE-later', 'fingerprint' => hash('sha256', 'later'), 'type' => 'ended', 'sequence' => 28, 'meter_wh' => 1005000, 'occurred_at' => now(), 'outcome' => 'applied', 'created_at' => now()]);
+        $this->getJson($first->json('observations.next_page_url'))->assertOk()->assertJsonPath('through_id', $through)->assertJsonPath('observations.total', 27)->assertJsonCount(2, 'observations.data');
+        $this->getJson($m['url'])->assertOk()->assertJsonPath('observations.total', 28);
+        $this->getJson($m['url'].'?through=9007199254740991')->assertUnprocessable();
+    }
+
+    public function test_history_never_invents_unlinked_or_foreign_binding_readings_and_rechecks_grants(): void
+    {
+        $f = $this->fixture();
+        $session = ChargingSession::firstOrFail();
+        $url = $this->url($f['company']).'/'.$session->id.'/meter-history';
+        $f['membership']->update(['permissions' => ['charging.read']]);
+        $this->actingAs($f['staff'])->getJson($url)->assertOk()->assertJsonPath('source_linked', false)->assertJsonPath('evidence', 'NO_RECORDED_CSMS_LINK')->assertJsonPath('observations.total', 0);
+        $m = $this->meterFixture($f, 2);
+        $other = $this->fixture();
+        $this->getJson($this->url($other['company']).'/'.$session->id.'/meter-history')->assertNotFound();
+        $other['company']->update(['owner_id' => $f['owner']->id]);
+        $other['station']->update(['vendor_id' => $f['owner']->id]);
+        $this->actingAs($f['owner'])->getJson($this->url($other['company']).'/'.$session->id.'/meter-history')->assertNotFound();
+        $this->actingAs($f['staff']);
+        DB::table('csms_bindings')->where('id', $m['binding'])->update(['station_id' => $other['station']->id]);
+        $this->getJson($url)->assertOk()->assertJsonPath('source_linked', false)->assertJsonPath('observations.total', 0);
+        foreach (['invited', 'revoked'] as $state) {
+            $f['membership']->update(['status' => $state]);
+            $this->getJson($url)->assertNotFound();
+        }
+        $f['membership']->update(['status' => 'active', 'admin_revoked_at' => now()]);
+        $this->getJson($url)->assertNotFound();
+        $f['membership']->update(['admin_revoked_at' => null]);
+        DB::table('users')->where('id', $f['staff']->id)->update(['email_verified_at' => null]);
+        $this->getJson($url)->assertNotFound();
+    }
+
+    public function test_meter_history_bounds_and_unreadable_counters_fail_without_coercing_or_billing(): void
+    {
+        $f = $this->fixture();
+        $m = $this->meterFixture($f, 1);
+        $this->actingAs($f['staff']);
+        foreach (['page=0', 'page=100001', 'through=-1', 'through=9007199254740992', 'through=abc'] as $query) {
+            $this->getJson($m['url'].'?'.$query)->assertUnprocessable();
+        }
+        $this->getJson($this->url($f['company']).'/'.str_repeat('9', 40).'/meter-history')->assertNotFound();
+        $this->getJson('/api/vendor-ops/companies/'.str_repeat('9', 40).'/charging-sessions/'.$m['session']->id.'/meter-history')->assertNotFound();
+        $this->getJson($this->url($f['company']).'/9007199254740992/meter-history')->assertUnprocessable();
+        DB::table('csms_inbox_events')->where('link_id', $m['link'])->update(['meter_wh' => 9007199254740992]);
+        $this->getJson($m['url'])->assertUnprocessable();
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 }

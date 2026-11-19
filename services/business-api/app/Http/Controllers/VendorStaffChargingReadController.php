@@ -19,17 +19,7 @@ final class VendorStaffChargingReadController extends Controller
     public function index(Request $request, VendorCompany $company)
     {
         return DB::transaction(function () use ($request, $company) {
-            $snapshot = $request->user();
-            abort_unless($snapshot instanceof User && $snapshot->account_status === 'active' && in_array($snapshot->role, ['customer', 'vendor', 'admin'], true), 403);
-            if ($snapshot->role === 'admin') {
-                $actor = AdminTransactionAuthority::requireCurrent($snapshot);
-            } else {
-                $actor = User::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
-                abort_unless($actor->account_status === 'active', 403);
-                abort_unless($actor->role === $snapshot->role && (int) $actor->auth_epoch === (int) $snapshot->auth_epoch && hash_equals((string) $actor->password, (string) $snapshot->password), 409, 'Account authority changed; sign in again.');
-            }
-            $current = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
-            app(VendorAccess::class)->require($actor, $current, 'charging.read');
+            $current = $this->authorizedCompany($request, $company);
             $v = $request->validate(['page' => 'sometimes|integer|between:1,100000', 'status' => ['sometimes', 'required', Rule::in([...self::STATUSES, 'unknown'])]]);
             $status = $v['status'] ?? null;
             // The site/station relation is unique. Recheck current station
@@ -65,6 +55,10 @@ final class VendorStaffChargingReadController extends Controller
                 ];
             });
 
+            if ($status !== null) {
+                $page->appends(['status' => $status]);
+            }
+
             return response()->json($page->toArray() + [
                 'scope' => 'company_recorded_charging_sessions', 'company_id' => (int) $current->id,
                 'status_filter' => $status, 'as_of' => now()->toISOString(), 'inventory_station_scope' => 'current_owned_unique_site_links',
@@ -72,5 +66,87 @@ final class VendorStaffChargingReadController extends Controller
                 'control_actions_exposed' => false, 'physical_charging_verified' => false, 'live_availability_verified' => false,
             ])->header('Cache-Control', 'no-store, private');
         });
+    }
+
+    /** Both callers hold this authority through the private projection. */
+    private function authorizedCompany(Request $request, VendorCompany $company): VendorCompany
+    {
+        $snapshot = $request->user();
+        abort_unless($snapshot instanceof User && $snapshot->account_status === 'active' && in_array($snapshot->role, ['customer', 'vendor', 'admin'], true), 403);
+        if ($snapshot->role === 'admin') {
+            $actor = AdminTransactionAuthority::requireCurrent($snapshot);
+        } else {
+            $actor = User::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
+            abort_unless($actor->account_status === 'active', 403);
+            abort_unless($actor->role === $snapshot->role && (int) $actor->auth_epoch === (int) $snapshot->auth_epoch && hash_equals((string) $actor->password, (string) $snapshot->password), 409, 'Account authority changed; sign in again.');
+        }
+        $current = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+        app(VendorAccess::class)->require($actor, $current, 'charging.read');
+
+        return $current;
+    }
+
+    public function meters(Request $request, VendorCompany $company, int $session)
+    {
+        return DB::transaction(function () use ($request, $company, $session) {
+            $current = $this->authorizedCompany($request, $company);
+            abort_unless($session > 0 && $session <= 9007199254740991 && $current->id <= 9007199254740991, 422, 'Unsupported recorded-history identity.');
+            $v = $request->validate(['page' => 'sometimes|integer|between:1,100000', 'through' => 'sometimes|integer|between:0,9007199254740991']);
+            $owned = DB::table('charging_sessions as session')
+                ->join('reservations as booking', 'booking.id', '=', 'session.reservation_id')
+                ->join('stations as station', 'station.id', '=', 'booking.station_id')
+                ->join('vendor_sites as site', 'site.station_id', '=', 'station.id')
+                ->where('session.id', $session)->where('site.company_id', $current->id)
+                ->where('station.vendor_id', $current->owner_id)
+                ->first(['session.id', 'station.id as station_id', 'station.source']);
+            abort_unless($owned, 404);
+            // Read only the historical link identity, never its private token or
+            // transaction identifiers. A foreign/reassigned binding is not proof.
+            $link = DB::table('csms_session_links as link')
+                ->join('csms_bindings as binding', 'binding.id', '=', 'link.binding_id')
+                ->where('link.charging_session_id', $session)->where('binding.station_id', $owned->station_id)
+                ->whereIn('link.protocol', ['1.6', '2.0.1'])->first(['link.id', 'link.protocol']);
+            $query = DB::table('csms_inbox_events')->when($link !== null, fn ($q) => $q->where('link_id', $link->id), fn ($q) => $q->whereRaw('1 = 0'))
+                ->where('outcome', 'applied')->whereIn('type', ['started', 'meter', 'ended']);
+            $maximum = (int) ((clone $query)->max('id') ?? 0);
+            $through = isset($v['through']) ? (int) $v['through'] : $maximum;
+            abort_if($through > $maximum, 422, 'Snapshot cursor is beyond retained source history.');
+            $rows = $query->where('id', '<=', $through)->orderByDesc('id')
+                ->paginate(25, ['id', 'sequence', 'type', 'meter_wh', 'occurred_at', 'created_at'])
+                ->through(function ($row) {
+                    foreach (['id', 'sequence', 'meter_wh'] as $key) {
+                        abort_unless(is_int($row->{$key}) && $row->{$key} >= ($key === 'id' ? 1 : 0) && $row->{$key} <= 9007199254740991, 422, 'Recorded meter history is unreadable.');
+                    }
+
+                    return ['id' => $row->id, 'sequence' => $row->sequence, 'kind' => $row->type,
+                        'cumulative_meter_wh' => $row->meter_wh,
+                        'source_occurred_at' => $this->recordedInstant($row->occurred_at),
+                        'recorded_at' => $this->recordedInstant($row->created_at)];
+                });
+
+            $rows->appends(['through' => $through]);
+
+            return response()->json(['scope' => 'company_csms_meter_history', 'company_id' => (int) $current->id,
+                'session_id' => $session, 'through_id' => $through, 'source_linked' => $link !== null,
+                'protocol' => $link?->protocol, 'coverage' => 'RECORDED_APPLIED_CSMS_EVENTS',
+                'history_complete' => false, 'billing_authority' => false, 'physical_energy_verified' => false,
+                'commands_sent' => false, 'network_requests' => 0,
+                'evidence' => $link === null ? 'NO_RECORDED_CSMS_LINK' : ($owned->source === 'simulator' ? 'SIMULATED_CSMS' : 'RECORDED_SOURCE_UNVERIFIED'),
+                'observations' => $rows->toArray(), 'as_of' => now()->toISOString(),
+            ])->header('Cache-Control', 'no-store, private');
+        });
+    }
+
+    private function recordedInstant(mixed $value): string
+    {
+        abort_unless(is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?$/D', $value), 422, 'Recorded meter history is unreadable.');
+        try {
+            $time = CarbonImmutable::parse($value, 'UTC');
+            abort_unless($time->format('Y-m-d H:i:s') === str_replace('T', ' ', substr($value, 0, 19)), 422, 'Recorded meter history is unreadable.');
+
+            return $time->toISOString();
+        } catch (\Throwable) {
+            abort(422, 'Recorded meter history is unreadable.');
+        }
     }
 }
