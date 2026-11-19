@@ -5,7 +5,7 @@ namespace App\Services\Charging;
 use JsonException;
 use RuntimeException;
 
-/** Preserve PostgreSQL numeric wire evidence without coercing JSONB meters. */
+/** Preserve authenticated energy lexemes without coercing identity fields. */
 final class SourceGraphJson
 {
     public static function decode(string $body): array
@@ -31,9 +31,9 @@ final class SourceGraphJson
         if (! is_array($decoded)) {
             throw new RuntimeException('Malformed authenticated source JSON projection.');
         }
-        // Only these declared PostgreSQL numeric columns are decimal evidence.
-        // IDs/booleans and JSONB sample types retain their existing strict
-        // guards. A JSONB floating meter remains unsupported, as before.
+        // Only declared PostgreSQL numeric columns and energy-register value
+        // fields carry exact decimal evidence. IDs, booleans, multipliers and
+        // unrelated diagnostic values retain their original strict types.
         if (is_array($decoded['data']['Transactions'] ?? null)) {
             foreach ($decoded['data']['Transactions'] as $index => &$transaction) {
                 if (! is_array($transaction)) {
@@ -46,6 +46,22 @@ final class SourceGraphJson
                 }
             }
             unset($transaction);
+        }
+
+        if (is_array($decoded['data']['MeterValues'] ?? null)) {
+            foreach ($decoded['data']['MeterValues'] as $rowIndex => &$meter) {
+                if (! is_array($meter) || ! is_array($meter['sampledValue'] ?? null)) {
+                    continue;
+                }
+                foreach ($meter['sampledValue'] as $sampleIndex => &$sample) {
+                    if (is_array($sample) && ($sample['measurand'] ?? null) === 'Energy.Active.Import.Register'
+                        && is_float($sample['value'] ?? null)) {
+                        $sample['value'] = $exact['data']['MeterValues'][$rowIndex]['sampledValue'][$sampleIndex]['value'];
+                    }
+                }
+                unset($sample);
+            }
+            unset($meter);
         }
 
         return $decoded;

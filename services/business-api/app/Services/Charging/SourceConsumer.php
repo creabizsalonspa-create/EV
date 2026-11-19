@@ -39,7 +39,7 @@ class SourceConsumer
         return $projection['data'];
     }
 
-    public static function wh(mixed $value, string $unit, int $multiplier = 0): int
+    public static function wh(mixed $value, string $unit, mixed $multiplier = 0): int
     {
         // Decimal energy values must be original text or exact integers.
         // JSON booleans cast to "1" and floating-point conversions may
@@ -51,7 +51,7 @@ class SourceConsumer
         if (str_contains($text, '.')) {
             $text = rtrim(rtrim($text, '0'), '.');
         }
-        if ($multiplier !== 0 || ! in_array($unit, ['Wh', 'kWh'], true) || ! preg_match('/^(0|[1-9][0-9]{0,12})(?:\.([0-9]{1,3}))?$/D', $text, $parts)) {
+        if (! is_int($multiplier) || $multiplier !== 0 || ! in_array($unit, ['Wh', 'kWh'], true) || ! preg_match('/^(0|[1-9][0-9]{0,12})(?:\.([0-9]{1,3}))?$/D', $text, $parts)) {
             throw new RuntimeException('Unsupported source meter precision or unit.');
         }
         $fraction = $parts[2] ?? '';
@@ -64,6 +64,17 @@ class SourceConsumer
         }
 
         return $result;
+    }
+
+    private static function registerWh(array $sample): int
+    {
+        $units = $sample['unitOfMeasure'] ?? null;
+        if (! is_array($units) || ! is_string($units['unit'] ?? null)) {
+            throw new RuntimeException('Unsupported source meter unit projection.');
+        }
+
+        return self::wh($sample['value'] ?? null, $units['unit'],
+            array_key_exists('multiplier', $units) ? $units['multiplier'] : 0);
     }
 
     private function send(SessionLink $link, array $tx, string $type, int $sequence, int $meter, string $at): void
@@ -385,7 +396,7 @@ class SourceConsumer
                 // metering evidence, not a free pass to skip malformed data.
                 // A contradictory beginning meter must never be skipped before
                 // accepting the next terminal reading and issuing an invoice.
-                $reading = self::wh($registers[0]['value'] ?? null, $registers[0]['unitOfMeasure']['unit'] ?? '', $registers[0]['unitOfMeasure']['multiplier'] ?? 0);
+                $reading = self::registerWh($registers[0]);
                 if (($registers[0]['context'] ?? '') === 'Transaction.Begin' && $reading !== $baseline) {
                     throw new RuntimeException('Source beginning register conflicts with transaction baseline.');
                 }
@@ -413,7 +424,7 @@ class SourceConsumer
             if ($sampleAt->lt($startedAt) || ($endedAt && $sampleAt->gt($endedAt))) {
                 throw new RuntimeException('Source energy sample lies outside its transaction.');
             }
-            $meter = self::wh($sample['value'], $sample['unitOfMeasure']['unit'] ?? '', $sample['unitOfMeasure']['multiplier'] ?? 0);
+            $meter = self::registerWh($sample);
             $ended = ($sample['context'] ?? '') === 'Transaction.End';
             if ($ended && ($tx['isActive'] || ! $tx['endTime'] || $tx['totalKwh'] === null || $meter - $baseline !== self::wh($tx['totalKwh'], 'kWh'))) {
                 // Upstream final energy and end flags converge asynchronously.

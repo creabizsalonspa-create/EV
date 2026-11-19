@@ -64,4 +64,38 @@ class SourceGraphJsonTest extends TestCase
         $this->expectException(RuntimeException::class);
         SourceGraphJson::decode(str_repeat(' ', 2097153));
     }
+
+    #[TestWith(['2.500000', 'kWh', 2500])]
+    #[TestWith(['2500.0', 'Wh', 2500])]
+    #[TestWith(['0.001', 'kWh', 1])]
+    #[TestWith(['9000000000.000', 'kWh', 9000000000000])]
+    public function test_energy_jsonb_uses_original_wire_lexemes_not_binary_float_formatting(string $wire, string $unit, int $expected): void
+    {
+        $body = '{"data":{"MeterValues":[{"id":12,"sampledValue":[{"measurand":"Energy.Active.Import.Register","value":'.$wire.',"unitOfMeasure":{"unit":"'.$unit.'"}}]}]}}';
+        $sample = SourceGraphJson::decode($body)['data']['MeterValues'][0]['sampledValue'][0];
+        $this->assertSame($wire, $sample['value']);
+        $this->assertSame($expected, SourceConsumer::wh($sample['value'], $unit));
+    }
+
+    #[TestWith([false])]
+    #[TestWith([0.0])]
+    #[TestWith(['0'])]
+    #[TestWith([null])]
+    public function test_non_integer_multiplier_cannot_be_coerced_into_zero(mixed $multiplier): void
+    {
+        $this->expectException(RuntimeException::class);
+        SourceConsumer::wh('2500', 'Wh', $multiplier);
+    }
+
+    #[TestWith(['3.5001', 'kWh'])]
+    #[TestWith(['2500.0000000000001', 'Wh'])]
+    #[TestWith(['1e3', 'Wh'])]
+    public function test_jsonb_decimal_precision_cannot_be_rounded_or_formatted_into_valid_energy(string $wire, string $unit): void
+    {
+        $body = '{"data":{"MeterValues":[{"id":12,"sampledValue":[{"measurand":"Energy.Active.Import.Register","value":'.$wire.'}]}]}}';
+        $value = SourceGraphJson::decode($body)['data']['MeterValues'][0]['sampledValue'][0]['value'];
+        $this->assertSame($wire, $value);
+        $this->expectException(RuntimeException::class);
+        SourceConsumer::wh($value, $unit);
+    }
 }
