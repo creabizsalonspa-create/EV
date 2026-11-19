@@ -2,7 +2,7 @@
   "name": "creabiz-ev-workspace",
   "private": true,
   "scripts": {
-    "test:e2e": "node tests/browser.cjs",
+    "test:e2e": "node --test tests/browser-role.test.cjs && node tests/browser.cjs",
     "test:ocpp": "node tests/ocpp.cjs",
     "test:frontend": "node tests/frontend.cjs",
     "test:localization": "node tests/localization.cjs",
