@@ -2,8 +2,8 @@
   "scope": "PR139 preserves original Admin work and normal integration parents; local evidence, not hosted or production acceptance",
   "source_before_this_commit": "9401a43bc576edb7394409b46a0b365fbb006de5",
   "laravel": {
-    "passed": 1710,
-    "assertions": 31192,
+    "passed": 1711,
+    "assertions": 31200,
     "postgres_only_skipped": 1
   },
   "postgres": [
@@ -22,14 +22,17 @@
   ],
   "controlled_browser_passed": 15,
   "actual_browser": "EN/AR390px same-company literal filters, no-store allowlist, escaped markup, bounded non-verdict MFA evidence, real Admin role revocation with held JSON response",
-  "pint_files": 824,
+  "pint_files": 825,
   "new_regression": "Admin transaction authority rejects autocommit before any query; red then green",
   "ci_auth_group": "first operational group has nine ordinary logins, within unchanged ten/IP/minute budget; no reset, cache clearing or raised limit",
   "source_sha256": {
     "services/business-api/public/admin-audit-trail.js": "5e72c1f2d3ac7f969cdb9e635e9a1b09bf68e34f85734b0c803a63e211d92173",
     "services/business-api/tests/Fixtures/admin-current-authority.php": "a3a6a9e709ca91f7a03b83283864b9b263879e68788f31149b5f440e75120a31",
     "tests/admin-current-authority-e2e.cjs": "301f66618c751b350bcfb5b64d3707bd082646fadbea756a1753bcf2fe0370be",
-    "tests/operational-connected.cjs": "bc7b27726660d313707cf0730292a8e8ee04fe10d74d4c3a22f609e7551880e4"
+    "tests/operational-connected.cjs": "bc7b27726660d313707cf0730292a8e8ee04fe10d74d4c3a22f609e7551880e4",
+    "services/business-api/app/Security/AdminTransactionAuthority.php": "67b16f2abeeb29297ed1f73af2b7ee5979eb737bf228b6afac85e70515bd2a43",
+    "services/business-api/tests/Feature/AdminTransactionBoundaryTest.php": "e0b77c8897a3af717f8a4a31deb13d47e959fd721fd0656ea86374f14cbe1353",
+    "tests/financial-connected.test.cjs": "8bfabaaba3c9909bcec8aa64a15b0d2012a57239399943acfc4c91e8132d6219"
   },
   "local_log_sha256": {
     "/tmp/ev-admin-final-laravel.txt": "e49eedf585cb1a862b5dc5693ba775631a1102b7e6b99508a2c1809a307c538b",
@@ -39,5 +42,15 @@
     "/tmp/ev-admin-controlled-browser-new.txt": "299c05b2e33363abdd0e4d7192c38d8eda8707d3a36cff7ae028489db5bbf84e",
     "/tmp/ev-admin-tx-red.txt": "694fd0ca6ab0e466be5a086ecfc3caa76dcbefdab6c982f3ff2041fc7365b936"
   },
-  "production_accepted": false
+  "production_accepted": false,
+  "final_integration_parent": "5cf6a8d0",
+  "paced_ci_orchestration_passed": 9,
+  "final_local_log_sha256": {
+    "/tmp/ev-admin-sqlite-final-laravel.txt": "d8257cb8e358cae6d00d4d80c75d945dc960baf12af8d5caf902296f5b37bb56",
+    "/tmp/ev-admin-sqlite-final-connectors.txt": "a6b276d80a99bc1d9403e8e8a1e599502f2c4c4dcce02d3b632c07e171df725a",
+    "/tmp/ev-admin-sqlite-final-pint.txt": "64228a6f3b0bf8a06d02649864efdc185eee2bc211f9d9b71bbfe382b12cf88f",
+    "/tmp/ev-admin-sqlite-actual-browser.txt": "b8b84dcd9ff2be4e657550fabc2c3806a61a332161844d7eb4064514576000b0",
+    "/tmp/ev-admin-ci-orchestration-red.txt": "e534ae6f1ad0e2db2a5967e25b0311171c278158749d3acb61b3eda687f80552",
+    "/tmp/ev-admin-ci-orchestration-green.txt": "89b332108169a6dbe5074fa5a8e5f3db839574e157dca158ed57295ace729886"
+  }
 }
