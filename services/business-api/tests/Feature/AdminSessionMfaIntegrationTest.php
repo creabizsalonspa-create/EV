@@ -28,6 +28,7 @@ class AdminSessionMfaIntegrationTest extends TestCase
             '/api/admin/permission-grants',
             '/api/admin/privacy-requests',
             '/api/admin/audit-events',
+            '/api/admin/security-denials',
             '/api/admin/operator-role-changes',
             '/api/vendor-ops/companies',
         ];

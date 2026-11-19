@@ -22,7 +22,7 @@ final class AdminOperationsMapController extends Controller
             abort_unless($actor->role === $snapshot->role && (int) $actor->auth_epoch === (int) $snapshot->auth_epoch
                 && hash_equals((string) $actor->password, (string) $snapshot->password), 409, 'Account credentials changed; authenticate again.');
             $v = $request->validate([
-                'q' => 'nullable|string|max:80', 'country' => ['nullable', 'regex:/^[A-Z]{2}$/'],
+                'q' => 'nullable|string|max:80', 'country' => ['nullable', 'regex:/^[A-Z]{2}$/D'],
                 'company_id' => 'nullable|integer|between:1,9007199254740991',
                 'recent_source_status' => 'nullable|in:'.implode(',', ConnectorFreshness::STATUSES),
                 'south' => 'required_with:north,west,east|numeric|between:-90,90',
@@ -61,6 +61,18 @@ final class AdminOperationsMapController extends Controller
                     'charger_count' => (int) $row->charger_count, 'mapped_connector_count' => (int) $row->mapped_connector_count,
                     'availability' => 'unknown', 'physical_availability_verified' => false, 'remote_control' => false,
                 ])->toArray();
+
+            // This cross-company, private map is a deliberate Admin review.
+            // Keep only its bounded scope in audit, never coordinates,
+            // search text, vendor names, map contents or credentials.
+            $scope = isset($v['company_id']) ? 'company:'.$v['company_id']
+                : (isset($v['country']) ? 'country:'.$v['country'] : 'all');
+            DB::table('audit_events')->insert([
+                'actor_id' => $actor->id,
+                'action' => 'admin.private_list.operations_map_viewed',
+                'subject' => $scope,
+                'created_at' => now(),
+            ]);
 
             return response()->json($page + ['as_of' => now()->toISOString(), 'coordinate_scope' => 'valid_coordinates_only',
                 'recent_source_status' => $v['recent_source_status'] ?? null, 'source_max_age_seconds' => 300,

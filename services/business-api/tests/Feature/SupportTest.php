@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\SupportController;
 use App\Models\InboxNotification;
 use App\Models\SupportTicket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class SupportTest extends TestCase
@@ -286,5 +289,96 @@ class SupportTest extends TestCase
         ])->assertCreated();
         $this->assertDatabaseCount('ticket_messages', 1);
         $this->assertDatabaseCount('inbox_notifications', 0);
+    }
+
+    public function test_stale_admin_cannot_read_other_support_or_mutate_private_ticket_after_credentials_change(): void
+    {
+        $owner = User::factory()->create(['role' => 'customer']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $ticket = SupportTicket::create([
+            'user_id' => $owner->id, 'subject' => 'Confidential support case',
+        ]);
+        $this->actingAs($admin, 'web');
+        $this->getJson('/api/support')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson('/api/support/'.$ticket->id)->assertOk();
+
+        DB::table('users')->where('id', $admin->id)->update(['auth_epoch' => 2]);
+        foreach (['/api/support', '/api/v1/support',
+            '/api/support/'.$ticket->id, '/api/v1/support/'.$ticket->id] as $path) {
+            $this->getJson($path)->assertStatus(409);
+        }
+        $this->postJson('/api/support/'.$ticket->id.'/messages', [
+            'body' => 'Stale privileged note', 'internal' => true,
+        ])->assertStatus(409);
+        $this->patchJson('/api/support/'.$ticket->id.'/status', [
+            'status' => 'resolved', 'reason' => 'Stale privileged decision',
+        ])->assertStatus(409);
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'auth_epoch' => 0, 'password' => bcrypt('new-admin-secret'),
+        ]);
+        $this->getJson('/api/support')->assertStatus(409);
+        $this->getJson('/api/support/'.$ticket->id)->assertStatus(409);
+        $this->postJson('/api/support/'.$ticket->id.'/messages', [
+            'body' => 'New password cannot revive cached authority', 'internal' => true,
+        ])->assertStatus(409);
+        $this->assertDatabaseCount('ticket_messages', 0);
+        $this->assertDatabaseCount('inbox_notifications', 0);
+        $this->assertSame('open', $ticket->fresh()->status);
+        $this->assertDatabaseCount('audit_events', 0);
+
+        // Fresh authenticated Admin authority can still investigate.
+        $fresh = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($fresh, 'web')->getJson('/api/support/'.$ticket->id)
+            ->assertOk()->assertJsonPath('ticket.id', $ticket->id)
+            ->assertHeader('Cache-Control', 'no-store, private');
+    }
+
+    public function test_suspended_admin_cannot_read_or_change_private_support_cases(): void
+    {
+        $owner = User::factory()->create(['role' => 'customer']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $ticket = SupportTicket::create(['user_id' => $owner->id, 'subject' => 'Private owner complaint']);
+        $this->actingAs($admin, 'web');
+
+        DB::table('users')->where('id', $admin->id)->update(['account_status' => 'suspended']);
+        $this->getJson('/api/support')->assertForbidden();
+        $this->getJson('/api/support/'.$ticket->id)->assertForbidden();
+        $this->postJson('/api/support/'.$ticket->id.'/messages', [
+            'body' => 'Suspended internal note', 'internal' => true,
+        ])->assertForbidden();
+        $this->patchJson('/api/support/'.$ticket->id.'/status', [
+            'status' => 'resolved', 'reason' => 'Suspended status change',
+        ])->assertForbidden();
+        $this->assertDatabaseCount('ticket_messages', 0);
+        $this->assertSame('open', $ticket->fresh()->status);
+        $this->assertDatabaseCount('audit_events', 0);
+    }
+
+    public function test_stale_route_bound_support_ticket_owner_change_cannot_disclose_private_messages(): void
+    {
+        $firstOwner = User::factory()->create(['role' => 'customer']);
+        $newOwner = User::factory()->create(['role' => 'customer']);
+        $ticket = SupportTicket::create([
+            'user_id' => $firstOwner->id, 'subject' => 'Reassigned private case',
+        ]);
+        // Simulate reassignment after route binding but before controller
+        // authorization. The stale PHP object must not authorize access.
+        DB::table('support_tickets')->where('id', $ticket->id)
+            ->update(['user_id' => $newOwner->id]);
+        $request = Request::create('/api/support/'.$ticket->id, 'GET');
+        $request->setUserResolver(fn () => $firstOwner);
+        try {
+            app(SupportController::class)->show($request, $ticket);
+            $this->fail('Stale route model allowed foreign ticket disclosure.');
+        } catch (HttpException $e) {
+            $this->assertSame(404, $e->getStatusCode());
+        }
+
+        $fresh = Request::create('/api/support/'.$ticket->id, 'GET');
+        $fresh->setUserResolver(fn () => $newOwner);
+        $response = app(SupportController::class)->show($fresh, $ticket);
+        $this->assertSame($newOwner->id, $response->getData(true)['ticket']['user_id']);
+        $this->assertSame('no-store, private', $response->headers->get('Cache-Control'));
     }
 }

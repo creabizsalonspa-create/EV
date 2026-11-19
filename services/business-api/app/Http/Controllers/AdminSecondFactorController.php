@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Middleware\AdminSecondFactorGate;
 use App\Models\User;
 use App\Security\AdminTotp;
+use App\Security\AdminTransactionAuthority;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -23,7 +24,11 @@ class AdminSecondFactorController extends Controller
 
     public function page(Request $request)
     {
-        $this->account($request);
+        // This setup page is deliberately outside the MFA gate. It must still
+        // reject a revoked role, suspended account or stale credential epoch.
+        DB::transaction(function () use ($request) {
+            AdminTransactionAuthority::requireCurrent($this->account($request));
+        });
 
         return response()->view('admin-second-factor')
             ->header('Cache-Control', 'no-store, private')
@@ -32,26 +37,37 @@ class AdminSecondFactorController extends Controller
 
     public function status(Request $request)
     {
-        $account = $this->account($request);
-        $enrolled = DB::table('admin_second_factors')->where('user_id', $account->id)->exists();
+        return DB::transaction(function () use ($request) {
+            // Enrollment status is private account-security metadata, not a
+            // public fallback for sessions invalidated by Admin revocation.
+            $account = AdminTransactionAuthority::requireCurrent($this->account($request));
+            $enrolled = DB::table('admin_second_factors')->where('user_id', $account->id)->exists();
 
-        return response()->json([
-            'enrolled' => $enrolled,
-            'verified' => $enrolled && AdminSecondFactorGate::verified($request),
-            'authenticator_required' => true,
-            'recovery_reset_available' => $enrolled && AdminSecondFactorGate::recoveryResetAvailable($request),
-        ])->header('Cache-Control', 'no-store, private');
+            return response()->json([
+                'enrolled' => $enrolled,
+                'verified' => $enrolled && AdminSecondFactorGate::verified($request),
+                'authenticator_required' => true,
+                'recovery_reset_available' => $enrolled && AdminSecondFactorGate::recoveryResetAvailable($request),
+            ])->header('Cache-Control', 'no-store, private');
+        });
     }
 
     public function begin(Request $request)
     {
         $account = $this->account($request);
         $input = $request->validate(['password' => 'required|string|max:128']);
-        if (! Hash::check($input['password'], $account->password)) {
+        // The enrollment secret must not be created from an obsolete Admin
+        // session or a password changed since the request was authenticated.
+        $validated = DB::transaction(function () use ($account, $input) {
+            $current = AdminTransactionAuthority::requireCurrent($account);
+            abort_if(DB::table('admin_second_factors')->where('user_id', $current->id)->exists(), 409, 'Authenticator is already enrolled.');
+
+            return Hash::check($input['password'], $current->password);
+        });
+        if (! $validated) {
             $this->audit($account, 'admin.second_factor.enrollment_password_denied');
             throw ValidationException::withMessages(['password' => 'Unable to verify account credentials.']);
         }
-        abort_if(DB::table('admin_second_factors')->where('user_id', $account->id)->exists(), 409, 'Authenticator is already enrolled.');
 
         $secret = AdminTotp::generateSecret();
         $request->session()->put('admin_second_factor_pending', [
@@ -93,7 +109,7 @@ class AdminSecondFactorController extends Controller
             range(1, 8)
         );
         $encrypted = DB::transaction(function () use ($account, $secret, $step, $recoveryCodes) {
-            User::whereKey($account->id)->lockForUpdate()->firstOrFail();
+            AdminTransactionAuthority::requireCurrent($account);
             abort_if(DB::table('admin_second_factors')->where('user_id', $account->id)->exists(), 409, 'Authenticator is already enrolled.');
             $encrypted = Crypt::encryptString($secret);
             DB::table('admin_second_factors')->insert([
@@ -132,6 +148,7 @@ class AdminSecondFactorController extends Controller
         $code = $this->code($request);
 
         $encrypted = DB::transaction(function () use ($account, $code) {
+            AdminTransactionAuthority::requireCurrent($account);
             $record = DB::table('admin_second_factors')
                 ->where('user_id', $account->id)
                 ->lockForUpdate()->first();
@@ -173,6 +190,7 @@ class AdminSecondFactorController extends Controller
         $digest = hash('sha256', strtolower($code));
 
         $encrypted = DB::transaction(function () use ($account, $digest) {
+            AdminTransactionAuthority::requireCurrent($account);
             $record = DB::table('admin_second_factor_recovery_codes')
                 ->where('user_id', $account->id)
                 ->where('code_digest', $digest)
@@ -237,8 +255,7 @@ class AdminSecondFactorController extends Controller
         ]);
 
         $result = DB::transaction(function () use ($actor, $request, $input) {
-            $account = User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
-            abort_unless($account->role === 'admin', 403);
+            $account = AdminTransactionAuthority::requireCurrent($actor);
 
             $factor = DB::table('admin_second_factors')
                 ->where('user_id', $account->id)->lockForUpdate()->first();
@@ -308,8 +325,7 @@ class AdminSecondFactorController extends Controller
         }
 
         DB::transaction(function () use ($account, $request) {
-            $lockedAccount = User::whereKey($account->id)->lockForUpdate()->firstOrFail();
-            abort_unless($lockedAccount->role === 'admin', 403);
+            AdminTransactionAuthority::requireCurrent($account);
             // Recheck the exact factor version under lock. A concurrent
             // replacement must never be deleted with an older recovery proof.
             $factor = DB::table('admin_second_factors')

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
+use App\Security\AdminTransactionAuthority;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -27,71 +28,75 @@ class AdminStaffPermissionController extends Controller
      */
     public function index(Request $request)
     {
-        $actor = $this->activeAdmin($request);
-        $input = $request->validate([
-            'company_id' => 'sometimes|integer|min:1',
-            'status' => 'sometimes|in:active,invited,revoked',
-            'page' => 'sometimes|integer|min:1|max:100000',
-        ]);
+        return DB::transaction(function () use ($request) {
+            $actor = AdminTransactionAuthority::requireCurrent(
+                $this->activeAdmin($request)
+            );
+            $input = $request->validate([
+                'company_id' => 'sometimes|integer|min:1',
+                'status' => 'sometimes|in:active,invited,revoked',
+                'page' => 'sometimes|integer|min:1|max:100000',
+            ]);
 
-        $query = VendorCompanyStaff::query()->select([
-            'id', 'company_id', 'user_id', 'status', 'permissions',
-            'invitation_version', 'accepted_at', 'admin_revoked_at',
-        ]);
-        if (isset($input['company_id'])) {
-            $query->where('company_id', $input['company_id']);
-        }
-        if (isset($input['status'])) {
-            $query->where('status', $input['status']);
-        }
+            $query = VendorCompanyStaff::query()->select([
+                'id', 'company_id', 'user_id', 'status', 'permissions',
+                'invitation_version', 'accepted_at', 'admin_revoked_at',
+            ]);
+            if (isset($input['company_id'])) {
+                $query->where('company_id', $input['company_id']);
+            }
+            if (isset($input['status'])) {
+                $query->where('status', $input['status']);
+            }
 
-        $page = $query->orderByDesc('id')->paginate(25);
-        $rows = $page->getCollection();
-        $companies = VendorCompany::query()
-            ->whereIn('id', $rows->pluck('company_id'))
-            ->get(['id', 'legal_name', 'country'])
-            ->keyBy('id');
-        $users = User::query()
-            ->whereIn('id', $rows->pluck('user_id'))
-            ->get(['id', 'name', 'email', 'account_status'])
-            ->keyBy('id');
+            $page = $query->orderByDesc('id')->paginate(25);
+            $rows = $page->getCollection();
+            $companies = VendorCompany::query()
+                ->whereIn('id', $rows->pluck('company_id'))
+                ->get(['id', 'legal_name', 'country'])
+                ->keyBy('id');
+            $users = User::query()
+                ->whereIn('id', $rows->pluck('user_id'))
+                ->get(['id', 'name', 'email', 'account_status'])
+                ->keyBy('id');
 
-        $view = $page->through(function (VendorCompanyStaff $staff) use ($companies, $users) {
-            $company = $companies->get($staff->company_id);
-            $user = $users->get($staff->user_id);
+            $view = $page->through(function (VendorCompanyStaff $staff) use ($companies, $users) {
+                $company = $companies->get($staff->company_id);
+                $user = $users->get($staff->user_id);
 
-            return [
-                'id' => $staff->id,
-                'company_id' => $staff->company_id,
-                'user_id' => $staff->user_id,
-                'status' => $staff->status,
-                'permissions' => array_values($staff->permissions ?? []),
-                'invitation_version' => $staff->invitation_version,
-                'accepted_at' => $staff->accepted_at,
-                'admin_emergency_hold' => $staff->admin_revoked_at !== null,
-                'company' => $company ? [
-                    'id' => $company->id,
-                    'name' => $company->legal_name,
-                    'country' => $company->country,
-                ] : null,
-                'user' => $user ? [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'account_status' => $user->account_status,
-                ] : null,
-            ];
+                return [
+                    'id' => $staff->id,
+                    'company_id' => $staff->company_id,
+                    'user_id' => $staff->user_id,
+                    'status' => $staff->status,
+                    'permissions' => array_values($staff->permissions ?? []),
+                    'invitation_version' => $staff->invitation_version,
+                    'accepted_at' => $staff->accepted_at,
+                    'admin_emergency_hold' => $staff->admin_revoked_at !== null,
+                    'company' => $company ? [
+                        'id' => $company->id,
+                        'name' => $company->legal_name,
+                        'country' => $company->country,
+                    ] : null,
+                    'user' => $user ? [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'account_status' => $user->account_status,
+                    ] : null,
+                ];
+            });
+
+            DB::table('audit_events')->insert([
+                'actor_id' => $actor->id,
+                'action' => 'admin.private_list.staff_viewed',
+                'subject' => isset($input['company_id'])
+                    ? 'company:'.$input['company_id'] : 'all',
+                'created_at' => now(),
+            ]);
+
+            return response()->json($view)->header('Cache-Control', 'no-store, private');
         });
-
-        DB::table('audit_events')->insert([
-            'actor_id' => $actor->id,
-            'action' => 'admin.private_list.staff_viewed',
-            'subject' => isset($input['company_id'])
-                ? 'company:'.$input['company_id'] : 'all',
-            'created_at' => now(),
-        ]);
-
-        return response()->json($view)->header('Cache-Control', 'no-store, private');
     }
 
     /**
@@ -112,6 +117,7 @@ class AdminStaffPermissionController extends Controller
         ]);
 
         return DB::transaction(function () use ($actor, $membership, $input) {
+            AdminTransactionAuthority::requireCurrent($actor);
             $locked = VendorCompanyStaff::whereKey($membership->id)
                 ->lockForUpdate()->firstOrFail();
             // A company owner might revoke a membership just before the
@@ -171,6 +177,7 @@ class AdminStaffPermissionController extends Controller
         ]);
 
         return DB::transaction(function () use ($actor, $membership, $input) {
+            AdminTransactionAuthority::requireCurrent($actor);
             $locked = VendorCompanyStaff::whereKey($membership->id)
                 ->lockForUpdate()->firstOrFail();
             // A legacy writer may have incorrectly marked a held membership
@@ -214,27 +221,34 @@ class AdminStaffPermissionController extends Controller
 
     public function revocations(Request $request, VendorCompanyStaff $membership)
     {
-        $this->activeAdmin($request);
-        $history = DB::table('admin_permission_revocations')
-            ->where('membership_id', $membership->id)
-            ->orderByDesc('id')
-            ->paginate(25)
-            ->through(fn ($entry) => [
-                'id' => $entry->id,
-                'actor_user_id' => $entry->actor_user_id,
-                'replaced_version' => $entry->replaced_version,
-                'action' => $entry->action,
-                'reason' => Crypt::decryptString($entry->reason_encrypted),
-                'created_at' => $entry->created_at,
+        return DB::transaction(function () use ($request, $membership) {
+            AdminTransactionAuthority::requireCurrent(
+                $this->activeAdmin($request)
+            );
+            // Confidential histories must reject malformed/unbounded paging
+            // before returning decrypted reasons or recording a view audit.
+            $request->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+            $history = DB::table('admin_permission_revocations')
+                ->where('membership_id', $membership->id)
+                ->orderByDesc('id')
+                ->paginate(25)
+                ->through(fn ($entry) => [
+                    'id' => $entry->id,
+                    'actor_user_id' => $entry->actor_user_id,
+                    'replaced_version' => $entry->replaced_version,
+                    'action' => $entry->action,
+                    'reason' => Crypt::decryptString($entry->reason_encrypted),
+                    'created_at' => $entry->created_at,
+                ]);
+
+            DB::table('audit_events')->insert([
+                'actor_id' => $request->user()->id,
+                'action' => 'admin.private_history.staff_viewed',
+                'subject' => (string) $membership->id,
+                'created_at' => now(),
             ]);
 
-        DB::table('audit_events')->insert([
-            'actor_id' => $request->user()->id,
-            'action' => 'admin.private_history.staff_viewed',
-            'subject' => (string) $membership->id,
-            'created_at' => now(),
-        ]);
-
-        return response()->json($history)->header('Cache-Control', 'no-store, private');
+            return response()->json($history)->header('Cache-Control', 'no-store, private');
+        });
     }
 }
