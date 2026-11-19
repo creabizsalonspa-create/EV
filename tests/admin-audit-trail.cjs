@@ -141,3 +141,60 @@ test('invalid server responses do not inject records and show safe retry control
     assert.match(ui.root.textContent, /Audit history unavailable/);
     assert.equal(ui.root.textContent.includes('private connection detail'), false);
 });
+
+
+test('Admin may request bounded MFA-denial evidence without leaking markup or default extra requests', async () => {
+    const ui = fixture(), paths = [];
+    ui.setActor({role:'admin'}, async p => {
+        paths.push(p);
+        if (p.startsWith('admin/security-denials?')) {
+            return {
+                window:'7d', observed_denials:500, sample_truncated:true,
+                per_action:{'admin.second_factor.<img src=x>':500},
+            };
+        }
+        return page([]);
+    });
+    await tick();
+    assert.equal(paths.length, 1, 'Security evidence must be user-requested, not polled');
+    const select = nodes(ui.root, 'select')[0];
+    assert.ok(select);
+    select.value = '7d';
+    const button = nodes(ui.root, 'button')
+        .find(x => x.textContent.includes('Review MFA denial evidence'));
+    assert.ok(button);
+    await button.onclick();
+    await tick();
+    assert.match(paths[1], /admin\/security-denials\?window=7d/);
+    assert.match(ui.root.textContent, /Observed: 500/);
+    assert.match(ui.root.textContent, /Counts are partial/);
+    assert.match(ui.root.textContent, /<img src=x>/);
+    assert.equal(nodes(ui.root, 'img').length, 0);
+    ui.setActor(null, async () => { throw Error('unexpected request'); });
+    assert.equal(ui.root.textContent, '');
+});
+
+test('late private MFA-denial evidence cannot reappear after account switch', async () => {
+    const ui = fixture();
+    let resolve;
+    ui.setActor({role:'admin'}, path => {
+        if (path.startsWith('admin/security-denials?')) {
+            return new Promise(done => { resolve = done; });
+        }
+        return Promise.resolve(page());
+    });
+    await tick();
+    const button = nodes(ui.root, 'button')
+        .find(x => x.textContent.includes('Review MFA denial evidence'));
+    const read = button.onclick();
+    assert.equal(typeof resolve, 'function');
+    ui.setActor({role:'customer'}, async () => { throw Error('cannot read'); });
+    resolve({
+        window:'24h', observed_denials:1, sample_truncated:false,
+        per_action:{'admin.second_factor.verify_denied':1},
+    });
+    await read;
+    await tick();
+    assert.equal(ui.root.textContent, '');
+    assert.equal(ui.root.children.length, 0);
+});

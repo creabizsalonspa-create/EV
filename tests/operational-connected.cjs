@@ -2,8 +2,10 @@
 // prevent preceding commercial logins from exhausting charging operations.
 const assert = require("node:assert/strict");
 const { runPacedSuites } = require("./helpers/auth-batches.cjs");
+const OPERATIONAL_SUITE_TIMEOUT_MS = 12 * 60 * 1000;
+const OPERATIONAL_PREP_TIMEOUT_MS = 2 * 60 * 1000;
 const groups = [
-  ["auth-bootstrap", "session-cookie-read"], // real cookie ordering/account-switch regressions; 3+4 authentication requests
+  ["auth-bootstrap", "session-cookie-read", "admin-current-authority-e2e"], // real cookie/current-Admin regressions; 3+4+2 = 9 authentication requests
   ["invoice-history", "money-input", "tariffs", "managed-gate"], // 3+0+4+2 = 9 logins
   [
     "canonical-topology",
@@ -41,7 +43,13 @@ function prepareOperationalAdapters(execute) {
     "./scripts/diagnostic-logs-setup",
     "./scripts/reset-operations-setup",
   ]) {
-    const result = execute(script, [], { encoding: "utf8" });
+    const result = execute(script, [], {
+      encoding: "utf8",
+      timeout: OPERATIONAL_PREP_TIMEOUT_MS,
+      killSignal: "SIGTERM",
+    });
+    if (result.error?.code === "ETIMEDOUT")
+      throw new Error("Local operational preparation deadline exceeded: " + script);
     if (result.error) throw result.error;
     assert.equal(
       result.status,
@@ -50,6 +58,28 @@ function prepareOperationalAdapters(execute) {
     );
   }
 }
+// One bounded, allowlisted synthetic suite per process. No retry or rate-limit bypass.
+function spawnOperationalSuite(suite, execute, env = process.env) {
+  assert.ok(groups.some((group) => group.includes(suite)), "Unknown operational suite");
+  const extra = suite === "charging-business"
+    ? { EV_CANONICAL_TARGETS: "1", EV_CSMS_CONSUMER: "1", EV_CSMS_DAEMON: "1", EV_CSMS_AUTO_DISPATCH: "1" }
+    : {};
+  return execute(process.execPath, ["tests/" + suite + ".cjs"], {
+    encoding: "utf8",
+    env: { ...env, ...extra },
+    maxBuffer: 4 * 1024 * 1024,
+    timeout: OPERATIONAL_SUITE_TIMEOUT_MS,
+    killSignal: "SIGTERM",
+  });
+}
+
+function assertOperationalSuiteExit(result, suite) {
+  if (result?.error?.code === "ETIMEDOUT")
+    throw new Error("Operational suite exceeded bounded synthetic CI budget: " + suite);
+  if (result?.error) throw result.error;
+  assert.equal(result?.status, 0, "Operational suite failed; no assertion retry: " + suite);
+}
+
 if (require.main === module) {
   const { spawnSync } = require("node:child_process");
   const fs = require("node:fs");
@@ -58,36 +88,19 @@ if (require.main === module) {
   runPacedSuites(groups, {
     wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     run: (suite) => {
-      const extra =
-        suite === "charging-business"
-          ? {
-              EV_CANONICAL_TARGETS: "1",
-              EV_CSMS_CONSUMER: "1",
-              EV_CSMS_DAEMON: "1",
-              EV_CSMS_AUTO_DISPATCH: "1",
-            }
-          : {};
-      const result = spawnSync(process.execPath, ["tests/" + suite + ".cjs"], {
-        encoding: "utf8",
-        env: { ...process.env, ...extra },
-        maxBuffer: 4 * 1024 * 1024,
-      });
+      const result = spawnOperationalSuite(suite, spawnSync);
       const output = (result.stdout || "") + (result.stderr || "");
       fs.writeFileSync(
         "artifacts/operational-browser/" + suite + ".txt",
         output,
       );
       process.stdout.write(output);
-      if (result.error) throw result.error;
-      assert.equal(
-        result.status,
-        0,
-        "Operational suite failed; no assertion retry: " + suite,
-      );
+      assertOperationalSuiteExit(result, suite);
     },
   }).catch((e) => {
     console.error(e);
     process.exitCode = 1;
   });
 }
-module.exports = { groups, prepareOperationalAdapters };
+module.exports = { groups, prepareOperationalAdapters, spawnOperationalSuite,
+  assertOperationalSuiteExit, OPERATIONAL_SUITE_TIMEOUT_MS, OPERATIONAL_PREP_TIMEOUT_MS };

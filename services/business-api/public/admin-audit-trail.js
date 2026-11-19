@@ -13,10 +13,19 @@ window.EvAdminAuditTrail = (() => {
     let message = null;
     let nextCursor = null;
     let hasMore = false;
+    let denialController = null;
+    let denialOutput = null;
+    let denialWindow = null;
 
     function node(tag, text) {
         const result = document.createElement(tag);
         if (text !== undefined) result.textContent = String(text);
+        return result;
+    }
+    function translated(tag, english, arabic) {
+        const result = node(tag, document.documentElement?.lang === "ar" ? arabic : english);
+        result.setAttribute("data-en", english);
+        result.setAttribute("data-ar", arabic);
         return result;
     }
     function button(text, callback) {
@@ -95,11 +104,60 @@ window.EvAdminAuditTrail = (() => {
         }
     }
 
+    async function loadDenials() {
+        if (!request || !denialOutput || !denialWindow) return;
+        denialController?.abort();
+        const activeController = new AbortController();
+        denialController = activeController;
+        const epoch = generation;
+        denialOutput.replaceChildren(translated("p",
+            "Reading observed Admin MFA denials…", "قراءة محاولات المصادقة المرفوضة…"));
+        try {
+            const response = await request(
+                "admin/security-denials?window=" + encodeURIComponent(denialWindow.value),
+                "GET", undefined, activeController.signal);
+            if (!alive(epoch, activeController.signal) || denialController !== activeController) return;
+            denialOutput.replaceChildren();
+            denialOutput.append(
+                node("h4", "Observed Admin MFA denials / حالات رفض المصادقة المسجلة"),
+                translated("p", "Window: " + response.window +
+                    " · Observed: " + response.observed_denials +
+                    " · Source: Admin MFA audit only",
+                    "الفترة: " + response.window + " · الحالات المسجلة: " + response.observed_denials +
+                    " · المصدر: سجل تدقيق مصادقة المشرف فقط"));
+            const groups = response.per_action && typeof response.per_action === "object"
+                ? response.per_action : {};
+            for (const [action, count] of Object.entries(groups)) {
+                if (!Number.isSafeInteger(count) || count < 0) continue;
+                denialOutput.append(node("p", action + ": " + count));
+            }
+            if (response.sample_truncated === true) {
+                denialOutput.append(translated("p",
+                    "Limited to the most recent 500 matching events. Counts are partial",
+                    "النتائج محدودة بآخر ٥٠٠ حدث مطابق؛ الأعداد جزئية وليست إحصاءً شاملاً."));
+            } else {
+                denialOutput.append(translated("p",
+                    "Only recorded MFA denials are counted; this does not prove compromise, incident or automatic action.",
+                    "تُحسب حالات رفض المصادقة المسجلة فقط؛ وهذا لا يثبت اختراقاً أو حادثاً ولا يعني اتخاذ إجراء تلقائي."));
+            }
+        } catch {
+            if (alive(epoch, activeController.signal)) {
+                denialOutput.replaceChildren(translated("p",
+                    "Security evidence unavailable; no account action was taken.",
+                    "تعذر عرض أدلة الأمان؛ لم يُتخذ أي إجراء على الحساب."));
+            }
+        }
+    }
+
     function setActor(user, api) {
         generation++;
         controller?.abort();
+        denialController?.abort();
         controller = null;
+        denialController = null;
         request = null;
+        denialOutput = null;
+        denialWindow = null;
         root.replaceChildren();
         if (user?.role !== "admin") return;
 
@@ -127,7 +185,20 @@ window.EvAdminAuditTrail = (() => {
         message.setAttribute("role", "status");
         message.setAttribute("aria-live", "polite");
         results = node("div");
-        root.append(filters, message, results);
+        denialWindow = node("select");
+        denialWindow.setAttribute("aria-label", "MFA denial evidence window");
+        for (const [value, description] of [["1h", "Past hour"], ["24h", "Past 24 hours"], ["7d", "Past 7 days"]]) {
+            const option = node("option", description);
+            option.value = value;
+            denialWindow.append(option);
+        }
+        denialWindow.value = "24h";
+        const denialButton = button("Review MFA denial evidence / مراجعة رفض المصادقة",
+            () => loadDenials());
+        denialOutput = node("section");
+        denialOutput.setAttribute("aria-label", "Observed MFA denial evidence");
+        root.append(filters, message, results, field("Security observation window", denialWindow),
+            denialButton, denialOutput);
         load(true);
     }
     return {setActor};

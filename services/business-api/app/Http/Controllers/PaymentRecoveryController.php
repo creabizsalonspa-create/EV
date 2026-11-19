@@ -2,15 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Payments\PaymentRecovery;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class PaymentRecoveryController extends Controller
 {
+    /** Invoke only within an account-locked transaction. */
     private function accessible(Request $r)
     {
-        $user = $r->user();
+        $user = app(CurrentFinanceReader::class)->requireCurrent($r);
 
         return DB::table('payment_recovery_intents as p')->where(function ($q) use ($user) {
             if ($user->role === 'admin') {
@@ -31,7 +33,10 @@ class PaymentRecoveryController extends Controller
 
     public function index(Request $r)
     {
-        return $this->accessible($r)->orderByDesc('p.id')->paginate(25)->through(fn ($row) => $this->publicRow($row));
+        return DB::transaction(fn () => response()->json(
+            $this->accessible($r)->orderByDesc('p.id')->paginate(25)
+                ->through(fn ($row) => $this->publicRow($row))
+        )->header('Cache-Control', 'private, no-store'), 3);
     }
 
     private function publicRow(object $row): array
@@ -46,16 +51,25 @@ class PaymentRecoveryController extends Controller
 
     public function reconcile(Request $r, int $intent, PaymentRecovery $recovery)
     {
-        $row = $this->accessible($r)->where('p.id', $intent)->first();
-        abort_unless($row, 404);
+        // Verify the current owner or Admin before any external test-provider
+        // observation. Do not hold a DB transaction across provider I/O:
+        // PaymentRecovery owns its internal durable reconciliation lease.
+        DB::transaction(function () use ($r, $intent) {
+            abort_unless($this->accessible($r)->where('p.id', $intent)->first(), 404);
+        }, 3);
 
-        return response()->json($this->publicRow($recovery->reconcileProvider($intent)));
+        return response()->json($this->publicRow($recovery->reconcileProvider($intent)))
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function events(Request $r, int $intent)
     {
-        abort_unless($this->accessible($r)->where('p.id', $intent)->exists(), 404);
+        return DB::transaction(function () use ($r, $intent) {
+            abort_unless($this->accessible($r)->where('p.id', $intent)->exists(), 404);
 
-        return DB::table('payment_recovery_events')->where('intent_id', $intent)->orderBy('id')->paginate(50);
+            return response()->json(DB::table('payment_recovery_events')
+                ->where('intent_id', $intent)->orderBy('id')->paginate(50))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 }

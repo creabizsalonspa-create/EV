@@ -4,7 +4,6 @@ namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
-use Carbon\CarbonImmutable;
 
 /** A source comparison, never authorization to bill or a second financial ledger. */
 class CdrReconciler
@@ -20,7 +19,16 @@ class CdrReconciler
         $n = $cdr->normalized;
         $raw = $cdr->payload;
         $sessionId = $n['session_id'] ?? ($raw['session_id'] ?? null);
-        if (! $provider->authorized || $provider->version !== '2.2.1') {
+        // Source reconciliation may run in a long-lived worker after an
+        // owner, credential configuration or authorization revision changes.
+        // A passed Eloquent model is only a snapshot; never represent a
+        // revoked or transferred provider as currently source-consistent.
+        $current = OcpiProvider::find($provider->id);
+        if (! $current || ! $provider->authorized || $provider->version !== '2.2.1'
+            || ! $current->authorized || $current->version !== '2.2.1'
+            || $current->owner_id !== $provider->owner_id
+            || $current->connection_key !== $provider->connection_key
+            || $current->authorization_revision !== $provider->authorization_revision) {
             $issues[] = 'partner_not_authorized_and_negotiated';
         }
         if (($raw['credit'] ?? false) || isset($raw['credit_reference_id'])) {
@@ -49,7 +57,13 @@ class CdrReconciler
                 }
             }
             foreach (['start_date_time', 'end_date_time'] as $field) {
-                if (empty($n[$field]) || empty($s[$field]) || ! CarbonImmutable::parse($n[$field])->equalTo(CarbonImmutable::parse($s[$field]))) {
+                // Historical or corrupted normalized source rows are not
+                // guaranteed to satisfy the current strict ingestion schema.
+                // Carbon::parse would accept relative dates or silently roll
+                // invalid calendar days forward, and may throw on bad input.
+                $cdrInstant = $this->strictUtcInstant($n[$field] ?? null);
+                $sessionInstant = $this->strictUtcInstant($s[$field] ?? null);
+                if ($cdrInstant === null || $sessionInstant === null || $cdrInstant !== $sessionInstant) {
                     $issues[] = $field.'_mismatch';
                 }
             }
@@ -76,10 +90,16 @@ class CdrReconciler
             }
             // Multiple CDRs claiming the same source session cannot be counted twice.
             $key = $provider->id.':'.$cdr->country_code.':'.$cdr->party_id;
-            if (! isset($this->claims[$key])) {
-                $this->claims[$key] = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'cdrs')->where('country_code', $cdr->country_code)->where('party_id', $cdr->party_id)->limit(1001)->pluck('normalized');
+            $sourceClaims = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'cdrs')
+                ->where('country_code', $cdr->country_code)->where('party_id', $cdr->party_id);
+            // CDRs are append-only. A new accepted CDR changes the high-water
+            // id, so an earlier review must never reuse a stale claim snapshot.
+            $latestId = (int) (clone $sourceClaims)->max('id');
+            if (! isset($this->claims[$key]) || $this->claims[$key]['latest_id'] !== $latestId) {
+                $this->claims[$key] = ['latest_id' => $latestId,
+                    'rows' => (clone $sourceClaims)->orderByDesc('id')->limit(1001)->pluck('normalized')];
             }
-            $claims = $this->claims[$key];
+            $claims = $this->claims[$key]['rows'];
             if ($claims->count() > 1000) {
                 $issues[] = 'history_exceeds_comparison_limit';
             }
@@ -105,12 +125,46 @@ class CdrReconciler
         $state = 'missing';
         if (is_string($reference) && $reference !== '' && strlen($reference) <= 64) {
             $original = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'cdrs')->where('country_code', $cdr->country_code)->where('party_id', $cdr->party_id)->where('external_id', $reference)->first();
-            $state = ! $original ? 'not_found' : ($original->id === $cdr->id || ($original->payload['credit'] ?? false) || isset($original->payload['credit_reference_id']) ? 'invalid_target' : 'matched');
+            if (! $original) {
+                $state = 'not_found';
+            } elseif ($original->id === $cdr->id || ($original->payload['credit'] ?? false) || isset($original->payload['credit_reference_id'])) {
+                $state = 'invalid_target';
+            } else {
+                // Existence of a referenced CDR is not proof that a credit is
+                // for the same charging source. Require the source identities
+                // to agree before marking the reference as structurally matched.
+                // A partial credit may change amounts, so do not compare price
+                // or use this result to authorize any financial adjustment.
+                $credit = $cdr->normalized;
+                $source = $original->normalized;
+                $identity = ['session_id', 'currency', 'location_id', 'evse_uid', 'connector_id'];
+                $state = collect($identity)->every(fn ($field) => is_string($credit[$field] ?? null)
+                    && $credit[$field] !== '' && $credit[$field] === ($source[$field] ?? null))
+                    ? 'matched' : 'identity_mismatch';
+            }
         }
 
         // A same-party source reference is not consent to change an invoice,
         // approve a refund, settle a partner or release a financial hold.
         return ['reference_state' => $state, 'financial_authority' => false, 'automatic_refund' => false];
+    }
+
+    private function strictUtcInstant(mixed $value): ?string
+    {
+        if (! is_string($value)
+            || ! preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/D', $value)) {
+            return null;
+        }
+
+        $format = '!Y-m-d\TH:i:s'.(str_contains($value, '.') ? '.u' : '').'\Z';
+        $instant = \DateTimeImmutable::createFromFormat($format, $value, new \DateTimeZone('UTC'));
+        if ($instant === false || \DateTimeImmutable::getLastErrors() !== false) {
+            return null;
+        }
+
+        // Normalization to six fractional digits makes equal instants compare
+        // exactly, without floats, server timezone, or relative-date parsing.
+        return $instant->format('Y-m-d\TH:i:s.u\Z');
     }
 
     private function decimal(mixed $value): ?string

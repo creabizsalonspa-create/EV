@@ -1,0 +1,39 @@
+{
+  "status": "LOCAL_VERIFIED_HOSTED_PENDING",
+  "integration_base": "171b9c035dbbccd8bf3054d3a41ed00c2500464b",
+  "original_pr_head": "7e5a779a0a4bcb32c04fd4150b368ec99a595098",
+  "cause": "PostgreSQL timestamp(0) rounds receipt microseconds into future instants",
+  "red": {
+    "expected": "2026-11-19T05:10:00.987654Z",
+    "actual": "2026-11-19T05:10:01.000000Z"
+  },
+  "verification": {
+    "laravel": {
+      "passed": 1349,
+      "assertions": 25895,
+      "skipped": 1
+    },
+    "postgres_contracts": {
+      "passed": 497,
+      "assertions": 6977
+    },
+    "postgres_process_concurrency": {
+      "passed": 30,
+      "assertions": 448
+    },
+    "postgres_precision_migrations": {
+      "passed": 2,
+      "assertions": 13
+    },
+    "native_actual_laravel": "passed; synthetic CPO only",
+    "browser_actual_laravel": "passed EN/AR; synthetic CPO only"
+  },
+  "production_accepted": false,
+  "tracker_credit_added": 0,
+  "deployment_executed": false,
+  "limitations": [
+    "No recovery of historical discarded fractions",
+    "No live partner, charger, PSP or store acceptance",
+    "Exact-head hosted gates and Agent5 merge still required"
+  ]
+}

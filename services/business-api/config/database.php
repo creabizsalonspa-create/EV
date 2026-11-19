@@ -38,10 +38,15 @@ return [
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            'busy_timeout' => null,
-            'journal_mode' => null,
+            // Bounded contention wait for local multi-process simulator reads/writes;
+            // PostgreSQL remains the authoritative staging and production store.
+            'busy_timeout' => min(10000, max(1000, (int) env('DB_SQLITE_BUSY_TIMEOUT_MS', 5000))),
+            'journal_mode' => env('DB_SQLITE_JOURNAL_MODE', null),
             'synchronous' => null,
-            'transaction_mode' => 'DEFERRED',
+            // Reserve the SQLite writer before a read-then-write cache/session
+            // transaction. Deferred upgrades can fail immediately while the
+            // live source workers commit, despite a configured busy timeout.
+            'transaction_mode' => 'IMMEDIATE',
         ],
 
         'mysql' => [

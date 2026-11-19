@@ -18,6 +18,16 @@ String partnerCatalogAgeLabel(Map<String,dynamic> row, bool ar) {
       : 'Reported catalog age at search: $age min${stale ? ' · over 24 hours old' : ''}';
 }
 
+/// A partial published location can be shown as read-only evidence but cannot
+/// create a booking or favorite action that depends on absent connector data.
+bool completePublishedStation(Map<String,dynamic> station) =>
+  station['id'] is int && (station['id'] as int)>0 &&
+  station['name'] is String && (station['name'] as String).trim().isNotEmpty &&
+  ['SIMULATED','DISCOVERY_ONLY'].contains(station['evidence']) &&
+  ['CCS2','Type2','CHAdeMO'].contains(station['connector_type']) &&
+  station['power_kw'] is int && (station['power_kw'] as int)>=1 &&
+  (station['power_kw'] as int)<=1000;
+
 class UnifiedDiscoveryView extends StatefulWidget {
   final EvApi api;
   final ValueChanged<Station> onCatalog;
@@ -29,12 +39,14 @@ class UnifiedDiscoveryView extends StatefulWidget {
 }
 class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with WidgetsBindingObserver {
   final query=TextEditingController();
-  final advanced={for(final key in ['operator','address','access','max_rate_per_kwh','price_currency'])key:TextEditingController()};
+  final advanced={for(final key in ['operator','address','access','min_power_kw','max_power_kw','max_rate_per_kwh','price_currency'])key:TextEditingController()};
   Map<String,String> submittedAdvanced={}, submittedViewport={};
   late bool Function() ownSession;
   String sourceStatus='',submittedSourceStatus='',sourceAge='',submittedSourceAge='';
   String scope='all',country='',connector='',submitted='',submittedScope='all',submittedCountry='',submittedConnector='';
-  int generation=0,page=1,last=1,total=0;
+  int generation=0,page=1,last=1,total=0,formEpoch=0;
+  bool rememberNextSearch=false;
+  final List<Map<String,String>> recentPresets=[];
   bool busy=false,foreground=true,savedOnly=false,submittedSaved=false,writing=false,uncertain=false;
   String? error;
   List<Map<String,dynamic>> rows=[];
@@ -44,13 +56,23 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   @override
   void didChangeAppLifecycleState(AppLifecycleState state){
     foreground=state==AppLifecycleState.resumed;
-    if(!foreground){generation++;if(mounted)setState((){rows=[];busy=false;writing=false;uncertain=false;error=null;});}
+    if(!foreground){generation++;if(mounted)setState((){rows=[];recentPresets.clear();rememberNextSearch=false;busy=false;writing=false;uncertain=false;error=null;});}
   }
   @override
-  void didUpdateWidget(covariant UnifiedDiscoveryView old){super.didUpdateWidget(old);if(!identical(old.api,widget.api)){query.clear();for(final control in advanced.values){control.clear();}submittedAdvanced={};submittedViewport={};submitted='';submittedCountry='';country='';submittedSaved=false;savedOnly=false;ownSession=widget.api.sessionFence();generation++;rows=[];busy=false;writing=false;uncertain=false;error=null;}}
+  void didUpdateWidget(covariant UnifiedDiscoveryView old){super.didUpdateWidget(old);if(!identical(old.api,widget.api)||old.customer!=widget.customer){query.clear();for(final control in advanced.values){control.clear();}submittedAdvanced={};submittedViewport={};recentPresets.clear();rememberNextSearch=false;formEpoch++;submitted='';scope='all';submittedScope='all';country='';submittedCountry='';connector='';submittedConnector='';sourceStatus='';submittedSourceStatus='';sourceAge='';submittedSourceAge='';submittedSaved=false;savedOnly=false;ownSession=widget.api.sessionFence();generation++;rows=[];busy=false;writing=false;uncertain=false;error=null;}}
   Future<void> load(int target)async{
     if(!foreground||writing)return;
-    if(!ownSession()){setState((){rows=[];busy=false;writing=false;error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');});return;}
+    if(!ownSession()){setState((){rows=[];recentPresets.clear();rememberNextSearch=false;busy=false;writing=false;error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');});return;}
+    // Only an explicitly submitted search is eligible for history.
+    // Pagination, map selections and favorite refresh never record history.
+    final remember=target==1 && rememberNextSearch && submittedViewport.isEmpty;
+    final snapshot=remember?<String,String>{
+      'q':submitted,'scope':submittedScope,'country':submittedCountry,
+      'connector':submittedConnector,'source_status':submittedSourceStatus,
+      'source_age':submittedSourceAge,'saved':submittedSaved?'1':'0',
+      for(final entry in submittedAdvanced.entries)'advanced_${entry.key}':entry.value,
+    }:null;
+    rememberNextSearch=false;
     final turn=++generation;final api=widget.api;final fence=api.sessionFence();
     bool active()=>mounted&&foreground&&turn==generation&&ownSession()&&fence();
     setState((){busy=true;uncertain=false;error=null;rows=[];});
@@ -61,13 +83,26 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       final parsed=(data['data'] as List).map((row)=>Map<String,dynamic>.from(row as Map)).toList();
       for(final row in parsed){
         if(row['kind']=='catalog'){
-          final station=Station.fromJson(Map<String,dynamic>.from(row['station'] as Map));
-          if(row['key']!='catalog:${station.id}'||station.id<1)throw const FormatException('Invalid station identity');
+          if(row['station'] is! Map)throw const FormatException('Invalid catalog payload');
+          final raw=Map<String,dynamic>.from(row['station'] as Map);
+          final id=raw['id'];
+          if(id is! int||id<1||row['key']!='catalog:$id')throw const FormatException('Invalid station identity');
+          // Noncritical metadata may be incomplete. Keep the identity in the
+          // read-only catalog, but never construct Station or a booking link.
         }else if(row['kind']!='partner'||row['location'] is! Map||row['record_id'] is! int||(row['record_id'] as int)<1||row['key']!='partner:${row['record_id']}'||row['availability']!='unknown'||row['reservable']!=false||row['remote_control']!=false){throw const FormatException('Invalid partner authority');}
       }
-      setState((){rows=parsed;page=data['current_page'];last=data['last_page'];total=data['total'];});
+      setState((){
+        rows=parsed;page=data['current_page'];last=data['last_page'];total=data['total'];
+        if(snapshot!=null){
+          bool same(Map<String,String> p)=>p.length==snapshot.length &&
+            p.entries.every((entry)=>snapshot[entry.key]==entry.value);
+          recentPresets.removeWhere(same);
+          recentPresets.insert(0,snapshot);
+          if(recentPresets.length>5)recentPresets.removeLast();
+        }
+      });
     }catch(_){if(active())setState(()=>error=tr('Search failed. Retry explicitly.','تعذر البحث. أعد المحاولة صراحةً.'));}
-    finally{if(mounted&&foreground&&turn==generation)setState((){busy=false;if(!ownSession()){rows=[];error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');}});}
+    finally{if(mounted&&foreground&&turn==generation)setState((){busy=false;if(!ownSession()){rows=[];recentPresets.clear();error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');}});}
   }
   /// Only an explicit map action can submit this transient rectangle.
   /// Session/lifecycle revalidation prevents another account from inheriting
@@ -83,19 +118,73 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
         allowViewportSearch: true,
       )),
     );
-    if (!mounted || !foreground || generation != snapshot ||
-        !ownSession() || !fence() || bounds == null) return;
+    if (!mounted) return;
+    // A map route may outlive its original authenticated epoch. Refuse to
+    // surface the previous customer's rows or issue a new catalog lookup.
+    if (!ownSession() || !fence()) {
+      setState(() {
+        generation++;
+        rows=[];
+        submittedViewport={};
+        busy=false;
+        error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');
+      });
+      return;
+    }
+    if (!foreground || generation != snapshot || bounds == null) return;
     setState(() => submittedViewport = Map<String,String>.of(bounds));
     await load(1);
   }
 
+  String recentLabel(Map<String,String> previous) {
+    final source=previous['scope']=='catalog'
+      ?tr('Platform catalog','كتالوج المنصة')
+      :previous['scope']=='partner'
+        ?tr('Partner reports','تقارير الشركاء')
+        :tr('All published sources','كل المصادر المنشورة');
+    final name=previous['q']?.isNotEmpty==true
+      ?previous['q']!:tr('All locations','كل المواقع');
+    final market=previous['country']?.isNotEmpty==true
+      ?previous['country']!:tr('all countries','كل الدول');
+    return '$name · $market · $source';
+  }
+  // Restoring historical *form fields* cannot issue any request. Changing
+  // the ListView key remounts dropdowns with the restored initialValue.
+  void restoreRecent(Map<String,String> old){
+    if(!mounted||!foreground||busy||writing||!ownSession())return;
+    // A detached callback may outlive account/role changes or Clear history.
+    // Only a preset still owned by this view may re-enter its current draft.
+    if(!recentPresets.any((preset)=>identical(preset,old)))return;
+    query.text=old['q']??'';
+    for(final field in advanced.entries) {
+      field.value.text=old['advanced_${field.key}']??'';
+    }
+    setState((){
+      scope=old['scope']??'all';country=old['country']??'';
+      connector=old['connector']??'';
+      sourceStatus=old['source_status']??'';sourceAge=old['source_age']??'';
+      savedOnly=widget.customer&&old['saved']=='1';
+      formEpoch++;
+      error=tr('Filters restored locally. Press Search to submit.',
+          'استُعيدت المرشحات محلياً. اضغط بحث لإرسالها.');
+    });
+  }
+
   @override
-  Widget build(BuildContext context)=>Scaffold(
+  Widget build(BuildContext context)=>!ownSession()
+    ? Scaffold(
+        appBar:AppBar(title:Text(tr('Search all sources','البحث في كل المصادر'))),
+        // A native EvApi can change identity while the same widget/API object
+        // stays mounted. Never show a previous customer's rows, saved filters,
+        // draft coordinates, or provider labels on the next repaint.
+        body:Center(child:Text(tr('Account changed. Reopen search.', 'تغير الحساب. أعد فتح البحث.'))),
+      )
+    : Scaffold(
     appBar:AppBar(title:Text(tr('Search all sources','البحث في كل المصادر'))),
-    body:ListView(padding:const EdgeInsets.all(16),children:[
+    body:ListView(key:ValueKey('unified-form-$formEpoch'),padding:const EdgeInsets.all(16),children:[
       Text(tr('Search published platform and authorized partner records. Partner reports do not authorize booking, charging or payment. External provider lookups require separate consent.','البحث في سجلات المنصة والشركاء المصرح لهم. تقارير الشركاء لا تسمح بالحجز أو الشحن أو الدفع. تتطلب الاستعلامات الخارجية موافقة منفصلة.')),
       TextField(key:const Key('unified-query'),controller:query,maxLength:80,decoration:InputDecoration(labelText:tr('Name, address or operator','الاسم أو العنوان أو المشغل'))),
-      DropdownButtonFormField<String>(initialValue:scope,decoration:InputDecoration(labelText:tr('Source','المصدر')),items:[for(final choice in [('all','All published sources','كل المصادر المنشورة'),('catalog','Platform catalog','كتالوج المنصة'),('partner','Authorized partner reports','تقارير الشركاء المصرح لهم')])DropdownMenuItem(value:choice.$1,child:Text(tr(choice.$2,choice.$3)))],onChanged:busy?null:(value)=>setState(()=>scope=value!)),
+      DropdownButtonFormField<String>(key:const Key('unified-scope'),initialValue:scope,decoration:InputDecoration(labelText:tr('Source','المصدر')),items:[for(final choice in [('all','All published sources','كل المصادر المنشورة'),('catalog','Platform catalog','كتالوج المنصة'),('partner','Authorized partner reports','تقارير الشركاء المصرح لهم')])DropdownMenuItem(value:choice.$1,child:Text(tr(choice.$2,choice.$3)))],onChanged:busy?null:(value)=>setState(()=>scope=value!)),
       InputDecorator(
         decoration: InputDecoration(labelText: tr('Country (supported markets)', 'الدولة (الأسواق المدعومة)')),
         child: DropdownButtonHideUnderline(
@@ -116,20 +205,41 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
           ),
         ),
       ),
-      DropdownButtonFormField<String>(initialValue:connector,decoration:InputDecoration(labelText:tr('Connector','الموصل')),items:[for(final value in ['','CCS2','Type2','CHAdeMO'])DropdownMenuItem(value:value,child:Text(value.isEmpty?tr('All connectors','كل الموصلات'):value))],onChanged:busy?null:(value)=>setState(()=>connector=value!)),
+      DropdownButtonFormField<String>(key:const Key('unified-connector'),initialValue:connector,decoration:InputDecoration(labelText:tr('Connector','الموصل')),items:[for(final value in ['','CCS2','Type2','CHAdeMO'])DropdownMenuItem(value:value,child:Text(value.isEmpty?tr('All connectors','كل الموصلات'):value))],onChanged:busy?null:(value)=>setState(()=>connector=value!)),
       DropdownButtonFormField<String>(key:const Key('unified-source-status'),initialValue:sourceStatus,decoration:InputDecoration(labelText:tr('Simulated source state at search','حالة مصدر المحاكاة عند البحث')),items:[DropdownMenuItem(value:'',child:Text(tr('All states','كل الحالات'))),for(final status in reportedConnectorStatuses)DropdownMenuItem(value:status,child:Text(connectorStatusLabel(status,Localizations.localeOf(context).languageCode=='ar')))],onChanged:busy||writing?null:(value)=>setState(()=>sourceStatus=value!)),
       DropdownButtonFormField<String>(key:const Key('unified-source-age'),initialValue:sourceAge,decoration:InputDecoration(labelText:tr('Partner source updates within (platform results unchanged)','تحديثات مصدر الشريك خلال (نتائج المنصة دون تغيير)')),items:[for(final choice in [('','All report ages','كل أعمار التقارير'),('1','Last hour','آخر ساعة'),('24','Last 24 hours','آخر 24 ساعة'),('168','Last 7 days','آخر 7 أيام')])DropdownMenuItem(value:choice.$1,child:Text(tr(choice.$2,choice.$3)))],onChanged:busy||writing?null:(value)=>setState(()=>sourceAge=value!)),
       Text(tr('This filter matches canonical connector reports within five minutes at search. Partner reports cannot satisfy it. Physical availability is unverified; search again to recheck.','يطابق هذا المرشح تقارير موصلات المنصة خلال خمس دقائق عند البحث. لا تنطبق تقارير الشركاء عليه. التوفر الفعلي غير مؤكد؛ أعد البحث للتحقق.')),
       if(widget.customer)CheckboxListTile(value:savedOnly,onChanged:busy||writing?null:(value)=>setState(()=>savedOnly=value==true),title:Text(tr('Saved places only','الأماكن المحفوظة فقط'))),
       ExpansionTile(title:Text(tr('Advanced filters','مرشحات متقدمة')),children:[
-        for(final field in [('operator','Operator label','اسم المشغل',100),('address','Address or city','العنوان أو المدينة',150),('access','Platform access description','وصف الوصول في المنصة',150),('max_rate_per_kwh','Maximum simulated energy rate per kWh','أقصى سعر طاقة محاكاة لكل كيلوواط ساعة',10),('price_currency','Rate currency (for example AED)','عملة السعر (مثلاً AED)',3)])
+        for(final field in [('operator','Operator label','اسم المشغل',100),('address','Address or city','العنوان أو المدينة',150),('access','Platform access description','وصف الوصول في المنصة',150),('min_power_kw','Minimum published station rating (kW)','أقل قدرة منشورة للمحطة (كيلوواط)',4),('max_power_kw','Maximum published station rating (kW)','أعلى قدرة منشورة للمحطة (كيلوواط)',4),('max_rate_per_kwh','Maximum simulated energy rate per kWh','أقصى سعر طاقة محاكاة لكل كيلوواط ساعة',10),('price_currency','Rate currency (for example AED)','عملة السعر (مثلاً AED)',3)])
           TextField(key:Key('unified-${field.$1}'),controller:advanced[field.$1],maxLength:field.$4,decoration:InputDecoration(labelText:tr(field.$2,field.$3))),
-        Text(tr('Access and price filters exclude partner reports. Price matches current simulated energy rates excluding tax, not a total-cost quote. Enter both rate and currency.','تستثني مرشحات الوصول والسعر تقارير الشركاء. يطابق السعر أسعار الطاقة المحاكاة الحالية دون الضريبة وليس عرضاً للتكلفة الإجمالية. أدخل السعر والعملة معاً.')),
+        Text(tr('Access, power and price filters exclude partner reports. Published station kW is catalog rated power, not measured live power. Price matches current simulated energy rates excluding tax, not a total-cost quote. Enter both rate and currency.','تستثني مرشحات الوصول والقدرة والسعر تقارير الشركاء. قدرة المحطة المنشورة وصف كتالوجي وليست قدرة فعلية مقاسة. يطابق السعر أسعار الطاقة المحاكاة الحالية دون الضريبة وليس عرضاً للتكلفة الإجمالية. أدخل السعر والعملة معاً.')),
       ]),
-      FilledButton(onPressed:busy||writing?null:(){submittedAdvanced={};for(final field in advanced.entries){var value=field.value.text.trim();if(field.key=='max_rate_per_kwh')value=vendorDigits(value);if(field.key=='price_currency')value=value.toUpperCase();if(value.isNotEmpty)submittedAdvanced[field.key]=value;}submitted=query.text.trim();submittedScope=scope;submittedCountry=country;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;submittedSourceAge=sourceAge;submittedViewport={};load(1);},child:Text(tr('Search all sources','البحث في كل المصادر'))),
+      FilledButton(onPressed:busy||writing?null:(){submittedAdvanced={};for(final field in advanced.entries){var value=field.value.text.trim();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].contains(field.key))value=vendorDigits(value);if(field.key=='price_currency')value=value.toUpperCase();if(value.isNotEmpty)submittedAdvanced[field.key]=value;}submitted=query.text.trim();submittedScope=scope;submittedCountry=country;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;submittedSourceAge=sourceAge;submittedViewport={};rememberNextSearch=true;load(1);},child:Text(tr('Search all sources','البحث في كل المصادر'))),
+      if(recentPresets.isNotEmpty&&foreground&&ownSession())...[
+        Text(tr('Recent filters (this session only)','مرشحات حديثة (هذه الجلسة فقط)')),
+        Wrap(spacing:8,children:[
+          for(final entry in recentPresets.asMap().entries)
+            OutlinedButton(key:Key('unified-recent-${entry.key}'),
+              onPressed:busy||writing?null:()=>restoreRecent(entry.value),
+              child:Text(tr('Restore filters: ','استعادة المرشحات: ')+
+                recentLabel(entry.value))),
+        ]),
+        TextButton(key:const Key('unified-recent-clear'),
+          onPressed:busy||writing?null:()=>setState(recentPresets.clear),
+          child:Text(tr('Clear recent filters','مسح المرشحات الحديثة'))),
+      ],
       if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!),
       Text(tr('$total published results','$total نتيجة منشورة')),
-      if (mapPoints().isNotEmpty) OutlinedButton(key:const Key('unified-map-open'),onPressed:busy||writing?null:searchFromMap,child:Text(tr('Map these loaded results','عرض هذه النتائج المحملة على الخريطة'))),
+      // Discovery into an empty viewport must be possible even when no
+      // catalog records had coordinates or the previous page was empty.
+      // Opening the map does not perform a network/GPS lookup; tiles and
+      // viewport submission each require separate explicit actions.
+      OutlinedButton(key:const Key('unified-map-open'),onPressed:busy||writing||!foreground||!ownSession()?null:searchFromMap,child:Text(
+        mapPoints().isEmpty
+          ?tr('Choose a map area to search','اختر منطقة على الخريطة للبحث')
+          :tr('Map these loaded results','عرض هذه النتائج المحملة على الخريطة'),
+      )),
       for(final row in rows)card(row),
       Wrap(children:[if(page>1)TextButton(onPressed:busy||writing?null:()=>load(page-1),child:Text(tr('Previous','السابق'))),Text('$page / $last'),if(page<last)TextButton(onPressed:busy||writing?null:()=>load(page+1),child:Text(tr('Next','التالي')))]),
     ]),
@@ -137,15 +247,47 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   List<PartnerMapPoint> mapPoints()=>[
     for(final row in rows)
       if(row['kind']=='catalog') PartnerMapPoint.fromPublishedCatalog(Map<String,dynamic>.from(row['station'] as Map))
-      else PartnerMapPoint.fromPublishedLocation(Map<String,dynamic>.from(row['location'] as Map),providerLabel:row['provider_label'] as String?),
+      else PartnerMapPoint.fromPublishedLocation(Map<String,dynamic>.from(row['location'] as Map),providerLabel: row['provider_label'] is String ? row['provider_label'] as String : null),
   ].whereType<PartnerMapPoint>().toList();
+  void openCatalog(Station station){
+    // The button closure may have been built under an earlier account epoch.
+    // Recheck identity at the actual click, not just when rendering it.
+    if(!mounted||!foreground||!ownSession())return;
+    widget.onCatalog(station);
+  }
   Widget card(Map<String,dynamic> row){
     if(row['kind']=='catalog'){
-      final station=Station.fromJson(Map<String,dynamic>.from(row['station'] as Map));
-      return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(station.name),if(widget.customer)favoriteButton(row),Text(tr('Platform catalog · ${station.source}','كتالوج المنصة · ${station.source}')),TextButton(onPressed:foreground&&ownSession()?()=>widget.onCatalog(station):null,child:Text(tr('View station and booking options','عرض المحطة وخيارات الحجز')))])));
+      final raw=Map<String,dynamic>.from(row['station'] as Map);
+      if(!completePublishedStation(raw)){
+        final rawName=raw['name'];
+        final label=rawName is String&&rawName.trim().isNotEmpty
+            ?rawName:tr('Unnamed platform station','محطة منصة بلا اسم');
+        return Card(key:ValueKey(row['key']),child:Padding(
+          padding:const EdgeInsets.all(12),
+          child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            Text(label),
+            Text(tr('Published station details incomplete. Booking and saved-place actions are unavailable until catalog metadata is corrected.',
+              'بيانات المحطة المنشورة غير مكتملة. لا تتوفر إجراءات الحجز أو الحفظ حتى تصحيح بيانات الكتالوج.')),
+          ]),
+        ));
+      }
+      final station=Station.fromJson(raw);
+      return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(station.name),if(widget.customer)favoriteButton(row),Text(tr('Platform catalog · ${station.source}','كتالوج المنصة · ${station.source}')),TextButton(onPressed:foreground&&ownSession()?()=>openCatalog(station):null,child:Text(tr('View station and booking options','عرض المحطة وخيارات الحجز')))])));
     }
     final location=Map<String,dynamic>.from(row['location'] as Map);
-    return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${location['name']??location['id']??''}'),if(widget.customer)favoriteButton(row),Text('${row['provider_label']??''}'),Text([location['address'],location['city'],location['country']].where((v)=>v!=null).join(' · ')),Text(tr('Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد')),Text(tr('Reported source time: ${row['source_updated_at']??'unknown'}','وقت المصدر المبلغ عنه: ${row['source_updated_at']??'غير معروف'}')),Text(partnerCatalogAgeLabel(row,Localizations.localeOf(context).languageCode=='ar')),Text(partnerCatalogPolicyText(row['catalog_age_policy'],Localizations.localeOf(context).languageCode=='ar')),Text(tr('Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'))])));
+    final nameRaw=location['name'];
+    final idRaw=location['id'];
+    final safeName=nameRaw is String&&nameRaw.trim().isNotEmpty?nameRaw:
+      idRaw is String&&idRaw.trim().isNotEmpty?idRaw:
+      tr('Partner record #${row['record_id']}','سجل الشريك #${row['record_id']}');
+    final providerRaw=row['provider_label'];
+    final provider=providerRaw is String&&providerRaw.trim().isNotEmpty
+      ?providerRaw:tr('Provider label unavailable (unverified)',
+        'اسم مقدم الخدمة غير متاح (غير مؤكد)');
+    final address=[location['address'],location['city'],location['country']]
+      .whereType<String>().where((value)=>value.trim().isNotEmpty).join(' · ');
+    final locationCanMap=PartnerMapPoint.fromPublishedLocation(location)!=null;
+    return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(safeName),if(widget.customer)favoriteButton(row),Text(provider),Text(address.isNotEmpty?address:tr('Address details unavailable','تفاصيل العنوان غير متاحة')),if(!locationCanMap)Text(tr('Map coordinates unavailable; this record can only be inspected in the list.','إحداثيات الخريطة غير متاحة؛ يمكن عرض هذا السجل في القائمة فقط.')),Text(tr('Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد')),Text(tr('Reported source time: ${row['source_updated_at']??'unknown'}','وقت المصدر المبلغ عنه: ${row['source_updated_at']??'غير معروف'}')),Text(partnerCatalogAgeLabel(row,Localizations.localeOf(context).languageCode=='ar')),Text(partnerCatalogPolicyText(row['catalog_age_policy'],Localizations.localeOf(context).languageCode=='ar')),Text(tr('Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'))])));
   }
   Widget favoriteButton(Map<String,dynamic> row)=>TextButton(
     key:ValueKey('unified-favorite-${row['key']}'),

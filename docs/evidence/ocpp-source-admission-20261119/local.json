@@ -1,0 +1,93 @@
+{
+  "status": "LOCAL_VERIFIED_HOSTED_PENDING",
+  "original_ocpp_source": "c77a4e2b663a3912beee64f23fa324a9f732cb86",
+  "retained_native_parent": "af841da4e8db6587e99552d46c89236d3bf0f85b",
+  "merge_parent": "7d0378f311ad1709213e744250ae87fb3a03eb44",
+  "verification": {
+    "laravel_passed": 1656,
+    "laravel_assertions": 30669,
+    "sqlite_explicit_pg_only_skip": 1,
+    "postgres_contracts": [
+      741,
+      10229
+    ],
+    "postgres_process_concurrency": [
+      32,
+      478
+    ],
+    "postgres_precision_migration": [
+      2,
+      13
+    ],
+    "command_tests": [
+      27,
+      184
+    ],
+    "new_real_red_cases": 18,
+    "pint_files": 815,
+    "composer_validate": "strict passed",
+    "local_citrine_protocols": [
+      "1.6",
+      "2.0.1"
+    ],
+    "flutter_source_identical_to_parent": true,
+    "flutter_inherited_passed": 612,
+    "flutter_inherited_fixture_skips": 34,
+    "flutter_rerun_claimed": false,
+    "source_wire_and_consumer_cases": [
+      149,
+      2428
+    ],
+    "new_parser_cases": 12,
+    "citrine_continuous_ingestion": "both protocols passed with durable worker restart",
+    "canonical_connector_continuous_ingestion": "both protocols passed with explicit connector targeting and durable worker restart",
+    "charging_request_client": "passed unchanged production 429 budgets; uncertain transport/503 never replayed"
+  },
+  "source_sha256": {
+    "services/business-api/app/Http/Controllers/ChargerCommandController.php": "044080d51758b1677cb6e41700ce9b694865bb4d69692b01ffb2227e500c61db",
+    "services/business-api/tests/Feature/ChargerCommandTest.php": "a82530a2fef5593fe674a8d11743fe94e3a962cd59e850ec38f226aa53ba5945",
+    "services/business-api/tests/Postgres/run-connectors": "335260820621bdccd377a6004f7a9bb5edb84a31c81817bd5f3c7385d5f95661",
+    "services/business-api/app/Services/Charging/SourceConsumer.php": "6a3218686aaa72a8223002e1a6ba192fd9aaffd3feeb0cee17d65ed9f4b13032",
+    "services/business-api/app/Services/Charging/SourceGraphJson.php": "81efc6bb613f6a9a612176ccc1c528cf1743e1b6a085fd69cd6178b98834fa20",
+    "services/business-api/tests/Feature/SourceConsumerTest.php": "bbaa95dd21db829af8d4151ec97a004292bfc3397e2048550f851040673fd58a",
+    "services/business-api/tests/Feature/SourceGraphJsonTest.php": "044d1e295ca9ef7b2bba41704deea4a626011096add68e2251f80116836c8611"
+  },
+  "local_log_sha256": {
+    "admission_red": "8f3c0f5ef8a4ca573fbb6f379947dd61453a34a1d30d385f0735e1c717d1d7b8",
+    "admission_green": "dbdad3e99989932a2210eaacec64200001b9e4ed05fba4504b2d3ce0e7128d52",
+    "laravel": "4e65c035aa6c8ae09c3ccb0d77d5a0802a6ab3c150ef766856ad1c3c35699268",
+    "postgres": "4999eca56321107bb8173ab45f3d0af9e709ed584c2dd2c9f1f7e5769a120378",
+    "pint": "4a34403875c2f86ef9e98eaf92ec477ba62fea8483504ca12868e594f3fc34a1",
+    "composer": "43add299dc97ecbd90ec2dc456ef5a0bd824bb9abdae2a3d7cdb520e21f8e86d",
+    "protocols": "51e728b98800583ae6cdac146d6ca24eed9926cafa12d1715ac6bf2f4d0952aa",
+    "sessions": "ac22e943d619ee28debd43fa2022ba5f34630f2b2a4692d809581057fcfbbefa",
+    "business": "9e9966dbe2806f9005ba0eead226b486d86949e669496fcc97f56a9e5824e2d5",
+    "literal_wire_red": "9d4b827e32dcc771dcf40f1b9a7df203198a4bddb4a74c139976f9bb257e7051",
+    "consumer_and_wire_parser_green": "04f39073fea48bd382885f1035756ef81b89ad78db666603e484135e8695b3ad",
+    "actual_daemon_red": "2ded1506e74c182059c8e3a9e83432d37d6f564576cbc337d21b9b78551f5bb4",
+    "actual_daemon_green": "a351d47571db3ea495c2b724ea828d202a7d375884d4398cbd3dadf7289296c6",
+    "actual_canonical_daemon": "c20908d059a833b3f04177e1761ea5713bc766416487e0c827f711095ff3d2d7",
+    "request_client": "c711f96d3e341e727de1c1e192cd4848d0214c9b5613e4cdaac2b5d3e65bf7fe",
+    "requirements": "5d1c006faed8d5baa52a5b0fc860698248b647a331bb9c45a714e3348a2b4262"
+  },
+  "production_accepted": false,
+  "tracker_credit_added": 0,
+  "remaining_software": [
+    "production adapter/conformance completion",
+    "encrypted legacy command token storage; response redaction is not at-rest encryption",
+    "remaining original fixed42/312 requirements"
+  ],
+  "external_acceptance": [
+    "physical OCPP chargers",
+    "authorized live OCPI partner",
+    "PSP/bank settlement",
+    "signed native device/store release",
+    "staging and production deployment"
+  ],
+  "fixed_inventory_check": "passed 42 categories /312 original atoms; generated weighted coverage current",
+  "environment_repairs": [
+    "Use writable BUILDX_CONFIG; no database or volume removed",
+    "Run source fixture and API against the same isolated checkout; previous API container retained under ev-business-api-ocpi-preserved",
+    "Corrected local PostgreSQL runner command; all final registered suites completed"
+  ]
+}

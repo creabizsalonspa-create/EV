@@ -12,6 +12,9 @@ window.EvAdminAccounts = (() => {
     let role = null;
     let verified = null;
     let accountStatus = null;
+    let companySearch = null;
+    let companyCountry = null;
+    let companyStatus = null;
     let output = null;
     let state = null;
 
@@ -60,6 +63,9 @@ window.EvAdminAccounts = (() => {
         if (role.value) params.set("role", role.value);
         if (verified.value) params.set("verified", verified.value);
         if (accountStatus.value) params.set("account_status", accountStatus.value);
+        if (companySearch.value.trim()) params.set("company_q", companySearch.value.trim());
+        if (companyCountry.value.trim()) params.set("company_country", companyCountry.value.trim().toUpperCase());
+        if (companyStatus.value) params.set("company_status", companyStatus.value);
         state.textContent = "Loading private account directory / جاري التحميل…";
         output.replaceChildren();
         try {
@@ -204,9 +210,32 @@ window.EvAdminAccounts = (() => {
         role = select([["", "All / الكل"], ["customer", "Customer"], ["vendor", "Vendor"], ["admin", "Admin"]]);
         verified = select([["", "Any / الكل"], ["yes", "Verified"], ["no", "Unverified"]]);
         accountStatus = select([["", "All statuses"], ["active", "Active"], ["suspended", "Suspended"]]);
+        companySearch = element("input");
+        companySearch.type = "search";
+        companySearch.maxLength = 100;
+        companySearch.placeholder = "Business legal name";
+        companyCountry = element("input");
+        companyCountry.type = "text";
+        companyCountry.maxLength = 2;
+        companyCountry.placeholder = "AE";
+        companyStatus = select([
+            ["", "Any company status / الكل"],
+            ["draft", "Draft / مسودة"],
+            ["submitted", "Submitted / مرسلة"],
+            ["approved", "Approved / معتمدة"],
+            ["rejected", "Rejected / مرفوضة"],
+            ["changes_requested", "Changes required / مطلوب تعديل"],
+            ["suspended", "Suspended / موقوفة"]
+        ]);
         const submit = element("button", "Search / بحث");
         submit.type = "submit";
-        form.append(field("Search / البحث", search), field("Role / الدور", role), field("Email verification / التحقق", verified), field("Account status / حالة الحساب", accountStatus), submit);
+        form.append(field("Account name/email / الاسم", search),
+            field("Role / الدور", role),
+            field("Email verification / التحقق", verified),
+            field("Account status / حالة الحساب", accountStatus),
+            field("Business name / اسم الشركة", companySearch),
+            field("Business country / الدولة", companyCountry),
+            field("Business review / حالة الشركة", companyStatus), submit);
         form.onsubmit = event => {
             event.preventDefault();
             load(1);

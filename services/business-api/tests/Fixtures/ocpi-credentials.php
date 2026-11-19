@@ -41,7 +41,7 @@ if (in_array($argv[3] ?? '', ['roaming', 'roaming-billing'], true)) {
     $other = User::create(['name' => 'Other roaming driver', 'email' => "roaming-other-$run@example.test", 'password' => Hash::make($password)]);
     $other->forceFill(['role' => 'customer'])->save();
     $identity = ['country_code' => 'NL', 'party_id' => 'ABC', 'last_updated' => now()->subSecond()->toISOString()];
-    app(RecordSynchronizer::class)->ingest($p, 'locations', [$identity + ['id' => 'L1', 'publish' => true, 'name' => 'Synthetic roaming '.$run, 'address' => 'Synthetic address', 'city' => 'Test city', 'country' => 'NLD', 'coordinates' => ['latitude' => '52.1', 'longitude' => '4.3'], 'evses' => [['uid' => 'E1', 'status' => 'AVAILABLE', 'connectors' => [['id' => '1', 'standard' => 'IEC_62196_T2_COMBO', 'tariff_ids' => ['T1']]]]]]]);
+    app(RecordSynchronizer::class)->ingest($p, 'locations', [$identity + ['id' => 'L1', 'publish' => true, 'name' => 'Synthetic roaming '.$run, 'address' => 'Synthetic address', 'city' => 'Test city', 'country' => 'NLD', 'coordinates' => ['latitude' => '52.1', 'longitude' => '4.3'], 'evses' => [['uid' => 'E1', 'status' => 'AVAILABLE', 'capabilities' => ['RESERVABLE'], 'last_updated' => $identity['last_updated'], 'connectors' => [['id' => '1', 'last_updated' => $identity['last_updated'], 'standard' => 'IEC_62196_T2_COMBO', 'tariff_ids' => ['T1']]]]]]]);
     app(RecordSynchronizer::class)->ingest($p, 'tariffs', [$identity + ['id' => 'T1', 'currency' => 'EUR', 'elements' => [['price_components' => [['type' => 'ENERGY', 'price' => '0.25', 'step_size' => 1, 'vat' => '0']]]]]]);
     if (($argv[3] ?? '') === 'roaming-billing') {
         abort_unless(config('ocpi.test_billing_enabled'), 403);

@@ -45,6 +45,135 @@ const catalogMetricLabels = {
   ],
 };
 
+const catalogReportedMarkets = {
+  'AE': [
+    'UAE (partner-reported location)',
+    'الإمارات (موقع مبلّغ عنه من الشريك)',
+  ],
+  'US': [
+    'US (partner-reported location)',
+    'الولايات المتحدة (موقع مبلّغ عنه من الشريك)',
+  ],
+  'CA': [
+    'Canada (partner-reported location)',
+    'كندا (موقع مبلّغ عنه من الشريك)',
+  ],
+  'other_or_unknown': [
+    'Other or unknown reported location',
+    'موقع مبلّغ عنه في دولة أخرى أو غير معروف',
+  ],
+};
+const catalogMarketFacets = {
+  'published_by_reported_market': [
+    'Stored published reports by location country (not network coverage)',
+    'التقارير المنشورة حسب دولة الموقع (ليست تغطية الشبكة)',
+  ],
+  'published_with_usable_coordinates_by_reported_market': [
+    'Published reports with map-usable coordinates (accuracy unverified)',
+    'التقارير المنشورة بإحداثيات قابلة للعرض (الدقة غير متحققة)',
+  ],
+};
+
+/// Validate the same bounded, source-only report for live clients and widgets.
+bool _catalogObservationCount(dynamic v) => v is int && v >= 0 && v <= 10000;
+bool catalogObservationReportValid(dynamic d, {required int providerId}) {
+  if (d is! Map ||
+      d['scope'] != 'stored_partner_catalog_observations' ||
+      d['provider'] is! Map ||
+      d['provider']['id'] != providerId ||
+      d['provider']['name'] is! String ||
+      d['provider']['authorized'] is! bool ||
+      d['as_of'] is! String ||
+      d['record_limit'] != 10000)
+    return false;
+  if (!['all', 'locations', 'tariffs'].contains(d['module_filter']) ||
+      d['market_classification'] != 'PARTNER_REPORTED_LOCATION_COUNTRY_ONLY' ||
+      d['coverage_exhaustive'] != false ||
+      [
+        'receipt_refreshes_source_age',
+        'live_availability_verified',
+        'physical_charging_verified',
+        'remote_control',
+        'billing_authority',
+      ].any((k) => d[k] != false))
+    return false;
+  final modules = d['modules'];
+  final expected = d['module_filter'] == 'all'
+      ? ['locations', 'tariffs']
+      : [d['module_filter']];
+  if (modules is! Map || modules.length != expected.length) return false;
+  int combinedTotal = 0;
+  for (final key in expected) {
+    final m = modules[key];
+    if (m is! Map || !_catalogObservationCount(m['total'])) return false;
+    combinedTotal += m['total'] as int;
+    if (combinedTotal > 10000) return false;
+    for (final kind in ['reported_age', 'receipt_age']) {
+      final values = m[kind];
+      if (values is! Map ||
+          values.length != 6 ||
+          catalogAgeLabels.keys.any(
+            (k) => !_catalogObservationCount(values[k]),
+          ) ||
+          catalogAgeLabels.keys.fold<int>(
+                0,
+                (sum, k) => sum + (values[k] as int),
+              ) !=
+              m['total'])
+        return false;
+    }
+    final metrics = key == 'locations'
+        ? catalogMetricLabels.keys
+              .where((k) => k != 'current_version_retired')
+              .toList()
+        : ['current_version_retired'];
+    if (m.length != metrics.length + 3 + (key == 'locations' ? 2 : 0) ||
+        metrics.any(
+          (k) =>
+              !_catalogObservationCount(m[k]) ||
+              (m[k] as int) > (m['total'] as int),
+        ))
+      return false;
+    if (key == 'locations') {
+      final published = m['published_by_reported_market'];
+      final usable = m['published_with_usable_coordinates_by_reported_market'];
+      bool marketCounts(dynamic values) =>
+          values is Map &&
+          values.length == catalogReportedMarkets.length &&
+          catalogReportedMarkets.keys.every(
+            (k) => _catalogObservationCount(values[k]),
+          );
+      int sum(Map values) => catalogReportedMarkets.keys.fold<int>(
+        0,
+        (total, k) => total + (values[k] as int),
+      );
+      if (!marketCounts(published) || !marketCounts(usable)) return false;
+      if (sum(published as Map) != m['stored_publish_true'] ||
+          sum(usable as Map) > m['coordinates_usable'] ||
+          catalogReportedMarkets.keys.any((k) => usable[k] > published[k])) {
+        return false;
+      }
+      for (final group in [
+        [
+          'stored_publish_true',
+          'stored_publish_false',
+          'stored_publish_unknown',
+        ],
+        ['coordinates_usable', 'coordinates_unknown_or_invalid'],
+        [
+          'connector_list_present',
+          'connector_list_empty',
+          'connector_list_unknown',
+        ],
+      ]) {
+        if (group.fold<int>(0, (sum, k) => sum + (m[k] as int)) != m['total'])
+          return false;
+      }
+    }
+  }
+  return true;
+}
+
 class OcpiCatalogObservationsView extends StatefulWidget {
   final EvApi api;
   final int providerId;
@@ -102,77 +231,6 @@ class _CatalogObservationState extends State<OcpiCatalogObservationsView>
     if (mounted && !foreground) setState(clear);
   }
 
-  bool count(dynamic v) => v is int && v >= 0 && v <= 10000;
-  bool valid(dynamic d) {
-    if (d is! Map ||
-        d['scope'] != 'stored_partner_catalog_observations' ||
-        d['provider'] is! Map ||
-        d['provider']['id'] != widget.providerId ||
-        d['provider']['name'] is! String ||
-        d['provider']['authorized'] is! bool ||
-        d['as_of'] is! String ||
-        d['record_limit'] != 10000)
-      return false;
-    if (!['all', 'locations', 'tariffs'].contains(d['module_filter']) ||
-        [
-          'receipt_refreshes_source_age',
-          'live_availability_verified',
-          'physical_charging_verified',
-          'remote_control',
-          'billing_authority',
-        ].any((k) => d[k] != false))
-      return false;
-    final modules = d['modules'];
-    final expected = d['module_filter'] == 'all'
-        ? ['locations', 'tariffs']
-        : [d['module_filter']];
-    if (modules is! Map || modules.length != expected.length) return false;
-    for (final key in expected) {
-      final m = modules[key];
-      if (m is! Map || !count(m['total'])) return false;
-      for (final kind in ['reported_age', 'receipt_age']) {
-        final values = m[kind];
-        if (values is! Map ||
-            values.length != 6 ||
-            catalogAgeLabels.keys.any((k) => !count(values[k])) ||
-            catalogAgeLabels.keys.fold<int>(
-                  0,
-                  (sum, k) => sum + (values[k] as int),
-                ) !=
-                m['total'])
-          return false;
-      }
-      final metrics = key == 'locations'
-          ? catalogMetricLabels.keys
-                .where((k) => k != 'current_version_retired')
-                .toList()
-          : ['current_version_retired'];
-      if (m.length != metrics.length + 3 ||
-          metrics.any(
-            (k) => !count(m[k]) || (m[k] as int) > (m['total'] as int),
-          ))
-        return false;
-      if (key == 'locations')
-        for (final group in [
-          [
-            'stored_publish_true',
-            'stored_publish_false',
-            'stored_publish_unknown',
-          ],
-          ['coordinates_usable', 'coordinates_unknown_or_invalid'],
-          [
-            'connector_list_present',
-            'connector_list_empty',
-            'connector_list_unknown',
-          ],
-        ]) {
-          if (group.fold<int>(0, (sum, k) => sum + (m[k] as int)) != m['total'])
-            return false;
-        }
-    }
-    return true;
-  }
-
   Future<void> load() async {
     if (!foreground || !authorized()) return;
     final n = ++generation;
@@ -188,7 +246,11 @@ class _CatalogObservationState extends State<OcpiCatalogObservationsView>
         query: {'module': selected},
       );
       if (!current(n)) return;
-      if (!valid(result) || result['module_filter'] != selected)
+      if (!catalogObservationReportValid(
+            result,
+            providerId: widget.providerId,
+          ) ||
+          result['module_filter'] != selected)
         throw const FormatException('Invalid observation contract');
       setState(() => data = Map<String, dynamic>.from(result));
     } catch (e) {
@@ -234,6 +296,7 @@ class _CatalogObservationState extends State<OcpiCatalogObservationsView>
             ),
           ),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: module,
             decoration: InputDecoration(
               labelText: t('Catalog module', 'وحدة الكتالوج'),
@@ -317,6 +380,20 @@ class _CatalogObservationState extends State<OcpiCatalogObservationsView>
                           Text(
                             '${label(metric.value)}: ${e.value[metric.key]}',
                           ),
+                      if (e.key == 'locations')
+                        for (final facet in catalogMarketFacets.entries) ...[
+                          Text(
+                            label(facet.value),
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          for (final market in catalogReportedMarkets.entries)
+                            Text(
+                              '${label(market.value)}: ${e.value[facet.key][market.key]}',
+                              key: ValueKey(
+                                'catalog-market-${facet.key}-${market.key}',
+                              ),
+                            ),
+                        ],
                     ],
                   ),
                 ),

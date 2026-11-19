@@ -2,8 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Services\Discovery\LookupFailure;
+use App\Services\Discovery\OpenChargeMapAdapter;
+use App\Services\Discovery\OpenChargeMapProjection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -353,5 +357,184 @@ class OpenChargeMapDiscoveryTest extends TestCase
         $response = $this->postJson('/api/discovery/open-charge-map/search', $this->input());
         $response->assertStatus(503)->assertJsonPath('reason', 'provider_unavailable');
         $this->assertStringNotContainsString('synthetic-private-ocm-key', $response->getContent());
+    }
+
+    public function test_capped_crowd_sample_quality_is_recomputed_after_source_filters_without_suggesting_coverage(): void
+    {
+        $clock = Carbon::parse('2026-11-16T00:00:00Z');
+        Carbon::setTestNow($clock);
+        try {
+            $old = $this->point();
+            $old['DateLastStatusUpdate'] = $clock->copy()->subHours(25)->toIso8601ZuluString();
+
+            $missingTime = $this->point();
+            $missingTime['ID'] = 12346;
+            unset($missingTime['StatusType']);
+
+            $future = $this->point();
+            $future['ID'] = 12347;
+            $future['DateLastStatusUpdate'] = $clock->copy()->addMinutes(5)->toIso8601ZuluString();
+            unset($future['StatusType']);
+
+            $recent = $this->point();
+            $recent['ID'] = 12348;
+            $recent['DateLastStatusUpdate'] = $clock->copy()->subHour()->toIso8601ZuluString();
+            $recent['StatusType'] = ['IsOperational' => false];
+
+            Http::fake(fn () => Http::response([$old, $missingTime, $future, $recent], 200, ['Content-Type' => 'application/json']));
+
+            $reply = $this->postJson('/api/discovery/open-charge-map/search', $this->input())->assertOk()
+                ->assertJsonPath('count', 4)
+                ->assertJsonPath('quality_sample.evidence', 'FILTERED_LICENSED_CROWD_SAMPLE_ONLY')
+                ->assertJsonPath('quality_sample.returned_count', 4)
+                ->assertJsonPath('quality_sample.source_time_unknown_or_future_count', 2)
+                ->assertJsonPath('quality_sample.source_older_than_24h_count', 1)
+                ->assertJsonPath('quality_sample.operational_report_unknown_count', 2)
+                ->assertJsonPath('quality_sample.max_source_sample', 25)
+                ->assertJsonPath('quality_sample.complete_geographic_coverage', false)
+                ->assertJsonPath('quality_sample.live_status_verified', false);
+            $this->assertStringNotContainsString('synthetic-private-ocm-key', $reply->getContent());
+
+            // Local filter responses are freshly evaluated from one cached
+            // licensed subset. Unknown/future/old clocks cannot count as fresh.
+            $this->postJson('/api/v1/discovery/open-charge-map/search', $this->input() + [
+                'max_source_age_hours' => 2,
+            ])->assertOk()->assertJsonPath('count', 1)
+                ->assertJsonPath('quality_sample.returned_count', 1)
+                ->assertJsonPath('quality_sample.source_time_unknown_or_future_count', 0)
+                ->assertJsonPath('quality_sample.source_older_than_24h_count', 0)
+                ->assertJsonPath('quality_sample.operational_report_unknown_count', 0)
+                ->assertJsonPath('quality_sample.complete_geographic_coverage', false);
+            $this->postJson('/api/discovery/open-charge-map/search', $this->input() + [
+                'reported_operational' => true,
+            ])->assertOk()->assertJsonPath('count', 1)
+                ->assertJsonPath('quality_sample.source_older_than_24h_count', 1);
+            Http::assertSentCount(1);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_corrupted_cached_quality_sample_cannot_duplicate_or_forge_reported_flags(): void
+    {
+        Http::fake(['api.openchargemap.io/*' => Http::response([$this->point()], 200, ['Content-Type' => 'application/json'])]);
+        $adapter = app(OpenChargeMapAdapter::class);
+        $source = $adapter->search(25.2, 55.3, 10, 'synthetic-private-ocm-key');
+        $this->assertSame(1, $source['count']);
+
+        foreach (['duplicate', 'operational', 'membership', 'access_key', 'label'] as $tamper) {
+            $corrupt = $source;
+            if ($tamper === 'duplicate') {
+                $corrupt['results'][] = $corrupt['results'][0];
+            } elseif ($tamper === 'operational') {
+                $corrupt['results'][0]['reported_operational'] = 'true';
+            } elseif ($tamper === 'membership') {
+                $corrupt['results'][0]['reported_membership_required'] = 1;
+            } elseif ($tamper === 'access_key') {
+                $corrupt['results'][0]['reported_access_key_required'] = ['unexpected' => true];
+            } else {
+                $corrupt['results'][0]['reported_access'] = ['untrusted' => 'metadata'];
+            }
+
+            try {
+                $adapter->filterReported($corrupt);
+                $this->fail('Corrupted crowd report was accepted: '.$tamper);
+            } catch (LookupFailure $failure) {
+                $this->assertSame('invalid_response', $failure->reason);
+            }
+        }
+        Http::assertSentCount(1);
+        $this->assertSame('unknown', $source['availability']);
+        $this->assertFalse($source['remote_control']);
+        $this->assertFalse($source['reservable']);
+    }
+
+    public function test_impossible_upstream_calendar_date_remains_unknown_and_cannot_pass_freshness(): void
+    {
+        $poi = $this->point();
+        $poi['DateLastStatusUpdate'] = '2026-02-30T12:00:00Z';
+        Http::fake(['api.openchargemap.io/*' => Http::response([$poi], 200, ['Content-Type' => 'application/json'])]);
+
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+            ->assertOk()
+            ->assertJsonPath('count', 1)
+            ->assertJsonPath('results.0.source_updated_at', null)
+            ->assertJsonPath('results.0.source_age_minutes', null)
+            ->assertJsonPath('results.0.source_clock_evidence', 'SOURCE_TIME_UNKNOWN')
+            ->assertJsonPath('quality_sample.source_time_unknown_or_future_count', 1)
+            ->assertJsonPath('results.0.availability', 'unknown')
+            ->assertJsonPath('results.0.remote_control', false)
+            ->assertJsonPath('results.0.reservable', false);
+        $this->postJson('/api/discovery/open-charge-map/search',
+            $this->input() + ['max_source_age_hours' => 1])
+            ->assertOk()
+            ->assertJsonPath('count', 0);
+        Http::assertSentCount(1);
+    }
+
+    public function test_crowd_report_with_impossible_utc_offset_cannot_become_fresh_source_evidence(): void
+    {
+        // DateTimeImmutable accepts +14:30 as a valid offset even though
+        // real ISO 8601 offset limits stop at +/-14:00. Source time evidence
+        // must be verified before Carbon/cache age calculations.
+        $clock = new \DateTimeImmutable('2026-11-16T12:00:00Z');
+        foreach ([
+            '2026-11-16T10:30:00+14:30',
+            '2026-11-16T10:30:00-14:01',
+            '2026-11-16T10:30:00+99:99',
+            '2026-11-16T10:30:00+00:61',
+            '2026-02-30T10:30:00+02:00',
+        ] as $invalid) {
+            $poi = $this->point();
+            $poi['DateLastStatusUpdate'] = $invalid;
+            $readout = OpenChargeMapProjection::item($poi, $clock);
+            $this->assertIsArray($readout);
+            $this->assertNull($readout['source_updated_at'], 'Impossible upstream source instant cannot be trusted');
+            $this->assertNull($readout['source_age_minutes']);
+            $this->assertSame('SOURCE_TIME_UNKNOWN', $readout['source_clock_evidence']);
+            $this->assertSame('unknown', $readout['availability']);
+            $this->assertFalse($readout['remote_control']);
+            $this->assertFalse($readout['reservable']);
+            $this->assertFalse($readout['billing_eligible']);
+        }
+        $valid = $this->point();
+        $valid['DateLastStatusUpdate'] = '2026-11-16T10:30:00+14:00';
+        $normal = OpenChargeMapProjection::item($valid, $clock);
+        $this->assertSame('2026-11-15T20:30:00Z', $normal['source_updated_at']);
+        $this->assertSame('CROWD_REPORTED_TIME', $normal['source_clock_evidence']);
+        Http::assertNothingSent();
+    }
+
+    public function test_invalid_cached_calendar_date_cannot_be_promoted_to_fresh_source(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-04-15T12:00:00Z'));
+        DB::enableQueryLog();
+        try {
+            Http::fake(['api.openchargemap.io/*' => Http::response([$this->point()], 200, ['Content-Type' => 'application/json'])]);
+            $adapter = app(OpenChargeMapAdapter::class);
+            $source = $adapter->search(25.2, 55.3, 10, 'synthetic-private-ocm-key');
+            $this->assertSame('ocm:12345', $source['results'][0]['id']);
+
+            // A corrupted but syntactically plausible cache record would
+            // previously roll February 30 into March and appear source-dated.
+            $source['results'][0]['source_updated_at'] = '2026-02-30T00:00:00Z';
+            $filtered = $adapter->filterReported($source);
+            $this->assertNull($filtered['results'][0]['source_age_minutes']);
+            $this->assertSame('SOURCE_TIME_UNKNOWN', $filtered['results'][0]['source_clock_evidence']);
+            $this->assertSame(1, $filtered['quality_sample']['source_time_unknown_or_future_count']);
+            $this->assertSame('unknown', $filtered['availability']);
+            $this->assertFalse($filtered['reservable']);
+            $this->assertFalse($filtered['remote_control']);
+            $this->assertSame(0, $adapter->filterReported($source, maxSourceAgeHours: 1)['count']);
+            Http::assertSentCount(1);
+            // This pure discovery adapter must not touch any SQL store,
+            // including financial, charger or partner-write tables. The
+            // test intentionally runs without unrelated DB migrations.
+            $this->assertSame([], DB::getQueryLog());
+        } finally {
+            DB::disableQueryLog();
+            DB::flushQueryLog();
+            Carbon::setTestNow();
+        }
     }
 }

@@ -46,6 +46,16 @@ const reply = {
   remote_control: false,
   reservable: false,
   billing_eligible: false,
+  quality_sample: {
+    evidence: "FILTERED_LICENSED_CROWD_SAMPLE_ONLY",
+    returned_count: 1,
+    source_time_unknown_or_future_count: 0,
+    source_older_than_24h_count: 0,
+    operational_report_unknown_count: 0,
+    max_source_sample: 25,
+    complete_geographic_coverage: false,
+    live_status_verified: false,
+  },
   results: [point],
 };
 
@@ -56,7 +66,7 @@ const reply = {
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   try {
-    for (const mode of ["disabled", "enabled", "mobile-ar", "copy", "unicode", "overlong", "unsafe", "late", "late-filter"]) {
+    for (const mode of ["disabled", "enabled", "mobile-ar", "copy", "unicode", "overlong", "unsafe", "bad-quality", "late", "late-filter"]) {
       const context = await browser.newContext({
         permissions: [],
         ...(mode === "mobile-ar" ? { viewport: { width: 390, height: 844 } } : {}),
@@ -98,7 +108,10 @@ const reply = {
           body: route.request().postDataJSON(),
         });
         return route.fulfill({
-          json: mode === "unsafe" ? {
+          json: mode === "bad-quality" ? {
+            ...reply,
+            quality_sample: { ...reply.quality_sample, complete_geographic_coverage: true },
+          } : mode === "unsafe" ? {
             ...reply,
             results: [{ ...point, remote_control: true }],
           } : mode === "unicode" ? {
@@ -142,6 +155,8 @@ const reply = {
         assert.equal(searchRequests.length, 0, "RTL mobile form may not send coordinates before click");
         await root.getByRole("button", { name: "البحث في المواقع ذات البيانات المفتوحة" }).click();
         await root.locator("article").waitFor();
+        await root.locator(".ocm-quality-sample").waitFor();
+        assert.match(await root.locator(".ocm-quality-sample").textContent(), /هذه عينة وليست تغطية جغرافية شاملة/);
         assert.equal(searchRequests.length, 1);
         assert.equal(await root.locator("article").textContent().then(s => s.includes("ش".repeat(240))), true);
         const bounds = await root.evaluate(el => ({
@@ -218,6 +233,14 @@ const reply = {
         await context.close();
         continue;
       }
+      if (mode === "bad-quality") {
+        assert.equal(await root.locator("article").count(), 0);
+        assert.equal(await page.locator(".ocm-map-pin").count(), 0,
+          "Forged coverage authority must not draw licensed-source pins");
+        assert.deepEqual(pageErrors, []);
+        await context.close();
+        continue;
+      }
       if (mode === "copy") {
         await page.locator(".ocm-map-pin").waitFor();
         await page.evaluate(() => {
@@ -255,6 +278,9 @@ const reply = {
       assert.equal(await root.locator('input[type="checkbox"]').isChecked(), false);
       if (mode === "enabled") {
         assert.equal(await root.locator("article").count(), 1);
+        const sample = await root.locator(".ocm-quality-sample").textContent();
+        assert.match(sample, /Quality of 1 returned filtered crowd reports/);
+        assert.match(sample, /not full geographic coverage or live charger availability/);
         assert.equal(await root.locator("article img").count(), 0, "Raw contributor title became HTML");
         assert.equal(await root.locator("article").textContent().then(s => s.includes("CC BY-SA 4.0")), true);
         assert.equal(await root.locator("article").textContent().then(s => s.includes("Type 2") && s.includes("22 kW")), true);
@@ -296,6 +322,11 @@ const reply = {
           0,
           "Hiding platform pins must expose crowd reports without changing OCM results",
         );
+        // New licensed results do not silently move the user's map camera.
+        // Fit with the actual user control before selecting a clipped marker.
+        await page.getByRole("button", { name: "Show loaded locations on map", exact: true }).click();
+        await page.locator("#station-map").scrollIntoViewIfNeeded();
+        assert.equal(searchRequests.length, 1, "Fitting loaded markers cannot query the licensed source");
         await page.locator(".ocm-map-pin").click();
         const popup = page.locator(".leaflet-popup-content");
         await popup.getByText(

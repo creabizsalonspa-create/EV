@@ -9,6 +9,7 @@ use App\Models\FleetVehicle;
 use App\Models\InboxNotification;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Security\AdminTransactionAuthority;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -38,10 +39,14 @@ class EnterpriseController extends Controller
     public function configureRegion(Request $r, string $country)
     {
         abort_unless($r->user()->role === 'admin', 403);
-        abort_unless(preg_match('/^[A-Z]{2}$/', $country), 422);
+        abort_unless(preg_match('/^[A-Z]{2}$/D', $country), 422);
         $v = $r->validate(['currency' => 'required|string|size:3|uppercase', 'minor_units' => 'required|integer|between:0,3', 'timezone' => 'required|timezone', 'tax_bps' => 'nullable|integer|between:0,10000']);
 
         return DB::transaction(function () use ($r, $country, $v) {
+            // A stale Admin session may pass the initial role check after
+            // revocation. Lock and revalidate the live actor before changing
+            // shared country, timezone, tax or currency configuration.
+            AdminTransactionAuthority::requireCurrent($r->user());
             DB::table('regions')->updateOrInsert(['country' => $country], $v + ['commerce_enabled' => false, 'updated_at' => now()]);
             $this->audit($r, 'region.configured', $country);
 

@@ -44,6 +44,7 @@ import 'vendor_inventory.dart';
 import 'vendor_company.dart' show registerVendorDocumentLicenses;
 import 'session_vault.dart';
 import 'rider_access.dart';
+import 'navigation_links.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -60,11 +61,16 @@ class EvApp extends StatefulWidget {
   State<EvApp> createState() => _EvAppState();
 }
 
-class _EvAppState extends State<EvApp> {
+class _EvAppState extends State<EvApp> with WidgetsBindingObserver {
   late final AppPreferences preferences;
+  bool _privacyHidden = false;
   @override
   void initState() {
     super.initState();
+    // Cover the first frame when mount follows an existing OS overlay.
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _privacyHidden = lifecycle != null && lifecycle != AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
     registerVendorDocumentLicenses();
     preferences = widget.preferences ?? AppPreferences(DevicePreferenceStore());
     if (!preferences.ready) preferences.load();
@@ -75,17 +81,53 @@ class _EvAppState extends State<EvApp> {
     animation: preferences,
     builder: (context, _) => MaterialApp(
       title: 'Crea-Biz EV',
-      builder:
-          const bool.fromEnvironment('EV_LOCAL_DEMO') &&
-              !const bool.fromEnvironment('dart.vm.product') &&
-              !const bool.fromEnvironment('dart.vm.profile')
-          ? (context, child) => Column(
-              children: [
-                const LocalDemoNotice(),
-                Expanded(child: child ?? const SizedBox.shrink()),
-              ],
-            )
-          : null,
+      // The builder wraps Navigator, so all authenticated routes, dialogs and
+      // bottom sheets are covered rather than only the root Workspace.
+      builder: (context, child) {
+        final routeContent =
+            const bool.fromEnvironment('EV_LOCAL_DEMO') &&
+                !const bool.fromEnvironment('dart.vm.product') &&
+                !const bool.fromEnvironment('dart.vm.profile')
+            ? Column(
+                children: [
+                  const LocalDemoNotice(),
+                  Expanded(child: child ?? const SizedBox.shrink()),
+                ],
+              )
+            : child ?? const SizedBox.shrink();
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ExcludeSemantics(
+              key: const Key('privacy-content-semantics'),
+              excluding: _privacyHidden,
+              child: IgnorePointer(
+                key: const Key('privacy-content-input'),
+                ignoring: _privacyHidden,
+                child: routeContent,
+              ),
+            ),
+            if (_privacyHidden)
+              Positioned.fill(
+                child: ColoredBox(
+                  key: const Key('privacy-shield'),
+                  color: Colors.black,
+                  child: Center(
+                    child: Semantics(
+                      liveRegion: true,
+                      label: EvStrings.of(context).t('privacyScreenHidden'),
+                      child: const Icon(
+                        Icons.lock_outline,
+                        color: Colors.white,
+                        size: 56,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
 
       themeMode: preferences.theme,
       locale: preferences.locale,
@@ -123,7 +165,18 @@ class _EvAppState extends State<EvApp> {
     ),
   );
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Hide the Flutter route tree on lifecycle notification; native launchers
+    // independently cover app-switcher transitions. Preserve Navigator state.
+    final hidden = state != AppLifecycleState.resumed;
+    if (hidden == _privacyHidden || !mounted) return;
+    if (hidden) FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _privacyHidden = hidden);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (widget.preferences == null) preferences.dispose();
     super.dispose();
   }
@@ -165,6 +218,9 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   bool keepSignedIn = false, restoring = false, restoreFailed = false;
   int tab = 0;
   int recordPage = 1, recordLast = 1, recordTotal = 0;
+  int _recordRequestGeneration = 0;
+  int _performGeneration = 0;
+  int _nativeNavigationGeneration = 0;
   final email = TextEditingController(),
       password = TextEditingController(),
       name = TextEditingController(),
@@ -197,6 +253,8 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    NativeNavigationBridge.pending.addListener(_onNavigationAvailable);
+    NativeNavigationBridge.start();
     if (widget.initialApi != null) {
       api = widget.initialApi;
       restoreSaved();
@@ -216,8 +274,71 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     }
   }
 
+  void _onNavigationAvailable() {
+    // A newer link or lifecycle transition supersedes all older responses.
+    // Native platform requests can complete in any order.
+    final generation = ++_nativeNavigationGeneration;
+    // Navigation must wait until Flutter has mounted the Navigator, restored
+    // identity and returned to the foreground.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || restoring ||
+          generation != _nativeNavigationGeneration) return;
+      final lifecycle = WidgetsBinding.instance.lifecycleState;
+      if (lifecycle == null || lifecycle == AppLifecycleState.resumed)
+        _consumeNavigation(generation);
+    });
+    // A native channel notification does not inherently schedule a Flutter
+    // frame. Ensure the foreground navigation signal is consumed even when
+    // no widget was otherwise about to rebuild.
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
+  Future<void> _consumeNavigation(int generation) async {
+    final requestApi = api;
+    final owner = account;
+    final fence = requestApi?.sessionFence();
+    final target = await NativeNavigationBridge.consume();
+    // The app can background while the platform response is in flight.
+    // A pre-await foreground check alone is not sufficient.
+    final lifecycleAfterRead = WidgetsBinding.instance.lifecycleState;
+    if ((lifecycleAfterRead != null &&
+            lifecycleAfterRead != AppLifecycleState.resumed) ||
+        !mounted || generation != _nativeNavigationGeneration ||
+        target == null || owner == null || busy ||
+        !identical(api, requestApi) || fence == null || !fence() ||
+        account?.id != owner.id || account?.role != owner.role ||
+        !['customer', 'vendor'].contains(owner.role)) return;
+
+    // A shared external URL never supplies record IDs, credentials, payment
+    // outcomes, commands, or an authorization decision.
+    // These are the same six tabs available through ordinary navigation for
+    // either signed-in role. Individual screens still enforce role-scoped
+    // reads and customer-only actions independently of this route hint.
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    _recordRequestGeneration++;
+    setState(() {
+      tab = target;
+      records = [];
+      recordPage = recordLast = 1;
+      recordTotal = 0;
+      error = null;
+      message = null;
+    });
+    if (target == 1 || target == 3) perform(load);
+  }
+
   Future<void> restoreSaved() async {
-    if (api?.canRemember != true) return;
+    final requestApi = api;
+    if (requestApi == null || !requestApi.canRemember) {
+      _onNavigationAvailable(); // Discard cold links when signed out.
+      return;
+    }
+    final generation = _performGeneration;
+    bool current() =>
+        mounted &&
+        generation == _performGeneration &&
+        identical(api, requestApi) &&
+        account == null;
     setState(() {
       busy = true;
       restoring = true;
@@ -225,33 +346,43 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
       error = null;
     });
     try {
-      final user = await api!.restoreSession();
-      if (mounted)
+      final user = await requestApi.restoreSession();
+      // Restoring a native cookie jar can outlive logout or a fresh login.
+      // Never publish its previous identity after the workspace was reset.
+      if (current())
         setState(() {
           account = user;
-          keepSignedIn = api!.remembered;
+          keepSignedIn = requestApi.remembered;
         });
     } catch (e) {
-      if (mounted)
+      if (current())
         setState(() {
           error = errorKey(e);
           restoreFailed = true;
         });
     } finally {
-      if (mounted)
+      if (mounted && generation == _performGeneration &&
+          identical(api, requestApi)) {
         setState(() {
           busy = false;
           restoring = false;
         });
+        _onNavigationAvailable();
+      }
     }
   }
 
   void resetSession() {
+    _nativeNavigationGeneration++;
+    _recordRequestGeneration++;
+    _performGeneration++;
     reservationIntents.clear();
     if (!mounted) return;
     Navigator.of(context).popUntil((route) => route.isFirst);
     setState(() {
       account = null;
+      busy = false;
+      restoring = false;
       keepSignedIn = false;
       restoreFailed = false;
       records = [];
@@ -271,6 +402,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
 
   Future<void> perform(Future<void> Function() task) async {
     if (busy || api == null) return;
+    final generation = _performGeneration;
     setState(() {
       busy = true;
       error = null;
@@ -279,20 +411,44 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     try {
       await task();
     } catch (e) {
-      if (e is ApiException && (e.status == 401 || e.status == 419))
-        resetSession();
-      if (mounted) setState(() => error = errorKey(e));
+      // A session reset permits the next account to sign in immediately.
+      // The previous account's late failure must not clear its session or
+      // overwrite its error/message after that change.
+      if (generation == _performGeneration && mounted) {
+        if (e is ApiException && (e.status == 401 || e.status == 419)) {
+          resetSession();
+        }
+        if (mounted) setState(() => error = errorKey(e));
+      }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && generation == _performGeneration) {
+        setState(() => busy = false);
+      }
     }
   }
 
   Future<void> load({int page = 1}) async {
-    if ([0, 2, 4, 5].contains(tab)) return;
+    if ([0, 2, 4, 5].contains(tab) || account == null || api == null) return;
+    final requestApi = api!;
+    final owner = account!;
+    final currentSession = requestApi.sessionFence();
     final selectedTab = tab;
-    final data = await api!.request(endpoints[tab], query: {'page': '$page'});
+    final generation = ++_recordRequestGeneration;
+    final data = await requestApi.request(
+      endpoints[selectedTab],
+      query: {'page': '$page'},
+    );
     final parsed = ApiPage.fromJson(data, (row) => row);
-    if (!mounted || tab != selectedTab) return;
+    // Two in-flight GETs can finish out of order, even if UI actions are
+    // disabled while a normal load runs. Never publish an older page or a
+    // previous identity's private rows after revocation/account switching.
+    if (!mounted ||
+        generation != _recordRequestGeneration ||
+        tab != selectedTab ||
+        !identical(api, requestApi) ||
+        !currentSession() ||
+        account?.id != owner.id ||
+        account?.role != owner.role) return;
     setState(() {
       records = parsed.items;
       recordPage = parsed.current;
@@ -303,30 +459,48 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
 
   Future<void> login() async {
     if (!loginForm.currentState!.validate()) return;
+    final requestApi = api;
+    if (requestApi == null || busy) return;
+    final generation = _performGeneration;
+    bool currentAttempt() =>
+        mounted &&
+        generation == _performGeneration &&
+        identical(api, requestApi) &&
+        account == null;
     final factor = secondFactorCode.text.trim();
     secondFactorCode.clear();
     await perform(() async {
       final user = !registering && factor.isNotEmpty
-          ? await api!.signInWithFactor(email.text.trim(), password.text, factor)
-          : await api!.signIn(email.text.trim(), password.text, name: registering ? name.text.trim() : null);
+          ? await requestApi.signInWithFactor(
+              email.text.trim(), password.text, factor)
+          : await requestApi.signIn(
+              email.text.trim(), password.text,
+              name: registering ? name.text.trim() : null);
+      // An old login may finish after a forced session reset or a new login.
+      // Never clear the newer form or publish the older account.
+      if (!currentAttempt()) return;
       password.clear();
-      if (!mounted) return;
       if (user.role == 'admin') {
-        await api!.signOut();
-        if (mounted) setState(() => error = 'webAdmin');
+        await requestApi.signOut();
+        if (currentAttempt()) setState(() => error = 'webAdmin');
         return;
       }
       if (keepSignedIn) {
         try {
-          if (!await api!.rememberSession()) {
+          final saved = await requestApi.rememberSession();
+          if (!currentAttempt()) return;
+          if (!saved) {
             keepSignedIn = false;
-            if (mounted) setState(() => message = 'sessionNotSaved');
+            setState(() => message = 'sessionNotSaved');
           }
         } on SessionStorageException {
+          if (!currentAttempt()) return;
           keepSignedIn = false;
-          if (mounted) setState(() => message = 'sessionNotSaved');
+          setState(() => message = 'sessionNotSaved');
         }
       }
+      if (!currentAttempt()) return;
+      _recordRequestGeneration++;
       setState(() {
         account = user;
         tab = 0;
@@ -343,6 +517,20 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     builder: (_) => EntryDialog(title: title, fields: fields),
   );
   Future<void> create() async {
+    final requestApi = api;
+    final owner = account;
+    if (requestApi == null || owner == null || busy) return;
+    final generation = _performGeneration;
+    final selectedTab = tab;
+    final session = requestApi.sessionFence();
+    bool current() =>
+        mounted &&
+        generation == _performGeneration &&
+        identical(api, requestApi) &&
+        session() &&
+        account?.id == owner.id &&
+        account?.role == owner.role &&
+        tab == selectedTab;
     Map<String, String> fields;
     String path, title;
     if (tab == 0 && account?.role == 'vendor') {
@@ -371,18 +559,21 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
       return;
     }
     final values = await entry(s.t(title), fields);
-    if (values != null && mounted)
-      await perform(() async {
-        await api!.request(path, method: 'POST', body: values);
-        if (tab == 0) {
-          await catalogKey.currentState?.refresh();
-        } else if (tab == 4) {
-          await supportKey.currentState?.refresh();
-        } else {
-          await load();
-        }
-        if (mounted) setState(() => message = 'saved');
-      });
+    if (values == null || !current()) return;
+    await perform(() async {
+      await requestApi.request(path, method: 'POST', body: values);
+      // A completed write for a previous account must never refresh another
+      // account's records or display a success notice in its workspace.
+      if (!current()) return;
+      if (selectedTab == 0) {
+        await catalogKey.currentState?.refresh();
+      } else if (selectedTab == 4) {
+        await supportKey.currentState?.refresh();
+      } else {
+        await load();
+      }
+      if (current()) setState(() => message = 'saved');
+    });
   }
 
   void chooseConnectors(Station station) {
@@ -528,12 +719,23 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   Future<void> recovery() async {
+    final requestApi = api;
+    if (requestApi == null || account != null || busy) return;
+    final generation = _performGeneration;
+    final session = requestApi.sessionFence();
+    bool current() =>
+        mounted &&
+        account == null &&
+        generation == _performGeneration &&
+        identical(api, requestApi) &&
+        session();
     final values = await entry(s.t('forgot'), {'email': email.text.trim()});
-    if (values == null || !mounted) return;
+    if (values == null || !current()) return;
     await perform(() async {
-      await api!.csrf();
-      await api!.request('forgot-password', method: 'POST', body: values);
-      if (mounted) setState(() => message = 'recoverySent');
+      await requestApi.csrf();
+      if (!current()) return;
+      await requestApi.request('forgot-password', method: 'POST', body: values);
+      if (current()) setState(() => message = 'recoverySent');
     });
   }
 
@@ -554,20 +756,35 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   Future<void> profile() async {
-    final values = await entry(s.t('profile'), {'name': account!.name});
-    if (values == null || !mounted) return;
+    final requestApi = api;
+    final owner = account;
+    if (requestApi == null || owner == null || busy) return;
+    final session = requestApi.sessionFence();
+    final generation = _performGeneration;
+    final values = await entry(s.t('profile'), {'name': owner.name});
+    // The dialog can outlive the identity that opened it.
+    bool current() =>
+        mounted &&
+        generation == _performGeneration &&
+        identical(api, requestApi) &&
+        session() &&
+        account?.id == owner.id &&
+        account?.role == owner.role;
+    if (values == null || !current()) return;
     await perform(() async {
-      final updated = await api!.request(
+      final updated = await requestApi.request(
         'profile',
         method: 'PATCH',
         body: {...values, 'locale': widget.preferences.locale.languageCode},
       );
-      if (mounted)
-        setState(
-          () => account = Account.fromJson(
-            Map<String, dynamic>.from(updated as Map),
-          ),
-        );
+      // A delayed PATCH response must not repopulate a revoked session,
+      // including a rapid logout and re-login to the same account.
+      if (!current()) return;
+      setState(
+        () => account = Account.fromJson(
+          Map<String, dynamic>.from(updated as Map),
+        ),
+      );
     });
   }
 
@@ -580,9 +797,23 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   Future<void> discoverBatteryVehicle(int id) async {
+    final requestApi = api;
+    final owner = account;
+    if (id < 1 || requestApi == null || owner == null ||
+        owner.role != 'customer' || busy) return;
+    final generation = _performGeneration;
+    final session = requestApi.sessionFence();
     await perform(() async {
-      final values = await api!.request('vehicles/$id/battery-preferences');
-      if (mounted) discoverCompatible(values['connector_type'] as String);
+      final values = await requestApi.request('vehicles/$id/battery-preferences');
+      // Vehicle preferences are private to their original account. A late
+      // response must not change another customer's discovery filters.
+      if (!mounted ||
+          generation != _performGeneration ||
+          !identical(api, requestApi) ||
+          !session() ||
+          account?.id != owner.id ||
+          account?.role != owner.role) return;
+      discoverCompatible(values['connector_type'] as String);
     });
   }
 
@@ -704,10 +935,20 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                     onPressed: busy
                         ? null
                         : () => perform(() async {
-                            await api!.request(
+                            final requestApi = api!;
+                            final owner = account!;
+                            final generation = _performGeneration;
+                            final session = requestApi.sessionFence();
+                            await requestApi.request(
                               'reservations/$id',
                               method: 'DELETE',
                             );
+                            if (!mounted ||
+                                generation != _performGeneration ||
+                                !identical(api, requestApi) ||
+                                !session() ||
+                                account?.id != owner.id ||
+                                account?.role != owner.role) return;
                             await load(page: recordPage);
                           }),
                     child: Text(s.t('cancelBooking')),
@@ -720,16 +961,30 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                     onPressed: busy
                         ? null
                         : () => perform(() async {
-                            final current = api!.sessionFence();
+                            final requestApi = api!;
+                            final owner = account!;
+                            final generation = _performGeneration;
+                            final session = requestApi.sessionFence();
+                            bool current() =>
+                                mounted &&
+                                generation == _performGeneration &&
+                                identical(api, requestApi) &&
+                                session() &&
+                                account?.id == owner.id &&
+                                account?.role == owner.role;
                             final requiredPrice = row['reservation_terms_snapshot'] is Map && row['reservation_terms_snapshot']['price_acceptance_required'] == true;
-                            final accepted = !requiredPrice || await reviewPrechargePricing(context, api!, id);
-                            if (!mounted || !current()) return;
+                            final accepted = !requiredPrice || await reviewPrechargePricing(context, requestApi, id);
+                            if (!current()) return;
                             if (!accepted) { await load(page:recordPage); return; }
-                            await api!.request(
+                            await requestApi.request(
                               'reservations/$id/${row['csms_bound'] == true ? 'csms-start' : 'simulate-start'}',
                               method: 'POST',
                             );
-                            if (mounted) setState(() => tab = 2);
+                            // A late accepted command cannot navigate or read
+                            // under another account. It never retries an
+                            // uncertain command or creates a second dispatch.
+                            if (!current()) return;
+                            setState(() => tab = 2);
                             await load();
                           }),
                     child: Text(
@@ -747,10 +1002,20 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                 onPressed: busy
                     ? null
                     : () => perform(() async {
-                        await api!.request(
+                        final requestApi = api!;
+                        final owner = account!;
+                        final generation = _performGeneration;
+                        final session = requestApi.sessionFence();
+                        await requestApi.request(
                           'simulations/$id/stop',
                           method: 'POST',
                         );
+                        if (!mounted ||
+                            generation != _performGeneration ||
+                            !identical(api, requestApi) ||
+                            !session() ||
+                            account?.id != owner.id ||
+                            account?.role != owner.role) return;
                         await load(page: recordPage);
                       }),
                 child: Text(s.t('stopSimulation')),
@@ -1025,6 +1290,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
       ),
     ];
     void select(int value) {
+      _recordRequestGeneration++;
       setState(() {
         tab = value;
         records = [];
@@ -1357,37 +1623,69 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                     ),
                   );
                 } else if (value == 'verify') {
+                  final requestApi = api!;
+                  final owner = account!;
+                  final generation = _performGeneration;
+                  final session = requestApi.sessionFence();
+                  bool current() =>
+                      mounted &&
+                      generation == _performGeneration &&
+                      identical(api, requestApi) &&
+                      session() &&
+                      account?.id == owner.id &&
+                      account?.role == owner.role;
                   perform(() async {
-                    await api!.request(
+                    await requestApi.request(
                       'email/verification-notification',
                       method: 'POST',
                     );
-                    final current = await api!.request('me');
-                    if (mounted)
-                      setState(() {
-                        account = Account.fromJson(
-                          Map<String, dynamic>.from(current as Map),
-                        );
-                        message = account!.emailVerified
-                            ? 'emailVerified'
-                            : 'verificationRequested';
-                      });
+                    if (!current()) return;
+                    final updated = await requestApi.request('me');
+                    if (!current()) return;
+                    setState(() {
+                      account = Account.fromJson(
+                        Map<String, dynamic>.from(updated as Map),
+                      );
+                      message = account!.emailVerified
+                          ? 'emailVerified'
+                          : 'verificationRequested';
+                    });
                   });
                 } else if (value == 'forget') {
+                  final requestApi = api!;
+                  final owner = account!;
+                  final generation = _performGeneration;
                   perform(() async {
-                    await api!.forgetSession();
-                    if (mounted)
-                      setState(() {
-                        keepSignedIn = false;
-                        message = 'sessionForgotten';
-                      });
+                    await requestApi.forgetSession();
+                    // Forget rotates the API epoch by design. The account
+                    // generation and identity, not the pre-call epoch, fence
+                    // the completion against a newer login.
+                    if (!mounted ||
+                        generation != _performGeneration ||
+                        !identical(api, requestApi) ||
+                        account?.id != owner.id ||
+                        account?.role != owner.role) return;
+                    setState(() {
+                      keepSignedIn = false;
+                      message = 'sessionForgotten';
+                    });
                   });
                 } else {
+                  final requestApi = api!;
+                  final owner = account!;
+                  final generation = _performGeneration;
                   perform(() async {
                     try {
-                      await api!.signOut();
+                      await requestApi.signOut();
                     } finally {
-                      if (!api!.remembered) resetSession();
+                      // An old sign-out can finish after a new user logs in.
+                      // Never clear the newer account's authenticated view.
+                      if (mounted &&
+                          generation == _performGeneration &&
+                          identical(api, requestApi) &&
+                          account?.id == owner.id &&
+                          account?.role == owner.role &&
+                          !requestApi.remembered) resetSession();
                     }
                   });
                 }
@@ -1623,12 +1921,18 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) { secondFactorCode.clear(); password.clear(); }
+    if (state != AppLifecycleState.resumed) {
+      secondFactorCode.clear();
+      password.clear();
+    } else {
+      _onNavigationAvailable();
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    NativeNavigationBridge.pending.removeListener(_onNavigationAvailable);
     secondFactorCode.dispose();
     email.dispose();
     password.dispose();

@@ -98,6 +98,21 @@ class PartnerClient
         }
     }
 
+    /** OCPI envelopes have the same strict UTC DateTime contract as source records. */
+    private function validEnvelopeTimestamp(mixed $value): bool
+    {
+        if (! is_string($value)
+            || ! preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z?$/D', $value)) {
+            return false;
+        }
+        $format = '!Y-m-d\TH:i:s'
+            .(str_contains($value, '.') ? '.u' : '')
+            .(str_ends_with($value, 'Z') ? '\Z' : '');
+        $date = \DateTimeImmutable::createFromFormat($format, $value, new \DateTimeZone('UTC'));
+
+        return $date !== false && \DateTimeImmutable::getLastErrors() === false;
+    }
+
     private function get(OcpiProvider $provider, string $url): array
     {
         // An already dispatched read cannot be cancelled, but a revoked or superseded
@@ -125,7 +140,7 @@ class PartnerClient
             }
             $this->verifyTrace($response, $trace);
             $body = json_decode($text, true, flags: JSON_THROW_ON_ERROR);
-            if (! is_array($body) || ($body['status_code'] ?? null) !== 1000 || ! array_key_exists('data', $body) || ! is_string($body['timestamp'] ?? null) || strtotime($body['timestamp']) === false) {
+            if (! is_array($body) || ($body['status_code'] ?? null) !== 1000 || ! array_key_exists('data', $body) || ! $this->validEnvelopeTimestamp($body['timestamp'] ?? null)) {
                 throw new OcpiException('Operator OCPI response was unsuccessful or malformed.');
             }
 
@@ -143,7 +158,12 @@ class PartnerClient
             return null;
         }
 
-        return preg_match('/<([^>]+)>;\s*rel="?next"?/i', $link, $m) ? $m[1] : null;
+        preg_match_all('/<([^>]+)>;\s*rel=(?:"next"|next)(?=\s*[,;]|\s*$)/i', $link, $matches);
+        if (count($matches[1]) > 1) {
+            throw new OcpiException('Ambiguous partner pagination links require source review.');
+        }
+
+        return $matches[1][0] ?? null;
     }
 
     public function negotiate(OcpiProvider $provider): array
@@ -207,13 +227,116 @@ class PartnerClient
         return $endpoints;
     }
 
-    public function pull(OcpiProvider $provider, string $module): array
+    /** Explicit read-only OCPI date windows; never silently interpret server-local dates. */
+    private function pullWindow(array $requested): array
+    {
+        if (array_diff(array_keys($requested), ['date_from', 'date_to'])) {
+            throw new OcpiException('Unsupported OCPI source window parameter.');
+        }
+        $window = [];
+        $instants = [];
+        foreach (['date_from', 'date_to'] as $field) {
+            if (! array_key_exists($field, $requested)) {
+                continue;
+            }
+            $value = $requested[$field];
+            if (! is_string($value) || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-](?:0\d|1[0-3]):[0-5]\d|[+-]14:00)?$/D', $value)) {
+                throw new OcpiException('Invalid OCPI source window timestamp.');
+            }
+            // OCPI 2.2.1 §16.2: absent Z means UTC. Internal callers may
+            // provide offsets, but the peer always receives canonical UTC.
+            $hasZone = str_ends_with($value, 'Z') || preg_match('/[+-]\\d{2}:\\d{2}$/D', $value);
+            $format = '!Y-m-d\\TH:i:s'.(str_contains($value, '.') ? '.u' : '').($hasZone ? 'P' : '');
+            $instant = \DateTimeImmutable::createFromFormat($format, $value, new \DateTimeZone('UTC'));
+            if (! $instant || \DateTimeImmutable::getLastErrors() !== false) {
+                throw new OcpiException('Invalid OCPI source window timestamp.');
+            }
+            $instants[$field] = $instant;
+            $window[$field] = $instant->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\\TH:i:s.u\\Z');
+        }
+        if (isset($instants['date_from'], $instants['date_to']) && $instants['date_from'] >= $instants['date_to']) {
+            throw new OcpiException('OCPI source window must have a later exclusive end.');
+        }
+
+        return $window;
+    }
+
+    /** A requested date window must match the returned source evidence too. */
+    private function verifyWindowRecords(array $records, array $window): void
+    {
+        if ($window === []) {
+            return;
+        }
+        $from = isset($window['date_from']) ? new \DateTimeImmutable($window['date_from']) : null;
+        $to = isset($window['date_to']) ? new \DateTimeImmutable($window['date_to']) : null;
+        foreach ($records as $record) {
+            $value = is_array($record) ? ($record['last_updated'] ?? null) : null;
+            if (! is_string($value)
+                || ! preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z?$/D', $value)) {
+                throw new OcpiException('Partner source record lacks a valid OCPI window timestamp.');
+            }
+            $format = '!Y-m-d\TH:i:s'
+                .(str_contains($value, '.') ? '.u' : '')
+                .(str_ends_with($value, 'Z') ? '\Z' : '');
+            $instant = \DateTimeImmutable::createFromFormat($format, $value, new \DateTimeZone('UTC'));
+            if (! $instant || \DateTimeImmutable::getLastErrors() !== false
+                || ($from !== null && $instant < $from)
+                || ($to !== null && $instant >= $to)) {
+                throw new OcpiException('Partner source record violated the requested OCPI date window.');
+            }
+        }
+    }
+
+    /** Refuse a peer pagination link that silently broadens an explicit source window. */
+    private function verifyWindowNext(string $url, array $window): void
+    {
+        if ($window === []) {
+            return;
+        }
+        $parts = parse_url($url);
+        if (! is_array($parts)) {
+            throw new OcpiException('Malformed OCPI source-window pagination link.');
+        }
+        $observed = [];
+        foreach (explode('&', $parts['query'] ?? '') as $pair) {
+            if ($pair === '') {
+                continue;
+            }
+            [$name, $value] = array_pad(explode('=', $pair, 2), 2, '');
+            $name = rawurldecode($name);
+            if (! in_array($name, ['date_from', 'date_to'], true)) {
+                continue;
+            }
+            if (array_key_exists($name, $observed)) {
+                throw new OcpiException('Ambiguous OCPI source-window pagination link.');
+            }
+            $observed[$name] = rawurldecode($value);
+        }
+        if (count($observed) !== count($window)) {
+            throw new OcpiException('OCPI source-window pagination lost its bounds.');
+        }
+        foreach ($window as $field => $value) {
+            if (! isset($observed[$field]) || ! hash_equals($value, $observed[$field])) {
+                throw new OcpiException('OCPI source-window pagination changed its bounds.');
+            }
+        }
+    }
+
+    public function pull(OcpiProvider $provider, string $module, array $requestedWindow = []): array
     {
         $this->assertCurrent($provider);
         if (! in_array($module, self::MODULES, true) || $provider->version !== '2.2.1' || ! is_string($provider->endpoints[$module] ?? null)) {
             throw new OcpiException('Requested module has not been negotiated.');
         }
+        $window = $this->pullWindow($requestedWindow);
         $url = $provider->endpoints[$module];
+        if ($window !== []) {
+            parse_str((string) (parse_url($url, PHP_URL_QUERY) ?? ''), $existing);
+            if (array_key_exists('date_from', $existing) || array_key_exists('date_to', $existing)) {
+                throw new OcpiException('Negotiated endpoint already contains source-window bounds.');
+            }
+            $url .= (str_contains($url, '?') ? '&' : '?').http_build_query($window, '', '&', PHP_QUERY_RFC3986);
+        }
         $records = [];
         $seen = [];
         for ($page = 0; $page < (int) config('ocpi.max_pages', 20); $page++) {
@@ -225,13 +348,16 @@ class PartnerClient
             if (! is_array($result['data']) || ! array_is_list($result['data'])) {
                 throw new OcpiException('Module response must contain a record list.');
             }
+            $this->verifyWindowRecords($result['data'], $window);
             $records = array_merge($records, $result['data']);
             if (count($records) > (int) config('ocpi.max_records', 1000)) {
                 throw new OcpiException('Operator synchronization exceeded the configured record limit.');
             }
             if ($result['next'] === null) {
                 return $records;
-            }$url = $result['next'];
+            }
+            $this->verifyWindowNext($result['next'], $window);
+            $url = $result['next'];
         }
         throw new OcpiException('Operator pagination exceeded the configured page limit.');
     }
@@ -273,7 +399,7 @@ class PartnerClient
             }
             $this->verifyTrace($r, $trace);
             $response = json_decode($text, true, flags: JSON_THROW_ON_ERROR);
-            if (! is_array($response) || ($response['status_code'] ?? null) !== 1000 || ! is_string($response['timestamp'] ?? null) || strtotime($response['timestamp']) === false) {
+            if (! is_array($response) || ($response['status_code'] ?? null) !== 1000 || ! $this->validEnvelopeTimestamp($response['timestamp'] ?? null)) {
                 throw new OcpiException('Partner protocol outcome requires reconciliation.');
             }
             $this->assertCurrent($provider);

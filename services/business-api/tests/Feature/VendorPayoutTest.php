@@ -11,6 +11,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -47,6 +48,186 @@ class VendorPayoutTest extends TestCase
         $this->assertSame('vendor-payout-v1', DB::table('commercial_payout_accounts')->where('id', $f['account']->id)->value('consent_version'));
         $foreign = User::factory()->create(['role' => 'vendor']);
         $this->actingAs($foreign)->getJson('/payout-test/commercial/payout-accounts')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_revoked_vendor_or_admin_cannot_list_or_view_private_payout_accounts(): void
+    {
+        $f = $this->fixture();
+        $payout = $this->prepared($f, 'revoked-read-guard');
+        $before = DB::table('commercial_payout_events')->count();
+        foreach ([$f['vendor'], $f['maker']] as $reader) {
+            $row = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $row->role,
+                'account_status' => $row->account_status,
+                'auth_epoch' => $row->auth_epoch,
+                'password' => $row->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson('/payout-test/commercial/payout-accounts')->assertOk();
+            $this->getJson('/payout-test/commercial/payouts')->assertOk();
+            $this->getJson($this->path($payout))->assertOk();
+
+            foreach ([
+                ['role' => 'customer'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $row->auth_epoch + 1],
+                ['password' => Hash::make('rotated-private-payout-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $this->getJson('/payout-test/commercial/payout-accounts')->assertConflict();
+                $this->getJson('/payout-test/commercial/payouts')->assertConflict();
+                $this->getJson($this->path($payout))->assertConflict();
+                DB::table('users')->where('id', $reader->id)->update($original);
+            }
+        }
+        $this->assertSame($before, DB::table('commercial_payout_events')->count());
+        $this->assertDatabaseCount('commercial_payout_attempts', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_revoked_admin_cannot_initiate_any_payout_or_bank_account_mutation(): void
+    {
+        $f = $this->fixture();
+        $id = $this->prepared($f, 'prepared-before-revocation');
+        $maker = $f['maker'];
+        $this->actingAs($maker);
+        $record = DB::table('users')->where('id', $maker->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
+        $original = [
+            'role' => $record->role,
+            'account_status' => $record->account_status,
+            'auth_epoch' => $record->auth_epoch,
+            'password' => $record->password,
+        ];
+        $beforeAccounts = DB::table('commercial_payout_accounts')->count();
+        $beforePayouts = DB::table('commercial_payouts')->count();
+        $beforeEvents = DB::table('commercial_payout_events')->count();
+
+        foreach ([
+            ['role' => 'vendor'],
+            ['account_status' => 'suspended'],
+            ['auth_epoch' => (int) $record->auth_epoch + 1],
+            ['password' => Hash::make('rotated-test-payout-operator')],
+        ] as $mutation) {
+            DB::table('users')->where('id', $maker->id)->update($mutation);
+            $this->postJson('/payout-test/commercial/vendors/'.$f['vendor']->id.'/payout-accounts', [
+                'provider' => 'mock', 'currency' => 'AED',
+                'account_reference' => 'mock_Rejected',
+                'bank_reference' => 'mock_Rejected',
+                'idempotency_key' => 'revoked-payout-account',
+            ])->assertConflict();
+            $this->postJson('/payout-test/commercial/settlements/'.$f['settlement']->id.'/payouts', [
+                'account_id' => $f['account']->id, 'idempotency_key' => 'revoked-payout',
+            ])->assertConflict();
+            $this->postJson($this->path($id, 'approve'))->assertConflict();
+            $this->postJson('/payout-test/commercial/payout-accounts/'.$f['account']->id.'/verify')
+                ->assertConflict();
+            DB::table('users')->where('id', $maker->id)->update($original);
+        }
+
+        $this->assertSame($beforeAccounts, DB::table('commercial_payout_accounts')->count());
+        $this->assertSame($beforePayouts, DB::table('commercial_payouts')->count());
+        $this->assertSame($beforeEvents, DB::table('commercial_payout_events')->count());
+        $this->assertDatabaseCount('commercial_payout_attempts', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_service_rechecks_current_admin_under_lock_before_approval_and_provider_dispatch(): void
+    {
+        $f = $this->fixture();
+        $id = $this->prepared($f, 'service-boundary');
+        $service = app(PayoutService::class);
+        DB::table('users')->where('id', $f['checker']->id)->update(['role' => 'vendor']);
+
+        try {
+            $service->approve($id, $f['checker']->id);
+            $this->fail('Demoted reviewer unexpectedly approved the payout.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+
+        $this->assertDatabaseHas('commercial_payouts', ['id' => $id, 'status' => 'prepared']);
+        DB::table('users')->where('id', $f['checker']->id)->update(['role' => 'admin']);
+        $service->approve($id, $f['checker']->id);
+
+        // Revoke the executing Admin after approval. The service must reject
+        // before creating an attempt, leasing or contacting the test provider.
+        DB::table('users')->where('id', $f['maker']->id)
+            ->update(['account_status' => 'suspended']);
+        try {
+            $service->execute($id, $f['maker']->id);
+            $this->fail('Suspended dispatcher unexpectedly sent a payout.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+
+        $this->assertDatabaseHas('commercial_payouts', ['id' => $id, 'status' => 'approved']);
+        $this->assertDatabaseCount('commercial_payout_attempts', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_payout_account_service_revalidates_vendor_consent_and_admin_verification(): void
+    {
+        $f = $this->fixture();
+        $service = app(PayoutService::class);
+        $account = $f['account']->id;
+        $vendor = $f['vendor']->id;
+        $checker = $f['checker']->id;
+
+        DB::table('users')->where('id', $vendor)->update(['account_status' => 'suspended']);
+        foreach ([
+            fn () => $service->consent($account, $vendor, 'vendor-payout-v1'),
+            fn () => $service->revoke($account, $vendor),
+        ] as $action) {
+            try {
+                $action();
+                $this->fail('Suspended Vendor performed private payout-account change.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+        $this->assertDatabaseHas('commercial_payout_accounts', [
+            'id' => $account, 'status' => 'pending_verification',
+        ]);
+
+        DB::table('users')->where('id', $checker)->update(['role' => 'vendor']);
+        try {
+            $service->verify($account, $checker);
+            $this->fail('Demoted Admin verified a bank account.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('commercial_payout_accounts', [
+            'id' => $account, 'verified_by' => null,
+        ]);
+        Http::assertNothingSent();
+    }
+
+    public function test_suspended_vendor_cannot_request_stripe_test_onboarding_before_provider_io(): void
+    {
+        $f = $this->fixture('stripe_test');
+        DB::table('users')->where('id', $f['vendor']->id)
+            ->update(['account_status' => 'suspended']);
+
+        try {
+            app(PayoutService::class)->onboarding(
+                $f['account']->id, $f['vendor']->id, 'stale-vendor-onboarding'
+            );
+            $this->fail('Suspended Vendor requested external onboarding link.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+
+        Http::assertNothingSent();
+        $this->assertDatabaseHas('commercial_payout_accounts', [
+            'id' => $f['account']->id, 'status' => 'pending_verification',
+        ]);
+        $this->assertDatabaseMissing('commercial_payout_events', [
+            'account_id' => $f['account']->id,
+            'action' => 'account.onboarding_link_requested',
+        ]);
     }
 
     private function fixture(string $provider = 'mock'): array
