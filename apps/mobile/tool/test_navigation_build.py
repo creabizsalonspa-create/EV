@@ -79,6 +79,29 @@ class NativeLinkArtifactAudit(unittest.TestCase):
                     audit_android(self.root)
         self.android.write_text(MANIFEST)
 
+    def test_unreviewed_second_activity_cannot_add_a_url_entrypoint(self):
+        extra = '<activity android:name=".Unreviewed" android:exported="true"><intent-filter><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><category android:name="android.intent.category.BROWSABLE"/><data android:scheme="https" android:host="unreviewed.example"/></intent-filter></activity>'
+        self.android.write_text(MANIFEST.replace('</application>', extra + '</application>'))
+        with self.assertRaises(AssertionError):
+            audit_android(self.root)
+
+    def test_activity_alias_cannot_bypass_the_reviewed_url_contract(self):
+        extra = '<activity-alias android:name=".UnreviewedAlias" android:targetActivity=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><category android:name="android.intent.category.BROWSABLE"/><data android:scheme="creabizev" android:host="admin"/></intent-filter></activity-alias>'
+        self.android.write_text(MANIFEST.replace('</application>', extra + '</application>'))
+        with self.assertRaises(AssertionError):
+            audit_android(self.root)
+
+    def test_harmless_plugin_activity_before_the_launcher_is_not_misidentified(self):
+        extra = '<activity android:name=".PluginView" android:exported="false"/>'
+        self.android.write_text(MANIFEST.replace('<application>', '<application>' + extra))
+        self.assertEqual(1, audit_android(self.root))
+
+    def test_duplicate_canonical_launcher_is_not_accepted(self):
+        extra = '<activity android:name=".MainActivity" android:exported="true"/>'
+        self.android.write_text(MANIFEST.replace('</application>', extra + '</application>'))
+        with self.assertRaises(AssertionError):
+            audit_android(self.root)
+
     def test_ios_requires_exact_custom_scheme_and_disables_autoroute(self):
         audit_ios(self.root)
         for modified in (

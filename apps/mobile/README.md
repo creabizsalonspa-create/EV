@@ -128,6 +128,6 @@ iOS simulator URL dispatch. The native CI workflow now also checks the **built**
 Android merged manifest and compiled iOS simulator Info.plist through
 `tool/check_navigation_build.py android|ios`; it rejects extra URL entrypoints,
 unreviewed hosts, missing browsing restrictions and Flutter auto-routing. The
-artifact guard's negative fixtures run during `tool/bootstrap`. These checks
+artifact guard's negative fixtures run during `tool/bootstrap`. The Android audit identifies the canonical launcher by name and inspects every additional activity and activity-alias for unreviewed VIEW filters; merged-manifest order cannot hide another URL entrypoint. These checks
 verify packaging contracts, not actual OS intent dispatch or user-installed
 signed applications. Physical-device and release signing remain unverified.

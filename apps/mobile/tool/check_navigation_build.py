@@ -31,9 +31,22 @@ def audit_android(root: Path) -> int:
     if not paths:
         raise AssertionError("No compiled/merged debug manifest to inspect")
     for path in paths:
-        activity = ET.parse(path).find("./application/activity")
-        if activity is None:
-            raise AssertionError(f"Missing native launcher activity: {path}")
+        manifest = ET.parse(path)
+        activities = manifest.findall("./application/activity")
+        launchers = [activity for activity in activities if activity.get(ANDROID + "name")
+                     in {".MainActivity", "com.creabiz.creabiz_ev.MainActivity"}]
+        if len(launchers) != 1:
+            raise AssertionError(f"Missing or ambiguous canonical native launcher: {path}")
+        activity = launchers[0]
+        # Manifest merge order is not an authorization boundary. A plugin or
+        # alias must not add another VIEW entrypoint behind the first activity.
+        for component in activities + manifest.findall("./application/activity-alias"):
+            if component is activity:
+                continue
+            if any(action.get(ANDROID + "name") == "android.intent.action.VIEW"
+                   for intent_filter in component.findall("intent-filter")
+                   for action in intent_filter.findall("action")):
+                raise AssertionError(f"Unreviewed native URL entrypoint: {path}")
         if activity.get(ANDROID + "exported") != "true":
             raise AssertionError(f"Deep-link launcher not explicitly exported: {path}")
         if activity.get(ANDROID + "launchMode") != "singleTop":
