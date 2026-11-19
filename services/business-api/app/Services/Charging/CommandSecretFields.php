@@ -23,6 +23,32 @@ final class CommandSecretFields
         return self::walk(self::json($json), $attributes, [$field], false);
     }
 
+    /** Aggregate known-field evidence only; never return decrypted values. */
+    public static function inspect(?string $json, array $attributes, string $field): array
+    {
+        if ($json !== null && strlen($json) > 65536) {
+            throw new DecryptException('Command field exceeds the inspection limit.');
+        }
+        $raw = self::json($json);
+        self::walk($raw, $attributes, [$field], false);
+        $counts = ['encrypted_fields' => 0, 'legacy_fields' => 0, 'shape_known' => $field !== 'payload' || is_array($raw)];
+        $count = function (mixed $value) use (&$count, &$counts): void {
+            if (! is_array($value)) {
+                return;
+            }
+            foreach ($value as $key => $child) {
+                if (self::secretKey($key)) {
+                    $counts[is_array($child) && array_key_exists(self::MARKER, $child) ? 'encrypted_fields' : 'legacy_fields']++;
+                } else {
+                    $count($child);
+                }
+            }
+        };
+        $count($raw);
+
+        return $counts;
+    }
+
     public static function seal(?string $json, array $attributes, string $field, bool $rekey = false): ?string
     {
         if ($json === null) {

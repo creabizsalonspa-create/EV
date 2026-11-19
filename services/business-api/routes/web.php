@@ -6,6 +6,7 @@ use App\Http\Controllers\AccountSecondFactorController;
 use App\Http\Controllers\AccountSessionController;
 use App\Http\Controllers\AdminAccountDirectoryController;
 use App\Http\Controllers\AdminAuditTrailController;
+use App\Http\Controllers\AdminCommandSecretStorageController;
 use App\Http\Controllers\AdminKycQueueController;
 use App\Http\Controllers\AdminOperationalHealthController;
 use App\Http\Controllers\AdminOperationsMapController;
@@ -98,6 +99,7 @@ Route::patch('/api/admin/privacy-requests/{privacyCase}/review', [AccountPrivacy
 Route::get('/api/admin/privacy-requests/{privacyCase}/reviews', [AccountPrivacyController::class, 'adminHistory'])->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/admin/audit-events', [AdminAuditTrailController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/admin/security-denials', [AdminSecurityDenialSummaryController::class, 'index'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
+Route::get('/api/admin/command-secret-storage', [AdminCommandSecretStorageController::class, 'index'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::get('/api/admin/kyc-queue', [AdminKycQueueController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/admin/permission-grants', [AdminStaffPermissionController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::post('/api/admin/permission-grants/{membership}/revoke', [AdminStaffPermissionController::class, 'revoke'])->middleware(['auth', 'throttle:authentication']);

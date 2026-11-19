@@ -39,15 +39,27 @@ class ChargerCommand extends Model
     /**
      * The canonical command must retain its original transport input
      * for reconciliation, but public vendor/Admin JSON must never expose an
-     * opaque customer start token or arbitrary CSMS reply credentials.
+     * opaque customer start token or recognized CSMS reply credential fields.
      * Model accessors keep the original stored values for the dispatcher.
      */
-    public function toArray(): array
+    public function attributesToArray(): array
     {
-        $out = parent::toArray();
+        // Public projections never need operational credential decryption.
+        // Parent serialization still handles metadata casts/visibility/dates;
+        // temporarily exclude these two accessor-backed secret containers.
+        $visible = $this->getArrayableAttributes();
+        $hidden = $this->hidden;
+        $this->hidden = array_unique([...$hidden, 'payload', 'confirmation']);
+        try {
+            $out = parent::attributesToArray();
+        } finally {
+            $this->hidden = $hidden;
+        }
         foreach (['payload', 'confirmation'] as $field) {
-            if (is_array($out[$field] ?? null)) {
-                $out[$field] = self::redactSecrets($out[$field]);
+            if (array_key_exists($field, $visible)) {
+                // Malformed JSON is unavailable, never raw error/secret text.
+                $value = is_string($visible[$field]) ? json_decode($visible[$field], true) : null;
+                $out[$field] = is_array($value) ? self::redactSecrets($value) : $value;
             }
         }
 
@@ -57,7 +69,7 @@ class ChargerCommand extends Model
     private static function redactSecrets(array $data): array
     {
         foreach ($data as $key => $value) {
-            if (CommandSecretFields::secretKey($key)) {
+            if (CommandSecretFields::secretKey($key) || (is_array($value) && array_key_exists('__creabiz_command_secret', $value))) {
                 $data[$key] = '[REDACTED]';
             } elseif (is_array($value)) {
                 $data[$key] = self::redactSecrets($value);
