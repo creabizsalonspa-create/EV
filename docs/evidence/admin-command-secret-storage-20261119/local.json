@@ -53,7 +53,8 @@
       ],
       "variants": 18
     },
-    "pint_files": 6
+    "pint_files": 6,
+    "full_pint_files": 835
   },
   "scope": [
     "Current web Admin cookie authority; persisted Admin tokens rejected; row-lock role/status/password/epoch recheck.",
@@ -66,7 +67,8 @@
   "failed_attempts": [
     "New endpoint/controller absent:8new feature tests failed before implementation.",
     "Public metadata serialization under a replacement key failed before credential-independent redaction.",
-    "Paced-suite fixed expected inventory rejected the new phase; updated expected inventory and corresponding boundary index, preserving every old suite."
+    "Paced-suite fixed expected inventory rejected the new phase; updated expected inventory and corresponding boundary index, preserving every old suite.",
+    "Hosted sourcea6e9d112 failed full Pint on routes/web.php ordered_imports; local6-file formatter scope omitted this modified route. Sorted the import and passed all835files without changing tests or runtime behavior."
   ],
   "logs": [
     {
@@ -104,6 +106,14 @@
     {
       "name": "ev-admin-storage-pint-check.txt",
       "sha256": "d4c0f98c6aabce5c15c404a55f0b15a9d62b82376009cd78e88ae22f2d743de2"
+    },
+    {
+      "name": "ev-admin190-platform-fail.txt",
+      "sha256": "e1c80447b238db4a979f6a326bce6fdc0ece7b76a73589f64e9f488ff2e4bbf3"
+    },
+    {
+      "name": "ev-admin190-pint-full.txt",
+      "sha256": "a33b10a99b1ac2dbebc810934b0aa687b45bd6b6aa54e55fdeace8bdb4f80af5"
     }
   ],
   "screenshots": [

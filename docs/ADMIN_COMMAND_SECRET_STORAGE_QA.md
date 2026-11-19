@@ -1,3 +1,7 @@
+# 19 November 2026 — PR190 full formatter correction
+
+Sourcea6e9d112 failed hosted business-platform on a single routes/web.php ordered_imports issue, before platform tests ran; its skipped recovery is not success. The local6-file formatter check had omitted this modified route. The import is now sorted and **full Pint passes835files**. No runtime behavior, assertions, production limits or required jobs were removed or weakened. Earlier full1744Laravel, PostgreSQL912+32+2, finance441+99 and browser/widget evidence remains recorded; all resulting-head hosted gates must rerun before merge. Canonical remainsed112b4a5e3dd65cc88c210bd55f92d8df56add6. Failed job and full formatter log hashes are preserved in docs/evidence/admin-command-secret-storage-20261119/local.json.
+
 # 19 November 2026 — private Admin command-storage observations (local verified candidate)
 
 Canonical remains54b50ea16045fd41965ddb7a474fb7f70edda779 while existing PR160 sourcedc164557 and PR150 source78abd003 finish their exact-head platform/recovery gates. Both Android/iOS jobs passed on both sources. This independent local candidate preserves that ancestry and adds a read-only web-Admin storage inspector; it is not yet canonical, hosted-verified or production-accepted. No additional feature branch was created while closing the backlog.
