@@ -1,0 +1,42 @@
+{
+  "status": "LOCAL_VERIFIED_HOSTED_PENDING",
+  "original_source": "6cd6af470202436ecedf0c148f4bdd7b05681798",
+  "verified_ocpp_parent": "a86ec02a649b6dbefd75193cefdc15a740bd84e8",
+  "merge_parent": "92bb7bfbefc67b364a3fb35499f5b37530cefe0c",
+  "verification": {
+    "flutter_passed": 617,
+    "explicit_live_fixture_skips": 34,
+    "focused_final": 5,
+    "analyzer": "clean",
+    "native_static_guard": 3,
+    "browser_actual_laravel": "EN/AR draft through locale/dashboard rebuild + delayed bootstrap + logout204 private-reference erasure; two explicit scoped reads only",
+    "backend_identical_to_ocpp_parent": true,
+    "backend_rerun_claimed": false
+  },
+  "source_sha256": {
+    "apps/mobile/lib/main.dart": "8854cb6958e80d2b4d78195a28060300d72fa140ecde52df12f099312d222f61",
+    "apps/mobile/android/app/src/main/kotlin/com/creabiz/creabiz_ev/MainActivity.kt": "da045c839ddc7b57012a2aeea49d06f2bd5071f6b0d0d4b5eafcde47fec24c1e",
+    "apps/mobile/ios/Runner/AppDelegate.swift": "7246f1258e0d3b4bbc98cc0905e96db5ccdd97e3748a882698e28e7550fcc7ce",
+    "apps/mobile/test/lifecycle_privacy_test.dart": "fc64be949dcfa1a7047522fc7c626c08b830cdd65067b22aa3f7be0d23ff0d9b",
+    "apps/mobile/test/async_action_context_test.dart": "c51b794029a5aa131ae964f49a8bdd6c8dccc6bce57d259a214b583ba64a33ff",
+    "apps/mobile/test/record_response_fence_test.dart": "713b8c46094ec8366ec8bdfb8c61343b084d57035166365a94b4e4137ef55aad",
+    "tests/connector-fleet-e2e.cjs": "4efaec702564a022eb6c4aa7715898da2225d5b7b49d77f8d910042cd1cad271"
+  },
+  "local_log_sha256": {
+    "full_flutter": "5038f5698ebb7c3bd33b953d59022a0b0a2a82c9b18277add0e792aac03c8918",
+    "focused_final": "175024d695d34e659f15680875905ce32d3f82da6dac819155b7358bb97f5a38",
+    "analyzer": "8318d9f68fcb7df52ad28968e697c0c15095856a49f3a4bbf3bcd2731694f710",
+    "native_source_guard": "33060fd73862c5e1af97335504d5b45211fce6d229657f556d8deceeadc52ce4",
+    "actual_bilingual_browser": "8bbcf7a7b817be2056e0a68af24f437912215c1907e148d959540ac0026150f0",
+    "initial_inactive_red": "1ab11cd43b19f70cb7528f938e915573c1db5bb4168f4600dba0d13f8bd996a0",
+    "requirements": "5d1c006faed8d5baa52a5b0fc860698248b647a331bb9c45a714e3348a2b4262"
+  },
+  "preserved_conflict_resolution": [
+    "Use current integration platform.js including early actor filter and logout reset",
+    "Union locale/draft assertions with delayed-bootstrap and logout regressions; no assertions removed"
+  ],
+  "production_accepted": false,
+  "physical_device_snapshot_behavior_verified": false,
+  "signed_native_release_verified": false,
+  "tracker_credit_added": 0
+}
