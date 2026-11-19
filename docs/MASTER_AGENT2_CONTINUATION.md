@@ -1,3 +1,11 @@
+# 19 November 2026 — verified integration and OCPP continuation
+
+Single-owner full-platform execution follows the latest owner mandate; retain historical parallel records below. Canonical branch is `development/fullstack-continuation`: #189/#132/#187 merged after all exact-source checks passed, latest merge `f296097575663591c1f3cc97099316e218fb01ae`. Normal merge trees match verified sources. #144/#179 close as fully incorporated ancestors, without deleting branches/history.
+
+Current existing PR #172 preserves OCPP source-authority/recovery work and repairs revoked-account command admission plus exact Hasura numeric wire evidence. Local Laravel1656/30669, PostgreSQL741/10229 +32process/478 +2precision/13, both Citrine protocol/session/continuous-worker/canonical-target tests pass. Resulting-head hosted checks must pass before merge; no new feature branch, force push or production acceptance. Details and exact evidence: `docs/evidence/ocpp-source-admission-20261119/`.
+
+Next execute existing PR #134 native Navigator/OS privacy integration, then remaining native/deep-link/support/Admin/discovery backlog and full42/312 requirements. Do not rebuild already merged OCPI, map, earnings or privacy modules. Fixed tracker credit remains186coded/185tested/185merged, weighted58.20/57.81/57.81%, production0. Legacy command-token at-rest encryption, production adapters/conformance and remaining original software remain incomplete; hardware/partner/PSP/bank, signed devices/stores and deployment require separate real acceptance.
+
 # CURRENT OWNER DIRECTIVE — SINGLE PLATFORM COMPLETION OWNER (19 NOVEMBER 2026)
 
 The owner's latest uploaded **FINAL EXECUTIVE DIRECTIVE — COMPLETE THE ENTIRE EV PLATFORM AND PREPARE PRODUCTION RELEASE**, resumed by `continue`, explicitly replaces prior ownership restrictions. One accountable engineer owns backend, customer/vendor web, canonical `apps/mobile`, Admin, integration, QA and release preparation. The older five-agent and other allocations below are historical, not a restriction on the currently authorized scope. Preserve all existing implementations and finance invariants; inspect current code/PRs before developing any module.

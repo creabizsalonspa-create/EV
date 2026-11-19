@@ -28,11 +28,15 @@ class SourceConsumer
         }
         $response = Http::timeout(15)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $key])
             ->post(config('csms.graphql_url'), compact('query', 'variables'));
-        if (! $response->successful() || $response->json('errors') || ! is_array($response->json('data'))) {
+        if (! $response->successful()) {
+            throw new RuntimeException('Authenticated source query failed.');
+        }
+        $projection = SourceGraphJson::decode($response->body());
+        if (! empty($projection['errors']) || ! is_array($projection['data'] ?? null)) {
             throw new RuntimeException('Authenticated source query failed.');
         }
 
-        return $response->json('data');
+        return $projection['data'];
     }
 
     public static function wh(mixed $value, string $unit, int $multiplier = 0): int

@@ -45,6 +45,33 @@ class SourceConsumerTest extends TestCase
         return SessionLink::firstOrFail();
     }
 
+    public function test_actual_hasura_numeric_columns_preserve_their_wire_decimals_without_float_conversion(): void
+    {
+        $link = $this->link('1.6');
+        $at = now()->toImmutable()->startOfSecond()->toIso8601String();
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($link, $at) {
+            if (str_contains($request['query'], 'ChargingStations')) {
+                return Http::response(['data' => ['ChargingStations' => [['id' => 8, 'protocol' => '1.6']], 'Authorizations' => [['id' => 9]]]]);
+            }
+            if (str_contains($request['query'], 'Transactions')) {
+                // Literal HTTP body: Hasura returns PostgreSQL numeric columns as
+                // JSON numbers, not the decimal strings used by earlier fakes.
+                $tx = ['id' => 10, 'transactionId' => '101', 'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '__BASELINE__', 'startTime' => $at, 'endTime' => null, 'isActive' => true, 'totalKwh' => '__TOTAL__'];
+                $wire = str_replace(['"__BASELINE__"', '"__TOTAL__"'], ['1.250000', '1.500000'], json_encode(['data' => ['Transactions' => [$tx]]]));
+
+                return Http::response($wire);
+            }
+
+            return Http::response(['data' => ['MeterValues' => []]]);
+        });
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(1250, $link->fresh()->meter_start_wh);
+        $this->assertDatabaseHas('charging_sessions', ['id' => $link->charging_session_id, 'energy_wh' => 0, 'status' => 'charging']);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public static function inboxModes(): array
     {
         return [
