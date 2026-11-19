@@ -1,0 +1,11 @@
+# Authenticated source energy: exact wire evidence
+
+The SourceConsumer wire decoder preserves decimal lexemes for the declared PostgreSQL meterStart/totalKwh columns and Energy.Active.Import.Register JSONB values. OCPP2.0.1 numeric2.5kWh and2500.0Wh can therefore become exact integer Wh without formatting a PHP binary float back to text. SQL/source identifiers, booleans, multipliers and unrelated diagnostic numbers retain their original strict types. The authenticated source body remains bounded to2MiB and malformed JSON fails closed.
+
+SourceConsumer::wh still rejects direct in-process floating values without raw evidence, unsupported precision/units/exponents, fractional Wh and scale multipliers other than an actual integer0. An explicit null/false/string/floating multiplier is not silently treated as missing or zero. Missing optional multiplier retains the established integer0 default; malformed unit projections require reconciliation. This is source ingestion, not a new client-side tariff, tax, settlement or accounting rule.
+
+The existing HTTP malformed-energy fixture now uses genuinely inexact3.5001kWh rather than rejecting valid exact3.5kWh merely because it was a JSON number. Required direct-float rejection remains and gains a kWh case. Float-multiplier responses use JSON_PRESERVE_ZERO_FRACTION so the test sends0.0 rather than an accidentally valid integer0. No malformed-page assertion is removed.
+
+Local evidence:19 real red regressions;168 focused passes/2559 assertions. Actual local Citrine covers Wh AND kWh on OCPP1.6 and2.0.1 with the same existing identities, explicit canonical targets and durable consumer restart. Every case reconciles2500Wh, one329minor-unit simulated invoice and balanced mock payment/refund accounting. Existing Wh coverage is preserved; only consumer runs add kWh. Production limiters are unchanged and no extra login is introduced. Evidence: docs/evidence/exact-energy-jsonb-20261119/local.json.
+
+Full combined-source Laravel/PostgreSQL/native/browser and hosted gates remain required before merge. Protocol/model production conformance, nonzero scale support, physical hardware and live PSP/roaming acceptance remain unfinished. No whole original requirement atom or production stage is newly credited.

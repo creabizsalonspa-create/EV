@@ -925,7 +925,7 @@ class SourceConsumerTest extends TestCase
     {
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page', 'nonenergy_before_start', 'nonenergy_after_end', 'later_ambiguous_register', 'later_invalid_unit', 'later_boolean_energy', 'later_float_energy', 'begin_meter_mismatch', 'begin_meter_boolean', 'later_after_end', 'later_regressing_nonenergy_time', 'later_regressing_energy_time'] as $kind) {
+            foreach (['duplicate_id', 'regressing_id', 'zero_id', 'oversized_id', 'string_id', 'non_absolute_time', 'future_non_energy', 'missing_samples', 'non_array_sample', 'non_list_samples', 'non_list_page', 'oversized_page', 'missing_page', 'nonenergy_before_start', 'nonenergy_after_end', 'later_ambiguous_register', 'later_invalid_unit', 'later_boolean_energy', 'later_inexact_kwh_energy', 'later_false_multiplier', 'later_float_multiplier', 'later_string_multiplier', 'later_null_multiplier', 'begin_meter_mismatch', 'begin_meter_boolean', 'later_after_end', 'later_regressing_nonenergy_time', 'later_regressing_energy_time'] as $kind) {
                 $cases[$protocol.'_'.$kind] = [$protocol, $kind];
             }
         }
@@ -970,9 +970,13 @@ class SourceConsumerTest extends TestCase
             'later_ambiguous_register' => [$row(1), array_replace($valid[1], ['sampledValue' => [$valid[1]['sampledValue'][0], $valid[1]['sampledValue'][0]]])],
             'later_invalid_unit' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['unitOfMeasure' => ['unit' => 'MWh']])]])],
             'later_boolean_energy' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['value' => true])]])],
-            'later_float_energy' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], [
-                'value' => 3.5, 'unitOfMeasure' => ['unit' => 'kWh'],
+            'later_inexact_kwh_energy' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], [
+                'value' => 3.5001, 'unitOfMeasure' => ['unit' => 'kWh'],
             ])]])],
+            'later_false_multiplier' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['unitOfMeasure' => ['unit' => 'kWh', 'multiplier' => false]])]])],
+            'later_float_multiplier' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['unitOfMeasure' => ['unit' => 'kWh', 'multiplier' => 0.0]])]])],
+            'later_string_multiplier' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['unitOfMeasure' => ['unit' => 'kWh', 'multiplier' => '0']])]])],
+            'later_null_multiplier' => [$row(1), array_replace($valid[1], ['sampledValue' => [array_replace($valid[1]['sampledValue'][0], ['unitOfMeasure' => ['unit' => 'kWh', 'multiplier' => null]])]])],
             'begin_meter_mismatch' => [[
                 'id' => 1, 'timestamp' => $at->toIso8601String(),
                 'sampledValue' => [[
@@ -1032,7 +1036,7 @@ class SourceConsumerTest extends TestCase
                 // finalization, replaying old rows would violate that contract.
                 $after = (int) ($request['variables']['after'] ?? 0);
 
-                return Http::response(['data' => ['MeterValues' => $after > 0 ? [] : $rows]]);
+                return Http::response(json_encode(['data' => ['MeterValues' => $after > 0 ? [] : $rows]], JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
             }
 
             $this->fail('Source reader attempted an unauthorized network operation.');
@@ -1696,7 +1700,7 @@ class SourceConsumerTest extends TestCase
                 $this->addToAssertionCount(1);
             }
         }
-        foreach ([['0.5', 'Wh', 0], ['1.0001', 'kWh', 0], ['1', 'MWh', 0], ['1', 'Wh', 3], ['1e3', 'Wh', 0]] as $args) {
+        foreach ([[3.5, 'kWh', 0], ['0.5', 'Wh', 0], ['1.0001', 'kWh', 0], ['1', 'MWh', 0], ['1', 'Wh', 3], ['1e3', 'Wh', 0]] as $args) {
             try {
                 SourceConsumer::wh(...$args);
                 $this->fail('Unsupported meter was accepted.');
