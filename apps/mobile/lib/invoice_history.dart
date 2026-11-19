@@ -15,7 +15,8 @@ class InvoiceHistoryView extends StatefulWidget {
   State<InvoiceHistoryView> createState() => _InvoiceHistoryViewState();
 }
 
-class _InvoiceHistoryViewState extends State<InvoiceHistoryView> {
+class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
+    with WidgetsBindingObserver {
   final prefix = TextEditingController(), currency = TextEditingController();
   final from = TextEditingController(), to = TextEditingController();
   final form = GlobalKey<FormState>();
@@ -24,15 +25,62 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView> {
   Object? error;
   bool busy = false;
   int generation = 0, target = 1;
+  late bool Function() authorized;
+  bool foreground = true;
+  bool current(int n, bool Function() session) =>
+      mounted && foreground && authorized() && session() && n == generation;
+
+  void clearPrivate() {
+    generation++;
+    data = null;
+    error = null;
+    busy = false;
+    target = 1;
+    filters = {};
+    prefix.clear();
+    currency.clear();
+    from.clear();
+    to.clear();
+  }
+
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
     load();
+  }
+
+  @override
+  void didUpdateWidget(covariant InvoiceHistoryView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api) {
+      clearPrivate();
+      authorized = widget.api.sessionFence();
+      final replacementApi = widget.api;
+      // This widget is already scheduled to rebuild. Start the new actor's
+      // read only after the update frame, never inside the build traversal.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            identical(widget.api, replacementApi) &&
+            foreground &&
+            authorized()) {
+          load();
+        }
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (mounted && !foreground) setState(clearPrivate);
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
     prefix.dispose();
     currency.dispose();
     from.dispose();
@@ -41,6 +89,8 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView> {
   }
 
   Future<void> load({int page = 1}) async {
+    if (!foreground || !authorized() || busy) return;
+    final session = widget.api.sessionFence();
     final epoch = ++generation;
     target = page;
     setState(() {
@@ -49,26 +99,47 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView> {
       data = null;
     });
     try {
-      final result = ApiPage.fromJson(
-        await widget.api.request(
-          'finance/invoices',
-          query: {...filters, 'page': '$page'},
-        ),
-        (row) => row,
+      final response = await widget.api.request(
+        'finance/invoices',
+        query: {...filters, 'page': '$page'},
       );
-      if (result.items.any((row) => row['evidence'] != 'SIMULATED'))
+      if (!current(epoch, session)) return;
+      final result = ApiPage.fromJson(response, (row) => row);
+      // Refuse malformed private invoice projections before building receipt
+      // navigation or formatting currency, rather than rendering null or
+      // granting a detail action with an unverified record identifier.
+      if (result.items.any((row) {
+        final id = row['id'];
+        final number = row['number'];
+        final date = row['created_at'];
+        final currency = row['currency'];
+        final total = row['total_minor'];
+        return row['evidence'] != 'SIMULATED' ||
+            id is! int ||
+            id < 1 ||
+            number is! String ||
+            number.isEmpty ||
+            number.length > 100 ||
+            date is! String ||
+            DateTime.tryParse(date) == null ||
+            currency is! String ||
+            !RegExp(r'^[A-Z]{3}$').hasMatch(currency) ||
+            total is! int ||
+            total < 0;
+      })) {
         throw const ApiException(409, 'Unsupported finance evidence.');
-      if (mounted && epoch == generation) setState(() => data = result);
-    } catch (e) {
-      if (mounted && epoch == generation) {
-        if (e is ApiException && [401, 419].contains(e.status)) {
-          widget.onExpired();
-          return;
-        }
-        setState(() => error = e);
       }
+      if (current(epoch, session)) setState(() => data = result);
+    } catch (e) {
+      if (!current(epoch, session)) return;
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        setState(clearPrivate);
+        widget.onExpired();
+        return;
+      }
+      setState(() => error = e);
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch, session)) setState(() => busy = false);
     }
   }
 
@@ -86,6 +157,10 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView> {
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), page = data;
+    if (!authorized()) return Scaffold(
+      appBar: AppBar(title: Text(s.t('invoiceHistory'))),
+      body: Center(child: Text(s.t('expired'))),
+    );
     return Scaffold(
       appBar: AppBar(title: Text(s.t('invoiceHistory'))),
       body: RefreshIndicator(
@@ -166,6 +241,15 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView> {
               ),
             ),
             if (busy) const LinearProgressIndicator(),
+            if (!busy && data == null && error == null)
+              TextButton(
+                onPressed: () => load(page: 1),
+                child: Text(
+                  Localizations.localeOf(context).languageCode == 'ar'
+                      ? 'تحديث سجل الفواتير'
+                      : 'Refresh invoice history',
+                ),
+              ),
             if (error != null) ...[
               Text(s.t(errorKey(error!))),
               TextButton(
@@ -196,16 +280,22 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView> {
                         ),
                         OutlinedButton(
                           onPressed: () async {
+                            final actorApi = widget.api;
+                            final session = actorApi.sessionFence();
+                            final pageNumber = page.current;
                             await Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 builder: (_) => InvoicePage(
-                                  api: widget.api,
+                                  api: actorApi,
                                   invoiceId: invoice['id'] as int,
                                   onExpired: widget.onExpired,
                                 ),
                               ),
                             );
-                            if (mounted) load(page: page.current);
+                            if (mounted && foreground && session() &&
+                                authorized() && identical(widget.api, actorApi)) {
+                              await load(page: pageNumber);
+                            }
                           },
                           child: Text(s.t('viewInvoice')),
                         ),

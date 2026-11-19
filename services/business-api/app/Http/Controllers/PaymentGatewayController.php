@@ -3,16 +3,21 @@
 namespace App\Http\Controllers;
 
 use App\Models\Finance\Invoice;
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Payments\GatewayService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class PaymentGatewayController extends Controller
 {
+    /** Only call while the current user is locked by a DB transaction. */
     private function invoice(Request $r, int $id, bool $ownerOnly = false): Invoice
     {
+        $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
         $invoice = Invoice::findOrFail($id);
-        abort_unless($invoice->user_id === $r->user()->id || (! $ownerOnly && ($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $invoice->vendor_id === $r->user()->id))), 404);
+        abort_unless($invoice->user_id === $actor->id || (! $ownerOnly
+            && ($actor->role === 'admin'
+                || ($actor->role === 'vendor' && $invoice->vendor_id === $actor->id))), 404);
 
         return $invoice;
     }
@@ -27,68 +32,118 @@ class PaymentGatewayController extends Controller
 
     public function checkouts(Request $r)
     {
-        $query = DB::table('gateway_checkouts as c')->join('finance_invoices as i', 'i.id', '=', 'c.invoice_id')->select('c.*');
-        if ($r->user()->role !== 'admin') {
-            $query->where($r->user()->role === 'vendor' ? 'i.vendor_id' : 'i.user_id', $r->user()->id);
-        }
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $query = DB::table('gateway_checkouts as c')
+                ->join('finance_invoices as i', 'i.id', '=', 'c.invoice_id')->select('c.*');
+            if ($actor->role !== 'admin') {
+                $query->where($actor->role === 'vendor' ? 'i.vendor_id' : 'i.user_id', $actor->id);
+            }
 
-        return $query->orderByDesc('c.id')->paginate(25)->through(fn ($row) => $this->publicRow($row));
+            return response()->json($query->orderByDesc('c.id')->paginate(25)
+                ->through(fn ($row) => $this->publicRow($row)))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function checkout(Request $r, GatewayService $gateway)
     {
         $v = $r->validate(['invoice_id' => 'required|integer|min:1', 'amount_minor' => 'required|integer|between:1,2000000000', 'idempotency_key' => 'required|string|max:100']);
-        $invoice = $this->invoice($r, (int) $v['invoice_id'], true);
+        [$invoice, $actor] = DB::transaction(function () use ($r, $v) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
 
-        return response()->json($this->publicRow($gateway->checkout($invoice, $r->user()->id, (int) $v['amount_minor'], $v['idempotency_key'])), 201);
+            return [$this->invoice($r, (int) $v['invoice_id'], true), $actor];
+        }, 3);
+
+        return response()->json($this->publicRow($gateway->checkout(
+            $invoice, $actor->id, (int) $v['amount_minor'], $v['idempotency_key']
+        )), 201)->header('Cache-Control', 'private, no-store');
     }
 
     public function operation(Request $r, int $checkout, GatewayService $gateway)
     {
-        $row = DB::table('gateway_checkouts')->find($checkout);
-        abort_unless($row, 404);
         $kind = $r->route('operation');
-        $invoice = $this->invoice($r, (int) $row->invoice_id, $kind !== 'refund');
-        if ($kind === 'refund') {
-            abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $invoice->vendor_id === $r->user()->id), 404);
-        }
+        $actor = DB::transaction(function () use ($r, $checkout, $kind) {
+            $current = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $row = DB::table('gateway_checkouts')->find($checkout);
+            abort_unless($row, 404);
+            $invoice = $this->invoice($r, (int) $row->invoice_id, $kind !== 'refund');
+            if ($kind === 'refund') {
+                abort_unless($current->role === 'admin'
+                    || ($current->role === 'vendor' && $invoice->vendor_id === $current->id), 404);
+            }
+
+            return $current;
+        }, 3);
         $v = $r->validate(['card_number' => 'prohibited', 'pan' => 'prohibited', 'cvv' => 'prohibited', 'cvc' => 'prohibited', 'idempotency_key' => 'required|string|max:100', 'token' => $kind === 'authorize' ? (config('payments.provider') === 'stripe_test' ? ['required', 'string', 'regex:/^pm_[A-Za-z0-9_]{1,100}$/D'] : 'required|in:mock_success,mock_decline') : 'prohibited', 'amount_minor' => $kind === 'refund' ? 'required|integer|between:1,2000000000' : 'prohibited', 'reason' => $kind === 'refund' ? 'required|string|max:500' : 'prohibited']);
 
-        return response()->json($this->publicRow($gateway->operate($checkout, $r->user()->id, $kind, $v['idempotency_key'], isset($v['amount_minor']) ? (int) $v['amount_minor'] : null, $v['token'] ?? null, $v['reason'] ?? '')));
+        // GatewayService owns its durable payment-recovery transactions and
+        // uncertainty leases; external provider I/O must not be wrapped here.
+        return response()->json($this->publicRow($gateway->operate(
+            $checkout, $actor->id, $kind, $v['idempotency_key'],
+            isset($v['amount_minor']) ? (int) $v['amount_minor'] : null,
+            $v['token'] ?? null, $v['reason'] ?? ''
+        )))->header('Cache-Control', 'private, no-store');
     }
 
     public function cases(Request $r)
     {
-        $query = DB::table('gateway_cases as c')->join('finance_invoices as i', 'i.id', '=', 'c.invoice_id')->select('c.*');
-        if ($r->user()->role !== 'admin') {
-            $query->where($r->user()->role === 'vendor' ? 'i.vendor_id' : 'i.user_id', $r->user()->id);
-        }
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $query = DB::table('gateway_cases as c')
+                ->join('finance_invoices as i', 'i.id', '=', 'c.invoice_id')->select('c.*');
+            if ($actor->role !== 'admin') {
+                $query->where($actor->role === 'vendor' ? 'i.vendor_id' : 'i.user_id', $actor->id);
+            }
 
-        return $query->orderByDesc('c.id')->paginate(25)->through(fn ($row) => $this->publicRow($row));
+            return response()->json($query->orderByDesc('c.id')->paginate(25)
+                ->through(fn ($row) => $this->publicRow($row)))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function createCase(Request $r, GatewayService $gateway)
     {
         $v = $r->validate(['invoice_id' => 'required|integer|min:1', 'kind' => 'required|in:dispute', 'amount_minor' => 'required|integer|between:1,2000000000', 'reason' => 'required|string|max:500', 'idempotency_key' => 'required|string|max:100']);
-        $invoice = $this->invoice($r, (int) $v['invoice_id'], true);
+        [$invoice, $actor] = DB::transaction(function () use ($r, $v) {
+            $current = app(CurrentFinanceReader::class)->requireCurrent($r);
 
-        return response()->json($this->publicRow($gateway->createCase($invoice, $r->user()->id, $v['kind'], (int) $v['amount_minor'], $v['reason'], $v['idempotency_key'])), 201);
+            return [$this->invoice($r, (int) $v['invoice_id'], true), $current];
+        }, 3);
+
+        return response()->json($this->publicRow($gateway->createCase(
+            $invoice, $actor->id, $v['kind'], (int) $v['amount_minor'],
+            $v['reason'], $v['idempotency_key']
+        )), 201)->header('Cache-Control', 'private, no-store');
     }
 
     public function resolveCase(Request $r, int $case, GatewayService $gateway)
     {
-        abort_unless($r->user()->role === 'admin', 403);
+        $actor = DB::transaction(function () use ($r) {
+            $current = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($current->role === 'admin', 403);
+
+            return $current;
+        }, 3);
         $v = $r->validate(['outcome' => 'required|in:approved,rejected', 'resolution' => 'required|string|max:500']);
 
-        return response()->json($this->publicRow($gateway->resolveCase($case, $r->user()->id, $v['outcome'], $v['resolution'])));
+        return response()->json($this->publicRow($gateway->resolveCase(
+            $case, $actor->id, $v['outcome'], $v['resolution']
+        )))->header('Cache-Control', 'private, no-store');
     }
 
     public function reconciliation(Request $r, int $invoice, GatewayService $gateway)
     {
-        $record = $this->invoice($r, $invoice);
-        abort_unless(in_array($r->user()->role, ['admin', 'vendor'], true), 403);
+        $record = DB::transaction(function () use ($r, $invoice) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $source = $this->invoice($r, $invoice);
+            abort_unless(in_array($actor->role, ['admin', 'vendor'], true), 403);
 
-        return response()->json($gateway->reconcile($record));
+            return $source;
+        }, 3);
+
+        return response()->json($gateway->reconcile($record))
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function stripeWebhook(Request $r, GatewayService $gateway)

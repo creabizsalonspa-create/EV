@@ -97,7 +97,61 @@ const assert = require("node:assert/strict");
       await pub.getByRole("button", { name: /reserve|start|pay/i }).count(),
       0,
     );
+    // Other integration suites intentionally publish their own synthetic partner
+    // records in the shared local database. Scope the strict 26-record paging
+    // assertion to this run instead of assuming exclusive ownership of the
+    // global public catalog. Keep the server count and real rendered checks.
+    const scopedCatalogResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/api/roaming/locations" &&
+        url.searchParams.get("q") === run &&
+        url.searchParams.get("page") === "1"
+      );
+    });
+    await pub
+      .getByRole("textbox", { name: "Search partner locations", exact: true })
+      .fill(run);
+    await pub
+      .getByRole("button", { name: "Search partner locations", exact: true })
+      .click();
+    const scopedCatalog = await scopedCatalogResponse;
+    assert.equal(
+      scopedCatalog.status(),
+      200,
+      `Scoped roaming catalog must return HTTP 200, got ${scopedCatalog.status()}.`,
+    );
+    const scopedPage = await scopedCatalog.json();
+    assert.equal(scopedPage.current_page, 1, "Scoped catalog first page drift.");
+    assert.equal(scopedPage.last_page, 2, "Scoped catalog page count drift.");
+    assert.equal(scopedPage.total, 26, "Scoped synthetic catalog must contain 26 records.");
+    assert.equal(scopedPage.data.length, 25, "Scoped first page must hold 25 records.");
+    await pub
+      .getByText("Page 1 of 2 · 26 records", { exact: true })
+      .waitFor();
+    // Assert the actual HTTP and pagination contract before waiting on the DOM.
+    // This distinguishes a throttled/failed catalog read from a render regression
+    // without relaxing the original visible second-page assertion.
+    const secondPageResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/api/roaming/locations" &&
+        url.searchParams.get("q") === run &&
+        url.searchParams.get("page") === "2"
+      );
+    });
     await pub.getByRole("button", { name: "Next", exact: true }).click();
+    const secondPage = await secondPageResponse;
+    assert.equal(
+      secondPage.status(),
+      200,
+      `Public roaming page 2 must return HTTP 200, got ${secondPage.status()} (Retry-After: ${secondPage.headers()["retry-after"] || "absent"}).`,
+    );
+    const secondPageData = await secondPage.json();
+    assert.equal(secondPageData.current_page, 2, "Catalog page cursor drift.");
+    assert.equal(secondPageData.last_page, 2, "Catalog page count drift.");
+    assert.equal(secondPageData.total, 26, "Synthetic public catalog count drift.");
+    assert.equal(secondPageData.data.length, 1, "Expected one final location.");
     await pub.getByText("Page 2 of 2 · 26 records", { exact: true }).waitFor();
     if (process.env.EV_ROAMING_VERIFY_RATE_LIMIT === "1") {
       const token = await page
@@ -228,14 +282,55 @@ const assert = require("node:assert/strict");
       })
       .first();
     page.on("dialog", (dialog) => dialog.accept());
+    // Revocation must remove every location from this run's already-scoped
+    // public search. Other test suites may still publish unrelated locations.
+    // Assert the real API is empty AND the correct filtered empty-state UI.
+    // Login/locale refreshes may already have this identical URL in flight.
+    // A response arriving after the click is not proof its read began after
+    // revocation. Observe the server acknowledgement, then bind to a NEW read.
+    let revocationAcknowledged = false;
+    const postRevocationReads = new WeakSet();
+    const isRevocation = response =>
+      /^\/api\/ocpi\/providers\/\d+\/authorization$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === "PATCH";
+    const observeRevocation = response => {
+      if (isRevocation(response) && response.status() === 200) revocationAcknowledged = true;
+    };
+    const observeCatalog = request => {
+      const url = new URL(request.url());
+      if (revocationAcknowledged && request.method() === "GET" &&
+          url.pathname === "/api/roaming/locations" &&
+          url.searchParams.get("q") === run && url.searchParams.get("page") === "1") {
+        postRevocationReads.add(request);
+      }
+    };
+    page.on("response", observeRevocation);
+    page.on("request", observeCatalog);
+    const authorizationResponse = page.waitForResponse(isRevocation);
+    const revokedCatalogResponse = page.waitForResponse(response =>
+      postRevocationReads.has(response.request()));
     await card
       .getByRole("button", { name: "Revoke authorization", exact: true })
       .click();
     await card
       .getByText("Connection authorization revoked.", { exact: true })
       .waitFor();
+    const authorization = await authorizationResponse;
+    assert.equal(authorization.status(), 200, "Revocation must be acknowledged by the server.");
+    assert.equal((await authorization.json()).authorized, false, "Server must retain the revoked authority.");
+    const revokedCatalog = await revokedCatalogResponse;
+    page.off("response", observeRevocation);
+    page.off("request", observeCatalog);
+    assert.equal(
+      revokedCatalog.status(),
+      200,
+      "Revoked partner catalog must remain readable but empty.",
+    );
+    const revokedPage = await revokedCatalog.json();
+    assert.equal(revokedPage.total, 0, "Revoked location still publicly visible.");
+    assert.deepEqual(revokedPage.data, [], "Revoked records leaked to public search.");
     await pub
-      .getByText("No published partner locations.", { exact: true })
+      .getByText("No matching partner locations", { exact: true })
       .waitFor();
     assert.deepEqual(errors, []);
     console.log(

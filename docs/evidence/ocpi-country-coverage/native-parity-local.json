@@ -1,0 +1,85 @@
+{
+  "observed_at_utc": "2026-11-18T22:31:57.647467+00:00",
+  "branch": "development/ocpi-coverage-quality-20261116",
+  "pr": 189,
+  "integrated_base": "171b9c035dbbccd8bf3054d3a41ed00c2500464b",
+  "previous_failed_source": "f647de5bcd9cf56554cf139318f1ea6f0d1dad36",
+  "previous_failed_job": 133088673823,
+  "status": "LOCAL_VERIFIED_HOSTED_PENDING",
+  "defects": [
+    "Pint fully_qualified_strict_types violation reproduced; CarbonImmutable import fixes the same assertion-preserving test.",
+    "Old native location-field count rejects actual new market-facet response; red reproduction fails both languages, corrected schema and UI pass.",
+    "English narrow-phone dropdown overflow9.1px reproduced; expanded field passes the same layout assertion.",
+    "Combined module totals above10000 rejected by web and native."
+  ],
+  "local_tests": {
+    "laravel": {
+      "passed": 1335,
+      "assertions": 25602,
+      "skipped": 1,
+      "skip_scope": "PostgreSQL-only unused pricing-FK rollback case on SQLite"
+    },
+    "focused_backend": {
+      "passed": 24,
+      "assertions": 290
+    },
+    "flutter_full": {
+      "passed": 552,
+      "skipped": 33,
+      "skip_scope": "Explicit fixture-only suites; new connected catalog harness executed separately"
+    },
+    "focused_native": 17,
+    "real_laravel_native": "passed all/locations/tariffs report validation and private customer403 denial",
+    "real_laravel_browser": "passed EN/AR vendor read and customer403 denial",
+    "controlled_browser": "passed EN/AR, source country limits, combined bound, unsafe capability and stale-account contracts",
+    "postgres_contracts": {
+      "passed": 482,
+      "assertions": 6657
+    },
+    "postgres_concurrency": {
+      "passed": 30,
+      "assertions": 448
+    },
+    "pint_files": 786,
+    "flutter_analysis": "clean",
+    "python_guards": 380,
+    "scheduler_guards": 9
+  },
+  "source_sha256": {
+    "apps/mobile/lib/ocpi_catalog_observations.dart": "a8c012f0f6a3ac8c13ec15a56d66e4cdf1cbbe97d18e6e51d1f5a3d8cac75e1c",
+    "apps/mobile/test/ocpi_catalog_observations_test.dart": "b0c2400a37647c5d55060b8d65dc89cee55e5193936dea460c0e64f1646921c6",
+    "apps/mobile/test/live_ocpi_catalog_observations_test.dart": "90c54eacec797791f418cf1e0d82ccac800f8b456df22765f7c27f716e25792d",
+    "services/business-api/app/Services/Ocpi/CatalogObservations.php": "c602e2cc8c91604ef5fdbbab17e4c8c7398c1db58db7ca1ef91c8be2dad3dd3d",
+    "services/business-api/app/Services/Discovery/OpenChargeMapProjection.php": "1e88328ca73aa3c712f21ce2284de8101df4cb1c6fc4f81bb3179b3a0f5b555d",
+    "services/business-api/tests/Feature/OcpiCatalogObservationsTest.php": "02b751637f35e3278747c694efa1c1dbe8e9f631ca41a23f4aa1baf2d4be56f3",
+    "services/business-api/public/partner-catalog-observations.js": "b9190275ba095f3fb9606e42e06370358585a2cff4fe39d30ee75bc4c73ce7d5",
+    "tests/native-connected.cjs": "dfc4c9dafb0aa9e19256025efc21b597309f30210c8592c4b27b4f0e6062494a",
+    "tests/native-partner-catalog-observations.cjs": "bfefefe20f319401d420684a511b59b99302723413b67ed2984b8378ef297f93",
+    ".github/workflows/mobile.yml": "131f313221c3d94b503d74b7db2c0aed19e423585e4b5b702e05049b381734b7"
+  },
+  "log_sha256": {
+    "ev-pr189-native-red.txt": "beb66e8ffca04c7bd79a29afe64df3a65bd71e8761b91b85421794f014f2d846",
+    "ev-pr189-native-green.txt": "737fdccb9ea9c195d303bf2e8c8c92054751325839be0a61c767e6f1bf9eef98",
+    "ev-pr189-native-live.txt": "7f4130d8bda7ca31b41aae477d736854ae5ffe7834c766dfcb76b6b7707a36d3",
+    "ev-pr189-web-contract.txt": "0ea45e80ee4f28d70939bb8167c169cdccc431560f4714c3af40b4eb7a82c24b",
+    "ev-pr189-web-e2e.txt": "5d7b3fe8a90ec11515e889054803c59c42e1654665ea7a460cfdafd7f1d3435e",
+    "ev-pr189-backend-focused.txt": "b8b95a7e16cd82b17c5a2cb0a3336497fb155c14160b4defa428347fb0e609b1",
+    "ev-pr189-laravel-full.txt": "5a1e0332eb97941440c2b52d5cfc519fb24259c0b0999019ca3e0c9a9a8ea581",
+    "ev-pr189-flutter-full.txt": "929e07c8a60bba8add8b1b7f30d28ef6c0cf04a623569aab9d9694138cd4163d",
+    "ev-pr189-postgres.txt": "455d47f5f7b21ebe1a6644debe9e4e92b3e09fa662e7e230d2a8e45fd06643a7",
+    "ev-pr189-pint-after.txt": "d57575ee0efb4200f237bf1eceb6bc525469c8d80f936906d0b5b78cd04f1ca1",
+    "ev-pr189-analyze.txt": "de612a06eb9f2e599a9a1096cf8dd7de736b414882dd66887c57d6ea204e3123",
+    "ev-pr189-python.txt": "6c66aa33c3f00cf11e2a468f16be12e126f4b8439cccda91047e9921c5d61c76",
+    "ev-pr189-scheduler.txt": "8ad264bd96cd38a351fda800cbd884d774d4576eb04b4f407455e5cfb821771f"
+  },
+  "coverage": "Unchanged original42 categories/312 atoms:186 coded,185 tested/merged; weighted58.20/57.81/57.81;production0. Atom6.2.4 remains partial.",
+  "integration": "Agent5 is sole current merge/release controller; all applicable fresh exact-head checks still required.",
+  "external_acceptance": {
+    "live_partner": false,
+    "physical_charging": false,
+    "payment": false,
+    "deployed_staging": false,
+    "production": false,
+    "signed_store_release": false
+  }
+}

@@ -3,6 +3,7 @@
 namespace App\Services\Commercial;
 
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Payments\HostedCheckout;
 use App\Services\Commercial\Payments\MockPaymentProvider;
 use App\Services\Commercial\Payments\PaymentProvider;
@@ -50,7 +51,7 @@ class SubscriptionGateway
         $this->provider();
 
         return DB::transaction(function () use ($actor, $subscription, $invoice, $key, $mandate, $policyVersion) {
-            User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            app(CurrentFinanceReader::class)->requireSnapshot($actor);
             $s = $this->subscriptions->access($actor, $subscription, true);
             abort_unless((int) $s->user_id === $actor->id, 404);
             $i = $this->invoice($subscription, $invoice);
@@ -99,7 +100,7 @@ class SubscriptionGateway
         HostedCheckout::guardCanonicalConfiguration('subscription', (int) $initial->id);
 
         return app(PaymentRecovery::class)->run('subscription', $initial, $actor->id, $kind, $key, $initial->mandate_id ? [$kind, (int) $initial->amount_minor, $initial->mandate_id, $initial->mandate_version, $initial->policy_version] : [$kind, (int) $initial->amount_minor, $token], fn () => DB::transaction(function () use ($actor, $initial, $kind, $key, $token, $provider) {
-            User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            app(CurrentFinanceReader::class)->requireSnapshot($actor);
             $s = $this->subscriptions->access($actor, $initial->subscription_id, true);
             $c = DB::table('subscription_gateway_checkouts')->where('id', $initial->id)->lockForUpdate()->first();
             HostedCheckout::guard('subscription', (int) $c->invoice_id, (int) $c->id);
@@ -165,7 +166,7 @@ class SubscriptionGateway
         $return = app(PaymentMandates::class)->returnUrl();
         if ($initial->status === 'action_required') {
             app(PaymentRecovery::class)->run('subscription', $initial, $actor->id, 'authenticate', 'authenticate:'.$id, ['authenticate', (int) $initial->amount_minor, $initial->mandate_id, $initial->mandate_version], fn () => DB::transaction(function () use ($actor, $initial, $return) {
-                User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+                app(CurrentFinanceReader::class)->requireSnapshot($actor);
                 $s = $this->subscriptions->access($actor, $initial->subscription_id, true);
                 $c = DB::table('subscription_gateway_checkouts')->where('id', $initial->id)->lockForUpdate()->first();
                 $this->payable($s, $this->invoice($s->id, $c->invoice_id));

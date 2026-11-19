@@ -1,0 +1,51 @@
+{
+  "status": "LOCAL_VERIFIED_EXACT_HEAD_HOSTED_PENDING",
+  "original_source": "4e01e249",
+  "retained_parent": "dc91e984",
+  "merged_parent": "b02e7ea76984f3b1284114ff4aa0d8a12c2b3d95",
+  "verification": {
+    "flutter": {
+      "passed": 612,
+      "explicit_fixture_skips": 34
+    },
+    "focused_flutter": 51,
+    "analysis": "clean",
+    "pint_files": 802,
+    "browser_actual_laravel": "passed EN/AR scoped source, delayed bootstrap, visibility and logout204 private-reference erasure",
+    "controlled_browser": "passed connector/session/client/catalog startup"
+  },
+  "backend_identical_to_parent": true,
+  "backend_rerun_claimed": false,
+  "tested_source_sha256": {
+    "apps/mobile/lib/vendor_finance.dart": "7b1d04ad98c89c1c512844ed3116225716299ba24f3f33ce4c2f33fe90836269",
+    "apps/mobile/lib/invoice.dart": "608ccc5a615cb74a6ae1ec5a0b36284cffc6cd1efbb0af002337e86072df3115",
+    "apps/mobile/lib/invoice_history.dart": "3cee90c758d3f52c3eff22582d4ba27f7ae73ed69faee986f40fce675fbbf68d",
+    "services/business-api/public/platform.js": "440b13354ca45ad2451df2028b744f7d907b043fcef2bd0454df384518ce8794",
+    "services/business-api/public/connector-fleet.js": "89969b508ec6047b7872af0f6a8311de6ad38fee7db64d9ad08579d4d7d245cf",
+    "tests/connector-fleet-e2e.cjs": "544516a7c8d2a5408ebf2de5a23358e555f4220b58d7b4886d9530dfa4f3529a"
+  },
+  "local_log_sha256": {
+    "flutter-final": "8603121bc8a41b55209a93d69abdbb95b09282c1b0eda599124429d4c9a79726",
+    "analyze-final": "1bf7d68892af94d7c7aa2161dc03670a83858794e2edc9d076a75bf116c8f611",
+    "focused-final": "cad3bfa82347052ee0fb518a4381f73b2191333818c2b6d6bdf5c4cabae4755e",
+    "logout-real-red": "de61b3d9f1ba8746bce91ae98f5707c647246401a58aacd6e10976fd049fec04",
+    "logout-real-green": "8bbcf7a7b817be2056e0a68af24f437912215c1907e148d959540ac0026150f0",
+    "session-web": "3a651e73bfeba4b4d37c78cf21989cefbbae8860e2b5589dcc68658399e92222",
+    "client-web": "937e7552706fd28ab88a68fb0aa77b43490e5bdf578bd41cf56176083491c4e4",
+    "catalog-startup": "feb73837ea009c925ed921c534b9860e04f6da0bca9763868bed80677dd442f3",
+    "pint": "0059d27c5ad51f6c5e1ce451423fa1cf2f6314db6a6f945c5a239321d5d1479d"
+  },
+  "red_cases_retained": [
+    "Global connector actor/draft reference after logout",
+    "Vendor amounts after inactivity",
+    "Dependent report after stale identity",
+    "Late vendor401 signs out next account"
+  ],
+  "production_accepted": false,
+  "tracker_credit_added": 0,
+  "integration_order": [
+    189,
+    132,
+    187
+  ]
+}

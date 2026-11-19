@@ -399,3 +399,15 @@ business job, using Ubuntu24.04 while preserving required check names. A missing
 failure onbb02c79 is recorded and must be replaced by passing corrected-source CI;
 existing tests, timeouts and production rate limits are retained. The shared canonical
 client produces one role-based debug APK/simulator app, not separately signed store apps.
+
+
+## Native itemized vendor earnings — 19 November 2026
+
+The existing Vendor finance currency card opens `VendorEarningsView` in `vendor_finance.dart`. The read-only view first obtains the current vendor identity, then consumes its canonical itemized earnings endpoint. It preserves original invoice evidence and server amounts, including signed availability and invoice-specific decimal precision. The overall balance is explicitly for all vendor invoices/approved adjustments, not a sum of the displayed page. EN/AR pagination, loading/error/empty states and explicit refresh remain separate from any settlement/payout action. No client economic rules or additional ledger. Inactivity clears source rows; a session fence is checked between identity and report calls and on completion.
+
+`vendor_earnings_test.dart` covers UI/precision/privacy/navigation and malformed source contracts; the existing actual Laravel native financial-analytics fixture now verifies itemized vendor access plus customer/outsider denial. Its optional API base accepts loopback only. Required exact-source Android/iOS and platform validation remains mandatory; these checks do not claim production banking or physical-device acceptance.
+
+
+## Private native overview and invoice lifecycle — 19 November 2026
+
+Invoice details/history and Vendor finance overview now clear private projections on inactivity, invalidate late reads and reject stale account callbacks. A read captures its session before `/me` and checks again before dependent requests; an old401 cannot expire a new account. Vendor overview child routes are bound to the API/session that rendered their source data, including API-object replacement. Returning to the foreground requires explicit refresh; existing uncertain economic operations keep their original recovery mechanism. Connector draft state is scoped to actor/epoch and is erased from its global reference immediately on logout. Real Laravel and widget regressions preserve exact scoped reads and no automatic connector polling.
