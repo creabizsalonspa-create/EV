@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\OcpiController;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
@@ -9,9 +10,12 @@ use App\Services\Ocpi\CdrReconciler;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\TestWith;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class OcpiReconciliationTest extends TestCase
@@ -44,10 +48,52 @@ class OcpiReconciliationTest extends TestCase
         $url = '/api/ocpi/providers/'.$provider->id.'/records/cdrs';
         $this->actingAs(User::findOrFail($provider->owner_id))->getJson($url)->assertOk()->assertJsonPath('data.0.reconciliation.status', 'source_consistent')->assertDontSee('PRIVATE-DRIVER-IDENTITY')->assertJsonMissingPath('data.0.payload')->assertJsonMissingPath('data.0.content_hash');
         $this->actingAs(User::factory()->create(['role' => 'vendor']))->getJson($url)->assertNotFound();
-        $this->actingAs(User::factory()->create(['role' => 'customer']))->getJson($url)->assertNotFound();
+        // Role denial precedes private source hydration; only eligible vendor
+        // identities reach the separate, existence-hiding tenant check above.
+        $this->actingAs(User::factory()->create(['role' => 'customer']))->getJson($url)
+            ->assertForbidden()->assertJsonMissingPath('data')
+            ->assertDontSee('PRIVATE-DRIVER-IDENTITY');
         $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson($url)->assertOk();
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_private_cdr_read_rechecks_current_actor_epoch_and_provider_tenant_before_hydration(): void
+    {
+        [$provider, $cdr] = $this->source();
+        $owner = User::findOrFail($provider->owner_id);
+        $request = Request::create('/api/ocpi/providers/'.$provider->id.'/records/cdrs', 'GET');
+        // Use a deliberately retained HTTP request actor snapshot. The
+        // endpoint must not rely on the old Eloquent instance to decide
+        // access after another transaction changes account/provider authority.
+        $request->setUserResolver(static fn () => $owner);
+        $controller = app(OcpiController::class);
+        $reconciler = app(CdrReconciler::class);
+        $response = $controller->records($request, $provider, 'cdrs', $reconciler);
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringNotContainsString('PRIVATE-DRIVER-IDENTITY', $response->getContent());
+
+        DB::table('users')->where('id', $owner->id)->increment('auth_epoch');
+        try {
+            $controller->records($request, $provider, 'cdrs', $reconciler);
+            $this->fail('A previous-login actor was allowed to read private partner source.');
+        } catch (HttpException $exception) {
+            $this->assertSame(409, $exception->getStatusCode());
+        }
+        DB::table('users')->where('id', $owner->id)->update(['auth_epoch' => $owner->auth_epoch]);
+        DB::table('ocpi_providers')->where('id', $provider->id)->update([
+            'owner_id' => User::factory()->create(['role' => 'vendor'])->id,
+        ]);
+        try {
+            $controller->records($request, $provider, 'cdrs', $reconciler);
+            $this->fail('A previous owner was allowed to read the reassigned partner.');
+        } catch (HttpException $exception) {
+            $this->assertSame(404, $exception->getStatusCode());
+        }
+
+        $this->assertSame($cdr->content_hash, $cdr->fresh()->content_hash);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
     }
 
     public function test_completed_session_identity_energy_and_cost_discrepancies_require_review(): void
@@ -70,6 +116,101 @@ class OcpiReconciliationTest extends TestCase
         $this->assertContains('session_reference_missing', app(CdrReconciler::class)->inspect($other, $unlinked)['issues']);
     }
 
+    public function test_reused_reconciler_rechecks_immutable_claims_after_new_source_ingress(): void
+    {
+        [$provider, $first, $raw] = $this->source();
+        $reconciler = app(CdrReconciler::class);
+        $this->assertSame('source_consistent', $reconciler->inspect($provider, $first)['status']);
+
+        // The same long-lived service must not retain a once-clean snapshot.
+        app(RecordSynchronizer::class)->ingest($provider, 'cdrs', [
+            array_replace($raw, ['id' => 'cdr-later-same-session']),
+        ]);
+        $second = OcpiRecord::where('ocpi_provider_id', $provider->id)
+            ->where('module', 'cdrs')->where('external_id', 'cdr-later-same-session')->firstOrFail();
+        foreach ([$first, $second] as $record) {
+            $report = $reconciler->inspect($provider, $record);
+            $this->assertSame('requires_review', $report['status']);
+            $this->assertContains('multiple_cdrs_for_session', $report['issues']);
+            $this->assertFalse($report['billing_eligible']);
+            $this->assertFalse($report['local_invoice_created']);
+        }
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+        $this->assertSame($raw, $first->fresh()->payload);
+    }
+
+    public function test_reused_reconciler_cannot_trust_stale_provider_authority_or_ownership_snapshot(): void
+    {
+        [$provider, $cdr] = $this->source();
+        $reviewer = app(CdrReconciler::class);
+        $this->assertSame('source_consistent', $reviewer->inspect($provider, $cdr)['status']);
+
+        // The worker's cached Eloquent provider is deliberately not refreshed.
+        // Another request revokes its authorization in the database.
+        OcpiProvider::whereKey($provider->id)->update(['authorized' => false]);
+        $revoked = $reviewer->inspect($provider, $cdr);
+        $this->assertSame('requires_review', $revoked['status']);
+        $this->assertContains('partner_not_authorized_and_negotiated', $revoked['issues']);
+        $this->assertFalse($revoked['billing_eligible']);
+
+        // A new credential revision is also distinct from the cached actor's
+        // original authorization, even after an administrator reauthorizes.
+        OcpiProvider::whereKey($provider->id)->update([
+            'authorized' => true,
+            'authorization_revision' => $provider->authorization_revision + 1,
+        ]);
+        $rotated = $reviewer->inspect($provider, $cdr);
+        $this->assertSame('requires_review', $rotated['status']);
+        $this->assertContains('partner_not_authorized_and_negotiated', $rotated['issues']);
+        $this->assertSame('source_consistent', $reviewer->inspect($provider->fresh(), $cdr)['status']);
+
+        // Reassigning a partner to another owner must not confer a clean
+        // authorization verdict on a retained previous-owner model.
+        OcpiProvider::whereKey($provider->id)->update([
+            'owner_id' => User::factory()->create(['role' => 'vendor'])->id,
+        ]);
+        $reassigned = $reviewer->inspect($provider, $cdr);
+        $this->assertSame('requires_review', $reassigned['status']);
+        $this->assertContains('partner_not_authorized_and_negotiated', $reassigned['issues']);
+        $this->assertFalse($reassigned['local_invoice_created']);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_corrupted_historical_cdr_timestamps_fail_closed_without_source_mutation(): void
+    {
+        [$provider, $cdr] = $this->source();
+        $original = $cdr->normalized;
+        $reconciler = app(CdrReconciler::class);
+        $this->assertSame('source_consistent', $reconciler->inspect($provider, $cdr)['status']);
+
+        // These values can exist in legacy/corrupt normalized evidence even
+        // when new OCPI ingress rejects them. Never parse relative/local
+        // dates or silently normalize impossible days during reconciliation.
+        foreach ([
+            'not-a-date',
+            'tomorrow',
+            '2026-02-30T00:00:00Z',
+            '2026-11-16T10:00:00+00:00',
+            123,
+        ] as $untrusted) {
+            $cdr->normalized = array_replace($original, ['start_date_time' => $untrusted]);
+            $review = $reconciler->inspect($provider, $cdr);
+            $this->assertSame('requires_review', $review['status']);
+            $this->assertContains('start_date_time_mismatch', $review['issues']);
+            $this->assertFalse($review['billing_eligible']);
+            $this->assertFalse($review['local_invoice_created']);
+        }
+
+        $cdr->normalized = array_replace($original, ['end_date_time' => 'bad end date']);
+        $this->assertContains('end_date_time_mismatch', $reconciler->inspect($provider, $cdr)['issues']);
+        $this->assertSame($original, $cdr->fresh()->normalized,
+            'Comparing malformed in-memory evidence must not rewrite immutable source records');
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_multiple_cdr_claims_and_credits_never_double_count_or_rewrite_source_records(): void
     {
         [$provider, $first, $raw] = $this->source();
@@ -89,6 +230,44 @@ class OcpiReconciliationTest extends TestCase
         }
         $this->assertSame($raw, $first->fresh()->payload);
         $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_credit_reference_requires_same_charging_source_identity_not_just_a_matching_id(): void
+    {
+        [$provider, $original, $raw] = $this->source();
+        $mutations = [
+            'currency' => ['currency' => 'USD'],
+            'location' => ['cdr_location' => [
+                'id' => 'different-location', 'evse_uid' => 'evse-1', 'connector_id' => '1',
+            ]],
+            'connector' => ['cdr_location' => [
+                'id' => 'loc-1', 'evse_uid' => 'evse-1', 'connector_id' => 'different',
+            ]],
+            'session' => ['session_id' => 'another-session'],
+            'missing-session' => ['session_id' => null],
+        ];
+        foreach ($mutations as $name => $change) {
+            app(RecordSynchronizer::class)->ingest($provider, 'cdrs', [
+                array_replace($raw, [
+                    'id' => 'credit-identity-'.$name,
+                    'credit' => true,
+                    'credit_reference_id' => $original->external_id,
+                ], $change),
+            ]);
+            $credit = OcpiRecord::where('ocpi_provider_id', $provider->id)
+                ->where('module', 'cdrs')->where('external_id', 'credit-identity-'.$name)->firstOrFail();
+            $report = app(CdrReconciler::class)->inspect($provider, $credit);
+            $this->assertSame('requires_review', $report['status']);
+            $this->assertContains('credit_requires_separate_reconciliation', $report['issues']);
+            $this->assertSame('identity_mismatch', $report['credit_review']['reference_state']);
+            $this->assertFalse($report['credit_review']['financial_authority']);
+            $this->assertFalse($report['credit_review']['automatic_refund']);
+        }
+        $this->assertSame($raw, $original->fresh()->payload,
+            'Read-only comparison cannot alter the immutable original CDR');
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
     }
 
     #[TestWith([['credit' => true]])]

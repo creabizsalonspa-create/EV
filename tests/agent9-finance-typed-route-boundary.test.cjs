@@ -11,7 +11,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../services/business-api/routes');
 const targets = new Map([
   ['payouts.php', 7],
-  ['settlements.php', 7],
+  ['settlements.php', 9],
   ['subscription_gateway.php', 3],
   ['financial_documents.php', 2],
 ]);
@@ -19,10 +19,14 @@ const source = new Map([...targets.keys()].map(file =>
   [file, fs.readFileSync(path.join(root, file), 'utf8')]
 ));
 
-test('all nineteen sensitive finance parameter routes are length-bounded', () => {
+test('all twenty-one sensitive finance parameter routes are length-bounded', () => {
   let count = 0;
   for (const [file, expected] of targets) {
     const text = source.get(file);
+    if (file === 'settlements.php') {
+      assert.match(text, /Route::get\('\/commercial\/vendors\/\{vendor\}\/earnings',/);
+      assert.match(text, /Route::get\('\/commercial\/vendors\/\{vendor\}\/earnings\/export',/);
+    }
     assert.doesNotMatch(text, /->whereNumber\(/, file + ': no unbounded numeric matcher');
     const lines = text.split(/\r?\n/).filter(line => line.startsWith('Route::') &&
       line.includes("'[0-9]{1,18}'"));
@@ -33,7 +37,7 @@ test('all nineteen sensitive finance parameter routes are length-bounded', () =>
       count++;
     }
   }
-  assert.equal(count, 19);
+  assert.equal(count, 21);
 });
 
 test('finance route action allowlists and document format restrictions survive', () => {

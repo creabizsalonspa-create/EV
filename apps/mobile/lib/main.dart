@@ -60,11 +60,16 @@ class EvApp extends StatefulWidget {
   State<EvApp> createState() => _EvAppState();
 }
 
-class _EvAppState extends State<EvApp> {
+class _EvAppState extends State<EvApp> with WidgetsBindingObserver {
   late final AppPreferences preferences;
+  bool _privacyHidden = false;
   @override
   void initState() {
     super.initState();
+    // Cover the first frame when mount follows an existing OS overlay.
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _privacyHidden = lifecycle != null && lifecycle != AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
     registerVendorDocumentLicenses();
     preferences = widget.preferences ?? AppPreferences(DevicePreferenceStore());
     if (!preferences.ready) preferences.load();
@@ -75,17 +80,53 @@ class _EvAppState extends State<EvApp> {
     animation: preferences,
     builder: (context, _) => MaterialApp(
       title: 'Crea-Biz EV',
-      builder:
-          const bool.fromEnvironment('EV_LOCAL_DEMO') &&
-              !const bool.fromEnvironment('dart.vm.product') &&
-              !const bool.fromEnvironment('dart.vm.profile')
-          ? (context, child) => Column(
-              children: [
-                const LocalDemoNotice(),
-                Expanded(child: child ?? const SizedBox.shrink()),
-              ],
-            )
-          : null,
+      // The builder wraps Navigator, so all authenticated routes, dialogs and
+      // bottom sheets are covered rather than only the root Workspace.
+      builder: (context, child) {
+        final routeContent =
+            const bool.fromEnvironment('EV_LOCAL_DEMO') &&
+                !const bool.fromEnvironment('dart.vm.product') &&
+                !const bool.fromEnvironment('dart.vm.profile')
+            ? Column(
+                children: [
+                  const LocalDemoNotice(),
+                  Expanded(child: child ?? const SizedBox.shrink()),
+                ],
+              )
+            : child ?? const SizedBox.shrink();
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ExcludeSemantics(
+              key: const Key('privacy-content-semantics'),
+              excluding: _privacyHidden,
+              child: IgnorePointer(
+                key: const Key('privacy-content-input'),
+                ignoring: _privacyHidden,
+                child: routeContent,
+              ),
+            ),
+            if (_privacyHidden)
+              Positioned.fill(
+                child: ColoredBox(
+                  key: const Key('privacy-shield'),
+                  color: Colors.black,
+                  child: Center(
+                    child: Semantics(
+                      liveRegion: true,
+                      label: EvStrings.of(context).t('privacyScreenHidden'),
+                      child: const Icon(
+                        Icons.lock_outline,
+                        color: Colors.white,
+                        size: 56,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
 
       themeMode: preferences.theme,
       locale: preferences.locale,
@@ -123,7 +164,18 @@ class _EvAppState extends State<EvApp> {
     ),
   );
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Hide the Flutter route tree on lifecycle notification; native launchers
+    // independently cover app-switcher transitions. Preserve Navigator state.
+    final hidden = state != AppLifecycleState.resumed;
+    if (hidden == _privacyHidden || !mounted) return;
+    if (hidden) FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _privacyHidden = hidden);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (widget.preferences == null) preferences.dispose();
     super.dispose();
   }
@@ -165,6 +217,8 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   bool keepSignedIn = false, restoring = false, restoreFailed = false;
   int tab = 0;
   int recordPage = 1, recordLast = 1, recordTotal = 0;
+  int _recordRequestGeneration = 0;
+  int _performGeneration = 0;
   final email = TextEditingController(),
       password = TextEditingController(),
       name = TextEditingController(),
@@ -247,11 +301,14 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   void resetSession() {
+    _recordRequestGeneration++;
+    _performGeneration++;
     reservationIntents.clear();
     if (!mounted) return;
     Navigator.of(context).popUntil((route) => route.isFirst);
     setState(() {
       account = null;
+      busy = false;
       keepSignedIn = false;
       restoreFailed = false;
       records = [];
@@ -271,6 +328,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
 
   Future<void> perform(Future<void> Function() task) async {
     if (busy || api == null) return;
+    final generation = _performGeneration;
     setState(() {
       busy = true;
       error = null;
@@ -279,20 +337,44 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     try {
       await task();
     } catch (e) {
-      if (e is ApiException && (e.status == 401 || e.status == 419))
-        resetSession();
-      if (mounted) setState(() => error = errorKey(e));
+      // A session reset permits the next account to sign in immediately.
+      // The previous account's late failure must not clear its session or
+      // overwrite its error/message after that change.
+      if (generation == _performGeneration && mounted) {
+        if (e is ApiException && (e.status == 401 || e.status == 419)) {
+          resetSession();
+        }
+        if (mounted) setState(() => error = errorKey(e));
+      }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && generation == _performGeneration) {
+        setState(() => busy = false);
+      }
     }
   }
 
   Future<void> load({int page = 1}) async {
-    if ([0, 2, 4, 5].contains(tab)) return;
+    if ([0, 2, 4, 5].contains(tab) || account == null || api == null) return;
+    final requestApi = api!;
+    final owner = account!;
+    final currentSession = requestApi.sessionFence();
     final selectedTab = tab;
-    final data = await api!.request(endpoints[tab], query: {'page': '$page'});
+    final generation = ++_recordRequestGeneration;
+    final data = await requestApi.request(
+      endpoints[selectedTab],
+      query: {'page': '$page'},
+    );
     final parsed = ApiPage.fromJson(data, (row) => row);
-    if (!mounted || tab != selectedTab) return;
+    // Two in-flight GETs can finish out of order, even if UI actions are
+    // disabled while a normal load runs. Never publish an older page or a
+    // previous identity's private rows after revocation/account switching.
+    if (!mounted ||
+        generation != _recordRequestGeneration ||
+        tab != selectedTab ||
+        !identical(api, requestApi) ||
+        !currentSession() ||
+        account?.id != owner.id ||
+        account?.role != owner.role) return;
     setState(() {
       records = parsed.items;
       recordPage = parsed.current;
@@ -327,6 +409,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
           if (mounted) setState(() => message = 'sessionNotSaved');
         }
       }
+      _recordRequestGeneration++;
       setState(() {
         account = user;
         tab = 0;
@@ -1025,6 +1108,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
       ),
     ];
     void select(int value) {
+      _recordRequestGeneration++;
       setState(() {
         tab = value;
         records = [];

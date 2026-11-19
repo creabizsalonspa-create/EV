@@ -1,0 +1,120 @@
+# OCPP charger pilot acceptance and release gate
+
+**Status:** Draft software acceptance checklist; **not executed or approved**. This document does not grant hardware, payment or production authorization.
+
+**Scope:** Canonical Laravel business service, separately deployed pinned CitrineOS v2.1.0 CSMS, OCPP 1.6 and 2.0.1, approved charger models and firmware. Use a dedicated non-production pilot environment and written operator approval. Do not connect physical chargers to the local development simulator stack.
+
+## 1. Required approvals before any hardware connection
+
+- [ ] Named station/network operator approves the specific charger assets and the pilot time window in writing.
+- [ ] Authorized electrical/charging technician owns physical site safety, emergency stop, lockout and supervision.
+- [ ] Charger vendor confirms the exact manufacturer, model, serial, firmware build, supported OCPP version and security profile. Unsupported/missing information is a **no-go**, not an inference.
+- [ ] Security owner approves dedicated pilot TLS/mTLS credentials, certificate issuer, rotation and revocation, scoped tenant identity, firewalls, secret storage and audit retention. The local `localDev` tokens, loopback port assumptions and OCPP security profile 0 must not be used.
+- [ ] Business owner signs off test transactions, maximum permitted energy/current, country/tax/currency, billing sandbox and compensating/refund arrangements.
+- [ ] Incident commander, on-site technician, charging-network operator and platform engineer are identified with primary and alternate contacts.
+- [ ] A pre-test station availability window and clear customer notice are approved. Never commandeer a public connector or an active customer session.
+- [ ] Written rollback/disconnect authority and the conditions that force the pilot to stop are recorded.
+
+The software agent may prepare code, tests and documentation, but must **not** actuate physical charging, issue reset or firmware commands, provision live certificates, or control live power without an explicitly authorized supervised pilot.
+
+## 2. Evidence manifest and immutable provenance
+
+Create one restricted evidence record **per charger model, firmware build, OCPP protocol and connector topology**. Do not extrapolate from another model or firmware. Keep sensitive station identifiers, tokens, certificates, real customers and personal data in the approved private evidence store, never a repository commit.
+
+| Field | Required evidence |
+|---|---|
+| Pilot reference | Private pilot ID, owner, authorized window and signed approvals |
+| Country and tenant | Approved country, site/operator, tenant and legal authority |
+| Charger hardware | Manufacturer, exact model, hardware revision and firmware version |
+| Protocol | Negotiated OCPP 1.6 or 2.0.1, security profile, transport and CSMS version |
+| EVSE/connector | Physical EVSE and connector identifiers, topology and supported power |
+| Authentication | Redacted certificate fingerprint/issuer, JWT/scopes and revocation result |
+| Time and source | Source station database ID, source transaction ID, synchronized timestamps |
+| Charging session | Reservation and canonical link IDs, issued command IDs, *non-secret* event hashes |
+| Measurement | Start/end cumulative Wh, independent meter/tolerance, signed final source evidence |
+| Finance | Simulated or explicitly approved payment mode, tariff snapshot and invoice evidence |
+| Recovery | Lost ACK, replay, offline, reconnect, fault and manual-review evidence |
+| Controls | Runbook revision, exact Git commit SHA, CI run links and rollback result |
+| Sign-offs | Physical site lead, platform lead, security owner, finance owner and date |
+
+The source identifier alone, a WebSocket connection or an HTTP command receipt is not proof of physical execution. A final invoice requires independently authenticated source transaction and meter evidence according to the canonical ledger rules.
+
+## 3. Software and environment preflight
+
+- [ ] Record exact deployment SHA, expected migrations, independent backup/restore proof, schema verification and rollback path.
+- [ ] Verify the CSMS and Laravel business databases are separate; no business worker has direct CSMS database credentials.
+- [ ] Verify pinned CitrineOS v2.1.0 and its approved upstream integration contract; any version drift requires a fresh conformance review.
+- [ ] Verify signed event inbox HMAC, timestamp tolerance, tenant isolation, scoped APIs, no secrets in logs, rate limits and certificate revocation.
+- [ ] Verify OCPP charge-point admission is restricted to authorized and registered station identities with explicit protocol, model and firmware pins.
+- [ ] Verify the country currency, charging tariffs, taxes, refunds and payment sandbox; do not enable real payment capture without separate approvals.
+- [ ] Verify exactly one active canonical session per relevant EVSE, reservation expiry and maintenance lockouts.
+- [ ] Verify immutable source station id pin, authenticated transaction lineage, meter cursor monotonicity and no uncertain command replay.
+- [ ] Verify memory, disk, event-queue, clock/NTP and database capacity at agreed alert thresholds.
+- [ ] Verify access to private audit evidence and rollback/disable controls for all relevant operators.
+- [ ] Verify operational monitoring and customer/vendor/admin fault notices without disclosing source credentials.
+
+## 4. Protocol/model test matrix — run separately for each device build
+
+Every row needs a private evidence link and explicit **PASS / FAIL / BLOCKED / NOT TESTED** state. A simulator PASS is not a hardware PASS.
+
+| Gate | OCPP 1.6 | OCPP 2.0.1 | Required acceptance evidence |
+|---|---|---|---|
+| Admission | Explicit ID/tag and negotiated protocol | Explicit ID/token and negotiated protocol | Only approved charger/model/firmware can connect |
+| Boot & clock | BootNotification and Heartbeat | BootNotification and Heartbeat | Fresh source time and correct tenant/identity |
+| EVSE topology | Connector ID mapping | EVSE + connector ID mapping | Exact source-to-physical target, no ambiguous mapping |
+| Authorization | Approved, expired and revoked idTag | Approved, expired and revoked IdToken | No replay of revoked credentials; private audit |
+| Reservation | Admission/cancel/expiry | Admission/cancel/expiry | No double booking or capacity release on uncertain results |
+| Start | One authorized RemoteStartTransaction | One authorized RequestStartTransaction | Correct single charger; no duplicate actuation |
+| Metering | Absolute MeterValues Wh/kWh | TransactionEvent cumulative registers | Monotonic cumulative Wh; no rounded/guessed units |
+| Stop | RemoteStopTransaction and terminal evidence | RequestStopTransaction and Ended evidence | Source terminal proof, one canonical stopped session |
+| Faults | Faulted/status notifications | Faulted/status notifications | Traceable alert, no false available-state release |
+| Recovery | Disconnect/reconnect, lost ack | Disconnect/reconnect, duplicate seqNo | No double command, double energy or double invoice |
+| Firmware | Signed policy/device eligibility | Signed policy/device eligibility | Separate approved maintenance window; no auto-flash |
+| Reset | Authorized idle-only safe reset | Authorized idle-only safe reset | Manual operation approval; no unverified completion |
+| Privacy | Token/log redaction | Token/log redaction | No real token/certificate/PII in public evidence |
+| Rollback | Safely stop test/admission | Safely stop test/admission | Physical technician confirms site-safe state |
+
+The existing `tests/charging-session.cjs` and `tests/charging-business.cjs` cover local simulation. The Agent 2 feature tests cover signed source/fault reconciliation, malformed/duplicate meter pages and simulated restarts. None of these replace the hardware rows above.
+
+## 5. Approved pilot sequence
+
+1. Record the written pilot authorization, exact hardware/version identity and rollback command authority.
+2. Bring up dedicated staging services with approved TLS/mTLS and non-development upstream credentials; verify health without a physical charging command.
+3. Confirm the registered station identity, EVSE/connector topology, operator identity and signed firmware compatibility policy through read-only probes.
+4. Have the onsite technician independently confirm no occupied connector, active reservation, pre-existing energy flow, or unresolved maintenance command.
+5. Obtain a single, bounded, supervised test booking and explicit customer/operator charging authorization under the approved pilot limits.
+6. Have the authorized operator execute one supervised start using the approved operations tool. Record **command submission** separately from actual charger receipt and measured energy.
+7. Collect source heartbeat/status, transaction ID, cumulative register, event time and physical meter observations. Check tenant/source station ID against the pinned canonical link.
+8. Have the operator execute a supervised stop. Do not finalize money on an HTTP ACK alone; verify authenticated terminal transaction and cumulative energy before asserting a stopped session.
+9. Verify exactly one canonical invoice after final source convergence, private customer/vendor/admin views and finance ledger consistency. Real PSP settlement is **not** part of simulator acceptance.
+10. Independently execute only the specifically approved non-destructive fault/reconnect/duplicate/lost-ACK cases. No unsupervised physical power interruption or firmware update.
+11. Confirm final safe connector state onsite, preserve signed/redacted evidence, revoke temporary pilot access, and complete all four functional sign-offs.
+
+## 6. Stop conditions and incident handling
+
+Stop the pilot immediately and have the onsite technician restore a safe physical state if any of these occurs:
+
+- Unexpected power delivery or remote actuation, or the wrong physical connector starts.
+- Unrecognized source station/tenant/authorization, certificate compromise, protocol or firmware mismatch.
+- Nonmonotonic or unexplained meter readings, transaction identity change, unsupported precision, unverified terminal state or invoice duplication.
+- Unexpected station offline/fault during charging; missing safety-critical status; stale heartbeat beyond agreed limits.
+- A lost/uncertain command outcome that cannot be reconciled to trustworthy source evidence.
+- Backup/restore failure, ledger integrity concern, uncontrolled logging of secrets, tenant cross-access or missing incident response owner.
+
+Record the incident ID, exact observed event/time, safe state confirmed by the technician, owning operator and remediation evidence. Quarantine uncertain commands: **never replay a start just because a request timed out**. New starts remain blocked until a qualified reviewer clears the applicable source and capacity conditions.
+
+## 7. Release decision
+
+A pilot remains **BLOCKED** unless every required protocol/model row is explicitly approved, private evidence is retained, physical site safety is confirmed, certificate and operator approvals are current, full staging CI passes at the release SHA, and the billing/security/operational owners sign off.
+
+**Acceptance record**
+
+- [ ] Source/charging implementation and migration review — reviewer/date: __________________
+- [ ] Exact source/CSMS and charger model/firmware matrix — reviewer/date: __________________
+- [ ] Security, TLS/mTLS, tenant and certificate lifecycle — reviewer/date: __________________
+- [ ] Physical charger technician and site safety — reviewer/date: __________________
+- [ ] Fault, outage, backup/restore and rollback — reviewer/date: __________________
+- [ ] Tariff, energy, tax, invoice and ledger reconciliation — reviewer/date: __________________
+- [ ] Business owner authorizes the next scope — reviewer/date: __________________
+
+**Unexecuted/blocked gates are not passes.** Track simulator code/test/merge evidence separately from physical-pilot acceptance and production sign-off; do not mark requirement `5.4.5` or overall production readiness complete merely because this runbook exists.

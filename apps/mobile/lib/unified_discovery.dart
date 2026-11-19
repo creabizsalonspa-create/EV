@@ -118,8 +118,20 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
         allowViewportSearch: true,
       )),
     );
-    if (!mounted || !foreground || generation != snapshot ||
-        !ownSession() || !fence() || bounds == null) return;
+    if (!mounted) return;
+    // A map route may outlive its original authenticated epoch. Refuse to
+    // surface the previous customer's rows or issue a new catalog lookup.
+    if (!ownSession() || !fence()) {
+      setState(() {
+        generation++;
+        rows=[];
+        submittedViewport={};
+        busy=false;
+        error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');
+      });
+      return;
+    }
+    if (!foreground || generation != snapshot || bounds == null) return;
     setState(() => submittedViewport = Map<String,String>.of(bounds));
     await load(1);
   }
@@ -216,7 +228,15 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       ],
       if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!),
       Text(tr('$total published results','$total نتيجة منشورة')),
-      if (mapPoints().isNotEmpty) OutlinedButton(key:const Key('unified-map-open'),onPressed:busy||writing?null:searchFromMap,child:Text(tr('Map these loaded results','عرض هذه النتائج المحملة على الخريطة'))),
+      // Discovery into an empty viewport must be possible even when no
+      // catalog records had coordinates or the previous page was empty.
+      // Opening the map does not perform a network/GPS lookup; tiles and
+      // viewport submission each require separate explicit actions.
+      OutlinedButton(key:const Key('unified-map-open'),onPressed:busy||writing||!foreground||!ownSession()?null:searchFromMap,child:Text(
+        mapPoints().isEmpty
+          ?tr('Choose a map area to search','اختر منطقة على الخريطة للبحث')
+          :tr('Map these loaded results','عرض هذه النتائج المحملة على الخريطة'),
+      )),
       for(final row in rows)card(row),
       Wrap(children:[if(page>1)TextButton(onPressed:busy||writing?null:()=>load(page-1),child:Text(tr('Previous','السابق'))),Text('$page / $last'),if(page<last)TextButton(onPressed:busy||writing?null:()=>load(page+1),child:Text(tr('Next','التالي')))]),
     ]),

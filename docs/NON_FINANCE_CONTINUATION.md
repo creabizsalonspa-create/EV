@@ -1,3 +1,27 @@
+# 19 November 2026 — native Navigator/OS lifecycle privacy integration (PR #134)
+
+Preserved original `6cd6af47`, normal-merged latest verified integration `f2960975` and OCPP candidate `a86ec02a`. Flutter now obscures the complete Navigator (including dialogs and nested Customer/Vendor routes) while inactive/hidden/paused, suppresses private semantics and touch, preserves navigation and restores on resume. Android protects inactive thumbnails with FLAG_SECURE without clearing a pre-existing foreground restriction; iOS covers the native window during inactive transitions. Existing async-action/session generation and reservation-page fences are retained.
+
+Additional real red/green repair: an app first mounted while already inactive lacked a shield because it had missed the earlier lifecycle notification. Initial state now reads the binding's current lifecycle before the first frame. Regression verifies obscuring, blocked input/semantics and normal resume. The connector browser merge retains BOTH locale/dashboard draft preservation and the newer delayed-identity-bootstrap/logout guards; actual EN/AR Laravel verification passed with only two explicit station-scoped reads and no charging/payment/source operation.
+
+Local: **617 Flutter passes /34 explicit live-fixture skips**, **five focused cases**, clean analysis, **three native source-configuration tests**, actual bilingual connector browser, fixed42/312 inventory audit. Backend source is byte-for-byte identical to verified OCPP parent `a86ec02a`; no new backend rerun is claimed. Evidence: `docs/evidence/native-lifecycle-20261119/local.json`. Current-source Android debug/iOS simulator hosted builds must pass before merge; static source checks do not establish OS screenshot behavior on real devices. No signed/store, deployment or production acceptance and no whole-atom tracker credit.
+
+Continue existing discovery PR #176 (private recent search and incomplete metadata guards), remaining route-stop/native support/Admin backlog, then original full-platform requirements. Do not duplicate implemented modules. Single-owner mandate and42/312 weighting remain unchanged; canonical integrated checkpoint remains `f296097575663591c1f3cc97099316e218fb01ae` until a newer candidate passes and merges.
+
+# 19 November 2026 — verified integration and OCPP continuation
+
+Single-owner full-platform execution follows the latest owner mandate; retain historical parallel records below. Canonical branch is `development/fullstack-continuation`: #189/#132/#187 merged after all exact-source checks passed, latest merge `f296097575663591c1f3cc97099316e218fb01ae`. Normal merge trees match verified sources. #144/#179 close as fully incorporated ancestors, without deleting branches/history.
+
+Current existing PR #172 preserves OCPP source-authority/recovery work and repairs revoked-account command admission plus exact Hasura numeric wire evidence. Local Laravel1656/30669, PostgreSQL741/10229 +32process/478 +2precision/13, both Citrine protocol/session/continuous-worker/canonical-target tests pass. Resulting-head hosted checks must pass before merge; no new feature branch, force push or production acceptance. Details and exact evidence: `docs/evidence/ocpp-source-admission-20261119/`.
+
+Next execute existing PR #134 native Navigator/OS privacy integration, then remaining native/deep-link/support/Admin/discovery backlog and full42/312 requirements. Do not rebuild already merged OCPI, map, earnings or privacy modules. Fixed tracker credit remains186coded/185tested/185merged, weighted58.20/57.81/57.81%, production0. Legacy command-token at-rest encryption, production adapters/conformance and remaining original software remain incomplete; hardware/partner/PSP/bank, signed devices/stores and deployment require separate real acceptance.
+
+# CURRENT OWNER DIRECTIVE — SINGLE PLATFORM COMPLETION OWNER (19 NOVEMBER 2026)
+
+The owner's latest uploaded **FINAL EXECUTIVE DIRECTIVE — COMPLETE THE ENTIRE EV PLATFORM AND PREPARE PRODUCTION RELEASE**, resumed by `continue`, explicitly replaces prior ownership restrictions. One accountable engineer owns backend, customer/vendor web, canonical `apps/mobile`, Admin, integration, QA and release preparation. The older five-agent and other allocations below are historical, not a restriction on the currently authorized scope. Preserve all existing implementations and finance invariants; inspect current code/PRs before developing any module.
+
+Normal commits, pushes and safe PR integration are authorized after all applicable exact-source checks and reviews pass. Do not force-push, bypass a failed check, remove required tests or credit queued/cancelled/skipped checks. Keep the original 42-category/312-atom inventory and its stage weights unchanged. Physical charging, live partners/financial transactions, production deployment and store publication still require the specific external authorization, access and actual acceptance evidence. No autonomous execution continues after an active session ends.
+
 # 12 November 2026 — single-agent verified integration and continued source delivery
 
 **Verified integration main: `a9e291e6e541f4f4da7c39fa823ede7941b572a0`.**

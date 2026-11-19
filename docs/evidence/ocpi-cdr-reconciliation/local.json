@@ -1,0 +1,32 @@
+{
+  "status": "LOCAL_VERIFIED_HOSTED_PENDING",
+  "integration_base": "171b9c035dbbccd8bf3054d3a41ed00c2500464b",
+  "original_head": "9ed492538ec0e320e517b75c9fd0dfedd498f35d",
+  "verification": {
+    "laravel": {
+      "passed": 1337,
+      "assertions": 25620,
+      "skipped": 1
+    },
+    "reconciliation_sqlite_and_postgres_each": {
+      "passed": 12,
+      "assertions": 132
+    },
+    "postgres_contracts": {
+      "passed": 492,
+      "assertions": 6763
+    },
+    "postgres_process_concurrency": {
+      "passed": 30,
+      "assertions": 448
+    },
+    "pint_files": 786,
+    "flutter_analysis": "clean",
+    "actual_laravel_browser": "passed on isolated local review DB; EN/AR synthetic sources",
+    "controlled_web_contract": "passed EN/AR"
+  },
+  "production_accepted": false,
+  "tracker_credit_added": 0,
+  "merge_controller": "Agent5",
+  "shared_file_integration_note": "Keep the OcpiReconciliationTest contract filter and PR130 separate OcpiReceiptPrecisionTest migration run."
+}

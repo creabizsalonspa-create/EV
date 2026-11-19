@@ -80,6 +80,25 @@ class SourceStatusDurationsTest extends TestCase
         $this->assertSame(86200, $report['components'][0]['unknown_seconds']);
     }
 
+    public function test_regressing_source_clock_fails_closed_without_partial_uptime_claims(): void
+    {
+        $binding = $this->binding();
+        // ID=2 is a later authenticated source status, but it arrives
+        // carrying a timestamp older than the earlier ID=1 Available row.
+        // Imported records may predate source-clock observer protections.
+        $this->observe($binding, 120, 'Available');
+        $this->observe($binding, 240, 'Faulted');
+        $report = app(SourceStatusDurations::class)->report($binding);
+        $this->assertSame('requires_review', $report['state']);
+        $this->assertSame('source_event_order_conflict', $report['reason']);
+        $this->assertSame([], $report['components']);
+        $this->assertFalse($report['physical_uptime_verified']);
+        $this->assertFalse($report['commands_sent']);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_observation_budget_fails_closed_without_partial_duration_claims(): void
     {
         $binding = $this->binding();

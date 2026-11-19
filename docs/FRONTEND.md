@@ -1,3 +1,13 @@
+# 19 November 2026 — native Navigator/OS lifecycle privacy integration (PR #134)
+
+Preserved original `6cd6af47`, normal-merged latest verified integration `f2960975` and OCPP candidate `a86ec02a`. Flutter now obscures the complete Navigator (including dialogs and nested Customer/Vendor routes) while inactive/hidden/paused, suppresses private semantics and touch, preserves navigation and restores on resume. Android protects inactive thumbnails with FLAG_SECURE without clearing a pre-existing foreground restriction; iOS covers the native window during inactive transitions. Existing async-action/session generation and reservation-page fences are retained.
+
+Additional real red/green repair: an app first mounted while already inactive lacked a shield because it had missed the earlier lifecycle notification. Initial state now reads the binding's current lifecycle before the first frame. Regression verifies obscuring, blocked input/semantics and normal resume. The connector browser merge retains BOTH locale/dashboard draft preservation and the newer delayed-identity-bootstrap/logout guards; actual EN/AR Laravel verification passed with only two explicit station-scoped reads and no charging/payment/source operation.
+
+Local: **617 Flutter passes /34 explicit live-fixture skips**, **five focused cases**, clean analysis, **three native source-configuration tests**, actual bilingual connector browser, fixed42/312 inventory audit. Backend source is byte-for-byte identical to verified OCPP parent `a86ec02a`; no new backend rerun is claimed. Evidence: `docs/evidence/native-lifecycle-20261119/local.json`. Current-source Android debug/iOS simulator hosted builds must pass before merge; static source checks do not establish OS screenshot behavior on real devices. No signed/store, deployment or production acceptance and no whole-atom tracker credit.
+
+Continue existing discovery PR #176 (private recent search and incomplete metadata guards), remaining route-stop/native support/Admin backlog, then original full-platform requirements. Do not duplicate implemented modules. Single-owner mandate and42/312 weighting remain unchanged; canonical integrated checkpoint remains `f296097575663591c1f3cc97099316e218fb01ae` until a newer candidate passes and merges.
+
 ## Browser session response ordering — 12 November 2026
 
 The web middleware suppresses only the session cookie on GET/HEAD when the decrypted
@@ -399,3 +409,15 @@ business job, using Ubuntu24.04 while preserving required check names. A missing
 failure onbb02c79 is recorded and must be replaced by passing corrected-source CI;
 existing tests, timeouts and production rate limits are retained. The shared canonical
 client produces one role-based debug APK/simulator app, not separately signed store apps.
+
+
+## Native itemized vendor earnings — 19 November 2026
+
+The existing Vendor finance currency card opens `VendorEarningsView` in `vendor_finance.dart`. The read-only view first obtains the current vendor identity, then consumes its canonical itemized earnings endpoint. It preserves original invoice evidence and server amounts, including signed availability and invoice-specific decimal precision. The overall balance is explicitly for all vendor invoices/approved adjustments, not a sum of the displayed page. EN/AR pagination, loading/error/empty states and explicit refresh remain separate from any settlement/payout action. No client economic rules or additional ledger. Inactivity clears source rows; a session fence is checked between identity and report calls and on completion.
+
+`vendor_earnings_test.dart` covers UI/precision/privacy/navigation and malformed source contracts; the existing actual Laravel native financial-analytics fixture now verifies itemized vendor access plus customer/outsider denial. Its optional API base accepts loopback only. Required exact-source Android/iOS and platform validation remains mandatory; these checks do not claim production banking or physical-device acceptance.
+
+
+## Private native overview and invoice lifecycle — 19 November 2026
+
+Invoice details/history and Vendor finance overview now clear private projections on inactivity, invalidate late reads and reject stale account callbacks. A read captures its session before `/me` and checks again before dependent requests; an old401 cannot expire a new account. Vendor overview child routes are bound to the API/session that rendered their source data, including API-object replacement. Returning to the foreground requires explicit refresh; existing uncertain economic operations keep their original recovery mechanism. Connector draft state is scoped to actor/epoch and is erased from its global reference immediately on logout. Real Laravel and widget regressions preserve exact scoped reads and no automatic connector polling.

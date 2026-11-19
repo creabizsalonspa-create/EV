@@ -10,6 +10,7 @@ use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -109,6 +110,43 @@ class SubscriptionDunningTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'admin']), 'sanctum')->getJson($url)->assertOk()->assertJsonPath('total', 1);
         app(SubscriptionService::class)->mockPay($user, $sub, $invoice, 'succeeded', 'paid');
         $this->actingAs($user, 'sanctum')->getJson($url)->assertOk()->assertJsonPath('data.0.attention', 'settled');
+    }
+
+    public function test_revoked_payer_or_admin_cannot_read_private_subscription_reminders(): void
+    {
+        [$user, , $invoice, $start] = $this->fixture();
+        $this->travelTo($start->copy()->addDay());
+        app(SubscriptionDunning::class)->invoice($invoice);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $url = '/api/v1/commercial/subscription-notices';
+        $before = DB::table('subscription_dunning_notices')->count();
+
+        foreach ([$user, $admin] as $reader) {
+            $row = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $restore = [
+                'role' => $row->role, 'account_status' => $row->account_status,
+                'auth_epoch' => $row->auth_epoch, 'password' => $row->password,
+            ];
+            $this->actingAs($reader, 'sanctum')->getJson($url)->assertOk()
+                ->assertJsonPath('total', 1);
+
+            foreach ([
+                ['role' => 'vendor'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $row->auth_epoch + 1],
+                ['password' => Hash::make('rotated-subscription-reminder-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $response = $this->getJson($url);
+                $this->assertContains($response->getStatusCode(), [401, 403, 409]);
+                $response->assertJsonMissingPath('data.0.invoice_id');
+                DB::table('users')->where('id', $reader->id)->update($restore);
+            }
+        }
+
+        $this->assertSame($before, DB::table('subscription_dunning_notices')->count());
+        Http::assertNothingSent();
     }
 
     public function test_command_rejects_invalid_limits_and_history_is_immutable(): void
