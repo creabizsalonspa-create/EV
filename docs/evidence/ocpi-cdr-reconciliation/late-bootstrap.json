@@ -1,0 +1,16 @@
+{
+  "status": "LOCAL_VERIFIED_HOSTED_PENDING",
+  "failed_hosted_job": 135194799163,
+  "red": "Actual Laravel delayed identity completion erased selected station draft before Arabic snapshot",
+  "green": [
+    "Actual Laravel EN/AR retained scoped snapshot, exact API scope/status/count/source flags and visibility clearing",
+    "Controlled connector fleet",
+    "Private web-session client",
+    "Controlled web-session account/epoch/role/logout fences",
+    "Catalog startup 3 cases",
+    "Vendor bootstrap",
+    "Vendor independent section reads"
+  ],
+  "production_accepted": false,
+  "tracker_credit_added": 0
+}

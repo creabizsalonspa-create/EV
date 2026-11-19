@@ -149,11 +149,20 @@ final class OpenChargeMapProjection
 
     private static function date(mixed $value): ?DateTimeImmutable
     {
-        if (! is_string($value) || strlen($value) > 64 || ! preg_match('/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/i', trim($value))) {
+        if (! is_string($value) || strlen($value) > 64 || ! preg_match('/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-](?:0\d|1[0-3]):[0-5]\d|[+-]14:00)$/i', trim($value))) {
             return null;
         }
         try {
-            return (new DateTimeImmutable($value))->setTimezone(new DateTimeZone('UTC'));
+            $parsed = new DateTimeImmutable($value);
+            // PHP silently rolls over invalid calendar days and may accept
+            // impossible UTC offsets such as +14:30 without parser warnings.
+            // The strict source date/offset grammar above rejects both; an
+            // untrusted crowd report must never invent source freshness.
+            if (DateTimeImmutable::getLastErrors() !== false) {
+                return null;
+            }
+
+            return $parsed->setTimezone(new DateTimeZone('UTC'));
         } catch (\Exception) {
             return null;
         }

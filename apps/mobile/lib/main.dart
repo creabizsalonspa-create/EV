@@ -67,6 +67,9 @@ class _EvAppState extends State<EvApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    // Cover the first frame when mount follows an existing OS overlay.
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _privacyHidden = lifecycle != null && lifecycle != AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     registerVendorDocumentLicenses();
     preferences = widget.preferences ?? AppPreferences(DevicePreferenceStore());

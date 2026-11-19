@@ -114,6 +114,7 @@ final class OpenChargeMapAdapter
             throw new LookupFailure('invalid_response');
         }
         $values = [];
+        $seenSourceIds = [];
         $currentTime = class_exists(Carbon::class)
             ? Carbon::now()->getTimestamp()
             : (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->getTimestamp();
@@ -151,6 +152,22 @@ final class OpenChargeMapAdapter
                 || count($item['connections']) > 20) {
                 throw new LookupFailure('invalid_response');
             }
+            if (isset($seenSourceIds[$item['id']])) {
+                throw new LookupFailure('invalid_response');
+            }
+            $seenSourceIds[$item['id']] = true;
+            // Cache storage is untrusted. A fabricated "true" string or
+            // integer must never turn uncertain crowd status into a boolean.
+            foreach (['reported_operational', 'reported_membership_required', 'reported_access_key_required'] as $flag) {
+                if (($item[$flag] ?? null) !== null && ! is_bool($item[$flag])) {
+                    throw new LookupFailure('invalid_response');
+                }
+            }
+            foreach (['name', 'address', 'city', 'country', 'operator_label', 'reported_access', 'reported_cost_note'] as $label) {
+                if (! is_string($item[$label] ?? null)) {
+                    throw new LookupFailure('invalid_response');
+                }
+            }
             foreach ($item['connections'] as $connection) {
                 if (! is_array($connection)
                     || ! is_string($connection['reported_connector_type'] ?? null)
@@ -169,10 +186,16 @@ final class OpenChargeMapAdapter
             $sourceTime = $item['source_updated_at'] ?? null;
             $seconds = null;
             if (is_string($sourceTime) && preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/D', $sourceTime) === 1) {
-                try {
-                    $seconds = (new \DateTimeImmutable($sourceTime))->getTimestamp();
-                } catch (\Throwable) {
-                    // Unknown/malformed source time never implies freshness.
+                // PHP's free-form DateTime constructor silently rolls invalid
+                // calendar dates forward (e.g. February 30 to March 2).
+                // Untrusted cached crowd timestamps must never inherit that
+                // fabricated freshness or a valid source-clock label.
+                $parsed = \DateTimeImmutable::createFromFormat(
+                    '!Y-m-d\TH:i:s\Z', $sourceTime, new \DateTimeZone('UTC')
+                );
+                if ($parsed !== false && \DateTimeImmutable::getLastErrors() === false
+                    && $parsed->format('Y-m-d\TH:i:s\Z') === $sourceTime) {
+                    $seconds = $parsed->getTimestamp();
                 }
             }
             $sourceAgeSeconds = $seconds !== null && $seconds <= $currentTime
@@ -248,6 +271,36 @@ final class OpenChargeMapAdapter
         }
         unset($item);
 
+        // Per-response quality evidence only. This describes at most 25
+        // returned, filtered, licensed crowd reports. It is never a census of
+        // physical chargers, national coverage or live operational readiness.
+        // Recalculate after the cached source has passed all privacy/license
+        // checks and dynamic age filtering, not from an untrusted cache field.
+        $unknownTimes = 0;
+        $olderThanDay = 0;
+        $unknownOperating = 0;
+        foreach ($values as $item) {
+            $age = $item['source_age_minutes'] ?? null;
+            if (! is_int($age) || $age < 0) {
+                $unknownTimes++;
+            } elseif ($age >= 1440) {
+                $olderThanDay++;
+            }
+            if (($item['reported_operational'] ?? null) === null) {
+                $unknownOperating++;
+            }
+        }
+        $quality = [
+            'evidence' => 'FILTERED_LICENSED_CROWD_SAMPLE_ONLY',
+            'returned_count' => count($values),
+            'source_time_unknown_or_future_count' => $unknownTimes,
+            'source_older_than_24h_count' => $olderThanDay,
+            'operational_report_unknown_count' => $unknownOperating,
+            'max_source_sample' => 25,
+            'complete_geographic_coverage' => false,
+            'live_status_verified' => false,
+        ];
+
         return [
             'provider' => 'open_charge_map',
             'evidence' => 'OPEN_LICENSED_DISCOVERY_ONLY',
@@ -258,6 +311,7 @@ final class OpenChargeMapAdapter
             'distance_basis' => 'great_circle',
             'license_policy' => 'PER_RECORD_ATTRIBUTION_REQUIRED',
             'count' => count($values),
+            'quality_sample' => $quality,
             'results' => $values,
         ];
     }

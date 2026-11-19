@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
@@ -6,6 +7,7 @@ import 'test_support.dart';
 
 class InvoiceFixture extends FixtureApi {
   bool fail = false, invalidEvidence = false;
+  String? corruptField;
   int requests = 0;
   @override
   Future<dynamic> request(
@@ -20,24 +22,119 @@ class InvoiceFixture extends FixtureApi {
     if (fail) throw const ApiException(401, 'expired');
     return {
       'invoice': {
+        'id': corruptField == 'id' ? '7' : 7,
+        'user_id': 123,
+        'charging_session_id': corruptField == 'session' ? 8 : 7,
+        'minor_units': corruptField == 'minor_units' ? 5 : 2,
         'number': 'SIM-FIXTURE',
         'evidence': 'SIMULATED',
         'subtotal_minor': 313,
         'tax_minor': 16,
-        'total_minor': 329,
-        'currency': 'AED',
+        'total_minor': corruptField == 'total_minor' ? -1 : 329,
+        'currency': corruptField == 'currency' ? 'DANGEROUS' : 'AED',
       },
       'paid_minor': 329,
       'refunded_minor': 329,
       'amount_due_minor': 0,
+      'unpaid_credited_minor': 0,
+      'state': 'refunded',
       'ledger_balanced': true,
+      'payments': corruptField == 'payment'
+          ? [{'amount_minor': 'not-an-amount', 'created_at': '2026-11-16'}]
+          : [],
+      'refunds': corruptField == 'refund'
+          ? [{'amount_minor': 329, 'created_at': null}]
+          : [],
+      'unpaid_credit_notes': corruptField == 'credit_note'
+          ? [{'id': 'not-an-id', 'credit_note_number': 'PRIVATE-NOTE'}]
+          : [],
       'payment_provider': 'SIMULATOR_ONLY',
       'real_payment_processed': invalidEvidence,
     };
   }
 }
 
+class DeferredInvoiceApi extends InvoiceFixture {
+  final pending = Completer<dynamic>();
+  int actorEpoch = 0;
+  @override
+  bool Function() sessionFence() {
+    final captured = actorEpoch;
+    return () => captured == actorEpoch;
+  }
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    expect(path, 'finance/sessions/7/invoice');
+    expect(method, 'POST');
+    requests++;
+    return pending.future;
+  }
+}
+
 void main() {
+  testWidgets('late old-account invoice result cannot repopulate financial actions', (
+    tester,
+  ) async {
+    final api = DeferredInvoiceApi();
+    addTearDown(api.close);
+    var expired = false;
+    await tester.pumpWidget(MaterialApp(
+      home: InvoicePage(api: api, sessionId: 7, onExpired: () => expired = true),
+    ));
+    await tester.pump();
+    api.actorEpoch++;
+    api.pending.complete({
+      'invoice': {
+        'number': 'PRIVATE-OLD-INVOICE',
+        'evidence': 'SIMULATED',
+        'id': 7,
+        'user_id': 123,
+        'minor_units': 2,
+        'currency': 'AED',
+      },
+      'payment_provider': 'SIMULATOR_ONLY',
+      'real_payment_processed': false,
+    });
+    await tester.pump();
+    await tester.pumpWidget(MaterialApp(
+      home: InvoicePage(api: api, sessionId: 7, onExpired: () => expired = true),
+    ));
+    await tester.pump();
+    expect(find.text('PRIVATE-OLD-INVOICE'), findsNothing);
+    expect(find.byType(OutlinedButton), findsNothing);
+    expect(expired, isFalse);
+    expect(api.requests, 1);
+  });
+
+  testWidgets('background discards invoice and never automatically replays POST', (
+    tester,
+  ) async {
+    final api = InvoiceFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: InvoicePage(api: api, sessionId: 7, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-FIXTURE'), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(find.text('SIM-FIXTURE'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(api.requests, 1);
+    expect(find.text('SIM-FIXTURE'), findsNothing);
+    await tester.ensureVisible(find.text('Refresh'));
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(api.requests, 2);
+    expect(find.text('SIM-FIXTURE'), findsOneWidget);
+  });
   testWidgets(
     'read-only simulated invoice displays actual minor-unit totals and clears private data on expiry',
     (tester) async {
@@ -56,6 +153,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('SIM-FIXTURE'), findsOneWidget);
       expect(find.text('Tax: 16 minor units AED'), findsOneWidget);
+      // The verified detail screen contains several safe, read-only actions;
+      // its ListView lazily builds the lower amount rows on small viewports.
+      await tester.scrollUntilVisible(
+        find.text('Amount due: 0 minor units AED'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Amount due: 0 minor units AED'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.text('Ledger balanced'),
@@ -82,6 +186,23 @@ void main() {
       expect(api.requests, 2);
     },
   );
+  for (final field in ['id', 'session', 'minor_units', 'total_minor', 'currency', 'payment', 'refund', 'credit_note']) {
+    testWidgets('malformed invoice $field cannot open financial actions', (
+      tester,
+    ) async {
+      final api = InvoiceFixture()..corruptField = field;
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        home: InvoicePage(api: api, sessionId: 7, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('SIM-FIXTURE'), findsNothing);
+      expect(find.text('Ledger balanced'), findsNothing);
+      expect(find.byType(OutlinedButton), findsNothing);
+      expect(api.requests, 1);
+    });
+  }
+
   testWidgets(
     'unsupported finance evidence is not presented as a simulation document',
     (tester) async {

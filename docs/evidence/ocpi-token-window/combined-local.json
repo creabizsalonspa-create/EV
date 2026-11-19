@@ -1,0 +1,34 @@
+{
+  "status": "LOCAL_VERIFIED_HOSTED_PENDING",
+  "verified_source_before_documentation": "6601619ef81385f1bb8b3f5ec421ee6ca9078b84",
+  "parent": "bdaae6f7",
+  "verification": {
+    "laravel": {
+      "passed": 1354,
+      "assertions": 26011,
+      "skipped": 1
+    },
+    "postgres_contracts": {
+      "passed": 502,
+      "assertions": 7089
+    },
+    "postgres_process_concurrency": {
+      "passed": 30,
+      "assertions": 448
+    },
+    "postgres_precision": {
+      "passed": 2,
+      "assertions": 13
+    },
+    "flutter": {
+      "passed": 544,
+      "explicit_fixture_skips": 33
+    },
+    "pint_files": 793,
+    "browser_actual_protocol_peer": "passed; synthetic only",
+    "native_actual_laravel": "passed; synthetic protocol peer only"
+  },
+  "production_accepted": false,
+  "tracker_credit_added": 0,
+  "ownership": "Latest direct owner instruction: single full-platform completion engineer; old allocations superseded"
+}

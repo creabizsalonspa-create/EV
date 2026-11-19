@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Finance\Invoice;
+use App\Security\CurrentFinanceReader;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -15,11 +16,16 @@ class PaymentCaseEvidenceController extends Controller
 {
     private function access(Request $r, int $case, bool $lock = false): object
     {
+        // Caller must hold one transaction through the full private
+        // metadata/file disclosure or durable upload decision.
+        $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
         $hint = DB::table('gateway_cases')->find($case);
         abort_unless($hint, 404);
-        // Match the canonical resolution lock order: invoice, then case.
-        $invoice = Invoice::whereKey($hint->invoice_id)->when($lock, fn ($q) => $q->lockForUpdate())->firstOrFail();
-        abort_unless($r->user()->role === 'admin' || $invoice->user_id === $r->user()->id || ($r->user()->role === 'vendor' && $invoice->vendor_id === $r->user()->id), 404);
+        // Match the canonical resolution lock order: account, invoice, case.
+        $invoice = Invoice::whereKey($hint->invoice_id)
+            ->when($lock, fn ($q) => $q->lockForUpdate())->firstOrFail();
+        abort_unless($actor->role === 'admin' || $invoice->user_id === $actor->id
+            || ($actor->role === 'vendor' && $invoice->vendor_id === $actor->id), 404);
 
         return DB::table('gateway_cases')->where('id', $case)->when($lock, fn ($q) => $q->lockForUpdate())->firstOrFail();
     }
@@ -31,15 +37,20 @@ class PaymentCaseEvidenceController extends Controller
 
     public function index(Request $r, int $case)
     {
-        $source = $this->access($r, $case);
-        $page = DB::table('gateway_case_evidence')->where('case_id', $case)->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->safe($row));
+        return DB::transaction(function () use ($r, $case) {
+            $source = $this->access($r, $case);
+            $page = DB::table('gateway_case_evidence')->where('case_id', $case)
+                ->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->safe($row));
 
-        return response()->json($page->toArray() + ['can_upload' => $source->status === 'open'])->header('Cache-Control', 'no-store, private');
+            return response()->json($page->toArray() + [
+                'can_upload' => $source->status === 'open',
+            ])->header('Cache-Control', 'no-store, private');
+        }, 3);
     }
 
     public function upload(Request $r, int $case)
     {
-        $this->access($r, $case);
+        DB::transaction(fn () => $this->access($r, $case), 3);
         $v = $r->validate(['kind' => 'required|in:service_record,receipt,correspondence,other', 'consent' => 'required|accepted', 'idempotency_key' => 'required|string|max:100', 'document' => 'required|file|mimetypes:application/pdf,image/jpeg,image/png|max:4096']);
         $file = $r->file('document');
         $content = $file->getContent();
@@ -89,21 +100,30 @@ class PaymentCaseEvidenceController extends Controller
 
     public function download(Request $r, int $case, int $evidence)
     {
-        $this->access($r, $case);
-        $row = DB::table('gateway_case_evidence')->where('case_id', $case)->where('id', $evidence)->first();
-        abort_unless($row, 404);
-        $cipher = Storage::disk('local')->get($row->storage_path);
-        abort_unless(is_string($cipher), 503);
-        try {
-            $content = Crypt::decryptString($cipher);
-        } catch (Throwable) {
-            abort(503, 'Private evidence integrity check failed.');
-        }
-        abort_unless(strlen($content) === (int) $row->size_bytes && hash_equals($row->sha256, hash('sha256', $content)), 503, 'Private evidence integrity check failed.');
-        $extension = match ($row->mime_type) {
-            'image/png' => 'png', 'image/jpeg' => 'jpg', default => 'pdf'
-        };
+        return DB::transaction(function () use ($r, $case, $evidence) {
+            $this->access($r, $case);
+            $row = DB::table('gateway_case_evidence')
+                ->where('case_id', $case)->where('id', $evidence)->first();
+            abort_unless($row, 404);
+            $cipher = Storage::disk('local')->get($row->storage_path);
+            abort_unless(is_string($cipher), 503);
+            try {
+                $content = Crypt::decryptString($cipher);
+            } catch (Throwable) {
+                abort(503, 'Private evidence integrity check failed.');
+            }
+            abort_unless(strlen($content) === (int) $row->size_bytes && hash_equals($row->sha256, hash('sha256', $content)), 503, 'Private evidence integrity check failed.');
+            $extension = match ($row->mime_type) {
+                'image/png' => 'png', 'image/jpeg' => 'jpg', default => 'pdf'
+            };
 
-        return response($content, 200, ['Content-Type' => $row->mime_type, 'Content-Disposition' => 'attachment; filename="case-evidence-'.$row->id.'.'.$extension.'"', 'X-Content-Type-Options' => 'nosniff', 'Content-Security-Policy' => "sandbox; default-src 'none'", 'Cache-Control' => 'no-store, private']);
+            return response($content, 200, [
+                'Content-Type' => $row->mime_type,
+                'Content-Disposition' => 'attachment; filename="case-evidence-'.$row->id.'.'.$extension.'"',
+                'X-Content-Type-Options' => 'nosniff',
+                'Content-Security-Policy' => "sandbox; default-src 'none'",
+                'Cache-Control' => 'no-store, private',
+            ]);
+        }, 3);
     }
 }

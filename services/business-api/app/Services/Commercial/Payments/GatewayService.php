@@ -3,6 +3,7 @@
 namespace App\Services\Commercial\Payments;
 
 use App\Models\Finance\Invoice;
+use App\Models\User;
 use App\Services\Finance\FinanceService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +25,29 @@ class GatewayService
         };
     }
 
+    /**
+     * Direct service calls and post-preflight browser races must not reuse
+     * a suspended/demoted financial actor. Durable callers lock the invoice
+     * first and retain this account lock through the mutation. Only the read-only
+     * preflight omits locks; it cannot replace the durable authority recheck.
+     */
+    private function currentActor(int $id, Invoice $invoice, bool $refund = false, bool $lock = true): void
+    {
+        $query = User::whereKey($id);
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+        $actor = $query->first();
+        abort_unless($actor && $actor->account_status === 'active', 409,
+            'Financial account authorization changed.');
+        if ($refund) {
+            abort_unless($actor->role === 'admin'
+                || ($actor->role === 'vendor' && $invoice->vendor_id === $actor->id), 404);
+        } else {
+            abort_unless($invoice->user_id === $actor->id, 404);
+        }
+    }
+
     private function fingerprint(array $payload): string
     {
         return hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
@@ -41,6 +65,7 @@ class GatewayService
 
         return DB::transaction(function () use ($invoice, $actor, $amount, $key) {
             $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+            $this->currentActor($actor, $invoice);
             HostedCheckout::guard('charging', (int) $invoice->id);
             CorporateHostedCollection::guardPayment((int) $invoice->id);
             $requestKey = $this->fingerprint(['checkout', $invoice->id, $actor, $key]);
@@ -67,9 +92,23 @@ class GatewayService
         abort_unless($initial, 404);
         HostedCheckout::guardCanonicalConfiguration('charging', (int) $initial->id);
 
+        // Reject an unauthorized direct service call before a Stripe TEST
+        // recovery identity is prepared or a provider request can be sent.
+        // The durable operation rechecks under the same invoice->actor lock
+        // order to close a concurrent suspension/demotion after preflight.
+        DB::transaction(function () use ($initial, $actor, $kind) {
+            // This is a read-only preflight, not the durable mutation. Waiting
+            // on its invoice/account locks would block behind a provider call
+            // before PaymentRecovery can reject the existing execution lease.
+            // The mutation below still locks invoice then actor and rechecks.
+            $invoice = Invoice::whereKey($initial->invoice_id)->firstOrFail();
+            $this->currentActor($actor, $invoice, $kind === 'refund', lock: false);
+        }, 3);
+
         return app(PaymentRecovery::class)->run('charging', $initial, $actor, $kind, $key, [$kind, $amount ?? (int) $initial->amount_minor, $token, $reason], fn () => DB::transaction(function () use ($initial, $actor, $kind, $key, $amount, $token, $reason, $provider) {
             // Invoice is the serialization root, shared with legacy payments/refunds.
             $invoice = Invoice::whereKey($initial->invoice_id)->lockForUpdate()->firstOrFail();
+            $this->currentActor($actor, $invoice, $kind === 'refund');
             $checkout = DB::table('gateway_checkouts')->where('id', $initial->id)->lockForUpdate()->first();
             HostedCheckout::guard('charging', (int) $invoice->id, (int) $checkout->id);
             abort_unless($invoice->evidence === 'SIMULATED' && $checkout->provider === config('payments.provider'), 409, 'Checkout provider or invoice evidence mismatch.');
@@ -172,7 +211,15 @@ class GatewayService
                 if ($existing) {
                     abort_unless($existing->kind === $kind && (int) $existing->amount_minor === (int) $v['amount_minor'], 409, 'Provider evidence does not match the committed operation.');
                 } else {
-                    $this->operate($initial->id, $invoice->user_id, $kind, 'webhook:'.$v['event_id'], (int) $v['amount_minor'], null, $kind === 'refund' ? 'Mock provider refund webhook' : '');
+                    // A verified provider refund is financial evidence, not
+                    // a Customer-initiated refund instruction. Use the
+                    // invoice's authorized Vendor reviewer for this MOCK-only
+                    // canonical operation; an ordinary Customer calling
+                    // operate('refund') remains forbidden by currentActor().
+                    $reviewer = $kind === 'refund' ? $invoice->vendor_id : $invoice->user_id;
+                    $this->operate($initial->id, $reviewer, $kind, 'webhook:'.$v['event_id'],
+                        (int) $v['amount_minor'], null,
+                        $kind === 'refund' ? 'Mock provider refund webhook' : '');
                 }
                 HostedCheckout::observed('charging', (int) $initial->id, DB::table('gateway_checkouts')->find($initial->id)->status);
                 DB::table('gateway_webhook_events')->insert(['provider_event_id' => $eventId, 'fingerprint' => $hash, 'checkout_id' => $initial->id, 'type' => $v['type'], 'created_at' => now()]);
@@ -326,6 +373,7 @@ class GatewayService
 
         return DB::transaction(function () use ($invoice, $actor, $kind, $amount, $reason, $key) {
             $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+            $this->currentActor($actor, $invoice);
             $requestKey = $this->fingerprint(['case', $invoice->id, $actor, $key]);
             $fingerprint = $this->fingerprint([$kind, $amount, $reason]);
             if ($old = DB::table('gateway_cases')->where('request_key', $requestKey)->first()) {
@@ -349,6 +397,10 @@ class GatewayService
 
         return DB::transaction(function () use ($initial, $actor, $outcome, $resolution) {
             $invoice = Invoice::whereKey($initial->invoice_id)->lockForUpdate()->firstOrFail();
+            $reviewer = User::whereKey($actor)->lockForUpdate()->first();
+            abort_unless($reviewer && $reviewer->account_status === 'active', 409,
+                'Admin dispute reviewer authority changed.');
+            abort_unless($reviewer->role === 'admin', 403);
             $case = DB::table('gateway_cases')->where('id', $initial->id)->lockForUpdate()->first();
             abort_if(Schema::hasTable('external_disputes') && DB::table('external_disputes')->where('case_id', $case->id)->exists(), 409, 'Provider dispute holds must be reconciled through the provider dispute workflow.');
             if ($case->status !== 'open') {

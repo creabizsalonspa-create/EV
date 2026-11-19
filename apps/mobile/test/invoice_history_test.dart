@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,7 +8,7 @@ import 'test_support.dart';
 
 class HistoryApi extends FixtureApi {
   final queries = <Map<String, String>>[];
-  bool failSecond = true, expired = false;
+  bool failSecond = true, expired = false, malformedList = false;
   final methods = <String>[];
   @override
   Future<dynamic> request(
@@ -36,7 +37,7 @@ class HistoryApi extends FixtureApi {
         throw const ApiException(503, 'offline');
       }
       return {
-        'data': [invoice],
+        'data': [malformedList ? {...invoice, 'id': 'not-an-id'} : invoice],
         'current_page': int.parse(query['page']!),
         'last_page': 2,
         'total': 26,
@@ -44,7 +45,16 @@ class HistoryApi extends FixtureApi {
     }
     expect(path, 'finance/invoices/7');
     return {
-      'invoice': invoice,
+      'invoice': {
+        ...invoice,
+        // Canonical finance/invoices/{id} detail includes these identity and
+        // currency precision fields; listing projections need not include them.
+        'charging_session_id': 7,
+        'user_id': 123,
+        'minor_units': 2,
+      },
+      'state': 'partially_refunded',
+      'unpaid_credited_minor': 0,
       'paid_minor': 329,
       'refunded_minor': 100,
       'amount_due_minor': 0,
@@ -69,6 +79,31 @@ class HistoryApi extends FixtureApi {
   }
 }
 
+class DelayedHistoryApi extends HistoryApi {
+  final pending = Completer<dynamic>();
+  int actorEpoch = 0;
+  int invoiceReads = 0;
+  @override
+  bool Function() sessionFence() {
+    final captured = actorEpoch;
+    return () => captured == actorEpoch;
+  }
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path == 'finance/invoices') {
+      invoiceReads++;
+      return pending.future;
+    }
+    return super.request(path, method: method, body: body, query: query);
+  }
+}
+
 Widget app(HistoryApi api, VoidCallback expired) => MaterialApp(
   locale: const Locale('ar'),
   supportedLocales: const [Locale('en'), Locale('ar')],
@@ -80,6 +115,92 @@ Widget app(HistoryApi api, VoidCallback expired) => MaterialApp(
   home: InvoiceHistoryView(api: api, onExpired: expired),
 );
 void main() {
+  testWidgets('late old-account invoice list is discarded and new actor gets fresh data', (
+    tester,
+  ) async {
+    final oldApi = DelayedHistoryApi();
+    addTearDown(oldApi.close);
+    var expired = false;
+    await tester.pumpWidget(app(oldApi, () => expired = true));
+    await tester.pump();
+    expect(oldApi.invoiceReads, 1);
+
+    // Replace the authenticated API while the previous account's GET is still
+    // unresolved. The next user's invoice must win even if the old GET returns.
+    oldApi.actorEpoch++;
+    final newApi = HistoryApi()..failSecond = false;
+    addTearDown(newApi.close);
+    await tester.pumpWidget(app(newApi, () {}));
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-HISTORY-7'), findsOneWidget);
+
+    oldApi.pending.complete({
+      'data': [
+        {
+          'id': 7,
+          'number': 'PRIVATE-OLD-ACCOUNT',
+          'evidence': 'SIMULATED',
+          'created_at': '2026-10-27T00:00:00Z',
+          'total_minor': 329,
+          'currency': 'AED',
+        },
+      ],
+      'current_page': 1,
+      'last_page': 1,
+      'total': 1,
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-HISTORY-7'), findsOneWidget);
+    expect(find.text('PRIVATE-OLD-ACCOUNT'), findsNothing);
+    expect(oldApi.invoiceReads, 1);
+    expect(expired, isFalse);
+  });
+
+  testWidgets('malformed private invoice row hides detail controls until explicit retry', (
+    tester,
+  ) async {
+    final api = HistoryApi()
+      ..malformedList = true
+      ..failSecond = false;
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, () {}));
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-HISTORY-7'), findsNothing);
+    expect(find.text('عرض الفاتورة'), findsNothing);
+    await tester.ensureVisible(find.text('إعادة المحاولة'));
+    api.malformedList = false;
+    await tester.tap(find.text('إعادة المحاولة'));
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-HISTORY-7'), findsOneWidget);
+    expect(api.methods.every((method) => method == 'GET'), isTrue);
+  });
+  testWidgets('background clears private invoice list and filters without automatic reads', (
+    tester,
+  ) async {
+    final api = HistoryApi()..failSecond = false;
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, () {}));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'PRIVATE-PREFIX');
+    final requests = api.queries.length;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(find.text('SIM-HISTORY-7'), findsNothing);
+    expect(
+      tester.widget<TextFormField>(find.byType(TextFormField).first).controller!.text,
+      isEmpty,
+    );
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(api.queries.length, requests);
+    expect(find.text('SIM-HISTORY-7'), findsNothing);
+    await tester.ensureVisible(find.text('تحديث سجل الفواتير'));
+    await tester.tap(find.text('تحديث سجل الفواتير'));
+    await tester.pumpAndSettle();
+    expect(api.queries.length, requests + 1);
+    expect(find.text('SIM-HISTORY-7'), findsOneWidget);
+    expect(api.queries.last, {'page': '1'});
+  });
   testWidgets(
     'invoice history keeps filters through pagination failure/retry and clears on expiry',
     (tester) async {

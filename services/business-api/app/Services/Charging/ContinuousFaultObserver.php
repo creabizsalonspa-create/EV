@@ -46,11 +46,26 @@ class ContinuousFaultObserver
         $cursor = DB::table('charging_fault_cursors')->where('source_generation', $generation)->first();
         $after = (int) ($cursor->last_event_id ?? 0);
         try {
+            // The last committed event is the source-clock boundary even when
+            // a previous page contained only Available/diagnostic statuses.
+            // An absent durable observation cannot certify a source cursor.
+            $previousClock = null;
+            if ($after > 0) {
+                $lastClock = DB::table('charging_status_observations')
+                    ->where('source_generation', $generation)
+                    ->where('source_event_id', $after)
+                    ->value('occurred_at');
+                abort_unless(is_string($lastClock), 503, 'Status source cursor lacks durable clock evidence.');
+                $previousClock = CarbonImmutable::parse($lastClock, 'UTC');
+            }
             $source = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id protocol}}', ['name' => $b->identifier])['ChargingStations'] ?? null;
-            abort_unless(is_array($source) && count($source) <= 1, 409);
+            abort_unless(is_array($source) && array_is_list($source) && count($source) <= 1, 503, 'Malformed source station projection.');
             $sourceId = $source[0]['id'] ?? null;
-            if ($sourceId !== null) {
-                abort_unless(is_int($sourceId) && $sourceId > 0 && in_array($source[0]['protocol'] ?? null, [$b->protocol, 'ocpp'.$b->protocol], true) && (! $cursor?->source_station_id || $cursor->source_station_id === $sourceId), 409);
+            if ($source) {
+                // A malformed row is not an absent charger. Treating missing
+                // or non-numeric ids as a healthy empty poll can hide faults.
+                abort_unless(is_int($sourceId) && $sourceId > 0, 503, 'Malformed source station row.');
+                abort_unless(in_array($source[0]['protocol'] ?? null, [$b->protocol, 'ocpp'.$b->protocol], true) && (! $cursor?->source_station_id || $cursor->source_station_id === $sourceId), 409);
             } else {
                 abort_unless(! $cursor?->source_station_id, 409);
             }
@@ -59,7 +74,14 @@ class ContinuousFaultObserver
                 $data = $this->graph('query($station:Int!,$after:Int!){StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},id:{_gt:$after}},order_by:{id:asc},limit:101){id connectorId evseId connectorStatus errorCode timestamp} newest:StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1){id}}', ['station' => $sourceId, 'after' => $after]);
                 $events = $data['StatusNotifications'] ?? null;
                 $newest = $data['newest'] ?? null;
-                abort_unless(is_array($events) && count($events) <= 101 && is_array($newest) && count($newest) <= 1 && ($after === 0 || (is_int($newest[0]['id'] ?? null) && $newest[0]['id'] >= $after)), 503);
+                abort_unless(
+                    is_array($events) && array_is_list($events) && count($events) <= 101 &&
+                    is_array($newest) && array_is_list($newest) && count($newest) <= 1 &&
+                    (! $newest || (is_array($newest[0]) && is_int($newest[0]['id'] ?? null) && $newest[0]['id'] >= 0)) &&
+                    ($after === 0 || (is_int($newest[0]['id'] ?? null) && $newest[0]['id'] >= $after)),
+                    503,
+                    'Malformed source status page or newest-event projection.'
+                );
                 // An empty page cannot mean caught_up when this same
                 // source reports events newer than the previous cursor.
                 // Leave the cursor unchanged and raise a review incident.
@@ -74,12 +96,22 @@ class ContinuousFaultObserver
                 $previous = $after;
                 foreach ($events as $event) {
                     abort_unless(is_array($event) && is_int($event['id'] ?? null) && $event['id'] > $previous && $event['id'] <= 2147483647 && is_string($event['connectorStatus'] ?? null) && strlen($event['connectorStatus']) <= 40 && is_string($event['timestamp'] ?? null) && strlen($event['timestamp']) <= 50 && (! isset($event['errorCode']) || (is_string($event['errorCode']) && strlen($event['errorCode']) <= 80)), 503);
+                    // All status observations must belong to the canonical OCPP
+                    // status vocabulary. Unknown vendor states are not evidence
+                    // of availability, faults or recovery and must not advance
+                    // the durable cursor beyond an unread source event.
+                    abort_unless(in_array($event['connectorStatus'], ConnectorFreshness::STATUSES, true), 503, 'Unsupported source connector status.');
                     try {
-                        $observedAt = CarbonImmutable::parse($event['timestamp']);
+                        // Use the same strict absolute-time contract as the
+                        // persisted fault observer, including fractional future
+                        // instants. Permissive date parsing can silently convert
+                        // invalid source text into an invented observation.
+                        $eventClock = SourceStatusTime::parse($event['timestamp']);
                     } catch (Throwable) {
                         abort(503, 'Source event timestamp is invalid.');
                     }
-                    abort_unless($observedAt->lessThanOrEqualTo(now()), 503);
+                    abort_unless($previousClock === null || ! $eventClock->lt($previousClock), 503, 'Source status chronology regressed.');
+                    $previousClock = $eventClock;
                     $previous = $event['id'];
                 }
                 // The highest event in a source page cannot exceed the
@@ -95,7 +127,12 @@ class ContinuousFaultObserver
                     );
                 }
             }
-            $state = $sourceId === null ? 'not_observed' : (count($events) > 100 ? 'catching_up' : 'caught_up');
+            // Status is caught up only if the exact last durable source row
+            // reaches the latest upstream watermark. A short page can still
+            // lag a newer event (e.g. concurrent source commits).
+            $lastRead = $events ? $events[min(count($events), 100) - 1]['id'] : $after;
+            $state = $sourceId === null ? 'not_observed' :
+                (count($events) > 100 || ($newest && $newest[0]['id'] > $lastRead) ? 'catching_up' : 'caught_up');
             $events = array_slice($events, 0, 100);
 
             return $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $sourceId, $events, $state, $after, $ownerId, $companyId) {

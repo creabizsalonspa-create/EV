@@ -9,6 +9,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -77,6 +78,53 @@ class SubscriptionGatewayTest extends TestCase
         $this->assertDatabaseCount('commercial_subscription_receipts', 1);
         $this->assertSame(2, DB::table('commercial_subscription_ledger')->where('kind', 'payment')->count());
         Http::assertSentCount(2);
+    }
+
+    public function test_revoked_owner_or_admin_cannot_read_or_operate_private_subscription_checkouts(): void
+    {
+        $f = $this->fixture();
+        $user = $f[0];
+        $admin = User::factory()->create(['role' => 'admin']);
+        $list = '/subscription-gateway-test/commercial/subscription-checkouts';
+        $before = DB::table('payment_recovery_intents')->count();
+
+        foreach ([$user, $admin] as $reader) {
+            $record = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $restore = [
+                'role' => $record->role,
+                'account_status' => $record->account_status,
+                'auth_epoch' => $record->auth_epoch,
+                'password' => $record->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson($list)->assertOk()->assertJsonPath('total', 1);
+            foreach ([
+                ['role' => 'vendor'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $record->auth_epoch + 1],
+                ['password' => Hash::make('rotated-subscription-gateway-session')],
+            ] as $mutation) {
+                DB::table('users')->where('id', $reader->id)->update($mutation);
+                $this->getJson($list)->assertConflict();
+                $this->getJson($f[3].'/reconciliation')->assertConflict();
+                if ($reader->id === $user->id) {
+                    $this->postJson($f[3].'/authorize', [
+                        'token' => 'pm_testcard', 'idempotency_key' => 'revoked-authorize',
+                    ])->assertConflict();
+                    $this->postJson('/subscription-gateway-test/commercial/subscriptions/'.
+                        $f[1]['subscription']->id.'/checkouts', [
+                            'invoice_id' => $f[1]['invoices']->first()->id,
+                            'idempotency_key' => 'revoked-create-checkout',
+                        ])->assertConflict();
+                }
+                DB::table('users')->where('id', $reader->id)->update($restore);
+            }
+        }
+
+        $this->assertSame($before, DB::table('payment_recovery_intents')->count());
+        $this->assertDatabaseCount('subscription_gateway_checkouts', 1);
+        Http::assertNothingSent();
     }
 
     public function test_signed_webhook_recovers_capture_without_second_external_call_and_rejects_conflicts(): void

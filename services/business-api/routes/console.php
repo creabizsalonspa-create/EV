@@ -7,6 +7,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Services\Charging\CsmsPreflight;
 use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\FaultReminderEscalator;
 use App\Services\Charging\SessionBridge;
@@ -15,6 +16,8 @@ use App\Services\CsmsDispatcher;
 use App\Services\Notifications\EmailNotices;
 use App\Services\Ocpi\ScheduledSync;
 use App\Services\Operations\OperationalHealth;
+use App\Services\Operations\OperationalIncidents;
+use App\Services\Operations\OperationalWatchdog;
 use App\Services\Privacy\AccountDataExport;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
@@ -87,6 +90,15 @@ Artisan::command('csms:dispatch {id}', function () {
     return $c->status === 'submitted' ? 0 : 1;
 })->purpose('Dispatch one simulator-only outbox command; never auto-retry uncertain outcomes');
 
+Artisan::command('csms:preflight', function () {
+    // Offline read-only diagnostics. This does not connect to a charger,
+    // refresh an authorization token, or send a remote command.
+    $report = app(CsmsPreflight::class)->report();
+    $this->line(json_encode($report, JSON_THROW_ON_ERROR));
+
+    return $report['software_configuration_ready'] ? 0 : 1;
+})->purpose('Offline charging schema/configuration gate; never hardware or production acceptance');
+
 Artisan::command('platform:charging-fixture {customer} {station}', function () {
     abort_unless(app()->environment(['local', 'testing']), 403, 'Test fixture creation is development-only.');
     $u = User::findOrFail((int) $this->argument('customer'));
@@ -120,7 +132,16 @@ Artisan::command('csms:consume {--once} {--link=} {--interval=2}', function () {
     try {
         do {
             $failed = 0;
-            $links = SessionLink::whereNull('ended_at')->whereNull('closed_without_dispatch_at')->when($id, fn ($q) => $q->whereKey((int) $id));
+            // A terminal signed inbox event can commit before its HTTP ACK
+            // reaches this observer. In that case ended_at is durable but the
+            // source meter cursor still lags last_sequence. The worker must
+            // reread and replay the SAME authenticated source event identity
+            // to converge the cursor; otherwise it would abandon that link.
+            $links = SessionLink::whereNull('closed_without_dispatch_at')
+                ->where(function ($q) {
+                    $q->whereNull('ended_at')
+                        ->orWhereColumn('source_meter_cursor', '<', 'last_sequence');
+                })->when($id, fn ($q) => $q->whereKey((int) $id));
             foreach ($links->lazyById(100) as $link) {
                 try {
                     $count = app(SourceConsumer::class)->consume($link);
@@ -270,3 +291,26 @@ Artisan::command('platform:health-heartbeat', function () {
     return 0;
 })->purpose('Record a scheduler process observation, not successful task execution');
 Schedule::command('platform:health-heartbeat')->everyMinute()->withoutOverlapping();
+
+Artisan::command('operations:scan-incidents', function () {
+    try {
+        $result = app(OperationalIncidents::class)->scan(app(OperationalHealth::class));
+        $this->line(json_encode($result, JSON_THROW_ON_ERROR));
+
+        return 0;
+    } catch (Throwable) {
+        $this->error('Operational incident scan failed; existing incident states remain unchanged.');
+
+        return 1;
+    }
+})->purpose('Record idempotent read-only operational incident transitions; no retries or external actions');
+Schedule::command('operations:scan-incidents')->everyMinute()->withoutOverlapping();
+
+Artisan::command('operations:watchdog-check', function () {
+    // Must be launched by a separately supervised host/external monitor.
+    // Never record a heartbeat from the probe: doing so would mask an outage.
+    $result = app(OperationalWatchdog::class)->check(app(OperationalHealth::class), app(OperationalIncidents::class));
+    $this->line(json_encode($result, JSON_THROW_ON_ERROR));
+
+    return $result['status'] === 'observed_normal' ? 0 : 1;
+})->purpose('Strict external watchdog probe; process observations only, no jobs/retries/alerts');

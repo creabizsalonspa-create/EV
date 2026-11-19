@@ -1,3 +1,57 @@
+# CURRENT OWNER DIRECTIVE — SINGLE PLATFORM COMPLETION OWNER (19 NOVEMBER 2026)
+
+The owner's latest uploaded **FINAL EXECUTIVE DIRECTIVE — COMPLETE THE ENTIRE EV PLATFORM AND PREPARE PRODUCTION RELEASE**, resumed by `continue`, explicitly replaces prior ownership restrictions. One accountable engineer owns backend, customer/vendor web, canonical `apps/mobile`, Admin, integration, QA and release preparation. The older five-agent and other allocations below are historical, not a restriction on the currently authorized scope. Preserve all existing implementations and finance invariants; inspect current code/PRs before developing any module.
+
+Normal commits, pushes and safe PR integration are authorized after all applicable exact-source checks and reviews pass. Do not force-push, bypass a failed check, remove required tests or credit queued/cancelled/skipped checks. Keep the original 42-category/312-atom inventory and its stage weights unchanged. Physical charging, live partners/financial transactions, production deployment and store publication still require the specific external authorization, access and actual acceptance evidence. No autonomous execution continues after an active session ends.
+
+# AUTHORITATIVE CURRENT OWNER DIRECTIVE — FIVE ACTIVE EV AGENTS (16 NOVEMBER 2026)
+
+**This is the newest owner instruction and takes precedence over every earlier
+single-agent, ten-agent, or former Agent 4 merge-control directive preserved
+below for historical audit.** The repository's canonical integration branch is
+`development/fullstack-continuation`; its software requirement scope remains
+the original **42 categories / 312 atoms**, without changing denominator,
+evidence weights or verified acceptance boundaries.
+
+| Current agent | Exclusive implementation / verification ownership |
+|---|---|
+| **Agent 1** | Charging engine, Laravel/CitrineOS OCPP 1.6/2.0.1, charger provisioning, source reconciliation, operational reliability |
+| **Agent 2** | OCPI 2.2.1 roaming/network integration, authorized station discovery/maps/routing, partner catalog and source provenance |
+| **Agent 3** | Canonical finance/PSP/settlement, Vendor platform, Super Admin/RBAC/KYC/enterprise/business security |
+| **Agent 4** | Customer web, canonical `apps/mobile` Android/iOS Flutter, Vendor-mobile UX, localization, private customer workflows |
+| **Agent 5** | **SOLE integration and merge controller**, cross-platform QA, exact-head GitHub CI/release verification, staging/recovery proof, original 312-atom coverage and final readiness decision |
+
+All previously submitted code and PRs must be preserved and assessed for
+overlap, security, and dependencies. No developer may merge on behalf of Agent 5.
+Agent 5 merges only properly reviewed, correctly ordered PRs whose **current
+exact source head** has all applicable mandatory successful CI; failed,
+skipped, cancelled or queued checks never count. A clean merge alone is not a
+test result. Recheck and rerun on the exact resulting integration SHA, and
+preserve independent Platform/PostgreSQL/OCPP/OCPI/Flutter/synthetic recovery
+proof. Do not weaken safety assertions or force-push another agent's branch.
+Avoid new PRs when a current verified PR can be integrated or repaired.
+
+**Completion is not proportional to PR count or lines written.** The four
+independent stages are coded, tested, merged, and explicitly
+production-accepted. Missing, partial, or unverified requirements remain
+uncredited, regardless of code or green isolated tests. The current
+authoritative dependency queue and the one-owner allocation of all 127
+uncredited original atoms are tracked in GitHub issue #141:
+https://github.com/creabizsalonspa-create/EV/issues/141 .
+
+Physical OCPP commands, live OCPI partner enrollment, real payments or
+settlements, production/staging deployment on customer infrastructure,
+app-store publication, or a declaration of operational acceptance require
+separate explicit owner authorization and genuine external evidence. Source
+simulation and unsigned native-debug/simulator builds are **not** such
+authorization. If CI or dependencies block final integration, keep an exact
+SHA/run/blocker checkpoint and continue independently verifiable work in the
+active session. Do not claim asynchronous/background continuation.
+
+---
+
+# PRESERVED HISTORICAL DIRECTIVES BELOW (SUPERSEDED BY 16 NOV FIVE-AGENT MANDATE)
+
 # Current owner directive — single completion agent (11 November 2026)
 
 The owner's latest uploaded **FINAL MASTER DIRECTIVE — SINGLE EV PROJECT

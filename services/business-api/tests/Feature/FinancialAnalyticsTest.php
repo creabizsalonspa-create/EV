@@ -13,6 +13,7 @@ use App\Services\Commercial\SubscriptionService;
 use App\Services\Finance\FinanceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
@@ -69,6 +70,43 @@ class FinancialAnalyticsTest extends TestCase
         $this->assertSame(900, $this->group($vendor, 'vendor_allocated')['amount_minor']);
         $this->actingAs(User::factory()->create());
         $this->getJson('/api/financial/analytics')->assertOk()->assertJsonCount(0, 'groups');
+    }
+
+    public function test_revoked_cached_financial_reader_cannot_view_private_json_csv_or_pdf(): void
+    {
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $before = DB::table('finance_journals')->count();
+
+        foreach ([$f['customer'], $f['vendor'], $admin] as $reader) {
+            $snapshot = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $snapshot->role,
+                'account_status' => $snapshot->account_status,
+                'auth_epoch' => $snapshot->auth_epoch,
+                'password' => $snapshot->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson('/api/financial/analytics')->assertOk();
+
+            foreach ([
+                ['role' => $snapshot->role === 'vendor' ? 'customer' : 'vendor'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $snapshot->auth_epoch + 1],
+                ['password' => Hash::make('rotated-financial-report-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $this->getJson('/api/financial/analytics')->assertConflict();
+                $this->get('/api/financial/analytics/export')->assertConflict();
+                $this->get('/api/financial/analytics/pdf?locale=ar')->assertConflict();
+                DB::table('users')->where('id', $reader->id)->update($original);
+            }
+            $this->getJson('/api/financial/analytics')->assertOk();
+        }
+
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        Http::assertNothingSent();
     }
 
     public function test_period_comparison_uses_posting_time_even_for_an_older_invoice(): void

@@ -26,6 +26,14 @@ final class ConnectorFreshness
         if (! $latest) {
             return $result;
         }
+        // A later source event ID with an earlier timestamp is conflicting
+        // evidence, not proof that the older "Available" observation still
+        // describes this connector. This also quarantines previously stored
+        // out-of-order data, while the source observer rejects new rollbacks.
+        $latestBySource = (clone $query)->orderByDesc('source_event_id')->first();
+        if (! $latestBySource || (int) $latestBySource->source_event_id !== (int) $latest->source_event_id) {
+            return $result;
+        }
         $observed = CarbonImmutable::parse($latest->occurred_at, 'UTC');
         $result['observed_at'] = $observed->toISOString();
         $result['valid_until'] = $observed->addSeconds(300)->toISOString();

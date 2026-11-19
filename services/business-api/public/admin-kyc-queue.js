@@ -10,6 +10,7 @@ window.EvAdminKycQueue = (() => {
     let request = null;
     let status = null;
     let country = null;
+    let licenseHealth = null;
     let state = null;
     let results = null;
     let currentPage = 1;
@@ -58,6 +59,13 @@ window.EvAdminKycQueue = (() => {
                 (company.owner?.account_status === "suspended" ? " · Owner suspended" : "") +
                 (company.owner?.email_verified === false ? " · Owner email unverified" : "")),
             element("p", "License expires: " + (company.license_expires_on || "Not provided")),
+            element("p", "License date alert / حالة الرخصة: " + ({
+                expired: "Expired — investigate",
+                due_30_days: "Expires within 30 local calendar days",
+                current: "Beyond 30 days",
+                unknown: "Unable to determine — check regional setup"
+            }[company.license_health] || "Unknown") +
+                (company.license_local_date ? " (local date " + company.license_local_date + ")" : "")),
             element("p", "Evidence on file: " + company.document_count + " · " +
                 (Array.isArray(company.document_kinds) && company.document_kinds.length
                     ? company.document_kinds.join(", ") : "No documents")),
@@ -205,6 +213,7 @@ window.EvAdminKycQueue = (() => {
             page: String(page),
         });
         if (country.value.trim()) filter.set("country", country.value.trim().toUpperCase());
+        if (licenseHealth.value !== "all") filter.set("license_health", licenseHealth.value);
         results.replaceChildren();
         state.textContent = "Loading private KYC cases / جاري التحميل…";
         try {
@@ -263,9 +272,24 @@ window.EvAdminKycQueue = (() => {
         country.maxLength = 2;
         country.placeholder = "AE";
         country.setAttribute("aria-label", "Country ISO code");
+        licenseHealth = element("select");
+        licenseHealth.setAttribute("aria-label", "License expiry window");
+        for (const [value, label] of [
+            ["all", "All license dates / الكل"],
+            ["expired", "Expired / منتهية"],
+            ["due_30_days", "Expires within 30 days / قريب الانتهاء"],
+            ["current", "Not due in 30 days / سارية"],
+            ["unknown", "Unconfigured / غير معروف"]
+        ]) {
+            const option = element("option", label);
+            option.value = value;
+            licenseHealth.append(option);
+        }
+        licenseHealth.value = "all";
         const submit = button("Apply filters / تطبيق", () => {});
         submit.type = "submit";
-        filters.append(field("Review state", status), field("Country (optional)", country), submit);
+        filters.append(field("Review state", status), field("Country (optional)", country),
+            field("License date alert (local calendar)", licenseHealth), submit);
         filters.onsubmit = event => { event.preventDefault(); load(1); };
         state = element("p");
         state.setAttribute("role", "status");

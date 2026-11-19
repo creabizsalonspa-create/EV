@@ -10,6 +10,7 @@ use App\Services\Charging\FirmwareCompatibility;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SignedFirmwareCatalog;
+use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -120,8 +121,18 @@ class ChargerFirmwareController extends Controller
 
     private function compatibleSource(object $binding, VendorCharger $charger, object $release): void
     {
-        $rows = app(RemoteSessionAuthorization::class)->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){chargePointVendor chargePointModel firmwareVersion protocol}}', ['name' => $binding->identifier])['ChargingStations'];
-        abort_unless(count($rows) === 1 && ($rows[0]['chargePointVendor'] ?? null) === $charger->manufacturer && ($rows[0]['chargePointModel'] ?? null) === $charger->model, 409, 'Registered source manufacturer and model must match the approved artifact.');
+        $data = app(RemoteSessionAuthorization::class)->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){chargePointVendor chargePointModel firmwareVersion protocol}}', ['name' => $binding->identifier]);
+        $rows = $data['ChargingStations'] ?? null;
+        abort_unless(is_array($rows) && array_is_list($rows) && count($rows) === 1 &&
+            is_array($rows[0]) &&
+            is_string($rows[0]['chargePointVendor'] ?? null) &&
+            is_string($rows[0]['chargePointModel'] ?? null) &&
+            is_string($rows[0]['firmwareVersion'] ?? null) &&
+            is_string($rows[0]['protocol'] ?? null), 409, 'Complete typed source firmware identity is required.');
+        abort_unless($rows[0]['chargePointVendor'] === $charger->manufacturer &&
+            $rows[0]['chargePointModel'] === $charger->model &&
+            in_array($rows[0]['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true),
+            409, 'Source model, protocol or manufacturer changed.');
         app(FirmwareCompatibility::class)->source($release, $binding->protocol, $rows[0]);
     }
 
@@ -292,17 +303,37 @@ class ChargerFirmwareController extends Controller
                 abort_unless(in_array($op->status, ['transport_submitted', 'outcome_unknown', 'dispatching'], true) && $op->attempted_at && ($op->status !== 'dispatching' || now()->gte(CarbonImmutable::parse($op->attempted_at)->addMinute())), 409, 'Firmware source outcome remains uncertain.');
                 $guard->idle($b, $op->attempted_at);
                 $release = DB::table('charger_firmware_releases')->where('id', $op->release_id)->firstOrFail();
-                $station = $source->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id firmwareVersion}}', ['name' => $b->identifier])['ChargingStations'];
-                abort_unless(count($station) === 1, 409);
+                $stationData = $source->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id firmwareVersion}}', ['name' => $b->identifier]);
+                $station = $stationData['ChargingStations'] ?? null;
+                abort_unless(is_array($station) && array_is_list($station) && count($station) === 1
+                    && is_array($station[0]) && is_int($station[0]['id'] ?? null) && $station[0]['id'] > 0
+                    && is_string($station[0]['firmwareVersion'] ?? null), 409, 'Typed source firmware station proof is required.');
                 abort_unless($op->source_payload_ciphertext && $op->source_payload_digest, 409, 'Owned source request provenance is required.');
                 $serialized = Crypt::decryptString($op->source_payload_ciphertext);
                 abort_unless(hash_equals($op->source_payload_digest, hash('sha256', $serialized)), 409);
                 $payload = json_decode($serialized, true, 32, JSON_THROW_ON_ERROR);
                 $action = $b->protocol === '1.6' ? 'SignedUpdateFirmware' : 'UpdateFirmware';
-                $requests = $source->graph('query($station:Int!,$action:String!,$after:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"csms"},type:{_eq:2},action:{_eq:$action},createdAt:{_gte:$after},payload:{_contains:$match}},limit:2){id createdAt}}', ['station' => $station[0]['id'], 'action' => $action, 'after' => CarbonImmutable::parse($op->attempted_at)->toISOString(), 'match' => ['requestId' => (int) $op->id, 'firmware' => ['location' => $payload['firmware']['location'], 'signature' => $payload['firmware']['signature']]]])['OCPPMessages'];
-                abort_unless(count($requests) === 1, 409, 'One owned firmware source request is required.');
-                $messages = $source->graph('query($station:Int!,$after:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},createdAt:{_gte:$after},action:{_in:["FirmwareStatusNotification","SignedFirmwareStatusNotification"]},payload:{_contains:$match}},order_by:{id:desc},limit:1){payload}}', ['station' => $station[0]['id'], 'after' => $requests[0]['createdAt'], 'match' => ['requestId' => (int) $op->id]])['OCPPMessages'];
-                $status = $messages[0]['payload']['status'] ?? null;
+                $requestData = $source->graph('query($station:Int!,$action:String!,$after:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"csms"},type:{_eq:2},action:{_eq:$action},createdAt:{_gte:$after},payload:{_contains:$match}},limit:2){id createdAt}}', ['station' => $station[0]['id'], 'action' => $action, 'after' => CarbonImmutable::parse($op->attempted_at)->toISOString(), 'match' => ['requestId' => (int) $op->id, 'firmware' => ['location' => $payload['firmware']['location'], 'signature' => $payload['firmware']['signature']]]]);
+                $requests = $requestData['OCPPMessages'] ?? null;
+                abort_unless(is_array($requests) && array_is_list($requests) && count($requests) === 1
+                    && is_array($requests[0]) && is_int($requests[0]['id'] ?? null)
+                    && $requests[0]['id'] > 0 && is_string($requests[0]['createdAt'] ?? null),
+                    409, 'One typed owned firmware source request is required.');
+                $requestAt = SourceStatusTime::parse($requests[0]['createdAt'], 300);
+                abort_unless($requestAt->gte(CarbonImmutable::parse($op->attempted_at)), 409, 'Source firmware request predates its operation.');
+                $messageData = $source->graph('query($station:Int!,$after:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},createdAt:{_gte:$after},action:{_in:["FirmwareStatusNotification","SignedFirmwareStatusNotification"]},payload:{_contains:$match}},order_by:{id:desc},limit:1){id createdAt payload}}', ['station' => $station[0]['id'], 'after' => $requests[0]['createdAt'], 'match' => ['requestId' => (int) $op->id]]);
+                $messages = $messageData['OCPPMessages'] ?? null;
+                abort_unless(is_array($messages) && array_is_list($messages) && count($messages) === 1 &&
+                    is_array($messages[0]) && is_int($messages[0]['id'] ?? null) &&
+                    $messages[0]['id'] > 0 && is_string($messages[0]['createdAt'] ?? null) &&
+                    is_array($messages[0]['payload'] ?? null) &&
+                    is_int($messages[0]['payload']['requestId'] ?? null) &&
+                    $messages[0]['payload']['requestId'] === (int) $op->id &&
+                    is_string($messages[0]['payload']['status'] ?? null),
+                    409, 'One typed correlated firmware status is required.');
+                abort_unless(SourceStatusTime::parse($messages[0]['createdAt'], 300)->gte($requestAt), 409,
+                    'Source firmware status predates the owned request.');
+                $status = $messages[0]['payload']['status'];
                 $installed = $status === 'Installed';
                 abort_unless($installed || in_array($status, ['DownloadFailed', 'InstallationFailed', 'InvalidSignature', 'InstallVerificationFailed', 'InvalidCertificate'], true), 409, 'A correlated terminal firmware report is required.');
                 if ($installed) {

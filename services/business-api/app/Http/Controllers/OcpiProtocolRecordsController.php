@@ -5,11 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Services\Ocpi\CredentialExchange;
+use App\Services\Ocpi\OcpiMessageHeaders;
 use App\Services\Ocpi\RecordSynchronizer;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
@@ -38,7 +38,9 @@ class OcpiProtocolRecordsController extends Controller
 
     private function reply(mixed $data, int $code = 1000, int $http = 200)
     {
-        return response()->json(['status_code' => $code, 'timestamp' => now()->toISOString(), 'data' => $data], $http)->header('Cache-Control', 'private, no-store')->header('X-Request-ID', (string) Str::uuid())->header('X-Correlation-ID', (string) Str::uuid());
+        $ids = OcpiMessageHeaders::response(request());
+
+        return response()->json(['status_code' => $code, 'timestamp' => now()->toISOString(), 'data' => $data], $http)->header('Cache-Control', 'private, no-store')->header('X-Request-ID', $ids['X-Request-ID'])->header('X-Correlation-ID', $ids['X-Correlation-ID']);
     }
 
     private function handle(Request $r, string $module, ?string $external, ?string $country = null, ?string $party = null, ?string $evse = null, ?string $connector = null)
@@ -126,8 +128,8 @@ class OcpiProtocolRecordsController extends Controller
                     $retirement = $old ? DB::table('ocpi_catalog_retirements')->where('record_id', $old->id)->orderByDesc('id')->first() : null;
                     // A delayed pre-withdrawal PUT must not silently reactivate
                     // a withdrawn tariff. Fresh publication must follow receipt time.
-                    abort_if($retirement && (CarbonImmutable::parse($record['last_updated'])->lte(CarbonImmutable::parse($retirement->retired_at, 'UTC'))
-                        || CarbonImmutable::parse($record['last_updated'])->lte(CarbonImmutable::parse($retirement->source_updated_at, 'UTC'))), 409);
+                    abort_if($retirement && (CarbonImmutable::parse($record['last_updated'], 'UTC')->lte(CarbonImmutable::parse($retirement->retired_at, 'UTC'))
+                        || CarbonImmutable::parse($record['last_updated'], 'UTC')->lte(CarbonImmutable::parse($retirement->source_updated_at, 'UTC'))), 409);
                 }
                 $result = app(RecordSynchronizer::class)->ingest($current, $module, [$record]);
                 // A stale push is not acknowledged as an applied update.

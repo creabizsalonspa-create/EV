@@ -35,6 +35,13 @@ const assert = require('node:assert/strict');
   await ready;
   await page.waitForFunction(()=>user?.role==='customer');
   assert.equal(await page.locator('#vehicle-list button').count()>0,true);
+  // A notifications HTTP response is not a DOM-render barrier: refreshInbox()
+  // also waits for /api/notifications/summary before appending its rows.
+  // Await the exact persisted simulator notice, not an arbitrary delay or an
+  // assertion retry; a failed summary/authorization still fails this proof.
+  await page.locator('#notifications > p')
+    .filter({hasText:'Simulated low battery · Vehicle ' + vehicle.id + ' · 15%'})
+    .first().waitFor({state:'visible',timeout:15000});
   assert.match(await page.locator('#notifications').innerText(),/Simulated low battery/);
   const row = page.locator('#vehicle-list > div').filter({hasText: '#' + vehicle.id + ' ·'});
   await row.getByRole('button', {name:'Battery preferences',exact:true}).click();

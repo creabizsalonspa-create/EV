@@ -9,6 +9,7 @@ class CatalogApi extends FixtureApi {
   final reads = <Map<String, String>>[];
   Completer<dynamic>? pending;
   bool promote = false;
+  Map<String, dynamic>? overrideReport;
   Map<String, int> ages(String label) => {
     for (final key in catalogAgeLabels.keys) key: key == label ? 1 : 0,
   };
@@ -36,6 +37,18 @@ class CatalogApi extends FixtureApi {
           'connector_list_present': 1,
           'connector_list_empty': 0,
           'connector_list_unknown': 0,
+          'published_by_reported_market': {
+            'AE': 1,
+            'US': 0,
+            'CA': 0,
+            'other_or_unknown': 0,
+          },
+          'published_with_usable_coordinates_by_reported_market': {
+            'AE': 1,
+            'US': 0,
+            'CA': 0,
+            'other_or_unknown': 0,
+          },
         },
       if (selected != 'locations')
         'tariffs': {
@@ -46,6 +59,8 @@ class CatalogApi extends FixtureApi {
         },
     },
     'receipt_refreshes_source_age': false,
+    'market_classification': 'PARTNER_REPORTED_LOCATION_COUNTRY_ONLY',
+    'coverage_exhaustive': false,
     'live_availability_verified': false,
     'physical_charging_verified': promote,
     'remote_control': false,
@@ -61,7 +76,7 @@ class CatalogApi extends FixtureApi {
     expect(path, 'ocpi/providers/7/catalog-observations');
     expect(method, 'GET');
     reads.add(Map.of(query));
-    return pending?.future ?? report(query['module']!);
+    return pending?.future ?? overrideReport ?? report(query['module']!);
   }
 }
 
@@ -149,4 +164,114 @@ void main() {
     expect(find.text('Private catalog operator'), findsNothing);
     expect(api.reads.length, 1);
   });
+  for (final ar in [false, true]) {
+    testWidgets(
+      'published country facets render without inferring network coverage ($ar)',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(390, 844));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final api = CatalogApi();
+        await tester.pumpWidget(view(api, ar: ar));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byType(FilledButton));
+        await tester.tap(find.byType(FilledButton));
+        await tester.pumpAndSettle();
+        final published = find.byKey(
+          const ValueKey('catalog-market-published_by_reported_market-AE'),
+        );
+        await tester.scrollUntilVisible(published, 200);
+        expect(
+          tester.widget<Text>(published).data,
+          ar
+              ? 'الإمارات (موقع مبلّغ عنه من الشريك): 1'
+              : 'UAE (partner-reported location): 1',
+        );
+        final other = find.byKey(
+          const ValueKey(
+            'catalog-market-published_with_usable_coordinates_by_reported_market-other_or_unknown',
+          ),
+        );
+        await tester.scrollUntilVisible(other, 200);
+        expect(
+          tester.widget<Text>(other).data,
+          ar
+              ? 'موقع مبلّغ عنه في دولة أخرى أو غير معروف: 0'
+              : 'Other or unknown reported location: 0',
+        );
+        expect(tester.takeException(), isNull);
+        expect(api.reads, [
+          {'module': 'all'},
+        ]);
+      },
+    );
+  }
+  test('combined record limit applies across locations and tariffs', () {
+    final api = CatalogApi();
+    dynamic scale(dynamic value) {
+      if (value is int) return value * 6000;
+      if (value is Map)
+        return value.map((key, item) => MapEntry(key, scale(item)));
+      return value;
+    }
+
+    final report = api.report('all');
+    report['modules'] = scale(report['modules']);
+    expect(catalogObservationReportValid(report, providerId: 7), isFalse);
+    expect(
+      catalogObservationReportValid(api.report('all'), providerId: 7),
+      isTrue,
+    );
+  });
+  final invalid = <String, void Function(Map<String, dynamic>)>{
+    'coverage authority': (d) => d['coverage_exhaustive'] = true,
+    'party-country inference': (d) =>
+        d['market_classification'] = 'PROVIDER_PARTY_COUNTRY',
+    'missing classification': (d) => d.remove('market_classification'),
+    'missing facet': (d) =>
+        d['modules']['locations'].remove('published_by_reported_market'),
+    'unknown market': (d) =>
+        d['modules']['locations']['published_by_reported_market']['GB'] = 0,
+    'negative count': (d) =>
+        d['modules']['locations']['published_by_reported_market']['US'] = -1,
+    'noninteger count': (d) =>
+        d['modules']['locations']['published_by_reported_market'] =
+            <String, dynamic>{
+              'AE': 1.0,
+              'US': 0,
+              'CA': 0,
+              'other_or_unknown': 0,
+            },
+    'inflated published total': (d) =>
+        d['modules']['locations']['published_by_reported_market']['US'] = 1,
+    'coordinates in wrong market': (d) =>
+        d['modules']['locations']['published_with_usable_coordinates_by_reported_market'] =
+            {'AE': 0, 'US': 1, 'CA': 0, 'other_or_unknown': 0},
+    'inflated coordinate total': (d) =>
+        d['modules']['locations']['published_with_usable_coordinates_by_reported_market']['AE'] =
+            2,
+  };
+  for (final entry in invalid.entries) {
+    testWidgets(
+      'country observations fail closed without partial counts: ${entry.key}',
+      (tester) async {
+        final api = CatalogApi();
+        api.overrideReport = api.report('all');
+        entry.value(api.overrideReport!);
+        await tester.pumpWidget(view(api));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byType(FilledButton));
+        await tester.tap(find.byType(FilledButton));
+        await tester.pumpAndSettle();
+        expect(find.text('Private catalog operator'), findsNothing);
+        expect(find.textContaining('No partial counts'), findsOneWidget);
+        expect(
+          find.byKey(
+            const ValueKey('catalog-market-published_by_reported_market-AE'),
+          ),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 }
