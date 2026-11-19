@@ -26,7 +26,12 @@ void registerVendorDocumentLicenses() {
   });
 }
 
-const vendorPermissions = ['company.read', 'inventory.read', 'inventory.write'];
+const vendorPermissions = [
+  'company.read',
+  'inventory.read',
+  'inventory.write',
+  'charging.read',
+];
 
 class VendorEvidence {
   final Uint8List bytes;
@@ -230,9 +235,33 @@ class _CompanyState extends State<VendorCompanyView> {
               Text(
                 '${t('license_expires_on')}: ${(c['license_expires_on'] as String).substring(0, 10)}',
               ),
-              if (caps['owner'] == true || caps['reviewer'] == true) TextButton(onPressed: busy ? null : () => open(RiderAccessView(api: widget.api, onExpired: widget.onExpired, records: RiderRecords.operatorRequests, companyId: c['id'] as int)), child: Text(riderTitle(context))),
+              if (caps['owner'] == true || caps['reviewer'] == true)
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () => open(
+                          RiderAccessView(
+                            api: widget.api,
+                            onExpired: widget.onExpired,
+                            records: RiderRecords.operatorRequests,
+                            companyId: c['id'] as int,
+                          ),
+                        ),
+                  child: Text(riderTitle(context)),
+                ),
               if (caps['owner'] == true) ...[
-                TextButton(onPressed: busy ? null : () => open(VendorAgreementsView(api: widget.api, companyId: c['id'] as int, onExpired: widget.onExpired)), child: Text(vendorAgreementTitle(context))),
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () => open(
+                          VendorAgreementsView(
+                            api: widget.api,
+                            companyId: c['id'] as int,
+                            onExpired: widget.onExpired,
+                          ),
+                        ),
+                  child: Text(vendorAgreementTitle(context)),
+                ),
                 if (editable)
                   FilledButton(
                     onPressed: busy

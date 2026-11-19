@@ -92,3 +92,7 @@ control. Legacy editors omitting the flag preserve its stored state; owners can
 explicitly disable enforcement to return to advisory hours. Optimistic revisions
 and tenant checks remain unchanged. Existing fees, maintenance, permissions,
 source identity and immutable financial records retain their canonical services.
+
+## 19 November 2026 — explicitly consented charging.read observations
+
+Supported permissions now include `charging.read` as well as the existing3; no stored membership gains it automatically. Existing versioned owner edit/recipient consent, verified-mailbox checks, revocation and Admin holds govern the new read. The current-owned unique company/site/station relation scopes private recorded session state/energy/time/source pages through both existing web and native API mounts. Customer identities, finance and command actions are excluded. The web/Flutter directory exposes it even without company/KYC or inventory read. See [VENDOR_SESSION_OBSERVATIONS.md](VENDOR_SESSION_OBSERVATIONS.md). This is a pending read-only continuation candidate, not completed staff command-control parity or physical operational acceptance.

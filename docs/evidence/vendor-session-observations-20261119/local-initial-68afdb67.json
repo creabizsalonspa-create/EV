@@ -1,0 +1,136 @@
+{
+  "recorded_at_utc": "2026-11-19T08:46:54.150313+00:00",
+  "source_code_sha": "68afdb67916af840e0c2164e7cacb1a62322d2e2",
+  "verified_canonical_parent": "ed112b4a5e3dd65cc88c210bd55f92d8df56add6",
+  "pending_dependency": {
+    "pr": 190,
+    "source_sha": "9034f401509471bd2c7c007c4fcdc0c5d7d9e919",
+    "merge_required_before_this_candidate": true
+  },
+  "local": {
+    "laravel": {
+      "passed": 1755,
+      "skipped": 1,
+      "skip_reason": "PostgreSQL-only check",
+      "assertions": 31744
+    },
+    "connector_postgresql": {
+      "features": 923,
+      "feature_assertions": 12462,
+      "concurrency": 32,
+      "concurrency_assertions": 478,
+      "receipt_migration": 2,
+      "receipt_migration_assertions": 13
+    },
+    "finance_postgresql": {
+      "passed": 441,
+      "skipped": 1,
+      "skip_reason": "SQLite-only check",
+      "assertions": 11162,
+      "process_and_migration": 99,
+      "process_and_migration_assertions": 1459
+    },
+    "flutter": {
+      "passed": 755,
+      "explicit_opt_in_skips": 37,
+      "analyzer": "passed",
+      "separate_actual_laravel_contract": 1
+    },
+    "controlled_web_scheduler_admin_cases": 24,
+    "actual_laravel_browser": {
+      "passed": true,
+      "languages": [
+        "en",
+        "ar"
+      ],
+      "viewport_width": 390,
+      "versioned_consent": true,
+      "revocation": true,
+      "unchanged_session_command_invoice_snapshots": true
+    },
+    "ci_trigger_guards": 8,
+    "pint_files": 838,
+    "weighted_coverage_validator": "passed"
+  },
+  "logs": {
+    "full-final": {
+      "local_log": "/tmp/ev-staff-full-final.txt",
+      "sha256": "38a1759e65d58528b5ad27338f19c91912aeb83482d45921ac2ec068aab062c7"
+    },
+    "pg": {
+      "local_log": "/tmp/ev-staff-pg.txt",
+      "sha256": "b5a26444f5d73bd7dccbe6d5fedadaa15282a3fa55c176ee9eb813a14a76a82f"
+    },
+    "finance": {
+      "local_log": "/tmp/ev-staff-finance.txt",
+      "sha256": "d222b1127b6dc0faf8b1c92b1fc8e820fa59a9db96d210f1bc93ea13b6f4e62d"
+    },
+    "native-full-final": {
+      "local_log": "/tmp/ev-staff-native-full-final.txt",
+      "sha256": "3d6b761f79b3d2c46b7c7c79083d2a6d86e048a8f2a72f0ab1d51859ff30fd69"
+    },
+    "native-actual-final": {
+      "local_log": "/tmp/ev-staff-native-actual-final.txt",
+      "sha256": "9370bb952183aeff5239a35ef8608739f11c07cdc861ceb02cd5e8c00fc03573"
+    },
+    "analyze-final": {
+      "local_log": "/tmp/ev-staff-analyze-final.txt",
+      "sha256": "77ba040f55796143220aeae5be547318f1161b0d25a34a107f279e58db154d55"
+    },
+    "web-final": {
+      "local_log": "/tmp/ev-staff-web-final.txt",
+      "sha256": "33c39dcafe860729053775756e5705b5a9d04694634d83c8836c70e6419fdd68"
+    },
+    "actual-final": {
+      "local_log": "/tmp/ev-staff-actual-final.txt",
+      "sha256": "b2a982ae0014ae6a3eb44b3abb59d88b4f19738085326d56aac72362e9dcf334"
+    },
+    "ci-guards": {
+      "local_log": "/tmp/ev-staff-ci-guards.txt",
+      "sha256": "c6352adff70a6982c739a1cd77bbb43d2425eefd2dc2112b92b0ceebf2a6ca31"
+    },
+    "pint-check": {
+      "local_log": "/tmp/ev-staff-pint-check.txt",
+      "sha256": "6ceda07a426b5e96707ab7e74ce398c9124c1744df886aa135d635af34878cf0"
+    },
+    "coverage-final": {
+      "local_log": "/tmp/ev-staff-coverage-final.txt",
+      "sha256": "4aa732697366238e804d49ab53c98016bb1fb5c2119a781e011ce82fb0b1f2cb"
+    }
+  },
+  "screenshots": [
+    {
+      "path": "artifacts/vendor-session-observations/ar-390.png",
+      "sha256": "3d11a1c6b975a34cc4ef0b3e05e59a04d51425cc2178a0d8b948a5e0b02a9008",
+      "bytes": 60294
+    },
+    {
+      "path": "artifacts/vendor-session-observations/en-390.png",
+      "sha256": "7c32b255254a6952d427c6b9658a45cd76f3008e2fe6df39e8ed3598b6df30b8",
+      "bytes": 62157
+    }
+  ],
+  "hosted_android_ios_for_this_source": "not_yet_run",
+  "production_acceptance": false,
+  "physical_hardware_or_live_partner_or_psp_or_bank_or_store_acceptance": false,
+  "financial_business_rules_changed": false,
+  "original_inventory": {
+    "categories": 42,
+    "atoms": 312,
+    "coded": 186,
+    "tested": 186,
+    "merged": 186,
+    "weighted_coded_percent": "58.20",
+    "weighted_tested_percent": "58.20",
+    "weighted_merged_percent": "58.20",
+    "production_accepted_percent": "0.00",
+    "new_whole_atom_credit": 0
+  },
+  "known_remaining": [
+    "Complete staff command-control parity and live connector monitoring",
+    "Complete original OCPP/OCPI and nonfinancial/commercial/native/Admin software scope",
+    "Current-source hosted gates and ordered PR integration",
+    "Real hardware/partner/PSP/bank, signed/store and deployment acceptance"
+  ],
+  "artifact_retention_note": "Historical initial manifest. Subsequent QA regenerated the shared screenshot paths; retained current binaries and their hashes are identified by local.json."
+}

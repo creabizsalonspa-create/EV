@@ -301,6 +301,7 @@ function renderIdentity() {
     window.EvAdminAccounts?.setActor(user, api);
     window.EvAdminOperationalHealth?.setActor(user, api);
     window.EvAdminCommandSecretStorage?.setActor(user, api);
+    window.EvCompanySessionObservations?.clear();
     window.EvFleetReport?.setActor(user, api);
     window.EvAdminOperationsMap?.setActor(user, api);
     window.EvAdminKycQueue?.setActor(user, api);

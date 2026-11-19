@@ -132,7 +132,7 @@ class VendorStaffAuditIdempotencyTest extends TestCase
         $this->postJson($path, [
             'email' => $staff->email,
             'permissions' => [
-                'company.read', 'inventory.read', 'inventory.write', 'company.read',
+                'company.read', 'inventory.read', 'inventory.write', 'charging.read', 'company.read',
             ],
         ])->assertUnprocessable()->assertJsonValidationErrors('permissions');
 

@@ -470,12 +470,12 @@ class VendorOpsController extends Controller
     public function invite(Request $r, VendorCompany $company)
     {
         $this->access->owner($r->user(), $company);
-        // An invitation can contain at most the three supported unique
+        // An invitation can contain at most the supported unique
         // scopes. Reject oversized/duplicate input before any grant or audit
         // write, consistent with the staff-permission editing endpoint.
         $v = $r->validate([
             'email' => 'required|email',
-            'permissions' => 'required|array|min:1|max:3',
+            'permissions' => 'required|array|min:1|max:'.count(VendorAccess::PERMISSIONS),
             'permissions.*' => ['required', 'distinct', Rule::in(VendorAccess::PERMISSIONS)],
         ]);
         $u = User::where('email', $v['email'])->first();
@@ -511,7 +511,7 @@ class VendorOpsController extends Controller
         abort_unless($membership->company_id === $company->id, 404);
         $v = $r->validate([
             'expected_version' => 'required|integer|min:1',
-            'permissions' => 'required|array|min:1|max:3',
+            'permissions' => 'required|array|min:1|max:'.count(VendorAccess::PERMISSIONS),
             'permissions.*' => ['required', 'distinct', Rule::in(VendorAccess::PERMISSIONS)],
         ]);
         $desired = array_values($v['permissions']);

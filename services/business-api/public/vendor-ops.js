@@ -29,6 +29,7 @@ window.createVendorWorkspace = ({
     const permissionName = (value) =>
         ({
             "company.read": "Read company",
+            "charging.read": "Read recorded charging sessions",
             "inventory.read": "Read inventory",
             "inventory.write": "Manage inventory",
         })[value] || value;
@@ -300,6 +301,14 @@ window.createVendorWorkspace = ({
             f.reset();
             await detail(company);
         }
+    }
+    function recordedSessions(company, expectedEpoch) {
+        if(!valid(expectedEpoch))return;
+        const epoch=generation,version=++detailGeneration;
+        const current=()=>valid(epoch)&&version===detailGeneration;
+        if(!current()||document.hidden||company.capabilities?.charging_read!==true)return;
+        selected=company;
+        window.EvCompanySessionObservations.open({host:root.querySelector('[data-company-detail]'),api,company,current,onExpired:expired});
     }
     async function detail(company) {
         const epoch = generation,
@@ -595,6 +604,7 @@ window.createVendorWorkspace = ({
                         label: "Staff access",
                         checks: {
                             "company.read": "Read company",
+            "charging.read": "Read recorded charging sessions",
                             "inventory.read": "Read inventory",
                             "inventory.write": "Manage inventory",
                         },
@@ -644,6 +654,7 @@ window.createVendorWorkspace = ({
                                     label: "New staff permissions",
                                     checks: {
                                         "company.read": "Read company",
+            "charging.read": "Read recorded charging sessions",
                                         "inventory.read": "Read inventory",
                                         "inventory.write": "Manage inventory",
                                     },
@@ -3616,6 +3627,7 @@ window.createVendorWorkspace = ({
                                     capabilities: {
                                         owner: true,
                                         company_read: true,
+                                        charging_read: true,
                                         inventory_read: true,
                                         inventory_write: true,
                                         private_evidence: true,
@@ -3647,6 +3659,8 @@ window.createVendorWorkspace = ({
                         }),
                     );
                     button(row, "Open company", () => detail(c));
+                    if(c.capabilities?.charging_read===true)
+                        button(row,"Recorded charging sessions",()=>recordedSessions(c,epoch));
                     p.append(row);
                 },
                 1,

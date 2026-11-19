@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 
 class VendorAccess
 {
-    public const PERMISSIONS = ['company.read', 'inventory.read', 'inventory.write'];
+    public const PERMISSIONS = ['company.read', 'inventory.read', 'inventory.write', 'charging.read'];
 
     /** UI hints only; mutation handlers still enforce current permissions. */
     public function capabilities(User $actor, VendorCompany $company): array
@@ -30,6 +30,7 @@ class VendorAccess
 
         return ['owner' => $owner, 'reviewer' => $reviewer, 'company_read' => in_array('company.read', $permissions, true),
             'inventory_read' => in_array('inventory.read', $permissions, true), 'inventory_write' => in_array('inventory.write', $permissions, true),
+            'charging_read' => in_array('charging.read', $permissions, true),
             'private_evidence' => $owner || $reviewer, 'inventory_operational' => $company->status === 'approved' && $this->licenseValid($company)];
     }
 

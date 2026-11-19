@@ -35,6 +35,7 @@ const { spawnSync } = require("node:child_process");
     ["native-operating-calendar"], // six fixture/browser + three native logins; same production limit
     ["native-financial-analytics"], // 3 logins, separate unchanged authentication window
     ["native-fleet-pagination"], // 3 identities; operational pages only, own unchanged auth window
+    ["native-vendor-session-observations"], // two identities; delegated read-only scope, own unchanged window
     ["native-subscription-preview"], // 2 cookie logins plus a negative Admin-token GET; own window
   ];
   let started;

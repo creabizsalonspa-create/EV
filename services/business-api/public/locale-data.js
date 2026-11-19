@@ -1,4 +1,6 @@
 window.EV_MESSAGES = {
+    "Read recorded charging sessions": {en: "Read recorded charging sessions", ar: "قراءة جلسات الشحن المسجلة"},
+    "Recorded charging sessions": {en: "Recorded charging sessions", ar: "جلسات الشحن المسجلة"},
     "Sandbox reservation": {"en": "Sandbox reservation", "ar": "حجز تجريبي"},
     "Reservation preauthorization notice": {"en": "An approved sandbox reservation preauthorizes this eMSP-owned test token until expiry. The partner may report charging without a separate start request. Reservation costs may be reported; no local invoice or payment is created. Physical charging is unverified.", "ar": "يمنح الحجز التجريبي المعتمد تفويضاً مسبقاً لرمز الاختبار المملوك لمزود التنقل حتى الانتهاء. قد يبلغ الشريك عن الشحن دون طلب بدء منفصل. قد ترد تكلفة حجز؛ لا تُنشأ فاتورة أو دفعة محلية. لم يُتحقق من الشحن الفعلي."},
     "Reservation explicit consent": {"en": "I consent to this test reservation, location, EVSE, tariff and time-bounded token preauthorization.", "ar": "أوافق على هذا الحجز التجريبي والموقع ووحدة الشحن والتعرفة والتفويض المسبق المحدد المدة للرمز."},
