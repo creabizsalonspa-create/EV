@@ -168,6 +168,8 @@ class DependenciesTest(unittest.TestCase):
             def __init__(self, *args, **kwargs):
                 pass
             def get(self, suffix):
+                if suffix.startswith("/git/ref/heads/"): return {"object":{"sha":"b"*40}}
+                if suffix.startswith("/compare/"): return {"status":"ahead", "base_commit":{"sha":"b"*40}, "merge_base_commit":{"sha":"b"*40}}
                 if suffix == "/pulls/70":
                     return pr(70)
                 raise AssertionError(suffix)
@@ -208,6 +210,8 @@ class DependenciesTest(unittest.TestCase):
                 pass
             def get(self, suffix):
                 visited.append(suffix)
+                if suffix.startswith("/git/ref/heads/"): return {"object":{"sha":"b"*40}}
+                if suffix.startswith("/compare/"): return {"status":"ahead", "base_commit":{"sha":"b"*40}, "merge_base_commit":{"sha":"b"*40}}
                 if suffix in ("/pulls/52", "/pulls/57"):
                     return pr(int(suffix.rsplit("/", 1)[-1]))
                 raise AssertionError("Draft unexpectedly fetched: " + suffix)
@@ -231,7 +235,9 @@ class DependenciesTest(unittest.TestCase):
         self.assertEqual(2, report["audited_prs"])
         self.assertEqual("non_draft_target", report["audit_scope"])
         self.assertEqual({52, 57}, {item["pr"] for item in report["prs"]})
-        self.assertEqual(4, len(visited))
+        self.assertEqual(4, len([path for path in visited if path.startswith("/pulls/")]))
+        self.assertEqual(2, len([path for path in visited if path.startswith("/git/ref/heads/")]))
+        self.assertEqual(2, len([path for path in visited if path.startswith("/compare/")]))
         self.assertEqual(2, report["ready_for_manual_review"])
         self.assertFalse(report["merge_executed"])
 
