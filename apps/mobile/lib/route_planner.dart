@@ -41,6 +41,8 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
   DiscoveryCapabilities? capabilities;
   RouteEstimate? estimate;
   bool consent = false, loading = false, tiles = false, foreground = true;
+  bool checkingCapabilities = false;
+  int capabilityGeneration = 0;
   String requiredConnector = '';
   // Do not reuse a prior account's in-memory station choices when an
   // authenticated discovery client changes before new catalog results arrive.
@@ -61,8 +63,10 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
   @override
   void initState() {
     super.initState();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    tiles = widget.tilesEnabled;
+    tiles = foreground && widget.tilesEnabled;
     if (sessionCurrent && widget.origin != null) {
       originLat.text = '${widget.origin!.latitude}';
       originLng.text = '${widget.origin!.longitude}';
@@ -82,6 +86,8 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
       // A backgrounded widget must not display them, keep a map tile alive,
       // or accept a late Geoapify/Google Maps response or consent dialog.
       generation++;
+      capabilityGeneration++;
+      checkingCapabilities = false;
       originLat.clear();
       originLng.clear();
       destinationLat.clear();
@@ -105,6 +111,8 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
       // Do not carry private coordinates, old stations, a route estimate or
       // an outstanding external-navigation consent across that boundary.
       generation++;
+      capabilityGeneration++;
+      checkingCapabilities = false;
       awaitingFreshAccountCatalog = true;
       stops.clear();
       // Initial route inputs from the new widget may still have been cached
@@ -133,17 +141,25 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
 
   Future<void> loadCapabilities() async {
     final client = widget.client;
+    if (client == null || !sessionCurrent || checkingCapabilities) return;
     final current = generation;
-    if (!sessionCurrent) return;
+    final read = ++capabilityGeneration;
+    setState(() => checkingCapabilities = true);
+    bool active() => mounted && read == capabilityGeneration &&
+        identical(widget.client, client) && sessionCurrent;
     try {
-      final result = await client?.capabilities();
-      if (mounted && current == generation && identical(widget.client, client) && sessionCurrent) {
+      final result = await client.capabilities();
+      if (active() && current == generation) {
         setState(() => capabilities = result);
       }
     } catch (_) {
-      if (mounted && current == generation && identical(widget.client, client) && sessionCurrent) {
+      if (active() && current == generation) {
         setState(() => capabilities = null);
       }
+    } finally {
+      // An itinerary edit can discard the response without stranding retry.
+      // A prior account/background read cannot clear a newer read's spinner.
+      if (active()) setState(() => checkingCapabilities = false);
     }
   }
 
@@ -494,9 +510,25 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
             if (capabilities?.routing != true)
               Text(
                 t(
-                  'Provider route estimates are not configured. Manual coordinates and external navigation remain available.',
-                  'تقديرات مسار المزود غير مهيأة. تبقى الإحداثيات اليدوية والملاحة الخارجية متاحتين.',
+                  capabilities == null
+                      ? 'Routing-service configuration is unverified. Check it before requesting a provider estimate.'
+                      : 'Provider route estimates are not configured. Manual coordinates and external navigation remain available.',
+                  capabilities == null
+                      ? 'لم يتم التحقق من إعدادات خدمة المسار. تحقق منها قبل طلب تقدير المزود.'
+                      : 'تقديرات مسار المزود غير مهيأة. تبقى الإحداثيات اليدوية والملاحة الخارجية متاحتين.',
                 ),
+              ),
+            if (capabilities == null && widget.client != null)
+              OutlinedButton.icon(
+                key: const Key('route-capability-check'),
+                onPressed: checkingCapabilities ? null : loadCapabilities,
+                icon: checkingCapabilities
+                    ? const SizedBox(width: 18, height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.refresh),
+                label: Text(checkingCapabilities
+                    ? t('Checking routing services…', 'جارٍ التحقق من خدمات المسار…')
+                    : t('Check routing services', 'التحقق من خدمات المسار')),
               ),
             if (capabilities?.routing == true)
               CheckboxListTile(

@@ -726,9 +726,11 @@ void main() {
         250,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
       await tester.tap(find.byKey(const Key('route-navigation')));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
       expect(find.byKey(const Key('navigation-consent')), findsOneWidget);
 
       // The EvApi account epoch can change without changing the
