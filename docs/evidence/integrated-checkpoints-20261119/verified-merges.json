@@ -1,6 +1,6 @@
 {
   "scope": "Exact PR-source hosted gates plus identical resulting merge trees; separate canonical-push reruns are not represented as completed.",
-  "latest_verified_canonical": "a53c3cae36ba612d4e3d1450351349d8dc02b41d",
+  "latest_verified_canonical": "54b50ea16045fd41965ddb7a474fb7f70edda779",
   "merges": [
     {
       "pr": 172,
@@ -116,6 +116,128 @@
           "name": "native (ubuntu-latest)",
           "conclusion": "success",
           "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44452944380/job/135321042926"
+        }
+      ]
+    },
+    {
+      "pr": 186,
+      "source": "cd95684ba22d0fd4c9b5928049be555165b5aa38",
+      "base": "a53c3cae36ba612d4e3d1450351349d8dc02b41d",
+      "merge": "66ee1fa31feeb6e99901b8d3eadf09bdfdd70db3",
+      "source_tree": "d9db96c28f187dbeafe4c30779f8803cdb496995",
+      "predicted_tree": "d9db96c28f187dbeafe4c30779f8803cdb496995",
+      "actual_tree": "d9db96c28f187dbeafe4c30779f8803cdb496995",
+      "checks": [
+        {
+          "name": "recovery-acceptance",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44454949152/job/135349368691"
+        },
+        {
+          "name": "connector-postgres",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44454949152/job/135327598955"
+        },
+        {
+          "name": "csms-recovery",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44454949152/job/135327598725"
+        },
+        {
+          "name": "native (ubuntu-latest)",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44454949135/job/135327598697"
+        },
+        {
+          "name": "finance-postgres",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44454949152/job/135327598678"
+        },
+        {
+          "name": "staging-image",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44454949152/job/135327598627"
+        },
+        {
+          "name": "agent10-offline",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44454949264/job/135327598453"
+        },
+        {
+          "name": "business-platform",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44454949152/job/135327598354"
+        },
+        {
+          "name": "native (macos-15)",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44454949135/job/135327598279"
+        },
+        {
+          "name": "financial-browser",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44454949122/job/135327597863"
+        }
+      ]
+    },
+    {
+      "pr": 155,
+      "source": "acd89465554b05a21def2cd2542f4fa10628bb8f",
+      "base": "66ee1fa31feeb6e99901b8d3eadf09bdfdd70db3",
+      "merge": "54b50ea16045fd41965ddb7a474fb7f70edda779",
+      "source_tree": "f2ea95bdb673f53ca0c9159edd20484ad78b2447",
+      "predicted_tree": "f2ea95bdb673f53ca0c9159edd20484ad78b2447",
+      "actual_tree": "f2ea95bdb673f53ca0c9159edd20484ad78b2447",
+      "checks": [
+        {
+          "name": "recovery-acceptance",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239133/job/135354038502"
+        },
+        {
+          "name": "staging-image",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239133/job/135331820137"
+        },
+        {
+          "name": "business-platform",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239133/job/135331820018"
+        },
+        {
+          "name": "native (ubuntu-latest)",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239134/job/135331819969"
+        },
+        {
+          "name": "csms-recovery",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239133/job/135331819968"
+        },
+        {
+          "name": "financial-browser",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239198/job/135331819965"
+        },
+        {
+          "name": "connector-postgres",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239133/job/135331819947"
+        },
+        {
+          "name": "agent10-offline",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239160/job/135331819829"
+        },
+        {
+          "name": "native (macos-15)",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239134/job/135331819655"
+        },
+        {
+          "name": "finance-postgres",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239133/job/135331819621"
         }
       ]
     }

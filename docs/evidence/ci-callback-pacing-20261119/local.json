@@ -1,0 +1,205 @@
+{
+  "evidence": "LOCAL_SIMULATED_CI_REGRESSION_REPAIR",
+  "canonical": "54b50ea16045fd41965ddb7a474fb7f70edda779",
+  "failed_source_160": "dd7cf34229ba14078bb0a64f6d7c2cd012186663",
+  "tests": {
+    "existing_full_laravel": {
+      "passed": 1715,
+      "assertions": 31290,
+      "skipped": 1
+    },
+    "affected_with_new_callback_regression": {
+      "passed": 32,
+      "assertions": 496
+    },
+    "postgres_features": {
+      "passed": 891,
+      "assertions": 12266
+    },
+    "postgres_concurrency": {
+      "passed": 32,
+      "assertions": 478
+    },
+    "postgres_receipt_precision": {
+      "passed": 2,
+      "assertions": 13
+    },
+    "controlled_scheduler": {
+      "passed": 9
+    },
+    "pint_affected_files": 2,
+    "combined_subscription_full_laravel": {
+      "passed": 1723,
+      "assertions": 31528,
+      "skipped": 1
+    },
+    "actual_citrine_matrix": {
+      "passed": 4,
+      "cases": [
+        {
+          "evidence": "SIMULATED_CSMS_BUSINESS",
+          "canonical_targets": true,
+          "continuous_consumer": true,
+          "daemon_restart_verified": true,
+          "continuous_dispatch_verified": true,
+          "protocol": "1.6",
+          "periodic_meter_unit": "Wh",
+          "station": "ev-test-business-16-46f281d9",
+          "session_id": 31,
+          "source_transaction_id": "1",
+          "source_outcome_reconciled": true,
+          "command_acceptance_verified": false,
+          "current_slot_reservation": "operator_test_fixture",
+          "authenticated_event_inbox": true,
+          "source": "CitrineOS GraphQL transaction and persisted meters",
+          "replay_deduplicated": true,
+          "changed_replay_rejected": true,
+          "energy_wh": 2500,
+          "subtotal_minor": 313,
+          "tax_minor": 16,
+          "invoice_total_minor": 329,
+          "currency": "AED",
+          "one_invoice": true,
+          "simulated_payment_and_refund_reconciled": true,
+          "payment_and_refund_replays_deduplicated": true,
+          "ledger_balanced": true,
+          "customer_vendor_admin_consistent": true,
+          "real_payment_processed": false
+        },
+        {
+          "evidence": "SIMULATED_CSMS_BUSINESS",
+          "canonical_targets": true,
+          "continuous_consumer": true,
+          "daemon_restart_verified": true,
+          "continuous_dispatch_verified": true,
+          "protocol": "2.0.1",
+          "periodic_meter_unit": "Wh",
+          "station": "ev-test-business-201-ccd1a9d9",
+          "session_id": 33,
+          "source_transaction_id": "7ca47ee2-1383-4ca1-a6ba-57cd6abc9f68",
+          "source_outcome_reconciled": true,
+          "command_acceptance_verified": false,
+          "current_slot_reservation": "operator_test_fixture",
+          "authenticated_event_inbox": true,
+          "source": "CitrineOS GraphQL transaction and persisted meters",
+          "replay_deduplicated": true,
+          "changed_replay_rejected": true,
+          "energy_wh": 2500,
+          "subtotal_minor": 313,
+          "tax_minor": 16,
+          "invoice_total_minor": 329,
+          "currency": "AED",
+          "one_invoice": true,
+          "simulated_payment_and_refund_reconciled": true,
+          "payment_and_refund_replays_deduplicated": true,
+          "ledger_balanced": true,
+          "customer_vendor_admin_consistent": true,
+          "real_payment_processed": false
+        },
+        {
+          "evidence": "SIMULATED_CSMS_BUSINESS",
+          "canonical_targets": true,
+          "continuous_consumer": true,
+          "daemon_restart_verified": true,
+          "continuous_dispatch_verified": true,
+          "protocol": "1.6",
+          "periodic_meter_unit": "kWh",
+          "station": "ev-test-business-16-b07d4019",
+          "session_id": 35,
+          "source_transaction_id": "1",
+          "source_outcome_reconciled": true,
+          "command_acceptance_verified": false,
+          "current_slot_reservation": "operator_test_fixture",
+          "authenticated_event_inbox": true,
+          "source": "CitrineOS GraphQL transaction and persisted meters",
+          "replay_deduplicated": true,
+          "changed_replay_rejected": true,
+          "energy_wh": 2500,
+          "subtotal_minor": 313,
+          "tax_minor": 16,
+          "invoice_total_minor": 329,
+          "currency": "AED",
+          "one_invoice": true,
+          "simulated_payment_and_refund_reconciled": true,
+          "payment_and_refund_replays_deduplicated": true,
+          "ledger_balanced": true,
+          "customer_vendor_admin_consistent": true,
+          "real_payment_processed": false
+        },
+        {
+          "evidence": "SIMULATED_CSMS_BUSINESS",
+          "canonical_targets": true,
+          "continuous_consumer": true,
+          "daemon_restart_verified": true,
+          "continuous_dispatch_verified": true,
+          "protocol": "2.0.1",
+          "periodic_meter_unit": "kWh",
+          "station": "ev-test-business-201-f1b54db7",
+          "session_id": 37,
+          "source_transaction_id": "537313b2-749b-4d34-b83f-3a2947f4782b",
+          "source_outcome_reconciled": true,
+          "command_acceptance_verified": false,
+          "current_slot_reservation": "operator_test_fixture",
+          "authenticated_event_inbox": true,
+          "source": "CitrineOS GraphQL transaction and persisted meters",
+          "replay_deduplicated": true,
+          "changed_replay_rejected": true,
+          "energy_wh": 2500,
+          "subtotal_minor": 313,
+          "tax_minor": 16,
+          "invoice_total_minor": 329,
+          "currency": "AED",
+          "one_invoice": true,
+          "simulated_payment_and_refund_reconciled": true,
+          "payment_and_refund_replays_deduplicated": true,
+          "ledger_balanced": true,
+          "customer_vendor_admin_consistent": true,
+          "real_payment_processed": false
+        }
+      ],
+      "exit_code": 0,
+      "script_sha256": "f2eaccb7bac25d70ef13fa2473285fbf4c5d051bf23ab8ebe90fe149fb219769",
+      "api_checkout": "5163367fc0d6aac775a7389b62db5ed707b27d3b",
+      "scope_note": "Affected Charging services/models, RemoteSessionAuthorizationController, ChargerAdmissionServiceProvider and services/csms have no diff from the candidate; this does not claim the older API checkout contains newer Admin or native-preview features."
+    }
+  },
+  "real_hardware_accepted": false,
+  "real_payments_processed": false,
+  "whole_requirement_atoms_added": 0,
+  "logs": [
+    {
+      "name": "ev-receipt-clock-before.txt",
+      "sha256": "cef27e8b4a09cd656d18032449b92371899192ccb5f24da40d00a054a0409e98"
+    },
+    {
+      "name": "ev-route160-laravel-clock-fixed.txt",
+      "sha256": "46b609909ebddb6fcc871316391789027be10fea6517dc02f9872fef04b7f643"
+    },
+    {
+      "name": "ev-route160-focused-final.txt",
+      "sha256": "b4c49642fcb000df6f0c1cadf32a7437b54c27732355bab02d488dff94abd6de"
+    },
+    {
+      "name": "ev-route160-clock-pg.txt",
+      "sha256": "4729479c61fd6f7020c4943b0350a17dcb28bb99d15febf158cdb6a121e154d7"
+    },
+    {
+      "name": "ev-route160-pacing-tests.txt",
+      "sha256": "6137bff70226400910fedb4f200ad2445d3b9da2717628013d8c3934d928a660"
+    },
+    {
+      "name": "ev-route160-pint-final.txt",
+      "sha256": "1e01d02d2cb94fb59b56f79e03119ad172f19f4014e72ffc4c2de02625ba631e"
+    },
+    {
+      "name": "ev-subscription-ci-repair-laravel.txt",
+      "sha256": "34c7eb84af66cd4b757e18e94a80b566ad489bd751afbc724a20bce07acdb273"
+    },
+    {
+      "name": "ev-route160-final-unit-matrix.txt",
+      "sha256": "4cb3f1c2cdeac2d6ce1b306193f16b38189ab9775b60b37398a4f3de8616527d"
+    }
+  ],
+  "repair_commit": "08a4a126077d9b9e945460a8493dde0e35ec90e0",
+  "subscription_combined_source": "e7d52a29cef2bbe4b8a1d24fb31e21c768b0241c"
+}
