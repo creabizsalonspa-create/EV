@@ -110,6 +110,32 @@ class VendorFinancialApi extends FixtureApi {
   }
 }
 
+class ScopedVendorApi extends VendorFinancialApi {
+  int stamp = 0, vendor = 3;
+  final reads = <String>[];
+  Completer<dynamic>? meWait, reportWait;
+  @override
+  bool Function() sessionFence() {
+    final n = stamp;
+    return () => n == stamp;
+  }
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    reads.add(path);
+    if (path == 'me' && meWait != null) return meWait!.future;
+    if (path == 'me') return {'id': vendor, 'role': 'vendor'};
+    if (path == 'finance/report' && reportWait != null)
+      return reportWait!.future;
+    return super.request(path, method: method, body: body, query: query);
+  }
+}
+
 Widget vendorApp(Widget child, {bool ar = false}) => MaterialApp(
   locale: Locale(ar ? 'ar' : 'en'),
   supportedLocales: const [Locale('en'), Locale('ar')],
@@ -163,6 +189,115 @@ class PayableApi extends FixtureApi {
 }
 
 void main() {
+  testWidgets(
+    'old vendor navigation callback cannot open a route after session replacement',
+    (t) async {
+      final api = ScopedVendorApi();
+      addTearDown(api.close);
+      Widget view() => vendorApp(VendorFinanceView(api: api, onExpired: () {}));
+      await t.pumpWidget(view());
+      await t.pumpAndSettle();
+      final callback = t
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('vendor-itemized-KWD')),
+          )
+          .onPressed!;
+      final reads = api.reads.length;
+      api.stamp++;
+      await t.pumpWidget(view());
+      await t.pumpAndSettle();
+      callback();
+      await t.pumpAndSettle();
+      expect(find.byType(VendorEarningsView), findsNothing);
+      expect(api.reads.length, reads);
+    },
+  );
+  testWidgets(
+    'old vendor navigation callback cannot use a replacement API identity',
+    (t) async {
+      final first = ScopedVendorApi(), second = ScopedVendorApi()..vendor = 9;
+      addTearDown(first.close);
+      addTearDown(second.close);
+      await t.pumpWidget(
+        vendorApp(VendorFinanceView(api: first, onExpired: () {})),
+      );
+      await t.pumpAndSettle();
+      final callback = t
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('vendor-itemized-KWD')),
+          )
+          .onPressed!;
+      await t.pumpWidget(
+        vendorApp(VendorFinanceView(api: second, onExpired: () {})),
+      );
+      await t.pumpAndSettle();
+      final reads = second.reads.length;
+      callback();
+      await t.pumpAndSettle();
+      expect(find.byType(VendorEarningsView), findsNothing);
+      expect(second.reads.length, reads);
+    },
+  );
+
+  testWidgets(
+    'vendor overview clears private amounts on inactivity and requires explicit refresh',
+    (t) async {
+      final api = ScopedVendorApi();
+      addTearDown(api.close);
+      await t.pumpWidget(
+        vendorApp(VendorFinanceView(api: api, onExpired: () {})),
+      );
+      await t.pumpAndSettle();
+      expect(find.text('Invoiced: 1.250 KWD'), findsOneWidget);
+      final before = api.reads.length;
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await t.pump();
+      expect(find.text('Invoiced: 1.250 KWD'), findsNothing);
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await t.pumpAndSettle();
+      expect(api.reads.length, before);
+      await t.tap(find.text('Refresh'));
+      await t.pumpAndSettle();
+      expect(api.reads.length, before + 2);
+      expect(find.text('Invoiced: 1.250 KWD'), findsOneWidget);
+    },
+  );
+  testWidgets(
+    'vendor overview never follows a stale identity read using the next account',
+    (t) async {
+      final api = ScopedVendorApi()..meWait = Completer<dynamic>();
+      addTearDown(api.close);
+      Widget view() => vendorApp(VendorFinanceView(api: api, onExpired: () {}));
+      await t.pumpWidget(view());
+      await t.pump();
+      api.stamp++;
+      api.meWait!.complete({'id': 3, 'role': 'vendor'});
+      await t.pumpWidget(view());
+      await t.pumpAndSettle();
+      expect(api.reads, ['me']);
+      expect(find.text('Invoiced: 1.250 KWD'), findsNothing);
+    },
+  );
+  testWidgets('late vendor report401 cannot expire the next account', (
+    t,
+  ) async {
+    var expired = 0;
+    final api = ScopedVendorApi()..reportWait = Completer<dynamic>();
+    addTearDown(api.close);
+    Widget view() =>
+        vendorApp(VendorFinanceView(api: api, onExpired: () => expired++));
+    await t.pumpWidget(view());
+    await t.pump();
+    api.stamp++;
+    api.reportWait!.completeError(
+      const ApiException(401, 'private old source'),
+    );
+    await t.pumpWidget(view());
+    await t.pumpAndSettle();
+    expect(expired, 0);
+    expect(find.textContaining('private old source'), findsNothing);
+  });
+
   testWidgets(
     'uncertain settlement request survives refresh and restart with the original identity even after eligibility changes',
     (tester) async {

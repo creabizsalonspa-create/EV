@@ -102,6 +102,12 @@ const proof={phase:'fixture',requests:0,englishResponse:null,arabicResponse:null
   stage='background';await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
   assert.equal(await root.locator('article').count(),0);
   await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));});assert.equal(calls,2);assert.equal(await root.locator('article').count(),0);
+  stage='logout-ack';
+  const logout=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/logout'&&r.request().method()==='POST');
+  await page.locator('#logout').click();assert.equal((await logout).status(),204);
+  stage='logout-private-filter';
+  assert.equal(await page.evaluate(()=>connectorFleetFilter.actor===null&&connectorFleetFilter.epoch===-1&&connectorFleetFilter.draftStation===''&&connectorFleetFilter.selectedStation===''),true,'Connector filter must not retain a logged-out actor or station draft.');
+  assert.equal(await root.locator('input[name=fleet-station]').count(),0);
   assert.deepEqual(errors,[]);console.log('PASS actual Laravel/vendor fleet source snapshot EN/AR, explicit scoped reads and background clearing; no command/payment or source query.');
  } finally { resumeIdentity();try { await browser.close(); } finally { execFileSync(process.env.EV_TEST_PHP_RUNNER||'./scripts/php',['tests/Fixtures/unified-discovery-clean.php',run],{stdio:'pipe'}); } }
 })().catch(e=>{console.error(JSON.stringify({suite:'connector_fleet',stage,error:e?.name==='TimeoutError'?'TimeoutError':e?.name||'Error',operator:e?.operator||null,
