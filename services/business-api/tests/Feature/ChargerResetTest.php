@@ -12,6 +12,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -89,6 +90,117 @@ class ChargerResetTest extends TestCase
             $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Malformed source evidence must retain the hold'])->assertServiceUnavailable();
             $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null, 'status' => 'transport_submitted']);
             Http::assertNotSent(fn ($r) => str_contains($r->url(), '/configuration/reset?'));
+        }
+    }
+
+    public static function malformedIdleProjections(): array
+    {
+        $out = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['station_object', 'station_string_id', 'station_string_online', 'connector_object', 'connector_string_id',
+                'connector_duplicate', 'status_object', 'status_string_connector', 'status_missing_time', 'active_transaction'] as $kind) {
+                $out[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+        }
+
+        return $out;
+    }
+
+    #[DataProvider('malformedIdleProjections')]
+    public function test_untrusted_idle_source_projections_never_dispatch_reset(string $protocol, string $kind): void
+    {
+        $f = $this->fixture($protocol);
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($r) use ($f, $kind) {
+            $this->assertSame('http://source.test/graphql', $r->url());
+            if (str_contains($r['query'], 'ChargingStations')) {
+                $station = ['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']];
+                if ($kind === 'station_string_id') {
+                    $station['id'] = '9';
+                }
+                if ($kind === 'station_string_online') {
+                    $station['isOnline'] = 'true';
+                }
+                $rows = $kind === 'station_object' ? ['station' => $station] : [$station];
+
+                return Http::response(['data' => ['ChargingStations' => $rows]]);
+            }
+            $connectors = [['id' => 7]];
+            if ($kind === 'connector_object') {
+                $connectors = ['connector' => $connectors[0]];
+            }
+            if ($kind === 'connector_string_id') {
+                $connectors[0]['id'] = '7';
+            }
+            if ($kind === 'connector_duplicate') {
+                $connectors[] = ['id' => 7];
+            }
+            $status = ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available',
+                'timestamp' => now()->toISOString()];
+            if ($kind === 'status_string_connector') {
+                $status['connectorDatabaseId'] = '7';
+            }
+            if ($kind === 'status_missing_time') {
+                unset($status['timestamp']);
+            }
+            $notifications = $kind === 'status_object' ? ['status' => $status] : [$status];
+
+            return Http::response(['data' => [
+                'Transactions' => $kind === 'active_transaction' ? [['id' => 11]] : [],
+                'Connectors' => $connectors,
+                'StatusNotifications' => $notifications,
+            ]]);
+        });
+        $this->actingAs($f['owner'])->postJson($f['path'], [
+            'reason' => 'Reject malformed reset source evidence safely',
+            'idempotency_key' => 'source-'.$kind,
+        ])->assertStatus(409);
+        $this->assertSame(0, DB::table('charger_reset_operations')
+            ->where('binding_id', $f['binding'])->count());
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/configuration/reset'));
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_conflicting_source_status_clocks_cannot_authorize_a_reset(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['same_instant_conflict', 'reverse_source_clock'] as $kind) {
+                $f = $this->fixture($protocol);
+                Http::swap(new Factory);
+                Http::preventStrayRequests();
+                Http::fake(function ($r) use ($f, $kind) {
+                    $this->assertSame('http://source.test/graphql', $r->url());
+                    if (str_contains($r['query'], 'ChargingStations')) {
+                        return Http::response(['data' => [
+                            'ChargingStations' => [['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']]],
+                        ]]);
+                    }
+                    $first = now()->subSeconds($kind === 'reverse_source_clock' ? 30 : 0)->toISOString();
+                    $second = now()->toISOString();
+
+                    return Http::response(['data' => [
+                        'Transactions' => [],
+                        'Connectors' => [['id' => 7]],
+                        'StatusNotifications' => [
+                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => $first],
+                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Faulted', 'timestamp' => $second],
+                        ],
+                    ]]);
+                });
+                $this->actingAs($f['owner'])->postJson($f['path'], [
+                    'reason' => 'Quarantine contradictory source connector observations',
+                    'idempotency_key' => 'status-'.$kind.'-'.$protocol,
+                ])->assertConflict();
+                $this->assertSame(0, DB::table('charger_reset_operations')
+                    ->where('binding_id', $f['binding'])->count());
+                Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+                    || str_contains($request->url(), '/configuration/reset'));
+                $this->assertDatabaseCount('charger_commands', 0);
+                $this->assertDatabaseCount('finance_invoices', 0);
+            }
         }
     }
 
