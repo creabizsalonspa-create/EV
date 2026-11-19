@@ -1,0 +1,67 @@
+{
+  "status": "LOCAL_VERIFIED_HOSTED_RESULTING_HEAD_PENDING",
+  "parent": "c3dd5efe911b966cf88762e5d7dc2b93a7dcd8d5",
+  "laravel": {
+    "passed": 1676,
+    "assertions": 30808,
+    "postgres_only_skips": 1
+  },
+  "new_cache_regression": {
+    "red_failures": 1,
+    "green_passed": 1,
+    "green_assertions": 8,
+    "two_real_sqlite_connections": true,
+    "budget_and_expiry_preserved": true
+  },
+  "pint_files": 816,
+  "actual_persistent_citrine": {
+    "exit": 0,
+    "protocols": [
+      "1.6",
+      "2.0.1"
+    ],
+    "authorization": [
+      "managed_remote",
+      "managed_rfid"
+    ],
+    "source_stop_invoice": true,
+    "real_laravel_scoped_reports_csv_pdf": true,
+    "arabic_phone_and_logout_privacy": true,
+    "consented_reviews_moderation_withdrawal": true,
+    "idle_restart": true,
+    "owned_workers_stopped_in_finally": true
+  },
+  "failed_attempts_retained": [
+    "Concurrent unit tests and live daemons refused shared exclusive worker locks; sequential full rerun passed.",
+    "Exact source145Wh delta disagreed with derived0.14500000000000002kWh; strict reconciliation retained and journal not replayed.",
+    "Both managed-remote source cases passed but missing local Chromium path stopped the first quantized-fixture run; corrected environment full lifecycle exit0."
+  ],
+  "hosted_previous_head": "895de6fd53582ef52aee849952a730edcb892881: native Android/iOS and PostgreSQL successful, business failed, dependent recovery skipped; not merge eligible",
+  "unchanged": [
+    "Production rate budgets, keys and expiry",
+    "PostgreSQL configuration",
+    "Strict exact Wh admission and terminal-total agreement",
+    "Command no-replay rules"
+  ],
+  "known_software_limitations": [
+    "Arbitrary Citrine derived totals with fractional-Wh binary arithmetic residue still require reconciliation; no production rounding added.",
+    "Production source adapters, protocol conformance and legacy command-token encryption remain unfinished."
+  ],
+  "source_sha256": {
+    "services/business-api/config/database.php": "86219de4ef45f19f7855501a5ba46f0dfbbd8241301d687ae393f62011ed5fbf",
+    "services/business-api/tests/Feature/SqliteAtomicCacheTest.php": "80fee38ee47f9b6e85f730d3c631568dcd24b392a3f2666d638fef75542fd9a0",
+    "scripts/client-demo-charger.cjs": "e8c8d0804306d14443c9bc0bb220ea361e5dd98d345591df46ecec50aaad03a5",
+    "docs/SQLITE_LIVE_WORKER_SAFETY.md": "ce1b3adae99ce13e0fe3f00f893049b2eabadf92a72eedbde5f48f686b6abf32"
+  },
+  "log_sha256": {
+    "/tmp/ev-sqlite-cache-red.txt": "dd991d4d61e82f6febf5a8ccd4de6a3698ee07053214855edc636b8aff606230",
+    "/tmp/ev-sqlite-cache-green.txt": "69744cb7fe1591654c03d729aed0ad1d9b80c89b26b5d2b2ed96e5cfa0fefa48",
+    "/tmp/ev-next-ocpp-laravel-sequential.txt": "dc7cedb69a0cda067c7c13f63d4cafd40961b444338043f8a7ecad1f862ca080",
+    "/tmp/ev-next-ocpp-pint.txt": "f1996d0a37166bd88a417c49ea60444453996f9aa9bfe680334a5fc30e09eb1f",
+    "/tmp/ev-sqlite-cache-persistent-demo-final.txt": "173900384f2787a0c10debe1f1571f3693b38ecee101363120af5a46d598698d",
+    "/tmp/ev-sqlite-cache-persistent-demo-exact.txt": "5b4a76cec2f629944327c0b7328516e1b2058e325e6c6b01a012e7d6f2b8fca4",
+    "/tmp/ev-sqlite-cache-persistent-demo-ready.txt": "5e1abdd49cb10e234d3df41be8c0749ab19e9db3b8f9ef5e56178de62f906b28",
+    "/tmp/ev-895-checks-final.tsv": "c058acd7d2f6f9a658d56bee79026512de900f7cdd10a01ae7667e04218c16b3"
+  },
+  "production_accepted": false
+}
