@@ -1,0 +1,152 @@
+{
+  "canonical": "ed112b4a5e3dd65cc88c210bd55f92d8df56add6",
+  "merges": [
+    {
+      "pr": 160,
+      "source_sha": "dc164557ff81bbc01f0be2b83e011979e966df0d",
+      "base_sha": "54b50ea16045fd41965ddb7a474fb7f70edda779",
+      "source_tree": "de50ec8668b7eb110f7a763066ab51491333a482",
+      "predicted_tree": "de50ec8668b7eb110f7a763066ab51491333a482",
+      "checks": [
+        {
+          "name": "recovery-acceptance",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474095082/job/135414487798"
+        },
+        {
+          "name": "native (macos-15)",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474095041/job/135390424661"
+        },
+        {
+          "name": "native (ubuntu-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474095041/job/135390424111"
+        },
+        {
+          "name": "connector-postgres",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474095082/job/135390396286"
+        },
+        {
+          "name": "staging-image",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474095082/job/135390396285"
+        },
+        {
+          "name": "finance-postgres",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474095082/job/135390396168"
+        },
+        {
+          "name": "csms-recovery",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474095082/job/135390396099"
+        },
+        {
+          "name": "business-platform",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474095082/job/135390395840"
+        },
+        {
+          "name": "agent10-offline",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474095105/job/135390324872"
+        }
+      ],
+      "production_accepted": false,
+      "integrated_sha": "3e394d6cd957ea9586e22c1008f350f0a59f00cd",
+      "integrated_tree": "de50ec8668b7eb110f7a763066ab51491333a482",
+      "source_and_integrated_tree_equal": true
+    },
+    {
+      "pr": 150,
+      "source_sha": "78abd00378a7fedb8d676d1cb4f37b017c838f11",
+      "base_sha": "3e394d6cd957ea9586e22c1008f350f0a59f00cd",
+      "pr_base_metadata_sha": "54b50ea16045fd41965ddb7a474fb7f70edda779",
+      "current_base_ref_verified_separately": true,
+      "source_tree": "b4088c3a06c60cbe79bf15ca643f4b93f8e36c05",
+      "predicted_tree": "b4088c3a06c60cbe79bf15ca643f4b93f8e36c05",
+      "checks": [
+        {
+          "name": "recovery-acceptance",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474484644/job/135416819160"
+        },
+        {
+          "name": "staging-image",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474484644/job/135391725109"
+        },
+        {
+          "name": "connector-postgres",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474484644/job/135391725009"
+        },
+        {
+          "name": "csms-recovery",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474484644/job/135391725002"
+        },
+        {
+          "name": "finance-postgres",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474484644/job/135391724971"
+        },
+        {
+          "name": "business-platform",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474484644/job/135391724676"
+        },
+        {
+          "name": "native (ubuntu-latest)",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474484312/job/135391708451"
+        },
+        {
+          "name": "native (macos-15)",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474484312/job/135391707916"
+        },
+        {
+          "name": "financial-browser",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474484325/job/135391588631"
+        },
+        {
+          "name": "agent10-offline",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44474484301/job/135391588010"
+        }
+      ],
+      "production_accepted": false,
+      "integrated_sha": "ed112b4a5e3dd65cc88c210bd55f92d8df56add6",
+      "integrated_tree": "b4088c3a06c60cbe79bf15ca643f4b93f8e36c05",
+      "source_and_integrated_tree_equal": true,
+      "parents": [
+        "3e394d6cd957ea9586e22c1008f350f0a59f00cd",
+        "78abd00378a7fedb8d676d1cb4f37b017c838f11"
+      ]
+    }
+  ],
+  "production_accepted": false
+}
