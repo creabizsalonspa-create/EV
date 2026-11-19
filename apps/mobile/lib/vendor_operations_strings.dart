@@ -84,6 +84,7 @@ const vendorOpsEn = {
   'email': 'Existing account email',
   'permissions': 'Permissions',
   'company.read': 'Read company profile',
+  'charging.read': 'Read recorded charging sessions',
   'inventory.read': 'Read inventory',
   'inventory.write': 'Manage inventory',
   'inviteNotice':
@@ -191,6 +192,7 @@ const vendorOpsAr = {
   'email': 'البريد الإلكتروني لحساب موجود',
   'permissions': 'الصلاحيات',
   'company.read': 'قراءة ملف الشركة',
+  'charging.read': 'قراءة جلسات الشحن المسجلة',
   'inventory.read': 'قراءة المخزون',
   'inventory.write': 'إدارة المخزون',
   'inviteNotice':

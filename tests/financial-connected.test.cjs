@@ -85,6 +85,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "session-cookie-read",
       "admin-current-authority-e2e",
       "admin-command-secret-storage-e2e",
+      "vendor-session-observations-e2e",
       "invoice-history",
       "money-input",
       "tariffs",
@@ -125,7 +126,7 @@ test("post-finance operational windows preserve all suites and do not consume th
     ],
   );
   assert.equal(starts[0].time, 61000);
-  assert.equal(starts[8].time - ends[7], 61000);
+  assert.equal(starts[9].time - ends[8], 61000);
   let offset = 0;
   for (const group of groups) {
     assert.equal(starts[offset].time - (offset ? ends[offset - 1] : 0), 61000);

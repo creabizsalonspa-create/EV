@@ -1,0 +1,165 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Http\Controllers\VendorStaffChargingReadController;
+use App\Models\ChargingSession;
+use App\Models\Reservation;
+use App\Models\Station;
+use App\Models\User;
+use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorCompanyStaff;
+use App\Models\VendorOps\VendorSite;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\TestWith;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\TestCase;
+
+class VendorStaffChargingReadTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function fixture(int $sessions = 1): array
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $staff = User::factory()->create(['role' => 'customer', 'email_verified_at' => now()]);
+        $driver = User::factory()->create(['name' => 'PRIVATE-DRIVER-IDENTITY']);
+        $company = VendorCompany::create(['owner_id' => $owner->id, 'legal_name' => 'Session observation company', 'country' => 'AE', 'trade_license_number' => 'PRIVATE-LICENSE', 'license_expires_on' => now()->addYear(), 'status' => 'approved']);
+        $station = Station::create(['vendor_id' => $owner->id, 'name' => 'Owned observation station', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
+        $site = VendorSite::create(['company_id' => $company->id, 'station_id' => $station->id, 'name' => 'Observation site', 'country' => 'AE', 'timezone' => 'Asia/Dubai', 'address' => 'Synthetic', 'latitude' => 25, 'longitude' => 55]);
+        $membership = VendorCompanyStaff::create(['company_id' => $company->id, 'user_id' => $staff->id, 'permissions' => ['inventory.read'], 'status' => 'active', 'accepted_at' => now()]);
+        foreach (range(1, $sessions) as $i) {
+            $reservation = Reservation::create(['user_id' => $driver->id, 'station_id' => $station->id, 'starts_at' => now()->subHours($i), 'idempotency_key' => 'staff-observation-'.$company->id.'-'.$i]);
+            ChargingSession::create(['reservation_id' => $reservation->id, 'status' => 'stopped', 'energy_wh' => 1000 + $i, 'rate_minor_per_kwh' => 999, 'currency' => 'AED', 'total_minor' => 777, 'stopped_at' => now()]);
+        }
+
+        return compact('owner', 'staff', 'driver', 'company', 'station', 'site', 'membership');
+    }
+
+    private function url(VendorCompany $company): string
+    {
+        return '/api/vendor-ops/companies/'.$company->id.'/charging-sessions';
+    }
+
+    public function test_new_permission_requires_versioned_recipient_consent_without_promoting_customer_role(): void
+    {
+        $f = $this->fixture();
+        $this->actingAs($f['staff'])->getJson($this->url($f['company']))->assertNotFound();
+        $this->actingAs($f['owner'])->patchJson('/api/vendor-ops/companies/'.$f['company']->id.'/staff/'.$f['membership']->id.'/permissions', ['expected_version' => 1, 'permissions' => ['inventory.read', 'charging.read']])->assertOk()->assertJsonPath('requires_acceptance', true);
+        $this->actingAs($f['staff'])->getJson($this->url($f['company']))->assertNotFound();
+        $accept = '/api/vendor-ops/staff-invitations/'.$f['membership']->id.'/accept';
+        $this->postJson($accept, ['expected_version' => 1, 'consent' => true])->assertConflict();
+        $this->postJson($accept, ['expected_version' => 2, 'consent' => true])->assertOk();
+        $this->getJson($this->url($f['company']))->assertOk()->assertJsonPath('total', 1);
+        $this->assertSame('customer', $f['staff']->fresh()->role);
+    }
+
+    public function test_delegated_view_is_private_read_only_and_excludes_customer_money_and_credentials(): void
+    {
+        Http::preventStrayRequests();
+        $f = $this->fixture();
+        $f['membership']->update(['permissions' => ['charging.read']]);
+        $before = DB::table('charging_sessions')->get()->toJson();
+        $reply = $this->actingAs($f['staff'])->getJson($this->url($f['company']))->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('scope', 'company_recorded_charging_sessions')->assertJsonPath('company_id', $f['company']->id)
+            ->assertJsonPath('customer_identity_fields_included', false)->assertJsonPath('financial_fields_included', false)
+            ->assertJsonPath('control_actions_exposed', false)->assertJsonPath('physical_charging_verified', false)
+            ->assertJsonPath('live_availability_verified', false)->assertJsonPath('data.0.energy_wh', 1001)
+            ->assertJsonPath('data.0.evidence', 'SIMULATED');
+        foreach (['PRIVATE-', 'user_id', 'reservation_id', 'vehicle_id', 'rate_minor', 'total_minor', 'currency', 'invoice', 'id_token', 'payload_hash'] as $private) {
+            $this->assertStringNotContainsString($private, $reply->getContent());
+        }
+        $this->assertSame($before, DB::table('charging_sessions')->get()->toJson());
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_pagination_and_status_filters_remain_company_scoped_even_for_shared_owner(): void
+    {
+        $f = $this->fixture(27);
+        $other = $this->fixture(2);
+        $other['company']->update(['owner_id' => $f['owner']->id]);
+        $other['station']->update(['vendor_id' => $f['owner']->id]);
+        $this->actingAs($f['owner'])->getJson($this->url($f['company']))->assertOk()->assertJsonPath('total', 27)->assertJsonCount(25, 'data');
+        $this->getJson($this->url($f['company']).'?page=2&status=stopped')->assertOk()->assertJsonPath('total', 27)->assertJsonCount(2, 'data');
+        $this->getJson($this->url($f['company']).'?status=charging')->assertOk()->assertJsonPath('total', 0);
+        $this->getJson($this->url($other['company']))->assertOk()->assertJsonPath('total', 2);
+        $f['membership']->update(['permissions' => ['charging.read']]);
+        $this->actingAs($f['staff'])->getJson($this->url($other['company']))->assertNotFound();
+    }
+
+    public function test_revoked_held_or_unverified_memberships_never_read_and_permission_does_not_expose_kyc(): void
+    {
+        $f = $this->fixture();
+        $f['membership']->update(['permissions' => ['charging.read']]);
+        $this->actingAs($f['staff'])->getJson('/api/vendor-ops/companies/'.$f['company']->id)->assertNotFound();
+        $this->getJson('/api/charging-operations')->assertForbidden();
+        foreach ([['status' => 'revoked'], ['status' => 'invited'], ['status' => 'active', 'admin_revoked_at' => now()]] as $change) {
+            $f['membership']->update($change);
+            $this->getJson($this->url($f['company']))->assertNotFound();
+        }
+        $f['membership']->update(['status' => 'active', 'admin_revoked_at' => null]);
+        $f['staff']->forceFill(['email_verified_at' => null])->save();
+        $this->actingAs($f['staff']->fresh())->getJson($this->url($f['company']))->assertNotFound();
+    }
+
+    #[TestWith(['role'])]
+    #[TestWith(['status'])]
+    #[TestWith(['epoch'])]
+    #[TestWith(['password'])]
+    public function test_stale_actor_is_rejected_before_private_projection(string $change): void
+    {
+        $f = $this->fixture();
+        $f['membership']->update(['permissions' => ['charging.read']]);
+        $snapshot = $f['staff'];
+        DB::table('users')->where('id', $snapshot->id)->update(match ($change) {
+            'role' => ['role' => 'vendor'], 'status' => ['account_status' => 'suspended'],
+            'epoch' => ['auth_epoch' => $snapshot->auth_epoch + 1], 'password' => ['password' => 'changed-private-hash'],
+        });
+        $request = Request::create($this->url($f['company']));
+        $request->setUserResolver(fn () => $snapshot);
+        try {
+            app(VendorStaffChargingReadController::class)->index($request, $f['company']);
+            $this->fail('Changed actor must never receive observations.');
+        } catch (HttpException $e) {
+            $this->assertContains($e->getStatusCode(), [403, 409]);
+        }
+    }
+
+    public function test_current_station_ownership_and_supported_filter_bounds_are_enforced(): void
+    {
+        $f = $this->fixture();
+        $this->actingAs($f['owner']);
+        foreach (['page=0', 'page=100001', 'status=active-now', 'status[]=charging'] as $query) {
+            $this->getJson($this->url($f['company']).'?'.$query)->assertUnprocessable();
+        }
+        $f['station']->update(['vendor_id' => User::factory()->create(['role' => 'vendor'])->id]);
+        $this->getJson($this->url($f['company']))->assertOk()->assertJsonPath('total', 0);
+    }
+
+    public function test_real_customer_native_login_can_read_only_accepted_scope_without_kyc_or_operator_authority(): void
+    {
+        $f = $this->fixture();
+        $f['membership']->update(['permissions' => ['charging.read']]);
+        $login = $this->postJson('/api/v1/login', ['email' => $f['staff']->email, 'password' => 'password'])->assertOk()->assertJsonPath('user.role', 'customer');
+        $this->app['auth']->forgetGuards();
+        $this->withToken($login->json('token'))->getJson('/api/v1/vendor-ops/companies/'.$f['company']->id.'/charging-sessions')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson('/api/v1/vendor-ops/companies')->assertOk()->assertJsonPath('data.0.capabilities.charging_read', true)->assertJsonPath('data.0.capabilities.company_read', false)->assertJsonPath('data.0.capabilities.inventory_read', false)->assertJsonPath('data.0.restricted_directory_entry', true);
+        $this->getJson('/api/v1/charging-operations')->assertForbidden();
+    }
+
+    public function test_anonymous_outsider_and_unknown_or_duplicate_permissions_never_gain_access(): void
+    {
+        $f = $this->fixture();
+        $this->getJson($this->url($f['company']))->assertUnauthorized();
+        $this->actingAs(User::factory()->create())->getJson($this->url($f['company']))->assertNotFound();
+        foreach ([['charging.read', 'charging.read'], ['charging.control'], ['finance.read']] as $permissions) {
+            $this->actingAs($f['owner'])->patchJson('/api/vendor-ops/companies/'.$f['company']->id.'/staff/'.$f['membership']->id.'/permissions', ['expected_version' => 1, 'permissions' => $permissions])->assertUnprocessable();
+        }
+        $this->assertSame(['inventory.read'], $f['membership']->fresh()->permissions);
+    }
+}

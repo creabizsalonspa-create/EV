@@ -11,6 +11,7 @@ import 'charger_firmware.dart';
 import 'maintenance_windows.dart';
 import 'topology_strings.dart';
 import 'vendor_company.dart';
+import 'vendor_session_observations.dart';
 import 'vendor_forms.dart';
 import 'vendor_operations_strings.dart';
 
@@ -121,6 +122,41 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
     if (mounted && ModalRoute.of(context)?.isCurrent == true) {
       await load(page: data?.current ?? 1);
     }
+  }
+
+  Widget sessionObservationsButton(Map<String, dynamic> row) {
+    final request = widget.api,
+        authorized = request.sessionFence(),
+        epoch = generation;
+    bool live() =>
+        mounted &&
+        epoch == generation &&
+        request == widget.api &&
+        authorized() &&
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    return TextButton(
+      onPressed: busy
+          ? null
+          : () async {
+              if (!live() || row['id'] is! int) return;
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => live()
+                      ? VendorSessionObservationsView(
+                          api: request,
+                          companyId: row['id'] as int,
+                          onExpired: widget.onExpired,
+                        )
+                      : const Scaffold(body: SizedBox.shrink()),
+                ),
+              );
+            },
+      child: Text(
+        Localizations.localeOf(context).languageCode == 'ar'
+            ? 'جلسات الشحن المسجلة'
+            : 'Recorded charging sessions',
+      ),
+    );
   }
 
   Future<void> maintenance(Map<String, dynamic> row) async {
@@ -253,18 +289,26 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
               ),
 
             if (level == 0) ...[
-              if (widget.metadataEditor) OutlinedButton.icon(
-                key: const Key('vendor-station-information-open'),
-                icon: const Icon(Icons.info_outline),
-                label: Text(Localizations.localeOf(context).languageCode == 'ar'
-                    ? 'ساعات العمل ومرافق المحطة'
-                    : 'Station hours & facilities'),
-                onPressed: busy ? null : () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => VendorStationInformationView(
-                    api: widget.api, onExpired: widget.onExpired,
-                  )),
+              if (widget.metadataEditor)
+                OutlinedButton.icon(
+                  key: const Key('vendor-station-information-open'),
+                  icon: const Icon(Icons.info_outline),
+                  label: Text(
+                    Localizations.localeOf(context).languageCode == 'ar'
+                        ? 'ساعات العمل ومرافق المحطة'
+                        : 'Station hours & facilities',
+                  ),
+                  onPressed: busy
+                      ? null
+                      : () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => VendorStationInformationView(
+                              api: widget.api,
+                              onExpired: widget.onExpired,
+                            ),
+                          ),
+                        ),
                 ),
-              ),
               FilledButton(
                 onPressed: busy ? null : createInventory,
                 child: Text(vendorOpsText(context, 'newCompany')),
@@ -517,6 +561,10 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                                   },
                             child: Text(vendorOpsText(context, 'company')),
                           ),
+                        if (level == 0 &&
+                            (row['capabilities'] as Map?)?['charging_read'] ==
+                                true)
+                          sessionObservationsButton(row),
                         if (level < 3 &&
                             (level != 0 ||
                                 (row['capabilities']

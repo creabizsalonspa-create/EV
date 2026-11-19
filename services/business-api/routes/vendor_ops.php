@@ -13,11 +13,13 @@ use App\Http\Controllers\MaintenanceWindowController;
 use App\Http\Controllers\OperationalAnalyticsController;
 use App\Http\Controllers\VendorAgreementController;
 use App\Http\Controllers\VendorOpsController as V;
+use App\Http\Controllers\VendorStaffChargingReadController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/companies', [V::class, 'companies']);
 Route::post('/companies', [V::class, 'createCompany']);
 Route::get('/companies/{company}', [V::class, 'company']);
+Route::get('/companies/{company}/charging-sessions', [VendorStaffChargingReadController::class, 'index']);
 Route::get('/companies/{company}/agreement', [VendorAgreementController::class, 'show']);
 Route::post('/companies/{company}/agreement/publish', [VendorAgreementController::class, 'publish'])->middleware('throttle:authentication');
 Route::post('/companies/{company}/agreement/withdraw', [VendorAgreementController::class, 'withdraw'])->middleware('throttle:authentication');
