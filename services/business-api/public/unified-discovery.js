@@ -3,7 +3,7 @@
  const text=(tag,en,ar)=>{const n=document.createElement(tag);if(tag==='label'){n.append(text('span',en,ar));return n;}n.dataset.en=en;n.dataset.ar=ar;n.textContent=document.documentElement.lang==='ar'?ar:en;return n;};
  const button=(en,ar,action)=>{const n=text('button',en,ar);n.type='button';n.onclick=action;return n;};
  function install(root,api,onCatalog){
-  let advancedQuery={},viewportQuery={},generation=0,page=1,query='',scope='all',country='',connector='',mapRows=[],recentStatus='',maxSourceAge='',savedOnly=false,customer=false,owner=null,favoriteWriter=null,writing=false,uncertain=false;
+  let advancedQuery={},viewportQuery={},generation=0,page=1,query='',scope='all',country='',connector='',mapRows=[],recentStatus='',maxSourceAge='',savedOnly=false,customer=false,owner=null,favoriteWriter=null,writing=false,uncertain=false,recentPresets=[];
   const form=document.createElement('form'),input=document.createElement('input'),source=document.createElement('select'),plug=document.createElement('select'),state=document.createElement('p'),list=document.createElement('div'),nav=document.createElement('nav');
   input.maxLength=80;input.name='unified-query';
   const field=text('label','Name, address or operator','الاسم أو العنوان أو المشغل');field.append(input);form.append(field);
@@ -29,13 +29,65 @@
   advanced.append(text('p','Operator and address match published labels. Access, power and price filters exclude partner reports. Published station kW is a catalog rating, not measured live power. Price matches current simulated energy rates only, excluding tax; it is not a total-cost quote. Enter both rate and currency.','يطابق المشغل والعنوان الأوصاف المنشورة. تستثني مرشحات الوصول والقدرة والسعر تقارير الشركاء. قدرة المحطة المنشورة وصف كتالوجي وليست قدرة فعلية مقاسة. يطابق السعر أسعار الطاقة المحاكاة الحالية فقط دون الضريبة؛ وليس عرضاً للتكلفة الإجمالية. أدخل السعر والعملة معاً.'));form.append(advanced);
   const normalizeRate=value=>value.replace(/[٠-٩۰-۹]/g,c=>String(c.charCodeAt(0)-(c>='۰'?0x6f0:0x660))).replace(/٫/g,'.');
   const submit=text('button','Search all sources','البحث في كل المصادر');submit.type='submit';form.append(submit);state.setAttribute('role','status');
+  // Deliberately private to this UI instance: never localStorage, cookies,
+  // analytics, browser history or a background server request.
+  const recentPanel=document.createElement('section'),recentList=document.createElement('div');
+  recentPanel.id='unified-recent-presets';
+  recentPanel.hidden=true;
+  const recentHeading=text('h4','Recent filters (this session only)','مرشحات حديثة (هذه الجلسة فقط)');
+  const clearRecent=button('Clear recent filters','مسح المرشحات الحديثة',()=>{
+    recentPresets=[];renderRecentPresets();
+  });
+  recentPanel.append(recentHeading,recentList,clearRecent);
+  function renderRecentPresets(){
+    recentPanel.hidden=recentPresets.length===0;
+    recentList.replaceChildren();
+    for(const [i,record] of recentPresets.entries()){
+      const scopes={all:['All published sources','كل المصادر المنشورة'],catalog:['Platform catalog','كتالوج المنصة'],partner:['Partner reports','تقارير الشركاء']};
+      const sourceLabel=scopes[record.scope]||scopes.all;
+      const displayEn=[record.q||'All locations',record.country||'all countries',sourceLabel[0]].join(' · ').slice(0,120);
+      const displayAr=[record.q||'كل المواقع',record.country||'كل الدول',sourceLabel[1]].join(' · ').slice(0,120);
+      const restore=button('Restore filters: '+displayEn,'استعادة المرشحات: '+displayAr,()=>{
+        if(writing||submit.disabled)return;
+        // Discarded actor/history callbacks cannot repopulate a new form.
+        if(!recentPresets.includes(record))return;
+        input.value=record.q;source.value=record.scope;market.value=record.country;
+        plug.value=record.connector;report.value=record.recentStatus;
+        ageFilter.value=record.maxSourceAge;savedInput.checked=customer&&record.savedOnly;
+        for(const [key,control] of Object.entries(advancedInputs)){
+          control.value=record.advanced[key]||'';
+        }
+        // Restoring a prior draft is NOT a search: a second, explicit
+        // Search action is always required before any network request.
+        state.replaceChildren(text('span',
+          'Filters restored locally. Press Search to submit.',
+          'استُعيدت المرشحات محلياً. اضغط بحث لإرسالها.'));
+      });
+      restore.dataset.recentIndex=String(i);recentList.append(restore);
+    }
+  }
+  function rememberSuccessfulSearch(record){
+    if(!record)return;
+    const fingerprint=JSON.stringify(record);
+    recentPresets=[record,...recentPresets.filter(other=>JSON.stringify(other)!==fingerprint)].slice(0,5);
+    renderRecentPresets();
+  }
   root.append(text('h3','Search platform and partner locations','البحث في مواقع المنصة والشركاء'),text('p','One search of published records. Partner reports are unverified and cannot authorize booking, charging or payment. External discovery providers require their separate consent.','بحث موحد في السجلات المنشورة. تقارير الشركاء غير مؤكدة ولا تسمح بالحجز أو الشحن أو الدفع. يتطلب مزودو الاكتشاف الخارجيون موافقة منفصلة.'),form,state,list,nav);
   const mapButton=button('Map these loaded results','عرض هذه النتائج المحملة على الخريطة',()=>{
    window.dispatchEvent(new CustomEvent('unified-map-data',{detail:mapRows}));
    document.getElementById('discovery-map')?.scrollIntoView({block:'start'});
-  });mapButton.disabled=true;root.append(mapButton);
-  async function load(target){
+  });mapButton.disabled=true;root.append(mapButton,recentPanel);
+  // Missing source metadata must never become a bookable catalog action.
+  // Location identity remains visible as read-only evidence.
+  const catalogMetadataComplete=row=>row&&row.station&&
+    typeof row.station.name==='string'&&row.station.name.trim()!==''&&
+    ['SIMULATED','DISCOVERY_ONLY'].includes(row.station.evidence)&&
+    ['CCS2','Type2','CHAdeMO'].includes(row.station.connector_type)&&
+    Number.isSafeInteger(row.station.power_kw)&&
+    row.station.power_kw>=1&&row.station.power_kw<=1000;
+  async function load(target,remember=false){
    if(writing)return;
+   const historySnapshot=remember?{q:query,scope,country,connector,recentStatus,maxSourceAge,savedOnly,advanced:{...advancedQuery}}:null;
    uncertain=false;const turn=++generation;mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();state.replaceChildren(text('span','Searching…','جارٍ البحث…'));submit.disabled=true;
    try{
     const data=await api('search?'+new URLSearchParams({...advancedQuery,...viewportQuery,q:query,scope,...(country?{country}:{}),connector,page:String(target),saved_only:savedOnly?'1':'0',recent_source_status:recentStatus,...(maxSourceAge?{max_source_age_hours:maxSourceAge}:{})}));if(turn!==generation)return;
@@ -44,11 +96,37 @@
     page=data.current_page;state.replaceChildren(text('span',`${data.total} published results`,`${data.total} نتيجة منشورة`));
     for(const row of data.data){
      const card=document.createElement('article');card.dataset.discoveryKey=row.key;
+     let allowedFavorite=false;
      if(row.kind==='catalog'&&row.station&&Number.isSafeInteger(row.station.id)&&row.station.id>0&&row.key==='catalog:'+row.station.id){
-      card.dataset.stationId=String(row.station.id);card.append(text('h4',row.station.name,row.station.name),text('p','Platform catalog · '+row.station.evidence,'كتالوج المنصة · '+row.station.evidence));
-      card.append(button('View station and booking options','عرض المحطة وخيارات الحجز',()=>onCatalog(row.station.id)));
+      card.dataset.stationId=String(row.station.id);
+      const name=typeof row.station.name==='string'&&row.station.name.trim()?row.station.name:'Unnamed platform station';
+      const evidence=typeof row.station.evidence==='string'&&row.station.evidence.trim()?row.station.evidence:'unknown';
+      card.append(text('h4',name,name),text('p','Platform catalog · '+evidence,'كتالوج المنصة · '+evidence));
+      if(catalogMetadataComplete(row)){
+       allowedFavorite=true;
+       card.append(button('View station and booking options','عرض المحطة وخيارات الحجز',()=>onCatalog(row.station.id)));
+      }else{
+       card.append(text('p','Published station details incomplete. Booking and saved-place actions are unavailable until catalog metadata is corrected.',
+         'بيانات المحطة المنشورة غير مكتملة. لا تتوفر إجراءات الحجز أو الحفظ حتى تصحيح بيانات الكتالوج.'));
+      }
      }else if(row.kind==='partner'&&Number.isSafeInteger(row.record_id)&&row.record_id>0&&row.key==='partner:'+row.record_id&&row.location&&row.reservable===false&&row.remote_control===false&&row.availability==='unknown'){
-      card.dataset.partnerLocationId=String(row.record_id);const l=row.location;card.append(text('h4',String(l.name||l.id||''),String(l.name||l.id||'')),text('p',String(row.provider_label||''),String(row.provider_label||'')),text('p',[l.address,l.city,l.country].filter(Boolean).join(' · '),[l.address,l.city,l.country].filter(Boolean).join(' · ')),text('p','Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد'));
+      allowedFavorite=true;card.dataset.partnerLocationId=String(row.record_id);const l=row.location;
+      const safe=value=>typeof value==='string'&&value.trim()?value.trim().slice(0,250):'';
+      const providedName=safe(l.name)||safe(l.id);
+      const nameEn=providedName||'Partner record #'+row.record_id;
+      const nameAr=providedName||'سجل الشريك #'+row.record_id;
+      const provider=safe(row.provider_label);
+      const address=[l.address,l.city,l.country].map(safe).filter(Boolean).join(' · ');
+      const lat=l.latitude===null||l.latitude===undefined||String(l.latitude).trim()===''?NaN:Number(l.latitude);
+      const lng=l.longitude===null||l.longitude===undefined||String(l.longitude).trim()===''?NaN:Number(l.longitude);
+      const canMap=Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=85.05112878&&Math.abs(lng)<=180;
+      card.append(
+       text('h4',nameEn,nameAr),
+       text('p',provider||'Provider label unavailable (unverified)',provider||'اسم مقدم الخدمة غير متاح (غير مؤكد)'),
+       text('p',address||'Address details unavailable',address||'تفاصيل العنوان غير متاحة'),
+       text('p','Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد'),
+      );
+      if(!canMap)card.append(text('p','Map coordinates unavailable; this record can only be inspected in the list.','إحداثيات الخريطة غير متاحة؛ يمكن عرض هذا السجل في القائمة فقط.'));
       card.append(text('p','Reported source time: '+String(row.source_updated_at||'unknown'),'وقت المصدر المبلغ عنه: '+String(row.source_updated_at||'غير معروف')));
       const age=row.source_timestamp_evidence==='PARTNER_REPORTED_ONLY'&&row.source_clock_evidence==='PARTNER_REPORTED_TIME'&&Number.isSafeInteger(row.reported_source_age_minutes)&&row.reported_source_age_minutes>=0?row.reported_source_age_minutes:null;
       card.append(text('p',age===null?'Reported catalog age unknown or partner clock ahead':`Reported catalog age at search: ${age} min${age>=1440?' · over 24 hours old':''}`,age===null?'عمر الكتالوج المبلغ عنه غير معروف أو ساعة الشريك متقدمة':`عمر الكتالوج المبلغ عنه عند البحث: ${age} دقيقة${age>=1440?' · أقدم من 24 ساعة':''}`));
@@ -56,7 +134,7 @@
       card.append(text('p','Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'));
 
      }else continue;
-     if(customer&&typeof favoriteWriter==='function'){
+     if(customer&&allowedFavorite&&typeof favoriteWriter==='function'){
       const saved=row.is_favorite===true;
       const star=button(saved?'Remove saved place':'Save place',saved?'إزالة المكان المحفوظ':'حفظ المكان',async()=>{
        if(writing||uncertain||turn!==generation)return;
@@ -77,10 +155,11 @@
     if(page>1)nav.append(button('Previous','السابق',()=>load(page-1)));
     nav.append(text('span',`Page ${page} / ${data.last_page}`,`الصفحة ${page} / ${data.last_page}`));
     if(page<data.last_page)nav.append(button('Next','التالي',()=>load(page+1)));
+    rememberSuccessfulSearch(historySnapshot);
    }catch{if(turn===generation)state.replaceChildren(text('span','Search failed. Submit again to retry.','تعذر البحث. أعد الإرسال للمحاولة.'));}
    finally{if(turn===generation)submit.disabled=false;}
   }
-  form.onsubmit=e=>{e.preventDefault();if(writing)return;advancedQuery={};viewportQuery={};for(const [key,control] of Object.entries(advancedInputs)){let value=control.value.trim();if(key==='price_currency')value=value.toUpperCase();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].includes(key))value=normalizeRate(value);if(value)advancedQuery[key]=value;}query=input.value.trim();scope=source.value;country=market.value;connector=plug.value;recentStatus=report.value;maxSourceAge=ageFilter.value;savedOnly=customer&&savedInput.checked;load(1);};
+  form.onsubmit=e=>{e.preventDefault();if(writing)return;advancedQuery={};viewportQuery={};for(const [key,control] of Object.entries(advancedInputs)){let value=control.value.trim();if(key==='price_currency')value=value.toUpperCase();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].includes(key))value=normalizeRate(value);if(value)advancedQuery[key]=value;}query=input.value.trim();scope=source.value;country=market.value;connector=plug.value;recentStatus=report.value;maxSourceAge=ageFilter.value;savedOnly=customer&&savedInput.checked;load(1,true);};
   // Map movement does not make a request. Only the user's explicit map-view
   // search event supplies transient bounds to this existing authenticated API.
   window.addEventListener('unified-viewport-search',event=>{
@@ -99,7 +178,7 @@
    root.scrollIntoView?.({block:'start'});
   });
   // Location queries and result sets stay in memory; there is no automatic lookup.
-  return {setContext(context){if(owner!==context.owner)this.clear();owner=context.owner;customer=context.customer===true;favoriteWriter=context.favorite;savedField.hidden=!customer;},clear(){advancedQuery={};viewportQuery={};for(const control of Object.values(advancedInputs))control.value='';generation++;writing=false;uncertain=false;recentStatus='';report.value='';maxSourceAge='';ageFilter.value='';savedOnly=false;savedInput.checked=false;mapRows=[];mapButton.disabled=true;query='';input.value='';country='';market.value='';list.replaceChildren();nav.replaceChildren();state.replaceChildren();submit.disabled=false;}};
+  return {setContext(context){if(owner!==context.owner||customer!==(context.customer===true))this.clear();owner=context.owner;customer=context.customer===true;favoriteWriter=context.favorite;savedField.hidden=!customer;},clear(){recentPresets=[];renderRecentPresets();advancedQuery={};viewportQuery={};for(const control of Object.values(advancedInputs))control.value='';generation++;writing=false;uncertain=false;scope='all';source.value='all';connector='';plug.value='';recentStatus='';report.value='';maxSourceAge='';ageFilter.value='';savedOnly=false;savedInput.checked=false;mapRows=[];mapButton.disabled=true;query='';input.value='';country='';market.value='';list.replaceChildren();nav.replaceChildren();state.replaceChildren();submit.disabled=false;}};
  }
  window.EvUnifiedDiscovery={install};
  window.addEventListener('discovery-api-ready',event=>{const root=document.getElementById('unified-discovery');if(root)window.EvUnifiedDiscovery.active=install(root,event.detail,id=>window.dispatchEvent(new CustomEvent('unified-catalog-open',{detail:id})));});

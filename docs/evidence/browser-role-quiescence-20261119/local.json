@@ -1,0 +1,30 @@
+{
+  "status": "LOCAL_VERIFIED_COMBINED_HOSTED_REQUIRED",
+  "hosted_red_source": "0300cbe0e9b6ba3036028f989c6ba41af9b226cf",
+  "hosted_red_job": 135270664070,
+  "hosted_error": "Synthetic role provisioning failed: SQLSTATE HY000 \u00b7 SQLITE_BUSY_OR_LOCKED",
+  "repair": "Await browser identity-bootstrap network quiescence before one privileged CLI role change; preserve DB-confirmed transaction retries, no unknown outcome replay",
+  "verification": {
+    "unit_cases": 4,
+    "actual_browser": "held real SQLite writer + pending identity GET; CLI starts only after release; one role transition and one audit; full themes/auth/vendor/customer/Admin/fleet/support/garage/RTL browser passed",
+    "logout": "Received429 for CSRF/logout chain alone permits one bounded Retry-After and existing UI Retry sign-out; private rows cleared before confirmation; all other outcomes fail",
+    "extra_registrations_for_probe": 0,
+    "rate_limits_modified": false
+  },
+  "source_sha256": {
+    "tests/browser.cjs": "b0d51f3f44ae65653daf1c98d09b5d0679d08ee61152605ff68a6b985167fc30",
+    "tests/helpers/browser-role.cjs": "94ab282f9ee4089f9363bb5250821d540b39624ed0bd1ccb2755f5be63559141",
+    "tests/helpers/sqlite-role-probe.cjs": "153dcd0e12607af1fe73de27983dda8d85e814e6584a83bfe9fd6f9b75e1f1ec",
+    "tests/browser-role.test.cjs": "b564328baf360c1869d66e96c69c2b9ebadca52d6f5231c18d055162d24ab94e",
+    "package.json": "01697a01237c62d08a46b343dd9845ff1a7910621277ea9e03a7b2b5f0a6074e",
+    ".github/workflows/ci.yml": "4ea675c3df9186675574600cc311aabc8b69c085c2d2320a1fa98de254faaab9"
+  },
+  "log_sha256": {
+    "unit": "8a1a904404a8bf7b0e0a7eb833044ac3c46f91ebe22e5fb18edb4ff0e0dd323c",
+    "actual_final": "a24073b3e3fd5d6c73ee5b28f06b84c2d0cdbde58d3da3546ed1f158f24b77b5",
+    "hosted_failure": "a2d7749c144639ad8db2f4a98b93095591d7d50479dca5faf8cc83493287967e",
+    "initial_logout429": "dfd8fe08369ccc5461ec3bffd8e79ca8198d2fb4a254be0e534bf62dcfda9c28"
+  },
+  "production_accepted": false,
+  "tracker_credit_added": 0
+}

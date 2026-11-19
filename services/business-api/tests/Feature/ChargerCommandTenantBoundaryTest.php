@@ -69,8 +69,10 @@ class ChargerCommandTenantBoundaryTest extends TestCase
 
         $this->assertNotContains($mine->id, collect($otherResponse->json('data'))->pluck('id')->all());
 
+        // The current role gate denies customer access altogether,
+        // rather than returning a potentially revealing empty tenant list.
         $this->actingAs($customer)->getJson('/api/charger-commands?include_all=1')
-            ->assertOk()->assertJsonCount(0, 'data');
+            ->assertForbidden();
 
         Http::assertNothingSent();
     }

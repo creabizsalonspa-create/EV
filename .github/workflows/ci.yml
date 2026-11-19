@@ -64,7 +64,7 @@ jobs:
         timeout-minutes: 10
         run: npx playwright install --with-deps chromium
       - run: ./scripts/start
-      - run: npm run test:e2e
+      - run: EV_ROLE_SQLITE_PROBE=1 npm run test:e2e
       - run: npm run test:frontend
       - run: node --test tests/loyalty-read-privacy.cjs
       - run: npm run test:privacy
