@@ -365,11 +365,73 @@ const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
     await customer.page
       .locator("#fleet-create [name=name]")
       .fill("Browser fleet " + run);
-    await customer.page.locator("#fleet-create button").click();
-    await customer.page
-      .locator("#fleet-list button")
-      .filter({ hasText: "Browser fleet " + run })
-      .click();
+    // Two near-simultaneous form submissions must create only one fleet.
+    // The browser sends the normal form events without bypassing the API.
+    const fleetCreateRequests = [];
+    const onFleetCreate = (request) => {
+      if (new URL(request.url()).pathname === "/api/fleets" &&
+          request.method() === "POST") fleetCreateRequests.push(request);
+    };
+    customer.page.on("request", onFleetCreate);
+    await customer.page.evaluate(() => {
+      const form = document.getElementById("fleet-create");
+      form.requestSubmit();
+      form.requestSubmit();
+    });
+    // Wait for the committed fleet to appear before reading the actual first
+    // page; a browser click does not await its asynchronous submit handler.
+    await customer.page.locator("#fleet-list button")
+      .filter({hasText:"Browser fleet " + run}).waitFor();
+    customer.page.off("request", onFleetCreate);
+    assert.equal(fleetCreateRequests.length,1,
+      "two fast submits must not create duplicate fleet records");
+    const firstFleetPage = await customer.page.evaluate(() => api("fleets?page=1"));
+    const selectedFleet = firstFleetPage.data.find((f) => f.name === "Browser fleet " + run);
+    assert(selectedFleet && Number.isSafeInteger(selectedFleet.id));
+    let fleetsFail = false;
+    const syntheticFleetId = 901400001;
+    await customer.page.route("**/api/fleets?page=*", async (route) => {
+      if (fleetsFail) {
+        await route.fulfill({status:503,contentType:"application/json",
+          body:JSON.stringify({message:"Synthetic fleet page failure"})});
+        return;
+      }
+      const page = Number(new URL(route.request().url()).searchParams.get("page"));
+      await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({
+        data:page === 2
+          ? [{...selectedFleet,id:syntheticFleetId,name:"Synthetic older fleet"}]
+          : firstFleetPage.data,
+        current_page:page,last_page:2,total:26,
+      })});
+    });
+    await customer.page.evaluate(() => loadFleetAccounts(1));
+    assert.equal(await customer.page.locator(
+      "#fleet-list [data-fleet-page-action=previous]").isDisabled(),true);
+    await customer.page.locator("#fleet-list [data-fleet-page-action=next]").click();
+    await customer.page.locator("#fleet-list [data-fleet-id='" + syntheticFleetId + "']").waitFor();
+    fleetsFail = true;
+    await customer.page.locator("#fleet-list [data-fleet-page-action=refresh]").click();
+    await customer.page.locator("#fleet-list [data-fleet-retry]").waitFor();
+    assert.equal(await customer.page.locator("#fleet-list [data-fleet-id]").count(),0);
+    fleetsFail = false;
+    await customer.page.locator("#fleet-list [data-fleet-retry]").click();
+    await customer.page.locator("#fleet-list [data-fleet-id='" + syntheticFleetId + "']").waitFor();
+    await customer.page.unroute("**/api/fleets?page=*");
+    await customer.page.evaluate(() => loadFleetAccounts(1));
+    await customer.page.locator("#fleet-list [data-fleet-id='" + selectedFleet.id + "']").click();
+    await customer.page.locator("#fleet-detail input[type=email]").waitFor();
+    // A membership refresh must remove detail controls even when the GET
+    // fails. The customer's authority may have changed since opening them.
+    await customer.page.route("**/api/fleets?page=1", (route) =>
+      route.fulfill({status:503,contentType:"application/json",
+        body:JSON.stringify({message:"Membership refresh unavailable"})}));
+    await customer.page.evaluate(() => loadFleetAccounts(1));
+    await customer.page.locator("#fleet-list [data-fleet-retry]").waitFor();
+    assert.equal(await customer.page.locator("#fleet-detail input[type=email]").count(),0,
+      "failed membership recheck must not leave stale invite controls");
+    await customer.page.unroute("**/api/fleets?page=1");
+    await customer.page.evaluate(() => loadFleetAccounts(1));
+    await customer.page.locator("#fleet-list [data-fleet-id='" + selectedFleet.id + "']").click();
     await customer.page
       .locator("#fleet-detail input[type=email]")
       .fill(outsider.email);
@@ -381,7 +443,46 @@ const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
       document.querySelector("#notice").textContent.includes("سُجلت الدعوة"),
     );
     await outsider.page.reload();
-    await outsider.page.locator("#fleet-invitations button").click();
+    // Page load precedes the authenticated identity bootstrap. Wait for its
+    // canonical fleet fetch to finish before routing paginated test fixtures,
+    // otherwise the late bootstrap refresh can detach a visible retry button.
+    await outsider.page.locator("#fleet-invitations [data-fleet-invitation-id]").waitFor();
+    const actualInvitations = await outsider.page.evaluate(() => api("fleet-invitations?page=1"));
+    assert.equal(actualInvitations.data.length,1);
+    const realInvitation = actualInvitations.data[0];
+    const fakeInvitationId = 901400002;
+    let invitationsFail = false;
+    await outsider.page.route("**/api/fleet-invitations?page=*", async (route) => {
+      if (invitationsFail) {
+        await route.fulfill({status:503,contentType:"application/json",
+          body:JSON.stringify({message:"Synthetic invitation page failure"})});
+        return;
+      }
+      const page = Number(new URL(route.request().url()).searchParams.get("page"));
+      await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({
+        data:page === 2 ? [{...realInvitation,id:fakeInvitationId}] : actualInvitations.data,
+        current_page:page,last_page:2,total:26,
+      })});
+    });
+    await outsider.page.evaluate(() => loadFleetInvitations(1));
+    await outsider.page.locator(
+      "#fleet-invitations [data-invitation-page-action=next]").click();
+    await outsider.page.locator(
+      "#fleet-invitations [data-fleet-invitation-id='" + fakeInvitationId + "']").waitFor();
+    invitationsFail = true;
+    await outsider.page.locator(
+      "#fleet-invitations [data-invitation-page-action=refresh]").click();
+    await outsider.page.locator("#fleet-invitations [data-invitation-retry]").waitFor();
+    assert.equal(await outsider.page.locator(
+      "#fleet-invitations [data-fleet-invitation-id]").count(),0);
+    invitationsFail = false;
+    await outsider.page.locator("#fleet-invitations [data-invitation-retry]").click();
+    await outsider.page.locator(
+      "#fleet-invitations [data-fleet-invitation-id='" + fakeInvitationId + "']").waitFor();
+    await outsider.page.unroute("**/api/fleet-invitations?page=*");
+    await outsider.page.evaluate(() => loadFleetInvitations(1));
+    await outsider.page.locator(
+      "#fleet-invitations [data-fleet-invitation-id='" + realInvitation.id + "']").click();
     await outsider.page
       .locator("#fleet-list button")
       .filter({ hasText: "Browser fleet " + run })
@@ -397,12 +498,46 @@ const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
     await customer.page
       .locator('#fleet-detail input[data-i18n-aria="Cost center name"]')
       .fill("Browser operations");
+    const ownFleetVehicles = await customer.page.evaluate(() => api("vehicles?page=1"));
+    assert.equal(ownFleetVehicles.data.length,1);
+    const syntheticOlderVehicle = 901400003;
+    let vehiclePageFail = true;
+    await customer.page.route("**/api/vehicles?page=*", async (route) => {
+      const page = Number(new URL(route.request().url()).searchParams.get("page"));
+      if (page === 2 && vehiclePageFail) {
+        await route.fulfill({status:503,contentType:"application/json",
+          body:JSON.stringify({message:"Synthetic older vehicle page unavailable"})});
+        return;
+      }
+      await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({
+        data:page === 2
+          ? [{...ownFleetVehicles.data[0],id:syntheticOlderVehicle,name:"Older private EV"}]
+          : ownFleetVehicles.data,
+        current_page:page,last_page:2,total:26,
+      })});
+    });
     await customer.page
       .locator("#fleet-detail")
       .getByRole("button", { name: "إضافة مركز تكلفة" })
       .click();
     await customer.page.locator("#fleet-assign").waitFor();
-    await customer.page.locator("#fleet-assign button").click();
+    await customer.page.locator("#fleet-assign [data-fleet-more-vehicles]").click();
+    await customer.page.waitForFunction(() =>
+      !document.querySelector("#fleet-assign [data-fleet-more-vehicles]").disabled);
+    assert.equal(await customer.page.locator(
+      "#fleet-assign select[name=vehicle_id] option[value='" + syntheticOlderVehicle + "']").count(),0);
+    vehiclePageFail = false;
+    await customer.page.locator("#fleet-assign [data-fleet-more-vehicles]").click();
+    // Native <option> nodes in a closed <select> are attached but hidden.
+    // Assert the second-page choice exists without requiring CSS visibility.
+    const olderVehicleOption = customer.page.locator(
+      "#fleet-assign select[name=vehicle_id] option[value='" + syntheticOlderVehicle + "']");
+    await olderVehicleOption.waitFor({state:"attached"});
+    assert.equal(await olderVehicleOption.count(),1);
+    await customer.page.unroute("**/api/vehicles?page=*");
+    await customer.page.locator("#fleet-assign [name=vehicle_id]").selectOption(
+      String(ownFleetVehicles.data[0].id));
+    await customer.page.locator("#fleet-assign button[type=submit]").click();
     await customer.page.waitForFunction(() =>
       document.querySelector("#fleet-detail").textContent.includes("المركبة #"),
     );
@@ -901,6 +1036,10 @@ const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
       await customer.page.locator("#fleet-detail").textContent(),
       "",
     );
+    assert.equal(await customer.page.locator("#fleet-list [data-fleet-id]").count(), 0);
+    assert.equal(await customer.page.locator("#fleet-invitations [data-fleet-invitation-id]").count(), 0);
+    assert.equal(await customer.page.locator("#fleet-list").getAttribute("aria-busy"), null);
+    assert.equal(await customer.page.locator("#fleet-invitations").getAttribute("aria-busy"), null);
     assert.equal(await customer.page.locator("#who").textContent(), "");
     assert.equal(await customer.page.locator("#reservation-list article").count(), 0);
     assert.equal(await customer.page.locator("#reservation-list [data-reservation-pagination]").count(), 0);

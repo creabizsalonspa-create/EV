@@ -56,7 +56,14 @@ class EnterpriseController extends Controller
 
     public function index(Request $r)
     {
-        return Fleet::where('owner_id', $r->user()->id)->orWhereIn('id', FleetMember::where('user_id', $r->user()->id)->where('status', 'active')->select('fleet_id'))->paginate(25);
+        $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+
+        return response()->json(Fleet::where(function ($query) use ($r) {
+            $query->where('owner_id', $r->user()->id)
+                ->orWhereIn('id', FleetMember::where('user_id', $r->user()->id)
+                    ->where('status', 'active')->select('fleet_id'));
+        })->orderByDesc('id')->paginate(25))
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function create(Request $r)
@@ -119,7 +126,11 @@ class EnterpriseController extends Controller
 
     public function invitations(Request $r)
     {
-        return FleetMember::where('user_id', $r->user()->id)->where('status', 'invited')->paginate(25);
+        $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+
+        return response()->json(FleetMember::where('user_id', $r->user()->id)
+            ->where('status', 'invited')->orderByDesc('id')->paginate(25))
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function accept(Request $r, FleetMember $invitation)

@@ -1,0 +1,79 @@
+{
+  "status": "LOCAL_VERIFIED_CURRENT_HOSTED_HEAD_PENDING",
+  "original_source_preserved": "957326cea34e6c2d65095e9ab7aecbb717524f20",
+  "code_checkpoint": "607da93f",
+  "laravel": {
+    "passed": 1715,
+    "assertions": 31290,
+    "postgres_only_skipped": 1
+  },
+  "postgres": [
+    [
+      890,
+      12243
+    ],
+    [
+      32,
+      478
+    ],
+    [
+      2,
+      13
+    ]
+  ],
+  "flutter": {
+    "passed": 682,
+    "explicit_fixture_skips": 35,
+    "analysis": "No issues found"
+  },
+  "real_native_contract": {
+    "passed": 1,
+    "ordinary_identities": 3,
+    "owned_fleets": 27,
+    "pending_invitations": 26,
+    "active_driver_fleets": 1,
+    "foreign_lists_empty": true,
+    "foreign_detail_status": 404,
+    "page_bounds_checked": [
+      "0",
+      "100001",
+      "1.5"
+    ],
+    "financial_mutations": false
+  },
+  "browser_unit_passed": 25,
+  "actual_laravel_browser": "Real create single-flight, invite/accept, cost centre and assignment; controlled synthetic second-page/503 UI fixtures are explicitly distinguished from real backend pagination tested in Laravel/PostgreSQL and native HTTP. All original core customer/vendor/Admin flows retained, Other preferences read phase paced61seconds.",
+  "native_config_and_artifact_guards": 15,
+  "pint_files": 826,
+  "ci_registration": "Native fleet contract is its own three-login group after the existing groups, with unchanged completion-based61second windows. New fixture/script paths are added to BOTH existing mobile workflow path lists; no required test removed. Workflow YAML parses.",
+  "failed_attempts": [
+    "First native contract expected foreign403; the existing privacy policy correctly returned404. Corrected test expectation after inspecting member guard; no production guard weakened."
+  ],
+  "source_sha256": {
+    "services/business-api/app/Http/Controllers/EnterpriseController.php": "05e5166d0b2331cba1a01fe5cddb031e6230eaa259fd0d91aa66674b5230b507",
+    "services/business-api/tests/Feature/EnterpriseTest.php": "d9cfe6c04c4019eef1b020d4fa99c946198c6dc70abe5bbe63b62c1299866334",
+    "services/business-api/public/platform.js": "5eba029d050cb74f79dd7b6a7e8dcaad1f143d05fb6977fda09a2635620fddb8",
+    "tests/browser.cjs": "e13798e31c095727cb0a18d5f13511f3a3e63331cf116850cd9300743b7bf421",
+    "tests/customer-garage-session.cjs": "259985ab08b5b4d35a0709ef9be7ef0ef1a4b89e299bd39bd5bd22d0a82ed78a",
+    "tests/customer-ticket-session.cjs": "cfe9ac5508b706b0afcacc77c10b3ff1f796cdf2792a01aa86d3a2e86fe22a39",
+    "tests/native-connected.cjs": "f7f1b0385015dd7f793a76359d540d2f4f573649ac84648b30c24843e1de883a",
+    "tests/native-fleet-pagination.cjs": "a478e690c932b5d344b976a9c6e2d313b075299bf49f8ec4ec12b9264a1f7614",
+    "services/business-api/tests/Fixtures/native-fleet-pagination.php": "b41b4c3654f9428bc0265c115ed1dd003bee8828d74a432fc9345dd86ce1cc6a",
+    "apps/mobile/test/live_fleet_pagination_test.dart": "b3aae1a94a6e09d2486a3b07defa34cb7cddca05cba93465db7c3be7774a2064",
+    ".github/workflows/mobile.yml": "8c18950e3a74f1a72e2f821f480567c8359822ec14091eb40446bb517ded3bd6",
+    "package.json": "a3a132c5328ae596bf5da82012fbaeaef3ba34a23eb531a44ad6529ddba80530"
+  },
+  "local_log_sha256": {
+    "/tmp/ev-fleet-laravel.txt": "668ca1e1164e3c43cf1a572bc928e1781a3db3de86865c80cfc1d23cef0c64b1",
+    "/tmp/ev-fleet-connectors.txt": "cf2907fa96967f8f41cfdf45377594f6a2b291f4b4b60c689b82b57d4b5b183b",
+    "/tmp/ev-fleet-final-pint.txt": "04590e6c1cb973139e094b359b4beec8b451367838e9b84e482494e4cf8046cc",
+    "/tmp/ev-fleet-final-browser-unit.txt": "fad03c95d3fa1bd98644188f165ff964cbded1672a743294d49f18ca315cf169",
+    "/tmp/ev-fleet-actual-browser.txt": "660129d83ff651054e0743e61d3abe70e960a53109443bc23c513f73eab434b8",
+    "/tmp/ev-fleet-native-actual.txt": "6f373de52ad8f52e2a4c941dbeed37bb17c14818150447527e99d9c38fa26e1b",
+    "/tmp/ev-fleet-native-actual-final.txt": "1e62a06f3e8666c99fd42cfd6861f16d401622427ad8f9587395e09f2f29fad1",
+    "/tmp/ev-fleet-flutter.txt": "3a2f5d9469dd2778a6d1e232e534013b98572a31573443c406183952367ebbf8",
+    "/tmp/ev-fleet-analyze.txt": "f51209f605dc3439528f43d41ec7b170de55a0ca12d22145cae064a91a683688",
+    "/tmp/ev-fleet-native-guards.txt": "61189849d96bdc121e0096b32ffa8c8f11dc23b3c8c8f7390a67f7651e0835d0"
+  },
+  "production_accepted": false
+}

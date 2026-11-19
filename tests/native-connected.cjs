@@ -34,6 +34,7 @@ const { spawnSync } = require("node:child_process");
     ["native-privacy"], // three ordinary bearer logins; canonical private rights requests, no erasure
     ["native-operating-calendar"], // six fixture/browser + three native logins; same production limit
     ["native-financial-analytics"], // 3 logins, separate unchanged authentication window
+    ["native-fleet-pagination"], // 3 identities; operational pages only, own unchanged auth window
   ];
   let started;
   for (const group of groups) {
