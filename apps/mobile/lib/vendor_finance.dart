@@ -195,10 +195,24 @@ class VendorFinanceView extends StatefulWidget {
   State<VendorFinanceView> createState() => _VendorFinanceState();
 }
 
-class _VendorFinanceState extends State<VendorFinanceView> {
+class _VendorFinanceState extends State<VendorFinanceView>
+    with WidgetsBindingObserver {
   String section = 'earnings';
   int generation = 0, target = 1;
-  bool busy = false;
+  bool busy = false, foreground = true, hidden = false;
+  late bool Function() authorized;
+  bool active(int n, bool Function() current) =>
+      mounted && foreground && authorized() && current() && n == generation;
+  void clearPrivate() {
+    generation++;
+    groups = null;
+    page = null;
+    error = null;
+    busy = false;
+    target = 1;
+    hidden = true;
+  }
+
   Object? error;
   List<Map<String, dynamic>>? groups;
   ApiPage<Map<String, dynamic>>? page;
@@ -206,26 +220,61 @@ class _VendorFinanceState extends State<VendorFinanceView> {
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
+    foreground =
+        WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     load();
+  }
+
+  @override
+  void didUpdateWidget(covariant VendorFinanceView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api) {
+      clearPrivate();
+      authorized = widget.api.sessionFence();
+      final replacement = widget.api;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            foreground &&
+            identical(widget.api, replacement) &&
+            authorized())
+          load();
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) clearPrivate();
+    });
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   Future<void> load({int number = 1}) async {
-    final epoch = ++generation;
+    if (!foreground || !authorized()) return;
+    final epoch = ++generation, current = widget.api.sessionFence();
     target = number;
     setState(() {
       busy = true;
+      hidden = false;
       error = null;
       page = null;
       groups = null;
     });
     try {
       final me = await widget.api.request('me');
+      if (!active(epoch, current)) return;
       if (me['role'] != 'vendor')
         throw const ApiException(403, 'Vendor role required.');
       final path = section == 'earnings'
@@ -239,7 +288,7 @@ class _VendorFinanceState extends State<VendorFinanceView> {
         path,
         query: section == 'earnings' ? const {} : {'page': '$number'},
       );
-      if (!mounted || epoch != generation) return;
+      if (!active(epoch, current)) return;
       if (section == 'earnings') {
         if (result['real_money_movement'] != false || result['groups'] is! List)
           throw const FormatException('Unsupported report evidence.');
@@ -282,7 +331,7 @@ class _VendorFinanceState extends State<VendorFinanceView> {
         page = parsed;
       }
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (active(epoch, current)) {
         error = e;
         page = null;
         groups = null;
@@ -290,12 +339,38 @@ class _VendorFinanceState extends State<VendorFinanceView> {
           widget.onExpired();
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (active(epoch, current)) setState(() => busy = false);
     }
   }
 
+  Future<T?> openRoute<T>(MaterialPageRoute<T> route) {
+    if (!mounted || !foreground || !authorized()) return Future<T?>.value();
+    final sourceApi = widget.api, current = widget.api.sessionFence();
+    return Navigator.of(context).push<T>(
+      MaterialPageRoute<T>(
+        settings: route.settings,
+        fullscreenDialog: route.fullscreenDialog,
+        maintainState: route.maintainState,
+        builder: (routeContext) {
+          if (!mounted ||
+              !foreground ||
+              !identical(widget.api, sourceApi) ||
+              !authorized() ||
+              !current()) {
+            return Scaffold(
+              body: Center(
+                child: Text(EvStrings.of(routeContext).t('expired')),
+              ),
+            );
+          }
+          return route.builder(routeContext);
+        },
+      ),
+    );
+  }
+
   Future<void> action(Map<String, dynamic> row, String kind) async {
-    await Navigator.of(context).push(
+    await openRoute(
       MaterialPageRoute<void>(
         builder: (_) => PayoutRecipientActionView(
           api: widget.api,
@@ -305,211 +380,241 @@ class _VendorFinanceState extends State<VendorFinanceView> {
         ),
       ),
     );
-    if (mounted) await load(number: target);
+    if (mounted && foreground && authorized()) await load(number: target);
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
-    appBar: AppBar(title: Text(t('title'))),
-    body: ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text(t('notice')),
-        DropdownButtonFormField<String>(
-          initialValue: section,
-          isExpanded: true,
-          items: [
-            for (final k in ['earnings', 'accounts', 'payouts', 'settlements'])
-              DropdownMenuItem(value: k, child: Text(t(k))),
-          ],
-          onChanged: busy
-              ? null
-              : (v) {
-                  section = v!;
-                  load();
-                },
-        ),
-        OutlinedButton(
-          onPressed: busy ? null : () => load(number: target),
-          child: Text(t('refresh')),
-        ),
-        if (busy) const Center(child: CircularProgressIndicator()),
-        if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
-        if (groups != null) ...[
-          if (groups!.isEmpty) Text(t('empty')),
-          for (final row in groups!)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      row['currency'] as String,
-                      style: Theme.of(c).textTheme.titleLarge,
-                    ),
-                    for (final field in [
-                      'invoiced_minor',
-                      'paid_minor',
-                      'refunded_minor',
-                      'outstanding_minor',
-                      'net_vendor_allocated_minor',
-                      'net_commission_allocated_minor',
-                    ])
+  Widget build(BuildContext c) {
+    final sourceApi = widget.api, current = widget.api.sessionFence();
+    Future<T?> openForActor<T>(MaterialPageRoute<T> route) {
+      if (!identical(widget.api, sourceApi) || !current())
+        return Future<T?>.value();
+      return openRoute(route);
+    }
+
+    Future<void> actForActor(Map<String, dynamic> row, String kind) async {
+      if (!identical(widget.api, sourceApi) || !current()) return;
+      await action(row, kind);
+    }
+
+    if (!authorized())
+      return Scaffold(
+        appBar: AppBar(title: Text(t('title'))),
+        body: Center(child: Text(EvStrings.of(c).t('expired'))),
+      );
+    return Scaffold(
+      appBar: AppBar(title: Text(t('title'))),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(t('notice')),
+          if (hidden)
+            Text(
+              Localizations.localeOf(c).languageCode == 'ar'
+                  ? 'مُسحت السجلات الخاصة. حدّث لاستعادتها.'
+                  : 'Private records cleared. Refresh to reload.',
+            ),
+          DropdownButtonFormField<String>(
+            initialValue: section,
+            isExpanded: true,
+            items: [
+              for (final k in [
+                'earnings',
+                'accounts',
+                'payouts',
+                'settlements',
+              ])
+                DropdownMenuItem(value: k, child: Text(t(k))),
+            ],
+            onChanged: busy
+                ? null
+                : (v) {
+                    section = v!;
+                    load();
+                  },
+          ),
+          OutlinedButton(
+            onPressed: busy ? null : () => load(number: target),
+            child: Text(t('refresh')),
+          ),
+          if (busy) const Center(child: CircularProgressIndicator()),
+          if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
+          if (groups != null) ...[
+            if (groups!.isEmpty) Text(t('empty')),
+            for (final row in groups!)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        '${t(field)}: ${nativeFinancialAmount(c, row, field)}',
+                        row['currency'] as String,
+                        style: Theme.of(c).textTheme.titleLarge,
                       ),
-                    OutlinedButton(
-                      key: ValueKey('vendor-itemized-${row['currency']}'),
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => VendorEarningsView(
-                            api: widget.api,
-                            onExpired: widget.onExpired,
-                            currency: row['currency'] as String,
-                          ),
+                      for (final field in [
+                        'invoiced_minor',
+                        'paid_minor',
+                        'refunded_minor',
+                        'outstanding_minor',
+                        'net_vendor_allocated_minor',
+                        'net_commission_allocated_minor',
+                      ])
+                        Text(
+                          '${t(field)}: ${nativeFinancialAmount(c, row, field)}',
                         ),
-                      ),
-                      child: Text(
-                        Localizations.localeOf(c).languageCode == 'ar'
-                            ? 'إيرادات الفواتير التفصيلية'
-                            : 'Itemized invoice earnings',
-                      ),
-                    ),
-                    OutlinedButton(
-                      onPressed: () async {
-                        await Navigator.of(context).push(
+                      OutlinedButton(
+                        key: ValueKey('vendor-itemized-${row['currency']}'),
+                        onPressed: () => openForActor(
                           MaterialPageRoute<void>(
-                            builder: (_) => VendorPayableView(
+                            builder: (_) => VendorEarningsView(
                               api: widget.api,
                               onExpired: widget.onExpired,
                               currency: row['currency'] as String,
                             ),
                           ),
-                        );
-                        if (mounted) load(number: target);
-                      },
-                      child: Text(t('balance')),
-                    ),
-                  ],
+                        ),
+                        child: Text(
+                          Localizations.localeOf(c).languageCode == 'ar'
+                              ? 'إيرادات الفواتير التفصيلية'
+                              : 'Itemized invoice earnings',
+                        ),
+                      ),
+                      OutlinedButton(
+                        onPressed: () async {
+                          await openForActor(
+                            MaterialPageRoute<void>(
+                              builder: (_) => VendorPayableView(
+                                api: widget.api,
+                                onExpired: widget.onExpired,
+                                currency: row['currency'] as String,
+                              ),
+                            ),
+                          );
+                          if (mounted) load(number: target);
+                        },
+                        child: Text(t('balance')),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-        ],
-        if (page != null) ...[
-          if (page!.items.isEmpty) Text(t('empty')),
-          for (final row in page!.items)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '#${row['id']} · ${t('${row['status'] ?? row['state']}')}',
-                    ),
-                    if (section == 'accounts') ...[
+          ],
+          if (page != null) ...[
+            if (page!.items.isEmpty) Text(t('empty')),
+            for (final row in page!.items)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        '${t('provider')}: ${row['provider']} · ${row['currency']}',
+                        '#${row['id']} · ${t('${row['status'] ?? row['state']}')}',
                       ),
-                      if (row['consent_version'] != null &&
-                          row['required_consent_version'] !=
-                              row['consent_version'])
-                        Text(t('reconfiguration')),
-                      if (row['consent_version'] != null)
-                        Text('${t('version')}: ${row['consent_version']}'),
-                      if (row['status'] != 'revoked')
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 8,
-                          children: [
-                            if (row['required_consent_version'] is String &&
-                                row['consent_version'] == null)
-                              OutlinedButton(
-                                onPressed: busy
-                                    ? null
-                                    : () => action(row, 'consent'),
-                                child: Text(t('consent')),
-                              ),
-                            OutlinedButton(
-                              onPressed: busy
-                                  ? null
-                                  : () => action(row, 'revoke'),
-                              child: Text(t('revoke')),
-                            ),
-                            if (row['provider'] == 'stripe_test' &&
-                                [
-                                  'pending_verification',
-                                  'active',
-                                ].contains(row['status']))
-                              OutlinedButton(
-                                onPressed: busy
-                                    ? null
-                                    : () => action(row, 'onboarding'),
-                                child: Text(t('onboarding')),
-                              ),
-                          ],
+                      if (section == 'accounts') ...[
+                        Text(
+                          '${t('provider')}: ${row['provider']} · ${row['currency']}',
                         ),
-                    ] else ...[
-                      Text(nativeFinancialAmount(c, row, 'amount_minor')),
-                      OutlinedButton(
-                        onPressed: busy
-                            ? null
-                            : () => Navigator.of(c).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => VendorFinanceDetailView(
-                                    api: widget.api,
-                                    onExpired: widget.onExpired,
-                                    id: row['id'] as int,
-                                    payout: section == 'payouts',
-                                  ),
+                        if (row['consent_version'] != null &&
+                            row['required_consent_version'] !=
+                                row['consent_version'])
+                          Text(t('reconfiguration')),
+                        if (row['consent_version'] != null)
+                          Text('${t('version')}: ${row['consent_version']}'),
+                        if (row['status'] != 'revoked')
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 8,
+                            children: [
+                              if (row['required_consent_version'] is String &&
+                                  row['consent_version'] == null)
+                                OutlinedButton(
+                                  onPressed: busy
+                                      ? null
+                                      : () => actForActor(row, 'consent'),
+                                  child: Text(t('consent')),
                                 ),
+                              OutlinedButton(
+                                onPressed: busy
+                                    ? null
+                                    : () => actForActor(row, 'revoke'),
+                                child: Text(t('revoke')),
                               ),
-                        child: Text(t('detail')),
-                      ),
-                      if (section == 'settlements')
+                              if (row['provider'] == 'stripe_test' &&
+                                  [
+                                    'pending_verification',
+                                    'active',
+                                  ].contains(row['status']))
+                                OutlinedButton(
+                                  onPressed: busy
+                                      ? null
+                                      : () => actForActor(row, 'onboarding'),
+                                  child: Text(t('onboarding')),
+                                ),
+                            ],
+                          ),
+                      ] else ...[
+                        Text(nativeFinancialAmount(c, row, 'amount_minor')),
                         OutlinedButton(
                           onPressed: busy
                               ? null
-                              : () => Navigator.of(c).push(
+                              : () => openForActor(
                                   MaterialPageRoute<void>(
-                                    builder: (_) => FinancialDocumentsView(
+                                    builder: (_) => VendorFinanceDetailView(
                                       api: widget.api,
                                       onExpired: widget.onExpired,
-                                      sourceKind: 'vendor_settlement',
-                                      sourceId: row['id'] as int,
+                                      id: row['id'] as int,
+                                      payout: section == 'payouts',
                                     ),
                                   ),
                                 ),
-                          child: Text(t('statement')),
+                          child: Text(t('detail')),
                         ),
+                        if (section == 'settlements')
+                          OutlinedButton(
+                            onPressed: busy
+                                ? null
+                                : () => openForActor(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => FinancialDocumentsView(
+                                        api: widget.api,
+                                        onExpired: widget.onExpired,
+                                        sourceKind: 'vendor_settlement',
+                                        sourceId: row['id'] as int,
+                                      ),
+                                    ),
+                                  ),
+                            child: Text(t('statement')),
+                          ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
+            Wrap(
+              spacing: 12,
+              children: [
+                OutlinedButton(
+                  onPressed: busy || page!.current <= 1
+                      ? null
+                      : () => load(number: page!.current - 1),
+                  child: Text(t('previous')),
+                ),
+                Text('${page!.current} / ${page!.last}'),
+                OutlinedButton(
+                  onPressed: busy || page!.current >= page!.last
+                      ? null
+                      : () => load(number: page!.current + 1),
+                  child: Text(t('next')),
+                ),
+              ],
             ),
-          Wrap(
-            spacing: 12,
-            children: [
-              OutlinedButton(
-                onPressed: busy || page!.current <= 1
-                    ? null
-                    : () => load(number: page!.current - 1),
-                child: Text(t('previous')),
-              ),
-              Text('${page!.current} / ${page!.last}'),
-              OutlinedButton(
-                onPressed: busy || page!.current >= page!.last
-                    ? null
-                    : () => load(number: page!.current + 1),
-                child: Text(t('next')),
-              ),
-            ],
-          ),
+          ],
         ],
-      ],
-    ),
-  );
+      ),
+    );
+  }
 }
 
 class PayoutRecipientActionView extends StatefulWidget {
