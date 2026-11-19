@@ -45,6 +45,19 @@ const proof={phase:'fixture',requests:0,englishResponse:null,arabicResponse:null
   stage='web-en-count';assert.equal(await root.locator('article').count(),1);assert.equal(calls,1);
   stage='web-en-scope';assert.deepEqual(requestedStationIds,[String(fixture.station_id)]);
   stage='web-en-safety';assert.match(await root.textContent(),/No physical availability/);assert.equal(await root.getByRole('button',{name:/start|stop|reset/i}).count(),0);
+  // Preserve a station entered into the existing English-scoped form while
+  // switching to Arabic and re-creating the dashboard exactly once.
+  // The refresh must not automatically issue a connector GET.
+  stage='web-ar-station';await root.locator('input[name=fleet-station]').fill(String(fixture.station_id));
+  stage='web-ar-language';await page.locator('#language').click();
+  stage='web-ar-rebuild';await page.locator('#commands-refresh').click();
+  await page.waitForFunction(()=>{
+    const button=document.querySelector('#commands-refresh');
+    return button&&button.disabled===false;
+  });
+  stage='web-ar-preserved-draft';
+  assert.equal(await root.locator('input[name=fleet-station]').inputValue(),String(fixture.station_id));
+  assert.equal(calls,1);
   // Hold a real identity refresh before its final automatic command-history
   // load. An explicit user snapshot/draft must survive this late bootstrap.
   const identityGate=new Promise(resolve=>{resumeIdentity=resolve;});
@@ -52,7 +65,7 @@ const proof={phase:'fixture',requests:0,englishResponse:null,arabicResponse:null
   await page.route('**/api/ocpi/providers?*',async route=>{await identityGate;await route.continue();},{times:1});
   stage='identity-refresh-paused';await page.evaluate(()=>{window.pendingConnectorIdentity=identity();});
   await pausedIdentity;
-  stage='web-ar-language';await page.locator('#language').click();await page.locator('#commands-refresh').click();
+  stage='web-ar-repeat-history';await page.locator('#commands-refresh').click();
   stage='web-ar-history-complete';await page.waitForFunction(()=>{
     const button=document.querySelector('#commands-refresh');
     return button&&button.disabled===false;
@@ -60,8 +73,7 @@ const proof={phase:'fixture',requests:0,englishResponse:null,arabicResponse:null
   stage='web-ar-station';await root.locator('input[name=fleet-station]').fill(String(fixture.station_id));
   stage='late-identity-preserves-explicit-scope';resumeIdentity();await page.evaluate(()=>window.pendingConnectorIdentity);
   assert.equal(await root.locator('input[name=fleet-station]').inputValue(),String(fixture.station_id));
-  // Explicitly re-apply the owned synthetic fixture after changing language.
-  // A fresh dashboard widget is not expected to preserve an uncommitted form filter.
+
   stage='web-ar-read';
   const arabicResponse = page.waitForResponse(r=>{
     const url=new URL(r.url());

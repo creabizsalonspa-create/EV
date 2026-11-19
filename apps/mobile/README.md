@@ -2,12 +2,34 @@
 
 The Android/iOS client shares the existing Laravel session/CSRF APIs. Admin remains web-only. This is a tested development checkpoint; full product, physical-device, signing and store acceptance remain unfinished.
 
+## Inactive-screen privacy (Agent 6)
+
+The shared Flutter Navigator is obscured with an opaque screen whenever the app
+is inactive/hidden/paused, including settings overlays and pushed customer/vendor
+routes. The underlying route is kept alive, but touch and accessibility access
+to hidden private content are blocked until resume. Password and second-factor
+entry fields are cleared by the existing Workspace lifecycle observer.
+
+On Android, the existing MainActivity applies `FLAG_SECURE` while paused and
+clears it on resume (normal in-app foreground screenshots remain enabled).
+On iOS, AppDelegate adds an opaque window cover on `willResignActive` and
+removes it on `didBecomeActive`. These native defenses address OS thumbnail
+timing in addition to the Flutter frame. They do not replace authentication
+revocation, screenshot/screen-recording policy while foregrounded, or signed
+hardware/device acceptance.
+
+The focused Flutter regression is `test/lifecycle_privacy_test.dart`; the
+native source guard runs from `tool/bootstrap` with
+`python3 -B tool/test_lifecycle_privacy_config.py`. Both Android and iOS
+compilation and actual device/task-switcher checks remain separate, required
+validation gates; no local device acceptance is claimed by this change.
+
 ## Implemented
 
 - Native catalog uses real server pagination, name search, connector type, country and minimum power. Queries are encoded, applied filters/page survive tab changes, obsolete responses are ignored, failed pages retain current records and retry the requested page. No local slicing or invented availability/pricing filters.
 - Light/Dark/System and English/Arabic persist through `shared_preferences` (only non-secret `theme`/`locale` fields). Preferences load before the first production Flutter frame. System brightness follows OS changes. Failed storage writes are reported and do not claim a saved preference.
 - English/Arabic resource dictionaries cover the implemented native UI. Flutter localization delegates handle Material dialogs, directionality and controls. Narrow phone and tablet navigation support RTL. User-entered station/message content is preserved verbatim.
-- Customer/vendor sign-in/registration, local form validation, recovery-link requests, verification-link requests with accurate verified status, profile update, session-expiry cleanup and sign-out. Passwords/CSRF remain in memory. Optional HTTPS sign-in persistence stores finite, secure HTTP-only session cookies in Keychain/Android encrypted storage; fresh server identity/CSRF are required on restore. Native recovery/deep-link consumption remains unfinished.
+- Customer/vendor sign-in/registration, local form validation, recovery-link requests, verification-link requests with accurate verified status, profile update, session-expiry cleanup and sign-out. Passwords/CSRF remain in memory. Optional HTTPS sign-in persistence stores finite, secure HTTP-only session cookies in Keychain/Android encrypted storage; fresh server identity/CSRF are required on restore. Native recovery links and entity-specific notification links remain unfinished; restricted read-only tab deep links are supported as described below.
 - Simulator booking/cancellation/start/stop, paginated reservation/session/garage lists, vehicle creation and vendor station creation preserve existing contracts and provenance labels.
 - Fleet lists/invitations, explicit invitation acceptance, owner member revocation/cost centers, paginated own-vehicle assignment and driver privacy use existing APIs. Vendor simulator sessions support cumulative meter edits with monotonic validation and confirmed stop; no physical meter or payment is implied.
 - Support lists/threads/message pagination/public replies/closed-ticket behavior and notifications/read actions use real APIs. Internal notes are never rendered in the native client. Localized loading, empty, retry and session-expiry states are included.
@@ -47,7 +69,7 @@ That test rejects non-loopback destinations, creates synthetic users/26 stations
 
 `.github/workflows/mobile.yml` runs frozen installation, analyzer, unit/widget tests, Android debug and unsigned iOS simulator builds, and artifact retention. The macOS job additionally boots an iPhone simulator and executes `integration_test/native_flow_test.dart`: real native explicitly trusted test-TLS/cookie/CSRF plumbing, platform Keychain restore/logout deletion against an isolated on-device synthetic server, pagination, platform-persisted preferences after reload, and Arabic/dark customer/vendor UI. Synthetic TLS fixtures exist only under test/integration_test and are not shipped. Production TLS verification remains enabled. This is distinct from the separate real-Laravel protocol smoke; neither is a physical-device/deployed-HTTPS acceptance claim. Current exact results/build SHAs are in docs/QA_REPORT.md and docs/evidence.
 
-Still unfinished: fleet consolidated billing/reporting, maps/authorized availability, full vendor inventory/staff/KYC and all commerce/loyalty/analytics integrations, deep links, push delivery, approved branding, comprehensive accessibility/performance/device QA, release signing and stores. Backend-dependent gaps are documented in docs/API.md rather than implemented as fake successes.
+Still unfinished: fleet consolidated billing/reporting, maps/authorized availability, full vendor inventory/staff/KYC and all commerce/loyalty/analytics integrations, entity-specific/deferred links, push delivery, approved branding, comprehensive accessibility/performance/device QA, release signing and stores. Backend-dependent gaps are documented in docs/API.md rather than implemented as fake successes.
 
 Persistence is opt-in and disabled on plaintext debug origins. It preserves server cookie expiry, capped at 24 hours per saved snapshot; Laravel expiry/revocation remains authoritative. No password, CSRF token or cached account is stored. Android backups are disabled to avoid restoring encrypted preferences without their device key. A locked/unavailable vault never falls back to plaintext. Logout must delete the local saved credential before reporting success. Physical Android/iOS acceptance and deployed HTTPS QA remain required.
 
@@ -72,3 +94,40 @@ Run the existing Laravel development service on the computer's loopback port8000
 Android permits debug cleartext only for exact localhost/127.0.0.1; other hosts retain TLS. iOS uses a separate debug plist with a local-network exception and identical privacy values. Profile/Release retain the original plist and the existing Dart HTTPS guard. Real device/release builds still need a reachable authorized HTTPS origin and signing. Do not enter production credentials into a local demo.
 
 Connecting the app to the API does not make a charger online. Charging operations additionally require an owned online CSMS simulator, the existing supervised workers and a valid current booking. Preserve those gates during demonstrations; this build change does not establish hardware or live-payment acceptance.
+
+
+## Restricted native navigation links
+
+After a Customer or Vendor is authenticated in the foreground, Android and iOS can open
+a built-in top-level view using one of the following exact custom URLs:
+
+```
+creabizev://navigate/tab/discover
+creabizev://navigate/tab/reservations
+creabizev://navigate/tab/sessions
+creabizev://navigate/tab/garage
+creabizev://navigate/tab/support
+creabizev://navigate/tab/fleet
+```
+
+Garage links work for both signed-in Customer and Vendor accounts, matching ordinary tab navigation; customer-only vehicle actions remain role-gated inside the screen and backend authorization still applies.
+Both native launchers reject credentials, query parameters, fragments, ports, encoded
+paths and unknown tabs; the Flutter bridge independently checks tab allowlisting,
+current account identity, session epoch and foreground lifecycle before routing.
+The native handler retains at most one tab hint and never a record ID, payment result,
+charge command, user ID or bearer token. A link received by a signed-out user is dropped;
+it cannot bypass authentication or create a booking/payment. Launch-time navigation for
+opted-in restored sessions is best-effort and will fail closed if identity cannot be restored.
+
+This custom-scheme handler does **not** provide HTTPS universal/app links,
+push-provider registration or entity-specific notification routing. The existing
+`creabizev://payments/hosted-return` wake-up signal remains separate and has no
+authority to confirm a payment. Validate with `flutter test test/navigation_links_test.dart`,
+`python3 -B tool/test_navigation_link_config.py`, real Android intent dispatch and
+iOS simulator URL dispatch. The native CI workflow now also checks the **built**
+Android merged manifest and compiled iOS simulator Info.plist through
+`tool/check_navigation_build.py android|ios`; it rejects extra URL entrypoints,
+unreviewed hosts, missing browsing restrictions and Flutter auto-routing. The
+artifact guard's negative fixtures run during `tool/bootstrap`. The Android audit identifies the canonical launcher by name and inspects every additional activity and activity-alias for unreviewed VIEW filters; merged-manifest order cannot hide another URL entrypoint. These checks
+verify packaging contracts, not actual OS intent dispatch or user-installed
+signed applications. Physical-device and release signing remain unverified.

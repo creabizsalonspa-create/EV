@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/unified_discovery.dart';
 import 'package:creabiz_ev/api.dart';
+import 'package:creabiz_ev/partner_report_map.dart';
 import 'test_support.dart';
 
 Map<String,dynamic> catalogRow()=>{'key':'catalog:7','kind':'catalog','station':{'id':7,'name':'Synthetic catalog','connector_type':'CCS2','power_kw':50,'evidence':'SIMULATED','reservable':false}};
@@ -60,14 +61,90 @@ class SavedUnifiedApi extends UnifiedApi {
     return data;
   }
 }
+class IncompleteMetadataApi extends UnifiedApi {
+  bool missingIdentity=false, missingPartnerMetadata=false, forgedEvidence=false;
+  @override
+  Future<dynamic> request(String path,{String method='GET',Map<String,dynamic>? body,Map<String,String> query=const {}})async{
+    final raw=Map<String,dynamic>.from(await super.request(path,method:method,body:body,query:query) as Map);
+    final entries=List<Map<String,dynamic>>.from((raw['data'] as List).map((row)=>Map<String,dynamic>.from(row as Map)));
+    if(entries.isNotEmpty&&entries[0]['kind']=='catalog'){
+      entries[0]=forgedEvidence
+        ?{
+          'key':'catalog:7','kind':'catalog','station':{
+            ...Map<String,dynamic>.from(catalogRow()['station'] as Map),
+            'evidence':'LIVE_VERIFIED',
+          },
+        }
+        :{
+          'key':'catalog:7','kind':'catalog','station':{
+            if(!missingIdentity)'id':7,
+            'name':'<img src=x>',
+            'evidence':'SIMULATED','connector_type':'CCS2',
+            // No power metadata. Must remain a non-actionable catalog card.
+          },
+        };
+    }
+    if(missingPartnerMetadata&&entries.length>1&&entries[1]['kind']=='partner'){
+      entries[1]={
+        ...entries[1],
+        'provider_label':{'unexpected':'untrusted'},
+        'location':{'id':null,'name':null,'address':{'unexpected':'untrusted'},
+                    'city':null,'country':null,'latitude':null,'longitude':null},
+      };
+    }
+    raw['data']=entries;
+    return raw;
+  }
+}
 void roomy(WidgetTester tester){tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);}
 void main(){
+ testWidgets('same API object changing account epoch hides all previous native search data and private drafts',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi(),next=UnifiedApi();
+   addTearDown(api.close);addTearDown(next.close);
+   var launches=0;
+   await tester.pumpWidget(app(api,(_)=>launches++,customer:true));
+   await tester.enterText(find.byKey(const Key('unified-query')),'Private customer address');
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.text('Synthetic catalog'),findsOneWidget);
+   expect(find.byKey(const Key('unified-recent-0')),findsOneWidget);
+   final savedNavigation=tester.widget<TextButton>(find.widgetWithText(TextButton,'View station and booking options')).onPressed!;
+   final requestCount=api.calls.length;
+   // EvApi may swap authenticated identity without replacing the API object.
+   // Rebuilding that same widget must not expose another actor's catalog,
+   // query drafts, partner label, favorite controls or recent search history.
+   api.epoch++;
+   savedNavigation();
+   expect(launches,0,reason:'A stale pre-rendered booking callback must reject the previous account');
+   await tester.pumpWidget(app(api,(_)=>fail('No old-account action'),customer:true));
+   await tester.pumpAndSettle();
+   expect(find.text('Account changed. Reopen search.'),findsOneWidget);
+   expect(find.text('Synthetic catalog'),findsNothing);
+   expect(find.text('Synthetic partner'),findsNothing);
+   expect(find.byKey(const Key('unified-query')),findsNothing);
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   expect(find.byKey(const ValueKey('unified-favorite-catalog:7')),findsNothing);
+   expect(api.calls.length,requestCount,
+       reason:'A same-object account transition must not search for either actor');
+   await tester.pumpWidget(app(next,(_)=>fail('No implicit navigation'),customer:true));
+   await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-query')),findsOneWidget);
+   expect(tester.widget<TextField>(find.byKey(const Key('unified-query'))).controller!.text,isEmpty);
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   expect(next.calls,isEmpty);
+   expect(tester.takeException(),isNull);
+ });
  testWidgets('changing accounts clears advanced search drafts and submitted fields',(tester)async{
   roomy(tester);final first=UnifiedApi(),second=UnifiedApi();addTearDown(first.close);addTearDown(second.close);await tester.pumpWidget(app(first,(_){}));
   await tester.enterText(find.byKey(const Key('unified-query')),'Private place');
   await tester.ensureVisible(find.byType(ExpansionTile));await tester.tap(find.byType(ExpansionTile));await tester.pumpAndSettle();
   final operator=find.byKey(const Key('unified-operator'));await tester.ensureVisible(operator);await tester.enterText(operator,'Private operator');
   await tester.pumpWidget(app(second,(_){}));await tester.pumpAndSettle();
+  // Identity change remounts the form with collapsed private inputs.
+  // Reopen it to verify the previous account's advanced draft is absent.
+  expect(operator,findsNothing);
+  await tester.ensureVisible(find.byType(ExpansionTile));
+  await tester.tap(find.byType(ExpansionTile));await tester.pumpAndSettle();
   expect(tester.widget<TextField>(operator).controller!.text,isEmpty);
   await tester.scrollUntilVisible(find.byKey(const Key('unified-query')),-300,scrollable:find.byType(Scrollable).first);
   expect(tester.widget<TextField>(find.byKey(const Key('unified-query'))).controller!.text,isEmpty);
@@ -79,12 +156,18 @@ void main(){
   testWidgets('advanced filters normalize rate digits and preserve submitted pagination ($ar)',(tester)async{
    roomy(tester);final api=UnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){},ar:ar));
    final expand=find.byType(ExpansionTile);await tester.ensureVisible(expand);await tester.tap(expand);await tester.pumpAndSettle();
-   for(final field in {'operator':'100%_operator','address':'دبي','access':'Visitors','max_rate_per_kwh':'١٫٥٠','price_currency':'aed'}.entries){
+   for(final field in {'operator':'100%_operator','address':'دبي','access':'Visitors','min_power_kw':'٤٠','max_power_kw':'٦٠','max_rate_per_kwh':'١٫٥٠','price_currency':'aed'}.entries){
     final input=find.byKey(Key('unified-${field.key}'));await tester.ensureVisible(input);await tester.enterText(input,field.value);
    }
    final search=find.byType(FilledButton);await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
-   expect(api.queries.single['operator'],'100%_operator');expect(api.queries.single['address'],'دبي');expect(api.queries.single['access'],'Visitors');expect(api.queries.single['max_rate_per_kwh'],'1.50');expect(api.queries.single['price_currency'],'AED');
-   final next=find.text(ar?'التالي':'Next');await tester.ensureVisible(next);await tester.tap(next);await tester.pumpAndSettle();expect(api.queries.last['page'],'2');expect(api.queries.last['max_rate_per_kwh'],'1.50');
+   expect(api.queries.single['operator'],'100%_operator');expect(api.queries.single['address'],'دبي');expect(api.queries.single['access'],'Visitors');expect(api.queries.single['min_power_kw'],'40');expect(api.queries.single['max_power_kw'],'60');expect(api.queries.single['max_rate_per_kwh'],'1.50');expect(api.queries.single['price_currency'],'AED');
+   // Expanded advanced fields and in-memory history extend the list;
+   // collapse the panel, then finish scrolling before pagination.
+   await tester.ensureVisible(expand);await tester.tap(expand);await tester.pumpAndSettle();
+   final next=find.text(ar?'التالي':'Next');
+   await tester.ensureVisible(next);await tester.pumpAndSettle();
+   await tester.tap(next);await tester.pumpAndSettle();
+   expect(api.queries.last['page'],'2');expect(api.queries.last['max_rate_per_kwh'],'1.50');expect(api.queries.last['min_power_kw'],'40');expect(api.queries.last['max_power_kw'],'60');
    expect(api.calls.every((path)=>path=='GET discovery/search'),true);
   });
  }
@@ -139,7 +222,11 @@ void main(){
   roomy(tester);
   final api=UnifiedApi()..pending=Completer<dynamic>();addTearDown(api.close);await tester.pumpWidget(app(api,(_)=>fail('Unexpected station handoff'),customer:true));await tester.tap(find.byType(FilledButton));await tester.pump();api.epoch++;
   api.pending!.complete({'data':[partnerRow()],'current_page':1,'last_page':1,'total':1});await tester.pumpAndSettle();expect(find.text('Synthetic partner'),findsNothing);expect(find.text('Account changed. Reopen search.'),findsOneWidget);
-  await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();expect(api.calls.length,1);
+  // The account-revocation surface hides all controls; a stale view cannot
+  // initiate another search after an in-flight old-account response.
+  expect(find.byType(FilledButton),findsNothing);
+  expect(find.byKey(const Key('unified-query')),findsNothing);
+  expect(api.calls.length,1);
  });
  testWidgets('background and old account responses cannot repopulate results',(tester)async{
   roomy(tester);
@@ -208,6 +295,221 @@ void main(){
    expect(second.queries.single.containsKey('country'),false);
   });
  }
+
+ for(final ar in [false,true]){
+  testWidgets('native recent search filters restore privately without submitting and clear with identity ($ar)',(tester)async{
+   roomy(tester);
+   final first=UnifiedApi(),second=UnifiedApi();
+   addTearDown(first.close);addTearDown(second.close);
+   await tester.pumpWidget(app(first,(_){},ar:ar,customer:true));
+   final input=find.byKey(const Key('unified-query'));
+   await tester.enterText(input,'Private location');
+   final market=find.byKey(const Key('unified-country'));
+   await tester.ensureVisible(market);await tester.tap(market);await tester.pumpAndSettle();
+   await tester.tap(find.text(ar?'كندا':'Canada').last);await tester.pumpAndSettle();
+   final search=find.byType(FilledButton);
+   await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(first.queries.length,1);
+   expect(first.queries.last['country'],'CA');
+   expect(find.byKey(const Key('unified-recent-0')),findsOneWidget);
+   await tester.enterText(input,'Another location');
+   await tester.ensureVisible(market);await tester.tap(market);await tester.pumpAndSettle();
+   await tester.tap(find.text(ar?'الولايات المتحدة':'United States').last);await tester.pumpAndSettle();
+   await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(first.queries.length,2);
+   final old=find.byKey(const Key('unified-recent-1'));
+   await tester.ensureVisible(old);await tester.tap(old);await tester.pumpAndSettle();
+   expect(first.queries.length,2,reason:'Restoring fields must not call API');
+   expect(tester.widget<TextField>(input).controller!.text,'Private location');
+   expect(tester.widget<DropdownButton<String>>(market).value,'CA');
+   await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(first.queries.last['q'],'Private location');
+   expect(first.queries.last['country'],'CA');
+   expect(first.queries.length,3);
+   expect(find.byKey(const Key('unified-recent-2')),findsNothing,
+     reason:'Duplicate successful search must not grow the list');
+   final clear=find.byKey(const Key('unified-recent-clear'));
+   await tester.ensureVisible(clear);await tester.tap(clear);await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   expect(first.queries.length,3,reason:'Clearing history cannot call API');
+   await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsOneWidget);
+   await tester.pumpWidget(app(second,(_){},ar:ar,customer:true));
+   await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   expect(tester.widget<TextField>(input).controller!.text,isEmpty);
+  });
+ }
+ testWidgets('native failed, backgrounded and account-expired searches do not preserve private history',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi();addTearDown(api.close);
+   api.invalid=true;
+   await tester.pumpWidget(app(api,(_){},customer:true));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   api.invalid=false;
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsOneWidget);
+   // Follow actual lifecycle transitions: paused directly from resumed
+   // is invalid in AppLifecycleListener and never occurs on a device.
+   for(final state in [
+     AppLifecycleState.inactive,AppLifecycleState.hidden,
+     AppLifecycleState.paused,AppLifecycleState.hidden,
+     AppLifecycleState.inactive,AppLifecycleState.resumed,
+   ]) {
+     tester.binding.handleAppLifecycleStateChanged(state);
+     await tester.pump();
+   }
+   await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   api.epoch++;
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+ });
+
+ for(final ar in [false,true]){
+  testWidgets('incomplete catalog metadata stays visible without booking or saved action ($ar)',(tester)async{
+   roomy(tester);
+   final api=IncompleteMetadataApi();addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('No catalog action without connector metadata'),
+     ar:ar,customer:true));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.text('<img src=x>'),findsOneWidget);
+   expect(find.textContaining(ar?'غير مكتملة':'details incomplete'),findsOneWidget);
+   expect(find.text(ar?'عرض المحطة وخيارات الحجز':'View station and booking options'),findsNothing);
+   expect(find.byKey(const ValueKey('unified-favorite-catalog:7')),findsNothing);
+   expect(find.text('Synthetic partner'),findsOneWidget);
+   expect(find.byKey(const ValueKey('unified-favorite-partner:7')),findsOneWidget);
+   expect(tester.takeException(),isNull);
+  });
+ }
+ testWidgets('missing canonical identity fails closed without inventing a station id',(tester)async{
+   roomy(tester);
+   final api=IncompleteMetadataApi()..missingIdentity=true;addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('Unexpected booking action')));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.text('Search failed. Retry explicitly.'),findsOneWidget);
+   expect(find.text('<img src=x>'),findsNothing);
+   expect(find.text('Synthetic partner'),findsNothing);
+ });
+
+ for(final ar in [false,true]){
+  testWidgets('missing partner provider address or geometry are explicit list-only metadata ($ar)',(tester)async{
+   roomy(tester);
+   final api=IncompleteMetadataApi()..missingPartnerMetadata=true;
+   addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('No unauthorized actions'),ar:ar,customer:true));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.textContaining(ar?'سجل الشريك #7':'Partner record #7'),findsOneWidget);
+   expect(find.textContaining(ar?'اسم مقدم الخدمة غير متاح':'Provider label unavailable'),findsOneWidget);
+   expect(find.textContaining(ar?'تفاصيل العنوان غير متاحة':'Address details unavailable'),findsOneWidget);
+   expect(find.textContaining(ar?'إحداثيات الخريطة غير متاحة':'Map coordinates unavailable'),findsOneWidget);
+   expect(find.textContaining('[object Object]'),findsNothing);
+   // Integrated zero-pin exploration remains available, but missing
+   // coordinates must never become a station marker or implicit lookup.
+   final explore=find.byKey(const Key('unified-map-open'));
+   await tester.ensureVisible(explore);await tester.tap(explore);await tester.pumpAndSettle();
+   expect(tester.widget<PartnerReportMap>(find.byType(PartnerReportMap)).points,isEmpty);
+   expect(find.byType(TileLayer),findsNothing);
+   expect(api.calls.length,1);
+   expect(tester.takeException(),isNull);
+  });
+ }
+
+ testWidgets('Arabic recent filter captions stay localized for empty query and country',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi();addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_){},ar:true));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.calls.length,1);
+   final caption=find.textContaining('كل المواقع · كل الدول · كل المصادر المنشورة');
+   expect(caption,findsOneWidget);
+   final recent=find.byKey(const Key('unified-recent-0'));
+   await tester.ensureVisible(recent);await tester.tap(recent);await tester.pumpAndSettle();
+   expect(api.calls.length,1,reason:'Localized restore cannot submit search');
+ });
+ testWidgets('native successful recent filter presets retain at most five entries',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi();addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_){ }));
+   final input=find.byKey(const Key('unified-query'));
+   final search=find.byType(FilledButton);
+   for(var i=0;i<7;i++){
+     await tester.enterText(input,'Private session $i');
+     await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   }
+   expect(api.queries.length,7);
+   expect(find.byKey(const Key('unified-recent-4')),findsOneWidget);
+   expect(find.byKey(const Key('unified-recent-5')),findsNothing);
+   expect(find.textContaining('Private session 0'),findsNothing);
+ });
+
+ testWidgets('native account changes reset source, connector and age dropdowns alongside country',(tester)async{
+   roomy(tester);
+   final first=UnifiedApi(),second=UnifiedApi();
+   addTearDown(first.close);addTearDown(second.close);
+   await tester.pumpWidget(app(first,(_){ }));
+   final scope=find.byKey(const Key('unified-scope'));
+   final connector=find.byKey(const Key('unified-connector'));
+   final age=find.byKey(const Key('unified-source-age'));
+   await tester.ensureVisible(scope);await tester.tap(scope);await tester.pumpAndSettle();
+   await tester.tap(find.text('Authorized partner reports').last);await tester.pumpAndSettle();
+   await tester.ensureVisible(connector);await tester.tap(connector);await tester.pumpAndSettle();
+   await tester.tap(find.text('CCS2').last);await tester.pumpAndSettle();
+   await tester.ensureVisible(age);await tester.tap(age);await tester.pumpAndSettle();
+   await tester.tap(find.text('Last 24 hours').last);await tester.pumpAndSettle();
+   await tester.ensureVisible(find.byType(FilledButton));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(first.queries.last['scope'],'partner');
+   expect(first.queries.last['connector'],'CCS2');
+   expect(first.queries.last['max_source_age_hours'],'24');
+   await tester.pumpWidget(app(second,(_){ }));await tester.pumpAndSettle();
+   expect(tester.widget<DropdownButtonFormField<String>>(scope).initialValue,'all');
+   expect(tester.widget<DropdownButtonFormField<String>>(connector).initialValue,'');
+   expect(tester.widget<DropdownButtonFormField<String>>(age).initialValue,'');
+   await tester.ensureVisible(find.byType(FilledButton));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(second.queries.last['scope'],'all');
+   expect(second.queries.last['connector'],'');
+   expect(second.queries.last.containsKey('max_source_age_hours'),false);
+ });
+
+ testWidgets('native customer-to-vendor role downgrade purges recent search and saved-only fields on same API',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi();addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_){},customer:true));
+   final input=find.byKey(const Key('unified-query'));
+   await tester.enterText(input,'Private customer place');
+   await tester.ensureVisible(find.byType(CheckboxListTile));
+   await tester.tap(find.byType(CheckboxListTile));await tester.pump();
+   await tester.ensureVisible(find.byType(FilledButton));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.queries.last['saved_only'],'1');
+   expect(find.byKey(const Key('unified-recent-0')),findsOneWidget);
+   await tester.pumpWidget(app(api,(_){},customer:false));await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   expect(tester.widget<TextField>(input).controller!.text,isEmpty);
+   expect(find.byType(CheckboxListTile),findsNothing);
+   await tester.ensureVisible(find.byType(FilledButton));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.queries.last['saved_only'],'0');
+   expect(api.queries.last['q'],'');
+ });
+
+ testWidgets('unrecognized live evidence with otherwise complete station metadata grants no native booking',(tester)async{
+   roomy(tester);
+   final api=IncompleteMetadataApi()..forgedEvidence=true;
+   addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('Unsafe station handoff'),
+      customer:true));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.text('Synthetic catalog'),findsOneWidget);
+   expect(find.textContaining('details incomplete'),findsOneWidget);
+   expect(find.byKey(const ValueKey('unified-favorite-catalog:7')),findsNothing);
+   expect(find.text('View station and booking options'),findsNothing);
+   expect(find.text('Synthetic partner'),findsOneWidget);
+   expect(tester.takeException(),isNull);
+ });
 
  for(final ar in [false,true]){
   testWidgets('empty native discovery page can explicitly select map viewport without source/GPS inference ($ar)',(tester)async{
@@ -344,4 +646,33 @@ void main(){
    expect(bbox.containsKey('longitude'),false);
    expect(tester.takeException(),isNull);
  });
+ for(final ar in [false,true])for(final transition in ['account','role','clear']){
+  testWidgets('discarded recent-filter callback cannot enter current native form ($ar $transition)',(tester)async{
+   roomy(tester);
+   final first=UnifiedApi(),second=UnifiedApi();
+   addTearDown(first.close);addTearDown(second.close);
+   await tester.pumpWidget(app(first,(_){},ar:ar,customer:true));
+   final input=find.byKey(const Key('unified-query'));
+   await tester.enterText(input,'Private old location');
+   final submit=find.byType(FilledButton);
+   await tester.ensureVisible(submit);await tester.tap(submit);await tester.pumpAndSettle();
+   final restore=tester.widget<OutlinedButton>(find.byKey(const Key('unified-recent-0'))).onPressed!;
+   if(transition=='account'){
+    await tester.pumpWidget(app(second,(_){},ar:ar,customer:true));
+   }else if(transition=='role'){
+    await tester.pumpWidget(app(first,(_){},ar:ar,customer:false));
+   }else{
+    final clear=find.byKey(const Key('unified-recent-clear'));
+    await tester.ensureVisible(clear);await tester.tap(clear);
+   }
+   await tester.pumpAndSettle();
+   await tester.enterText(input,'Current draft');
+   final before=first.calls.length+second.calls.length;
+   restore();await tester.pumpAndSettle();
+   expect(tester.widget<TextField>(input).controller!.text,'Current draft');
+   expect(first.calls.length+second.calls.length,before);
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+  });
+ }
+
 }
