@@ -1,0 +1,98 @@
+{
+  "status": "LOCAL_VERIFIED_CURRENT_HOSTED_HEAD_PENDING",
+  "original_source_preserved": "94b76cf8610778caed20c5fbecfed64eaf880976",
+  "native_code_checkpoint": "19cf76fd",
+  "laravel": {
+    "passed": 1722,
+    "assertions": 31505,
+    "postgres_only_skipped": 1
+  },
+  "postgres_finance": {
+    "passed": 441,
+    "sqlite_only_skipped": 1,
+    "assertions": 11162,
+    "process_and_migration_passed": 99,
+    "process_and_migration_assertions": 1459
+  },
+  "postgres_connectors": [
+    [
+      890,
+      12243
+    ],
+    [
+      32,
+      478
+    ],
+    [
+      2,
+      13
+    ]
+  ],
+  "flutter": {
+    "passed": 732,
+    "explicit_live_fixture_skips": 36,
+    "focused_passed": 49,
+    "analysis": "No issues found"
+  },
+  "real_native_preview": {
+    "passed": 1,
+    "transport": "Canonical EvApi cookie sessions for owner/foreign; separate raw HTTP Admin bearer negative GET on v1",
+    "ordinary_logins": 2,
+    "monthly": {
+      "subtotal_minor": 2999,
+      "tax_minor": 150,
+      "total_minor": 3149,
+      "nominal_difference_minor": 2100
+    },
+    "annual": {
+      "tax_minor": 300,
+      "total_minor": 6299,
+      "nominal_difference_minor": null
+    },
+    "due_now_minor": 0,
+    "financial_summary_and_events_unchanged": true,
+    "foreign_status": 404,
+    "admin_bearer_status": 403,
+    "fixture_preparation": "Guarded owned SQLite/local fixture uses existing canonical publish/subscribe/mockPay services; mock paid baseline only. Native proof itself sends GETs."
+  },
+  "actual_browser": "Full actual Laravel financial workspace including nonbinding next-cycle preview, authoritative entitlements, credits/refunds, recovery/dispute/settlement privacy, CSV, themes/three widths/Arabic/logout; MOCK payments only.",
+  "browser_unit_passed": 25,
+  "native_config_and_artifact_guards": 15,
+  "pint_files": 828,
+  "source_rule_ownership": "Existing backend preview and shared eligibility/rounding source from original PR150 retained; no independent client accounting, tax or proration calculations. Native only validates source types/scope/flags and formats canonical integers.",
+  "ci_registration": "Added own two-login plus negative-token native group with existing61second pacing; additive script/fixture paths in both mobile workflow event lists; YAML parses.",
+  "failed_fixture_attempts": [
+    "Called nonexistent enroll instead of existing subscribe; failed before subscription/payment creation. Corrected fixture, financial source unchanged.",
+    "Incorrectly treated canonical cookie-session EvApi as bearer transport and expected authorized web Admin cookie denial. Kept transport/permissions and tested Admin PAT separately; final actual contract passed."
+  ],
+  "source_sha256": {
+    "services/business-api/app/Http/Controllers/SubscriptionController.php": "07e3781693ff12e38fe9b56ea091b31b162ce4f908d4c97885b3399d955f698e",
+    "services/business-api/app/Services/Commercial/SubscriptionService.php": "26bc789bbc90549947ae2b3798a6091c5402dd770ae0128cd29e11ece479fbc4",
+    "services/business-api/public/commercial.js": "2f590231f442ee7470c651b43e22aaebe2d83688d44f3b5ffe3c3e854baf459a",
+    "services/business-api/routes/subscriptions.php": "0fe599e6680318b9c34a90e32b0245d15be12c484759cbee83952bd454b58069",
+    "apps/mobile/lib/subscription_preview.dart": "0d9179208533c3776867a7b3f58acf6a474ba9b1a7e2d87a45781c85464e18c6",
+    "apps/mobile/lib/subscriptions.dart": "068c37654a2ccbe98bc863deb4f81b72740748b874e9e4114c025bae437f3544",
+    "apps/mobile/test/subscription_preview_test.dart": "e71d979cab37e97ac5c43fa9df8bbc6076cb4bcaae341709aadb6b93fc695a96",
+    "apps/mobile/test/live_subscription_preview_test.dart": "5de692e63e8a1f9d5a9805262feac2b1706beb82534bbf3388cbdb479aa7cd6e",
+    "services/business-api/tests/Fixtures/native-subscription-preview.php": "b7a408012bc544a7443a61f94c42368d2dcd762e1b9fd88c1971afad4b17e466",
+    "tests/native-subscription-preview.cjs": "2d76705a6997d59eae6005b5e82521452ff9c2bf0a4bbe5136b75fce737fec0f",
+    "tests/native-connected.cjs": "17ea4b37e49c20cbc61626d774be41b9591bd70d8e1f3fc80922e2355921c7cf",
+    ".github/workflows/mobile.yml": "6371391d5958e6d4475dcdf65fcf05925b4f964a70783211fe7ec60f98509df0"
+  },
+  "local_log_sha256": {
+    "/tmp/ev-subscription-laravel.txt": "de26cfcfb02d472230578cdb37843f783483c655b7c0a152e2e3b9e6af3ec8c7",
+    "/tmp/ev-subscription-finance.txt": "72c2ad94eb39f31f21f0b6faadbce9cc6a24b9e05702396a6f16eac4e581bd5d",
+    "/tmp/ev-subscription-connectors.txt": "2d5b989f2e96585663202752aabdc47d838aa51d0246e07fc14be6c75ab32ede",
+    "/tmp/ev-subscription-pint-final.txt": "2ab62744596ad732730326393f4df5601399626f6ffa691ca2d97d33a2caed62",
+    "/tmp/ev-subscription-native-final-focused.txt": "3676b5d3d01a60e8127d59a9e940c076f675603d59318b98d424fc5d66a8aae9",
+    "/tmp/ev-subscription-flutter-final.txt": "14750e4c70324292a475fadeb2e538b74bb6ee01f4b7d074377d91f5f0eebc8b",
+    "/tmp/ev-subscription-analyze-final.txt": "2b4ab3571b784fc78ff1cd4374e11f53300e0a305e033787fc219ba4a0faafa7",
+    "/tmp/ev-subscription-browser.txt": "214952a89f5d0b589589dbb13a7bcdad483000aaec303ea4793e4756c7e27b80",
+    "/tmp/ev-subscription-browser-unit-final.txt": "6047e3cf58ba494f8ceba61d717cf58ef1c0d0ee605cbbae0c50e7d119c5e1e3",
+    "/tmp/ev-subscription-native-guards.txt": "159d4d8b9b2696e64649204ce26ed947cec404860c03c19d9024cbdee02209a4",
+    "/tmp/ev-subscription-native-actual.txt": "c9a3b11b65f5648d6535da6fc15dc5af7a3a9a7dbbf7da9f87eece5252e7a347",
+    "/tmp/ev-subscription-native-actual-corrected.txt": "6cbc7cd15b8ab2ad4f2796fe6681f72ecb5d88939cdf1aaec5e670c8a3852b7f",
+    "/tmp/ev-subscription-native-actual-final.txt": "ac723dcfe315fd776ff8a73af150b508df7c8c7a194de7496ba165d179d5ab42"
+  },
+  "production_accepted": false
+}
