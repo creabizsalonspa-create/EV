@@ -7,6 +7,7 @@ use App\Services\Commercial\SubscriptionCreditService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
@@ -76,6 +77,54 @@ class CommercialCampaignTest extends TestCase
         $paid = $this->fixture();
         $paid['values']['station_id'] = $f['station']->id;
         $this->actingAs($paid['vendor'])->postJson('/campaign-test/commercial/campaigns', $paid['values'])->assertNotFound();
+    }
+
+    public function test_revoked_vendor_and_admin_must_not_read_private_campaign_or_paid_package_history(): void
+    {
+        $f = $this->fixture();
+        $campaign = $this->create($f);
+        $url = '/campaign-test/commercial';
+        $before = DB::table('commercial_campaign_events')->count();
+        foreach ([$f['vendor'], $f['admin']] as $reader) {
+            $record = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $original = [
+                'role' => $record->role,
+                'account_status' => $record->account_status,
+                'auth_epoch' => $record->auth_epoch,
+                'password' => $record->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson($url.'/campaigns')->assertOk()
+                ->assertHeader('Cache-Control', 'no-store, private');
+            $this->getJson($url.'/campaigns/'.$campaign['id'])->assertOk();
+            $this->getJson($url.'/campaign-packages')->assertOk();
+
+            foreach ([
+                ['role' => 'customer'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $record->auth_epoch + 1],
+                ['password' => Hash::make('rotated-private-campaign-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $this->getJson($url.'/campaigns')->assertConflict();
+                $this->getJson($url.'/campaigns/'.$campaign['id'])->assertConflict();
+                $this->getJson($url.'/campaign-packages')->assertConflict();
+                if ($record->role === 'vendor') {
+                    $this->getJson($url.'/campaign-stations')->assertConflict();
+                }
+                $this->postJson($url.'/campaigns/'.$campaign['id'].'/cancel', [
+                    'reason' => 'Former controller can never change campaign',
+                ])->assertNotFound();
+                DB::table('users')->where('id', $reader->id)->update($original);
+            }
+        }
+
+        $this->assertSame($before, DB::table('commercial_campaign_events')->count());
+        $this->assertDatabaseHas('commercial_campaigns', [
+            'id' => $campaign['id'], 'status' => 'draft',
+        ]);
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
     }
 
     public function test_budget_reservations_idempotency_and_cancellation_do_not_reopen_used_units(): void

@@ -79,12 +79,12 @@ void main(){
   testWidgets('advanced filters normalize rate digits and preserve submitted pagination ($ar)',(tester)async{
    roomy(tester);final api=UnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){},ar:ar));
    final expand=find.byType(ExpansionTile);await tester.ensureVisible(expand);await tester.tap(expand);await tester.pumpAndSettle();
-   for(final field in {'operator':'100%_operator','address':'دبي','access':'Visitors','min_power_kw':'٤٠','max_power_kw':'٦٠','max_rate_per_kwh':'١٫٥٠','price_currency':'aed'}.entries){
+   for(final field in {'operator':'100%_operator','address':'دبي','access':'Visitors','max_rate_per_kwh':'١٫٥٠','price_currency':'aed'}.entries){
     final input=find.byKey(Key('unified-${field.key}'));await tester.ensureVisible(input);await tester.enterText(input,field.value);
    }
    final search=find.byType(FilledButton);await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
-   expect(api.queries.single['operator'],'100%_operator');expect(api.queries.single['address'],'دبي');expect(api.queries.single['access'],'Visitors');expect(api.queries.single['min_power_kw'],'40');expect(api.queries.single['max_power_kw'],'60');expect(api.queries.single['max_rate_per_kwh'],'1.50');expect(api.queries.single['price_currency'],'AED');
-   final next=find.text(ar?'التالي':'Next');await tester.ensureVisible(next);await tester.tap(next);await tester.pumpAndSettle();expect(api.queries.last['page'],'2');expect(api.queries.last['max_rate_per_kwh'],'1.50');expect(api.queries.last['min_power_kw'],'40');expect(api.queries.last['max_power_kw'],'60');
+   expect(api.queries.single['operator'],'100%_operator');expect(api.queries.single['address'],'دبي');expect(api.queries.single['access'],'Visitors');expect(api.queries.single['max_rate_per_kwh'],'1.50');expect(api.queries.single['price_currency'],'AED');
+   final next=find.text(ar?'التالي':'Next');await tester.ensureVisible(next);await tester.tap(next);await tester.pumpAndSettle();expect(api.queries.last['page'],'2');expect(api.queries.last['max_rate_per_kwh'],'1.50');
    expect(api.calls.every((path)=>path=='GET discovery/search'),true);
   });
  }
@@ -208,4 +208,140 @@ void main(){
    expect(second.queries.single.containsKey('country'),false);
   });
  }
+
+ for(final ar in [false,true]){
+  testWidgets('empty native discovery page can explicitly select map viewport without source/GPS inference ($ar)',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi();
+   final tiles=UnifiedFixtureTiles();
+   addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('No implicit station booking'),ar:ar,tileProvider:tiles));
+   expect(api.calls,isEmpty,reason:'Opening an empty catalog does not search');
+   final open=find.byKey(const Key('unified-map-open'));
+   expect(open,findsOneWidget);
+   await tester.ensureVisible(open);await tester.tap(open);await tester.pumpAndSettle();
+   expect(api.calls,isEmpty,reason:'Map opening never contacts the catalog or a provider');
+   expect(tiles.requests,0,reason:'No tile access until explicit opt in');
+   expect(find.byKey(const Key('unified-native-viewport-search')),findsNothing);
+   expect(find.textContaining(ar?'عرض العالم المحايد':'neutral world view'),findsOneWidget);
+
+   await tester.tap(find.byKey(const Key('partner-map-enable')));
+   await tester.pumpAndSettle();
+   expect(tiles.requests,greaterThan(0));
+   expect(api.calls,isEmpty,reason:'Map tile enable is not a catalog search');
+   final search=find.byKey(const Key('unified-native-viewport-search'));
+   await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(api.calls,['GET discovery/search']);
+   final bounds=api.queries.single;
+   for(final key in ['south','north','west','east'])expect(double.tryParse(bounds[key]??''),isNotNull);
+   expect(bounds['page'],'1');
+   expect(bounds['scope'],'all');
+   expect(bounds.containsKey('latitude'),false);
+   expect(bounds.containsKey('longitude'),false);
+   expect(bounds.containsKey('radius_km'),false);
+   expect(find.text('Synthetic catalog'),findsOneWidget);
+   expect(find.byKey(const Key('unified-map-open')),findsOneWidget);
+
+   final next=find.text(ar?'التالي':'Next');
+   await tester.ensureVisible(next);await tester.tap(next);await tester.pumpAndSettle();
+   expect(api.queries.length,2);
+   expect(api.queries.last['page'],'2');
+   expect(api.queries.last['west'],bounds['west']);
+
+   await tester.ensureVisible(find.byType(FilledButton));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.queries.last.containsKey('west'),false,
+      reason:'Ordinary search must clear user-submitted empty-map rectangle');
+   expect(tester.takeException(),isNull);
+  });
+ }
+
+ testWidgets('stale account epoch while empty map is open clears old discovery data without lookup',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi();
+   final tiles=UnifiedFixtureTiles();
+   addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('Stale booking action'),tileProvider:tiles,customer:true));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.calls,['GET discovery/search']);
+   expect(find.text('Synthetic catalog'),findsOneWidget);
+   final opener=find.byKey(const Key('unified-map-open'));
+   await tester.ensureVisible(opener);await tester.tap(opener);await tester.pumpAndSettle();
+   expect(tiles.requests,0);
+   api.epoch++;
+   await tester.tap(find.byKey(const Key('partner-map-enable')));
+   await tester.pumpAndSettle();
+   final submit=find.byKey(const Key('unified-native-viewport-search'));
+   await tester.ensureVisible(submit);await tester.tap(submit);await tester.pumpAndSettle();
+   expect(api.calls.length,1,reason:'A stale map must never query under the new account');
+   expect(find.text('Synthetic catalog'),findsNothing,
+      reason:'Old customer location metadata must not survive epoch change');
+   expect(find.text('Account changed. Reopen search.'),findsOneWidget);
+   expect(tester.takeException(),isNull);
+ });
+
+ for(final ar in [false,true]){
+  testWidgets('empty viewport discovery preserves explicitly submitted country across map and pagination ($ar)',(tester)async{
+    roomy(tester);
+    final api=UnifiedApi(),tiles=UnifiedFixtureTiles();
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api,(_)=>fail('No charging action'),ar:ar,tileProvider:tiles));
+    final market=find.byKey(const Key('unified-country'));
+    await tester.ensureVisible(market);await tester.tap(market);await tester.pumpAndSettle();
+    await tester.tap(find.text(ar?'الولايات المتحدة':'United States').last);
+    await tester.pumpAndSettle();
+    final submit=find.byType(FilledButton);
+    await tester.ensureVisible(submit);await tester.tap(submit);await tester.pumpAndSettle();
+    expect(api.queries.single['country'],'US');
+    final open=find.byKey(const Key('unified-map-open'));
+    await tester.ensureVisible(open);await tester.tap(open);await tester.pumpAndSettle();
+    expect(api.calls.length,1);
+    expect(tiles.requests,0);
+    await tester.tap(find.byKey(const Key('partner-map-enable')));await tester.pumpAndSettle();
+    final bounds=find.byKey(const Key('unified-native-viewport-search'));
+    await tester.ensureVisible(bounds);await tester.tap(bounds);await tester.pumpAndSettle();
+    expect(api.queries.length,2);
+    expect(api.queries.last['country'],'US');
+    expect(api.queries.last.containsKey('west'),true);
+    await tester.ensureVisible(find.text(ar?'التالي':'Next'));
+    await tester.tap(find.text(ar?'التالي':'Next'));await tester.pumpAndSettle();
+    expect(api.queries.last['country'],'US');
+    expect(api.queries.last['west'],api.queries[1]['west']);
+    expect(api.calls.every((entry)=>entry=='GET discovery/search'),true);
+    expect(tester.takeException(),isNull);
+  });
+ }
+
+ testWidgets('Arabic manual map centre moves an empty map without GPS or automatic catalog search',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi(),tiles=UnifiedFixtureTiles();
+   addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('No implicit charging'),ar:true,tileProvider:tiles));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.queries.length,1);
+   final open=find.byKey(const Key('unified-map-open'));
+   await tester.ensureVisible(open);await tester.tap(open);await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-native-manual-centre')),findsNothing);
+   expect(tiles.requests,0);
+   await tester.tap(find.byKey(const Key('partner-map-enable')));await tester.pumpAndSettle();
+   final latitude=find.byKey(const Key('unified-map-manual-latitude'));
+   final longitude=find.byKey(const Key('unified-map-manual-longitude'));
+   await tester.ensureVisible(latitude);await tester.enterText(latitude,'٢٥٫٢');
+   await tester.ensureVisible(longitude);await tester.enterText(longitude,'٥٥٫٣');
+   final reposition=find.byKey(const Key('unified-native-manual-centre'));
+   await tester.ensureVisible(reposition);await tester.tap(reposition);await tester.pumpAndSettle();
+   expect(api.queries.length,1,reason:'Typing and moving the map are not catalog API requests');
+   expect(find.byKey(const Key('unified-native-gps-error')),findsNothing);
+   final search=find.byKey(const Key('unified-native-viewport-search'));
+   await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(api.queries.length,2);
+   final bbox=api.queries.last;
+   expect(double.parse(bbox['south']!),lessThan(25.2));
+   expect(double.parse(bbox['north']!),greaterThan(25.2));
+   expect(double.parse(bbox['west']!),lessThan(55.3));
+   expect(double.parse(bbox['east']!),greaterThan(55.3));
+   expect(bbox.containsKey('latitude'),false);
+   expect(bbox.containsKey('longitude'),false);
+   expect(tester.takeException(),isNull);
+ });
 }

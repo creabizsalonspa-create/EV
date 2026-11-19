@@ -9,6 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -52,6 +53,46 @@ class PaymentGatewayEvidenceTest extends TestCase
         $this->assertSame($journals, DB::table('finance_journals')->count());
         $this->assertDatabaseCount('gateway_case_evidence', 1);
         $this->assertDatabaseCount('gateway_cases', 1);
+    }
+
+    public function test_revoked_account_cannot_read_or_upload_encrypted_evidence_using_cached_authority(): void
+    {
+        $f = $this->fixture();
+        $path = $this->path($f);
+        $evidence = $this->actingAs($f['customer'])
+            ->post($path, $this->body('base-evidence'), ['Accept' => 'application/json'])
+            ->assertCreated()->json();
+        $before = DB::table('audit_events')->count();
+
+        foreach ([$f['customer'], $f['vendor'], $f['maker']] as $reader) {
+            $row = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $restore = [
+                'role' => $row->role,
+                'account_status' => $row->account_status,
+                'auth_epoch' => $row->auth_epoch,
+                'password' => $row->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson($path)->assertOk();
+            foreach ([
+                ['role' => $row->role === 'vendor' ? 'customer' : 'vendor'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $row->auth_epoch + 1],
+                ['password' => Hash::make('rotated-private-case-session')],
+            ] as $change) {
+                DB::table('users')->where('id', $reader->id)->update($change);
+                $this->getJson($path)->assertConflict();
+                $this->get($path.'/'.$evidence['id'])->assertConflict();
+                $this->post($path, $this->body('revoked-attempt'), [
+                    'Accept' => 'application/json',
+                ])->assertConflict();
+                DB::table('users')->where('id', $reader->id)->update($restore);
+            }
+        }
+
+        $this->assertDatabaseCount('gateway_case_evidence', 1);
+        $this->assertSame($before, DB::table('audit_events')->count());
     }
 
     public function test_foreign_users_and_other_case_paths_cannot_read_or_upload_private_evidence(): void

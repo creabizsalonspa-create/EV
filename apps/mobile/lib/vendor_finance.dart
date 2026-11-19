@@ -360,6 +360,23 @@ class _VendorFinanceState extends State<VendorFinanceView> {
                         '${t(field)}: ${nativeFinancialAmount(c, row, field)}',
                       ),
                     OutlinedButton(
+                      key: ValueKey('vendor-itemized-${row['currency']}'),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => VendorEarningsView(
+                            api: widget.api,
+                            onExpired: widget.onExpired,
+                            currency: row['currency'] as String,
+                          ),
+                        ),
+                      ),
+                      child: Text(
+                        Localizations.localeOf(c).languageCode == 'ar'
+                            ? 'إيرادات الفواتير التفصيلية'
+                            : 'Itemized invoice earnings',
+                      ),
+                    ),
+                    OutlinedButton(
                       onPressed: () async {
                         await Navigator.of(context).push(
                           MaterialPageRoute<void>(
@@ -979,4 +996,364 @@ class _VendorPayableState extends State<VendorPayableView> {
       ],
     ),
   );
+}
+
+/// Read-only projection of the canonical settlement service, never a ledger.
+class VendorEarningsSnapshot {
+  static const amounts = <String, (String, String)>{
+    'subtotal_minor': ('Subtotal', 'المجموع الفرعي'),
+    'tax_minor': ('Tax', 'الضريبة'),
+    'commission_minor': ('Commission', 'العمولة'),
+    'vendor_allocated_minor': ('Vendor allocation', 'حصة المورد'),
+    'paid_minor': ('Recorded payments', 'المدفوعات المسجلة'),
+    'refunded_minor': ('Recorded refunds', 'المبالغ المستردة المسجلة'),
+    'vendor_refunded_minor': (
+      'Vendor refund allocation',
+      'حصة المورد المستردة',
+    ),
+    'unpaid_credited_minor': (
+      'Noncash invoice credits',
+      'أرصدة الفواتير غير النقدية',
+    ),
+    'net_collected_minor': (
+      'Net collected source amount',
+      'صافي التحصيل بحسب المصدر',
+    ),
+    'amount_due_minor': ('Amount due', 'المبلغ المستحق'),
+    'pending_reserved_minor': (
+      'Pending settlement reservations',
+      'حجوزات التسوية المعلقة',
+    ),
+    'completed_settlement_minor': (
+      'Completed settlement records',
+      'سجلات التسوية المكتملة',
+    ),
+    'available_minor': (
+      'Invoice availability from server',
+      'المتاح لهذه الفاتورة بحسب الخادم',
+    ),
+  };
+  final Map<String, dynamic> source;
+  final List<Map<String, dynamic>> rows;
+  VendorEarningsSnapshot._(this.source, this.rows);
+
+  factory VendorEarningsSnapshot.parse(
+    dynamic raw, {
+    required int vendorId,
+    required String currency,
+    required int page,
+  }) {
+    bool integer(dynamic n) => n is int && n.abs() <= 9007199254740991;
+    bool precision(dynamic n) => n is int && n >= 0 && n <= 3;
+    Never invalid() =>
+        throw const FormatException('Unsupported earnings evidence.');
+    if (raw is! Map ||
+        vendorId < 1 ||
+        !RegExp(r'^[A-Z]{3}$').hasMatch(currency) ||
+        raw['vendor_id'] != vendorId ||
+        raw['currency'] != currency ||
+        raw['evidence'] != 'SIMULATED_CANONICAL_SETTLEMENT' ||
+        raw['real_payout_enabled'] != false ||
+        raw['external_psp_or_bank_verified'] != false ||
+        raw['overall_balance_scope'] !=
+            'ALL_VENDOR_INVOICES_AND_APPROVED_ADJUSTMENTS' ||
+        !precision(raw['minor_units']) ||
+        !integer(raw['overall_available_minor']) ||
+        !integer(raw['hold_days']) ||
+        raw['hold_days'] < 0 ||
+        raw['data'] is! List ||
+        !integer(raw['current_page']) ||
+        raw['current_page'] != page ||
+        page < 1 ||
+        !integer(raw['per_page']) ||
+        raw['per_page'] < 1 ||
+        raw['per_page'] > 25 ||
+        !integer(raw['total']) ||
+        raw['total'] < 0 ||
+        !integer(raw['last_page']))
+      invalid();
+    final total = raw['total'] as int, size = raw['per_page'] as int;
+    final last = total == 0 ? 1 : (total + size - 1) ~/ size;
+    final remaining = total - (page - 1) * size;
+    final expected = remaining < 0
+        ? 0
+        : remaining > size
+        ? size
+        : remaining;
+    if (raw['last_page'] != last ||
+        page > last ||
+        (raw['data'] as List).length != expected)
+      invalid();
+    final rows = <Map<String, dynamic>>[], ids = <int>{};
+    for (final row in raw['data'] as List) {
+      if (row is! Map ||
+          !integer(row['invoice_id']) ||
+          row['invoice_id'] < 1 ||
+          !ids.add(row['invoice_id'] as int) ||
+          row['currency'] != currency ||
+          !precision(row['minor_units']) ||
+          row['invoice_number'] is! String ||
+          (row['invoice_number'] as String).isEmpty ||
+          (row['invoice_number'] as String).length > 150 ||
+          row['evidence'] is! String ||
+          !RegExp(r'^[A-Z][A-Z0-9_]{0,63}$').hasMatch(row['evidence']) ||
+          amounts.keys.any((field) => !integer(row[field])))
+        invalid();
+      rows.add(
+        Map<String, dynamic>.unmodifiable(Map<String, dynamic>.from(row)),
+      );
+    }
+    return VendorEarningsSnapshot._(
+      Map<String, dynamic>.unmodifiable(Map<String, dynamic>.from(raw)),
+      List<Map<String, dynamic>>.unmodifiable(rows),
+    );
+  }
+}
+
+class VendorEarningsView extends StatefulWidget {
+  final EvApi api;
+  final String currency;
+  final VoidCallback onExpired;
+  const VendorEarningsView({
+    super.key,
+    required this.api,
+    required this.currency,
+    required this.onExpired,
+  });
+  @override
+  State<VendorEarningsView> createState() => _VendorEarningsState();
+}
+
+class _VendorEarningsState extends State<VendorEarningsView>
+    with WidgetsBindingObserver {
+  VendorEarningsSnapshot? report;
+  bool Function()? session;
+  Object? error;
+  bool busy = false, foreground = true, hidden = false;
+  int generation = 0;
+  String t(String en, String ar) =>
+      Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    foreground =
+        WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    hidden = !foreground;
+    load();
+  }
+
+  @override
+  void didUpdateWidget(covariant VendorEarningsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api || oldWidget.currency != widget.currency) {
+      generation++;
+      report = null;
+      error = null;
+      if (foreground) load();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) {
+        generation++;
+        report = null;
+        error = null;
+        busy = false;
+        hidden = true;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  Future<void> load({int page = 1}) async {
+    if (!foreground) return;
+    final epoch = ++generation, current = widget.api.sessionFence();
+    session = current;
+    setState(() {
+      busy = true;
+      error = null;
+      report = null;
+      hidden = false;
+    });
+    bool active() => mounted && foreground && generation == epoch && current();
+    try {
+      if (!RegExp(r'^[A-Z]{3}$').hasMatch(widget.currency))
+        throw const FormatException('Invalid currency.');
+      final me = await widget.api.request('me');
+      if (!active()) return;
+      if (me['role'] != 'vendor')
+        throw const ApiException(403, 'Vendor role required.');
+      if (me['id'] is! int || me['id'] <= 0)
+        throw const FormatException('Invalid account.');
+      final raw = await widget.api.request(
+        'commercial/vendors/${me['id']}/earnings',
+        query: {'currency': widget.currency, 'page': '$page', 'per_page': '20'},
+      );
+      if (!active()) return;
+      final data = VendorEarningsSnapshot.parse(
+        raw,
+        vendorId: me['id'],
+        currency: widget.currency,
+        page: page,
+      );
+      setState(() => report = data);
+    } catch (e) {
+      if (!active()) return;
+      setState(() => error = e);
+      if (e is ApiException && [401, 419].contains(e.status))
+        widget.onExpired();
+    } finally {
+      if (active()) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final current = session?.call() ?? false;
+    final data = current ? report : null;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          t('Itemized invoice earnings', 'إيرادات الفواتير التفصيلية'),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(
+            t(
+              'Internal source records only. No verified bank/PSP receipt or real payout authorization.',
+              'سجلات المصدر الداخلية فقط. لا تثبت إيصالاً مصرفياً أو من مزود الدفع ولا تمنح صلاحية صرف حقيقي.',
+            ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton(
+            key: const Key('vendor-earnings-refresh'),
+            onPressed: (busy && current) || !foreground ? null : () => load(),
+            child: Text(t('Refresh source records', 'تحديث سجلات المصدر')),
+          ),
+          if (busy && current) const Center(child: CircularProgressIndicator()),
+          if (error != null && current)
+            Text(
+              EvStrings.of(c).t(errorKey(error!)),
+              key: const Key('vendor-earnings-error'),
+            ),
+          if (hidden || !current)
+            Text(
+              t(
+                'Private records cleared. Refresh after returning to this account.',
+                'مُسحت السجلات الخاصة. حدّث بعد العودة إلى هذا الحساب.',
+              ),
+            ),
+          if (data != null) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      t(
+                        'Overall server-reported availability',
+                        'إجمالي المتاح بحسب الخادم',
+                      ),
+                      style: Theme.of(c).textTheme.titleMedium,
+                    ),
+                    Text(
+                      nativeFinancialAmount(
+                        c,
+                        data.source,
+                        'overall_available_minor',
+                      ),
+                      key: const Key('vendor-earnings-overall'),
+                    ),
+                    Text(
+                      t(
+                        'All vendor invoices and approved adjustments; this is not the total of the displayed page.',
+                        'يشمل جميع فواتير المورد والتعديلات المعتمدة؛ وليس مجموع الصفحة المعروضة.',
+                      ),
+                    ),
+                    Text(
+                      '${t('Hold days', 'أيام الحجز')}: ${data.source['hold_days']}',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (data.rows.isEmpty)
+              Text(
+                t(
+                  'No invoice records in this currency.',
+                  'لا توجد سجلات فواتير بهذه العملة.',
+                ),
+              ),
+            for (final row in data.rows)
+              Card(
+                key: ValueKey('vendor-earnings-invoice-${row['invoice_id']}'),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        row['invoice_number'] as String,
+                        style: Theme.of(c).textTheme.titleMedium,
+                      ),
+                      Text(
+                        '${t('Original invoice evidence', 'مصدر الفاتورة الأصلي')}: ${row['evidence']}',
+                      ),
+                      for (final field
+                          in VendorEarningsSnapshot.amounts.entries)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            '${t(field.value.$1, field.value.$2)}: ${nativeFinancialAmount(c, row, field.key)}',
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            Text(
+              '${t('Page', 'الصفحة')} ${data.source['current_page']} / ${data.source['last_page']} · ${data.source['total']}',
+            ),
+            Wrap(
+              spacing: 12,
+              children: [
+                OutlinedButton(
+                  key: const Key('vendor-earnings-previous'),
+                  onPressed: busy || data.source['current_page'] <= 1
+                      ? null
+                      : () => load(page: data.source['current_page'] - 1),
+                  child: Text(t('Previous', 'السابق')),
+                ),
+                OutlinedButton(
+                  key: const Key('vendor-earnings-next'),
+                  onPressed:
+                      busy ||
+                          data.source['current_page'] >=
+                              data.source['last_page']
+                      ? null
+                      : () => load(page: data.source['current_page'] + 1),
+                  child: Text(t('Next', 'التالي')),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
