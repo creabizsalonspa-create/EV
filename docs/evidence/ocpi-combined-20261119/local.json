@@ -1,0 +1,54 @@
+{
+  "status": "LOCAL_VERIFIED_EXACT_HEAD_HOSTED_PENDING",
+  "executable_source": "2581448c24256a8f35d354fe97d011aab158055a",
+  "retained_source_heads": {
+    "130": "9f08c44818b922d39935609b40c9a6a8d22552c3",
+    "144": "4ad1f6e21ce78447e06697f34e99e68a9a32bcdf",
+    "179": "b860782dee63c05776c61dd025a8953cc7c6a62e",
+    "173": "4637d2b52ce2b1965890010063ff5b047627e6cc",
+    "189_prior": "b212dba97e66fe79192eec3d74871ae833e4d78a"
+  },
+  "verification": {
+    "laravel": {
+      "passed": 1370,
+      "assertions": 26210,
+      "skipped": 1
+    },
+    "postgres_contracts": {
+      "passed": 524,
+      "assertions": 7290
+    },
+    "postgres_process_concurrency": {
+      "passed": 30,
+      "assertions": 448
+    },
+    "postgres_precision": {
+      "passed": 2,
+      "assertions": 13
+    },
+    "flutter": {
+      "passed": 557,
+      "explicit_fixture_skips": 34
+    },
+    "pint_files": 794,
+    "native_connected_suites": 3,
+    "flutter_analysis": "clean",
+    "full_finance_postgres": "running; not yet credited"
+  },
+  "local_log_sha256": {
+    "laravel": "49b6513a601c954edb215117128004e0106a6acb2aa664e7122d7b214c46e463",
+    "pg": "cbacfe6e82ffcda9437a278f9b8e90939535db6d8afd1aff89246e738139e3cb",
+    "flutter": "6736ba24bd16d872a2925848edcbe803ef0fe0e55fc1f169bf96a8dce418d7df",
+    "native": "af1b3dccc67f5425d3d253254929b760913d7542569acf3fd1b11ee033f76b83",
+    "analyze": "07cdb1a5f6c31625e474ad73c94acc659d3493471d6d6d64f785cb1afbb48210",
+    "pint": "fb312dff167e5d250362649e491a9a96effd499365e99d1c4a425977d8c99192",
+    "fleet-web": "8bbcf7a7b817be2056e0a68af24f437912215c1907e148d959540ac0026150f0",
+    "roaming-web": "4ce3169618b25182ddb5016fa30b7408e74dccc9525c1bbf073b4353fff3893d",
+    "observations-web": "0ea45e80ee4f28d70939bb8167c169cdccc431560f4714c3af40b4eb7a82c24b",
+    "session-web": "3a651e73bfeba4b4d37c78cf21989cefbbae8860e2b5589dcc68658399e92222"
+  },
+  "production_accepted": false,
+  "tracker_credit_added": 0,
+  "source_histories_rewritten": false,
+  "canonical_merge_performed": false
+}

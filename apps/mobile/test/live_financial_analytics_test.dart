@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/financial_analytics.dart';
+import 'package:creabiz_ev/vendor_finance.dart';
 
 void main() {
   final path = Platform.environment['EV_NATIVE_ANALYTICS_FIXTURE'];
@@ -11,10 +12,17 @@ void main() {
     () async {
       final f = jsonDecode(await File(path!).readAsString());
       expect(f['fixture_only'], true);
-      final api = EvApi(Uri.parse('http://127.0.0.1:8000'));
+      final api = EvApi(Uri.parse(f['base'] ?? 'http://127.0.0.1:8000'));
       addTearDown(api.close);
       await api.signIn(f['customer'], f['password']);
       final before = await api.request('finance/invoices/${f['invoice']}');
+      await expectLater(
+        api.request(
+          'commercial/vendors/${f['vendor_id']}/earnings',
+          query: {'currency': 'AED'},
+        ),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
+      );
       final report = FinancialReport(await api.request('financial/analytics'));
       final collected = report.groups.where(
         (r) =>
@@ -53,8 +61,29 @@ void main() {
         vendor.groups.any((r) => r['category'] == 'charging_collected'),
         true,
       );
+      final vendorIdentity = await api.request('me');
+      expect(vendorIdentity['id'], f['vendor_id']);
+      final itemized = VendorEarningsSnapshot.parse(
+        await api.request(
+          'commercial/vendors/${f['vendor_id']}/earnings',
+          query: {'currency': 'AED', 'page': '1', 'per_page': '20'},
+        ),
+        vendorId: f['vendor_id'],
+        currency: 'AED',
+        page: 1,
+      );
+      expect(itemized.rows.any((r) => r['invoice_id'] == f['invoice']), true);
+      expect(itemized.source['real_payout_enabled'], false);
+      expect(itemized.source['external_psp_or_bank_verified'], false);
       await api.signOut();
       await api.signIn(f['foreign'], f['password']);
+      await expectLater(
+        api.request(
+          'commercial/vendors/${f['vendor_id']}/earnings',
+          query: {'currency': 'AED'},
+        ),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
+      );
       expect(
         FinancialReport(await api.request('financial/analytics')).groups,
         isEmpty,

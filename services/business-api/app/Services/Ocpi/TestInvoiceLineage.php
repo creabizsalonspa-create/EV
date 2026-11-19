@@ -37,6 +37,7 @@ class TestInvoiceLineage
 
     private function facts(User $actor, object $order): array
     {
+        abort_unless(($order->intent_kind ?? 'start') === 'start', 409, 'Reservation charging and fees require a separately approved billing contract.');
         abort_unless(app()->environment(['local', 'testing']) && config('ocpi.test_billing_enabled') && $actor->role === 'customer' && $order->user_id === $actor->id, 409, 'Approved separate TEST billing is unavailable.');
         [$provider,$c,,$link] = app(SandboxRoaming::class)->current($order);
         $policy = $c['test_billing_contract'] ?? null;

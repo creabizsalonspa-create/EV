@@ -9,6 +9,9 @@ let favoriteMode = false,
     previousCatalogQuery = "";
 let commandRequest = null,
     commandPage = 1;
+// Private draft references must be initialized before any identity callback
+// and dropped on logout as well as on a new authenticated actor/epoch.
+let connectorFleetFilter = { epoch: -1, actor: null, draftStation: '', selectedStation: '' };
 let reservationPage = 1,
     reservationGeneration = 0,
     reservationRequest = null,
@@ -175,6 +178,7 @@ function clearPrivateViews() {
     window.EvPhoneVerification?.clear();
     window.EvAccountSecondFactor?.clear();
     commandRequest?.abort();
+    connectorFleetFilter = { epoch: -1, actor: null, draftStation: '', selectedStation: '' };
     el("charging-dashboard").replaceChildren();
     el("commands-state").textContent = "";
     delete el("commands-state").dataset.i18n;
@@ -353,6 +357,9 @@ async function identity() {
         if (error.status !== 401) notice(error);
     }
     renderIdentity();
+    // Capture only after /me established the current actor. A user may refresh
+    // history while later workspaces bootstrap; keep that newer scoped draft.
+    const initialCommandRequest = commandRequest;
     await vehicleModelCatalog.setActor(user);
     if (epoch !== client.sessionEpoch) return;
     vehicleManualSoc.setActor(user);
@@ -380,7 +387,8 @@ async function identity() {
     await commercialWorkspace.setActor(user);
     window.EvAdminOperatorRoleHistory?.setActor(user, api);
     if (user?.role === "admin") await adminOverview();
-    if (["vendor", "admin"].includes(user?.role)) await commandHistory();
+    if (["vendor", "admin"].includes(user?.role) && commandRequest === initialCommandRequest)
+        await commandHistory();
 }
 // Catalog ownership: startup must not replace an explicit page/form already rendered for this account.
 let stationRequest = null,
@@ -2963,8 +2971,15 @@ async function openOperationalCase(command, parent, actor, signal) {
     }
     await events(1);
 }
+// The connector filter is ephemeral and bound to this exact authenticated
+// client epoch and actor object. Recreating the dashboard for a locale or
+// history refresh must not convert a typed station filter to a global read.
 async function commandHistory(page = 1) {
     if (!["vendor", "admin"].includes(user?.role)) return;
+    if (connectorFleetFilter.epoch !== client.sessionEpoch || connectorFleetFilter.actor !== user) {
+        connectorFleetFilter = { epoch: client.sessionEpoch, actor: user, draftStation: '', selectedStation: '' };
+    }
+    const actorFilter = connectorFleetFilter;
     commandRequest?.abort();
     const request = new AbortController(),
         actor = user;
@@ -2982,7 +2997,7 @@ async function commandHistory(page = 1) {
         );
         if (request.signal.aborted || user !== actor) return;
         const metrics = el("charging-dashboard");
-        window.renderConnectorFleetAction?.(metrics, { api, actor: () => user, openDiagnostics: (companyId, chargerId) => vendorWorkspace.openMonitorNotice(companyId, chargerId) });
+        window.renderConnectorFleetAction?.(metrics, { api, actor: () => user, filterState: actorFilter, openDiagnostics: (companyId, chargerId) => vendorWorkspace.openMonitorNotice(companyId, chargerId) });
         const ar = document.documentElement.lang === "ar";
         const line = (en, arabic, value) => {
             const item = document.createElement("p");

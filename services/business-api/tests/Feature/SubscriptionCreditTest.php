@@ -11,6 +11,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -91,6 +92,40 @@ class SubscriptionCreditTest extends TestCase
         $this->assertSame($invoice, (array) DB::table('commercial_subscription_invoices')->find($f[3]));
         $this->assertSame($receipt, (array) DB::table('commercial_subscription_receipts')->where('invoice_id', $f[3])->first());
         $this->assertDatabaseCount('subscription_credits', 2);
+        Http::assertNothingSent();
+    }
+
+    public function test_revoked_admin_cannot_create_test_refund_or_read_private_credit_records(): void
+    {
+        $f = $this->fixture();
+        $credit = $this->refund($f, 1, 'valid-before-revocation')->assertCreated()->json('credit');
+        $admin = $f[0];
+        $this->actingAs($admin);
+        $original = DB::table('users')->where('id', $admin->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
+        $restore = [
+            'role' => $original->role,
+            'account_status' => $original->account_status,
+            'auth_epoch' => $original->auth_epoch,
+            'password' => $original->password,
+        ];
+        $before = DB::table('commercial_subscription_ledger')->count();
+        foreach ([
+            ['role' => 'vendor'],
+            ['account_status' => 'suspended'],
+            ['auth_epoch' => (int) $original->auth_epoch + 1],
+            ['password' => Hash::make('revoked-test-refund-approver')],
+        ] as $change) {
+            DB::table('users')->where('id', $admin->id)->update($change);
+            $this->getJson($f[5])->assertConflict();
+            $this->getJson('/subscription-credit-test/commercial/subscription-credits/'.$credit['id'])
+                ->assertConflict();
+            $this->refund($f, 1, 'revoked-no-second-credit')->assertConflict();
+            DB::table('users')->where('id', $admin->id)->update($restore);
+        }
+        $this->assertDatabaseCount('subscription_credits', 1);
+        $this->assertDatabaseCount('subscription_credit_requests', 1);
+        $this->assertSame($before, DB::table('commercial_subscription_ledger')->count());
         Http::assertNothingSent();
     }
 
