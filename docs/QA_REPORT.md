@@ -1,3 +1,17 @@
+# CURRENT OWNER DIRECTIVE — FIVE PARALLEL COMPLETION AGENTS (20 NOVEMBER 2026)
+
+The owner's latest uploaded **FINAL EXECUTION COMMAND — FINISH 100% OF THE EV PROJECT** restores five parallel workstreams and supersedes all single-owner and earlier allocation rules retained below. See docs/OWNER_EXECUTION_20261120.md. Original42 categories/312 atoms and evidence weights remain unchanged. Prior records remain historical; preserve every verified source and financial invariant.
+
+- Agent1: OCPP1.6/2.0.1, CSMS, charging/provisioning/metering/commands/firmware/recovery/infrastructure.
+- Agent2: OCPI2.2.1, roaming/networks/partner adapters, licensed discovery/maps/search/navigation/routing/catalog.
+- Agent3: canonical finance/commercial, wallet/billing/payments/refunds/settlements/subscriptions, Vendor management, enterprise/marketing/Super Admin/compliance/security.
+- Agent4: Customer web, canonical apps/mobile customer/vendor Android/iOS, reservations/charging/payment UI, notifications/localization/accessibility and cross-platform journeys.
+- Agent5: SOLE integration/merge controller, exact-head CI and cross-platform QA, immutable original requirement tracker, release/deployment readiness. Feature agents push tested candidates and hand them to Agent5; they must not merge canonical main themselves.
+
+Use separate worktrees/branches and agree ownership before editing shared files. Do not duplicate services/ledgers, force-push, bypass checks or credit simulations as live acceptance. No live charging, real money, partner activation, production deployment or store publication without explicit authorization. Each agent must target genuinely unfinished original IDs and complete substantial functional batches, not polish completed requirements to inflate progress. Distinguish missing software, verification/integration gaps and genuinely external blocks. No autonomous activity continues after an active session ends.
+
+The staff meter-history batch96ed203f and its recorded local QA were completed under the previous authorization before this five-agent restoration; its tested candidate is being handed to Agent5, not merged by Agent2. Verified canonical remains151acd73 with9successful exact integration checks. Continue all remaining original software; no full-platform completion is claimed.
+
 # 20 November 2026 — verified integration and recorded staff meter history
 
 Canonical `151acd73e94e12b2e1cdfbe46ce859928d186b92` is verified: PR190 sourceb67b4617 passed10required checks and normally merged atf694c03f; PR191 source6beb0ee2 passed9 and normally merged at151acd73. Both actual merge trees match their tested sources; original branches remain. The resulting exact canonical151acd73 push also passed all9jobs, including Android/iOS, PostgreSQL, platform and recovery. Proof and artifact digests are in docs/evidence/integrated-checkpoints-20261120/. Historical failed/pending records below retain their original context and do not describe the current main state.
