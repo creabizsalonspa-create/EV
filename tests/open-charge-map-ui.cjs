@@ -322,6 +322,11 @@ const reply = {
           0,
           "Hiding platform pins must expose crowd reports without changing OCM results",
         );
+        // New licensed results do not silently move the user's map camera.
+        // Fit with the actual user control before selecting a clipped marker.
+        await page.getByRole("button", { name: "Show loaded locations on map", exact: true }).click();
+        await page.locator("#station-map").scrollIntoViewIfNeeded();
+        assert.equal(searchRequests.length, 1, "Fitting loaded markers cannot query the licensed source");
         await page.locator(".ocm-map-pin").click();
         const popup = page.locator(".leaflet-popup-content");
         await popup.getByText(

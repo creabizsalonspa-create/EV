@@ -7,10 +7,13 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\ConfigurationProbe;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
 use Tests\TestCase;
 
 class ChargerConfigurationTest extends TestCase
@@ -75,6 +78,181 @@ class ChargerConfigurationTest extends TestCase
             $this->postJson($f['path'].'/'.$id.'/observe')->assertOk()->assertJsonPath('status', 'source_observed')->assertJsonCount(3, 'snapshot')->assertJsonPath('snapshot.0.value', '30')->assertJsonPath('snapshot.1.value', null)->assertJsonPath('snapshot.1.status', 'invalid_value')->assertDontSee('PRIVATE-')->assertJsonPath('physical_charging_verified', false);
             $this->getJson($f['path'])->assertOk()->assertJsonMissingPath('data.0.reason')->assertJsonMissingPath('data.0.source_payload_hash')->assertDontSee('PRIVATE-');
         }
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public static function malformedStationCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['missing', 'object', 'missing_id', 'string_id', 'missing_online', 'string_online', 'missing_protocol', 'extra_stations'] as $kind) {
+                $cases[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('malformedStationCases')]
+    public function test_malformed_station_projection_cannot_dispatch_configuration_read(string $protocol, string $kind): void
+    {
+        $f = $this->fixture($protocol);
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($protocol, $kind) {
+            $this->assertStringEndsWith('/graphql', $request->url());
+            $stations = [['id' => 7, 'isOnline' => true, 'protocol' => 'ocpp'.$protocol]];
+            switch ($kind) {
+                case 'missing':
+                    return Http::response(['data' => []]);
+                case 'object':
+                    $stations = ['station' => $stations[0]];
+                    break;
+                case 'missing_id':
+                    unset($stations[0]['id']);
+                    break;
+                case 'string_id':
+                    $stations[0]['id'] = '7';
+                    break;
+                case 'missing_online':
+                    unset($stations[0]['isOnline']);
+                    break;
+                case 'string_online':
+                    $stations[0]['isOnline'] = 'true';
+                    break;
+                case 'missing_protocol':
+                    unset($stations[0]['protocol']);
+                    break;
+                case 'extra_stations':
+                    $stations[] = ['id' => 8, 'isOnline' => true, 'protocol' => 'ocpp'.$protocol];
+                    break;
+            }
+
+            return Http::response(['data' => ['ChargingStations' => $stations]]);
+        });
+
+        $body = ['idempotency_key' => 'malformed-'.$protocol.'-'.$kind, 'reason' => 'Test malformed authenticated station projection'];
+        $id = $this->postJson($f['path'], $body)->assertCreated()
+            ->assertJsonPath('status', 'not_dispatched')
+            ->assertJsonPath('physical_charging_verified', false)
+            ->json('id');
+        $this->postJson($f['path'], $body)->assertOk()
+            ->assertJsonPath('id', $id)
+            ->assertJsonPath('status', 'not_dispatched');
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/ocpp/'));
+        $this->assertDatabaseHas('charger_configuration_reads', ['id' => $id, 'status' => 'not_dispatched']);
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_malformed_configuration_reply_lists_never_provide_observed_source_settings(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $field = $protocol === '1.6' ? 'configurationKey' : 'getVariableResult';
+            $validItem = $protocol === '1.6'
+                ? ['key' => 'HeartbeatInterval', 'value' => '30']
+                : ['component' => ['name' => 'OCPPCommCtrlr'], 'variable' => ['name' => 'HeartbeatInterval'], 'attributeStatus' => 'Accepted', 'attributeValue' => '30'];
+            $malformed = [
+                [$field => null],
+                [$field => ['record' => $validItem]],
+                [$field => [null]],
+                [$field => [$protocol === '1.6' ? ['value' => '30'] : ['component' => ['name' => 'OCPPCommCtrlr']]]],
+                ['unknownKey' => null],
+                ['unknownKey' => ['record' => 'HeartbeatInterval']],
+                ['unknownKey' => [true]],
+                ['unknownKey' => array_fill(0, 51, 'unknown')],
+            ];
+            foreach ($malformed as $reply) {
+                try {
+                    app(ConfigurationProbe::class)->snapshot($protocol, $reply);
+                    $this->fail('Malformed authenticated OCPP configuration data was accepted.');
+                } catch (RuntimeException $error) {
+                    $this->assertSame('Invalid configuration reply.', $error->getMessage());
+                }
+            }
+        }
+        $this->assertDatabaseCount('charger_configuration_reads', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public static function invalidMessageProjections(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['missing_request', 'nonlist_request', 'string_request_id', 'relative_request_time',
+                'missing_reply', 'nonlist_reply', 'string_reply_id', 'relative_reply_time',
+                'wrong_reply_type', 'null_reply_payload'] as $kind) {
+                $cases[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('invalidMessageProjections')]
+    public function test_malformed_correlated_message_projection_does_not_publish_a_configuration_snapshot(string $protocol, string $kind): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source($protocol);
+        $body = ['idempotency_key' => 'message-projection-'.$kind,
+            'reason' => 'Verify source-correlated device configuration evidence'];
+        $id = $this->postJson($f['path'], $body)->assertCreated()
+            ->assertJsonPath('status', 'transport_submitted')->json('id');
+
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($protocol, $kind) {
+            $this->assertStringEndsWith('/graphql', $request->url());
+            $query = $request->data()['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 7, 'isOnline' => true, 'protocol' => 'ocpp'.$protocol]],
+                ]]);
+            }
+            $replyQuery = str_contains($query, 'requestMessageId');
+            $row = $replyQuery
+                ? ['id' => 12, 'type' => 3, 'createdAt' => now()->toISOString(),
+                    'payload' => $protocol === '1.6'
+                        ? ['configurationKey' => [['key' => 'HeartbeatInterval', 'value' => '30']]]
+                        : ['getVariableResult' => [['component' => ['name' => 'OCPPCommCtrlr'],
+                            'variable' => ['name' => 'HeartbeatInterval'], 'attributeStatus' => 'Accepted', 'attributeValue' => '30']]]]
+                : ['id' => 11, 'createdAt' => now()->toISOString()];
+            $data = ['OCPPMessages' => [$row]];
+            if ($kind === ($replyQuery ? 'missing_reply' : 'missing_request')) {
+                unset($data['OCPPMessages']);
+            }
+            if ($kind === ($replyQuery ? 'nonlist_reply' : 'nonlist_request')) {
+                $data['OCPPMessages'] = ['row' => $row];
+            }
+            if ($kind === ($replyQuery ? 'string_reply_id' : 'string_request_id')) {
+                $data['OCPPMessages'][0]['id'] = '12';
+            }
+            if ($kind === ($replyQuery ? 'relative_reply_time' : 'relative_request_time')) {
+                $data['OCPPMessages'][0]['createdAt'] = 'tomorrow';
+            }
+            if ($replyQuery && $kind === 'wrong_reply_type') {
+                $data['OCPPMessages'][0]['type'] = '3';
+            }
+            if ($replyQuery && $kind === 'null_reply_payload') {
+                $data['OCPPMessages'][0]['payload'] = null;
+            }
+
+            return Http::response(['data' => $data]);
+        });
+
+        $this->postJson($f['path'].'/'.$id.'/observe')->assertStatus(503);
+        $this->assertDatabaseHas('charger_configuration_reads', [
+            'id' => $id, 'status' => 'transport_submitted',
+            'snapshot_ciphertext' => null, 'observed_at' => null,
+        ]);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/ocpp/'));
+        $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('charging_sessions', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
     }

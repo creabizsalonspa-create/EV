@@ -1,0 +1,34 @@
+{
+  "status": "LOCAL_VERIFIED_COMBINED_HOSTED_REQUIRED",
+  "hosted_failed_source": "a86ec02a649b6dbefd75193cefdc15a740bd84e8",
+  "hosted_failed_job": 135269481096,
+  "error": "Signed firmware browser waited for transport_submitted because its initial BootNotification omitted current firmware version; admission correctly rejected before operation creation",
+  "production_guard_relaxed": false,
+  "repair": "Synthetic signer declares and signs exact protocol/from-version policy; first missing-version boot is an explicit409/no-operation/no-command regression; a subsequent explicit baseline boot enables the normal web flow",
+  "verification": {
+    "protocols": [
+      "1.6",
+      "2.0.1"
+    ],
+    "manifest_signature_and_digest_verified": true,
+    "admin_approval_http201_verified": true,
+    "missing_current_identity_http409_verified": true,
+    "missing_identity_commands_or_operations": 0,
+    "transport_status_http201_verified": true,
+    "exact_artifact_bytes_signature_verified": true,
+    "one_shot_idempotency_and_correlated_install_version_review": true,
+    "vendor_admin_EN_AR_390px": true
+  },
+  "source_sha256": {
+    "services/business-api/tests/Fixtures/signed-firmware.php": "1125ec52200b6d75c3a16255e2f4b5383eed05e845c0fb3d3313c151ce1d8679",
+    "tests/signed-firmware.cjs": "2c1570db9db30bac637691c81ed1b3318b041838d2b362b316a66d57e11de5b7"
+  },
+  "log_sha256": {
+    "hosted_failure": "07c29d87510800a109a422ff8bf69cbc3c393f3a0efee7d119f2d9397e7d853c",
+    "actual_red": "cfa104df014d255f77cd4df519afa514d413303f32af7b42f580fa642dbd3bb2",
+    "actual_green": "ae9eaf0a8a4e6a410ebbc16c55037b7dd92e297d3999383d9462e52d8bbf317d",
+    "actual_ingress": "7f78b339e5763ebeebd3c9d5b4f0eb71927c9d4b7c15d7e0253838c3738a1124"
+  },
+  "real_hardware_installation_or_production_accepted": false,
+  "tracker_credit_added": 0
+}

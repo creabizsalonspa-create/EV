@@ -3,6 +3,12 @@ const { execFileSync } = require("node:child_process"),
   { mkdtempSync, writeFileSync, rmSync } = require("node:fs"),
   { tmpdir } = require("node:os"),
   { join } = require("node:path");
+const assert = require("node:assert/strict");
+const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
+const url = new URL(base);
+assert(url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname) &&
+  !url.username && !url.password && url.pathname === "/" && !url.search && !url.hash,
+  "Native analytics fixtures require an explicit loopback API.");
 const dir = mkdtempSync(join(tmpdir(), "ev-native-analytics-"));
 try {
   const run = randomBytes(4).toString("hex"),
@@ -19,6 +25,8 @@ try {
     input,
     JSON.stringify({
       ...fixture,
+      base,
+      vendor_id: fixture.vendor,
       customer: `payout-customer-${run}@example.test`,
       vendor: `payout-vendor-${run}@example.test`,
       foreign: `payout-foreign-${run}@example.test`,

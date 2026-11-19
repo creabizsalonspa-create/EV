@@ -1,0 +1,53 @@
+{
+  "status": "LOCAL_VERIFIED_HOSTED_PENDING",
+  "original_source": "87be29a13a3bb7c487f72fd837a1b469caa2d227",
+  "integrated_parent": "0300cbe0e9b6ba3036028f989c6ba41af9b226cf",
+  "merge_parent": "18ad4ac6d2d61b0ec5b8a3673557cfc72ef0e0b8",
+  "verification": {
+    "flutter_passed": 637,
+    "live_fixture_only_skips": 34,
+    "focused_flutter": 42,
+    "controlled_web": 38,
+    "analyzer": "clean",
+    "actual_laravel_web": "passed EN/AR unified source/country/advanced power and price filters, favorites, map consent, licensed source provenance and recent local restore/cleared callback erasure",
+    "map_browser_suites": 4,
+    "new_callback_red_cases": {
+      "web": 6,
+      "flutter": 6
+    },
+    "backend_business_logic_identical_to_parent": true,
+    "backend_rerun_claimed": false
+  },
+  "source_sha256": {
+    "apps/mobile/lib/unified_discovery.dart": "7144522c26da89015eff1ee2d22c61094698f8555e21edc3fd5ef3c76e9ad992",
+    "apps/mobile/test/unified_discovery_test.dart": "a70d9cf72df256d59b4455a1cca362610982c0df540b594d7108ce30d6b92d16",
+    "services/business-api/public/unified-discovery.js": "188734bd5fd8c75245948176750a5fa6429f60c641ce1c1b9778ddbec1f6b47b",
+    "tests/unified-discovery.cjs": "23e5d7c10adec3b15a41425b629ff5c75485527624e648f70ed82328587b5432",
+    "tests/unified-discovery-e2e.cjs": "f204b40b8093584ec0cad5bde0dff787a18fafac9be86de008ced217dcc773c1",
+    "tests/open-charge-map-ui.cjs": "93e14d60875ce41cde40d7b0c804d5cd012776454cca9681a983c66f4daa904d"
+  },
+  "log_sha256": {
+    "full_flutter": "201b255227c5ad0cea3207cc799eb0a62a237ecac23ed99b4261e9f635bad36d",
+    "focused_flutter": "a87267016ea7300bdf824529a6cfb867ac40a29cdac91e26d94534b9534e67e5",
+    "analyzer": "017487f580df7fad1e01cc9d2b5db80fba0f6e717aa5a54df5cfb317776ea682",
+    "controlled_web": "f1b10b7f5aff61635253171c09f52c931df1f300015cb6e75036e924e7b48141",
+    "actual_laravel_web": "ee396dc121a34c6188764d99de06f5222e326a7a0aff8576f616ff8b3f5cf719",
+    "maps": "18a3e9ef233308945582763681472d45dc2e72b0285d8555b77d0082394fca37",
+    "native_callback_red": "3f00fa6d12508d3729429ebc2f7bbf8c16f511f59ec67c04fb963991d39cc92b",
+    "web_callback_red": "0a5b4f5aee904ab839f4a26913d8e6d6c77106d6211a359c11f27032ff2f224d",
+    "integration_first_native_failure": "be19b2f23a013bc9992ef5f3244bdb1c577a3db3485799a997ee90e91f4ca26e",
+    "map_original_failure": "a913685586f9ba21f500f87acf9cafd933bf01908c01b8063d76bae0d2f41850",
+    "requirements": "5d1c006faed8d5baa52a5b0fc860698248b647a331bb9c45a714e3348a2b4262"
+  },
+  "conflicts_preserved": [
+    "Both complete discovery documentation histories",
+    "Original min/max rated-power fields, Arabic normalization and request/pagination assertions",
+    "All empty-map, manual-map, consented GPS and recent-history widget cases",
+    "The native empty-map entry remains available without making incomplete metadata plottable"
+  ],
+  "history_storage": "view memory only; five explicit successful presets; no durable profile or analytics",
+  "restore_issues_network_request": false,
+  "production_accepted": false,
+  "live_provider_or_device_acceptance": false,
+  "tracker_credit_added": 0
+}

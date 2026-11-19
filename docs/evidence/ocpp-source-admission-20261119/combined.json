@@ -1,0 +1,134 @@
+{
+  "status": "LOCAL_VERIFIED_RESULTING_SOURCE_HOSTED_REQUIRED",
+  "tested_executable_merge": "62f32f5fa1b8120db1794924984cc54a2b66d8ff",
+  "canonical_verified_integration": "f296097575663591c1f3cc97099316e218fb01ae",
+  "consolidated_existing_prs": [
+    172,
+    134,
+    176,
+    146
+  ],
+  "preserved_source_commits": [
+    "c77a4e2b",
+    "6cd6af47",
+    "87be29a1",
+    "b763f794",
+    "a86ec02a",
+    "0300cbe0",
+    "105b05ac",
+    "d80b0372",
+    "2b2e2d76",
+    "e7a8af19"
+  ],
+  "verification": {
+    "laravel_passed": 1656,
+    "laravel_assertions": 30669,
+    "laravel_pg_only_skip": 1,
+    "postgres_connector_contracts": [
+      741,
+      10229
+    ],
+    "postgres_connector_processes": [
+      32,
+      478
+    ],
+    "postgres_receipt_precision": [
+      2,
+      13
+    ],
+    "postgres_finance_contracts": [
+      434,
+      10943
+    ],
+    "postgres_finance_sqlite_only_skip": 1,
+    "postgres_finance_process_migrations": [
+      99,
+      1460
+    ],
+    "pint_files": 815,
+    "composer": "strict passed",
+    "flutter_passed": 663,
+    "explicit_live_fixture_skips": 34,
+    "analyzer": "clean",
+    "additional_actual_laravel_native_contracts": [
+      "charger admission/rotation/revocation/unknown-command",
+      "sandbox reservation consent/replay/cancellation/tenant privacy",
+      "customer/vendor/foreign-Vendor financial analytics/itemized earnings/private Arabic PDF"
+    ],
+    "native_config_and_artifact_cases": 15,
+    "controlled_browser_cases": 42,
+    "actual_laravel_browser": "full core customer/vendor/Admin + held real SQLite role writer; EN/AR unified sources/filters/favorites/recent privacy/maps",
+    "map_browser_suites": 4,
+    "real_local_citrine": "both1.6/2.0.1 protocol/session/continuous-worker/canonical target, TLS/mTLS and signed compatibility firmware/source-install workflows"
+  },
+  "source_sha256": {
+    "services/business-api/app/Http/Controllers/ChargerCommandController.php": "044080d51758b1677cb6e41700ce9b694865bb4d69692b01ffb2227e500c61db",
+    "services/business-api/app/Services/Charging/SourceConsumer.php": "6a3218686aaa72a8223002e1a6ba192fd9aaffd3feeb0cee17d65ed9f4b13032",
+    "services/business-api/app/Services/Charging/SourceGraphJson.php": "81efc6bb613f6a9a612176ccc1c528cf1743e1b6a085fd69cd6178b98834fa20",
+    "services/business-api/tests/Fixtures/signed-firmware.php": "1125ec52200b6d75c3a16255e2f4b5383eed05e845c0fb3d3313c151ce1d8679",
+    "services/business-api/tests/Postgres/run-connectors": "335260820621bdccd377a6004f7a9bb5edb84a31c81817bd5f3c7385d5f95661",
+    "apps/mobile/lib/main.dart": "c564e9d9751f63ff8dfc6bce6af7e175f49bca50bcbc60d0583d76fb353fa196",
+    "apps/mobile/lib/navigation_links.dart": "0830a9a963e9ae4ef857cfc41da4b89d40a7a2411c728249a85c98bfd182ef0e",
+    "apps/mobile/lib/unified_discovery.dart": "7144522c26da89015eff1ee2d22c61094698f8555e21edc3fd5ef3c76e9ad992",
+    "apps/mobile/lib/vendor_finance.dart": "7b1d04ad98c89c1c512844ed3116225716299ba24f3f33ce4c2f33fe90836269",
+    "apps/mobile/tool/check_navigation_build.py": "5f57f61d2957c2035ee47f98e4cee8a66a5eefd3fd341ddbc78befa0d884f2d4",
+    "tests/browser.cjs": "b0d51f3f44ae65653daf1c98d09b5d0679d08ee61152605ff68a6b985167fc30",
+    "tests/helpers/browser-role.cjs": "94ab282f9ee4089f9363bb5250821d540b39624ed0bd1ccb2755f5be63559141",
+    "tests/helpers/sqlite-role-probe.cjs": "153dcd0e12607af1fe73de27983dda8d85e814e6584a83bfe9fd6f9b75e1f1ec",
+    "tests/signed-firmware.cjs": "2c1570db9db30bac637691c81ed1b3318b041838d2b362b316a66d57e11de5b7",
+    "tests/unified-discovery-e2e.cjs": "f204b40b8093584ec0cad5bde0dff787a18fafac9be86de008ced217dcc773c1",
+    "tests/open-charge-map-ui.cjs": "93e14d60875ce41cde40d7b0c804d5cd012776454cca9681a983c66f4daa904d",
+    ".github/workflows/ci.yml": "4ea675c3df9186675574600cc311aabc8b69c085c2d2320a1fa98de254faaab9",
+    ".github/workflows/mobile.yml": "3af8eb90547e4003369b4bc15c5da652f5c13ed81b5df7cc14f882867ad547a1"
+  },
+  "local_log_sha256": {
+    "laravel": "6fc4747e29345deec0c64a4efb5e1e3ebf6f44afe5d184a9f4328ba1327e0501",
+    "connector_postgres": "a5f2dcf06d49395e04a204aae046d810f1a109de4bd28f3d175135d3d6215588",
+    "finance_postgres": "c7fee5a68932cae84362b0f612811b5760064977dfeb4e124be2c3284b832224",
+    "pint": "4a34403875c2f86ef9e98eaf92ec477ba62fea8483504ca12868e594f3fc34a1",
+    "composer": "43add299dc97ecbd90ec2dc456ef5a0bd824bb9abdae2a3d7cdb520e21f8e86d",
+    "flutter": "c27317a895883e1a0080dafc1a9429f2c12bda1b2356fd658f4d43f50a281886",
+    "analyzer": "d60807696852705275f7ce4bf343c15b9b1d8e390ef5da570f2ec168d492d60e",
+    "native_artifact_guard": "e586fc0f3bb2a05f4c80f07d1b4c6171e830592f6c7aaf70d4af3b0aa3ebd072",
+    "native_link_config": "921b60a7fd52e978fbb551cacd29df2d6708879400278e1fcc70fceeb0c6f8e0",
+    "native_privacy_config": "33060fd73862c5e1af97335504d5b45211fce6d229657f556d8deceeadc52ce4",
+    "native_return_config": "6f283ee6225d2cef4c0127d95456a6f954c45141c92b97dd89016cb1c630e8f4",
+    "native_actual_laravel": "93baca0f62dc2ab67a3f587ab80c94eb81f27befde2c6de61aea65d8f9f41d62",
+    "controlled_browser": "7aad6c213c1f3a525deee536aca4fbe6dafb2b0ce0e3527258570369d6174ef6",
+    "browser_actual_laravel": "30020a0cb9ecf906ecffab8c120101f2d24626aac470fd065891d4bfcf70ca40",
+    "discovery_actual_laravel": "ee396dc121a34c6188764d99de06f5222e326a7a0aff8576f616ff8b3f5cf719",
+    "map_browser": "18a3e9ef233308945582763681472d45dc2e72b0285d8555b77d0082394fca37",
+    "fixed_inventory": "5d1c006faed8d5baa52a5b0fc860698248b647a331bb9c45a714e3348a2b4262"
+  },
+  "fixed_tracker": {
+    "categories": 42,
+    "atoms": 312,
+    "coded": 186,
+    "tested": 185,
+    "merged": 185,
+    "weighted_percent": {
+      "coded": "58.20",
+      "tested": "57.81",
+      "merged": "57.81",
+      "production_accepted": "0.00"
+    },
+    "stage_credit_added": 0,
+    "category_scope_notes_updated": 15
+  },
+  "production_accepted": false,
+  "signed_native_device_store_or_production_deployment_accepted": false,
+  "remaining_software": [
+    "production OCPP registration/IdToken/CA/adapters/conformance and legacy token at-rest encryption",
+    "remaining OCPI CPO/eMSP interoperability and authorized actionable roaming",
+    "remaining nonfinancial Admin/support/fleet/discovery/native backlog",
+    "full commercial/native/reporting and original product scope",
+    "release/accessibility/observability/backup/deployment completion"
+  ],
+  "external_acceptance": [
+    "approved physical chargers",
+    "authorized live OCPI/route/discovery providers",
+    "live PSP/bank settlement",
+    "signed Android/iOS devices/stores",
+    "production infrastructure and deployment approval"
+  ]
+}
