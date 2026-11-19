@@ -1,0 +1,147 @@
+{
+  "evidence": "LOCAL_COPIED_JOURNAL_ENCRYPTED_COMMAND_STORAGE",
+  "application_commit": "ec64202c251699cfcbc11760514ad656000b2b40",
+  "new_start_rows": 8,
+  "all_new_row_contracts": [
+    {
+      "fixture_only": true,
+      "token_encrypted": true,
+      "metadata_queryable": true,
+      "public_token_redacted": true,
+      "remote_binding_verified": true
+    },
+    {
+      "fixture_only": true,
+      "token_encrypted": true,
+      "metadata_queryable": true,
+      "public_token_redacted": true,
+      "remote_binding_verified": true
+    },
+    {
+      "fixture_only": true,
+      "token_encrypted": true,
+      "metadata_queryable": true,
+      "public_token_redacted": true,
+      "remote_binding_verified": true
+    },
+    {
+      "fixture_only": true,
+      "token_encrypted": true,
+      "metadata_queryable": true,
+      "public_token_redacted": true,
+      "remote_binding_verified": true
+    },
+    {
+      "fixture_only": true,
+      "token_encrypted": true,
+      "metadata_queryable": true,
+      "public_token_redacted": true,
+      "remote_binding_verified": true
+    },
+    {
+      "fixture_only": true,
+      "token_encrypted": true,
+      "metadata_queryable": true,
+      "public_token_redacted": true,
+      "remote_binding_verified": true
+    },
+    {
+      "fixture_only": true,
+      "token_encrypted": true,
+      "metadata_queryable": true,
+      "public_token_redacted": true,
+      "remote_binding_verified": true
+    },
+    {
+      "fixture_only": true,
+      "token_encrypted": true,
+      "metadata_queryable": true,
+      "public_token_redacted": true,
+      "remote_binding_verified": true
+    }
+  ],
+  "before": {
+    "command_metadata_hash": "f7536f7cb0e9b72c4be929d7d76799829117588ce24507152ad2e214013bdcd1",
+    "command_count": 79,
+    "financial_counts": {
+      "finance_invoices": 31,
+      "finance_payments": 24,
+      "finance_refunds": 23
+    }
+  },
+  "after": {
+    "command_metadata_hash": "f7536f7cb0e9b72c4be929d7d76799829117588ce24507152ad2e214013bdcd1",
+    "command_count": 79,
+    "financial_counts": {
+      "finance_invoices": 31,
+      "finance_payments": 24,
+      "finance_refunds": 23
+    }
+  },
+  "sealing": [
+    {
+      "mode": [
+        "dry-run"
+      ],
+      "exit_code": 0,
+      "result": {
+        "examined": 79,
+        "requires_sealing": 34,
+        "applied": false,
+        "rekey": false,
+        "next_after_id": 0,
+        "network_requests": 0,
+        "commands_dispatched": 0
+      }
+    },
+    {
+      "mode": [
+        "--check"
+      ],
+      "exit_code": 1,
+      "result": {
+        "examined": 79,
+        "requires_sealing": 34,
+        "applied": false,
+        "rekey": false,
+        "next_after_id": 0,
+        "network_requests": 0,
+        "commands_dispatched": 0
+      }
+    },
+    {
+      "mode": [
+        "--apply"
+      ],
+      "exit_code": 0,
+      "result": {
+        "examined": 79,
+        "requires_sealing": 34,
+        "applied": true,
+        "rekey": false,
+        "next_after_id": 0,
+        "network_requests": 0,
+        "commands_dispatched": 0
+      }
+    },
+    {
+      "mode": [
+        "--check"
+      ],
+      "exit_code": 0,
+      "result": {
+        "examined": 79,
+        "requires_sealing": 0,
+        "applied": false,
+        "rekey": false,
+        "next_after_id": 0,
+        "network_requests": 0,
+        "commands_dispatched": 0
+      }
+    }
+  ],
+  "original_journal_overwritten": false,
+  "commands_replayed": false,
+  "real_hardware_accepted": false,
+  "real_payment_processed": false
+}
