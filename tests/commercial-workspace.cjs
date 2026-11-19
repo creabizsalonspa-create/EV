@@ -145,6 +145,60 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       .getByRole("heading", { name: /#\d+ · active/ })
       .textContent()
       .then((value) => Number(value.match(/#(\d+)/)[1]));
+    // The plan preview consumes a private GET and must not create a new
+    // charge/invoice or change the currently paid entitlement.
+    await waitForFreshWindow({ wait });
+    const previewForm = root.locator(
+      '[data-subscription-id="' + subscriptionId + '"] form',
+    ).filter({
+      has: customer.getByRole("button", {
+        name: "Update subscription", exact: true,
+      }),
+    });
+    await previewForm.locator("[name=action]").selectOption("change_plan");
+    const proposedPlan = Number(
+      await previewForm.locator("[name=plan_id]").inputValue(),
+    );
+    assert(Number.isSafeInteger(proposedPlan) && proposedPlan > 0);
+    const previewRequest = customer.waitForResponse((response) =>
+      new URL(response.url()).pathname ===
+        "/api/commercial/subscriptions/" + subscriptionId + "/change-preview" &&
+      response.request().method() === "GET",
+    );
+    await root
+      .getByRole("button", { name: "Preview next cycle charges", exact: true })
+      .click();
+    const previewResponse = await previewRequest;
+    assert.equal(previewResponse.status(), 200);
+    const quote = await previewResponse.json();
+    assert.equal(quote.subscription_id, subscriptionId);
+    assert.equal(quote.proposed_plan_id, proposedPlan);
+    assert.equal(quote.amount_due_now_minor, 0);
+    assert.equal(quote.proration_supported, false);
+    assert.equal(quote.comparison_is_proration, false);
+    assert(Number.isSafeInteger(quote.current_plan_list_total_minor));
+    assert(["month", "year"].includes(quote.current_plan_interval));
+    assert.equal(typeof quote.cycles_comparable, "boolean");
+    if (quote.cycles_comparable)
+      assert(Number.isSafeInteger(quote.nominal_plan_list_difference_minor));
+    else
+      assert.equal(quote.nominal_plan_list_difference_minor, null);
+    assert.equal(quote.quote_is_binding, false);
+    assert.equal(quote.real_payment_processed, false);
+    await root.locator(
+      '[data-subscription-change-preview="' + subscriptionId + '"]',
+    ).getByRole("heading", { name: "Non-binding next cycle preview", exact: true }).waitFor();
+    assert.match(await root.locator(
+      '[data-subscription-change-preview="' + subscriptionId + '"]',
+    ).innerText(), /Due now: zero/);
+    const pricePane = await root.locator(
+      '[data-subscription-change-preview="' + subscriptionId + '"]',
+    ).innerText();
+    assert.match(pricePane, /Current published list/);
+    assert.match(
+      pricePane,
+      quote.cycles_comparable ? /Nominal list difference/ : /Different billing intervals/,
+    );
     await root
       .getByRole("button", { name: "Load recovery records", exact: true })
       .click();
@@ -547,7 +601,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     assert.equal(await root.textContent(), "");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS actual Laravel financial workspace: checkout authorization/capture, refund request/review, vendor invoice-cohort analytics, subscription gateway capture/entitlement, immutable subscription credit/refund and entitlement revocation, recovery queue privacy, dispute resolution, settlement approval/test payout, CSV download, both themes three widths RTL and logout privacy. MOCK payments only.",
+      "PASS actual Laravel financial workspace: checkout authorization/capture, refund request/review, vendor invoice-cohort analytics, nonbinding next-cycle preview/zero due, subscription gateway capture/entitlement, immutable subscription credit/refund and entitlement revocation, recovery queue privacy, dispute resolution, settlement approval/test payout, CSV download, both themes three widths RTL and logout privacy. MOCK payments only.",
     );
   } finally {
     await browser.close();

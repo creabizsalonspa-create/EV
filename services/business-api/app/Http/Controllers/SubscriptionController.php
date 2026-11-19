@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use App\Services\Commercial\SubscriptionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -9,19 +10,43 @@ use Illuminate\Validation\Rule;
 
 class SubscriptionController extends Controller
 {
+    /**
+     * Call inside a DB transaction to pin the current account while reading
+     * private billing terms or making an Admin catalog change. Session models
+     * are snapshots and must not authorize financial activity after revocation.
+     */
+    private function currentActor(Request $r): User
+    {
+        $snapshot = $r->user();
+        abort_unless($snapshot instanceof User, 401);
+        $current = User::whereKey($snapshot->id)->lockForUpdate()->first();
+        abort_unless($current && $current->account_status === 'active'
+            && $current->role === $snapshot->role
+            && (int) $current->auth_epoch === (int) $snapshot->auth_epoch
+            && hash_equals((string) $current->password, (string) $snapshot->password),
+            409, 'Account authorization changed; sign in again.');
+
+        return $current;
+    }
+
     public function plans(Request $r)
     {
-        $q = DB::table('commercial_plan_versions as p')->join('commercial_plan_availability as a', 'a.plan_id', '=', 'p.id')->select('p.*', 'a.available');
-        if ($r->user()->role !== 'admin') {
-            $q->where('p.audience', $r->user()->role)->where('a.available', true);
-        }
+        return DB::transaction(function () use ($r) {
+            $current = $this->currentActor($r);
+            $q = DB::table('commercial_plan_versions as p')
+                ->join('commercial_plan_availability as a', 'a.plan_id', '=', 'p.id')
+                ->select('p.*', 'a.available');
+            if ($current->role !== 'admin') {
+                $q->where('p.audience', $current->role)->where('a.available', true);
+            }
 
-        return $q->orderByDesc('p.id')->paginate(25)->through(function ($p) {
-            $p->available = (bool) $p->available;
-            $p->entitlements = json_decode($p->entitlements, true, 512, JSON_THROW_ON_ERROR);
+            return $q->orderByDesc('p.id')->paginate(25)->through(function ($p) {
+                $p->available = (bool) $p->available;
+                $p->entitlements = json_decode($p->entitlements, true, 512, JSON_THROW_ON_ERROR);
 
-            return $p;
-        });
+                return $p;
+            });
+        }, 3);
     }
 
     public function publish(Request $r, SubscriptionService $s)
@@ -37,74 +62,140 @@ class SubscriptionController extends Controller
             $v[$field] = (int) $v[$field];
         }
 
-        return response()->json($s->publish($r->user(), $v), 201);
+        return DB::transaction(function () use ($r, $s, $v) {
+            $current = $this->currentActor($r);
+            abort_unless($current->role === 'admin', 403);
+
+            return response()->json($s->publish($current, $v), 201);
+        }, 3);
     }
 
     public function availability(Request $r, int $plan)
     {
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['available' => 'required|boolean']);
-        abort_unless(DB::table('commercial_plan_availability')->where('plan_id', $plan)->exists(), 404);
-        DB::table('commercial_plan_availability')->where('plan_id', $plan)->update(['available' => $v['available']]);
-        DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'finance.subscription_plan_availability', 'subject' => (string) $plan, 'created_at' => now()]);
 
-        return response()->json(['plan_id' => $plan, 'available' => (bool) $v['available']]);
+        return DB::transaction(function () use ($r, $plan, $v) {
+            $current = $this->currentActor($r);
+            abort_unless($current->role === 'admin', 403);
+            abort_unless(DB::table('commercial_plan_availability')->where('plan_id', $plan)
+                ->lockForUpdate()->first(), 404);
+            DB::table('commercial_plan_availability')->where('plan_id', $plan)
+                ->update(['available' => $v['available']]);
+            DB::table('audit_events')->insert(['actor_id' => $current->id,
+                'action' => 'finance.subscription_plan_availability',
+                'subject' => (string) $plan, 'created_at' => now()]);
+
+            return response()->json(['plan_id' => $plan, 'available' => (bool) $v['available']]);
+        }, 3);
     }
 
     public function index(Request $r)
     {
-        return DB::table('commercial_subscriptions')->when($r->user()->role !== 'admin', fn ($q) => $q->where('user_id', $r->user()->id))->orderByDesc('id')->paginate(25)->through(function ($s) {
-            $s->cancel_at_period_end = (bool) $s->cancel_at_period_end;
+        return DB::transaction(function () use ($r) {
+            $current = $this->currentActor($r);
 
-            return $s;
-        });
+            return DB::table('commercial_subscriptions')
+                ->when($current->role !== 'admin', fn ($q) => $q->where('user_id', $current->id))
+                ->orderByDesc('id')->paginate(25)->through(function ($s) {
+                    $s->cancel_at_period_end = (bool) $s->cancel_at_period_end;
+
+                    return $s;
+                });
+        }, 3);
     }
 
     public function subscribe(Request $r, SubscriptionService $s)
     {
         $v = $r->validate(['plan_id' => 'required|integer|min:1', 'idempotency_key' => 'required|string|max:100']);
 
-        return response()->json($s->subscribe($r->user(), (int) $v['plan_id'], $v['idempotency_key']), 201);
+        return DB::transaction(function () use ($r, $s, $v) {
+            $current = $this->currentActor($r);
+
+            return response()->json($s->subscribe($current, (int) $v['plan_id'], $v['idempotency_key']), 201);
+        }, 3);
     }
 
     public function show(Request $r, int $subscription, SubscriptionService $s)
     {
-        $s->access($r->user(), $subscription);
+        return DB::transaction(function () use ($r, $subscription, $s) {
+            $current = $this->currentActor($r);
+            $s->access($current, $subscription);
 
-        return response()->json($s->summary($subscription));
+            return response()->json($s->summary($subscription))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
+    }
+
+    public function changePreview(Request $r, int $subscription, SubscriptionService $s)
+    {
+        // An authenticated session snapshot can outlive account suspension,
+        // password rotation or role/epoch revocation. Hold the persisted row
+        // through quote calculation so a former Admin cannot preview another
+        // company's private terms after losing cross-account authority.
+        return DB::transaction(function () use ($r, $subscription, $s) {
+            $current = $this->currentActor($r);
+
+            // Authorize the CURRENT owner/Admin before resolving target terms.
+            $s->access($current, $subscription);
+            $v = $r->validate(['plan_id' => 'required|integer|between:1,999999999999999999']);
+
+            return response()->json($s->previewChange($current, $subscription, (int) $v['plan_id']))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function change(Request $r, int $subscription, SubscriptionService $s)
     {
-        $s->access($r->user(), $subscription);
-        $v = $r->validate(['action' => ['required', Rule::in(['change_plan', 'cancel_at_period_end', 'cancel_now', 'resume'])], 'plan_id' => 'required_if:action,change_plan|nullable|integer|min:1', 'idempotency_key' => 'required|string|max:100']);
+        return DB::transaction(function () use ($r, $subscription, $s) {
+            $current = $this->currentActor($r);
+            // Never disclose a private subscription's existence through
+            // validation errors before current-account owner authorization.
+            $s->access($current, $subscription);
+            $v = $r->validate(['action' => ['required', Rule::in(['change_plan', 'cancel_at_period_end', 'cancel_now', 'resume'])], 'plan_id' => 'required_if:action,change_plan|nullable|integer|min:1', 'idempotency_key' => 'required|string|max:100']);
 
-        return response()->json($s->change($r->user(), $subscription, $v['action'], isset($v['plan_id']) ? (int) $v['plan_id'] : null, $v['idempotency_key']));
+            return response()->json($s->change($current, $subscription, $v['action'],
+                isset($v['plan_id']) ? (int) $v['plan_id'] : null, $v['idempotency_key']));
+        }, 3);
     }
 
     public function mockPayment(Request $r, int $subscription, SubscriptionService $s)
     {
-        $s->access($r->user(), $subscription);
-        $v = $r->validate(['invoice_id' => 'required|integer|min:1', 'outcome' => ['required', Rule::in(['succeeded', 'failed'])], 'idempotency_key' => 'required|string|max:100']);
+        return DB::transaction(function () use ($r, $subscription, $s) {
+            $current = $this->currentActor($r);
+            // Authorize private subscription before revealing form validity.
+            $s->access($current, $subscription);
+            $v = $r->validate(['invoice_id' => 'required|integer|min:1', 'outcome' => ['required', Rule::in(['succeeded', 'failed'])], 'idempotency_key' => 'required|string|max:100']);
 
-        return response()->json($s->mockPay($r->user(), $subscription, (int) $v['invoice_id'], $v['outcome'], $v['idempotency_key']));
+            return response()->json($s->mockPay($current, $subscription,
+                (int) $v['invoice_id'], $v['outcome'], $v['idempotency_key']));
+        }, 3);
     }
 
     public function renew(Request $r, int $subscription, SubscriptionService $s)
     {
-        $s->access($r->user(), $subscription);
+        return DB::transaction(function () use ($r, $subscription, $s) {
+            $current = $this->currentActor($r);
+            $s->access($current, $subscription);
 
-        return response()->json($s->renew($subscription));
+            return response()->json($s->renew($subscription));
+        }, 3);
     }
 
     public function history(Request $r, int $subscription, SubscriptionService $s)
     {
-        $s->access($r->user(), $subscription);
+        return DB::transaction(function () use ($r, $subscription, $s) {
+            $current = $this->currentActor($r);
+            $s->access($current, $subscription);
 
-        return DB::table('commercial_subscription_events')->where('subscription_id', $subscription)->select(['id', 'kind', 'data', 'created_at'])->orderByDesc('id')->paginate(25)->through(function ($e) {
-            $e->data = json_decode($e->data, true, 512, JSON_THROW_ON_ERROR);
+            return DB::table('commercial_subscription_events')
+                ->where('subscription_id', $subscription)
+                ->select(['id', 'kind', 'data', 'created_at'])
+                ->orderByDesc('id')->paginate(25)->through(function ($e) {
+                    $e->data = json_decode($e->data, true, 512, JSON_THROW_ON_ERROR);
 
-            return $e;
-        });
+                    return $e;
+                });
+        }, 3);
     }
 }

@@ -1,3 +1,4 @@
+import 'subscription_preview.dart';
 import 'hosted_checkout.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
@@ -492,6 +493,15 @@ class _SubscriptionActionState extends State<SubscriptionActionView> {
           ),
         ],
         if (widget.subscriptionId != null) Text('#${widget.subscriptionId}'),
+        if (widget.action == 'change_plan' && !busy && !blocked && !done &&
+            widget.subscriptionId != null && widget.plan?['id'] is int)
+          SubscriptionPreviewPanel(
+            key: ValueKey('subscription-preview-${widget.subscriptionId}-${widget.plan!['id']}'),
+            api: widget.api,
+            subscriptionId: widget.subscriptionId!,
+            planId: widget.plan!['id'] as int,
+            onExpired: widget.onExpired,
+          ),
         if (operation?.pending != null) ...[
           Text(t('pendingIntent')),
           Text('${operation!.pending!['body']}'),

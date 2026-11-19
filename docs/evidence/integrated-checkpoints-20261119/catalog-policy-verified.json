@@ -1,0 +1,80 @@
+{
+  "source_sha": "acd89465554b05a21def2cd2542f4fa10628bb8f",
+  "source_tree": "f2ea95bdb673f53ca0c9159edd20484ad78b2447",
+  "test_result": "passed",
+  "integrated_sha": "54b50ea16045fd41965ddb7a474fb7f70edda779",
+  "integrated_tree": "f2ea95bdb673f53ca0c9159edd20484ad78b2447",
+  "credited_atoms": [
+    "6.1.5"
+  ],
+  "scope": "Existing shared bounded source/receipt age policy across customer web/Flutter and private owner/Admin metrics only. No physical freshness, availability, command authority or production acceptance.",
+  "original_pending_source": "31073038113bc4a8a068190f69fb99b0d7231329",
+  "original_final_head": "4f2ea2e709788a4656caf5c928c415c2b0b205c3",
+  "original_pr120_merge": "83a7a1ed4f8c03e08dddc7f98fb207a4f998f2fc",
+  "ancestry_proven": true,
+  "source_merge_trees_identical": true,
+  "required_checks": [
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239133/job/135354038502"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239133/job/135331820137"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239133/job/135331820018"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239134/job/135331819969"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239133/job/135331819968"
+    },
+    {
+      "name": "financial-browser",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239198/job/135331819965"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239133/job/135331819947"
+    },
+    {
+      "name": "agent10-offline",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239160/job/135331819829"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239134/job/135331819655"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44456239133/job/135331819621"
+    }
+  ],
+  "production_accepted": false,
+  "correction": "Already-coded policy is now credited as tested/merged using the exact verified descendant, not merely an old merged PR flag. Original pending evidence is retained unchanged."
+}

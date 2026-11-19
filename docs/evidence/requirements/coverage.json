@@ -128,22 +128,22 @@
       "evidence": "docs/evidence/integration-coverage/pr110-hosted-checkpoint.json"
     },
     "pr120_catalog_policy": {
-      "source_sha": "31073038113bc4a8a068190f69fb99b0d7231329",
-      "test_result": "pending",
-      "merge_sha": null,
-      "evidence": "docs/evidence/integration-coverage/pr120-catalog-policy-pending.json"
+      "source_sha": "acd89465554b05a21def2cd2542f4fa10628bb8f",
+      "test_result": "passed",
+      "merge_sha": "54b50ea16045fd41965ddb7a474fb7f70edda779",
+      "evidence": "docs/evidence/integrated-checkpoints-20261119/catalog-policy-verified.json"
     }
   },
   "weighted_percent": {
     "coded": "58.20",
-    "tested": "57.81",
-    "merged": "57.81",
+    "tested": "58.20",
+    "merged": "58.20",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
     "coded": "4404691/7567560",
-    "tested": "4374661/7567560",
-    "merged": "4374661/7567560",
+    "tested": "4404691/7567560",
+    "merged": "4404691/7567560",
     "production_accepted": "0"
   },
   "categories": [
@@ -3247,8 +3247,8 @@
       "atoms": 6,
       "counts": {
         "coded": 5,
-        "tested": 4,
-        "merged": 4,
+        "tested": 5,
+        "merged": 5,
         "production_accepted": 0
       },
       "details": [
@@ -3309,11 +3309,11 @@
           "software_atom": "Operational freshness policy",
           "coded": true,
           "checkpoint": "pr120_catalog_policy",
-          "note": "Shared bounded source/receipt age policy, read-time stale/unknown indicators across customer web/Flutter and private operator metrics are implemented. Local backend/PostgreSQL/web checks passed; exact-head hosted browser/native verification and integration remain pending. No new tested/merged or production credit.",
+          "note": "Existing operational source/receipt-age policy. Original pending31073038 and final PR120 head4f2ea2e7 are proven ancestors of exact ten-check verified sourceacd89465, normally merged54b50ea1 with identical tree. Tested/merged credit corrected for this already-coded atom; no physical availability, charging authority or production acceptance.",
           "stages": {
             "coded": true,
-            "tested": false,
-            "merged": false,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
