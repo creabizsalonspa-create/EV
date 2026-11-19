@@ -4,7 +4,7 @@
   "verified_canonical_parent": "ed112b4a5e3dd65cc88c210bd55f92d8df56add6",
   "pending_dependency": {
     "pr": 190,
-    "source_sha": "9034f401509471bd2c7c007c4fcdc0c5d7d9e919",
+    "source_sha": "b67b46177b974e49e0c8ece995facf51a7f75ad4",
     "merge_required_before_this_candidate": true
   },
   "local": {
@@ -124,6 +124,14 @@
     "auth-actual": {
       "local_log": "/tmp/ev-staff-auth-actual.txt",
       "sha256": "b2a982ae0014ae6a3eb44b3abb59d88b4f19738085326d56aac72362e9dcf334"
+    },
+    "calendar-combined-controls": {
+      "local_log": "/tmp/ev-staff-calendar-combined-controls.txt",
+      "sha256": "694835e0ba0df2316968457e28561a4b704e792534f919428d146f9b323d5492"
+    },
+    "calendar-combined-actual": {
+      "local_log": "/tmp/ev-staff-calendar-combined-actual.txt",
+      "sha256": "5c138af717d47f1ecd7eaa1eef5e848b605896206d721169ff82a0576832a9d4"
     }
   },
   "screenshots": [
@@ -168,5 +176,13 @@
     "after_web": "passed25 cases including current401/409/419 and old409",
     "after_flutter": "passed25 focused cases plus full757",
     "semantics": "Only this private GET has credential-conflict409 semantics; global financial/business conflict handling is unchanged."
+  },
+  "combined_calendar_repair": {
+    "source_sha": "b67b46177b974e49e0c8ece995facf51a7f75ad4",
+    "controlled_cases": 33,
+    "actual_laravel_en_ar_calendar": true,
+    "actual_native_calendar_contract": 1,
+    "backend_unchanged_since": "68afdb67916af840e0c2164e7cacb1a62322d2e2",
+    "flutter_library_unchanged_since": "29674c0f511d4abc938006980960b096af8f6e52"
   }
 }

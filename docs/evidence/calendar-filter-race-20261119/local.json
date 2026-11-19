@@ -1,0 +1,43 @@
+{
+  "recorded_at_utc": "2026-11-19T09:00:24.794476+00:00",
+  "failed_source_sha": "9034f401509471bd2c7c007c4fcdc0c5d7d9e919",
+  "failed_platform_job": "https://github.com/creabizsalonspa-create/EV/actions/runs/44484164548/job/135423377228",
+  "failure": "operating-calendar.cjs:75 reservation POST wait timed out after30seconds; dependent recovery skipped",
+  "historical_dom_state_captured": false,
+  "controlled_actual_laravel_reproduction": {
+    "held_filtered_json": true,
+    "filled_old_form_detached_on_response": true,
+    "replacement_datetime_empty_and_invalid": true,
+    "negative_case_submitted_reservations": 0,
+    "existing_post_filter_calendar_denial_status": 409
+  },
+  "repair": "Correlate exact origin GET path literal q and await existing catalog render/busy boundary, including favorite-status loading; fill current form and explicit Arabic reservation action.",
+  "production_source_changed": false,
+  "financial_rules_or_quota_or_clock_or_assertion_retry_changed": false,
+  "local_passes": {
+    "controlled_cases": 24,
+    "actual_laravel_browser_en_ar_390": true,
+    "separate_actual_laravel_native_calendar_contract": 1
+  },
+  "logs": {
+    "filter-controls-final": {
+      "local_log": "/tmp/ev-calendar-filter-controls-final.txt",
+      "sha256": "4a02ad04312dd0196f1942d4207d2e29434f7ce736d70132cbfc02cb8d9cdb36"
+    },
+    "filter-actual": {
+      "local_log": "/tmp/ev-calendar-filter-actual.txt",
+      "sha256": "a82dc646ada6a75c0dc45afd5f881e62d1b8af76f168d4819cb680ef7847e065"
+    },
+    "filter-native-actual": {
+      "local_log": "/tmp/ev-calendar-filter-native-actual.txt",
+      "sha256": "ece5a52a43e38cf20cbfe7e8c2438694c7ab7181aaabe5bb2d4dfc6215ae6920"
+    }
+  },
+  "source_file_hashes": {
+    "tests/operating-calendar.cjs": "4a0d63ed3aa0d88f526cd4848f31b72b0bf947f7adb596625210c7b5744d4b1e",
+    "tests/operating-calendar-filter.test.cjs": "6d633290ac3b5ed22caf80aeb5c02b742dfb7e9dcbdb53472a3b7cb50c67954d"
+  },
+  "resulting_source_hosted_gates": "required_pending",
+  "whole_atom_credit": 0,
+  "production_acceptance": false
+}
