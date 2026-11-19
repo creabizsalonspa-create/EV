@@ -206,8 +206,10 @@
     function install({ root, request, onPoint, getCentre, onRoute }) {
         let stations = [],
             stops = [],
+            requiredConnector = "",
             estimate = null,
             epoch = 0,
+            capabilityEpoch = 0,
             routeAbort;
         const section = document.createElement("div");
         section.className = "discovery-tools";
@@ -297,18 +299,49 @@
             fieldset.append(addresses.root);
             return { fieldset, values, addresses };
         }
-        function invalidate() {
+        function invalidate(revokeConsent = true) {
             epoch++;
             routeAbort?.abort();
             estimate = null;
+            // Consent was for the exact reviewed itinerary. Editing stops,
+            // coordinates or connector filters requires a new explicit opt-in.
+            if (revokeConsent) routeConsent.checked = false;
             routeState.replaceChildren();
-            preview.disabled = !routeConsent.checked || !routeAvailable;
+            preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
+            navigation.disabled = !compatibleStops();
             onRoute([]);
         }
         const origin = endpoint("Origin", "نقطة البداية", "origin"),
             destination = endpoint("Destination", "الوجهة", "destination");
         const ordered = document.createElement("ol"),
             choices = document.createElement("div");
+        const connectorFilter = document.createElement("select");
+        connectorFilter.name = "route_connector";
+        connectorFilter.id = "route-connector-filter";
+        const connectorField = document.createElement("label");
+        connectorField.append(
+            label("span", "Filter by advertised connector", "تصفية حسب الموصل المعلن"),
+            connectorFilter,
+        );
+        for (const [value, en, ar] of [
+            ["", "All advertised connectors", "كل الموصلات المعلنة"],
+            ["CCS2", "CCS2", "CCS2"],
+            ["Type2", "Type2", "Type2"],
+            ["CHAdeMO", "CHAdeMO", "CHAdeMO"],
+        ]) {
+            const option = label("option", en, ar);
+            option.value = value;
+            connectorFilter.append(option);
+        }
+        const mismatchWarning = label(
+            "p",
+            "Some selected stops use a different advertised connector. Remove them or change the filter before preview or navigation.",
+            "بعض التوقفات المحددة تستخدم موصلاً معلناً مختلفاً. أزلها أو غيّر التصفية قبل المعاينة أو الملاحة.",
+        );
+        mismatchWarning.setAttribute("role", "status");
+        mismatchWarning.hidden = true;
+        const compatibleStops = () => !requiredConnector ||
+            stops.every((stop) => stop.connector === requiredConnector);
         choices.className = "journey-stations";
         const routeConsent = document.createElement("input");
         routeConsent.type = "checkbox";
@@ -327,7 +360,7 @@
             "معاينة مسار المزود",
             async () => {
                 const points = readPoints();
-                if (!points || !routeConsent.checked || !routeAvailable) return;
+                if (!points || !compatibleStops() || !routeConsent.checked || !routeAvailable) return;
                 invalidate();
                 const current = ++epoch;
                 routeAbort = new AbortController();
@@ -412,18 +445,18 @@
                 } finally {
                     if (current === epoch)
                         preview.disabled =
-                            !routeConsent.checked || !routeAvailable;
+                            !routeConsent.checked || !routeAvailable || !compatibleStops();
                 }
             },
         );
         preview.disabled = true;
-        routeConsent.onchange = invalidate;
+        routeConsent.onchange = () => invalidate(false);
         const navigation = button(
             "Open navigation with selected stops",
             "فتح الملاحة بالتوقفات المحددة",
             () => {
                 const points = readPoints();
-                if (!points) return;
+                if (!points || !compatibleStops()) return;
                 if (
                     !confirm(
                         arabic()
@@ -446,6 +479,14 @@
             },
         );
         function readPoints() {
+            if (!compatibleStops()) {
+                routeState.replaceChildren(label(
+                    "span",
+                    "Selected stops have an incompatible advertised connector. Remove them before navigation.",
+                    "التوقفات المحددة لها موصل معلن غير مطابق. أزلها قبل الملاحة.",
+                ));
+                return null;
+            }
             const a = point(
                     origin.values.latitude.value,
                     origin.values.longitude.value,
@@ -473,6 +514,13 @@
                     name = document.createElement("strong");
                 name.textContent = stop.name;
                 const evidence = document.createElement("p");
+                if (requiredConnector && stop.connector !== requiredConnector) {
+                    evidence.append(label(
+                        "span",
+                        "Different advertised connector · ",
+                        "موصل معلن مختلف · ",
+                    ));
+                }
                 evidence.append(
                     document.createTextNode(`${stop.evidence} · `),
                     label("span", "Not reserved", "غير محجوز"),
@@ -496,6 +544,9 @@
                 ordered.append(li);
             }
             choices.replaceChildren();
+            mismatchWarning.hidden = compatibleStops();
+            navigation.disabled = !compatibleStops();
+            preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
             for (const station of stations) {
                 const p = point(station.latitude, station.longitude);
                 if (!p) continue;
@@ -505,7 +556,8 @@
                     name = document.createElement("span");
                 name.textContent = station.name;
                 add.disabled =
-                    stops.length >= 3 || stops.some((s) => s.id === station.id);
+                    stops.length >= 3 || stops.some((s) => s.id === station.id) ||
+                    (requiredConnector !== "" && station.connector_type !== requiredConnector);
                 const row = document.createElement("div");
                 row.append(name, add);
                 choices.append(row);
@@ -516,13 +568,15 @@
             if (
                 !p ||
                 stops.length >= 3 ||
-                stops.some((s) => s.id === station.id)
+                stops.some((s) => s.id === station.id) ||
+                (requiredConnector !== "" && station.connector_type !== requiredConnector)
             )
                 return;
             stops.push({
                 id: station.id,
                 name: station.name,
                 evidence: station.evidence,
+                connector: station.connector_type,
                 point: p,
             });
             journey.open = true;
@@ -553,6 +607,9 @@
             destination.fieldset,
             stopTitle,
             ordered,
+            connectorField,
+            label("p", "Published connector labels are not verified vehicle fit or live charger status.", "تسميات الموصلات المنشورة ليست تحققاً من توافق المركبة أو حالة الشاحن المباشرة."),
+            mismatchWarning,
             catalog,
             service,
             privacy,
@@ -560,13 +617,22 @@
             navigation,
             routeState,
         );
+        connectorFilter.onchange = () => {
+            requiredConnector = connectorFilter.value;
+            invalidate();
+            renderStops();
+        };
         form.onsubmit = (event) => event.preventDefault();
         journey.append(description, form);
         section.append(address, journey);
         root.append(section);
         async function capabilities() {
+            // Session clear and subsequent requests invalidate delayed
+            // provider capabilities from the previous authenticated context.
+            const requestGeneration = ++capabilityEpoch;
             try {
                 const c = await request("capabilities", "GET");
+                if (requestGeneration !== capabilityEpoch) return;
                 if (
                     c.provider !== "geoapify" ||
                     typeof c.geocoding !== "boolean" ||
@@ -588,9 +654,10 @@
                     );
                 routeAvailable = c.routing;
                 service.hidden = c.routing;
-                preview.disabled = !routeConsent.checked || !routeAvailable;
+                preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
                 privacy.hidden = !routeAvailable;
             } catch (_) {
+                if (requestGeneration !== capabilityEpoch) return;
                 search.root.hidden =
                     origin.addresses.root.hidden =
                     destination.addresses.root.hidden =
@@ -605,7 +672,7 @@
         journey.ontoggle = () => {
             if (journey.open) capabilities();
         };
-        return {
+        const controls = {
             update(data) {
                 stations = data;
                 renderStops();
@@ -613,9 +680,24 @@
             addStop,
             clear() {
                 epoch++;
+                capabilityEpoch++;
                 routeAbort?.abort();
+                // These catalog entries may be tenant-private. A session
+                // reset must clear both selected stops and old search results.
+                stations = [];
                 stops = [];
+                requiredConnector = "";
+                connectorFilter.value = "";
                 estimate = null;
+                // A prior account's provider permission is never retained.
+                routeAvailable = false;
+                service.hidden = false;
+                privacy.hidden = true;
+                search.root.hidden =
+                    origin.addresses.root.hidden =
+                    destination.addresses.root.hidden = true;
+                preview.disabled = true;
+                navigation.disabled = false;
                 for (const box of [origin, destination]) {
                     box.values.latitude.value = box.values.longitude.value = "";
                     box.addresses.clear();
@@ -628,6 +710,25 @@
             },
             refresh: capabilities,
         };
+        // Browser visibility is not account logout, but private route inputs
+        // must not remain visible or dispatch after backgrounding. Clear only
+        // in-memory tool state, without GPS, provider calls or auto-refresh.
+        const onHidden = () => {
+            if (!section.isConnected) {
+                document.removeEventListener("visibilitychange", onHidden);
+                window.removeEventListener("pagehide", onPageHide);
+                return;
+            }
+            if (document.hidden) controls.clear();
+        };
+        const onPageHide = () => {
+            controls.clear();
+            document.removeEventListener("visibilitychange", onHidden);
+            window.removeEventListener("pagehide", onPageHide);
+        };
+        document.addEventListener("visibilitychange", onHidden);
+        window.addEventListener("pagehide", onPageHide);
+        return controls;
     }
     window.EvGeoTools = { install, point, navigationCoordinate: coordinate };
 })();

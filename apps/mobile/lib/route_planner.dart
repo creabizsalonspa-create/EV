@@ -31,7 +31,7 @@ class RoutePlannerView extends StatefulWidget {
   State<RoutePlannerView> createState() => _RoutePlannerViewState();
 }
 
-class _RoutePlannerViewState extends State<RoutePlannerView> {
+class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBindingObserver {
   final form = GlobalKey<FormState>();
   final originLat = TextEditingController(),
       originLng = TextEditingController(),
@@ -40,9 +40,18 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   final stops = <Station>[];
   DiscoveryCapabilities? capabilities;
   RouteEstimate? estimate;
-  bool consent = false, loading = false, tiles = false;
+  bool consent = false, loading = false, tiles = false, foreground = true;
+  bool checkingCapabilities = false;
+  int capabilityGeneration = 0;
+  String requiredConnector = '';
+  // Do not reuse a prior account's in-memory station choices when an
+  // authenticated discovery client changes before new catalog results arrive.
+  bool awaitingFreshAccountCatalog = false;
+  bool matchesAdvertisedConnector(Station station) => requiredConnector.isEmpty || station.connector == requiredConnector;
+  bool get incompatibleStops => stops.any((stop) => !matchesAdvertisedConnector(stop));
   Object? error;
   int generation = 0;
+  bool get sessionCurrent => foreground && (widget.client?.currentSession() ?? true);
   String t(String en, String ar) => EvStrings.of(context).arabic ? ar : en;
   bool valid(Station station) =>
       station.latitude != null &&
@@ -54,28 +63,113 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   @override
   void initState() {
     super.initState();
-    tiles = widget.tilesEnabled;
-    if (widget.origin != null) {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    tiles = foreground && widget.tilesEnabled;
+    if (sessionCurrent && widget.origin != null) {
       originLat.text = '${widget.origin!.latitude}';
       originLng.text = '${widget.origin!.longitude}';
     }
-    if (widget.initialStop != null && valid(widget.initialStop!))
+    if (sessionCurrent && widget.initialStop != null && valid(widget.initialStop!))
       stops.add(widget.initialStop!);
     loadCapabilities();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == foreground) return;
+    foreground = resumed;
+    if (!resumed) {
+      // Coordinates and the selected catalog stops are sensitive route intent.
+      // A backgrounded widget must not display them, keep a map tile alive,
+      // or accept a late Geoapify/Google Maps response or consent dialog.
+      generation++;
+      capabilityGeneration++;
+      checkingCapabilities = false;
+      originLat.clear();
+      originLng.clear();
+      destinationLat.clear();
+      destinationLng.clear();
+      stops.clear();
+      requiredConnector = '';
+      consent = false;
+      estimate = null;
+      error = null;
+      loading = false;
+      tiles = false;
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(covariant RoutePlannerView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.client, widget.client) || !sessionCurrent) {
+      // A new authenticated client is a different discovery context.
+      // Do not carry private coordinates, old stations, a route estimate or
+      // an outstanding external-navigation consent across that boundary.
+      generation++;
+      capabilityGeneration++;
+      checkingCapabilities = false;
+      awaitingFreshAccountCatalog = true;
+      stops.clear();
+      // Initial route inputs from the new widget may still have been cached
+      // by the old signed-in account. A client rotation invalidates all four
+      // private coordinates, even when the caller passes an old origin again.
+      // Require an explicit new-account entry or fresh discovery selection.
+      originLat.clear();
+      originLng.clear();
+      destinationLat.clear();
+      destinationLng.clear();
+      requiredConnector = '';
+      consent = false;
+      estimate = null;
+      error = null;
+      loading = false;
+      // A new account also requires fresh opt-in before OSM tile traffic.
+      tiles = false;
+      capabilities = null;
+      loadCapabilities();
+    } else if (awaitingFreshAccountCatalog &&
+        !identical(oldWidget.stations, widget.stations)) {
+      // The caller has supplied a new catalog snapshot for this client.
+      awaitingFreshAccountCatalog = false;
+    }
+  }
+
   Future<void> loadCapabilities() async {
+    final client = widget.client;
+    if (client == null || !sessionCurrent || checkingCapabilities) return;
+    final current = generation;
+    final read = ++capabilityGeneration;
+    setState(() => checkingCapabilities = true);
+    bool active() => mounted && read == capabilityGeneration &&
+        identical(widget.client, client) && sessionCurrent;
     try {
-      final result = await widget.client?.capabilities();
-      if (mounted) setState(() => capabilities = result);
+      final result = await client.capabilities();
+      if (active() && current == generation) {
+        setState(() => capabilities = result);
+      }
     } catch (_) {
-      if (mounted) setState(() => capabilities = null);
+      if (active() && current == generation) {
+        setState(() => capabilities = null);
+      }
+    } finally {
+      // An itinerary edit can discard the response without stranding retry.
+      // A prior account/background read cannot clear a newer read's spinner.
+      if (active()) setState(() => checkingCapabilities = false);
     }
   }
 
   void invalidate() {
     generation++;
     setState(() {
+      // Consent applies to the exact origin, destination and stops reviewed.
+      // Editing any route input must not silently authorize sending a new
+      // itinerary to the third-party routing provider.
+      consent = false;
       estimate = null;
       error = null;
       loading = false;
@@ -88,7 +182,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
         double.parse(vendorDigits(lng.text.trim())),
       );
   List<GeoPoint>? points() {
-    if (!form.currentState!.validate()) return null;
+    if (!sessionCurrent || !form.currentState!.validate()) return null;
     return [
       point(originLat, originLng),
       ...stops.map((s) => GeoPoint(s.latitude!, s.longitude!)),
@@ -99,10 +193,12 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   Future<void> preview() async {
     final currentPoints = points();
     if (currentPoints == null ||
+        incompatibleStops ||
         !consent ||
         capabilities?.routing != true ||
-        widget.client == null)
+        widget.client == null || !sessionCurrent)
       return;
+    final client = widget.client!;
     final current = ++generation;
     setState(() {
       loading = true;
@@ -110,21 +206,23 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
       estimate = null;
     });
     try {
-      final result = await widget.client!.route(
+      final result = await client.route(
         currentPoints,
         EvStrings.of(context).arabic ? 'ar' : 'en',
       );
-      if (mounted && generation == current) setState(() => estimate = result);
+      if (mounted && generation == current && identical(widget.client, client) && sessionCurrent) setState(() => estimate = result);
     } catch (e) {
-      if (mounted && generation == current) setState(() => error = e);
+      if (mounted && generation == current && identical(widget.client, client) && sessionCurrent) setState(() => error = e);
     } finally {
-      if (mounted && generation == current) setState(() => loading = false);
+      if (mounted && generation == current && identical(widget.client, client) && sessionCurrent) setState(() => loading = false);
     }
   }
 
   Future<void> navigate() async {
     final currentPoints = points();
-    if (currentPoints == null) return;
+    if (currentPoints == null || incompatibleStops) return;
+    final intentGeneration = generation;
+    final intentClient = widget.client;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -149,7 +247,8 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
         ],
       ),
     );
-    if (accepted != true || !mounted) return;
+    if (accepted != true || !mounted || generation != intentGeneration ||
+        !identical(widget.client, intentClient) || !sessionCurrent || incompatibleStops) return;
     final uri = navigationUri(
       currentPoints.first,
       currentPoints.last,
@@ -234,6 +333,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
   );
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     generation++;
     for (final c in [originLat, originLng, destinationLat, destinationLng]) {
       c.dispose();
@@ -243,6 +343,21 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
 
   @override
   Widget build(BuildContext context) {
+    if (!foreground) {
+      return Scaffold(
+        appBar: AppBar(title: Text(t('Plan charging route', 'تخطيط مسار الشحن'))),
+        body: Center(child: Text(t('Route planning hidden while the app is inactive.', 'تخطيط المسار مخفي أثناء عدم نشاط التطبيق.'))),
+      );
+    }
+    // The widget can outlive a logout even when its DiscoveryClient object
+    // remains identical. A parent refresh must never redraw old account
+    // coordinates, catalog stops, estimates, or map tiles in the new epoch.
+    if (!sessionCurrent) {
+      return Scaffold(
+        appBar: AppBar(title: Text(t('Plan charging route', 'تخطيط مسار الشحن'))),
+        body: Center(child: Text(t('Account changed. Reopen route planning.', 'تغير الحساب. أعد فتح تخطيط المسار.'))),
+      );
+    }
     final lines =
         estimate?.segments
             .where((line) => line.every((p) => p.latitude.abs() <= 85.05112878))
@@ -310,6 +425,49 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
                   ),
                 ),
               ),
+            InputDecorator(
+              decoration: InputDecoration(
+                labelText: t('Filter by advertised connector', 'تصفية حسب الموصل المعلن'),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  key: const Key('route-connector-filter'),
+                  value: requiredConnector,
+                  isExpanded: true,
+                  items: [
+                    for (final option in [
+                      ('', 'All advertised connectors', 'كل الموصلات المعلنة'),
+                      ('CCS2', 'CCS2', 'CCS2'),
+                      ('Type2', 'Type2', 'Type2'),
+                      ('CHAdeMO', 'CHAdeMO', 'CHAdeMO'),
+                    ])
+                      DropdownMenuItem(
+                        value: option.$1,
+                        child: Text(t(option.$2, option.$3)),
+                      ),
+                  ],
+                  onChanged: (value) {
+                    requiredConnector = value ?? '';
+                    invalidate();
+                  },
+                ),
+              ),
+            ),
+            Text(t(
+              'These are catalog connector labels, not verified compatibility with your vehicle, plug, energy needs or live charger status.',
+              'هذه تسميات موصلات الكتالوج وليست تحققاً من التوافق مع مركبتك أو القابس أو احتياجات الطاقة أو حالة الشاحن المباشرة.',
+            )),
+            if (incompatibleStops)
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  t(
+                    'Some selected stops do not match this connector. Remove them or change the filter before previewing or navigating.',
+                    'بعض التوقفات المحددة لا تطابق هذا الموصل. أزلها أو غيّر التصفية قبل المعاينة أو الملاحة.',
+                  ),
+                  key: const Key('route-connector-conflict'),
+                ),
+              ),
             ExpansionTile(
               title: Text(
                 t(
@@ -318,14 +476,16 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
                 ),
               ),
               children: [
-                for (final station in widget.stations)
+                for (final station in awaitingFreshAccountCatalog
+                    ? const <Station>[]
+                    : widget.stations)
                   CheckboxListTile(
                     key: Key('route-stop-${station.id}'),
                     value: stops.any((s) => s.id == station.id),
                     title: Text(station.name),
                     subtitle: Text(
                       valid(station)
-                          ? '${station.connector} · ${station.powerKw} kW · ${station.source}'
+                          ? '${station.connector} · ${station.powerKw} kW · ${station.source}${matchesAdvertisedConnector(station) ? '' : ' · ${t('Different advertised connector', 'موصل معلن مختلف')}'}'
                           : t(
                               'Coordinates unavailable',
                               'الإحداثيات غير متاحة',
@@ -334,7 +494,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
                     onChanged:
                         !valid(station) ||
                             (!stops.any((s) => s.id == station.id) &&
-                                stops.length >= 3)
+                                (!matchesAdvertisedConnector(station) || stops.length >= 3))
                         ? null
                         : (selected) {
                             if (selected == true) {
@@ -350,9 +510,25 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
             if (capabilities?.routing != true)
               Text(
                 t(
-                  'Provider route estimates are not configured. Manual coordinates and external navigation remain available.',
-                  'تقديرات مسار المزود غير مهيأة. تبقى الإحداثيات اليدوية والملاحة الخارجية متاحتين.',
+                  capabilities == null
+                      ? 'Routing-service configuration is unverified. Check it before requesting a provider estimate.'
+                      : 'Provider route estimates are not configured. Manual coordinates and external navigation remain available.',
+                  capabilities == null
+                      ? 'لم يتم التحقق من إعدادات خدمة المسار. تحقق منها قبل طلب تقدير المزود.'
+                      : 'تقديرات مسار المزود غير مهيأة. تبقى الإحداثيات اليدوية والملاحة الخارجية متاحتين.',
                 ),
+              ),
+            if (capabilities == null && widget.client != null)
+              OutlinedButton.icon(
+                key: const Key('route-capability-check'),
+                onPressed: checkingCapabilities ? null : loadCapabilities,
+                icon: checkingCapabilities
+                    ? const SizedBox(width: 18, height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.refresh),
+                label: Text(checkingCapabilities
+                    ? t('Checking routing services…', 'جارٍ التحقق من خدمات المسار…')
+                    : t('Check routing services', 'التحقق من خدمات المسار')),
               ),
             if (capabilities?.routing == true)
               CheckboxListTile(
@@ -368,7 +544,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
               ),
             FilledButton.icon(
               key: const Key('route-preview'),
-              onPressed: loading || !consent || capabilities?.routing != true
+              onPressed: loading || incompatibleStops || !consent || capabilities?.routing != true
                   ? null
                   : preview,
               icon: const Icon(Icons.route),
@@ -476,7 +652,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> {
               ),
             OutlinedButton.icon(
               key: const Key('route-navigation'),
-              onPressed: navigate,
+              onPressed: incompatibleStops ? null : navigate,
               icon: const Icon(Icons.navigation_outlined),
               label: Text(
                 t(

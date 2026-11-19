@@ -7,6 +7,14 @@ const {chromium}=require('playwright');
 const {BusinessClient}=require('./helpers/business-client.cjs');
 const {provisionTestRole}=require('./helpers/browser-role.cjs');
 let stage='fixture';
+function matchesDirectoryRead(response, base, expected) {
+ const url=new URL(response.url());
+ return url.origin===new URL(base).origin && url.pathname==='/api/admin/accounts'
+  && response.request().method()==='GET'
+  && Object.entries(expected).every(([key,value])=>url.searchParams.get(key)===value);
+}
+module.exports={matchesDirectoryRead};
+if(require.main===module) {
 (async()=>{
  const base=process.env.EV_TEST_URL||'http://127.0.0.1:8000',url=new URL(base);
  assert(['127.0.0.1','localhost'].includes(url.hostname)&&url.protocol==='http:','Owned loopback API required');
@@ -31,7 +39,7 @@ let stage='fixture';
     return original.apply(this,args);
    };
   });
-  await page.goto(base);await page.locator('#admin-accounts').waitFor({state:'attached'});
+  await page.goto(base);await page.locator('#admin-accounts').waitFor({state:'attached'});await page.waitForLoadState('networkidle');
   const accounts=page.locator('#admin-accounts'),audit=page.locator('#admin-audit-trail');
   async function reveal(root){const details=root.locator('xpath=ancestor::details[1]');if(await details.count()&&!await details.evaluate(e=>e.open))await details.locator(':scope > summary').click();}
   await reveal(accounts);
@@ -41,14 +49,14 @@ let stage='fixture';
    await accounts.getByLabel('Business name / اسم الشركة').fill(f.company_query);
    await accounts.getByLabel('Business country / الدولة').fill('AE');
    await accounts.getByLabel('Business review / حالة الشركة').selectOption('rejected');
-   let read=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/admin/accounts'&&r.request().method()==='GET');
+   let read=page.waitForResponse(r=>matchesDirectoryRead(r,base,{company_q:f.company_query,company_country:'AE',company_status:'rejected'}));
    await accounts.locator('form').first().locator('button[type=submit]').click();
-   let reply=await read;assert.equal(reply.status(),200);assert.equal((await reply.json()).total,0,'All filters must match the same company');
+   let reply=await read;stage='rejected-response-'+language;assert.equal(reply.status(),200);stage='rejected-total-'+language;assert.equal((await reply.json()).total,0,'All filters must match the same company');
    await accounts.getByLabel('Business review / حالة الشركة').selectOption('approved');
-   read=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/admin/accounts'&&new URL(r.url()).searchParams.get('company_status')==='approved');
+   read=page.waitForResponse(r=>matchesDirectoryRead(r,base,{company_q:f.company_query,company_country:'AE',company_status:'approved'}));
    await accounts.locator('form').first().locator('button[type=submit]').click();reply=await read;
-   assert.equal(reply.status(),200);assert.match(reply.headers()['cache-control'],/no-store/);
-   const body=await reply.json();assert.equal(body.total,1);assert.equal(body.data[0].id,f.owner_id);
+   stage='approved-response-'+language;assert.equal(reply.status(),200);assert.match(reply.headers()['cache-control'],/no-store/);
+   const body=await reply.json();stage='approved-total-'+language;assert.equal(body.total,1);stage='approved-owner-'+language;assert.equal(body.data[0].id,f.owner_id);
    assert.equal(JSON.stringify(body).includes('trade_license_number'),false);assert.equal(JSON.stringify(body).includes('password'),false);
    await accounts.getByText(f.owner_name,{exact:true}).waitFor();assert.equal(await accounts.locator('img,script').count(),0);
    stage='mfa-denial-'+language;await reveal(audit);
@@ -77,3 +85,5 @@ let stage='fixture';
   console.log('PASS actual Laravel Admin EN/AR390px literal same-company filters, private allowlist, bounded non-verdict MFA evidence and late reply after real role revocation; no money or charger action.');
  }finally{await browser.close();}
 })().catch(error=>{console.error(JSON.stringify({suite:'admin-current-authority',stage,error:['AssertionError','TimeoutError'].includes(error.name)?error.name:'Error'}));process.exitCode=1;});
+
+}

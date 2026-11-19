@@ -193,6 +193,9 @@ class OcpiReservationTest extends TestCase
 
     public function test_persisted_receipt_clock_preserves_subseconds_without_rounding_into_the_future(): void
     {
+        // Seed before every observed instant: newer-source protection must not
+        // discard this regression fixture once the real clock passes its date.
+        $this->travelTo(CarbonImmutable::parse('2026-11-19T05:09:00Z'));
         $f = $this->setupReservation();
         $tariff = OcpiRecord::where('module', 'tariffs')->firstOrFail();
         $source = $tariff->payload;

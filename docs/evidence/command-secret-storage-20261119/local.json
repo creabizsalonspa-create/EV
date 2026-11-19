@@ -1,0 +1,214 @@
+{
+  "evidence": "LOCAL_COMMAND_SECRET_STORAGE_AND_SAFE_FIXTURE_WINDOWS",
+  "application_commit": "ec64202c251699cfcbc11760514ad656000b2b40",
+  "tests": {
+    "laravel": {
+      "passed": 1728,
+      "assertions": 31370,
+      "skipped": 1
+    },
+    "secret_storage": {
+      "passed": 12,
+      "assertions": 57
+    },
+    "postgres_features": {
+      "passed": 903,
+      "assertions": 12323
+    },
+    "postgres_concurrency": {
+      "passed": 32,
+      "assertions": 478
+    },
+    "postgres_receipt_migration": {
+      "passed": 2,
+      "assertions": 13
+    },
+    "finance_postgres": {
+      "passed": 434,
+      "skipped": 1,
+      "assertions": 10955
+    },
+    "finance_process_migration": {
+      "passed": 99,
+      "assertions": 1460
+    },
+    "driver_controlled": {
+      "passed": 20
+    },
+    "actual_citrine": {
+      "passed": 4,
+      "cases": [
+        {
+          "evidence": "SIMULATED_CSMS_BUSINESS",
+          "canonical_targets": true,
+          "continuous_consumer": true,
+          "daemon_restart_verified": true,
+          "continuous_dispatch_verified": true,
+          "protocol": "1.6",
+          "periodic_meter_unit": "Wh",
+          "station": "ev-test-business-16-fec0dc3a",
+          "session_id": 43,
+          "source_transaction_id": "1",
+          "source_outcome_reconciled": true,
+          "command_acceptance_verified": false,
+          "current_slot_reservation": "operator_test_fixture",
+          "authenticated_event_inbox": true,
+          "source": "CitrineOS GraphQL transaction and persisted meters",
+          "replay_deduplicated": true,
+          "changed_replay_rejected": true,
+          "energy_wh": 2500,
+          "subtotal_minor": 313,
+          "tax_minor": 16,
+          "invoice_total_minor": 329,
+          "currency": "AED",
+          "one_invoice": true,
+          "simulated_payment_and_refund_reconciled": true,
+          "payment_and_refund_replays_deduplicated": true,
+          "ledger_balanced": true,
+          "customer_vendor_admin_consistent": true,
+          "real_payment_processed": false
+        },
+        {
+          "evidence": "SIMULATED_CSMS_BUSINESS",
+          "canonical_targets": true,
+          "continuous_consumer": true,
+          "daemon_restart_verified": true,
+          "continuous_dispatch_verified": true,
+          "protocol": "2.0.1",
+          "periodic_meter_unit": "Wh",
+          "station": "ev-test-business-201-c4a17fca",
+          "session_id": 45,
+          "source_transaction_id": "e6565030-92cc-48c0-8716-54a7909626c6",
+          "source_outcome_reconciled": true,
+          "command_acceptance_verified": false,
+          "current_slot_reservation": "operator_test_fixture",
+          "authenticated_event_inbox": true,
+          "source": "CitrineOS GraphQL transaction and persisted meters",
+          "replay_deduplicated": true,
+          "changed_replay_rejected": true,
+          "energy_wh": 2500,
+          "subtotal_minor": 313,
+          "tax_minor": 16,
+          "invoice_total_minor": 329,
+          "currency": "AED",
+          "one_invoice": true,
+          "simulated_payment_and_refund_reconciled": true,
+          "payment_and_refund_replays_deduplicated": true,
+          "ledger_balanced": true,
+          "customer_vendor_admin_consistent": true,
+          "real_payment_processed": false
+        },
+        {
+          "evidence": "SIMULATED_CSMS_BUSINESS",
+          "canonical_targets": true,
+          "continuous_consumer": true,
+          "daemon_restart_verified": true,
+          "continuous_dispatch_verified": true,
+          "protocol": "1.6",
+          "periodic_meter_unit": "kWh",
+          "station": "ev-test-business-16-8b58441f",
+          "session_id": 47,
+          "source_transaction_id": "1",
+          "source_outcome_reconciled": true,
+          "command_acceptance_verified": false,
+          "current_slot_reservation": "operator_test_fixture",
+          "authenticated_event_inbox": true,
+          "source": "CitrineOS GraphQL transaction and persisted meters",
+          "replay_deduplicated": true,
+          "changed_replay_rejected": true,
+          "energy_wh": 2500,
+          "subtotal_minor": 313,
+          "tax_minor": 16,
+          "invoice_total_minor": 329,
+          "currency": "AED",
+          "one_invoice": true,
+          "simulated_payment_and_refund_reconciled": true,
+          "payment_and_refund_replays_deduplicated": true,
+          "ledger_balanced": true,
+          "customer_vendor_admin_consistent": true,
+          "real_payment_processed": false
+        },
+        {
+          "evidence": "SIMULATED_CSMS_BUSINESS",
+          "canonical_targets": true,
+          "continuous_consumer": true,
+          "daemon_restart_verified": true,
+          "continuous_dispatch_verified": true,
+          "protocol": "2.0.1",
+          "periodic_meter_unit": "kWh",
+          "station": "ev-test-business-201-7450c30a",
+          "session_id": 49,
+          "source_transaction_id": "ea37fd8e-ca4c-40af-a867-e0af752bf4e6",
+          "source_outcome_reconciled": true,
+          "command_acceptance_verified": false,
+          "current_slot_reservation": "operator_test_fixture",
+          "authenticated_event_inbox": true,
+          "source": "CitrineOS GraphQL transaction and persisted meters",
+          "replay_deduplicated": true,
+          "changed_replay_rejected": true,
+          "energy_wh": 2500,
+          "subtotal_minor": 313,
+          "tax_minor": 16,
+          "invoice_total_minor": 329,
+          "currency": "AED",
+          "one_invoice": true,
+          "simulated_payment_and_refund_reconciled": true,
+          "payment_and_refund_replays_deduplicated": true,
+          "ledger_balanced": true,
+          "customer_vendor_admin_consistent": true,
+          "real_payment_processed": false
+        }
+      ]
+    }
+  },
+  "actual_driver_scope": "Actual matrix loaded the slot guard and encrypted application. The new raw-storage fixture was added later and independently executed on all8 new starts; final hosted source also runs it inside the driver. Local CSMS setup temporarily delegated to its original paired checkout; application code remained exact ec64202c.",
+  "failed_attempts": [
+    "Missing paired compose environment stopped local setup before any test intent; reused original paired CSMS setup.",
+    "Nested intent created at06:29:59UTC legitimately expired at06:30; command67 remains worker_requires_operator_review. Added real-clock fixture scheduling before reservation creation, never extended or replayed it."
+  ],
+  "logs": [
+    {
+      "name": "ev-token-before.txt",
+      "sha256": "f87625779790783fdc458c9d259a35ebec60c209a645c48561d2eec5b40bc426"
+    },
+    {
+      "name": "ev-token-full.txt",
+      "sha256": "4cd1331780bea298903fc381000a01c0b6da0ca78e72528588496406363cd19c"
+    },
+    {
+      "name": "ev-token-final-focused.txt",
+      "sha256": "305c875d1c3937241ffe7e3e8d3344752b112b3479448edc8b9459b2c59332ac"
+    },
+    {
+      "name": "ev-token-pg-final.txt",
+      "sha256": "15e7ad7013d5e18cdbd79f94360ae44abbf79351295ce4fb0914b4a90c004f0d"
+    },
+    {
+      "name": "ev-token-finance.txt",
+      "sha256": "d37605f3807ab6291383279bd9f2dd0b992dff58563882550e184db5e945d279"
+    },
+    {
+      "name": "ev-token-actual-matrix-final.txt",
+      "sha256": "9d7be164e1f3def9629e1a8131a95640b51f99bfd6256530c126123f6d871ef3"
+    },
+    {
+      "name": "ev-token-actual-matrix-slot-fixed.txt",
+      "sha256": "c003a59d5b519c83659c8f51ca14547c4695a1cafeefd61859a3e97a0c374787"
+    },
+    {
+      "name": "ev-driver-final-unit.txt",
+      "sha256": "3ddfa1b220c121239b278f5c379469183d33342b050af4e3bb2843674cc12093"
+    },
+    {
+      "name": "ev-admin-response-actual.txt",
+      "sha256": "b8b84dcd9ff2be4e657550fabc2c3806a61a332161844d7eb4064514576000b0"
+    },
+    {
+      "name": "ev-token-pint-final.txt",
+      "sha256": "523e7370ab1fa4f64e0ede3a9dc8c0ed4be2d3da49c6f869b3e52b05e463a4ee"
+    }
+  ],
+  "real_hardware_accepted": false,
+  "real_payment_processed": false,
+  "whole_atoms_added": 0
+}
