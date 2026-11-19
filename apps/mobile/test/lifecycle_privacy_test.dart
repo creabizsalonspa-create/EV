@@ -6,8 +6,9 @@ import 'package:creabiz_ev/strings.dart';
 import 'test_support.dart';
 
 void main() {
-  testWidgets('inactive app masks signed-in nested routes without logging out',
-      (tester) async {
+  testWidgets('inactive app masks signed-in nested routes without logging out', (
+    tester,
+  ) async {
     final preferences = AppPreferences(TestStore());
     await preferences.load();
     final api = FixtureApi();
@@ -67,14 +68,48 @@ void main() {
     expect(find.byKey(const Key('privacy-shield')), findsNothing);
     expect(
       tester
-          .widget<IgnorePointer>(
-            find.byKey(const Key('privacy-content-input')),
-          )
+          .widget<IgnorePointer>(find.byKey(const Key('privacy-content-input')))
           .ignoring,
       isFalse,
     );
     expect(find.byType(BottomSheet), findsOneWidget);
     expect(find.byKey(const Key('auth-email')), findsNothing);
+  });
+
+  testWidgets('app first mounted while inactive is already obscured', (
+    tester,
+  ) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    addTearDown(
+      () => tester.binding.handleAppLifecycleStateChanged(
+        AppLifecycleState.resumed,
+      ),
+    );
+    final preferences = AppPreferences(TestStore());
+    await preferences.load();
+    final api = FixtureApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(EvApp(preferences: preferences, api: api));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('privacy-shield')), findsOneWidget);
+    expect(
+      tester
+          .widget<IgnorePointer>(find.byKey(const Key('privacy-content-input')))
+          .ignoring,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<ExcludeSemantics>(
+            find.byKey(const Key('privacy-content-semantics')),
+          )
+          .excluding,
+      isTrue,
+    );
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('privacy-shield')), findsNothing);
+    expect(find.byKey(const Key('auth-email')), findsOneWidget);
   });
 
   test('privacy shield announcement is available in English and Arabic', () {
