@@ -1,6 +1,9 @@
 const assert = require("node:assert/strict");
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
+const {
+  waitForReservationFixtureWindow,
+} = require("./helpers/reservation-fixture-window.cjs");
 const fs = require("node:fs");
 const { randomUUID, createHash, createHmac } = require("node:crypto");
 const { promisify } = require("node:util");
@@ -109,6 +112,7 @@ async function sourceTransaction(station, tx) {
   return d.Transactions.find((t) => t.stationId === d.ChargingStations[0]?.id);
 }
 async function session(version, actors, revokedTag = null, meterUnit = "Wh") {
+  await waitForReservationFixtureWindow();
   const { customer, vendor, admin } = actors;
   const name =
     "ev-test-business-" +
@@ -199,6 +203,18 @@ async function session(version, actors, revokedTag = null, meterUnit = "Wh") {
     // Observe the delivered command credential. The same retained local
     // environment may already have secure remote authorization enabled.
     tag = remote.payload.idTag ?? remote.payload.idToken?.idToken;
+    const secretStorage = JSON.parse(
+      (
+        await execFile("./scripts/php", [
+          "tests/Fixtures/command-secret-storage.php",
+          String(pending.start_command.id),
+        ])
+      ).stdout,
+    );
+    assert.equal(secretStorage.token_encrypted, true);
+    assert.equal(secretStorage.metadata_queryable, true);
+    assert.equal(secretStorage.public_token_redacted, true);
+    if (autoDispatch) assert.equal(secretStorage.remote_binding_verified, true);
     assert(
       typeof tag === "string" &&
         (/^EV-[A-F0-9]{16}$/.test(tag) || tag === "EV-SIM-" + sessionId),
@@ -718,6 +734,7 @@ async function session(version, actors, revokedTag = null, meterUnit = "Wh") {
         continuous_consumer: useConsumer,
         daemon_restart_verified: useDaemon,
         continuous_dispatch_verified: autoDispatch,
+        command_token_encrypted_at_rest: true,
         protocol: version,
         periodic_meter_unit: meterUnit,
         station: name,
