@@ -6,6 +6,7 @@ const OPERATIONAL_SUITE_TIMEOUT_MS = 12 * 60 * 1000;
 const OPERATIONAL_PREP_TIMEOUT_MS = 2 * 60 * 1000;
 const groups = [
   ["auth-bootstrap", "session-cookie-read", "admin-current-authority-e2e"], // real cookie/current-Admin regressions; 3+4+2 = 9 authentication requests
+  ["admin-command-secret-storage-e2e"], // two synthetic cookie logins; own unchanged auth/read window, no command execution
   ["invoice-history", "money-input", "tariffs", "managed-gate"], // 3+0+4+2 = 9 logins
   [
     "canonical-topology",

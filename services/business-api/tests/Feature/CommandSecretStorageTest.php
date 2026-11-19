@@ -152,6 +152,30 @@ class CommandSecretStorageTest extends TestCase
         }
     }
 
+    public function test_public_metadata_needs_no_credential_key_but_dispatch_access_still_fails_closed(): void
+    {
+        $original = Crypt::getFacadeRoot();
+        $command = $this->command();
+        try {
+            Crypt::swap(new Encrypter(Encrypter::generateKey(config('app.cipher')), config('app.cipher')));
+            $fresh = $command->fresh();
+            $hidden = $fresh->getHidden();
+            $public = $fresh->toArray();
+            $this->assertSame('[REDACTED]', $public['payload']['id_token']);
+            $this->assertSame($hidden, $fresh->getHidden());
+            $this->assertSame(['id', 'payload'], array_keys($fresh->setVisible(['id', 'payload'])->toArray()));
+            $this->assertArrayNotHasKey('payload', $fresh->makeHidden('payload')->toArray());
+            try {
+                $fresh->payload;
+                $this->fail('Private operational access must still authenticate ciphertext.');
+            } catch (DecryptException) {
+                $this->assertTrue(true);
+            }
+        } finally {
+            Crypt::swap($original);
+        }
+    }
+
     public function test_legacy_sealing_is_dry_by_default_resumable_and_does_not_dispatch_or_rewrite_history(): void
     {
         $command = $this->command();

@@ -24,3 +24,7 @@ For command-field key rotation, first configure the new current key and the requ
 Rekey changes ciphertext only; it does not replay transport intents. Retain previous keys until every affected platform encryption domain and retained backup has its own verified rotation/recovery plan. This command rotates command fields only. Existing plaintext in old dumps, WAL, replicas or exports is not erased by sealing current rows. Direct SQL/import writers bypass model hooks and must be included in the check procedure.
 
 Deploy readers/writers with envelope support together. After sealing, do not roll back to software that interprets encrypted fields as ordinary JSON transport values. Recovery requires a matching software/database/key checkpoint and retained command journals; no automatic plaintext downgrade is provided. Production readiness remains dependent on the broader deployment/security review and genuine source/hardware acceptance.
+
+## Redacted metadata and web observations
+
+Public command serialization projects recognized fields from raw JSON without requiring the credential key; hidden/visible attributes remain respected. This does not relax private operational getters, which still reject missing/corrupt/wrong-context keys before dispatch. The web Admin inspector is an explicit, paginated, memory-only read of bounded aggregate evidence, not a sealing/key-management control or a production-security verdict. See docs/ADMIN_COMMAND_SECRET_STORAGE_QA.md and docs/API.md.

@@ -1,0 +1,222 @@
+{
+  "evidence": "LOCAL_BOUNDED_ADMIN_COMMAND_STORAGE_OBSERVATIONS",
+  "base_candidate": "78abd00378a7fedb8d676d1cb4f37b017c838f11",
+  "tests": {
+    "full_laravel": {
+      "passed": 1744,
+      "assertions": 31652,
+      "skipped": 1
+    },
+    "postgres_features": {
+      "passed": 912,
+      "assertions": 12384
+    },
+    "postgres_concurrency": {
+      "passed": 32,
+      "assertions": 478
+    },
+    "postgres_receipt_migration": {
+      "passed": 2,
+      "assertions": 13
+    },
+    "finance_postgres": {
+      "passed": 441,
+      "assertions": 11162,
+      "skipped": 1
+    },
+    "finance_process_migration": {
+      "passed": 99,
+      "assertions": 1460
+    },
+    "focused_storage_charger_authorization": {
+      "passed": 63,
+      "assertions": 452
+    },
+    "controlled_widget_scheduler_inventory": {
+      "passed": 21
+    },
+    "actual_browser": {
+      "passed": 1,
+      "languages": [
+        "en",
+        "ar"
+      ],
+      "themes": [
+        "light",
+        "dark",
+        "system"
+      ],
+      "widths": [
+        390,
+        768,
+        1440
+      ],
+      "variants": 18
+    },
+    "pint_files": 6
+  },
+  "scope": [
+    "Current web Admin cookie authority; persisted Admin tokens rejected; row-lock role/status/password/epoch recheck.",
+    "SQL text bounding and explicit keyset batches with no secret-bearing response properties.",
+    "Encrypted/legacy/unreadable/unknown/no-known-secret counts only; every production and whole-table acceptance flag false.",
+    "Memory-only foreground/account generation fences, exact cursor retry, allowlisted coherent counts and UTC timestamps.",
+    "Public command metadata redacts raw known fields without credential decryption; private operational getters still authenticate ciphertext.",
+    "Owned malformed fixtures are removed only after unchanged command-storage proof and only when no source/session journal is linked."
+  ],
+  "failed_attempts": [
+    "New endpoint/controller absent:8new feature tests failed before implementation.",
+    "Public metadata serialization under a replacement key failed before credential-independent redaction.",
+    "Paced-suite fixed expected inventory rejected the new phase; updated expected inventory and corresponding boundary index, preserving every old suite."
+  ],
+  "logs": [
+    {
+      "name": "ev-admin-storage-before.txt",
+      "sha256": "5213a1c4928711f259041e0adeccdef8cfbf86ce21b8b8e2b5df661b2a46b30e"
+    },
+    {
+      "name": "ev-public-command-before.txt",
+      "sha256": "59a76c4cc6c86060f9265fb82529991446001706dc19690d205fffaf1b7998d1"
+    },
+    {
+      "name": "ev-admin-storage-full.txt",
+      "sha256": "4ed32c60bc085a23114143fb894406c28b2dc2cf1ba3e5e6ee58afc25790e5a6"
+    },
+    {
+      "name": "ev-admin-storage-pg.txt",
+      "sha256": "2d8b9d17ed52734067ffcdd90ad997006a8ab65e8595284b46f7f25568af497b"
+    },
+    {
+      "name": "ev-admin-storage-finance.txt",
+      "sha256": "85af3e96ee2a27f43267aff297250b13b3e1af8ebfa9f96d67ba0bf9c058b1e2"
+    },
+    {
+      "name": "ev-admin-storage-projection-focused.txt",
+      "sha256": "dd29ca744f3aae8c6ab8d699201dc08e3bb1c45064746db5cf06e9e59f4d38d8"
+    },
+    {
+      "name": "ev-admin-storage-controlled-final.txt",
+      "sha256": "1002c9da014baed224370c65727977c6f17f3d0b682abe4002b7845884b973b4"
+    },
+    {
+      "name": "ev-admin-storage-actual-final.txt",
+      "sha256": "5345eda527d1133385ff76966e61013350bac6cbd6bb37d7fd14539586135f5c"
+    },
+    {
+      "name": "ev-admin-storage-pint-check.txt",
+      "sha256": "d4c0f98c6aabce5c15c404a55f0b15a9d62b82376009cd78e88ae22f2d743de2"
+    }
+  ],
+  "screenshots": [
+    {
+      "name": "ar-dark-1440.png",
+      "sha256": "ce68e2605aafc97652ad1980c9c3fc4950c1694e30e56884ec90bd5b1cfc0bd6",
+      "bytes": 76763,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "ar-dark-390.png",
+      "sha256": "9b1571ceb23683f08f2bb8f5f4e46062e77732097ce876affbd3a9f780fd9e64",
+      "bytes": 79488,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "ar-dark-768.png",
+      "sha256": "9d0fd9fea0de4fb77457e112f46ced793b884ba9bbab2e73234f40bc319c33c5",
+      "bytes": 78314,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "ar-light-1440.png",
+      "sha256": "9952bfeb38f0ff67a473d2fe0bd20eca6c85dbbbcff0cbc1d0ca2f5999ec5c4b",
+      "bytes": 74686,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "ar-light-390.png",
+      "sha256": "41b0269b5274fd71039ae7d4ae67986a474d1f55046e558e4f8d15923371d04f",
+      "bytes": 76949,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "ar-light-768.png",
+      "sha256": "7d37b4e0a4ef0d56b1465b51933e74f06bbd01b2714712a92bd86be94d7492a5",
+      "bytes": 76273,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "ar-system-1440.png",
+      "sha256": "afb2e6c0dfe265596146df2cb598b4545b01499565a3ee983c7e7f985d352c7a",
+      "bytes": 74120,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "ar-system-390.png",
+      "sha256": "0b640321ccebf7cf5a5d218e04e414eb66616da9d533d80017a60604cb8d5a0b",
+      "bytes": 76468,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "ar-system-768.png",
+      "sha256": "f955e518510c473a044a18340ddfa548f6f222190389795d52d3d04aa4497333",
+      "bytes": 75734,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "en-dark-1440.png",
+      "sha256": "c6a96275c0995c6a95468bfb1cd1f0bb4d4bc790bd749dd14ede45d65dfdf385",
+      "bytes": 73309,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "en-dark-390.png",
+      "sha256": "2c832568d8e032ff954435bd145946bac36f52a8164dd02b6a9faf55af829f15",
+      "bytes": 80391,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "en-dark-768.png",
+      "sha256": "7036208cf7241868ff4530147cb1aba90abac1b086ba4b4d2cafa18bf5d65fac",
+      "bytes": 76373,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "en-light-1440.png",
+      "sha256": "3d163757032a22ff90c829f807c77d5e9dc79d002894f9ba29196b7a51d6978f",
+      "bytes": 70434,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "en-light-390.png",
+      "sha256": "beae16149d154aad699dbaccee70f4486d311e0882110039cf15a3fae5e3f10b",
+      "bytes": 78211,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "en-light-768.png",
+      "sha256": "01cd620b19a9d824a34ec828e6d2c8de64ff0fb0573d83e0caa784a4eaad640e",
+      "bytes": 73038,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "en-system-1440.png",
+      "sha256": "8343d93a3ed67b103233e10f205c071251e5559ea2489e15d6a66ee061577f8b",
+      "bytes": 70316,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "en-system-390.png",
+      "sha256": "1e03676084d24970b3c2511ee5cde98a6acde7f7c16910eb5fb75ecfdc06ecce",
+      "bytes": 78063,
+      "status": "local_synthetic_browser_only"
+    },
+    {
+      "name": "en-system-768.png",
+      "sha256": "6ee07e1dee5ceb0d5b4874e4954d9f067dc08acde3406f89f8f7eb07c9960286",
+      "bytes": 73226,
+      "status": "local_synthetic_browser_only"
+    }
+  ],
+  "physical_hardware_accepted": false,
+  "production_accepted": false,
+  "whole_requirement_atoms_added": 0
+}
