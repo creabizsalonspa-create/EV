@@ -5,6 +5,7 @@ const { randomUUID } = require("node:crypto");
 const phpRunner = process.env.EV_TEST_PHP_RUNNER || "./scripts/php";
 
 const {provisionTestRole}=require('./helpers/browser-role.cjs');
+const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
 (async () => {
   const browser = await chromium.launch({
     headless: true,
@@ -835,6 +836,10 @@ const {provisionTestRole}=require('./helpers/browser-role.cjs');
     assert.equal(
       await customer.page.locator("#notification-fault-delay").inputValue(), "60",
     );
+    // A second full authenticated bootstrap is a separate protected-read
+    // phase. Respect its unchanged 60/minute window before sending any new
+    // mutation; never raise quotas, replay a failed write or retry assertions.
+    await waitForFreshWindow({wait: ms => new Promise(resolve => setTimeout(resolve, ms))});
     // "Other" is a real tenant-scoped list category and can also be saved
     // as the account's default; it must round-trip across browser sessions
     // without hiding critical notifications or enabling external delivery.

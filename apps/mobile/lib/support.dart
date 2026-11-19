@@ -395,6 +395,9 @@ class SupportViewState extends State<SupportView>
   void initState() {
     super.initState();
     authorized = widget.api.sessionFence();
+    // An observer receives future transitions, not the state at first mount.
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     load();
   }
@@ -1326,6 +1329,9 @@ class _TicketPageState extends State<TicketPage>
   void initState() {
     super.initState();
     authorized = widget.api.sessionFence();
+    // An observer receives future transitions, not the state at first mount.
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     load();
   }
