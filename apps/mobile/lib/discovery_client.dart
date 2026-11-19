@@ -90,20 +90,36 @@ class RouteEstimate {
 
 class DiscoveryClient {
   final DiscoveryRequest request;
-  DiscoveryClient(EvApi api, {void Function()? onExpired})
-    : request = ((path, method, body) async {
-        try {
-          return await api.request(
-            'discovery/$path',
-            method: method,
-            body: body,
-          );
-        } on ApiException catch (error) {
-          if ([401, 419].contains(error.status)) onExpired?.call();
-          rethrow;
+  // A client is tied to the authenticated EvApi epoch that created it.
+  // Reusing the object after sign-out/sign-in must not let in-flight private
+  // route responses or previously approved third-party navigation through.
+  final bool Function() currentSession;
+  static bool _unfencedTestClient() => true;
+  factory DiscoveryClient(EvApi api, {void Function()? onExpired}) {
+    final fence = api.sessionFence();
+    return DiscoveryClient.withRequest((path, method, body) async {
+      // The caller can keep an old DiscoveryClient alive after EvApi rotates
+      // its credential jar. Never let it submit private coordinates under
+      // the next actor, re-display an earlier result, or sign out that actor.
+      if (!fence()) throw StateError('Discovery session changed');
+      try {
+        final reply = await api.request(
+          'discovery/$path',
+          method: method,
+          body: body,
+        );
+        if (!fence()) throw StateError('Discovery session changed');
+        return reply;
+      } on ApiException catch (error) {
+        if (fence() && [401, 419].contains(error.status)) {
+          onExpired?.call();
         }
-      });
-  DiscoveryClient.withRequest(this.request);
+        rethrow;
+      }
+    }, currentSession: fence);
+  }
+  DiscoveryClient.withRequest(this.request, {bool Function()? currentSession})
+    : currentSession = currentSession ?? _unfencedTestClient;
   Future<DiscoveryCapabilities> capabilities() async =>
       DiscoveryCapabilities.fromJson(
         Map<String, dynamic>.from(

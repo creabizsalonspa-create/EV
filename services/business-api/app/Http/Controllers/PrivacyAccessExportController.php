@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AccountPrivacyRequest;
 use App\Models\User;
+use App\Security\AdminTransactionAuthority;
 use App\Services\Identity\AccountSecondFactor;
 use App\Services\Privacy\AccountDataExport;
 use Illuminate\Http\Request;
@@ -26,8 +27,11 @@ class PrivacyAccessExportController extends Controller
         $v = $r->validate(['password' => 'required|string|max:128', 'request_key' => 'required|string|min:12|max:100|regex:/^[A-Za-z0-9_-]+$/D']);
 
         return DB::transaction(function () use ($r, $privacyCase, $exports, $v) {
-            $admin = User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
-            abort_unless($admin->role === 'admin' && $admin->account_status === 'active' && (int) $admin->auth_epoch === (int) $r->user()->auth_epoch, 403);
+            // Revalidate the current Admin identity under the same transaction
+            // used to prepare the encrypted account copy and finalize review.
+            // A password rotation or revoked epoch invalidates an old session
+            // even when the caller knows the account's current password.
+            $admin = AdminTransactionAuthority::requireCurrent($r->user());
             if (! Hash::check($v['password'], $admin->password)) {
                 throw ValidationException::withMessages(['password' => 'Current password is required.']);
             }

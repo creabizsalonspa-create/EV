@@ -40,7 +40,11 @@ const fs = require("node:fs");
     let enabled = false,
       addressCalls = 0,
       routeBody = null,
-      tiles = 0;
+      routeCalls = 0,
+      tiles = 0,
+      holdNextCapabilities = false,
+      signalHeldCapabilities = null,
+      releaseHeldCapabilities = null;
     await page.route("https://tile.openstreetmap.org/**", (r) => {
       tiles++;
       return r.abort();
@@ -59,6 +63,7 @@ const fs = require("node:fs");
       remote_control: false,
       reservable: false,
     }));
+    stations[3].connector_type = "Type2";
     // Unrelated distant results must not make a short selected journey
     // disappear at world zoom. This is a controlled catalog fixture.
     stations.push({...stations[0], id: 5, name: "Distant catalog fixture",
@@ -68,16 +73,21 @@ const fs = require("node:fs");
         json: { data: stations, total: stations.length, current_page: 1, last_page: 1 },
       }),
     );
-    await page.route("**/api/discovery/capabilities", (r) =>
-      r.fulfill({
+    await page.route("**/api/discovery/capabilities", async (r) => {
+      if (holdNextCapabilities) {
+        holdNextCapabilities = false;
+        signalHeldCapabilities?.();
+        await new Promise((resolve) => { releaseHeldCapabilities = resolve; });
+      }
+      return r.fulfill({
         json: {
           provider: "geoapify",
           geocoding: enabled,
           routing: enabled,
           max_charging_stops: 3,
         },
-      }),
-    );
+      });
+    });
     await page.route("**/api/discovery/addresses", async (r) => {
       addressCalls++;
       const body = r.request().postDataJSON();
@@ -105,6 +115,7 @@ const fs = require("node:fs");
       });
     });
     await page.route("**/api/discovery/route", (r) => {
+      routeCalls++;
       routeBody = r.request().postDataJSON();
       assert.equal(routeBody.consent, true);
       assert.equal(routeBody.points.length, 5);
@@ -202,6 +213,25 @@ const fs = require("node:fs");
     assert.equal(routeBody.points[0].latitude, 25.2);
     assert.equal(routeBody.points[2].latitude, 25.23);
     assert.equal(tiles, 0);
+    // A consented request only authorizes the reviewed origin/destination
+    // and stop list, not future edits to that same in-memory form.
+    await journey.locator("[name=journey_destination_latitude]").fill("25.31");
+    assert.equal(
+      await journey.locator("form>label input[type=checkbox]").isChecked(),
+      false,
+      "Editing a route must withdraw provider consent",
+    );
+    assert(await journey.getByRole("button", {
+      name: "Preview provider route", exact: true
+    }).isDisabled());
+    assert.equal(routeCalls, 1, "Editing never sends the new coordinates");
+    await journey.locator("form>label input[type=checkbox]").check();
+    await journey.getByRole("button", {
+      name: "Preview provider route", exact: true
+    }).click();
+    await journey.getByText("1.3 km · 4 min", { exact: true }).waitFor();
+    assert.equal(routeCalls, 2);
+    assert.equal(routeBody.points.at(-1).latitude, 25.31);
     page.once("dialog", (dialog) => dialog.accept());
     await journey
       .getByRole("button", {
@@ -255,13 +285,58 @@ const fs = require("node:fs");
     await page.screenshot({
       path: "artifacts/discovery-routing/arabic-dark390.png",
     });
+    // Changing connector type is a local filter only. Already-selected stops
+    // stay visible and become a blocking conflict until explicitly removed.
+    const connectorFilter = journey.locator('[name="route_connector"]');
+    await connectorFilter.selectOption("Type2");
+    assert.equal(await connectorFilter.inputValue(), "Type2");
+    await journey.getByText("بعض التوقفات المحددة تستخدم موصلاً معلناً مختلفاً.", { exact: false }).waitFor();
+    assert(await journey.getByRole("button", { name: "معاينة مسار المزود", exact: true }).isDisabled());
+    assert(await journey.getByRole("button", { name: "فتح الملاحة بالتوقفات المحددة", exact: true }).isDisabled());
+    assert.equal(await journey.locator("ol li").count(), 3, "Filter must not silently remove stops");
+    assert.equal(routeCalls, 2, "Connector filter must not send route/provider requests");
+    for(let i=0;i<3;i++) {
+      await journey.locator("ol li").first().getByRole("button", { name: "إزالة التوقف", exact: true }).click();
+    }
+    assert.equal(await journey.locator("ol li").count(), 0);
+    assert(await journey.getByRole("button", { name: "فتح الملاحة بالتوقفات المحددة", exact: true }).isEnabled());
+    const addType2 = journey.getByRole("button", { name: "إضافة توقف شحن", exact: true }).nth(3);
+    assert(await addType2.isEnabled());
+    await addType2.click();
+    assert.equal(await journey.locator("ol li").count(),1);
+    assert.equal(routeCalls,2);
     await page.locator("#location-consent").check();
     await page
       .getByRole("button", { name: "استخدام موقعي مرة واحدة", exact: true })
       .click();
+    // Keep an old-account capability response deliberately in flight.
+    // Logging out must invalidate it even if it later says routing=true.
+    const awaitingCapability = new Promise((resolve) => {
+      signalHeldCapabilities = resolve;
+    });
+    holdNextCapabilities = true;
+    await journey.locator("summary").first().click();
+    await journey.locator("summary").first().click();
+    let capabilityTimeout;
+    try {
+      await Promise.race([
+        awaitingCapability,
+        new Promise((_, reject) => {
+          capabilityTimeout = setTimeout(
+            () => reject(Error("Pending capability fixture never started")), 10000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(capabilityTimeout);
+    }
+    const staleResponse = page.waitForResponse(
+      (response) => response.url().includes("/api/discovery/capabilities"));
     await page.evaluate(() =>
       window.dispatchEvent(new CustomEvent("catalog-map-clear")),
     );
+    releaseHeldCapabilities();
+    await staleResponse;
+    await page.waitForTimeout(0);
     await page.evaluate(() =>
       window.pendingGps({ coords: { latitude: 12, longitude: 34 } }),
     );
@@ -270,12 +345,50 @@ const fs = require("node:fs");
       "",
     );
     assert.equal(await journey.locator("ol li").count(), 0);
+    assert.equal(await connectorFilter.inputValue(), "", "Session clear must also clear route connector");
+    assert.equal(await journey.locator("form>label input[type=checkbox]").isChecked(), false);
+    assert(await journey.getByRole("button", { name: "معاينة مسار المزود", exact: true }).isDisabled());
+    assert.equal(await journey.locator("form>label").filter({ hasText: "Geoapify" }).isHidden(), true,
+      "Signed-out discovery must not retain provider capability or privacy consent");
     assert.equal(await field.locator("input[type=search]").inputValue(), "");
     assert.equal(
       await page.locator("#filters [name=latitude]").inputValue(),
       "",
     );
     assert.equal(await page.locator("#location-consent").isChecked(), false);
+    // A background browser tab must also discard the previous itinerary,
+    // even if there is no explicit account logout or new catalog fetch.
+    await journey.locator("[name=journey_origin_latitude]").fill("24.25");
+    await journey.locator("[name=journey_destination_longitude]").fill("56.75");
+    const beforeVisibility = routeCalls;
+    await page.evaluate(() => {
+      Object.defineProperty(document, "hidden", {
+        configurable: true, value: true,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    assert.equal(
+      await journey.locator("[name=journey_origin_latitude]").inputValue(),
+      "",
+      "Backgrounded route coordinates must be removed from the DOM",
+    );
+    assert.equal(
+      await journey.locator("[name=journey_destination_longitude]").inputValue(),
+      "",
+    );
+    assert.equal(await journey.locator("ol li").count(), 0);
+    assert.equal(
+      await journey.locator("form>label input[type=checkbox]").isChecked(),
+      false,
+    );
+    await page.evaluate(() => {
+      Object.defineProperty(document, "hidden", {
+        configurable: true, value: false,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    assert.equal(routeCalls, beforeVisibility,
+      "Browser foregrounding must not contact a route provider or replay consent");
     assert.deepEqual(errors, []);
     console.log(
       "PASS: actual unconfigured/csrf endpoints; consent/debounce/stale-safe address UI; Arabic coordinates; bounded/reordered charging stops; sourced route preview; fixed-origin consented navigation; no charging authority; RTL390 and identity-clear GPS/itinerary privacy. Provider/navigation/GPS/tiles are synthetic.",

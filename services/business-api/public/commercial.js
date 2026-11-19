@@ -1666,6 +1666,8 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             });
             await settlements(operations, current);
             vendorRevenue(operations, current);
+            if (actor.role === "admin")
+                financeApprovals(panel("Finance approval review", "مراجعة الموافقات المالية"), current);
         }
     }
     function vendorRevenue(parent, current) {
@@ -1802,6 +1804,105 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         area.append(results);
     }
 
+    function financeApprovals(parent, current) {
+        // All actions remain in their original canonical workflows.
+        const list = document.createElement("section");
+        list.dataset.financeApprovalQueue = "true";
+        const select = document.createElement("select");
+        select.setAttribute("aria-label", "Finance approval kind");
+        for (const [key, en, ar] of [
+            ["all", "All pending", "جميع الطلبات المعلقة"],
+            ["refund", "Refund reviews", "مراجعات الاسترداد"],
+            ["settlement", "Settlement approvals", "موافقات التسوية"],
+            ["adjustment", "Adjustment approvals", "موافقات التعديل"],
+        ]) {
+            const o = translated("option", en, ar);
+            o.value = key;
+            select.append(o);
+        }
+        parent.append(
+            translated(
+                "p",
+                "Read-only TEST approvals; amounts are not bank payments or payout instructions.",
+                "مراجعة موافقات اختبارية للقراءة فقط؛ المبالغ ليست مدفوعات مصرفية أو أوامر صرف.",
+            ),
+            select,
+            list,
+        );
+        let generation = 0;
+        const clear = () => {
+            generation++;
+            list.replaceChildren();
+        };
+        select.addEventListener("change", clear);
+        document.addEventListener(
+            "visibilitychange",
+            () => {
+                if (document.hidden) clear();
+            },
+            { signal: controller.signal },
+        );
+        async function show(page = 1) {
+            const version = ++generation;
+            const payload = await api(
+                "finance/approval-queue?kind=" +
+                    encodeURIComponent(select.value) + "&per_page=20&page=" + page,
+                "GET",
+                undefined,
+                controller.signal,
+            );
+            if (current !== epoch || version !== generation ||
+                document.hidden || !list.isConnected) return;
+            if (payload.read_only !== true || payload.admin_only !== true ||
+                payload.real_money_moved !== false ||
+                payload.mutations_performed !== false ||
+                payload.not_a_payment_or_payout_authority !== true ||
+                !Array.isArray(payload.data))
+                throw Error("Financial approval queue source cannot be verified.");
+            list.replaceChildren(
+                translated("h4", "Pending financial reviews", "المراجعات المالية المعلقة"),
+                text("p", String(payload.total) + " · Pending / قيد المراجعة"),
+            );
+            for (const item of payload.data) {
+                if (!["refund", "settlement", "adjustment"].includes(item.kind) ||
+                    !Number.isSafeInteger(Number(item.record_id)) ||
+                    !Number.isSafeInteger(Number(item.amount_minor)) ||
+                    !/^[A-Z]{3}$/.test(item.currency))
+                    throw Error("Unverified financial review item.");
+                const line = document.createElement("article");
+                line.className = "finance-row";
+                line.dataset.financeApprovalKind = item.kind;
+                line.append(
+                    text("strong", item.kind + " #" + item.record_id),
+                    text("p", item.currency + " · " + String(item.amount_minor) +
+                        " minor units / وحدات صغرى"),
+                    text("p", "Vendor #" + item.vendor_id + " · " + item.status),
+                );
+                list.append(line);
+            }
+            const pager = document.createElement("div");
+            pager.className = "finance-pagination";
+            pager.append(text("p", String(payload.current_page) + " / " + String(payload.last_page)));
+            if (payload.current_page > 1)
+                button(pager, "Previous finance reviews", "المراجعات السابقة",
+                    () => show(payload.current_page - 1));
+            if (payload.current_page < payload.last_page)
+                button(pager, "Next finance reviews", "المراجعات التالية",
+                    () => show(payload.current_page + 1));
+            list.append(pager);
+            const exportLink = translated(
+                "a",
+                "Download current approval page CSV",
+                "تنزيل صفحة الموافقات الحالية CSV",
+            );
+            exportLink.href = "/api/finance/approval-queue/export?kind=" +
+                encodeURIComponent(select.value) +
+                "&per_page=20&page=" + payload.current_page;
+            exportLink.download = "simulated-pending-finance-approvals.csv";
+            list.append(exportLink);
+        }
+        button(parent, "Load pending finance reviews", "عرض المراجعات المالية المعلقة", () => show(1));
+    }
     async function settlements(parent, current) {
         const activeCache = cache,
             key = "commercial/settlements?";
@@ -1845,6 +1946,100 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         "المتاح للتسوية الاختبارية",
                     ),
                 );
+                // This view is read-only. The server's settlement service owns eligibility,
+                // reservations, refund debt and all canonical currency calculations.
+                const vendorId = String(data.vendor);
+                const currency = String(data.currency).toUpperCase();
+                if (!/^[0-9]{1,18}$/.test(vendorId) || !/^[A-Z]{3}$/.test(currency))
+                    throw Error("Invalid vendor or currency.");
+                const earningsPane = document.createElement("section");
+                earningsPane.dataset.vendorEarnings = "true";
+                detail.append(earningsPane);
+                async function showEarnings(page = 1) {
+                    const query = new URLSearchParams({
+                        currency, page: String(page), per_page: "10",
+                    });
+                    const path = "commercial/vendors/" + vendorId + "/earnings?" + query;
+                    const result = await api(path, "GET", undefined, controller.signal);
+                    if (current !== epoch || !detail.isConnected) return;
+                    earningsPane.replaceChildren(
+                        translated("h4", "Itemized vendor earnings", "تفاصيل أرباح المشغل"),
+                        translated("p",
+                            "Test evidence only · no external bank settlement verified",
+                            "سجلات اختبار فقط · لا توجد تسوية بنكية مؤكدة"),
+                        text("p", "All-invoice availability, including adjustments: " +
+                            money(result.overall_available_minor, result.currency, result.minor_units)),
+                    );
+                    for (const invoice of result.data || []) {
+                        const row = document.createElement("article");
+                        row.className = "finance-row";
+                        row.dataset.earningsInvoiceId = String(invoice.invoice_id);
+                        const amount = (minor) =>
+                            money(minor, invoice.currency, invoice.minor_units);
+                        row.append(
+                            text("h5", invoice.invoice_number),
+                            text("p", amount(invoice.vendor_allocated_minor) + " · Vendor allocation / حصة المشغل"),
+                            text("p", amount(invoice.commission_minor) + " · Commission / العمولة"),
+                            text("p", amount(invoice.net_collected_minor) + " · Net collected / صافي التحصيل"),
+                            text("p", amount(invoice.pending_reserved_minor) + " · Pending settlement / تسوية معلقة"),
+                            text("p", amount(invoice.completed_settlement_minor) + " · Completed test settlement / تسوية اختبارية"),
+                            text("p", amount(invoice.available_minor) + " · Available or debt / المتاح أو الدين"),
+                        );
+                        earningsPane.append(row);
+                    }
+                    if (!(result.data || []).length)
+                        earningsPane.append(translated("p", "No invoices in this page.", "لا توجد فواتير في هذه الصفحة."));
+                    const pager = document.createElement("div");
+                    pager.className = "finance-pagination";
+                    pager.append(text("p", String(result.current_page) + " / " + String(result.last_page)));
+                    if (result.current_page > 1)
+                        button(pager, "Previous earnings", "الأرباح السابقة",
+                            () => showEarnings(result.current_page - 1));
+                    if (result.current_page < result.last_page)
+                        button(pager, "Next earnings", "الأرباح التالية",
+                            () => showEarnings(result.current_page + 1));
+                    earningsPane.append(pager);
+                    const link = translated("a", "Download earnings CSV", "تنزيل أرباح CSV");
+                    link.href = "/api/commercial/vendors/" + vendorId + "/earnings/export?" + query;
+                    link.download = "simulated-vendor-earnings-page.csv";
+                    earningsPane.append(link);
+                }
+                button(detail, "View itemized earnings", "عرض تفاصيل الأرباح",
+                    () => showEarnings(1));
+                const auditPane = document.createElement("section");
+                auditPane.dataset.financialIntegrity = "true";
+                detail.append(auditPane);
+                button(detail, "Inspect accessible ledger integrity", "فحص سلامة السجل المالي المتاح",
+                    async () => {
+                        // Admin scans all accessible invoices in this currency, not only
+                        // the selected vendor. Vendors remain scoped server-side.
+                        const query = new URLSearchParams({ currency, per_page: "10" });
+                        const report = await api("finance/reconciliation-audit?" + query,
+                            "GET", undefined, controller.signal);
+                        if (current !== epoch || !detail.isConnected) return;
+                        auditPane.replaceChildren(
+                            translated("h4", "Internal ledger integrity", "سلامة السجل المالي الداخلي"),
+                            translated("p",
+                                "Simulated source-only audit, not bank or PSP reconciliation",
+                                "تدقيق داخلي لسجلات اختبارية وليس مطابقة مصرفية"),
+                        );
+                        for (const item of report.data || []) {
+                            const row = document.createElement("article");
+                            row.className = "finance-row";
+                            row.dataset.auditInvoiceId = String(item.invoice_id);
+                            row.append(
+                                text("h5", item.invoice_number),
+                                text("p", item.status + " · " + (item.issues || []).join(", ")),
+                            );
+                            auditPane.append(row);
+                        }
+                        if (!(report.data || []).length)
+                            auditPane.append(translated("p", "No matching invoices.", "لا توجد فواتير مطابقة."));
+                        const link = translated("a", "Download integrity CSV", "تنزيل تقرير السلامة CSV");
+                        link.href = "/api/finance/reconciliation-audit/export?" + query;
+                        link.download = "simulated-finance-reconciliation-page.csv";
+                        auditPane.append(link);
+                    });
                 if (statement.eligible_to_request)
                     form(
                         detail,

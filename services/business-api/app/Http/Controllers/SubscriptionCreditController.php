@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\SubscriptionCreditService;
 use App\Services\Commercial\SubscriptionService;
 use Illuminate\Http\Request;
@@ -11,9 +12,14 @@ class SubscriptionCreditController extends Controller
 {
     public function index(Request $r, int $subscription, SubscriptionService $service)
     {
-        $service->access($r->user(), $subscription);
+        return DB::transaction(function () use ($r, $subscription, $service) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $service->access($actor, $subscription);
 
-        return DB::table('subscription_credits')->where('subscription_id', $subscription)->orderByDesc('id')->paginate(25);
+            return response()->json(DB::table('subscription_credits')
+                ->where('subscription_id', $subscription)->orderByDesc('id')->paginate(25))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function refund(Request $r, int $subscription, SubscriptionCreditService $service)
@@ -21,12 +27,29 @@ class SubscriptionCreditController extends Controller
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['invoice_id' => 'required|integer|min:1', 'amount_minor' => 'required|integer|between:1,2000000000', 'reason' => 'required|string|max:500', 'idempotency_key' => 'required|string|max:100']);
 
-        return response()->json($service->refund($r->user(), $subscription, (int) $v['invoice_id'], (int) $v['amount_minor'], $v['reason'], $v['idempotency_key']), 201);
+        // Do not hold a controller transaction across a provider call.
+        // The service revalidates this snapshot again in both durable
+        // transaction boundaries before preparing and issuing a test refund.
+        $actor = DB::transaction(function () use ($r) {
+            $current = app(CurrentFinanceReader::class)->requireCurrent($r);
+            abort_unless($current->role === 'admin', 403);
+
+            return $current;
+        }, 3);
+
+        return response()->json($service->refund($actor, $subscription,
+            (int) $v['invoice_id'], (int) $v['amount_minor'],
+            $v['reason'], $v['idempotency_key']), 201);
     }
 
     public function show(Request $r, int $credit, SubscriptionCreditService $service)
     {
-        return response()->json($service->detail($r->user(), $credit));
+        return DB::transaction(function () use ($r, $credit, $service) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+
+            return response()->json($service->detail($actor, $credit))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function stripeWebhook(Request $r, SubscriptionCreditService $service)

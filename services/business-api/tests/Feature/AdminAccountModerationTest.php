@@ -243,4 +243,30 @@ class AdminAccountModerationTest extends TestCase
         $this->getJson('/api/admin/accounts?account_status=unexpected')
             ->assertUnprocessable();
     }
+
+    public function test_stale_administrator_cannot_moderate_after_role_or_epoch_revocation(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $target = User::factory()->create(['role' => 'vendor']);
+        $route = '/api/admin/accounts/'.$target->id.'/moderate';
+
+        // Simulate authority changing after authentication but before the
+        // handler's transaction obtains its row lock.
+        $this->actingAs($admin, 'web');
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
+        $this->patchJson($route, $this->decision('suspended'))->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'role' => 'admin',
+            'auth_epoch' => 1,
+        ]);
+        $this->patchJson($route, $this->decision('suspended'))->assertStatus(409);
+
+        $this->assertDatabaseHas('users', ['id' => $target->id, 'account_status' => 'active']);
+        $this->assertDatabaseCount('admin_account_moderations', 0);
+        $this->assertDatabaseMissing('audit_events', [
+            'action' => 'admin.account.suspended',
+            'subject' => (string) $target->id,
+        ]);
+    }
 }

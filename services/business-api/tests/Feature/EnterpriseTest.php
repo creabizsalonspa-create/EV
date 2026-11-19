@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class EnterpriseTest extends TestCase
@@ -24,6 +25,149 @@ class EnterpriseTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'admin']))->putJson('/api/regions/SA', $v)->assertOk()->assertJsonPath('commerce_enabled', fn ($value) => $value === false || $value === 0);
         $v['minor_units'] = 8;
         $this->putJson('/api/regions/SA', $v)->assertUnprocessable();
+    }
+
+    public function test_customer_fleet_pages_are_stable_private_and_complete(): void
+    {
+        $owner = User::factory()->create();
+        $other = User::factory()->create();
+        $driver = User::factory()->create();
+
+        $fleetIds = [];
+        for ($i = 0; $i < 26; $i++) {
+            $fleetIds[] = Fleet::create([
+                'owner_id' => $owner->id,
+                'name' => 'Owner fleet '.$i,
+                'country' => 'AE',
+            ])->id;
+        }
+        $foreignFleet = Fleet::create([
+            'owner_id' => $other->id,
+            'name' => 'Other account fleet',
+            'country' => 'AE',
+        ]);
+        $active = FleetMember::create([
+            'fleet_id' => $foreignFleet->id,
+            'user_id' => $owner->id,
+            'status' => 'active',
+            'role' => 'driver',
+        ]);
+        // A fleet shared with the actor is visible, but no unrelated fleets.
+        $this->actingAs($owner)->getJson('/api/fleets?page=1')
+            ->assertOk()->assertJsonPath('total', 27)
+            ->assertJsonPath('current_page', 1)
+            ->assertJsonPath('last_page', 2)
+            ->assertJsonCount(25, 'data')
+            ->assertJsonPath('data.0.id', $foreignFleet->id)
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $page2 = $this->getJson('/api/fleets?page=2')
+            ->assertOk()->assertJsonPath('total', 27)
+            ->assertJsonPath('current_page', 2)
+            ->assertJsonCount(2, 'data')
+            ->json('data');
+        $this->assertSame($fleetIds[0], $page2[1]['id']);
+        $this->actingAs($driver)->getJson('/api/fleets?page=1')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($owner)->getJson('/api/fleets?page=0')
+            ->assertUnprocessable();
+        $this->actingAs($other)->deleteJson('/api/fleets/'.$foreignFleet->id.'/members/'.$active->id)
+            ->assertNoContent();
+        $this->actingAs($owner)->getJson('/api/fleets?page=1')
+            ->assertOk()->assertJsonPath('total', 26)
+            ->assertJsonPath('data.0.id', $fleetIds[25]);
+    }
+
+    public function test_customer_invitation_pagination_covers_more_than_twenty_five_without_cross_account_leaks(): void
+    {
+        $recipient = User::factory()->create();
+        $other = User::factory()->create();
+        $owner = User::factory()->create();
+        $invitationIds = [];
+        for ($i = 0; $i < 26; $i++) {
+            $fleet = Fleet::create([
+                'owner_id' => $owner->id,
+                'name' => 'Invitation fleet '.$i,
+                'country' => 'AE',
+            ]);
+            $invitationIds[] = FleetMember::create([
+                'fleet_id' => $fleet->id,
+                'user_id' => $recipient->id,
+                'status' => 'invited',
+                'role' => 'driver',
+            ])->id;
+        }
+        $this->actingAs($recipient)->getJson('/api/fleet-invitations?page=1')
+            ->assertOk()->assertJsonPath('total', 26)
+            ->assertJsonPath('last_page', 2)
+            ->assertJsonCount(25, 'data')
+            ->assertJsonPath('data.0.id', $invitationIds[25])
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->getJson('/api/fleet-invitations?page=2')
+            ->assertOk()->assertJsonPath('current_page', 2)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $invitationIds[0]);
+        $this->actingAs($other)->getJson('/api/fleet-invitations?page=1')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($recipient)->getJson('/api/fleet-invitations?page=-1')
+            ->assertUnprocessable();
+        $this->postJson('/api/fleet-invitations/'.$invitationIds[25].'/accept')
+            ->assertOk();
+        $this->getJson('/api/fleet-invitations?page=1')
+            ->assertOk()->assertJsonPath('total', 25)
+            ->assertJsonPath('data.0.id', $invitationIds[24]);
+    }
+
+    public function test_region_configuration_rechecks_live_admin_role_status_and_credentials(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin, 'web');
+        $payload = [
+            'currency' => 'XZZ',
+            'minor_units' => 2,
+            'timezone' => 'Asia/Dubai',
+            'tax_bps' => 1200,
+            'commerce_enabled' => true,
+        ];
+        $country = 'XZ';
+
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
+        $this->putJson('/api/regions/'.$country, $payload)->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'role' => 'admin',
+            'account_status' => 'suspended',
+        ]);
+        $this->putJson('/api/regions/'.$country, $payload)->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'account_status' => 'active',
+            'auth_epoch' => 1,
+        ]);
+        $this->putJson('/api/regions/'.$country, $payload)->assertStatus(409);
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'auth_epoch' => 0,
+            'password' => Hash::make('rotated-owner-password'),
+        ]);
+        $this->putJson('/api/regions/'.$country, $payload)->assertStatus(409);
+        $this->assertDatabaseMissing('regions', ['country' => $country]);
+        $this->assertDatabaseMissing('audit_events', [
+            'action' => 'region.configured',
+            'subject' => $country,
+        ]);
+
+        $freshAdmin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($freshAdmin, 'web')
+            ->putJson('/api/regions/'.$country, $payload)
+            ->assertOk()->assertJsonPath('country', $country)
+            ->assertJsonPath('currency', 'XZZ')
+            ->assertJsonPath('commerce_enabled', fn ($enabled) => $enabled === false || $enabled === 0);
+
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $freshAdmin->id,
+            'action' => 'region.configured',
+            'subject' => $country,
+        ]);
     }
 
     public function test_invitation_requires_recipient_acceptance_and_tenant_privacy(): void
@@ -43,6 +187,57 @@ class EnterpriseTest extends TestCase
         $this->getJson('/api/fleets/'.$f->id)->assertOk()->assertJsonCount(0, 'members');
         $this->postJson('/api/fleets/'.$f->id.'/invitations', ['email' => $outsider->email])->assertNotFound();
         $this->postJson('/api/fleets/'.$f->id.'/cost-centers', ['code' => 'OPS', 'name' => 'Operations'])->assertNotFound();
+    }
+
+    public function test_customer_can_assign_owned_vehicle_from_second_paginated_garage_page(): void
+    {
+        $owner = User::factory()->create();
+        $other = User::factory()->create();
+        $fleet = Fleet::create([
+            'owner_id' => $owner->id,
+            'name' => 'Garage pagination fleet',
+            'country' => 'AE',
+        ]);
+        $center = CostCenter::create([
+            'fleet_id' => $fleet->id,
+            'code' => 'LONG',
+            'name' => 'Long garage',
+        ]);
+        $cars = [];
+        for ($i = 0; $i < 26; $i++) {
+            $cars[] = Vehicle::create([
+                'user_id' => $owner->id,
+                'name' => 'Private EV '.$i,
+                'connector_type' => 'CCS2',
+            ]);
+        }
+        $foreignCar = Vehicle::create([
+            'user_id' => $other->id,
+            'name' => 'Foreign EV',
+            'connector_type' => 'CCS2',
+        ]);
+
+        $this->actingAs($owner)->getJson('/api/vehicles?page=1')
+            ->assertOk()->assertJsonCount(25, 'data')
+            ->assertJsonPath('total', 26);
+        $this->getJson('/api/vehicles?page=2')
+            ->assertOk()->assertJsonPath('current_page', 2)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $cars[25]->id);
+        $this->postJson('/api/fleets/'.$fleet->id.'/vehicles', [
+            'vehicle_id' => $cars[25]->id,
+            'cost_center_id' => $center->id,
+        ])->assertCreated();
+        $this->getJson('/api/fleets/'.$fleet->id)
+            ->assertOk()
+            ->assertJsonPath('vehicles.0.vehicle_id', $cars[25]->id);
+        $this->postJson('/api/fleets/'.$fleet->id.'/vehicles', [
+            'vehicle_id' => $foreignCar->id,
+            'cost_center_id' => $center->id,
+        ])->assertNotFound();
+        $this->actingAs($other)->getJson('/api/vehicles?page=2')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonCount(0, 'data');
     }
 
     public function test_vehicle_assignment_requires_own_vehicle_and_same_fleet_cost_center_and_revocation_removes_access(): void

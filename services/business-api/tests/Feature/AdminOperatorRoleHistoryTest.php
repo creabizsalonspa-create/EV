@@ -126,4 +126,19 @@ class AdminOperatorRoleHistoryTest extends TestCase
         $this->assertDatabaseCount('operator_role_changes', 0);
         $this->assertDatabaseCount('audit_events', 0);
     }
+
+    public function test_private_operator_role_history_rejects_stale_admin_and_never_audits_denied_read(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin, 'web');
+        DB::table('users')->where('id', $admin->id)->update(['account_status' => 'suspended']);
+        $this->getJson('/api/admin/operator-role-changes')->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'account_status' => 'active',
+            'auth_epoch' => 1,
+        ]);
+        $this->getJson('/api/admin/operator-role-changes')->assertStatus(409);
+        $this->assertDatabaseCount('audit_events', 0);
+    }
 }

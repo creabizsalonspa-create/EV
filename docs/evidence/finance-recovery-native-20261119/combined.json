@@ -1,0 +1,66 @@
+{
+  "status": "LOCAL_VERIFIED_EXACT_HEAD_HOSTED_PENDING",
+  "source_parent": "34b22b3d7c53d9bd10b15a9d89ba03253a8bc8aa",
+  "retained_heads": {
+    "finance_repair": "f31efe80",
+    "ocpi": "882c8f5c",
+    "native_map": "1ad4809e"
+  },
+  "verification": {
+    "laravel": {
+      "passed": 1407,
+      "assertions": 27311,
+      "skipped": 1
+    },
+    "postgres_connectors": {
+      "passed": 525,
+      "assertions": 7320
+    },
+    "postgres_connector_process_concurrency": {
+      "passed": 30,
+      "assertions": 448
+    },
+    "postgres_precision": {
+      "passed": 2,
+      "assertions": 13
+    },
+    "postgres_finance": {
+      "cases": 434,
+      "assertions": 10943,
+      "skipped": 1
+    },
+    "postgres_full_process_and_migration_cases": {
+      "passed": 97,
+      "assertions": 1430
+    },
+    "flutter": {
+      "passed": 594,
+      "explicit_fixture_skips": 34
+    },
+    "flutter_analysis": "clean",
+    "pint_files": 802,
+    "actual_native_laravel": "passed Customer/owning Vendor/unrelated Vendor identities; mock sources only",
+    "actual_browser_laravel": "passed EN/AR source reports, bounded CSV and private Arabic PDF"
+  },
+  "tested_source_sha256": {
+    "services/business-api/app/Services/Commercial/Payments/GatewayService.php": "d1d40674e7000a19a2d0a72b0aecaac7236aeb1066179a861297b0cb3d97be25",
+    "services/business-api/tests/Fixtures/native-financial-analytics.php": "eca7f3ae577bc00cdd073bf12572c93202ca5a4f49a6a56fd581a5f7528abdf2",
+    "apps/mobile/lib/vendor_finance.dart": "784f5961c01f2ab839915b938e95677ee713d33ec0f2e5ba91775356cad8bbaf",
+    "apps/mobile/test/vendor_earnings_test.dart": "53f87553f04132b2582a45d53eb61e35519a15ffa2310b6d5663175d5f6d3a13",
+    "apps/mobile/test/live_financial_analytics_test.dart": "a6d0f05f65a7f8ea0be82f0bdebfa05940140c12c498cf88f29ce58980783419",
+    "tests/native-financial-analytics.cjs": "befdb69de0d554c51e0393cf29f7f37edee723c425310b9206ea38864c23dcbc"
+  },
+  "local_log_sha256": {
+    "laravel": "091d513e12c44f76be390094f54e72c53142423c1b8468018c2bb4254cb65cbb",
+    "connectors": "4952ef61c50097c1c5b22df7cad9114b2884faab7f0ed510afa5f4852d01b65d",
+    "finance": "6ca41b6d4bf0c76558cf2009b6b99984c70a9106033462a5dfa53b771787e68b",
+    "flutter": "43965442bc6fdbf351740059871cf99726afd4a78d5f42f17f50adf5effd2126",
+    "analyze": "70609ebf8f7eab180745b0617fd8c4ab2b4cf8e09a38664f20cf36b44b31bf2c",
+    "pint-final": "0059d27c5ad51f6c5e1ce451423fa1cf2f6314db6a6f945c5a239321d5d1479d",
+    "native-live": "bbcf57a81eb214f85dbbbe7b194efd8e70a38462fe37783e4482df27a1d8b778",
+    "analytics-web": "d793d46dd756e49bf136095a4bba0945cc0a1cfe1056b29b65a558ba69d251f2"
+  },
+  "production_accepted": false,
+  "tracker_credit_added": 0,
+  "canonical_merge_performed": false
+}

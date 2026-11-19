@@ -105,6 +105,71 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    #[DataProvider('protocols')]
+    public function test_three_page_250_status_observations_preserve_fault_recovery_and_notice_idempotency(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $first = $this->events(1, 101);
+        foreach ($first as &$row) {
+            $row['connectorStatus'] = 'Available';
+            $row['errorCode'] = 'NoError';
+        }
+        unset($row);
+        $this->source($f, $first, newest: 250);
+        $firstResult = app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertSame(100, $firstResult['events']);
+        $this->assertSame('catching_up', $firstResult['state']);
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 100, 'source_station_id' => 42,
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 100);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+
+        $second = $this->events(101, 201);
+        foreach ($second as &$row) {
+            $row['connectorStatus'] = $row['id'] === 150 ? 'Faulted' : 'Available';
+            $row['errorCode'] = $row['id'] === 150 ? 'GroundFailure' : 'NoError';
+        }
+        unset($row);
+        $this->source($f, $second, newest: 250);
+        $secondResult = (new ContinuousFaultObserver)->observe($f['binding']);
+        $this->assertSame(100, $secondResult['events']);
+        $this->assertSame('catching_up', $secondResult['state']);
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 200, 'source_station_id' => 42,
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 200);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+
+        $third = $this->events(201, 250);
+        foreach ($third as &$row) {
+            $row['connectorStatus'] = $row['id'] === 220 ? 'Faulted' : 'Available';
+            $row['errorCode'] = $row['id'] === 220 ? 'GroundFailure' : 'NoError';
+        }
+        unset($row);
+        $this->source($f, $third, newest: 250);
+        $thirdResult = (new ContinuousFaultObserver)->observe($f['binding']);
+        $this->assertSame(50, $thirdResult['events']);
+        $this->assertSame('caught_up', $thirdResult['state']);
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 250, 'source_station_id' => 42, 'state' => 'caught_up',
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 250);
+        $this->assertDatabaseCount('charging_fault_alerts', 2);
+        $this->assertDatabaseCount('inbox_notifications', 4);
+        $this->assertSame(2, DB::table('charging_fault_alerts')->whereNotNull('recovery_observation_id')->count());
+        $this->assertSame(2, InboxNotification::where('kind', 'charging.fault.simulated')->count());
+        $this->assertSame(2, InboxNotification::where('kind', 'charging.fault.recovered.simulated')->count());
+
+        $this->source($f, [], newest: 250);
+        $this->assertSame(0, app(ContinuousFaultObserver::class)->observe($f['binding'])['events']);
+        $this->assertDatabaseCount('charging_status_observations', 250);
+        $this->assertDatabaseCount('inbox_notifications', 4);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_unparseable_source_timestamp_returns_review_required_without_event_loss(): void
     {
         $f = $this->fixture();
@@ -135,6 +200,77 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 2]);
         $this->assertDatabaseCount('charging_status_observations', 2);
         $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public static function malformedSourceStatusProjections(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['nonlist_station', 'missing_station_id', 'nonlist_status_events', 'nonlist_newest', 'missing_newest_id'] as $kind) {
+                $cases[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('malformedSourceStatusProjections')]
+    public function test_malformed_ocpp_status_projection_cannot_hide_faults_and_recovers_after_review(string $protocol, string $kind): void
+    {
+        $f = $this->fixture($protocol);
+        $station = [['id' => 42, 'protocol' => $protocol]];
+        $events = $this->events(1, 2);
+        $newest = [['id' => 2]];
+        if ($kind === 'nonlist_station') {
+            $station = ['station' => $station[0]];
+        }
+        if ($kind === 'missing_station_id') {
+            $station = [['protocol' => $protocol]];
+        }
+        if ($kind === 'nonlist_status_events') {
+            $events = ['observation' => $events[0]];
+        }
+        if ($kind === 'nonlist_newest') {
+            $events = [];
+            $newest = ['observation' => ['id' => 2]];
+        }
+        if ($kind === 'missing_newest_id') {
+            $events = [];
+            $newest = [[]];
+        }
+
+        Http::fakeSequence()
+            ->push(['data' => ['ChargingStations' => $station]])
+            ->push(['data' => ['StatusNotifications' => $events, 'newest' => $newest]]);
+
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Malformed source projection was accepted as an observed status.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 0, 'state' => 'requires_review',
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.monitor.requires_review.simulated')->count());
+
+        // Independent confirmation of the original source identity and full
+        // event page must be required before any cursor or alert progresses.
+        $this->source($f, $this->events(1, 2), newest: 2);
+        $result = app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertSame('caught_up', $result['state']);
+        $this->assertSame(2, $result['events']);
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 2, 'source_station_id' => 42, 'state' => 'caught_up',
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public static function invalidOcppObservations(): array
@@ -423,6 +559,81 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('charging_status_observations', 0);
         $this->assertDatabaseCount('charging_fault_alerts', 0);
         $this->assertDatabaseCount('inbox_notifications', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_status_source_clock_regression_never_advances_fault_cursor_across_polls(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        // A short upstream page can be genuine but is not "caught up" if
+        // its independently reported newest event is still ahead.
+        $this->source($f, $this->events(1, 1), newest: 2);
+        $initial = app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertSame('catching_up', $initial['state']);
+        $this->assertSame(1, $initial['events']);
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 1, 'state' => 'catching_up',
+        ]);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertDatabaseCount('charging_status_observations', 1);
+
+        $bad = $this->events(2, 2);
+        // The later event ID falsely advertises an earlier clock and an
+        // "Available" status. Do not let it recover the prior fault.
+        $bad[0]['timestamp'] = now()->subSeconds(1001)->toISOString();
+        $this->source($f, $bad, newest: 2);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Cross-page status timestamp rollback was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 1, 'state' => 'requires_review',
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 1);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.fault.simulated')->count());
+        $this->assertSame(0, InboxNotification::where('kind', 'charging.fault.recovered.simulated')->count());
+
+        $this->source($f, $this->events(2, 2), newest: 2);
+        $result = app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertSame('caught_up', $result['state']);
+        $this->assertSame(1, $result['events']);
+        $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 2]);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.fault.recovered.simulated')->count());
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.monitor.resumed.simulated')->count());
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_status_source_clock_regression_within_one_page_requires_review(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $invalid = $this->events(1, 2);
+        $invalid[1]['timestamp'] = now()->subSeconds(1001)->toISOString();
+        $this->source($f, $invalid, newest: 2);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Within-page source status clock rollback was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 0, 'state' => 'requires_review',
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->source($f, $this->events(1, 2), newest: 2);
+        $this->assertSame('caught_up', app(ContinuousFaultObserver::class)->observe($f['binding'])['state']);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.fault.recovered.simulated')->count());
+        $this->assertDatabaseCount('charger_commands', 0);
     }
 
     public function test_disabled_or_production_worker_cannot_read_source(): void

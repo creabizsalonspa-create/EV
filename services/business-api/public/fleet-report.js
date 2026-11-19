@@ -34,20 +34,26 @@ window.EvFleetReport = (() => {
         roots.add(host);
         const target=host, identity=serial, form=document.createElement('form'), name=document.createElement('input'), country=document.createElement('input');
         name.type='search';name.maxLength=80;country.maxLength=2;
-        for(const [input,en,ar]of[[name,'Fleet name (literal search)','اسم الأسطول (بحث حرفي)'],[country,'Country code (optional)','رمز الدولة (اختياري)']]){const label=text('label',en,ar);label.append(input);form.append(label);}
+        const ownerId=document.createElement('input');ownerId.type='number';ownerId.min='1';ownerId.step='1';
+        for(const [input,en,ar]of[[name,'Fleet name (literal search)','اسم الأسطول (بحث حرفي)'],[country,'Country code (optional)','رمز الدولة (اختياري)'],[ownerId,'Owner account ID (optional)','معرف مالك الأسطول (اختياري)']]){const label=text('label',en,ar);label.append(input);form.append(label);}
         const search=text('button','Search fleets','بحث الأساطيل');search.type='submit';form.append(search);
         const rows=document.createElement('div'), slot=document.createElement('div');slot.dataset.fleetReportSlot='';
         let turn=0;
         const openFleet=id=>{if(identity!==serial||document.hidden)return;slot.replaceChildren();mount(slot,id);};
         async function load(page=1,applied=null){
             if(identity!==serial||document.hidden)return;
-            const run=++turn, filters=applied||{q:name.value.trim(),country:country.value.trim().toUpperCase()}, params=new URLSearchParams({...filters,page:String(page)});
+            const run=++turn, filters=applied||{q:name.value.trim(),country:country.value.trim().toUpperCase(),include:'owner_inventory'};
+            if(!applied&&ownerId.value.trim())filters.owner_id=ownerId.value.trim();
+            const params=new URLSearchParams({...filters,page:String(page)});
             rows.replaceChildren();search.disabled=true;
             try{
                 const d=await api(`admin/fleets?${params}`);
                 if(identity!==serial||run!==turn||document.hidden||!target.isConnected)return;
                 rows.append(text('p',`Fleet results: ${d.total}`,`نتائج الأساطيل: ${d.total}`));
-                for(const fleet of d.data){const card=document.createElement('article'),open=raw('button',fleet.name);open.type='button';open.onclick=()=>openFleet(fleet.id);card.append(open,raw('p',`${fleet.country} · #${fleet.id}`));rows.append(card);}
+                for(const fleet of d.data){const card=document.createElement('article'),open=raw('button',fleet.name);open.type='button';open.onclick=()=>openFleet(fleet.id);card.append(open,raw('p',`${fleet.country} · #${fleet.id}`));
+                    if(fleet.owner){const owner=text('p','Fleet owner','مالك الأسطول');owner.append(raw('span',`: ${fleet.owner.name} · ${fleet.owner.email} · #${fleet.owner.id}`));card.append(owner);}
+                    if(fleet.inventory){const counts=text('p','Active members / vehicles / cost centers','الأعضاء النشطون / المركبات / مراكز التكلفة');counts.append(raw('span',`: ${fleet.inventory.active_members} / ${fleet.inventory.assigned_vehicles} / ${fleet.inventory.cost_centers}`));card.append(counts);}
+                    rows.append(card);}
                 for(const [enabled,pageNumber,en,ar]of[[d.current_page>1,d.current_page-1,'Previous','السابق'],[d.current_page<d.last_page,d.current_page+1,'Next','التالي']]){if(!enabled)continue;const button=text('button',en,ar);button.type='button';button.onclick=()=>load(pageNumber,filters);rows.append(button);}
             }catch(error){if(identity===serial&&run===turn&&!document.hidden)rows.replaceChildren(text('p','Fleet directory unavailable. Check filters and current access, then search again.','دليل الأساطيل غير متاح. تحقق من المرشحات والصلاحية الحالية ثم ابحث مجدداً.'));}
             finally{if(identity===serial&&run===turn)search.disabled=false;}

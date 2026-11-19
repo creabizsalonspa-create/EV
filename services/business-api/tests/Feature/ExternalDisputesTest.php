@@ -15,6 +15,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -101,6 +102,52 @@ class ExternalDisputesTest extends TestCase
         $this->actingAs($this->vendor)->postJson('/dispute-test/commercial/external-disputes/'.$id.'/reconcile')->assertForbidden();
         $this->assertDatabaseCount('finance_payments', 1);
         $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
+    public function test_revoked_customer_vendor_and_admin_cannot_read_private_provider_dispute_or_triage(): void
+    {
+        $dispute = $this->providerEvent('evt_CurrentDisputeSecurity')
+            ->assertOk()->json('dispute_id');
+        $base = '/dispute-test/commercial/external-disputes';
+        $before = DB::table('external_dispute_events')->count();
+        foreach ([$this->user, $this->vendor, $this->admin] as $reader) {
+            $record = DB::table('users')->where('id', $reader->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $restore = [
+                'role' => $record->role,
+                'account_status' => $record->account_status,
+                'auth_epoch' => $record->auth_epoch,
+                'password' => $record->password,
+            ];
+            $this->actingAs($reader);
+            $this->getJson($base)->assertOk()->assertJsonPath('total', 1);
+            $this->getJson($base.'/'.$dispute)->assertOk();
+
+            foreach ([
+                ['role' => $record->role === 'vendor' ? 'customer' : 'vendor'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $record->auth_epoch + 1],
+                ['password' => Hash::make('revoked-private-dispute-reader')],
+            ] as $mutation) {
+                DB::table('users')->where('id', $reader->id)->update($mutation);
+                $this->getJson($base)->assertConflict();
+                $this->getJson($base.'/'.$dispute)->assertConflict();
+                if ($record->role === 'admin') {
+                    $this->getJson($base.'/deadline-queue')->assertConflict();
+                }
+                if ($record->role === 'admin') {
+                    $this->postJson($base.'/'.$dispute.'/reconcile')->assertConflict();
+                    $this->postJson($base.'/'.$dispute.'/evidence', [
+                        'submit' => false,
+                        'idempotency_key' => 'must-not-submit-revoked',
+                        'evidence' => ['uncategorized_text' => 'Private dispute review'],
+                    ])->assertConflict();
+                }
+                DB::table('users')->where('id', $reader->id)->update($restore);
+            }
+        }
+        $this->assertSame($before, DB::table('external_dispute_events')->count());
+        $this->assertDatabaseCount('external_disputes', 1);
     }
 
     public function test_changed_event_and_wrong_charge_currency_fail_closed(): void

@@ -39,12 +39,46 @@ class ConfigurationProbe
         return $r->json('data');
     }
 
+    /**
+     * Explicit source projection contract for a correlated configuration
+     * request/reply. The filters in a GraphQL query do not justify trusting
+     * an absent, malformed or unexpectedly typed response object.
+     */
+    public function messages(array $data, bool $reply): array
+    {
+        $rows = $data['OCPPMessages'] ?? null;
+        abort_unless(is_array($rows) && array_is_list($rows) && count($rows) <= 2, 503, 'Malformed source command messages.');
+        foreach ($rows as $row) {
+            abort_unless(is_array($row) && is_int($row['id'] ?? null) && $row['id'] > 0
+                && $row['id'] <= 2147483647 && is_string($row['createdAt'] ?? null), 503, 'Malformed source command identity.');
+            SourceStatusTime::parse($row['createdAt'], 300);
+            if ($reply) {
+                abort_unless(is_int($row['type'] ?? null) && in_array($row['type'], [3, 4], true)
+                    && array_key_exists('payload', $row)
+                    && ($row['type'] !== 3 || is_array($row['payload'])), 503, 'Malformed source command reply.');
+            }
+        }
+
+        return $rows;
+    }
+
     public function station(object $binding, bool $online = true): int
     {
-        $rows = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol}}', ['name' => $binding->identifier])['ChargingStations'];
-        abort_unless(count($rows) === 1 && in_array($rows[0]['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true) && (! $online || $rows[0]['isOnline'] === true), 409);
+        $data = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol}}', ['name' => $binding->identifier]);
+        $rows = $data['ChargingStations'] ?? null;
+        // A malformed Hasura projection must never become an online charger
+        // identity. Fail closed before retrieving an operations token or
+        // dispatching even a simulator-only read command.
+        abort_unless(is_array($rows) && array_is_list($rows) && count($rows) <= 2, 503, 'Malformed source station projection.');
+        abort_unless(count($rows) === 1, 409, 'Source station identity is absent or ambiguous.');
+        $station = $rows[0];
+        abort_unless(is_array($station) && is_int($station['id'] ?? null) && $station['id'] > 0
+            && is_string($station['protocol'] ?? null) && is_bool($station['isOnline'] ?? null),
+            503, 'Malformed source station identity.');
+        abort_unless(in_array($station['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true)
+            && (! $online || $station['isOnline'] === true), 409, 'Source station protocol or connection is not ready.');
 
-        return $rows[0]['id'];
+        return $station['id'];
     }
 
     public function serviceToken(): string
@@ -70,13 +104,34 @@ class ConfigurationProbe
 
     public function snapshot(string $protocol, array $reply): array
     {
-        $items = $reply[$protocol === '1.6' ? 'configurationKey' : 'getVariableResult'] ?? [];
+        $field = $protocol === '1.6' ? 'configurationKey' : 'getVariableResult';
+        // An absent optional list may indicate unsupported values; an
+        // explicitly null or malformed list is not device evidence.
+        $items = array_key_exists($field, $reply) ? $reply[$field] : [];
         if (! is_array($items) || ! array_is_list($items) || count($items) > 50) {
             throw new RuntimeException('Invalid configuration reply.');
         }
-        $unknown = $reply['unknownKey'] ?? [];
-        if (! is_array($unknown) || ! array_is_list($unknown)) {
+        $unknown = array_key_exists('unknownKey', $reply) ? $reply['unknownKey'] : [];
+        if (! is_array($unknown) || ! array_is_list($unknown) || count($unknown) > 50) {
             throw new RuntimeException('Invalid configuration reply.');
+        }
+        foreach ($unknown as $key) {
+            if (! is_string($key) || strlen($key) > 120) {
+                throw new RuntimeException('Invalid configuration reply.');
+            }
+        }
+        foreach ($items as $item) {
+            if (! is_array($item) || ! is_array($item[$protocol === '1.6' ? 'key' : 'component'] ?? null)
+                && $protocol !== '1.6') {
+                throw new RuntimeException('Invalid configuration reply.');
+            }
+            if ($protocol === '1.6' && ! is_string($item['key'] ?? null)) {
+                throw new RuntimeException('Invalid configuration reply.');
+            }
+            if ($protocol === '2.0.1' && (! is_string($item['component']['name'] ?? null)
+                || ! is_string($item['variable']['name'] ?? null))) {
+                throw new RuntimeException('Invalid configuration reply.');
+            }
         }
         $rows = [];
         foreach ($this->fields($protocol) as $key) {

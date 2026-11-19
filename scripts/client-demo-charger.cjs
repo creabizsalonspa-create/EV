@@ -164,11 +164,14 @@ async function main() {
     status("charging");
   }
   async function meter(final = false) {
-    const wh = Math.floor((Date.now() - active.lastSample) / 1000) * 5;
+    // Synthetic 18 kW load, sampled in exact 125 Wh / 25-second quanta.
+    // Citrine derives kWh with binary arithmetic: eighth-kWh registers keep
+    // that derived total exact without rounding or relaxing source admission.
+    const quanta = Math.floor((Date.now() - active.lastSample) / 25000);
+    const wh = quanta * 125;
     if (wh > 0) {
       journal.meter_wh += wh;
-      active.lastSample +=
-        Math.floor((Date.now() - active.lastSample) / 1000) * 1000;
+      active.lastSample += quanta * 25000;
     }
     // Persist before every transaction write. A crash/timeout must never replay it.
     mark(final ? "stopping" : "charging");

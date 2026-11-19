@@ -118,6 +118,28 @@ class CsmsSessionBridgeTest extends TestCase
 
     }
 
+    public function test_signed_ocpp16_events_reject_transaction_identity_aliases_before_state_or_billing(): void
+    {
+        [, $customer, , $reservation] = $this->fixture('1.6');
+        $this->actingAs($customer)->postJson('/api/reservations/'.$reservation->id.'/csms-start')
+            ->assertAccepted();
+        $session = ChargingSession::firstOrFail();
+        $base = $this->event($session->id, 'started', 0, 1000);
+        foreach (['00123', '+123', '2147483648', '-1', '1e2'] as $alias) {
+            $this->send(array_replace($base, ['transaction_id' => $alias]))
+                ->assertUnprocessable();
+            $this->assertSame('pending_start', $session->fresh()->status);
+            $this->assertDatabaseCount('csms_inbox_events', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        }
+        $this->send($base)->assertOk()->assertJsonPath('status', 'charging');
+        $this->assertDatabaseHas('csms_session_links', [
+            'charging_session_id' => $session->id, 'transaction_id' => '123',
+        ]);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_signature_replay_window_binding_and_transaction_conflicts_are_rejected(): void
     {
         [$v,$u,$s,$r] = $this->fixture();

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AccountPrivacyRequest;
 use App\Models\User;
+use App\Security\AdminTransactionAuthority;
 use App\Services\Privacy\AccountDataExport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -127,60 +128,62 @@ class AccountPrivacyController extends Controller
 
     public function adminIndex(Request $request)
     {
-        $actor = $this->admin($request);
-        $filters = $request->validate([
-            'status' => 'sometimes|required|in:pending,reviewing,blocked_external,closed_review,withdrawn',
-            'kind' => 'sometimes|required|in:access,correction,erasure',
-            'user_id' => 'sometimes|integer|min:1',
-            'page' => 'sometimes|integer|min:1|max:100000',
-        ]);
-        $query = AccountPrivacyRequest::query()->select([
-            'id', 'user_id', 'kind', 'status', 'request_details_encrypted',
-            'reviewed_by', 'reviewed_at', 'created_at',
-        ]);
-        foreach (['status', 'kind', 'user_id'] as $filter) {
-            if (isset($filters[$filter])) {
-                $query->where($filter, $filters[$filter]);
+        return DB::transaction(function () use ($request) {
+            $actor = AdminTransactionAuthority::requireCurrent($this->admin($request));
+            $filters = $request->validate([
+                'status' => 'sometimes|required|in:pending,reviewing,blocked_external,closed_review,withdrawn',
+                'kind' => 'sometimes|required|in:access,correction,erasure',
+                'user_id' => 'sometimes|integer|min:1',
+                'page' => 'sometimes|integer|min:1|max:100000',
+            ]);
+            $query = AccountPrivacyRequest::query()->select([
+                'id', 'user_id', 'kind', 'status', 'request_details_encrypted',
+                'reviewed_by', 'reviewed_at', 'created_at',
+            ]);
+            foreach (['status', 'kind', 'user_id'] as $filter) {
+                if (isset($filters[$filter])) {
+                    $query->where($filter, $filters[$filter]);
+                }
             }
-        }
-        $page = $query->orderByDesc('id')->paginate(25);
-        $actors = User::whereIn('id', $page->getCollection()->pluck('user_id'))
-            ->get(['id', 'name', 'email', 'account_status'])->keyBy('id');
+            $page = $query->orderByDesc('id')->paginate(25);
+            $actors = User::whereIn('id', $page->getCollection()->pluck('user_id'))
+                ->get(['id', 'name', 'email', 'account_status'])->keyBy('id');
 
-        $view = $page->through(function (AccountPrivacyRequest $case) use ($actors) {
-            $owner = $actors->get($case->user_id);
+            $view = $page->through(function (AccountPrivacyRequest $case) use ($actors) {
+                $owner = $actors->get($case->user_id);
 
-            return [
-                'id' => $case->id,
-                'kind' => $case->kind,
-                'status' => $case->status,
-                'details' => Crypt::decryptString($case->request_details_encrypted),
-                'owner' => $owner ? [
-                    'id' => $owner->id,
-                    'name' => $owner->name,
-                    'email' => $owner->email,
-                    'account_status' => $owner->account_status,
-                ] : null,
-                'copy' => app(AccountDataExport::class)->metadata($case->id),
-                'reviewed_by' => $case->reviewed_by,
-                'reviewed_at' => $case->reviewed_at,
-                'created_at' => $case->created_at,
-                'manual_processing_required' => true,
-                'automated_erasure_performed' => false,
-            ];
+                return [
+                    'id' => $case->id,
+                    'kind' => $case->kind,
+                    'status' => $case->status,
+                    'details' => Crypt::decryptString($case->request_details_encrypted),
+                    'owner' => $owner ? [
+                        'id' => $owner->id,
+                        'name' => $owner->name,
+                        'email' => $owner->email,
+                        'account_status' => $owner->account_status,
+                    ] : null,
+                    'copy' => app(AccountDataExport::class)->metadata($case->id),
+                    'reviewed_by' => $case->reviewed_by,
+                    'reviewed_at' => $case->reviewed_at,
+                    'created_at' => $case->created_at,
+                    'manual_processing_required' => true,
+                    'automated_erasure_performed' => false,
+                ];
+            });
+
+            // Decrypting private request details is a privileged data access.
+            // Audit who viewed the queue, not the customer's plaintext reason.
+            DB::table('audit_events')->insert([
+                'actor_id' => $actor->id,
+                'action' => 'admin.private_list.privacy_viewed',
+                'subject' => isset($filters['user_id'])
+                    ? 'user:'.$filters['user_id'] : 'all',
+                'created_at' => now(),
+            ]);
+
+            return response()->json($view)->header('Cache-Control', 'no-store, private');
         });
-
-        // Decrypting private request details is a privileged data access.
-        // Audit who viewed the queue, not the customer's plaintext reason.
-        DB::table('audit_events')->insert([
-            'actor_id' => $actor->id,
-            'action' => 'admin.private_list.privacy_viewed',
-            'subject' => isset($filters['user_id'])
-                ? 'user:'.$filters['user_id'] : 'all',
-            'created_at' => now(),
-        ]);
-
-        return response()->json($view)->header('Cache-Control', 'no-store, private');
     }
 
     /**
@@ -189,29 +192,31 @@ class AccountPrivacyController extends Controller
      */
     public function adminHistory(Request $request, AccountPrivacyRequest $privacyCase)
     {
-        $this->admin($request);
+        return DB::transaction(function () use ($request, $privacyCase) {
+            $actor = AdminTransactionAuthority::requireCurrent($this->admin($request));
 
-        $page = DB::table('account_privacy_request_reviews')
-            ->where('privacy_request_id', $privacyCase->id)
-            ->orderByDesc('id')
-            ->paginate(25);
+            $page = DB::table('account_privacy_request_reviews')
+                ->where('privacy_request_id', $privacyCase->id)
+                ->orderByDesc('id')
+                ->paginate(25);
 
-        $history = $page->through(fn ($event) => [
-            'id' => (int) $event->id,
-            'reviewer_id' => (int) $event->reviewer_id,
-            'from_status' => $event->from_status,
-            'to_status' => $event->to_status,
-            'note' => Crypt::decryptString($event->note_encrypted),
-            'created_at' => $event->created_at,
-        ]);
-        DB::table('audit_events')->insert([
-            'actor_id' => $request->user()->id,
-            'action' => 'admin.private_history.privacy_viewed',
-            'subject' => (string) $privacyCase->id,
-            'created_at' => now(),
-        ]);
+            $history = $page->through(fn ($event) => [
+                'id' => (int) $event->id,
+                'reviewer_id' => (int) $event->reviewer_id,
+                'from_status' => $event->from_status,
+                'to_status' => $event->to_status,
+                'note' => Crypt::decryptString($event->note_encrypted),
+                'created_at' => $event->created_at,
+            ]);
+            DB::table('audit_events')->insert([
+                'actor_id' => $actor->id,
+                'action' => 'admin.private_history.privacy_viewed',
+                'subject' => (string) $privacyCase->id,
+                'created_at' => now(),
+            ]);
 
-        return response()->json($history)->header('Cache-Control', 'no-store, private');
+            return response()->json($history)->header('Cache-Control', 'no-store, private');
+        });
     }
 
     public function review(Request $request, AccountPrivacyRequest $privacyCase)
@@ -231,6 +236,9 @@ class AccountPrivacyController extends Controller
             'A separate administrator must review their own request.');
 
         return DB::transaction(function () use ($actor, $privacyCase, $input) {
+            // Protect this irreversible, encrypted reviewer timeline against
+            // role demotion or session rotation after request authentication.
+            $actor = AdminTransactionAuthority::requireCurrent($actor);
             $case = AccountPrivacyRequest::whereKey($privacyCase->id)
                 ->lockForUpdate()->firstOrFail();
             abort_if($case->user_id === $actor->id, 403);

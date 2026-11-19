@@ -1,0 +1,77 @@
+{
+  "status": "LOCAL_VERIFIED_CURRENT_HOSTED_HEAD_PENDING",
+  "original_source_preserved": "fd5f9a750b78a52054a3189d4f67896f526252d9",
+  "code_checkpoint": "e380d970eaf59138a2edda1ac49fcbc6696da5ff",
+  "normal_merge_ancestry": [
+    "5163367fc0d6aac775a7389b62db5ed707b27d3b",
+    "7a46e8687f2447a8cda47b4711488850d781f668"
+  ],
+  "laravel_full": {
+    "passed": 1712,
+    "assertions": 31237,
+    "postgres_only_skipped": 1
+  },
+  "final_notification_sqlite": {
+    "passed": 27,
+    "assertions": 609
+  },
+  "postgres": [
+    [
+      887,
+      12190
+    ],
+    [
+      32,
+      478
+    ],
+    [
+      2,
+      13
+    ]
+  ],
+  "flutter": {
+    "passed": 682,
+    "explicit_fixture_skips": 34,
+    "focused_passed": 58,
+    "initial_mount_real_red_cases": 4,
+    "analysis": "No issues found"
+  },
+  "native_config_and_compiled_artifact_guards": 15,
+  "browser_unit_passed": 13,
+  "actual_laravel_browser": "Full core browser plus Other defaults persistence across reload; actual identity with held SQLite writer; safe logout/current epoch and no page errors. One scheduled61second protected-read phase; no cache reset, limit increase, retry assertion or repeated unknown mutation.",
+  "controlled_email_browser": "EN/AR consent/revision and unknown-outcome recovery, failed refresh and malformed history retry without stale actions",
+  "pint_files": 825,
+  "failed_attempts": [
+    "Four initially-inactive native support/history/thread reads reproduced before lifecycle fix.",
+    "Extra full dashboard reload exceeded the unchanged protected-read budget before a bounded fresh phase was scheduled.",
+    "PostgreSQL refused a SQLite-style truncated JSON fixture; final test proves schema rejection in a savepoint plus filtering of valid JSON with invalid shape, retaining SQLite raw-corruption coverage."
+  ],
+  "source_sha256": {
+    "apps/mobile/lib/support.dart": "0797edb4d619bb1ba2b5e9a9750c689d1af5b0f6590d6e258b46fbbd5804e395",
+    "apps/mobile/lib/notification_email.dart": "0ca7147ab89e012866581085f6fd96d13c320240964689c692a6dd94f9552fe4",
+    "apps/mobile/test/support_initial_lifecycle_test.dart": "aabaf52353c4937000ed77095816365836882297b2c6372092490a80e7dde2a6",
+    "services/business-api/app/Http/Controllers/NotificationCenterController.php": "a93a0bb514efb52a1b863c53a254b68d8aad29bb5a96feeae3bcdad0ae5c995d",
+    "services/business-api/tests/Feature/NotificationCenterTest.php": "2c411ba723dabbc066c9a762b6680e30ee375f3a4bf9440192332fbb8fb83533",
+    "services/business-api/tests/Postgres/run-connectors": "f2fa6809d2e7f6d7ed14d5b9d89c7ac65e66271a88cf95efd3e785f510746a92",
+    "services/business-api/public/notification-email.js": "910974d800fbb3576046acfe75bb5cebf300366bca275e2d5cb9180acfa133ef",
+    "tests/browser.cjs": "22ded78285c3e2088fd8e8a3896a27ab665ddcceac98e037b5f52c65e7f14d81"
+  },
+  "local_log_sha256": {
+    "/tmp/ev-support-laravel.txt": "0cf5f7964b1b76614de1e129bbfb2080e7672ddf14cac04c934dae6cac027953",
+    "/tmp/ev-support-initial-red.txt": "929964eda0906bb90713fab3d3abb75d7864ccfe25caa4f64e61e72a72982306",
+    "/tmp/ev-support-initial-green.txt": "10259e79543833fd5b1239d56b5e63c4871b9dfc90caf8ec2ef5fae02c6ec940",
+    "/tmp/ev-support-final-flutter.txt": "a26c07fc283d752cde3df51628b979776139baaed00df058d371b58663c2671d",
+    "/tmp/ev-support-final-analyze.txt": "c7fab6ba9f41f9f4a9b10ae464ca6d04392a5986b529ae21642d2f1ef586ef2a",
+    "/tmp/ev-support-focused-final.txt": "7c3c8521c99f3009056be41c7ef8fb19458f703d0d27f75b3fb3bdcb4f424fd2",
+    "/tmp/ev-support-actual-browser.txt": "88d798e33a5de59132247c5f377298dc46d0740aea7419a830e3413997823921",
+    "/tmp/ev-support-actual-browser-paced.txt": "660129d83ff651054e0743e61d3abe70e960a53109443bc23c513f73eab434b8",
+    "/tmp/ev-support-email-browser.txt": "7d458e30ef68f7b639800df7651c5c32b8cd86869d5251884c432c9a4a148e0d",
+    "/tmp/ev-support-browser-unit.txt": "9af4e7c147eacc9fb312f14c7e76a18e0bb0c9579292cc8c44af1ff083cdfa36",
+    "/tmp/ev-support-native-guards.txt": "9538a3027ff59072bdb2000fd3e510cae8d0c759476ec0d88c7ad334507a665e",
+    "/tmp/ev-support-notifications-connectors.txt": "67ea4801c88026bdc77a08ccfc8f29cefcb96dd355ae0f8b3a1589f2a2c031d2",
+    "/tmp/ev-support-notifications-final-connectors.txt": "c5637c9e751022040d2c9b64e746eaf1cec387b89d4f37479531367d665fa7e4",
+    "/tmp/ev-support-notifications-sqlite-final.txt": "1f96d9441f664c5fb4ef7c982d77317b294f41f296d79079c39dffe66c496e5f",
+    "/tmp/ev-support-notifications-final-pint.txt": "64228a6f3b0bf8a06d02649864efdc185eee2bc211f9d9b71bbfe382b12cf88f"
+  },
+  "production_accepted": false
+}

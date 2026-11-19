@@ -8,6 +8,7 @@ use App\Models\Station;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\ChargingActorConsent;
+use App\Services\Charging\OcppTransactionId;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -28,7 +29,10 @@ class ChargerCommandController extends Controller
         }
 
         return DB::transaction(function () use ($r, $station, $v) {
-            Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
+            $actor = app(ChargingActorConsent::class)->capture($r->user());
+            abort_unless($actor->role === 'admin', 403);
+            $station = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
+            abort_unless($station->source === 'simulator', 409, 'Only simulator inventory may be bound.');
             abort_if(DB::table('csms_bindings')->when(! empty($v['vendor_charger_id']), fn ($q) => $q->where('vendor_charger_id', $v['vendor_charger_id']), fn ($q) => $q->where('station_id', $station->id))->exists(), 409, 'Binding is already provisioned.');
             $id = DB::table('csms_bindings')->insertGetId($v + ['station_id' => $station->id, 'created_at' => now(), 'updated_at' => now()]);
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'csms.simulator_bound', 'subject' => (string) $station->id, 'created_at' => now()]);
@@ -39,34 +43,66 @@ class ChargerCommandController extends Controller
 
     public function index(Request $r)
     {
-        $q = ChargerCommand::query();
-        if ($r->user()->role !== 'admin') {
-            $q->whereIn('station_id', Station::where('vendor_id', $r->user()->id)->select('id'));
-        }
+        return DB::transaction(function () use ($r) {
+            // Materialize the private projection while current role, password,
+            // status and epoch are pinned; a request model is only a snapshot.
+            $actor = app(ChargingActorConsent::class)->capture($r->user());
+            abort_unless(in_array($actor->role, ['admin', 'vendor'], true), 403);
+            $query = ChargerCommand::query();
+            if ($actor->role !== 'admin') {
+                $query->whereIn('station_id', Station::where('vendor_id', $actor->id)->select('id'));
+            }
 
-        return $q->orderByDesc('id')->paginate(25);
+            return response()->json($query->orderByDesc('id')->paginate(25))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
+    }
+
+    private function legacyInventory(Station $station): string
+    {
+        $bindings = DB::table('csms_bindings')->where('station_id', $station->id)->limit(2)->get(['protocol']);
+        abort_unless($station->source === 'simulator' && $bindings->isNotEmpty(), 409, 'No provisioned simulator binding.');
+        abort_if(ConnectorMapping::where('station_id', $station->id)->exists() || $bindings->count() !== 1,
+            409, 'Use an explicitly mapped reservation and session.');
+        $protocol = $bindings->first()->protocol;
+        abort_unless(in_array($protocol, ['1.6', '2.0.1'], true), 409, 'Unsupported simulator binding protocol.');
+
+        return $protocol;
+    }
+
+    private function stopIdentity(array $values, string $protocol): void
+    {
+        if ($values['action'] === 'stop') {
+            abort_unless($protocol !== '1.6' || OcppTransactionId::valid16($values['transaction_id']),
+                422, 'OCPP 1.6 stop requires a canonical signed 32-bit transaction ID.');
+        }
     }
 
     public function create(Request $r, Station $station)
     {
         abort_unless($r->user()->role === 'vendor' && $station->vendor_id === $r->user()->id, 404);
-        abort_unless($station->source === 'simulator' && DB::table('csms_bindings')->where('station_id', $station->id)->exists(), 409, 'No provisioned simulator binding.');
-        abort_if(ConnectorMapping::where('station_id', $station->id)->exists() || DB::table('csms_bindings')->where('station_id', $station->id)->count() !== 1, 409, 'Use an explicitly mapped reservation and session.');
+        $protocol = $this->legacyInventory($station);
         $v = $r->validate(['action' => 'required|in:start,stop', 'idempotency_key' => 'required|string|max:100', 'transaction_id' => 'required_if:action,stop|string|max:36']);
+        $this->stopIdentity($v, $protocol);
         $payload = $v['action'] === 'start' ? [] : ['transaction_id' => $v['transaction_id']];
         $hash = hash('sha256', json_encode([$station->id, $v['action'], $payload]));
-        $old = ChargerCommand::where('actor_id', $r->user()->id)->where('idempotency_key', $v['idempotency_key'])->first();
-        if ($old) {
-            abort_unless(hash_equals($old->payload_hash, $hash), 409, 'Idempotency key payload mismatch.');
-
-            return response()->json($old);
-        }
 
         return DB::transaction(function () use ($r, $station, $v, $payload, $hash) {
             $actor = app(ChargingActorConsent::class)->capture($r->user());
+            // Retain the existing actor -> station lock order, but use the
+            // persisted inventory rather than a stale route-bound model.
+            $station = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
             abort_unless($actor->role === 'vendor' && $station->vendor_id === $actor->id, 404);
-            Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
-            abort_if(ConnectorMapping::where('station_id', $station->id)->exists(), 409, 'Use a mapped reservation.');
+            $this->stopIdentity($v, $this->legacyInventory($station));
+            // Every replay shares the current account/inventory boundary;
+            // no optimistic response may bypass consent revocation.
+            $existing = ChargerCommand::where('actor_id', $actor->id)
+                ->where('idempotency_key', $v['idempotency_key'])->first();
+            if ($existing) {
+                abort_unless(hash_equals($existing->payload_hash, $hash), 409, 'Idempotency key payload mismatch.');
+
+                return response()->json($existing);
+            }
             $c = ChargerCommand::create(['consent_auth_epoch' => $v['action'] === 'start' ? (int) $actor->auth_epoch : null, 'actor_id' => $r->user()->id, 'station_id' => $station->id, 'action' => $v['action'], 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'payload' => $payload]);
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'csms.command_queued', 'subject' => (string) $c->id, 'created_at' => now()]);
 

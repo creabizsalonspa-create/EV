@@ -204,6 +204,13 @@ class OcpiWindowedPullTest extends TestCase
             ['date_from' => '2025-03-10 08:00:00'],
             ['date_from' => 'yesterday'],
             ['date_from' => '2025-02-30T08:00:00Z'],
+            // PHP DateTimeImmutable accepts and silently normalizes these
+            // impossible numeric offsets without reporting parser warnings.
+            // Reject before constructing a source URL or querying a partner.
+            ['date_from' => '2025-03-10T08:00:00+99:99'],
+            ['date_to' => '2025-03-10T08:00:00+14:30'],
+            ['date_to' => '2025-03-10T08:00:00-24:00'],
+            ['date_from' => '2025-03-10T08:00:00+00:61'],
             ['date_to' => '2025-03-10T08:00:00.1234567Z'],
             ['date_from' => '2025-03-10T08:30:00Z', 'date_to' => '2025-03-10T08:30:00Z'],
             ['date_from' => '2025-03-10T09:00:00Z', 'date_to' => '2025-03-10T08:30:00Z'],

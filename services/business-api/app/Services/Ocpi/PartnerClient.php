@@ -240,7 +240,7 @@ class PartnerClient
                 continue;
             }
             $value = $requested[$field];
-            if (! is_string($value) || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})?$/D', $value)) {
+            if (! is_string($value) || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-](?:0\d|1[0-3]):[0-5]\d|[+-]14:00)?$/D', $value)) {
                 throw new OcpiException('Invalid OCPI source window timestamp.');
             }
             // OCPI 2.2.1 §16.2: absent Z means UTC. Internal callers may

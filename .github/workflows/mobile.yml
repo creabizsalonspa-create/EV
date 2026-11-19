@@ -10,6 +10,7 @@ on:
         "services/business-api/bootstrap/app.php",
         ".github/workflows/mobile.yml",
         "tests/native-inventory.cjs",
+        "tests/native-fleet-pagination.cjs",
         "tests/native-topology.cjs",
         "tests/native-charger-operations.cjs",
         "tests/native-payment-recovery.cjs",
@@ -33,9 +34,13 @@ on:
         "services/business-api/database/migrations/*privacy*.php",
         "services/business-api/app/Services/Privacy/**",
         "tests/native-ocpi-operations.cjs",
+        "tests/native-partner-catalog-observations.cjs",
+        "services/business-api/tests/Fixtures/partner-catalog-observations.php",
         "tests/native-ocpi-credentials.cjs",
         "tests/native-ocpi-incoming.cjs",
         "tests/native-sandbox-roaming.cjs",
+        "tests/native-sandbox-reservations.cjs",
+        "tests/sandbox-reservations.cjs",
         "tests/native-ocpi-test-invoice.cjs",
         "tests/native-ocpi-credit-picker.cjs",
         "tests/native-ocpi-unpaid-credit.cjs",
@@ -95,6 +100,7 @@ on:
         "services/business-api/tests/Fixtures/canonical-topology.php",
         "services/business-api/app/Http/Controllers/ConnectorTopologyController.php",
         "services/business-api/tests/Fixtures/native-inventory.php",
+        "services/business-api/tests/Fixtures/native-fleet-pagination.php",
         "services/business-api/app/Http/Controllers/VendorOpsController.php",
         "services/business-api/app/Http/Controllers/PlatformController.php",
         "services/business-api/app/Http/Controllers/StationFavoriteController.php",
@@ -115,6 +121,7 @@ on:
         "services/business-api/bootstrap/app.php",
         ".github/workflows/mobile.yml",
         "tests/native-inventory.cjs",
+        "tests/native-fleet-pagination.cjs",
         "tests/native-topology.cjs",
         "tests/native-charger-operations.cjs",
         "tests/native-payment-recovery.cjs",
@@ -138,9 +145,13 @@ on:
         "services/business-api/database/migrations/*privacy*.php",
         "services/business-api/app/Services/Privacy/**",
         "tests/native-ocpi-operations.cjs",
+        "tests/native-partner-catalog-observations.cjs",
+        "services/business-api/tests/Fixtures/partner-catalog-observations.php",
         "tests/native-ocpi-credentials.cjs",
         "tests/native-ocpi-incoming.cjs",
         "tests/native-sandbox-roaming.cjs",
+        "tests/native-sandbox-reservations.cjs",
+        "tests/sandbox-reservations.cjs",
         "tests/native-ocpi-test-invoice.cjs",
         "tests/native-ocpi-credit-picker.cjs",
         "tests/native-ocpi-unpaid-credit.cjs",
@@ -200,6 +211,7 @@ on:
         "services/business-api/tests/Fixtures/canonical-topology.php",
         "services/business-api/app/Http/Controllers/ConnectorTopologyController.php",
         "services/business-api/tests/Fixtures/native-inventory.php",
+        "services/business-api/tests/Fixtures/native-fleet-pagination.php",
         "services/business-api/app/Http/Controllers/VendorOpsController.php",
         "services/business-api/app/Http/Controllers/PlatformController.php",
         "services/business-api/app/Http/Controllers/StationFavoriteController.php",
@@ -300,6 +312,10 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: apps/mobile
         run: python3 tool/check-foreground-location-build.py android
+      - name: Verify compiled Android URL entrypoints
+        if: runner.os == 'Linux'
+        working-directory: apps/mobile
+        run: python3 -B tool/check_navigation_build.py android
       - name: Verify native inventory against local Laravel
         if: runner.os == 'Linux'
         shell: bash
@@ -314,6 +330,10 @@ jobs:
         if: runner.os == 'macOS'
         working-directory: apps/mobile
         run: python3 tool/check-foreground-location-build.py ios
+      - name: Verify compiled iOS custom URL scheme
+        if: runner.os == 'macOS'
+        working-directory: apps/mobile
+        run: python3 -B tool/check_navigation_build.py ios
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Linux'
         with:
