@@ -53,7 +53,7 @@ void main() {
       );
       expect(first.total, 27);
       expect(first.items.length, 25);
-      expect(first.items.first.evidence, 'SIMULATED');
+      expect(first.items.first.evidence, 'SIMULATED_CSMS');
       expect(first.items.first.energyWh, 2500);
       final second = VendorSessionObservationPage.parse(
         await api.request(endpoint, query: {'page': '2'}),
@@ -69,6 +69,33 @@ void main() {
         status: 'charging',
       );
       expect(empty.items, isEmpty);
+      final meterSession = f['meter_session_id'] as int;
+      final historyEndpoint = '$endpoint/$meterSession/meter-history';
+      final meterRaw = await api.request(historyEndpoint, query: {'page': '1'});
+      expect(jsonEncode(meterRaw), isNot(contains('PRIVATE')));
+      final meters = VendorMeterObservationPage.parse(
+        meterRaw,
+        company: company,
+        session: meterSession,
+        page: 1,
+      );
+      expect(meters.sourceLinked, isTrue);
+      expect(meters.protocol, '2.0.1');
+      expect(meters.total, 27);
+      expect(meters.items.length, 25);
+      expect(meters.items.first.counterWh, 1002500);
+      final meterTail = VendorMeterObservationPage.parse(
+        await api.request(
+          historyEndpoint,
+          query: {'page': '2', 'through': '${meters.through}'},
+        ),
+        company: company,
+        session: meterSession,
+        page: 2,
+        through: meters.through,
+      );
+      expect(meterTail.items.length, 2);
+      expect(meterTail.items.last.counterWh, 1000000);
       await expectLater(
         api.request('vendor-ops/companies/$company'),
         throwsA(
@@ -83,6 +110,14 @@ void main() {
       expect(row['capabilities']['inventory_read'], false);
       expect(row['capabilities']['company_read'], false);
       await api.signOut();
+      await expectLater(
+        api.request(historyEndpoint),
+        throwsA(
+          isA<ApiException>()
+              .having((e) => e.status, 'current unauthenticated read', 401)
+              .having((e) => e.endsCurrentSession, 'owned invalidation', true),
+        ),
+      );
     },
     skip: path == null
         ? 'Requires owned local fixture: node tests/native-vendor-session-observations.cjs'
