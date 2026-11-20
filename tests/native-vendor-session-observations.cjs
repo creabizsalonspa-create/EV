@@ -28,7 +28,7 @@ const assert = require("node:assert/strict"),
         { encoding: "utf8" },
       ),
     );
-  const f = invoke("seed", password),
+  const f = invoke("seed", password, "meters"),
     before = invoke("snapshot"),
     owner = new BusinessClient({ base: base.origin });
   owner.csrf = (await owner.request("csrf")).token;

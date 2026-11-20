@@ -24,7 +24,7 @@ let stage = "fixture";
         { encoding: "utf8" },
       ),
     );
-  const f = invoke("seed", password),
+  const f = invoke("seed", password, "meters"),
     before = invoke("snapshot");
   assert.equal(before.rows, 27);
   async function login(email) {
@@ -127,6 +127,52 @@ let stage = "fixture";
       assert.equal(await panel.locator("article").count(), 0);
       stage = lang + "-stopped-filter";
       await panel.locator("select").selectOption("stopped");
+      await panel.locator("article").first().waitFor();
+      stage = lang + "-meter-history";
+      await panel
+        .locator("article")
+        .first()
+        .getByRole("button", {
+          name:
+            lang === "ar" ? "سجل العدادات المسجل" : "Recorded meter history",
+          exact: true,
+        })
+        .click();
+      await panel.locator("article").first().waitFor();
+      assert.equal(await panel.locator("article").count(), 25);
+      assert((await panel.textContent()).includes("1002500 Wh"));
+      assert(!(await panel.textContent()).includes("PRIVATE"));
+      await panel
+        .getByRole("button", {
+          name: lang === "ar" ? "التالي" : "Next",
+          exact: true,
+        })
+        .click();
+      await panel
+        .getByText(
+          lang === "ar"
+            ? "الصفحة 2 / 2 · 27 أحداث مصدر مسجلة"
+            : "Page 2 / 2 · 27 recorded source events",
+          { exact: true },
+        )
+        .waitFor();
+      assert.equal(await panel.locator("article").count(), 2);
+      await panel
+        .locator("h3")
+        .evaluate((node) => node.scrollIntoView({ block: "start" }));
+      await p.screenshot({
+        path: `artifacts/vendor-session-observations/${lang}-meter-390.png`,
+      });
+      await panel
+        .getByRole("button", {
+          name:
+            lang === "ar"
+              ? "العودة إلى الجلسات المسجلة"
+              : "Back to recorded sessions",
+          exact: true,
+        })
+        .click();
+      await panel.locator("select").waitFor();
       await panel.locator("article").first().waitFor();
       assert(
         await p.evaluate(
