@@ -619,6 +619,8 @@ class SyntheticMergeContentProofTest(unittest.TestCase):
         for mutate in [
             lambda m,s:s.update(tree={'sha':'f'*40}),
             lambda m,s:m.update(tree={'sha':'not-a-tree'}),
+            lambda m,s:m.update(tree=None),
+            lambda m,s:s.update(tree=None),
             lambda m,s:m.update(sha='f'*40),
             lambda m,s:s.update(sha='f'*40),
         ]:
