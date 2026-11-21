@@ -128,16 +128,29 @@ const fs = require("node:fs");
     assert.match(code, /^REF-[A-F0-9]{20}$/);
     checks++;
     const member = await login("member");
-    const key = "accept-" + run,
-      payload = {
-        code,
-        terms_version: program.terms_version,
-        consent: true,
-        idempotency_key: key,
-      };
-    const accepted = await post(member, "commercial/referrals/accept", payload);
-    assert.equal(accepted.status(), 201);
-    const referral = (await accepted.json()).referral;
+    await member.page.locator('a[href="#commercial-finance"]').click();
+    const referralPanel = member.page.locator("[data-referral-panel]");
+    await referralPanel.getByRole("button", { name: "Browse referral programmes", exact: true }).click();
+    const programmeCard = referralPanel.locator("article").filter({ hasText: name });
+    await programmeCard.getByRole("button", { name: "Open referral programme", exact: true }).click();
+    await programmeCard.locator('[name="referral_code"]').fill(code);
+    await programmeCard.locator('[name="referral_consent"]').check();
+    let payload, referral;
+    const acceptPath = "**/api/commercial/referrals/accept";
+    await member.page.route(acceptPath, async (route) => {
+      payload = route.request().postDataJSON();
+      const accepted = await route.fetch();
+      assert.equal(accepted.status(), 201);
+      referral = (await accepted.json()).referral;
+      await route.abort("failed");
+    });
+    const lostReply = member.page.waitForEvent("requestfailed", (request) => request.url().endsWith("/commercial/referrals/accept"));
+    await programmeCard.getByRole("button", { name: "Accept referral", exact: true }).click();
+    await lostReply;
+    await member.page.unroute(acceptPath);
+    await referralPanel.getByRole("button", { name: "Check my referral status", exact: true }).click();
+    await referralPanel.getByText("Accepted, awaiting a qualifying invoice", { exact: true }).waitFor();
+    const key = payload.idempotency_key;
     const hash = (s) => createHash("sha256").update(s).digest("hex");
     const me = await member.context.request.get(base + "/api/me");
     const memberId = (await me.json()).id;
@@ -165,16 +178,23 @@ const fs = require("node:fs");
       ),
     );
     assert(invoice.fixture_only);
-    const qualified = await post(member, "commercial/referrals/qualify", {
-      invoice_id: invoice.invoice_id,
-      idempotency_key: "qualify-" + run,
-    });
+    await referralPanel.locator('[name="referral_invoice_id"]').fill(String(invoice.invoice_id));
+    const qualificationReply = member.page.waitForResponse((response) =>
+      response.url().endsWith("/commercial/referrals/qualify") && response.request().method() === "POST");
+    await referralPanel.getByRole("button", { name: "Verify invoice eligibility", exact: true }).click();
+    const qualified = await qualificationReply;
     assert.equal(qualified.status(), 200);
     assert.equal((await qualified.json()).referral.status, "qualified");
+    await referralPanel.getByText("Qualified", { exact: true }).waitFor();
+    await referralPanel.getByRole("button", { name: "View referral rewards", exact: true }).click();
+    await referralPanel.getByText("Pending fulfillment", { exact: true }).waitFor();
+    await member.page.locator("#language").click();
+    await referralPanel.getByText("بانتظار التسليم", { exact: true }).waitFor();
+    assert.equal(await member.page.locator("html").getAttribute("dir"), "rtl");
     checks++;
     const again = await post(member, "commercial/referrals/qualify", {
       invoice_id: invoice.invoice_id,
-      idempotency_key: "qualify-" + run,
+      idempotency_key: qualified.request().postDataJSON().idempotency_key,
     });
     assert.equal(again.status(), 200);
     checks++;

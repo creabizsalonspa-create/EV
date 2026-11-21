@@ -1194,5 +1194,164 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         panel.append(records);
         container.append(panel);
     }
+    if (role === "customer") {
+        const panel = node("section"), programmes = node("div"), accountStatus = node("div"), history = node("div");
+        panel.dataset.referralPanel = "true";
+        const call = (path, method = "GET", data) => {
+            if (!alive()) throw new DOMException("Session changed", "AbortError");
+            return api("commercial/" + path, method, data, controller.signal);
+        };
+        const show = (parent, en, ar) => parent.append(t("p", en, ar));
+        const localized = (parent, en, ar) => {
+            const text = node("p", document.documentElement.lang === "ar" ? ar : en);
+            text.dataset.en = en;
+            text.dataset.ar = ar;
+            parent.append(text);
+        };
+        const codePattern = /^REF-[A-F0-9]{20}$/;
+        const versionPattern = /^[a-f0-9]{64}$/;
+        function message(en, ar) {
+            return new Error(document.documentElement.lang === "ar" ? ar : en);
+        }
+        async function loadReferral() {
+            accountStatus.replaceChildren();
+            const result = await call("referrals/account");
+            if (!alive()) return;
+            const referral = result.referral;
+            if (referral === null) {
+                show(accountStatus, "No referral recorded", "لا توجد إحالة مسجلة");
+                return;
+            }
+            const states = {
+                accepted: ["Accepted, awaiting a qualifying invoice", "مقبولة، بانتظار فاتورة مؤهلة"],
+                qualified: ["Qualified", "مؤهلة"],
+                expired: ["Expired", "منتهية الصلاحية"],
+                withdrawn: ["Consent withdrawn", "تم سحب الموافقة"],
+            };
+            if (!referral || !Object.hasOwn(states, referral.status) || referral.cash_value !== false) {
+                throw message("Referral status is unavailable.", "حالة الإحالة غير متاحة.");
+            }
+            show(accountStatus, ...states[referral.status]);
+            if (referral.status === "accepted") {
+                const invoice = field(accountStatus, "referral_invoice_id", "Qualifying invoice ID", "رقم الفاتورة المؤهلة");
+                invoice.inputMode = "numeric";
+                let request;
+                button(accountStatus, "Verify invoice eligibility", "التحقق من أهلية الفاتورة", async () => {
+                    const id = Number(invoice.value);
+                    if (!/^[0-9]+$/.test(invoice.value) || !Number.isSafeInteger(id) || id < 1) {
+                        throw message("Enter a valid invoice ID.", "أدخل رقم فاتورة صالحاً.");
+                    }
+                    if (request && request.invoice_id !== id) {
+                        throw message("Refresh referral status before changing the invoice.", "حدّث حالة الإحالة قبل تغيير الفاتورة.");
+                    }
+                    request ??= { invoice_id: id, idempotency_key: crypto.randomUUID() };
+                    await call("referrals/qualify", "POST", request);
+                    if (alive()) await loadReferral();
+                });
+            }
+            if (!["accepted", "expired"].includes(referral.status)) return;
+            const reason = field(accountStatus, "referral_withdrawal_reason", "Withdrawal reason", "سبب سحب الموافقة");
+            reason.maxLength = 500;
+            button(accountStatus, "Withdraw referral consent", "سحب الموافقة على الإحالة", async () => {
+                if (reason.value.trim().length < 5) {
+                    throw message("Enter a withdrawal reason.", "أدخل سبب سحب الموافقة.");
+                }
+                await call("referrals/withdraw", "POST", { reason: reason.value.trim() });
+                if (alive()) await loadReferral();
+            });
+        }
+        async function loadProgrammes(page = 1) {
+            programmes.replaceChildren();
+            const result = await call("referral-programs?page=" + page);
+            if (!alive()) return;
+            for (const programme of result.data) {
+                const card = node("article");
+                localized(card, programme.name, programme.name_ar);
+                localized(card, programme.terms, programme.terms_ar);
+                if (programme.active && Number.isSafeInteger(programme.id) && versionPattern.test(programme.terms_version)) {
+                    const detail = node("div");
+                    button(card, "Open referral programme", "فتح برنامج الإحالة", async () => {
+                        detail.replaceChildren();
+                        const account = await call("referrals/account?program_id=" + programme.id);
+                        if (alive() && account.program_id === programme.id) renderAccount(detail, programme, account);
+                    });
+                    card.append(detail);
+                }
+                programmes.append(card);
+            }
+            if (!result.data.length) show(programmes, "No referral programmes", "لا توجد برامج إحالة");
+            if (page > 1) button(programmes, "Previous programmes", "البرامج السابقة", () => loadProgrammes(page - 1));
+            if (page < result.last_page) button(programmes, "Next programmes", "البرامج التالية", () => loadProgrammes(page + 1));
+        }
+        function renderAccount(parent, programme, account) {
+            parent.replaceChildren();
+            const reload = async () => {
+                const current = await call("referrals/account?program_id=" + programme.id);
+                if (alive() && current.program_id === programme.id) renderAccount(parent, programme, current);
+            };
+            button(parent, "Refresh referral account", "تحديث حساب الإحالة", reload);
+            if (codePattern.test(account.own_code?.code || "")) {
+                parent.append(t("p", "Your referral code", "رمز الإحالة الخاص بك"), node("code", account.own_code.code));
+            } else if (account.software_activation === true) {
+                let codeKey;
+                button(parent, "Create referral code", "إنشاء رمز إحالة", async () => {
+                    codeKey ??= crypto.randomUUID();
+                    await call("referrals/codes", "POST", { program_id: programme.id, idempotency_key: codeKey });
+                    if (alive()) await reload();
+                });
+            }
+            if (account.referral) {
+                show(parent, "A referral is recorded for this account.", "توجد إحالة مسجلة لهذا الحساب.");
+            }
+            if (account.can_accept !== true || account.software_activation !== true) return;
+            const code = field(parent, "referral_code", "Referral code", "رمز الإحالة");
+            code.maxLength = 24;
+            code.autocomplete = "off";
+            const consent = field(parent, "referral_consent", "I accept these programme terms", "أوافق على شروط هذا البرنامج", "", "checkbox");
+            let pending;
+            button(parent, "Accept referral", "قبول الإحالة", async () => {
+                const entered = code.value.trim().toUpperCase();
+                if (!consent.checked || !codePattern.test(entered)) {
+                    throw message("Enter a valid referral code and accept the terms.", "أدخل رمز إحالة صالحاً ووافق على الشروط.");
+                }
+                if (pending && pending.code !== entered) {
+                    throw message("Refresh the referral account before changing the request.", "حدّث حساب الإحالة قبل تعديل الطلب.");
+                }
+                pending ??= { code: entered, terms_version: programme.terms_version, consent: true, idempotency_key: crypto.randomUUID() };
+                await call("referrals/accept", "POST", pending);
+                if (alive()) {
+                    pending = undefined;
+                    code.value = "";
+                    await reload();
+                }
+            });
+        }
+        async function loadRewards(page = 1) {
+            history.replaceChildren();
+            const result = await call("referrals/rewards?page=" + page);
+            if (!alive()) return;
+            const statuses = {
+                pending: ["Pending fulfillment", "بانتظار التسليم"],
+                fulfilled: ["Fulfilled", "تم التسليم"],
+                rejected: ["Rejected", "مرفوض"],
+            };
+            for (const row of result.data) {
+                if (row.source !== "REFERRAL" || row.cash_value !== false || row.points_cost !== 0 || !Object.hasOwn(statuses, row.status)) continue;
+                const card = node("article");
+                localized(card, row.reward_name, row.reward_name_ar);
+                show(card, ...statuses[row.status]);
+                history.append(card);
+            }
+            if (!result.data.length) show(history, "No referral rewards", "لا توجد مكافآت إحالة");
+            if (page > 1) button(history, "Previous referral rewards", "مكافآت الإحالة السابقة", () => loadRewards(page - 1));
+            if (page < result.last_page) button(history, "Next referral rewards", "مكافآت الإحالة التالية", () => loadRewards(page + 1));
+        }
+        panel.append(t("h4", "Referrals", "الإحالات"));
+        button(panel, "Browse referral programmes", "تصفح برامج الإحالة", () => loadProgrammes());
+        button(panel, "Check my referral status", "التحقق من حالة إحالتي", loadReferral);
+        button(panel, "View referral rewards", "عرض مكافآت الإحالة", () => loadRewards());
+        panel.append(programmes, accountStatus, history);
+        container.append(panel);
+    }
     container.append(content);
 };

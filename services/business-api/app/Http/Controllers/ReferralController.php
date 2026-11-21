@@ -83,9 +83,9 @@ final class ReferralController extends Controller
 
     public function account(Request $r, ReferralRegistry $service)
     {
-        $v = $r->validate(['program_id' => 'required|integer|between:1,9007199254740991']);
+        $v = $r->validate(['program_id' => 'sometimes|required|integer|between:1,9007199254740991']);
 
-        return $this->privateJson($service->account($r->user(), (int) $v['program_id']));
+        return $this->privateJson($service->account($r->user(), isset($v['program_id']) ? (int) $v['program_id'] : null));
     }
 
     public function code(Request $r, ReferralRegistry $service)

@@ -249,12 +249,15 @@ final class ReferralRegistry
             'cash_value' => false, 'money_movement' => false, 'delivery_verified' => false];
     }
 
-    public function account(User $snapshot, int $programme): array
+    public function account(User $snapshot, ?int $programme): array
     {
         return DB::transaction(function () use ($snapshot, $programme) {
             $actor = $this->customer($snapshot);
-            $p = $this->programme($programme);
             $r = DB::table('loyalty_referrals')->where('user_id', $actor->id)->first();
+            if ($programme === null) {
+                return ['referral' => $r ? $this->referral($r) : null, 'money_movement' => false];
+            }
+            $p = $this->programme($programme);
             $code = DB::table('loyalty_referral_codes')->where('user_id', $actor->id)->where('programme_id', $programme)->first();
             $reason = $actor->email_verified_at === null ? 'email_unverified' : ($r ? 'already_referred' : ($this->hasPayment($actor->id) ? 'existing_charging_payment' : 'available'));
             $invites = DB::table('loyalty_referrals')->where('referrer_id', $actor->id)->where('programme_id', $programme);
