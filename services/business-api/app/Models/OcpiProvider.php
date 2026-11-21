@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Services\Ocpi\PartnerClient;
+use App\Services\Ocpi\TechnicalAgreement;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 class OcpiProvider extends Model
@@ -11,9 +12,14 @@ class OcpiProvider extends Model
 
     protected $appends = ['readable_modules', 'commands_enabled', 'billing_eligible'];
 
+    public function scopeDiscoveryAuthorized(Builder $query): Builder
+    {
+        return app(TechnicalAgreement::class)->restrictDiscovery($query->where('authorized', true));
+    }
+
     public function getReadableModulesAttribute(): array
     {
-        return $this->authorized && $this->version === '2.2.1' ? array_values(array_filter(PartnerClient::MODULES, fn ($m) => is_string($this->endpoints[$m] ?? null))) : [];
+        return $this->authorized && $this->version === '2.2.1' ? array_values(array_filter(app(TechnicalAgreement::class)->allowed($this), fn ($m) => is_string($this->endpoints[$m] ?? null))) : [];
     }
 
     public function getCommandsEnabledAttribute(): bool

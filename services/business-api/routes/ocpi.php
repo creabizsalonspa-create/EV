@@ -15,3 +15,5 @@ Route::middleware(['auth', 'throttle:platform-api'])->prefix('/api/roaming/favor
 });
 
 Route::middleware(['auth', 'throttle:platform-api'])->prefix('/api/roaming')->group(__DIR__.'/roaming_orders.php');
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('/api')->group(__DIR__.'/ocpi_agreements.php');

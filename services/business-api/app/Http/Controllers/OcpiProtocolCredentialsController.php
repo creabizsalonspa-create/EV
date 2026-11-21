@@ -6,7 +6,9 @@ use App\Models\OcpiProvider;
 use App\Models\User;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\IncomingEnrollment;
+use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\OcpiMessageHeaders;
+use App\Services\Ocpi\TechnicalAgreement;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -36,6 +38,12 @@ class OcpiProtocolCredentialsController extends Controller
         abort_unless($link->state === 'active' || $provisional || $enrolling, 401);
         $p = OcpiProvider::findOrFail($link->provider_id);
         abort_unless($p->authorized && $p->owner_id === $link->owner_id && User::whereKey($p->owner_id)->where('role', 'vendor')->exists() && ($resource !== 'catalog' || User::whereKey($p->owner_id)->where('account_status', 'active')->exists()) && hash_equals($link->configuration_hash, $exchange->configurationHash($p)), 401);
+
+        try {
+            app(TechnicalAgreement::class)->assertActive($p);
+        } catch (OcpiException) {
+            abort(401);
+        }
 
         return [$p, $link];
     }

@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Services\Ocpi\CredentialExchange;
+use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\OcpiMessageHeaders;
 use App\Services\Ocpi\RecordSynchronizer;
+use App\Services\Ocpi\TechnicalAgreement;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -49,6 +51,11 @@ class OcpiProtocolRecordsController extends Controller
             $exchange = app(CredentialExchange::class);
             $resource = in_array($module, ['locations', 'tariffs'], true) ? 'catalog' : 'records';
             [$provider, $link] = app(OcpiProtocolCredentialsController::class)->authenticate($r, $exchange, $resource);
+            try {
+                app(TechnicalAgreement::class)->assertActive($provider, $module);
+            } catch (OcpiException) {
+                abort(403);
+            }
             [$connection] = $exchange->configuration($provider);
             abort_unless(in_array($module, $exchange->receiverModules($provider), true) && $provider->version === '2.2.1' && is_string($provider->endpoints[$module] ?? null), 403);
             $country ??= $connection['party_country'];

@@ -28,6 +28,7 @@ foreach ($metadata as $key => $connection) {
     $connections[$key] = [
         'registration_direction' => $direction,
         'inbound_authorization_token' => $inboundVariable === null ? null : env($inboundVariable),
+        'technical_agreement_required' => ($connection['technical_agreement_required'] ?? false) === true,
         'managed_credentials' => ($connection['managed_credentials'] ?? false) === true,
         'incoming_modules' => $connection['incoming_modules'] ?? [],
         'test_commands' => ($connection['test_commands'] ?? false) === true,

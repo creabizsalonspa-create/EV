@@ -18,6 +18,9 @@ class PartnerClient
         if (! $provider->authorized) {
             throw new OcpiException('Operator authorization is required.');
         }
+        if (! $bootstrap && $provider->exists) {
+            app(TechnicalAgreement::class)->assertActive($provider);
+        }
         $c = config('ocpi.connections.'.$provider->connection_key);
         if (! is_array($c) || ! is_string($c['origin'] ?? null)) {
             throw new OcpiException('Approved operator connection is not configured.');
@@ -71,6 +74,7 @@ class PartnerClient
 
     private function assertCurrent(OcpiProvider $provider): void
     {
+        app(TechnicalAgreement::class)->assertActive($provider);
         $current = OcpiProvider::find($provider->id);
         if (! $current || ! $current->authorized || $current->authorization_revision !== $provider->authorization_revision || $current->connection_key !== $provider->connection_key || $current->owner_id !== $provider->owner_id) {
             throw new OcpiException('Operator authorization changed; refresh and negotiate again.');
@@ -324,6 +328,7 @@ class PartnerClient
 
     public function pull(OcpiProvider $provider, string $module, array $requestedWindow = []): array
     {
+        app(TechnicalAgreement::class)->assertActive($provider, $module);
         $this->assertCurrent($provider);
         if (! in_array($module, self::MODULES, true) || $provider->version !== '2.2.1' || ! is_string($provider->endpoints[$module] ?? null)) {
             throw new OcpiException('Requested module has not been negotiated.');

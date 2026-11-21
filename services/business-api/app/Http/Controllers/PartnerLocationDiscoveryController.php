@@ -31,7 +31,7 @@ final class PartnerLocationDiscoveryController extends Controller
         ]);
         $text = trim($filters['q'] ?? '');
         $providerText = trim($filters['provider'] ?? '');
-        $authorizedProviders = OcpiProvider::query()->where('authorized', true);
+        $authorizedProviders = OcpiProvider::query()->discoveryAuthorized();
         if ($providerText !== '') {
             $driver = DB::connection()->getDriverName();
             if (! in_array($driver, ['sqlite', 'pgsql'], true)) {
@@ -97,7 +97,7 @@ final class PartnerLocationDiscoveryController extends Controller
         $query->addSelect([
             'provider_label' => OcpiProvider::query()->select('name')
                 ->whereColumn('ocpi_providers.id', 'ocpi_records.ocpi_provider_id')
-                ->where('authorized', true)->limit(1),
+                ->discoveryAuthorized()->limit(1),
         ]);
 
         // The final ID key also stabilizes ties in distance.

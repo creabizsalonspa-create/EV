@@ -5,12 +5,14 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
+use App\Services\Ocpi\AdminCredentialApproval;
 use App\Services\Ocpi\CdrReconciler;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerBillingExport;
 use App\Services\Ocpi\PartnerBillingReconciliation;
 use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\RecordSynchronizer;
+use App\Services\Ocpi\TechnicalAgreement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -41,10 +43,12 @@ class OcpiController extends Controller
         abort_unless(is_array(config('ocpi.connections.'.$v['connection_key'])), 422, 'Connection must first be provisioned in secure server configuration.');
 
         return DB::transaction(function () use ($r, $v, $client) {
+            app(AdminCredentialApproval::class)->current($r->user(), true);
             $provider = OcpiProvider::create($v);
             if ($provider->authorized) {
                 try {
                     $client->connection($provider, true);
+                    app(TechnicalAgreement::class)->assertActive($provider);
                 } catch (OcpiException $e) {
                     abort(422, $e->getMessage());
                 }
@@ -61,6 +65,7 @@ class OcpiController extends Controller
 
         return DB::transaction(function () use ($r, $provider, $v, $client) {
             $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            app(AdminCredentialApproval::class)->current($r->user(), true);
             $exhausted = $provider->authorization_revision >= PHP_INT_MAX;
             // Revocation must remain available at the terminal generation.
             // Reauthorization is permanently blocked, so that generation cannot recur.
@@ -69,6 +74,7 @@ class OcpiController extends Controller
             if ($provider->authorized) {
                 try {
                     $client->connection($provider, true);
+                    app(TechnicalAgreement::class)->assertActive($provider);
                 } catch (OcpiException $e) {
                     abort(422, $e->getMessage());
                 }
@@ -186,7 +192,7 @@ class OcpiController extends Controller
         $v = $request->validate(['q' => 'nullable|string|max:80', 'country' => 'nullable|string|regex:/^[A-Z]{3}$/D', 'connector_standard' => 'nullable|string|max:64']);
         $text = trim($v['q'] ?? '');
 
-        return OcpiRecord::where('module', 'locations')->where('normalized->publish', true)->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'))
+        return OcpiRecord::where('module', 'locations')->where('normalized->publish', true)->whereIn('ocpi_provider_id', OcpiProvider::discoveryAuthorized()->select('id'))
             ->when($text !== '', fn ($q) => $q->where(fn ($q) => $q->whereLike('normalized->name', '%'.$text.'%')->orWhereLike('normalized->city', '%'.$text.'%')->orWhereLike('normalized->address', '%'.$text.'%')))
             ->when(! empty($v['country']), fn ($q) => $q->where('normalized->country', $v['country']))
             ->when(! empty($v['connector_standard']), fn ($q) => $q->whereJsonContains('normalized->connector_standards', $v['connector_standard']))

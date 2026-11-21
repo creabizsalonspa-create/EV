@@ -1172,6 +1172,18 @@ window.createRoamingWorkspace = ({
                     return window.EvOcpiSyncPlans.open({host: detail, providerId: provider.id, api,
                         current: () => epoch === generation && version === details && actor()?.id === viewer?.id && actor()?.role === viewer?.role});
                 });
+                if (actor()?.role === 'admin') {
+                    const agreements = raw('button', document.documentElement.lang === 'ar' ? 'اتفاقيات OCPI التقنية' : 'OCPI technical agreements');
+                    agreements.type = 'button'; agreements.dataset.en = 'OCPI technical agreements'; agreements.dataset.ar = 'اتفاقيات OCPI التقنية';
+                    agreements.onclick = () => {
+                        const viewer = actor(); if (epoch !== generation || viewer?.role !== 'admin' || document.hidden) return;
+                        const version = ++details;
+                        return window.EvOcpiAgreements.open({host: detail, providerId: provider.id, api,
+                            onAuthorityChange: () => providers(page),
+                            current: () => epoch === generation && version === details && actor()?.id === viewer.id && actor()?.role === 'admin'});
+                    };
+                    card.append(agreements);
+                }
                 button(card, "Roaming credentials", () =>
                     credentialWorkspace(provider, detail),
                 );

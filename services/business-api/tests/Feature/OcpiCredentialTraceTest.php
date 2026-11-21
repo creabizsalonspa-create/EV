@@ -9,10 +9,12 @@ use App\Services\Ocpi\OcpiException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\TestWith;
+use Tests\Support\CreatesOcpiTechnicalAgreement;
 use Tests\TestCase;
 
 class OcpiCredentialTraceTest extends TestCase
 {
+    use CreatesOcpiTechnicalAgreement;
     use RefreshDatabase;
 
     private function fixture(): OcpiProvider
@@ -190,6 +192,8 @@ class OcpiCredentialTraceTest extends TestCase
     public function test_production_mode_requires_both_peer_credential_trace_echoes(): void
     {
         $provider = $this->fixture();
+        $this->approveTechnicalAgreement($provider);
+        $provider->refresh()->update(['authorized' => true]);
         Http::fake(fn ($request) => Http::response($this->reply($request->url())));
         $original = app()->environment();
         try {

@@ -73,6 +73,9 @@ class CredentialExchange
             abort_unless($c['party_role'] === 'CPO' && $local['roles'][0]['role'] === 'EMSP', 409);
         }
         sort($modules, SORT_STRING);
+        if (app(TechnicalAgreement::class)->required($p)) {
+            $modules = array_values(array_intersect($modules, app(TechnicalAgreement::class)->allowed($p)));
+        }
 
         return $modules;
     }
@@ -131,6 +134,7 @@ class CredentialExchange
 
     private function wire(OcpiProvider $p, string $url, string $encodedToken, string $method = 'GET', ?array $body = null): array
     {
+        app(TechnicalAgreement::class)->assertActive($p);
         $current = OcpiProvider::findOrFail($p->id);
         abort_unless($current->authorized && $current->owner_id === $p->owner_id && $current->connection_key === $p->connection_key && $current->authorization_revision === $p->authorization_revision, 409, 'Partner authority changed before transport.');
         $url = app(PartnerClient::class)->guardedUrl($p, $url);
@@ -151,6 +155,8 @@ class CredentialExchange
             $this->verifyCredentialTrace($response, $trace);
             $reply = json_decode($text, true, flags: JSON_THROW_ON_ERROR);
             abort_unless(is_array($reply) && ($reply['status_code'] ?? null) === 1000 && $this->validPeerTimestamp($reply['timestamp'] ?? null) && ($method === 'DELETE' || array_key_exists('data', $reply)), 503);
+
+            app(TechnicalAgreement::class)->assertActive($p);
 
             return $reply;
         } catch (Throwable) {

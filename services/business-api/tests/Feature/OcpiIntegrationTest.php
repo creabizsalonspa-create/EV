@@ -12,10 +12,12 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
+use Tests\Support\CreatesOcpiTechnicalAgreement;
 use Tests\TestCase;
 
 class OcpiIntegrationTest extends TestCase
 {
+    use CreatesOcpiTechnicalAgreement;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -86,6 +88,13 @@ class OcpiIntegrationTest extends TestCase
     public function test_production_peer_reads_require_trace_ids_not_headerless_fixture_compatibility(): void
     {
         $provider = $this->provider();
+        // Exercise tracing behind the real production agreement gate, never a bypass.
+        config(['ocpi.connections.contract-test.party_country' => 'AE', 'ocpi.connections.contract-test.party_id' => 'TST',
+            'ocpi.connections.contract-test.party_role' => 'CPO', 'ocpi.local_credentials' => [
+                'url' => 'https://platform.example/api/roaming-protocol/versions',
+                'roles' => [['role' => 'EMSP', 'country_code' => 'AE', 'party_id' => 'EVX', 'business_details' => ['name' => 'Synthetic production trace fixture']]]]]);
+        $this->approveTechnicalAgreement($provider);
+        $provider->refresh()->update(['authorized' => true]);
         $provider->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
         Http::fake(['https://partner.example/locations' => Http::response($this->envelope([$this->location()]))]);
         $previous = app()->environment();
