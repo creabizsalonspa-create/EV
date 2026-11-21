@@ -1,3 +1,9 @@
+# 21 November 2026 — encrypted populated-backup candidate verified locally
+
+Codec12ada42 extends PR196 with standardlibsodiumsecretstream authenticated encryption of the actualPGdump andprivatearchives, separate ephemeralkeyfiles, wrong-key rejection andrestorationofdecryptedbyte-verifiedfiles. Actualcleanpinnedimage build/check andfullisolatedrestore passed, preserving all189table/157sequence/184row, canonicalEVgraph, encryptedcommand andunpaidSIMinvoice/journal checks. All5actualofflinecrypto tests pass (empty/multichunk/randomization/tamper/truncation/reordering/duplicate/trailing/permissions/links/FIFO/no-overwrite). DefaultPython discovery391total:386pass,5explicitimage-optinskip; those5are executedafterimagebuild inrequiredstagingCI.103recoverypolicies pass. Proof: docs/evidence/recovery-domain-20261121/encrypted-local.json.
+
+No financialrule, PSPcapture, sourcecommand, liveprovider, productionkey oroffsiteenvironment ischanged. Currentfinal-headhostedCI/merge remainrequired; broad9.1.10 remainsuncredited. Weightedoriginalsoftwareaudit remains188/312 at59.40%eachcoded/tested/merged, production0.00%;124uncreditedIDs remainexplicitlylisted. Earliercheckpointrecordsbelowarehistorical.
+
 # 21 November 2026 — verified integration audit and populated recovery candidate
 
 Verified PR193 final sourceeae11308 passed8applicablechecks including bothnativebuilds anddependent recovery, mergedf4f22e80 with identical tested/integratedtree. Proof: docs/evidence/integrated-checkpoints-20261121/pr193-verified.json. Check the current canonical push jobs independently; source checks are not fabricated as current push results.

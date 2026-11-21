@@ -322,4 +322,8 @@ actual pinned-image runtime tests exercise multichunk/empty/randomized output,
 wrong keys, tampering, truncation, duplicate/reordered frames, trailing data,
 private permissions, links/FIFOs and atomic no-overwrite behavior. Existing
 integrity and recovery controls are retained. See docs/BACKUP_ENCRYPTION.md.
-The extended combined drill still requires current-code runtime and hosted proof.
+Current codec12ada42 passed the clean pinned image build/check and actual full
+encrypted-archive restore, including all earlier canonical/financial/private-file
+controls and wrong decryption key rejection. Local proof:
+docs/evidence/recovery-domain-20261121/encrypted-local.json. Final-head hosted
+checks and verified integration remain required.
