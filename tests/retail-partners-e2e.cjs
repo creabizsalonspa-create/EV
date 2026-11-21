@@ -3,7 +3,7 @@ const { execFileSync } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
 const assert = require("node:assert/strict");
 (async () => {
-  const base = process.env.EV_TEST_URL || "http://127.0.0.1:8033";
+  const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["127.0.0.1", "localhost"].includes(new URL(base).hostname));
   const run = randomBytes(4).toString("hex"),
     password = randomBytes(24).toString("hex") + "aA9!";
@@ -63,9 +63,26 @@ const assert = require("node:assert/strict");
     };
     for (const [k, v] of Object.entries(values))
       await f.locator(`[name="${k}"]`).fill(v);
+    // The real backend commits, but the first response is lost. The editor
+    // must retain its request identity so an explicit retry cannot duplicate it.
+    let loseReply = true;
+    await a.route("**/api/admin/retail-partners", async (route) => {
+      if (route.request().method() === "POST" && loseReply) {
+        loseReply = false;
+        const response = await route.fetch();
+        assert.equal(response.status(), 201);
+        checks++;
+        await route.abort("failed");
+      } else await route.continue();
+    });
     await f
       .getByRole("button", { name: "Save immutable draft", exact: true })
       .click();
+    await a.locator("#status").filter({ hasText: "Request failed." }).waitFor();
+    await f
+      .getByRole("button", { name: "Save immutable draft", exact: true })
+      .click();
+
     await a
       .getByRole("button", { name: "Review partner", exact: true })
       .first()
