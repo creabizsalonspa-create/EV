@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/commercial/referral-programs', [C::class, 'programmes']);
 Route::post('/commercial/referral-programs', [C::class, 'publish']);
-Route::post('/commercial/referral-programs/{programme}/revoke', [C::class, 'revoke'])->where('programme', '[0-9]{1,16}');
+Route::post('/commercial/referral-programs/{programme}/revoke', [C::class, 'revoke'])->where('programme', '[0-9]{1,18}');
 Route::get('/commercial/referrals/account', [C::class, 'account']);
 Route::post('/commercial/referrals/codes', [C::class, 'code']);
 Route::post('/commercial/referrals/accept', [C::class, 'accept']);
