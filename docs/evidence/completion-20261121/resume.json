@@ -1,0 +1,592 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "status": "INCOMPLETE_ENVIRONMENT_UNAVAILABLE",
+  "integration_branch": "development/fullstack-continuation",
+  "integration_sha": "f4f22e800ad9b98dcd12a97621ba486b9e9ce047",
+  "credited": {
+    "coded": 186,
+    "tested": 186,
+    "merged": 186,
+    "atoms": 312,
+    "weighted_coded": "58.20",
+    "weighted_tested": "58.20",
+    "weighted_merged": "58.20",
+    "production_accepted": "0.00"
+  },
+  "merged_prs": [
+    {
+      "pr": 192,
+      "source": "a2ea0b33327c4c2fb5eac79c5fbb85ca0fb817e7",
+      "merge": "30668ebfb9fb95d3df09bcbf24961e6a93f2b5f8"
+    },
+    {
+      "pr": 193,
+      "source": "eae11308840fc679a6b553e7c365586c76736f66",
+      "merge": "f4f22e800ad9b98dcd12a97621ba486b9e9ce047",
+      "platform_run": 44713612157,
+      "native_run": 44713612488,
+      "all_eight_applicable_jobs": "success",
+      "source_merge_compare": "ahead_by_one_no_changed_files",
+      "source_tree": "2eba97d6d67b3abead9a5fbb3610adfa82f3d7af"
+    }
+  ],
+  "resume": {
+    "workspace_root": "/workspace/scratch/b477edb4717b",
+    "integration_worktree": "ev-completion-20261120",
+    "integration_local_branch": "integration/completion-cohort-20261120",
+    "last_observed_local_commit_prefix": "8b96d83b",
+    "local_only_commits": [
+      {
+        "scope": "Coupon backend/Admin and PostgreSQL concurrency",
+        "sha": "0ba711eff6f1bdbf47cf6b74056d06b7e514c94b",
+        "worktree": "ev-agent3-commercial-20261120"
+      },
+      {
+        "scope": "Guarded ChangeAvailability API/web/Flutter and simulator harness",
+        "sha": "3b6b473bda5ce61912d2059d92c92ff60f218df6",
+        "worktree": "ev-charging-completion-20261120"
+      },
+      {
+        "scope": "Coupon customer web/Flutter, native expiry ownership and acceptance harnesses",
+        "sha": "9a97eb8a30d38be3f405bfddc1be605cfaa7aeb8",
+        "worktree": "ev-agent4-20261120"
+      }
+    ],
+    "warning": "These feature commit IDs are local-only and were not found/published on GitHub. They are not integrated or accepted. Recover the existing workspace; do not reconstruct or overwrite its worktrees.",
+    "pending_source": {
+      "cpo_worktree": "ev-agent2-20261120",
+      "cpo_scope": "Tenant/contract-bound CPO locations/tariffs Sender, explicit publications, withdrawals and publisher surfaces",
+      "last_observed_status": "Uncommitted; preserve and inspect current state",
+      "referrals_worktree": "ev-agent3-commercial-20261120",
+      "referrals_scope": "Separate later referral workflow; do not mix unfinished source into the stable coupon commit"
+    },
+    "charging_review_findings_last_observed_pending": [
+      "Recheck source idle eligibility after token I/O before dispatch",
+      "Persist and validate immutable source generation across creation, replay, transport and review; never release an old-generation hold using a replacement device",
+      "Bound private history page inputs"
+    ],
+    "next_steps": [
+      "Recover worktrees and inspect any later commits before editing",
+      "Normal-merge complete coupon surfaces9a97eb8a and its backend history into the saved combined branch",
+      "Preserve and integrate the charging safety follow-up and complete CPO publisher batch",
+      "Register coupon DOM/HTTP/browser and native suites in independent unchanged authentication windows; register CPO suites and PostgreSQL selection",
+      "Run resulting-source Laravel/PostgreSQL/Node/Flutter/browser/two-protocol simulator checks, fix failures, publish a coherent combined candidate through required CI",
+      "Credit only entire original atoms whose required scope and exact-source verification/integration evidence are satisfied"
+    ]
+  },
+  "limitations": {
+    "execution_environment": "Explicitly unavailable at final checkpoint",
+    "local_browser": "Chromium blocked by sandbox Unix sockets; no local browser assertions credited",
+    "local_flutter": "SDK unavailable; feature widgets/builds remain unexecuted locally",
+    "local_git_push": "No HTTP write credential; connected GitHub Git Data publishing works",
+    "staging": "No actual deployment acceptance",
+    "production": "No live hardware/PSP/partner activation, signed releases/store or deployment acceptance"
+  },
+  "remaining_original_requirements": [
+    {
+      "id": "2.1.7",
+      "requirement": "Approved social login"
+    },
+    {
+      "id": "2.2.7",
+      "requirement": "Authorized vehicle API SOC"
+    },
+    {
+      "id": "2.3.4",
+      "requirement": "Interactive station maps"
+    },
+    {
+      "id": "2.3.5",
+      "requirement": "Address/operator/access/price filters"
+    },
+    {
+      "id": "2.3.6",
+      "requirement": "Supported live availability filters"
+    },
+    {
+      "id": "2.3.8",
+      "requirement": "Favorites"
+    },
+    {
+      "id": "2.4.7",
+      "requirement": "Customer pre-charge estimate/fee acceptance"
+    },
+    {
+      "id": "2.4.8",
+      "requirement": "Reservation terms and per-connector freshness"
+    },
+    {
+      "id": "2.5.4",
+      "requirement": "Unified provider search"
+    },
+    {
+      "id": "2.5.5",
+      "requirement": "Licensed discovery-provider adapter"
+    },
+    {
+      "id": "2.5.6",
+      "requirement": "Authorized actionable roaming"
+    },
+    {
+      "id": "2.6.6",
+      "requirement": "Complete no-show/occupancy policy"
+    },
+    {
+      "id": "2.7.7",
+      "requirement": "Production charger registration and rider authorization"
+    },
+    {
+      "id": "2.7.8",
+      "requirement": "Production certificate/IdToken lifecycle"
+    },
+    {
+      "id": "2.7.9",
+      "requirement": "Complete real-source incident/live-cost experience"
+    },
+    {
+      "id": "2.8.7",
+      "requirement": "Full native checkout/refund/dispute actions"
+    },
+    {
+      "id": "2.8.8",
+      "requirement": "Provider dispute submission and automatic reconciliation"
+    },
+    {
+      "id": "2.8.9",
+      "requirement": "Legal tax invoice artifacts"
+    },
+    {
+      "id": "2.8.10",
+      "requirement": "Legally approved stored-value wallet"
+    },
+    {
+      "id": "2.9.4",
+      "requirement": "Coupons"
+    },
+    {
+      "id": "2.9.5",
+      "requirement": "Referrals"
+    },
+    {
+      "id": "2.9.6",
+      "requirement": "Promotions"
+    },
+    {
+      "id": "2.9.7",
+      "requirement": "Partner reward governance"
+    },
+    {
+      "id": "2.10.5",
+      "requirement": "Full workflow translation audit"
+    },
+    {
+      "id": "2.10.6",
+      "requirement": "Full accessibility/device acceptance"
+    },
+    {
+      "id": "2.10.7",
+      "requirement": "Complete regional time presentation"
+    },
+    {
+      "id": "2.10.8",
+      "requirement": "Additional language rollout"
+    },
+    {
+      "id": "3.1.8",
+      "requirement": "External verification-service software and legal workflows"
+    },
+    {
+      "id": "3.2.6",
+      "requirement": "Production upstream charger registration"
+    },
+    {
+      "id": "3.2.7",
+      "requirement": "Certificate authority lifecycle"
+    },
+    {
+      "id": "3.2.8",
+      "requirement": "Complete connection health/model/firmware management"
+    },
+    {
+      "id": "3.3.4",
+      "requirement": "Complete live connector fleet monitoring"
+    },
+    {
+      "id": "3.3.5",
+      "requirement": "Expanded safe command set"
+    },
+    {
+      "id": "3.3.6",
+      "requirement": "Complete operator/staff session control parity"
+    },
+    {
+      "id": "3.4.6",
+      "requirement": "Availability blocks and operational notices"
+    },
+    {
+      "id": "3.4.7",
+      "requirement": "Dynamic-rate policies"
+    },
+    {
+      "id": "3.4.8",
+      "requirement": "Full commercial tariff acceptance"
+    },
+    {
+      "id": "3.5.6",
+      "requirement": "Full native financial actions"
+    },
+    {
+      "id": "3.5.8",
+      "requirement": "External dispute evidence/deadlines"
+    },
+    {
+      "id": "3.5.9",
+      "requirement": "Complete earnings/settlement reporting"
+    },
+    {
+      "id": "3.6.2",
+      "requirement": "Revenue dashboard"
+    },
+    {
+      "id": "3.6.3",
+      "requirement": "Uptime/downtime analysis"
+    },
+    {
+      "id": "3.6.4",
+      "requirement": "Energy/demand analysis"
+    },
+    {
+      "id": "3.7.4",
+      "requirement": "Complete native plan actions"
+    },
+    {
+      "id": "3.7.5",
+      "requirement": "Marketing subscriptions"
+    },
+    {
+      "id": "3.7.6",
+      "requirement": "Loyalty participation economics"
+    },
+    {
+      "id": "3.7.7",
+      "requirement": "Advertising/promotions and permissions"
+    },
+    {
+      "id": "3.8.4",
+      "requirement": "Operational escalation/delivery preferences"
+    },
+    {
+      "id": "3.8.5",
+      "requirement": "External notification delivery"
+    },
+    {
+      "id": "3.8.6",
+      "requirement": "Complete incident lifecycle"
+    },
+    {
+      "id": "4.1.4",
+      "requirement": "Complete customer/vendor account administration"
+    },
+    {
+      "id": "4.1.5",
+      "requirement": "Permission administration"
+    },
+    {
+      "id": "4.1.6",
+      "requirement": "Moderation/privacy/deletion"
+    },
+    {
+      "id": "4.1.7",
+      "requirement": "Admin 2FA and impersonation governance"
+    },
+    {
+      "id": "4.2.5",
+      "requirement": "Global operations map"
+    },
+    {
+      "id": "4.2.6",
+      "requirement": "Complete production provisioning/health UI"
+    },
+    {
+      "id": "4.2.7",
+      "requirement": "Full incident response operations"
+    },
+    {
+      "id": "4.3.7",
+      "requirement": "Production bank/PSP reconciliation operations"
+    },
+    {
+      "id": "4.3.8",
+      "requirement": "Legal invoice/tax documents"
+    },
+    {
+      "id": "4.3.9",
+      "requirement": "Expanded finance approval governance"
+    },
+    {
+      "id": "4.4.3",
+      "requirement": "Corporate contracts and billing governance"
+    },
+    {
+      "id": "4.4.4",
+      "requirement": "Loyalty/campaign control"
+    },
+    {
+      "id": "4.4.5",
+      "requirement": "Advertising management"
+    },
+    {
+      "id": "4.4.6",
+      "requirement": "Retail partner administration"
+    },
+    {
+      "id": "4.5.4",
+      "requirement": "Complete uptime/operational analytics"
+    },
+    {
+      "id": "4.5.5",
+      "requirement": "Alert delivery and incident escalation"
+    },
+    {
+      "id": "4.5.6",
+      "requirement": "Suspicious activity controls"
+    },
+    {
+      "id": "4.5.7",
+      "requirement": "Compliance/privacy workflows"
+    },
+    {
+      "id": "4.6.5",
+      "requirement": "Complete regional feature administration"
+    },
+    {
+      "id": "4.6.6",
+      "requirement": "Country-specific rollout validation"
+    },
+    {
+      "id": "5.1.5",
+      "requirement": "Complete model/firmware compatibility matrix"
+    },
+    {
+      "id": "5.1.6",
+      "requirement": "Production operational validation software"
+    },
+    {
+      "id": "5.2.6",
+      "requirement": "Production upstream registration/JWT"
+    },
+    {
+      "id": "5.2.7",
+      "requirement": "Rider RFID/IdToken lifecycle"
+    },
+    {
+      "id": "5.2.8",
+      "requirement": "Certificate authority lifecycle"
+    },
+    {
+      "id": "5.2.9",
+      "requirement": "Diagnostics"
+    },
+    {
+      "id": "5.2.10",
+      "requirement": "Firmware management"
+    },
+    {
+      "id": "5.2.11",
+      "requirement": "Authorized safe reset operations"
+    },
+    {
+      "id": "5.3.6",
+      "requirement": "Complete production transport operations"
+    },
+    {
+      "id": "5.3.7",
+      "requirement": "Terminal incident/alert lifecycle"
+    },
+    {
+      "id": "5.3.8",
+      "requirement": "Broader outage/load hardening"
+    },
+    {
+      "id": "5.4.4",
+      "requirement": "Expanded fault/load/model test matrix"
+    },
+    {
+      "id": "5.4.5",
+      "requirement": "Complete approved hardware-pilot software/runbook evidence"
+    },
+    {
+      "id": "6.1.6",
+      "requirement": "Complete provider capability mapping"
+    },
+    {
+      "id": "6.2.1",
+      "requirement": "Licensed discovery-provider adapter"
+    },
+    {
+      "id": "6.2.2",
+      "requirement": "Attribution/rate/cache policies"
+    },
+    {
+      "id": "6.2.3",
+      "requirement": "Provider-specific frontend integration"
+    },
+    {
+      "id": "6.2.4",
+      "requirement": "Coverage-quality monitoring"
+    },
+    {
+      "id": "6.3.4",
+      "requirement": "Complete CPO/eMSP roles and push APIs"
+    },
+    {
+      "id": "6.3.5",
+      "requirement": "Credential/token lifecycle"
+    },
+    {
+      "id": "6.3.6",
+      "requirement": "Authorized remote commands"
+    },
+    {
+      "id": "6.3.7",
+      "requirement": "Roaming reservations"
+    },
+    {
+      "id": "6.3.8",
+      "requirement": "Full reconciliation/conformance"
+    },
+    {
+      "id": "6.4.6",
+      "requirement": "Full credential rotation lifecycle"
+    },
+    {
+      "id": "6.4.7",
+      "requirement": "Network-specific authorized adapters"
+    },
+    {
+      "id": "6.4.8",
+      "requirement": "Contractual onboarding software"
+    },
+    {
+      "id": "7.1.6",
+      "requirement": "Complete commercial eligibility/proration enforcement"
+    },
+    {
+      "id": "7.1.7",
+      "requirement": "Corporate contracts/consolidated billing"
+    },
+    {
+      "id": "7.1.8",
+      "requirement": "Promotions/loyalty economics"
+    },
+    {
+      "id": "7.1.9",
+      "requirement": "Advertising billing"
+    },
+    {
+      "id": "7.1.10",
+      "requirement": "Full native commercial action parity"
+    },
+    {
+      "id": "7.2.5",
+      "requirement": "Complete approved live-mode adapter software"
+    },
+    {
+      "id": "7.2.6",
+      "requirement": "Complete SCA/native checkout parity"
+    },
+    {
+      "id": "7.2.7",
+      "requirement": "Legal numbered tax invoice documents"
+    },
+    {
+      "id": "7.3.7",
+      "requirement": "Partner-CDR financial reconciliation"
+    },
+    {
+      "id": "7.3.8",
+      "requirement": "Automatic PSP/bank reconciliation operations"
+    },
+    {
+      "id": "7.3.9",
+      "requirement": "External dispute evidence/deadlines"
+    },
+    {
+      "id": "7.4.1",
+      "requirement": "Legally approved stored-value design"
+    },
+    {
+      "id": "7.4.2",
+      "requirement": "Approved wallet software and all required surfaces"
+    },
+    {
+      "id": "8.1.5",
+      "requirement": "Plan eligibility and policy enforcement"
+    },
+    {
+      "id": "8.1.6",
+      "requirement": "Consolidated corporate billing"
+    },
+    {
+      "id": "8.1.7",
+      "requirement": "Enterprise contracts"
+    },
+    {
+      "id": "8.1.8",
+      "requirement": "Complete fleet reporting and administration"
+    },
+    {
+      "id": "9.1.9",
+      "requirement": "Privacy deletion workflows"
+    },
+    {
+      "id": "9.1.10",
+      "requirement": "Verified backup/restore"
+    },
+    {
+      "id": "9.1.11",
+      "requirement": "Alerting/telemetry operations"
+    },
+    {
+      "id": "9.1.13",
+      "requirement": "Verified production deployment/rollback"
+    },
+    {
+      "id": "9.2.6",
+      "requirement": "Complete workflow parity"
+    },
+    {
+      "id": "9.2.7",
+      "requirement": "Comprehensive accessibility/visual audit"
+    },
+    {
+      "id": "9.2.8",
+      "requirement": "Signed Android release/store package"
+    },
+    {
+      "id": "9.2.9",
+      "requirement": "Signed iOS release/store package"
+    },
+    {
+      "id": "9.2.10",
+      "requirement": "Real-device release acceptance"
+    },
+    {
+      "id": "9.3.7",
+      "requirement": "Comprehensive performance/security/restore validation"
+    },
+    {
+      "id": "9.3.8",
+      "requirement": "Complete dependency/release inventory audit"
+    },
+    {
+      "id": "9.4.5",
+      "requirement": "Complete international workflow UX"
+    },
+    {
+      "id": "9.4.6",
+      "requirement": "Country-specific legal/PSP/telecom/operator rollout software"
+    }
+  ]
+}
