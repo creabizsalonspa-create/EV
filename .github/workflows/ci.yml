@@ -78,10 +78,19 @@ jobs:
       - run: npm run test:manual-soc
       - run: ./scripts/csms-setup
       - run: ./scripts/csms-start
+      - name: Verify pinned CSMS operations JWT contract (no device commands)
+        run: docker run --rm -v "$PWD/tests/ocpp-operations-jwt.mjs:/tmp/ocpp-operations-jwt.mjs:ro" --entrypoint node creabiz-citrineos-signed:v2.1.0 --test /tmp/ocpp-operations-jwt.mjs
       - run: ./scripts/signed-firmware-validator-test
       - run: npm run test:ocpp
       - run: ./scripts/charging-setup
       - run: ./scripts/charging-bridge-setup
+      - name: Verify audited source registration and private web controls
+        run: |
+          ./scripts/charger-source-registration-setup
+          EV_SOURCE_REGISTRATION_PACE=1 node tests/charger-source-registration.cjs
+          node --test tests/charger-source-registration-ui.cjs
+      - name: Verify registered diagnostic files over verified TLS and both OCPP protocols
+        run: EV_RUN_REGISTERED_DIAGNOSTICS_TESTS=1 node tests/registered-diagnostic-files.cjs
       - run: node tests/charging-session.cjs
       - run: node tests/charging-business.cjs
       - run: node tests/charging-client.cjs
