@@ -200,6 +200,8 @@
             $("next").disabled = page >= last;
             for (const partner of data.data) {
                 const card = node("article");
+                const state = node("p", t(partner.status));
+                state.id = `retail-partner-status-${partner.id}`;
                 card.append(
                     node(
                         "h2",
@@ -208,7 +210,7 @@
                             : partner.version.display_name,
                     ),
                     node("bdi", partner.reference),
-                    node("p", t(partner.status)),
+                    state,
                     button("open", () => detail(partner.id)),
                 );
                 $("partners").append(card);
@@ -234,6 +236,8 @@
             const p = selected,
                 v = p.version,
                 box = $("detail");
+            const listStatus = $(`retail-partner-status-${p.id}`);
+            if (listStatus) listStatus.textContent = t(p.status);
             box.hidden = false;
             box.append(
                 node("h2", lang === "ar" ? v.display_name_ar : v.display_name),

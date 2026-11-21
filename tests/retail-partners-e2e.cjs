@@ -117,6 +117,7 @@ const fs = require("node:fs");
       .locator("#detail")
       .getByText(/^Rejected ·/)
       .waitFor();
+    await b.locator("#partners").getByText("Rejected", { exact: true }).waitFor();
     assert.equal(await b.getByRole("button", { name: "Approve", exact: true }).count(), 0);
     await b.locator("#detail summary").filter({ hasText: "Reject draft" }).click();
     await b.locator("#detail").getByText("Original terms require revision").waitFor();
@@ -141,6 +142,7 @@ const fs = require("node:fs");
       .locator("#detail")
       .getByText("Currently effective", { exact: true })
       .waitFor();
+    await b.locator("#partners").getByText("Approved", { exact: true }).waitFor();
     checks++;
     await b.locator("#detail textarea").fill("Suspend synthetic partner");
     await b.getByRole("button", { name: "Suspend", exact: true }).click();
