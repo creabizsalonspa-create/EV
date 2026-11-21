@@ -1,0 +1,78 @@
+<?php
+
+namespace App\Services\Charging;
+
+use Illuminate\Support\Facades\Http;
+use Throwable;
+
+/** Short-lived, memory-only service authority. Never retries or dispatches commands. */
+class OperationsCredentials
+{
+    public function token(string $operationsBase): string
+    {
+        try {
+            if (config('csms.operations_auth_mode', 'development') === 'development') {
+                abort_unless(app()->environment(['local', 'testing']), 503);
+                $this->url($operationsBase, false);
+                $r = Http::connectTimeout(3)->timeout(5)->withoutRedirecting()->post(rtrim($operationsBase, '/').'/dev/token', ['roles' => ['admin'], 'tenantId' => 1]);
+                $token = $r->json('accessToken');
+                abort_unless($r->successful() && is_string($token) && $token !== '' && strlen($token) <= 16384 && ! preg_match('/[\x00-\x20\x7f]/', $token), 503);
+
+                return $token;
+            }
+            abort_unless(config('csms.operations_auth_mode') === 'oauth2', 503);
+            $this->url($operationsBase, true);
+            abort_unless($operationsBase === config('csms.operations_oauth_audience'), 503);
+            $endpoint = (string) config('csms.operations_oauth_token_url');
+            $this->url($endpoint, true);
+            $client = config('csms.operations_oauth_client_id');
+            $secret = config('csms.operations_oauth_client_secret');
+            $scope = config('csms.operations_oauth_scope');
+            abort_unless(is_string($client) && preg_match('/^[A-Za-z0-9._-]{1,200}$/D', $client) && is_string($secret) && strlen($secret) >= 32 && strlen($secret) <= 4096 && ! preg_match('/[\x00-\x20\x7f]/', $secret) && is_string($scope) && preg_match('/^[A-Za-z0-9:._-]{1,100}$/D', $scope), 503);
+            $r = Http::connectTimeout(3)->timeout(5)->withoutRedirecting()->asForm()->withBasicAuth($client, $secret)->post($endpoint, ['grant_type' => 'client_credentials', 'scope' => $scope]);
+            abort_unless($r->successful() && strlen($r->body()) <= 32768 && strcasecmp((string) $r->json('token_type'), 'Bearer') === 0, 503);
+            $token = $r->json('access_token');
+            abort_unless(is_string($token), 503);
+            $this->verify($token, $operationsBase, $scope);
+
+            return $token;
+        } catch (Throwable) {
+            // Provider bodies, credentials and JWTs never escape through errors.
+            abort(503, 'CSMS service credentials are unavailable; inspect configured identity and provider health.');
+        }
+    }
+
+    private function url(string $url, bool $tls): void
+    {
+        $parts = parse_url($url);
+        abort_unless(is_array($parts) && isset($parts['host']) && ! isset($parts['query']) && ! isset($parts['fragment']) && strlen($url) <= 2048 && ! preg_match('/[\x00-\x20\x7f\\\\]/', $url) && in_array($parts['scheme'] ?? null, $tls ? ['https'] : ['http', 'https'], true), 503);
+        // Reject either component, including a username without a password.
+        abort_if(isset($parts['user']) || isset($parts['pass']), 503);
+    }
+
+    private function decode(string $part): string
+    {
+        abort_unless($part !== '' && preg_match('/^[A-Za-z0-9_-]+$/D', $part), 503);
+        $raw = base64_decode(strtr($part, '-_', '+/'), true);
+        abort_unless(is_string($raw) && rtrim(strtr(base64_encode($raw), '+/', '-_'), '=') === $part, 503);
+
+        return $raw;
+    }
+
+    private function verify(string $token, string $audience, string $scope): void
+    {
+        abort_unless(strlen($token) <= 16384 && count($pieces = explode('.', $token)) === 3, 503);
+        $header = json_decode($this->decode($pieces[0]), true, 16, JSON_THROW_ON_ERROR);
+        $claims = json_decode($this->decode($pieces[1]), true, 16, JSON_THROW_ON_ERROR);
+        abort_unless(is_array($header) && ($header['alg'] ?? null) === 'RS256' && ($header['typ'] ?? null) === 'JWT' && is_string($header['kid'] ?? null) && ! array_key_exists('crit', $header) && ! array_key_exists('jku', $header) && ! array_key_exists('jwk', $header) && ! array_key_exists('x5u', $header) && is_array($claims), 503);
+        $keys = config('csms.operations_oauth_public_keys', []);
+        $pem = is_array($keys) ? ($keys[$header['kid']] ?? null) : null;
+        abort_unless(is_string($pem) && strlen($pem) <= 16384, 503);
+        $key = openssl_pkey_get_public($pem);
+        $details = $key ? openssl_pkey_get_details($key) : false;
+        abort_unless($details && $details['type'] === OPENSSL_KEYTYPE_RSA && $details['bits'] >= 2048 && openssl_verify($pieces[0].'.'.$pieces[1], $this->decode($pieces[2]), $key, OPENSSL_ALGO_SHA256) === 1, 503);
+        $now = now()->getTimestamp();
+        $issuer = config('csms.operations_oauth_issuer');
+        abort_unless(is_string($issuer) && $issuer !== '' && ($claims['iss'] ?? null) === $issuer && ($claims['aud'] ?? null) === $audience && ($claims['sub'] ?? null) === config('csms.operations_oauth_client_id') && ($claims['tenantId'] ?? null) === 1 && is_int($claims['iat'] ?? null) && is_int($claims['exp'] ?? null) && $claims['iat'] <= $now && $claims['iat'] >= $now - 900 && $claims['exp'] > $now + 10 && $claims['exp'] <= $claims['iat'] + 900 && (! array_key_exists('nbf', $claims) || (is_int($claims['nbf']) && $claims['nbf'] <= $now)) && is_array($claims['roles'] ?? null) && array_is_list($claims['roles']) && count($claims['roles']) <= 32 && in_array('admin', $claims['roles'], true) && is_string($claims['scope'] ?? null) && in_array($scope, explode(' ', $claims['scope']), true), 503);
+    }
+}

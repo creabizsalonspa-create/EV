@@ -13,13 +13,15 @@ const src = fs.readFileSync(
 );
 const guarded = src.split(/\r?\n/).filter(line => line.startsWith('Route::') && line.includes('[0-9]{1,18}'));
 
-test('all thirteen charger-operation numeric routes retain a bounded integer matcher', () => {
-  assert.equal(guarded.length, 13, 'review new charger ID paths before changing the audit inventory');
+test('all sixteen inventoried charger-operation numeric routes retain bounded integer matchers', () => {
+  assert.equal(guarded.length, 16, 'review new charger ID paths before changing the audit inventory');
   assert.doesNotMatch(src, /->whereNumber\(/, 'unbounded route digit constraints must not return');
   const actions = [
+    ['get', '/companies/{company}/chargers/{charger}/source-registration', 'company', 'charger'],
+    ['post', '/companies/{company}/chargers/{charger}/source-registration', 'company', 'charger'],
+    ['post', '/companies/{company}/chargers/{charger}/source-registration/{registration}/register', 'company', 'charger', 'registration'],
     ['get', '/companies/{company}/charging-sessions', 'company'],
-    ['get', '/companies/{company}/charging-sessions/{session}/meter-history', 'session'],
-    ['get', '/companies/{company}/charging-sessions/{session}/meter-history', 'company'],
+    ['get', '/companies/{company}/charging-sessions/{session}/meter-history', 'company', 'session'],
     ['delete', '/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance-windows/{window}', 'window'],
     ['post', '/companies/{company}/chargers/{charger}/configuration-reads/{operation}/observe', 'operation'],
     ['patch', '/companies/{company}/chargers/{charger}/fault-alerts/{alert}/acknowledge', 'alert'],
@@ -32,11 +34,18 @@ test('all thirteen charger-operation numeric routes retain a bounded integer mat
     ['get', '/companies/{company}/chargers/{charger}/diagnostic-logs/{operation}/download', 'operation'],
     ['delete', '/companies/{company}/chargers/{charger}/diagnostic-logs/{operation}', 'operation'],
   ];
-  for (const [method, uri, param] of actions) {
+  assert.equal(guarded.length, actions.length, 'review new charger ID paths before changing the audit inventory');
+  for (const [method, uri, ...params] of actions) {
     const prefix = 'Route::' + method + "('" + uri + "',";
     const matches = guarded.filter(line => line.startsWith(prefix));
     assert.equal(matches.length, 1, method + ' ' + uri);
-    assert.ok(matches[0].includes("->where('" + param + "', '[0-9]{1,18}')"), uri);
+    for (const param of params) {
+      assert.ok(
+        matches[0].includes("->where('" + param + "', '[0-9]{1,18}')") ||
+          matches[0].includes("'" + param + "' => '[0-9]{1,18}'"),
+        method + ' ' + uri + ' missing bound for ' + param,
+      );
+    }
   }
 });
 
