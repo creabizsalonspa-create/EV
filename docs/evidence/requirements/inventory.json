@@ -130,6 +130,18 @@
       "test_result": "passed",
       "merge_sha": "54b50ea16045fd41965ddb7a474fb7f70edda779",
       "evidence": "docs/evidence/integrated-checkpoints-20261119/catalog-policy-verified.json"
+    },
+    "pr190_verified": {
+      "source_sha": "b67b46177b974e49e0c8ece995facf51a7f75ad4",
+      "test_result": "passed",
+      "merge_sha": "f694c03f934f9bb3e00b154d512cdabc2a4287b6",
+      "evidence": "docs/evidence/integrated-checkpoints-20261120/pr190-verified.json"
+    },
+    "pr191_verified": {
+      "source_sha": "6beb0ee269ed27a248cb5836bdd027a8d61958da",
+      "test_result": "passed",
+      "merge_sha": "151acd73e94e12b2e1cdfbe46ce859928d186b92",
+      "evidence": "docs/evidence/integrated-checkpoints-20261120/pr191-verified.json"
     }
   },
   "production_acceptance": null,
@@ -917,9 +929,9 @@
     {
       "prd": "3.3",
       "requirement": "Vendor live operations and controls",
-      "implemented_code_scope": "Scoped sessions/meters/stop web/native; web command history and audited local simulator dispatch 19 November 2026 follow-on: Current persisted role/status/password/epoch guards now cover command history/binding/replay and freshly locked owner/source/mapping/protocol; actor-before-station order remains. Native read-only deep links cannot initiate operator actions. 19 November 2026 follow-on candidate: explicit charging.read grants use existing versioned owner/recipient consent for company-scoped, private recorded-session observation in web and canonical Flutter, without customer identities, finance or control actions. Resulting-source hosted gates and integration remain required; this partial read-only slice does not complete operator/staff control parity.",
+      "implemented_code_scope": "Scoped sessions/meters/stop web/native; web command history and audited local simulator dispatch 19 November 2026 follow-on: Current persisted role/status/password/epoch guards now cover command history/binding/replay and freshly locked owner/source/mapping/protocol; actor-before-station order remains. Native read-only deep links cannot initiate operator actions. 20 November 2026 verified integration: explicit charging.read grants and exact-version recipient consent expose private company-scoped session observations in web/Flutter, without customer identities, finance or controls. PR191 source6beb0ee2 passed9 mandatory checks including Android/iOS and recovery; identical-tree normal merge151acd73 follows PR190 sourceb67b4617/10checks atf694c03f. A new read-only retained CSMS meter-history/snapshot/counter workflow is implemented in the continuation candidate; its resulting-head hosted checks and integration remain required. Neither subset completes operator/staff command-control parity.",
       "automated_evidence_scope": "ChargingOperationsTest, ChargerCommandTest; operations browser/native. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Current partial source evidence: docs/evidence/ocpp-source-admission-20261119/, docs/evidence/native-links-20261119/, docs/evidence/browser-role-quiescence-20261119/ and docs/evidence/discovery-private-presets-20261119/. These are local/module or recorded historical-merge proofs; resulting consolidated-source hosted gates remain required and no whole-atom stage credit is added.",
-      "remaining_scope": "Complete fleet of live connector states, operational command recovery and complete operator/staff session control parity. Consented customer-role staff read-only observations are implemented in the pending continuation candidate; charger controls are not delegated.",
+      "remaining_scope": "Complete live connector fleet monitoring, expanded safe commands, complete operator/staff session control parity. Consented customer-role session reads are verified and merged; retained CSMS meter-history web/Flutter extension is a pending continuation candidate. Charger controls are not delegated.",
       "atoms": [
         {
           "id": "3.3.1",
@@ -1323,7 +1335,7 @@
     {
       "prd": "4.2",
       "requirement": "Admin map/integration operations",
-      "implemented_code_scope": "Web command history, scoped OCPI records, manual confirmed negotiation/sync/authorization; configuration-only connections 19 November 2026 follow-on: Private command history has current-account admission and no-store projection. Consolidated source retains original command investigations and OCPI authorization/source reconciliation; incomplete production/Admin atoms remain explicit.",
+      "implemented_code_scope": "Web command history, scoped OCPI records, manual confirmed negotiation/sync/authorization; configuration-only connections 19 November 2026 follow-on: Private command history has current-account admission and no-store projection. Consolidated source retains original command investigations and OCPI authorization/source reconciliation; incomplete production/Admin atoms remain explicit. 20 November 2026 verified PR190 adds cookie-Admin-only bounded command-secret storage counts with private unreadable-key/tamper/legacy handling and resilient public redaction. Its sourceb67b4617 passed10 mandatory gates and was normal-merged with identical tree atf694c03f; it does not certify whole-database security or complete provisioning/health/incident operations.",
       "automated_evidence_scope": "OcpiProvisioningTest, ChargerAdmissionTest, ChargingOperationsTest; operational browser. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Current partial source evidence: docs/evidence/ocpp-source-admission-20261119/, docs/evidence/native-links-20261119/, docs/evidence/browser-role-quiescence-20261119/ and docs/evidence/discovery-private-presets-20261119/. These are local/module or recorded historical-merge proofs; resulting consolidated-source hosted gates remain required and no whole-atom stage credit is added.",
       "remaining_scope": "Global map, secure credential provisioning/rotation (Admin server-alias association is implemented), charger provisioning/health/incidents and complete operations UI",
       "atoms": [

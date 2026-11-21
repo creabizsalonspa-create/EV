@@ -1,0 +1,56 @@
+<?php
+
+namespace App\Services\Discovery;
+
+use Closure;
+use Illuminate\Support\Facades\Cache;
+
+/** Shared egress protection; never serves stale results after provider failure. */
+final class LicensedSourceCache
+{
+    public function read(string $identity, string $credential, Closure $fetch): array
+    {
+        $key = 'ocm-discovery:'.$identity;
+        $cached = Cache::get($key);
+        if ($cached !== null) {
+            return $cached; // The adapter still validates every cached field.
+        }
+        $cooldown = 'ocm-cooldown:'.hash('sha256', $credential);
+        $this->checkCooldown($cooldown);
+        // Non-blocking: a concurrent cold lookup with the same credential cannot multiply provider calls
+        // or occupy a PHP worker while another request waits on the provider.
+        $lock = Cache::lock('ocm-flight:'.hash('sha256', $credential), 30);
+        if (! $lock->get()) {
+            throw new LookupFailure('provider_busy', 503, 1);
+        }
+        try {
+            $cached = Cache::get($key);
+            if ($cached !== null) {
+                return $cached;
+            }
+            $this->checkCooldown($cooldown);
+            try {
+                $source = $fetch();
+            } catch (LookupFailure $error) {
+                if ($error->reason === 'provider_busy') {
+                    $delay = max(1, min(86400, $error->retryAfter ?? 60));
+                    Cache::put($cooldown, now()->getTimestamp() + $delay, $delay);
+                }
+                throw $error;
+            }
+            Cache::put($key, $source, now()->addMinutes(5));
+
+            return $source;
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function checkCooldown(string $key): void
+    {
+        $until = Cache::get($key);
+        if (is_int($until) && $until > now()->getTimestamp()) {
+            throw new LookupFailure('provider_busy', 503, min(86400, $until - now()->getTimestamp()));
+        }
+    }
+}
