@@ -1004,20 +1004,12 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             fulfilled: ["Fulfilled", "تم التسليم"],
             rejected: ["Rejected", "مرفوض"],
         };
-        const offerNames = new WeakMap();
         function rewardName(row) {
             const name = node("span", locale() ? row.reward_name_ar : row.reward_name);
-            offerNames.set(name, row);
-            name.dataset.couponRewardName = "true";
+            name.dataset.en = row.reward_name;
+            name.dataset.ar = row.reward_name_ar;
             return name;
         }
-        window.addEventListener("ev:locale", () => {
-            if (!alive()) return;
-            for (const name of records.querySelectorAll("[data-coupon-reward-name]")) {
-                const row = offerNames.get(name);
-                name.textContent = locale() ? row.reward_name_ar : row.reward_name;
-            }
-        }, { signal: controller.signal });
         const validOffer = row => Number.isSafeInteger(row?.id) && row.id > 0
             && typeof row.reward_name === "string" && typeof row.reward_name_ar === "string";
         function receiptCard(row) {

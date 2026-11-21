@@ -229,12 +229,10 @@ const { exerciseCoupons, verifyForeignCouponPrivacy } = require("./helpers/loyal
         assert.equal(result.redemption.status, "fulfilled");
       },
     });
-    await cp.getByRole("button", { name: "Open loyalty & rewards", exact: true }).click();
-    const beforeRefund = await customer.request.get(
-      base + "/api/commercial/loyalty/account",
-      { headers: { Accept: "application/json" } },
+    const beforeRefund = await customer.evaluate(() =>
+      api("commercial/loyalty/account"),
     );
-    assert.equal((await beforeRefund.json()).balance_points, 90);
+    assert.equal(beforeRefund.balance_points, 90);
     execFileSync(
       "./scripts/php",
       ["tests/Fixtures/loyalty-browser.php", "refund", run],
@@ -290,16 +288,19 @@ const { exerciseCoupons, verifyForeignCouponPrivacy } = require("./helpers/loyal
     await cp.getByText("Refund or chargeback reversal", { exact: true }).waitFor();
     const foreign = await login("foreign");
     await verifyForeignCouponPrivacy(foreign, couponKey);
-    const hidden = await foreign.request.get(
-      base + `/api/commercial/loyalty/redemptions/${redemptions[0]}`,
-      { headers: { Accept: "application/json" } },
+    const denialStatus = await foreign.evaluate(async (id) => {
+      try {
+        await api(`commercial/loyalty/redemptions/${id}`);
+        return 200;
+      } catch (error) {
+        return error.status;
+      }
+    }, redemptions[0]);
+    assert.equal(denialStatus, 404);
+    const foreignAccount = await foreign.evaluate(() =>
+      api("commercial/loyalty/account"),
     );
-    assert.equal(hidden.status(), 404);
-    const foreignAccount = await foreign.request.get(
-      base + "/api/commercial/loyalty/account",
-      { headers: { Accept: "application/json" } },
-    );
-    assert.equal((await foreignAccount.json()).balance_points, 0);
+    assert.equal(foreignAccount.balance_points, 0);
     await cp
       .getByRole("button", { name: "Points & membership", exact: true })
       .click();

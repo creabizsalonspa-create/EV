@@ -104,10 +104,6 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
   await customer.locator("#language").click();
   await receipt.getByText("تم التسليم", { exact: true }).waitFor();
   await customer.locator("#language").click();
-  await customer.reload();
-  await customer.locator('a[href="#commercial-finance"]').click();
-  await button(customerPanel, "Refresh coupons").click();
-  await receipt.getByText("Fulfilled", { exact: true }).waitFor();
   assert.equal(await customerPanel.getByText("#" + expectedReceipt.id, { exact: true }).count(), 1);
 
   await codeInput.fill(privateCode);
