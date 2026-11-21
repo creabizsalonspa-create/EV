@@ -63,6 +63,22 @@ class ChargerAvailabilityCommandTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/configuration/changeAvailability?'));
     }
 
+    public function test_live_dispatch_cannot_be_observed_but_interrupted_dispatch_can_recover(): void
+    {
+        $f = $this->fixture('2.0.1');
+        $this->source($f, ['operationalStatus' => 'Inoperative']);
+        $id = $this->actingAs($f['owner'])->postJson($f['path'], $this->body())->assertCreated()->json('id');
+        DB::table('charger_availability_operations')->where('id', $id)->update(['status' => 'dispatching']);
+
+        $path = $f['path'].'/'.$id.'/observe';
+        $this->postJson($path)->assertOk()->assertJsonPath('status', 'dispatching')->assertJsonPath('can_observe', false);
+        Http::assertNotSent(fn ($request) => str_contains($request['query'] ?? '', 'requestMessageId'));
+
+        // Age the claim while keeping the synthetic source messages inside their original window.
+        DB::table('charger_availability_operations')->where('id', $id)->update(['created_at' => now()->subMinute()]);
+        $this->postJson($path)->assertOk()->assertJsonPath('status', 'accepted')->assertJsonPath('can_observe', false);
+    }
+
     private function body(): array
     {
         return ['requested_state' => 'Inoperative', 'reason' => 'PRIVATE data for simulator', 'idempotency_key' => 'sim-availability'];

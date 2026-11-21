@@ -125,12 +125,16 @@ final class ChargerAvailabilityController extends Controller
     {
         $binding = $this->scope($request, $company, $charger);
         $row = DB::table(self::TABLE)->where('id', $operation)->where('binding_id', $binding->id)->firstOrFail();
-        if (in_array($row->status, ['dispatching', 'transport_submitted', 'outcome_unknown'], true)
-            && $row->attempted_at !== null && $row->observed_at === null && hash_equals($row->source_generation, FaultMonitor::generation($binding))) {
+        if ($this->canObserve($row, $binding)) {
             $source->enabled();
             if ($source->station($binding, false) === $row->source_station_id && ($evidence = $source->confirmation($row))) {
                 DB::transaction(function () use ($request, $company, $charger, $binding, $row, $evidence) {
-                    $this->locked($request, $company, $charger, $binding, false);
+                    $current = $this->locked($request, $company, $charger, $binding, false);
+                    $latest = DB::table(self::TABLE)->where('id', $row->id)->lockForUpdate()->firstOrFail();
+                    if (! $this->canObserve($latest, $current) || $latest->attempted_at !== $row->attempted_at
+                        || $latest->source_station_id !== $row->source_station_id || $latest->source_watermark !== $row->source_watermark) {
+                        return;
+                    }
                     $updated = DB::table(self::TABLE)->where('id', $row->id)->whereNull('observed_at')->update($evidence + ['updated_at' => now()]);
                     if ($updated) {
                         $this->audit($request->user()->id, $row->id, 'source_observed');
@@ -213,6 +217,15 @@ final class ChargerAvailabilityController extends Controller
         DB::table('audit_events')->insert(['actor_id' => $actor, 'action' => 'charger.availability_'.$event, 'subject' => (string) $operation, 'created_at' => now()]);
     }
 
+    private function canObserve(object $row, object $binding): bool
+    {
+        $settled = in_array($row->status, ['transport_submitted', 'outcome_unknown'], true)
+            || ($row->status === 'dispatching' && now()->subMinute()->gte($row->created_at));
+
+        return $settled && $row->attempted_at !== null && $row->observed_at === null
+            && hash_equals($row->source_generation, FaultMonitor::generation($binding));
+    }
+
     private function present(object $row, object $binding): array
     {
         $status = $row->status;
@@ -223,8 +236,7 @@ final class ChargerAvailabilityController extends Controller
         return [
             'id' => $row->id, 'connector_id' => $row->connector_id, 'requested_state' => $row->requested_state,
             'status' => $status, 'created_at' => $row->created_at, 'observed_at' => $row->observed_at,
-            'can_observe' => $row->attempted_at !== null && $row->observed_at === null
-                && hash_equals($row->source_generation, FaultMonitor::generation($binding)),
+            'can_observe' => $this->canObserve($row, $binding),
             'evidence' => 'SIMULATED_SOURCE', 'physical_availability_verified' => false,
         ];
     }
