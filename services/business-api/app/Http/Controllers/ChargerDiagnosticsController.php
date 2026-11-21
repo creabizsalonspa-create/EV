@@ -11,7 +11,6 @@ use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\SourceStatusDurations;
 use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -32,7 +31,7 @@ class ChargerDiagnosticsController extends Controller
         $bindings = DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->get();
         abort_unless($bindings->count() === 1, 409, 'One canonical source mapping is required.');
         $b = $bindings->first();
-        abort_unless($b->station_id === $station->id && $b->protocol === $charger->ocpp_protocol && in_array($b->protocol, ['1.6', '2.0.1'], true) && str_starts_with($b->identifier, 'ev-test-'), 409, 'Source identity requires review.');
+        abort_unless($b->station_id === $station->id && $b->protocol === $charger->ocpp_protocol && in_array($b->protocol, ['1.6', '2.0.1'], true) && preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/D', $b->identifier), 409, 'Source identity requires review.');
 
         return $b;
     }
@@ -58,31 +57,35 @@ class ChargerDiagnosticsController extends Controller
         $binding = $this->binding($r, $company, $charger);
         $data = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id protocol isOnline firmwareVersion latestOcppMessageTimestamp}}', ['name' => $binding->identifier]);
         $rows = $data['ChargingStations'] ?? null;
-        abort_unless(is_array($rows) && count($rows) <= 1, 409, 'Ambiguous source identity requires review.');
+        abort_unless(is_array($rows) && array_is_list($rows) && count($rows) <= 2, 503, 'Invalid source station projection.');
+        abort_if(count($rows) > 1, 409, 'Ambiguous source identity requires review.');
         $source = $rows[0] ?? null;
         $events = [];
-        if ($source) {
-            abort_unless(is_int($source['id'] ?? null) && is_bool($source['isOnline'] ?? null) && in_array($source['protocol'] ?? null, [$binding->protocol, 'ocpp'.$binding->protocol], true), 409, 'Source protocol or identity requires review.');
+        $last = null;
+        if ($rows !== []) {
+            abort_unless(is_array($source) && is_int($source['id'] ?? null) && $source['id'] > 0
+                && $source['id'] <= 2147483647 && is_bool($source['isOnline'] ?? null)
+                && (! isset($source['firmwareVersion']) || is_string($source['firmwareVersion'])), 503, 'Invalid source station projection.');
+            abort_unless(in_array($source['protocol'] ?? null, [$binding->protocol, 'ocpp'.$binding->protocol], true), 409, 'Source protocol or identity requires review.');
+            if (isset($source['latestOcppMessageTimestamp'])) {
+                $last = SourceStatusTime::parse($source['latestOcppMessageTimestamp']);
+            }
             $history = $this->graph('query($station:Int!,$before:Int!){StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},id:{_lt:$before}},order_by:{id:desc},limit:26){id connectorId evseId connectorStatus errorCode timestamp}}', ['station' => $source['id'], 'before' => (int) ($v['before'] ?? 2147483647)]);
             $events = $history['StatusNotifications'] ?? null;
-            abort_unless(is_array($events) && count($events) <= 26, 503, 'Source status history is unavailable.');
+            abort_unless(is_array($events) && array_is_list($events) && count($events) <= 26, 503, 'Source status history is unavailable.');
         }
         // No lock spans network calls. Fence permission/ownership/mapping changes before disclosure.
         $current = $this->binding($r, VendorCompany::findOrFail($company->id), VendorCharger::findOrFail($charger->id));
         abort_unless($current->id === $binding->id && $current->identifier === $binding->identifier && $current->protocol === $binding->protocol && $current->station_id === $binding->station_id, 409, 'Source mapping changed; refresh before inspection.');
-        $last = null;
-        if ($source && ($source['latestOcppMessageTimestamp'] ?? null)) {
-            try {
-                $last = CarbonImmutable::parse($source['latestOcppMessageTimestamp']);
-            } catch (Throwable) {
-                abort(503, 'Source timestamp is invalid.');
-            }
-        }
-        $recent = $last !== null && $last->lessThanOrEqualTo(now()) && $last->greaterThanOrEqualTo(now()->subMinutes(5));
+        $recent = $last !== null && $last->greaterThanOrEqualTo(now()->subMinutes(5));
         $more = count($events) > 25;
         $previous = (int) ($v['before'] ?? 2147483647);
         foreach ($events as $event) {
-            abort_unless(is_array($event) && is_int($event['id'] ?? null) && $event['id'] > 0 && $event['id'] < $previous && is_string($event['connectorStatus'] ?? null) && strlen($event['connectorStatus']) <= 40 && is_string($event['timestamp'] ?? null) && strlen($event['timestamp']) <= 50 && (! isset($event['errorCode']) || (is_string($event['errorCode']) && strlen($event['errorCode']) <= 80)), 503, 'Source status history is invalid.');
+            abort_unless(is_array($event) && is_int($event['id'] ?? null) && $event['id'] > 0 && $event['id'] < $previous && is_string($event['connectorStatus'] ?? null) && $event['connectorStatus'] !== '' && strlen($event['connectorStatus']) <= 40 && is_string($event['timestamp'] ?? null) && strlen($event['timestamp']) <= 50 && (! isset($event['errorCode']) || (is_string($event['errorCode']) && strlen($event['errorCode']) <= 80)), 503, 'Source status history is invalid.');
+            foreach (['evseId', 'connectorId'] as $component) {
+                abort_unless(! isset($event[$component]) || (is_int($event[$component]) && $event[$component] >= 0
+                    && $event[$component] <= 2147483647), 503, 'Invalid source component.');
+            }
             SourceStatusTime::parse($event['timestamp']);
             $previous = $event['id'];
         }
@@ -97,7 +100,7 @@ class ChargerDiagnosticsController extends Controller
             'observed_at' => now()->toISOString(), 'source_registered' => $source !== null,
             'source_online' => $source['isOnline'] ?? null, 'last_message_at' => $last?->toISOString(),
             'recent_message_observed' => $recent, 'freshness_seconds' => 300,
-            'firmware_version' => isset($source['firmwareVersion']) ? mb_substr((string) $source['firmwareVersion'], 0, 100) : null,
+            'firmware_version' => isset($source['firmwareVersion']) ? mb_substr($source['firmwareVersion'], 0, 100) : null,
             'events' => array_map(fn ($e) => array_intersect_key($e, array_flip(['id', 'connectorId', 'evseId', 'connectorStatus', 'errorCode', 'timestamp'])), $events),
             'next_before' => $more ? (int) end($events)['id'] : null,
             'physical_charging_verified' => false, 'commands_sent' => false,

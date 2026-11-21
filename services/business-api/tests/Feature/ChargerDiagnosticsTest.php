@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class ChargerDiagnosticsTest extends TestCase
@@ -59,6 +60,42 @@ class ChargerDiagnosticsTest extends TestCase
         $this->assertDatabaseCount('charging_fault_alerts', 0);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[TestWith(['station_object'])]
+    #[TestWith(['station_null'])]
+    #[TestWith(['station_invalid_id'])]
+    #[TestWith(['malformed_firmware'])]
+    #[TestWith(['relative_last_message'])]
+    #[TestWith(['future_last_message'])]
+    #[TestWith(['history_object'])]
+    #[TestWith(['string_component'])]
+    public function test_malformed_projections_do_not_create_source_health_or_fault_evidence(string $case): void
+    {
+        [$owner, , , $url] = $this->fixture();
+        $station = ['id' => 42, 'protocol' => '1.6', 'isOnline' => true];
+        $rows = match ($case) {
+            'station_object' => ['station' => $station],
+            'station_null' => [null],
+            'station_invalid_id' => [array_replace($station, ['id' => 0])],
+            'malformed_firmware' => [$station + ['firmwareVersion' => ['private' => 'PRIVATE SOURCE']]],
+            'relative_last_message' => [$station + ['latestOcppMessageTimestamp' => 'now']],
+            'future_last_message' => [$station + ['latestOcppMessageTimestamp' => now()->addHour()->toISOString()]],
+            default => [$station],
+        };
+        $history = match ($case) {
+            'history_object' => ['event' => $this->statusEvent(1, 'Faulted', 1)],
+            'string_component' => [array_replace($this->statusEvent(1, 'Faulted', 1), ['connectorId' => '1'])],
+            default => [],
+        };
+        Http::fake(fn ($request) => Http::response(['data' => str_contains($request['query'], 'ChargingStations')
+            ? ['ChargingStations' => $rows] : ['StatusNotifications' => $history]]));
+        $this->actingAs($owner)->getJson($url)->assertServiceUnavailable()
+            ->assertJsonMissingPath('source_online')->assertJsonMissingPath('recent_message_observed')->assertDontSee('PRIVATE SOURCE');
+        $this->postJson(str_replace('/source-diagnostics', '/fault-alerts/inspect', $url))->assertServiceUnavailable();
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
     }
 
     private function fixture(string $protocol = '1.6'): array
