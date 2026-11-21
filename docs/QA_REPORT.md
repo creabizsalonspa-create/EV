@@ -1,3 +1,13 @@
+# 21 November 2026 — combined implementation candidate, separate coverage stages
+
+Canonical f4f22e80 passed all 9 integration-push jobs, including Android, iOS and dependent recovery. PR196 preserves original195f248/1973ce/198faac/2000ad commits through normal merges; no referral/technical-agreement work in progress is imported. Template resolutions retain retail/coupon Admin links, the direct-unverified selector and source-registration script.195 remains the required first canonical dependency.
+
+Complete named code scopes2.5.5/4.4.6/5.2.6/6.2.3 are coded only at pending checkpoints. Fixed original42categories/312atoms:192coded61.00%,188tested59.40%,188merged59.40%,production0%.120atoms still lack complete code-scope evidence;124lack complete merged evidence. No sandbox-only coupon, broader parity, physical/device/PKI/IdToken, full provider coverage or live financial/store acceptance is promoted.
+
+Combined source75babbdd passed fullLaravel1858/32837+1PG-onlyskip; Flutter823/40explicitopt-ins; clean analyzer; Pint863files;66offline guards;397Python total392pass+5image-opt-ins. The5actual crypto cases passed separately at codec12ada42, with clean pinned-image build and complete encrypted populated-domain restore. Proof: docs/evidence/integration-candidate-20261121/source-75babbdd.json and docs/evidence/recovery-domain-20261121/encrypted-local.json.
+
+All applicable final combined-head platform/PostgreSQL/protocol/browser/native/staging/recovery jobs must pass before normal canonical integration. Source/current-target/synthetic-parent/tree/final-target guards remain mandatory. Earlier198route-audit and195unscoped-status failures were repaired without weakening assertions. Failed/cancelled/skipped runs receive no credit. Historical records remain below.
+
 # 21 November 2026 — encrypted populated-backup candidate verified locally
 
 Codec12ada42 extends PR196 with standardlibsodiumsecretstream authenticated encryption of the actualPGdump andprivatearchives, separate ephemeralkeyfiles, wrong-key rejection andrestorationofdecryptedbyte-verifiedfiles. Actualcleanpinnedimage build/check andfullisolatedrestore passed, preserving all189table/157sequence/184row, canonicalEVgraph, encryptedcommand andunpaidSIMinvoice/journal checks. All5actualofflinecrypto tests pass (empty/multichunk/randomization/tamper/truncation/reordering/duplicate/trailing/permissions/links/FIFO/no-overwrite). DefaultPython discovery391total:386pass,5explicitimage-optinskip; those5are executedafterimagebuild inrequiredstagingCI.103recoverypolicies pass. Proof: docs/evidence/recovery-domain-20261121/encrypted-local.json.

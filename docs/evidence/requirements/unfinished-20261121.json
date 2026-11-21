@@ -3,19 +3,24 @@
   "original_categories": 42,
   "original_atoms": 312,
   "coded_tested_merged_counts": {
-    "coded": 188,
+    "coded": 192,
     "tested": 188,
     "merged": 188
   },
   "weighted_percent": {
-    "coded": "59.40",
+    "coded": "61.00",
     "tested": "59.40",
     "merged": "59.40",
     "production_accepted": "0.00"
   },
   "remaining_count": 124,
   "interpretation": "Exact coverage gaps, not a claim that all listed code is absent. Partial implementation, verification gaps and external activation are distinct. Whole-scope code audits remain necessary; never duplicate modules or excuse missing software as external.",
-  "coded_but_untested_original_atoms": [],
+  "coded_but_untested_original_atoms": [
+    "2.5.5",
+    "4.4.6",
+    "5.2.6",
+    "6.2.3"
+  ],
   "tested_but_unmerged_original_atoms": [],
   "partial_unmerged_feature_batches": [
     {
@@ -88,870 +93,871 @@
     {
       "id": "2.1.7",
       "software_atom": "Approved social login",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "approved social login, authorized data export/erasure fulfillment, configured delivery and full security/device review."
     },
     {
       "id": "2.2.7",
       "software_atom": "Authorized vehicle API SOC",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Authorized vehicle-provider SOC integration and remaining real-device/provider acceptance; no inferred vehicle telemetry."
     },
     {
       "id": "2.3.4",
       "software_atom": "Interactive station maps",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Canonical current-page web/Flutter maps are merged in PR16; unified partner maps remain incomplete. No whole-atom credit.",
       "category_remaining_scope": "Unified authorized partner discovery/maps/favorites, address/operator/access/price and supported live availability filters, saved places and energy-aware charging-stop recommendations; live/provider physical review acceptance is external and unverified. Tested read-only unified/native map and filter subsets now exist as described above; the remaining statement denotes completion of the original broad requirement, not absence of those subsets."
     },
     {
       "id": "2.3.5",
       "software_atom": "Address/operator/access/price filters",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Unified authorized partner discovery/maps/favorites, address/operator/access/price and supported live availability filters, saved places and energy-aware charging-stop recommendations; live/provider physical review acceptance is external and unverified. Tested read-only unified/native map and filter subsets now exist as described above; the remaining statement denotes completion of the original broad requirement, not absence of those subsets."
     },
     {
       "id": "2.3.6",
       "software_atom": "Supported live availability filters",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Unified authorized partner discovery/maps/favorites, address/operator/access/price and supported live availability filters, saved places and energy-aware charging-stop recommendations; live/provider physical review acceptance is external and unverified. Tested read-only unified/native map and filter subsets now exist as described above; the remaining statement denotes completion of the original broad requirement, not absence of those subsets."
     },
     {
       "id": "2.3.8",
       "software_atom": "Favorites",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Canonical private favorites are merged across Laravel/web/Flutter in PR16; partner favorites remain incomplete. No whole-atom credit.",
       "category_remaining_scope": "Unified authorized partner discovery/maps/favorites, address/operator/access/price and supported live availability filters, saved places and energy-aware charging-stop recommendations; live/provider physical review acceptance is external and unverified. Tested read-only unified/native map and filter subsets now exist as described above; the remaining statement denotes completion of the original broad requirement, not absence of those subsets."
     },
     {
       "id": "2.4.7",
       "software_atom": "Customer pre-charge estimate/fee acceptance",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Customer pre-charge estimate/fee acceptance, complete reservation terms, authoritative per-connector freshness and remaining partner metadata parity."
     },
     {
       "id": "2.4.8",
       "software_atom": "Reservation terms and per-connector freshness",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Customer pre-charge estimate/fee acceptance, complete reservation terms, authoritative per-connector freshness and remaining partner metadata parity."
     },
     {
       "id": "2.5.4",
       "software_atom": "Unified provider search",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "Unified provider search/discovery adapters and authorized actionable roaming Tested read-only unified/native map and filter subsets now exist as described above; the remaining statement denotes completion of the original broad requirement, not absence of those subsets."
+      "category_remaining_scope": "Final source verification/integration of coded licensed adapter2.5.5; unified all-provider query2.5.4 and fully actionable authorized roaming2.5.6 remain incomplete. No actual provider activation or coverage is inferred."
     },
     {
       "id": "2.5.5",
       "software_atom": "Licensed discovery-provider adapter",
-      "classification": "complete_software_scope_not_evidenced",
-      "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "Unified provider search/discovery adapters and authorized actionable roaming Tested read-only unified/native map and filter subsets now exist as described above; the remaining statement denotes completion of the original broad requirement, not absence of those subsets."
+      "classification": "implemented_pending_complete_source_verification",
+      "note": "Named licensed adapter code scope is complete across customer web/native/backend, pending final combined-source checks and integration. Unified all-provider search and all-source favorites remain separate uncredited atoms.",
+      "category_remaining_scope": "Final source verification/integration of coded licensed adapter2.5.5; unified all-provider query2.5.4 and fully actionable authorized roaming2.5.6 remain incomplete. No actual provider activation or coverage is inferred."
     },
     {
       "id": "2.5.6",
       "software_atom": "Authorized actionable roaming",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "Unified provider search/discovery adapters and authorized actionable roaming Tested read-only unified/native map and filter subsets now exist as described above; the remaining statement denotes completion of the original broad requirement, not absence of those subsets."
+      "category_remaining_scope": "Final source verification/integration of coded licensed adapter2.5.5; unified all-provider query2.5.4 and fully actionable authorized roaming2.5.6 remain incomplete. No actual provider activation or coverage is inferred."
     },
     {
       "id": "2.6.6",
       "software_atom": "Complete no-show/occupancy policy",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete no-show/occupancy policy and physical occupancy acceptance; reported arrival never proves physical presence"
     },
     {
       "id": "2.7.7",
       "software_atom": "Production charger registration and rider authorization",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Production CSMS registration/JWT/rider IdToken authority, certificate lifecycle, richer monitoring/incidents/diagnostics/firmware; physical acceptance external"
     },
     {
       "id": "2.7.8",
       "software_atom": "Production certificate/IdToken lifecycle",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Production CSMS registration/JWT/rider IdToken authority, certificate lifecycle, richer monitoring/incidents/diagnostics/firmware; physical acceptance external"
     },
     {
       "id": "2.7.9",
       "software_atom": "Complete real-source incident/live-cost experience",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Production CSMS registration/JWT/rider IdToken authority, certificate lifecycle, richer monitoring/incidents/diagnostics/firmware; physical acceptance external"
     },
     {
       "id": "2.8.7",
       "software_atom": "Full native checkout/refund/dispute actions",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full native checkout/plan/refund/dispute parity, provider dispute submission/reconciliation, legal invoice documents; wallet remains separately blocked by legal approval"
     },
     {
       "id": "2.8.8",
       "software_atom": "Provider dispute submission and automatic reconciliation",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full native checkout/plan/refund/dispute parity, provider dispute submission/reconciliation, legal invoice documents; wallet remains separately blocked by legal approval"
     },
     {
       "id": "2.8.9",
       "software_atom": "Legal tax invoice artifacts",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full native checkout/plan/refund/dispute parity, provider dispute submission/reconciliation, legal invoice documents; wallet remains separately blocked by legal approval"
     },
     {
       "id": "2.8.10",
       "software_atom": "Legally approved stored-value wallet",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full native checkout/plan/refund/dispute parity, provider dispute submission/reconciliation, legal invoice documents; wallet remains separately blocked by legal approval"
     },
     {
       "id": "2.9.4",
       "software_atom": "Coupons",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Coupons, referrals, promotions, vendor participation, broader reward fulfillment, native parity and real operational acceptance."
     },
     {
       "id": "2.9.5",
       "software_atom": "Referrals",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Coupons, referrals, promotions, vendor participation, broader reward fulfillment, native parity and real operational acceptance."
     },
     {
       "id": "2.9.6",
       "software_atom": "Promotions",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Coupons, referrals, promotions, vendor participation, broader reward fulfillment, native parity and real operational acceptance."
     },
     {
       "id": "2.9.7",
       "software_atom": "Partner reward governance",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Coupons, referrals, promotions, vendor participation, broader reward fulfillment, native parity and real operational acceptance."
     },
     {
       "id": "2.10.5",
       "software_atom": "Full workflow translation audit",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full workflow coverage, accessibility/screenshot/device audit, regional money/time presentation and future language rollout"
     },
     {
       "id": "2.10.6",
       "software_atom": "Full accessibility/device acceptance",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full workflow coverage, accessibility/screenshot/device audit, regional money/time presentation and future language rollout"
     },
     {
       "id": "2.10.7",
       "software_atom": "Complete regional time presentation",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full workflow coverage, accessibility/screenshot/device audit, regional money/time presentation and future language rollout"
     },
     {
       "id": "2.10.8",
       "software_atom": "Additional language rollout",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full workflow coverage, accessibility/screenshot/device audit, regional money/time presentation and future language rollout"
     },
     {
       "id": "3.1.8",
       "software_atom": "External verification-service software and legal workflows",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete external verification-service/legal workflows and live verification-service/legal acceptance."
     },
     {
       "id": "3.2.6",
       "software_atom": "Production upstream charger registration",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Upstream production charger registration/certificate lifecycle and complete health/firmware/hardware-model management"
     },
     {
       "id": "3.2.7",
       "software_atom": "Certificate authority lifecycle",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Upstream production charger registration/certificate lifecycle and complete health/firmware/hardware-model management"
     },
     {
       "id": "3.2.8",
       "software_atom": "Complete connection health/model/firmware management",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Upstream production charger registration/certificate lifecycle and complete health/firmware/hardware-model management"
     },
     {
       "id": "3.3.4",
       "software_atom": "Complete live connector fleet monitoring",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete live connector fleet monitoring, expanded safe commands, complete operator/staff session control parity. Consented customer-role session reads are verified and merged; retained CSMS meter-history web/Flutter extension is a pending continuation candidate. Charger controls are not delegated."
     },
     {
       "id": "3.3.5",
       "software_atom": "Expanded safe command set",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete live connector fleet monitoring, expanded safe commands, complete operator/staff session control parity. Consented customer-role session reads are verified and merged; retained CSMS meter-history web/Flutter extension is a pending continuation candidate. Charger controls are not delegated."
     },
     {
       "id": "3.3.6",
       "software_atom": "Complete operator/staff session control parity",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete live connector fleet monitoring, expanded safe commands, complete operator/staff session control parity. Consented customer-role session reads are verified and merged; retained CSMS meter-history web/Flutter extension is a pending continuation candidate. Charger controls are not delegated."
     },
     {
       "id": "3.4.6",
       "software_atom": "Availability blocks and operational notices",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Remaining availability-block/notice parity, dynamic pricing and commercial tariff acceptance; no live availability is inferred from a vendor calendar"
     },
     {
       "id": "3.4.7",
       "software_atom": "Dynamic-rate policies",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Remaining availability-block/notice parity, dynamic pricing and commercial tariff acceptance; no live availability is inferred from a vendor calendar"
     },
     {
       "id": "3.4.8",
       "software_atom": "Full commercial tariff acceptance",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Remaining availability-block/notice parity, dynamic pricing and commercial tariff acceptance; no live availability is inferred from a vendor calendar"
     },
     {
       "id": "3.5.6",
       "software_atom": "Full native financial actions",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full native financial actions, bank payout-provider/reconciliation software, provider dispute evidence/deadlines, complete earnings/settlement analytics and legal acceptance"
     },
     {
       "id": "3.5.8",
       "software_atom": "External dispute evidence/deadlines",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full native financial actions, bank payout-provider/reconciliation software, provider dispute evidence/deadlines, complete earnings/settlement analytics and legal acceptance"
     },
     {
       "id": "3.5.9",
       "software_atom": "Complete earnings/settlement reporting",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full native financial actions, bank payout-provider/reconciliation software, provider dispute evidence/deadlines, complete earnings/settlement analytics and legal acceptance"
     },
     {
       "id": "3.6.2",
       "software_atom": "Revenue dashboard",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Verified physical charger uptime/downtime, full realized revenue and settlement dashboards, simultaneous site demand analysis, production operator-data acceptance and broader live network analytics. Three original atoms remain uncredited."
     },
     {
       "id": "3.6.3",
       "software_atom": "Uptime/downtime analysis",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Verified physical charger uptime/downtime, full realized revenue and settlement dashboards, simultaneous site demand analysis, production operator-data acceptance and broader live network analytics. Three original atoms remain uncredited."
     },
     {
       "id": "3.6.4",
       "software_atom": "Energy/demand analysis",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Verified physical charger uptime/downtime, full realized revenue and settlement dashboards, simultaneous site demand analysis, production operator-data acceptance and broader live network analytics. Three original atoms remain uncredited."
     },
     {
       "id": "3.7.4",
       "software_atom": "Complete native plan actions",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full native plan/entitlement actions, marketing/advertising/loyalty economics and approved billing/participation policies"
     },
     {
       "id": "3.7.5",
       "software_atom": "Marketing subscriptions",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full native plan/entitlement actions, marketing/advertising/loyalty economics and approved billing/participation policies"
     },
     {
       "id": "3.7.6",
       "software_atom": "Loyalty participation economics",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full native plan/entitlement actions, marketing/advertising/loyalty economics and approved billing/participation policies"
     },
     {
       "id": "3.7.7",
       "software_atom": "Advertising/promotions and permissions",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full native plan/entitlement actions, marketing/advertising/loyalty economics and approved billing/participation policies"
     },
     {
       "id": "3.8.4",
       "software_atom": "Operational escalation/delivery preferences",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Operational incident lifecycle, provider delivery/preferences/escalation; native maintenance now consumes the scoped API"
     },
     {
       "id": "3.8.5",
       "software_atom": "External notification delivery",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Operational incident lifecycle, provider delivery/preferences/escalation; native maintenance now consumes the scoped API"
     },
     {
       "id": "3.8.6",
       "software_atom": "Complete incident lifecycle",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Operational incident lifecycle, provider delivery/preferences/escalation; native maintenance now consumes the scoped API"
     },
     {
       "id": "4.1.4",
       "software_atom": "Complete customer/vendor account administration",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete permission/account administration, impersonation governance, authorized privacy erasure/export and all remaining moderation scope."
     },
     {
       "id": "4.1.5",
       "software_atom": "Permission administration",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete permission/account administration, impersonation governance, authorized privacy erasure/export and all remaining moderation scope."
     },
     {
       "id": "4.1.6",
       "software_atom": "Moderation/privacy/deletion",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete permission/account administration, impersonation governance, authorized privacy erasure/export and all remaining moderation scope."
     },
     {
       "id": "4.1.7",
       "software_atom": "Admin 2FA and impersonation governance",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete permission/account administration, impersonation governance, authorized privacy erasure/export and all remaining moderation scope."
     },
     {
       "id": "4.2.5",
       "software_atom": "Global operations map",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Global map, secure credential provisioning/rotation (Admin server-alias association is implemented), charger provisioning/health/incidents and complete operations UI"
     },
     {
       "id": "4.2.6",
       "software_atom": "Complete production provisioning/health UI",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Global map, secure credential provisioning/rotation (Admin server-alias association is implemented), charger provisioning/health/incidents and complete operations UI"
     },
     {
       "id": "4.2.7",
       "software_atom": "Full incident response operations",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Global map, secure credential provisioning/rotation (Admin server-alias association is implemented), charger provisioning/health/incidents and complete operations UI"
     },
     {
       "id": "4.3.7",
       "software_atom": "Production bank/PSP reconciliation operations",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Legal tax/invoice documents, expanded commercial governance, bank payout-provider integration, provider dispute/reconciliation operations and external finance/legal acceptance"
     },
     {
       "id": "4.3.8",
       "software_atom": "Legal invoice/tax documents",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Legal tax/invoice documents, expanded commercial governance, bank payout-provider integration, provider dispute/reconciliation operations and external finance/legal acceptance"
     },
     {
       "id": "4.3.9",
       "software_atom": "Expanded finance approval governance",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Legal tax/invoice documents, expanded commercial governance, bank payout-provider integration, provider dispute/reconciliation operations and external finance/legal acceptance"
     },
     {
       "id": "4.4.3",
       "software_atom": "Corporate contracts and billing governance",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "B2B agreements/billing/admin governance, loyalty/campaigns/ads/retail partner workflows"
+      "category_remaining_scope": "Current retail code is complete for4.4.6 but final combined-source verification and merge remain pending; corporate/campaign/advertising scope remains separately incomplete."
     },
     {
       "id": "4.4.4",
       "software_atom": "Loyalty/campaign control",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "B2B agreements/billing/admin governance, loyalty/campaigns/ads/retail partner workflows"
+      "category_remaining_scope": "Current retail code is complete for4.4.6 but final combined-source verification and merge remain pending; corporate/campaign/advertising scope remains separately incomplete."
     },
     {
       "id": "4.4.5",
       "software_atom": "Advertising management",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "B2B agreements/billing/admin governance, loyalty/campaigns/ads/retail partner workflows"
+      "category_remaining_scope": "Current retail code is complete for4.4.6 but final combined-source verification and merge remain pending; corporate/campaign/advertising scope remains separately incomplete."
     },
     {
       "id": "4.4.6",
       "software_atom": "Retail partner administration",
-      "classification": "complete_software_scope_not_evidenced",
-      "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "B2B agreements/billing/admin governance, loyalty/campaigns/ads/retail partner workflows"
+      "classification": "implemented_pending_complete_source_verification",
+      "note": "Complete named code scope reviewed across required surfaces; final combined exact-source CI and canonical integration pending. See docs/evidence/integration-candidate-20261121/source-75babbdd.json. No physical/live/provider/production acceptance inferred.",
+      "category_remaining_scope": "Current retail code is complete for4.4.6 but final combined-source verification and merge remain pending; corporate/campaign/advertising scope remains separately incomplete."
     },
     {
       "id": "4.5.4",
       "software_atom": "Complete uptime/operational analytics",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Operational analytics/alerts/uptime, suspicious-activity controls, compliance/privacy/security workflows"
     },
     {
       "id": "4.5.5",
       "software_atom": "Alert delivery and incident escalation",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Operational analytics/alerts/uptime, suspicious-activity controls, compliance/privacy/security workflows"
     },
     {
       "id": "4.5.6",
       "software_atom": "Suspicious activity controls",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Operational analytics/alerts/uptime, suspicious-activity controls, compliance/privacy/security workflows"
     },
     {
       "id": "4.5.7",
       "software_atom": "Compliance/privacy workflows",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Operational analytics/alerts/uptime, suspicious-activity controls, compliance/privacy/security workflows"
     },
     {
       "id": "4.6.5",
       "software_atom": "Complete regional feature administration",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete regional rollout/feature administration and country-specific legal/provider validation"
     },
     {
       "id": "4.6.6",
       "software_atom": "Country-specific rollout validation",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete regional rollout/feature administration and country-specific legal/provider validation"
     },
     {
       "id": "5.1.5",
       "software_atom": "Complete model/firmware compatibility matrix",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Production operations and model/firmware compatibility matrix/physical acceptance"
     },
     {
       "id": "5.1.6",
       "software_atom": "Production operational validation software",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Production operations and model/firmware compatibility matrix/physical acceptance"
     },
     {
       "id": "5.2.6",
       "software_atom": "Production upstream registration/JWT",
-      "classification": "complete_software_scope_not_evidenced",
-      "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "Complete production registration, RFID/IdToken/CA lifecycle, approved charger model coverage and complete production diagnostic/firmware/reset transport; simulator validation is not hardware acceptance."
+      "classification": "implemented_pending_complete_source_verification",
+      "note": "Complete named code scope reviewed across required surfaces; final combined exact-source CI and canonical integration pending. See docs/evidence/integration-candidate-20261121/source-75babbdd.json. No physical/live/provider/production acceptance inferred.",
+      "category_remaining_scope": "Final combined-source verification/integration of5.2.6 remains pending. RFID/IdToken, PKI, broader diagnostics/firmware/reset operations and compatibility/physical acceptance remain distinct uncredited scope."
     },
     {
       "id": "5.2.7",
       "software_atom": "Rider RFID/IdToken lifecycle",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "Complete production registration, RFID/IdToken/CA lifecycle, approved charger model coverage and complete production diagnostic/firmware/reset transport; simulator validation is not hardware acceptance."
+      "category_remaining_scope": "Final combined-source verification/integration of5.2.6 remains pending. RFID/IdToken, PKI, broader diagnostics/firmware/reset operations and compatibility/physical acceptance remain distinct uncredited scope."
     },
     {
       "id": "5.2.8",
       "software_atom": "Certificate authority lifecycle",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "Complete production registration, RFID/IdToken/CA lifecycle, approved charger model coverage and complete production diagnostic/firmware/reset transport; simulator validation is not hardware acceptance."
+      "category_remaining_scope": "Final combined-source verification/integration of5.2.6 remains pending. RFID/IdToken, PKI, broader diagnostics/firmware/reset operations and compatibility/physical acceptance remain distinct uncredited scope."
     },
     {
       "id": "5.2.9",
       "software_atom": "Diagnostics",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "Complete production registration, RFID/IdToken/CA lifecycle, approved charger model coverage and complete production diagnostic/firmware/reset transport; simulator validation is not hardware acceptance."
+      "category_remaining_scope": "Final combined-source verification/integration of5.2.6 remains pending. RFID/IdToken, PKI, broader diagnostics/firmware/reset operations and compatibility/physical acceptance remain distinct uncredited scope."
     },
     {
       "id": "5.2.10",
       "software_atom": "Firmware management",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "Complete production registration, RFID/IdToken/CA lifecycle, approved charger model coverage and complete production diagnostic/firmware/reset transport; simulator validation is not hardware acceptance."
+      "category_remaining_scope": "Final combined-source verification/integration of5.2.6 remains pending. RFID/IdToken, PKI, broader diagnostics/firmware/reset operations and compatibility/physical acceptance remain distinct uncredited scope."
     },
     {
       "id": "5.2.11",
       "software_atom": "Authorized safe reset operations",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "Complete production registration, RFID/IdToken/CA lifecycle, approved charger model coverage and complete production diagnostic/firmware/reset transport; simulator validation is not hardware acceptance."
+      "category_remaining_scope": "Final combined-source verification/integration of5.2.6 remains pending. RFID/IdToken, PKI, broader diagnostics/firmware/reset operations and compatibility/physical acceptance remain distinct uncredited scope."
     },
     {
       "id": "5.3.6",
       "software_atom": "Complete production transport operations",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Production transport operational hardening, richer alerting/incident terminal workflows, broader outage/load coverage and real-source billing acceptance"
     },
     {
       "id": "5.3.7",
       "software_atom": "Terminal incident/alert lifecycle",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Production transport operational hardening, richer alerting/incident terminal workflows, broader outage/load coverage and real-source billing acceptance"
     },
     {
       "id": "5.3.8",
       "software_atom": "Broader outage/load hardening",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Production transport operational hardening, richer alerting/incident terminal workflows, broader outage/load coverage and real-source billing acceptance"
     },
     {
       "id": "5.4.4",
       "software_atom": "Expanded fault/load/model test matrix",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Broader fault/load/model/firmware tests; approved hardware pilot remains external"
     },
     {
       "id": "5.4.5",
       "software_atom": "Complete approved hardware-pilot software/runbook evidence",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Broader fault/load/model/firmware tests; approved hardware pilot remains external"
     },
     {
       "id": "6.1.6",
       "software_atom": "Complete provider capability mapping",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete provider/connector capability mapping, production adapters and live provider/physical freshness acceptance remain uncredited; the existing bounded software age policy is verified."
     },
     {
       "id": "6.2.3",
       "software_atom": "Provider-specific frontend integration",
-      "classification": "complete_software_scope_not_evidenced",
-      "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "Complete provider-specific native frontend parity (6.2.3) and broader operator coverage-quality monitoring (6.2.4). Approved API access/key, actual licensed activation and live provider coverage/SLA acceptance remain external; these are not inferred from fixture or browser verification."
+      "classification": "implemented_pending_complete_source_verification",
+      "note": "Complete named code scope reviewed across required surfaces; final combined exact-source CI and canonical integration pending. See docs/evidence/integration-candidate-20261121/source-75babbdd.json. No physical/live/provider/production acceptance inferred.",
+      "category_remaining_scope": "Verify and integrate completed provider-specific native code6.2.3; implement complete operator coverage-quality monitoring6.2.4. All-provider favorites remain in2.3.8; actual licensed activation/credentials/live coverage remain external."
     },
     {
       "id": "6.2.4",
       "software_atom": "Coverage-quality monitoring",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
-      "category_remaining_scope": "Complete provider-specific native frontend parity (6.2.3) and broader operator coverage-quality monitoring (6.2.4). Approved API access/key, actual licensed activation and live provider coverage/SLA acceptance remain external; these are not inferred from fixture or browser verification."
+      "category_remaining_scope": "Verify and integrate completed provider-specific native code6.2.3; implement complete operator coverage-quality monitoring6.2.4. All-provider favorites remain in2.3.8; actual licensed activation/credentials/live coverage remain external."
     },
     {
       "id": "6.3.4",
       "software_atom": "Complete CPO/eMSP roles and push APIs",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete CPO/eMSP role/push/rotation coverage, authorized roaming reservations/remote commands and full interoperability/conformance across real approved partners."
     },
     {
       "id": "6.3.5",
       "software_atom": "Credential/token lifecycle",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete CPO/eMSP role/push/rotation coverage, authorized roaming reservations/remote commands and full interoperability/conformance across real approved partners."
     },
     {
       "id": "6.3.6",
       "software_atom": "Authorized remote commands",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete CPO/eMSP role/push/rotation coverage, authorized roaming reservations/remote commands and full interoperability/conformance across real approved partners."
     },
     {
       "id": "6.3.7",
       "software_atom": "Roaming reservations",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete CPO/eMSP role/push/rotation coverage, authorized roaming reservations/remote commands and full interoperability/conformance across real approved partners."
     },
     {
       "id": "6.3.8",
       "software_atom": "Full reconciliation/conformance",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Complete CPO/eMSP role/push/rotation coverage, authorized roaming reservations/remote commands and full interoperability/conformance across real approved partners."
     },
     {
       "id": "6.4.6",
       "software_atom": "Full credential rotation lifecycle",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full credential/token lifecycle beyond verified Admin server-alias association, network-specific adapters and contractual acceptance"
     },
     {
       "id": "6.4.7",
       "software_atom": "Network-specific authorized adapters",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full credential/token lifecycle beyond verified Admin server-alias association, network-specific adapters and contractual acceptance"
     },
     {
       "id": "6.4.8",
       "software_atom": "Contractual onboarding software",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full credential/token lifecycle beyond verified Admin server-alias association, network-specific adapters and contractual acceptance"
     },
     {
       "id": "7.1.6",
       "software_atom": "Complete commercial eligibility/proration enforcement",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Proration/eligibility policies and enforcement parity, corporate contracts/consolidated billing, advertising/promotions/loyalty economics and complete native commercial UI"
     },
     {
       "id": "7.1.7",
       "software_atom": "Corporate contracts/consolidated billing",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Proration/eligibility policies and enforcement parity, corporate contracts/consolidated billing, advertising/promotions/loyalty economics and complete native commercial UI"
     },
     {
       "id": "7.1.8",
       "software_atom": "Promotions/loyalty economics",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Proration/eligibility policies and enforcement parity, corporate contracts/consolidated billing, advertising/promotions/loyalty economics and complete native commercial UI"
     },
     {
       "id": "7.1.9",
       "software_atom": "Advertising billing",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Proration/eligibility policies and enforcement parity, corporate contracts/consolidated billing, advertising/promotions/loyalty economics and complete native commercial UI"
     },
     {
       "id": "7.1.10",
       "software_atom": "Full native commercial action parity",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Proration/eligibility policies and enforcement parity, corporate contracts/consolidated billing, advertising/promotions/loyalty economics and complete native commercial UI"
     },
     {
       "id": "7.2.5",
       "software_atom": "Complete approved live-mode adapter software",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Provider-specific completion, merchant sandbox/callback/SCA acceptance, tax/legal invoice artifacts and reviews; full native actions"
     },
     {
       "id": "7.2.6",
       "software_atom": "Complete SCA/native checkout parity",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Provider-specific completion, merchant sandbox/callback/SCA acceptance, tax/legal invoice artifacts and reviews; full native actions"
     },
     {
       "id": "7.2.7",
       "software_atom": "Legal numbered tax invoice documents",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Provider-specific completion, merchant sandbox/callback/SCA acceptance, tax/legal invoice artifacts and reviews; full native actions"
     },
     {
       "id": "7.3.7",
       "software_atom": "Partner-CDR financial reconciliation",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Partner-CDR/PSP/bank reconciliation operations, external dispute evidence/deadlines and full cross-provider commercial reporting"
     },
     {
       "id": "7.3.8",
       "software_atom": "Automatic PSP/bank reconciliation operations",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Partner-CDR/PSP/bank reconciliation operations, external dispute evidence/deadlines and full cross-provider commercial reporting"
     },
     {
       "id": "7.3.9",
       "software_atom": "External dispute evidence/deadlines",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Partner-CDR/PSP/bank reconciliation operations, external dispute evidence/deadlines and full cross-provider commercial reporting"
     },
     {
       "id": "7.4.1",
       "software_atom": "Legally approved stored-value design",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Legal/regulatory suitability and approved design required before wallet software; complete independent finance scope meanwhile"
     },
     {
       "id": "7.4.2",
       "software_atom": "Approved wallet software and all required surfaces",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Legal/regulatory suitability and approved design required before wallet software; complete independent finance scope meanwhile"
     },
     {
       "id": "8.1.5",
       "software_atom": "Plan eligibility and policy enforcement",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Eligibility/policies, corporate administrative roles/agreements/consolidated billing and reports"
     },
     {
       "id": "8.1.6",
       "software_atom": "Consolidated corporate billing",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Eligibility/policies, corporate administrative roles/agreements/consolidated billing and reports"
     },
     {
       "id": "8.1.7",
       "software_atom": "Enterprise contracts",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Eligibility/policies, corporate administrative roles/agreements/consolidated billing and reports"
     },
     {
       "id": "8.1.8",
       "software_atom": "Complete fleet reporting and administration",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Eligibility/policies, corporate administrative roles/agreements/consolidated billing and reports"
     },
     {
       "id": "9.1.9",
       "software_atom": "Privacy deletion workflows",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "authorized privacy erasure/export, operational backups/restore and alerting, verified production deployment/rollback and full security review."
     },
     {
       "id": "9.1.10",
       "software_atom": "Verified backup/restore",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "authorized privacy erasure/export, operational backups/restore and alerting, verified production deployment/rollback and full security review."
     },
     {
       "id": "9.1.11",
       "software_atom": "Alerting/telemetry operations",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "authorized privacy erasure/export, operational backups/restore and alerting, verified production deployment/rollback and full security review."
     },
     {
       "id": "9.1.13",
       "software_atom": "Verified production deployment/rollback",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "authorized privacy erasure/export, operational backups/restore and alerting, verified production deployment/rollback and full security review."
     },
     {
       "id": "9.2.6",
       "software_atom": "Complete workflow parity",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full accessibility/visual/device acceptance, signing/AAB/IPA/store deliverables and full workflow parity"
     },
     {
       "id": "9.2.7",
       "software_atom": "Comprehensive accessibility/visual audit",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full accessibility/visual/device acceptance, signing/AAB/IPA/store deliverables and full workflow parity"
     },
     {
       "id": "9.2.8",
       "software_atom": "Signed Android release/store package",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full accessibility/visual/device acceptance, signing/AAB/IPA/store deliverables and full workflow parity"
     },
     {
       "id": "9.2.9",
       "software_atom": "Signed iOS release/store package",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full accessibility/visual/device acceptance, signing/AAB/IPA/store deliverables and full workflow parity"
     },
     {
       "id": "9.2.10",
       "software_atom": "Real-device release acceptance",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Full accessibility/visual/device acceptance, signing/AAB/IPA/store deliverables and full workflow parity"
     },
     {
       "id": "9.3.7",
       "software_atom": "Comprehensive performance/security/restore validation",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Broader performance/security/restore/deployment tests and complete dependency/license/release inventory review"
     },
     {
       "id": "9.3.8",
       "software_atom": "Complete dependency/release inventory audit",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Broader performance/security/restore/deployment tests and complete dependency/license/release inventory review"
     },
     {
       "id": "9.4.5",
       "software_atom": "Complete international workflow UX",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Remaining country-specific legal/PSP/telecom/operator checks and full international UX/workflows"
     },
     {
       "id": "9.4.6",
       "software_atom": "Country-specific legal/PSP/telecom/operator rollout software",
-      "classification": "complete_software_scope_not_evidenced",
+      "classification": "software_scope_incomplete_or_unverified",
       "note": "Unfinished software or unverified required scope",
       "category_remaining_scope": "Remaining country-specific legal/PSP/telecom/operator checks and full international UX/workflows"
     }
-  ]
+  ],
+  "software_atoms_without_complete_code_scope": 120
 }

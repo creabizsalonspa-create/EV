@@ -8,7 +8,7 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 
 | Stage | Weighted coverage |
 |---|---:|
-| coded | 59.40% |
+| coded | 61.00% |
 | tested | 59.40% |
 | merged | 59.40% |
 | production_accepted | 0.00% |
@@ -21,7 +21,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 2.2 | EV garage and driver preferences | 7 | 6/7 | 6/7 | 6/7 | 0/7 |
 | 2.3 | Search, maps, routes, favorites, reviews | 9 | 5/9 | 5/9 | 5/9 | 0/9 |
 | 2.4 | Location/connector details and pricing terms | 8 | 6/8 | 6/8 | 6/8 | 0/8 |
-| 2.5 | Owned and network discovery | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
+| 2.5 | Owned and network discovery | 6 | 4/6 | 3/6 | 3/6 | 0/6 |
 | 2.6 | Reservations and occupancy policy | 7 | 6/7 | 6/7 | 6/7 | 0/7 |
 | 2.7 | Remote charging and monitoring | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
 | 2.8 | Checkout, wallet, invoices, disputes | 10 | 6/10 | 6/10 | 6/10 | 0/10 |
@@ -38,15 +38,15 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 4.1 | Admin accounts/KYC/moderation/roles | 7 | 3/7 | 3/7 | 3/7 | 0/7 |
 | 4.2 | Admin map/integration operations | 7 | 4/7 | 4/7 | 4/7 | 0/7 |
 | 4.3 | Admin finance/plans/commissions/tax | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
-| 4.4 | Admin enterprise/campaigns/partners | 6 | 2/6 | 2/6 | 2/6 | 0/6 |
+| 4.4 | Admin enterprise/campaigns/partners | 6 | 3/6 | 2/6 | 2/6 | 0/6 |
 | 4.5 | Admin observability/compliance | 7 | 3/7 | 3/7 | 3/7 | 0/7 |
 | 4.6 | Country/localization/feature gates | 6 | 4/6 | 4/6 | 4/6 | 0/6 |
 | 5.1 | Separate compatible CSMS | 6 | 4/6 | 4/6 | 4/6 | 0/6 |
-| 5.2 | Complete charger protocol operations | 11 | 5/11 | 5/11 | 5/11 | 0/11 |
+| 5.2 | Complete charger protocol operations | 11 | 6/11 | 5/11 | 5/11 | 0/11 |
 | 5.3 | Reliable events/state/reconciliation | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 5.4 | Simulator/hardware compatibility QA | 5 | 3/5 | 3/5 | 3/5 | 0/5 |
 | 6.1 | Normalized catalog/freshness | 6 | 5/6 | 5/6 | 5/6 | 0/6 |
-| 6.2 | Licensed discovery providers | 4 | 2/4 | 2/4 | 2/4 | 0/4 |
+| 6.2 | Licensed discovery providers | 4 | 3/4 | 2/4 | 2/4 | 0/4 |
 | 6.3 | Complete CPO/eMSP OCPI | 8 | 3/8 | 3/8 | 3/8 | 0/8 |
 | 6.4 | Partner access/capability/error handling | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 6.5 | Truthful partner availability/controls | 3 | 3/3 | 3/3 | 3/3 | 0/3 |
@@ -115,7 +115,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `2.5.2` [CTM] Read-only normalized partner discovery web/native (evidence: main638).
 - `2.5.3` [CTM] Fail-closed remote capability labels (evidence: main638).
 - `2.5.4` [—] Unified provider search (evidence: none).
-- `2.5.5` [—] Licensed discovery-provider adapter (evidence: none).
+- `2.5.5` [C] Licensed discovery-provider adapter (evidence: pr197).
 - `2.5.6` [—] Authorized actionable roaming (evidence: none).
 
 ### 2.6 Reservations and occupancy policy
@@ -295,7 +295,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `4.4.3` [—] Corporate contracts and billing governance (evidence: none).
 - `4.4.4` [—] Loyalty/campaign control (evidence: none).
 - `4.4.5` [—] Advertising management (evidence: none).
-- `4.4.6` [—] Retail partner administration (evidence: none).
+- `4.4.6` [C] Retail partner administration (evidence: pr195).
 
 ### 4.5 Admin observability/compliance
 
@@ -332,7 +332,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `5.2.3` [CTM] TLS/mTLS ingress and secure charger identity (evidence: main638).
 - `5.2.4` [CTM] Versioned admission credentials/expiry/history (evidence: main638).
 - `5.2.5` [CTM] Canonical multi-EVSE/source mapping (evidence: main638).
-- `5.2.6` [—] Production upstream registration/JWT (evidence: none).
+- `5.2.6` [C] Production upstream registration/JWT (evidence: pr196).
 - `5.2.7` [—] Rider RFID/IdToken lifecycle (evidence: none).
 - `5.2.8` [—] Certificate authority lifecycle (evidence: none).
 - `5.2.9` [—] Diagnostics (evidence: none).
@@ -371,7 +371,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 
 - `6.2.1` [CTM] Licensed discovery-provider adapter (evidence: pr193).
 - `6.2.2` [CTM] Attribution/rate/cache policies (evidence: pr193).
-- `6.2.3` [—] Provider-specific frontend integration (evidence: none).
+- `6.2.3` [C] Provider-specific frontend integration (evidence: pr197).
 - `6.2.4` [—] Coverage-quality monitoring (evidence: none).
 
 ### 6.3 Complete CPO/eMSP OCPI
