@@ -8,9 +8,9 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 
 | Stage | Weighted coverage |
 |---|---:|
-| coded | 58.20% |
-| tested | 58.20% |
-| merged | 58.20% |
+| coded | 59.40% |
+| tested | 59.40% |
+| merged | 59.40% |
 | production_accepted | 0.00% |
 
 Production acceptance: 0.00% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.
@@ -46,7 +46,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 5.3 | Reliable events/state/reconciliation | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 5.4 | Simulator/hardware compatibility QA | 5 | 3/5 | 3/5 | 3/5 | 0/5 |
 | 6.1 | Normalized catalog/freshness | 6 | 5/6 | 5/6 | 5/6 | 0/6 |
-| 6.2 | Licensed discovery providers | 4 | 0/4 | 0/4 | 0/4 | 0/4 |
+| 6.2 | Licensed discovery providers | 4 | 2/4 | 2/4 | 2/4 | 0/4 |
 | 6.3 | Complete CPO/eMSP OCPI | 8 | 3/8 | 3/8 | 3/8 | 0/8 |
 | 6.4 | Partner access/capability/error handling | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 6.5 | Truthful partner availability/controls | 3 | 3/3 | 3/3 | 3/3 | 0/3 |
@@ -369,8 +369,8 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 
 ### 6.2 Licensed discovery providers
 
-- `6.2.1` [—] Licensed discovery-provider adapter (evidence: none).
-- `6.2.2` [—] Attribution/rate/cache policies (evidence: none).
+- `6.2.1` [CTM] Licensed discovery-provider adapter (evidence: pr193).
+- `6.2.2` [CTM] Attribution/rate/cache policies (evidence: pr193).
 - `6.2.3` [—] Provider-specific frontend integration (evidence: none).
 - `6.2.4` [—] Coverage-quality monitoring (evidence: none).
 
