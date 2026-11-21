@@ -1,0 +1,60 @@
+{
+  "pr": 193,
+  "source_sha": "eae11308840fc679a6b553e7c365586c76736f66",
+  "integrated_sha": "f4f22e800ad9b98dcd12a97621ba486b9e9ce047",
+  "base_sha": "30668ebfb9fb95d3df09bcbf24961e6a93f2b5f8",
+  "normal_merge": true,
+  "merge_tree_matches_tested_source": true,
+  "required_checks": [
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44713612157/job/136242538932"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44713612488/job/136211264036"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44713612488/job/136211263576"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44713612157/job/136211262229"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44713612157/job/136211262122"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44713612157/job/136211261944"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44713612157/job/136211261884"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44713612157/job/136211261608"
+    }
+  ],
+  "retrospective_verification": true,
+  "production_accepted": false
+}

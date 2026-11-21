@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Explicit loopback simulator test configuration only. No external registration.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+python3 - <<'PY'
+from pathlib import Path
+p=Path('services/business-api/.env')
+values=dict(line.split('=',1) for line in p.read_text().splitlines() if '=' in line and not line.startswith('#'))
+if values.get('APP_ENV','').strip('"\'')!='local':
+ raise SystemExit('Source-registration test setup requires local application environment.')
+for key in ['CSMS_UPSTREAM_REGISTRATION_ENABLED','CSMS_UPSTREAM_REGISTRATION_ALLOW_LOCAL_HTTP']:
+ if key not in values:
+  with p.open('a') as f:f.write('\n'+key+'=true\n')
+print('Local metadata registration test flags configured; existing explicit values retained.')
+PY
+docker restart ev-business-api >/dev/null

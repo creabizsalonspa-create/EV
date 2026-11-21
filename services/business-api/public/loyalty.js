@@ -984,5 +984,10 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
     button(container, "Open loyalty & rewards", "فتح الولاء والمكافآت", () =>
         load(),
     );
+    if (role === "admin") {
+        const coupons = t("a", "Manage reward coupons", "إدارة قسائم المكافآت");
+        coupons.href = "/admin/reward-coupons";
+        container.append(coupons);
+    }
     container.append(content);
 };

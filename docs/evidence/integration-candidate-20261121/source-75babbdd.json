@@ -1,0 +1,55 @@
+{
+  "source_sha": "75babbdd1e2f93a220a1ae44962a136b7196570f",
+  "canonical_base_sha": "f4f22e800ad9b98dcd12a97621ba486b9e9ce047",
+  "test_result": "pending_final_head_hosted_checks",
+  "integrated_sha": null,
+  "component_heads_preserved_by_normal_merges": {
+    "pr195": "f2487f6d0c68ab41f7b8185fe8a331e4ecaaebb6",
+    "pr197": "3ce88b007891561acba373d263c376d22dc3b39b",
+    "pr198": "faac6e671649be503d9421da81a779facf36ce62",
+    "pr200": "0ad7200ca6c5420cdc5fb0a51c658aab48a9e3b5"
+  },
+  "first_required_canonical_dependency": 195,
+  "local_results": {
+    "laravel": {
+      "passed": 1858,
+      "assertions": 32837,
+      "postgres_only_skip": 1
+    },
+    "pint_files": 863,
+    "flutter": {
+      "passed": 823,
+      "explicit_integration_opt_in_skips": 40
+    },
+    "analyzer": "no_issues",
+    "python": {
+      "passed": 392,
+      "explicit_image_opt_in_skips": 5
+    },
+    "node_offline_guards": 66,
+    "crypto_runtime_tests": {
+      "passed": 5,
+      "code_checkpoint": "c12ada4216d6f20f4ec76982d54536c079406dbc"
+    }
+  },
+  "local_logs_sha256": {
+    "final-union-laravel.txt": "4ecf326a8013414f0790bded7e2071e8ea1b6ab7de7b83431f10d48a7921248e",
+    "final-union-pint.txt": "dac2fca65a86756d6528e2665085637337955974ef766d830c606e76427c4ec7",
+    "combined-flutter-full.txt": "47d2674bfa9646f97c5f8e79d091186ed6ccda75902972a92e1f22f315c74405",
+    "combined-flutter-analyzer.txt": "da70546aaa2a0cbaa553d665224bbb40b3d88d3b839761c3a1aaa1624089f9fc",
+    "final-union-python.txt": "f7402c1e127e1c6f62b2408e9e9587941b1d0c2b4fc9fb1473be10a74267d435",
+    "combined-all-offline.txt": "cdb59c3134924966fee48b9b0e51cece1a60a11880c8ce2d7ab1aa2f88d5ea3e"
+  },
+  "merge_resolutions": [
+    "Retained retail Admin link plus direct_unverified selector and source-registration script.",
+    "Retained additional Admin reward-coupon link alongside existing retail/source hooks."
+  ],
+  "code_scope_audits": {
+    "4.4.6": "Admin retail registry includes independent approve/reject, immutable terms/history, suspension/revision/reinstatement/termination, expiry/revision/tenant/MFA controls and bilingual dedicated web workflow.",
+    "5.2.6": "Production-oriented OAuth2/pinned RS256 service authority plus one-attempt authenticated upstream metadata registration/readback, guarded disabled binding/profile and web/native ownership-scoped observations. Physical commissioning, hardware authentication, PKI/IdToken and broader incident/model health remain separate uncredited atoms. Unknown registration outcomes remain held for provenance inspection without adoption or replay.",
+    "6.2.3": "Existing licensed backend/web projection and map UI plus complete consented typed customer/vendor native provider search, filters, quality disclosure, separately consented map/navigation and lifecycle/authentication fences. Broader coverage monitoring and all-provider favorites remain separate gaps.",
+    "2.5.5": "Complete licensed adapter customer backend/web/native code; no unified all-provider query or all-source favorites inferred."
+  },
+  "production_accepted": false,
+  "whole_coupon_or_referral_credit": false
+}

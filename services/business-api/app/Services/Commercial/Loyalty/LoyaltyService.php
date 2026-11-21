@@ -237,6 +237,84 @@ class LoyaltyService
         }, 3);
     }
 
+    public function claimCoupon(int $user, string $code, string $key): object
+    {
+        $this->enabled();
+
+        return DB::transaction(function () use ($user, $code, $key) {
+            $current = User::whereKey($user)->lockForUpdate()->firstOrFail();
+            abort_unless($current->role === 'customer' && $current->account_status === 'active', 403, 'Only an active customer can claim a reward coupon.');
+            $request = hash('sha256', 'coupon-claim:'.$user.':'.$key);
+            $hash = hash('sha256', $code);
+            if ($old = DB::table('loyalty_coupon_claims')->where('request_key', $request)->first()) {
+                $coupon = DB::table('loyalty_coupons')->find($old->coupon_id);
+                abort_unless(hash_equals($coupon->code_hash, $hash), 409, 'Coupon retry content changed.');
+
+                return $old;
+            }
+
+            abort_if(DB::table('loyalty_coupon_claim_intents')->where('request_key', $request)->exists(), 409, 'This coupon claim intent was explicitly cancelled.');
+            $coupon = DB::table('loyalty_coupons')->where('code_hash', $hash)->lockForUpdate()->first() ?? abort(404);
+            $now = now()->utc();
+            abort_unless($coupon->revoked_at === null && $coupon->starts_at <= $now->toDateTimeString()
+                && $coupon->ends_at > $now->toDateTimeString(), 409, 'Coupon is unavailable.');
+            $claims = DB::table('loyalty_coupon_claims')->where('coupon_id', $coupon->id);
+            abort_unless((clone $claims)->count() < $coupon->claim_limit
+                && (clone $claims)->where('user_id', $user)->count() < $coupon->per_user_limit, 409, 'Coupon limit reached.');
+
+            $this->reconcileLocked($user, $user);
+            $account = $this->account($user);
+            $reward = DB::table('loyalty_rewards')->where('id', $coupon->reward_id)->lockForUpdate()->first();
+            abort_unless($reward && $reward->starts_at <= $now->toDateTimeString() && $reward->ends_at > $now->toDateTimeString(), 409, 'Reward is unavailable.');
+            $active = DB::table('loyalty_redemptions')->where('reward_id', $reward->id)->whereIn('status', ['pending', 'fulfilled']);
+            abort_unless((clone $active)->count() < $reward->stock
+                && (clone $active)->where('user_id', $user)->count() < $reward->per_user_limit, 409, 'Reward inventory or per-member limit reached.');
+            $policy = $this->policy($reward->currency, $now);
+            $today = DB::table('loyalty_redemptions')->where('user_id', $user)->where('created_at', '>=', $now->copy()->startOfDay())->count();
+            abort_unless($policy && $policy->enabled && $today < $policy->daily_redemption_limit
+                && ! $account['redemption_hold'] && $account['balance_points'] >= 0, 409, 'Reward policy or account hold prevents this claim.');
+
+            $redemption = DB::table('loyalty_redemptions')->insertGetId([
+                'user_id' => $user, 'reward_id' => $reward->id, 'points_cost' => 0,
+                'status' => 'pending', 'request_key' => $request, 'created_at' => $now, 'updated_at' => $now,
+            ]);
+            $id = DB::table('loyalty_coupon_claims')->insertGetId([
+                'coupon_id' => $coupon->id, 'user_id' => $user, 'redemption_id' => $redemption,
+                'request_key' => $request, 'created_at' => $now,
+            ]);
+            $this->redemptionEvent($redemption, $user, 'requested', 'Coupon entitlement pending manual reward fulfillment.');
+            $this->audit($user, 'loyalty.coupon.claimed', (string) $id);
+
+            return DB::table('loyalty_coupon_claims')->find($id);
+        }, 3);
+    }
+
+    /** A durable no-economic-action fence for a member's uncertain request. */
+    public function cancelCouponIntent(int $user, string $code, string $key): array
+    {
+        return DB::transaction(function () use ($user, $code, $key) {
+            $current = User::whereKey($user)->lockForUpdate()->firstOrFail();
+            abort_unless($current->role === 'customer' && $current->account_status === 'active', 403);
+            $request = hash('sha256', 'coupon-claim:'.$user.':'.$key);
+            $hash = hash('sha256', $code);
+            if ($claim = DB::table('loyalty_coupon_claims')->where('request_key', $request)->first()) {
+                $coupon = DB::table('loyalty_coupons')->find($claim->coupon_id);
+                abort_unless(hash_equals($coupon->code_hash, $hash), 409, 'Coupon intent content changed.');
+
+                return ['state' => 'accepted', 'claim' => $claim];
+            }
+            $prior = DB::table('loyalty_coupon_claim_intents')->where('request_key', $request)->first();
+            if ($prior) {
+                abort_unless(hash_equals($prior->code_hash, $hash), 409, 'Coupon intent content changed.');
+            } else {
+                DB::table('loyalty_coupon_claim_intents')->insert(['user_id' => $user, 'request_key' => $request, 'code_hash' => $hash, 'created_at' => now()]);
+                $this->audit($user, 'loyalty.coupon.intent_cancelled', $request);
+            }
+
+            return ['state' => 'cancelled', 'claim' => null];
+        }, 3);
+    }
+
     public function transition(int $id, User|int $actor, string $action, string $reason): object
     {
         $this->enabled();
