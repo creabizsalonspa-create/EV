@@ -118,17 +118,19 @@ class RetailPartnerTest extends TestCase
     {
         $a = User::factory()->create(['role' => 'admin']);
         $this->actingAs($a);
+        $firstId = null;
         for ($n = 0; $n < 26; $n++) {
             $v = $this->terms();
             $v['reference'] = 'PARTNER-'.str_pad((string) $n, 3, '0', STR_PAD_LEFT);
-            $this->postJson('/api/admin/retail-partners', $v)->assertCreated();
+            $id = $this->postJson('/api/admin/retail-partners', $v)->assertCreated()->json('partner.id');
+            $firstId ??= $id;
         }
         $this->getJson('/api/admin/retail-partners?search=')->assertOk()->assertJsonCount(25, 'data')->assertJsonPath('last_page', 2);
         $this->getJson('/api/admin/retail-partners?page=2')->assertOk()->assertJsonCount(1, 'data');
         $this->getJson('/api/admin/retail-partners?search=PARTNER-025')->assertOk()->assertJsonCount(1, 'data');
         $this->getJson('/api/admin/retail-partners?page=100001')->assertUnprocessable();
         $this->getJson('/api/admin/retail-partners/99999')->assertNotFound();
-        $this->getJson('/api/admin/retail-partners/1')->assertOk()->assertJsonPath('events.data.0.version_snapshot.terms', 'Internal reviewed terms; no monetary reward authorization.');
+        $this->getJson('/api/admin/retail-partners/'.$firstId)->assertOk()->assertJsonPath('events.data.0.version_snapshot.terms', 'Internal reviewed terms; no monetary reward authorization.');
     }
 
     public function test_future_terms_approval_does_not_claim_current_effectiveness(): void
