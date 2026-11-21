@@ -1,3 +1,11 @@
+# 21 November 2026 — verified integration audit and populated recovery candidate
+
+Verified PR193 final sourceeae11308 passed8applicablechecks including bothnativebuilds anddependent recovery, mergedf4f22e80 with identical tested/integratedtree. Proof: docs/evidence/integrated-checkpoints-20261121/pr193-verified.json. Check the current canonical push jobs independently; source checks are not fabricated as current push results.
+
+Audited existing licensed adapter/rate/cache/attribution software against originalPRD6 and corrected only stale6.2.1/6.2.2 stage entries. Original42categories/312atoms remain unchanged:188coded/tested/merged, weighted59.40%each, production0.00%. Exact124remainingIDs and external-gate distinctions: docs/evidence/requirements/unfinished-20261121.json. Native provider integration6.2.3 and broad quality monitoring6.2.4 remain uncredited.
+
+Recovery candidate34cdf42b passed actual clean pinned staging image/check and complete isolated PostgreSQL17restore:189publictables,157sequences,184rows matched, including canonical EV/source graph, encrypted command payloads and2unpaidSIMULATEDinvoices/journals via reviewed canonicalFinanceService calls. Zeropayments/refunds.386Python tests including103recovery policies pass. All prior private-file,key,tamper,queue/session/cache,snapshot and actualHTTPcontrols retained. Local proof: docs/evidence/recovery-domain-20261121/local.json. Current PR196 hosted gates/integration remain required; broad9.1.10 and production acceptance are not credited. Historical entries below retain their original checkpoints.
+
 # CURRENT OWNER DIRECTIVE — FIVE PARALLEL COMPLETION AGENTS (20 NOVEMBER 2026)
 
 The owner's latest uploaded **FINAL EXECUTION COMMAND — FINISH 100% OF THE EV PROJECT** restores five parallel workstreams and supersedes all single-owner and earlier allocation rules retained below. See docs/OWNER_EXECUTION_20261120.md. Original42 categories/312 atoms and evidence weights remain unchanged. Prior records remain historical; preserve every verified source and financial invariant.
