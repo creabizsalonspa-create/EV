@@ -1,0 +1,41 @@
+{
+  "pr": 192,
+  "source_sha": "a2ea0b33327c4c2fb5eac79c5fbb85ca0fb817e7",
+  "merge_sha": "30668ebfb9fb95d3df09bcbf24961e6a93f2b5f8",
+  "source_tree": "ad00fdd70a63aa8f7e361d2162cab2d16ae438a5",
+  "merge_tree": "ad00fdd70a63aa8f7e361d2162cab2d16ae438a5",
+  "target_branch": "development/fullstack-continuation",
+  "verified_on": "2026-11-20",
+  "required_checks": {
+    "Platform validation": {
+      "run_id": 44629006334,
+      "passed": [
+        "business-platform",
+        "connector-postgres",
+        "finance-postgres",
+        "staging-image",
+        "csms-recovery",
+        "recovery-acceptance"
+      ]
+    },
+    "Native client validation": {
+      "run_id": 44629004975,
+      "passed": [
+        "native (ubuntu-latest)",
+        "native (macos-15)"
+      ]
+    },
+    "Agent 10 fast offline QA": {
+      "run_id": 44629005226,
+      "passed": [
+        "agent10-offline"
+      ]
+    }
+  },
+  "review_submissions": 0,
+  "unresolved_review_threads": 0,
+  "source_contains_prior_target": "151acd73e94e12b2e1cdfbe46ce859928d186b92",
+  "whole_atom_credit_added": false,
+  "production_accepted": false,
+  "qualification": "Private recorded meter history and native expiry ownership. Hosted native development validation is not a signed release; synthetic source, recovery and image checks do not establish actual staging, hardware, payments or production acceptance."
+}

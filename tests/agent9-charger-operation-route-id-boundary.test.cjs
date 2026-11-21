@@ -13,10 +13,13 @@ const src = fs.readFileSync(
 );
 const guarded = src.split(/\r?\n/).filter(line => line.startsWith('Route::') && line.includes('[0-9]{1,18}'));
 
-test('all eleven charger-operation numeric routes retain a bounded integer matcher', () => {
-  assert.equal(guarded.length, 11, 'review new charger ID paths before changing the audit inventory');
+test('all thirteen charger-operation numeric routes retain a bounded integer matcher', () => {
+  assert.equal(guarded.length, 13, 'review new charger ID paths before changing the audit inventory');
   assert.doesNotMatch(src, /->whereNumber\(/, 'unbounded route digit constraints must not return');
   const actions = [
+    ['get', '/companies/{company}/charging-sessions', 'company'],
+    ['get', '/companies/{company}/charging-sessions/{session}/meter-history', 'session'],
+    ['get', '/companies/{company}/charging-sessions/{session}/meter-history', 'company'],
     ['delete', '/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance-windows/{window}', 'window'],
     ['post', '/companies/{company}/chargers/{charger}/configuration-reads/{operation}/observe', 'operation'],
     ['patch', '/companies/{company}/chargers/{charger}/fault-alerts/{alert}/acknowledge', 'alert'],

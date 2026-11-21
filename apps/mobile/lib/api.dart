@@ -23,7 +23,16 @@ class PrivateDocument {
 class ApiException implements Exception {
   final int status;
   final String message;
-  const ApiException(this.status, this.message);
+  final bool Function()? _expirationIsCurrent;
+  const ApiException(
+    this.status,
+    this.message, {
+    bool Function()? expirationIsCurrent,
+  }) : _expirationIsCurrent = expirationIsCurrent;
+  // The real client may invalidate the request's old fence before throwing.
+  // This signal is valid only until another credential transition begins.
+  bool get endsCurrentSession =>
+      [401, 419].contains(status) && (_expirationIsCurrent?.call() ?? false);
   @override
   String toString() => message;
 }
@@ -547,6 +556,7 @@ class EvApi {
         throw const ApiException(409, 'Session changed.');
       }
       if ([401, 419].contains(response.statusCode)) {
+        final invalidatedEpoch = epoch + 1;
         _cookies.clear();
         _csrf = null;
         try {
@@ -559,6 +569,7 @@ class EvApi {
         throw ApiException(
           response.statusCode,
           'Your session ended. Please sign in again.',
+          expirationIsCurrent: () => _epoch == invalidatedEpoch,
         );
       }
       if (_remembered &&

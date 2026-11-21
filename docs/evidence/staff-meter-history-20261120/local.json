@@ -1,0 +1,163 @@
+{
+  "client_date": "2026-11-20",
+  "client_timezone": "Asia/Dubai",
+  "recorded_at_utc": "2026-11-19T22:16:37.569980+00:00",
+  "source_code_sha": "96ed203f5364666393e764f91fa40447202862c4",
+  "verified_canonical_base": "151acd73e94e12b2e1cdfbe46ce859928d186b92",
+  "local_passes": {
+    "laravel": {
+      "passed": 1760,
+      "skipped": 1,
+      "skip_reason": "PostgreSQL-only",
+      "assertions": 31859
+    },
+    "postgres": {
+      "features": 928,
+      "feature_assertions": 12563,
+      "concurrency": 32,
+      "concurrency_assertions": 478,
+      "receipt_migration": 2,
+      "receipt_migration_assertions": 13
+    },
+    "finance_postgres": {
+      "passed": 441,
+      "skipped": 1,
+      "skip_reason": "SQLite-only",
+      "assertions": 11162,
+      "process_migration": 99,
+      "process_migration_assertions": 1460
+    },
+    "flutter": {
+      "passed": 772,
+      "explicit_live_fixture_skips": 37,
+      "focused_auth_storage_views": 53,
+      "analyzer": "passed",
+      "separate_actual_laravel_http_contract": 1
+    },
+    "controlled_web_scheduler_cases": 39,
+    "actual_laravel_browser": {
+      "passed": true,
+      "languages": [
+        "en",
+        "ar"
+      ],
+      "width": 390,
+      "meter_snapshot_pages": true,
+      "consent_and_revocation": true,
+      "unchanged_digests": [
+        "source_events",
+        "sessions",
+        "owned_command",
+        "invoices",
+        "journals",
+        "entries",
+        "payments",
+        "refunds"
+      ]
+    },
+    "pint_files": 838,
+    "ci_trigger_guards": 8
+  },
+  "uncredited_initial_failures": [
+    "Route audit required the standard18-digit guard, not the draft15-digit spelling",
+    "PostgreSQL timestamp(0) drops fractions and rounds receipt .654321 into the next retained second; tests now assert stored values exactly",
+    "Real EvApi401/419 credential deletion invalidated the view fence before expiry notification; three real-client regressions reproduced this and now pass",
+    "Following a paginator next link omitted the source cursor and expanded the window; self-links now preserve through/status"
+  ],
+  "source_timestamp_contract": "Retained database values only; no reconstruction of discarded precision",
+  "shared_native_api_change": "Optional non-serialized current-expiration ownership; existing status/message/transport/replay and financial conflict behavior unchanged",
+  "production_acceptance": false,
+  "new_whole_atom_credit": 0,
+  "original_scope": {
+    "categories": 42,
+    "atoms": 312,
+    "coded_atoms": 186,
+    "tested_atoms": 186,
+    "merged_atoms": 186,
+    "weighted_coded": "58.20",
+    "weighted_tested": "58.20",
+    "weighted_merged": "58.20",
+    "weighted_production": "0.00"
+  },
+  "resulting_source_hosted_android_ios_platform_recovery": "not_yet_run",
+  "logs": {
+    "laravel": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/laravel.txt",
+      "sha256": "3b5f21d8ac06a492eac0365ec40517dcadec8fa03d07c41b7a74e3fdc8f95a0f"
+    },
+    "postgres": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/postgres.txt",
+      "sha256": "df55abb7c55a26c24954a06b01982b7b10ff09d8b09493bcc63b4465d9ac5696"
+    },
+    "finance": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/finance.txt",
+      "sha256": "c597f23b5371bfc7158ba502aa59f4ea0ae82b8fd4b069a6421eedf1324c344a"
+    },
+    "flutter": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/flutter.txt",
+      "sha256": "f9ea7fa3329ceab5b4da28febc01e93c05a7c7b9c111aff0515a527514f9ef6a"
+    },
+    "focused_native_auth": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/focused_native_auth.txt",
+      "sha256": "2c1b4b0078d4b8797bb39d80d055ce506d57a29d42a7d62ab92425198c5f75cb"
+    },
+    "native_http": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/native_http.txt",
+      "sha256": "cc475da407bfe18e304fc51d0bd38f224e37a7d083aafa76ce19683a0ab2f6ac"
+    },
+    "browser": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/browser.txt",
+      "sha256": "b2a982ae0014ae6a3eb44b3abb59d88b4f19738085326d56aac72362e9dcf334"
+    },
+    "controlled_web": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/controlled_web.txt",
+      "sha256": "37d6a69e7783c2abd26438b5eb602fd99c44f0773eb08f4ca6ac67ed4ea4efcc"
+    },
+    "analyzer": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/analyzer.txt",
+      "sha256": "71e8b7122a9fea2c5838dd48f21dcd657eac39c8156e9c9ef71a97b66d4a1d25"
+    },
+    "focused_routes": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/focused_routes.txt",
+      "sha256": "f881cfcb5caa85db8c92933eed42909196493cae054add73f60cfd28d547419f"
+    },
+    "pint": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/pint.txt",
+      "sha256": "6ceda07a426b5e96707ab7e74ce398c9124c1744df886aa135d635af34878cf0"
+    },
+    "ci_triggers": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/ci_triggers.txt",
+      "sha256": "60bb849356ffbc091f601e17fc6ae0b2eb5e26d734d433da020c6e775efbf97f"
+    },
+    "auth_red": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/auth_red.txt",
+      "sha256": "8ebac72acabaa69068ad802bc7de5c78740cb2b00007442859194a6f0ab44ecf"
+    },
+    "pagination_red": {
+      "path": "artifacts/staff-meter-history/96ed203f/logs/pagination_red.txt",
+      "sha256": "281481a1effda224a4f2a958d60e645863adbbdf8eae339aff1497a50451da58"
+    }
+  },
+  "screenshots": [
+    {
+      "path": "artifacts/staff-meter-history/96ed203f/ar-390.png",
+      "sha256": "4531b933bc7d7af073579210e41ef0a869b1441253be2675284dcc9a828f112b",
+      "bytes": 59609
+    },
+    {
+      "path": "artifacts/staff-meter-history/96ed203f/ar-meter-390.png",
+      "sha256": "1a40c8c41a4da9a277c43c881e1b0170574780c8e431b2a9e40b4e1fe4f41aff",
+      "bytes": 61355
+    },
+    {
+      "path": "artifacts/staff-meter-history/96ed203f/en-390.png",
+      "sha256": "99afd506f42ae2234548dedba049a1852acaf03e0fa18c38880c7a8aeb2fd581",
+      "bytes": 61419
+    },
+    {
+      "path": "artifacts/staff-meter-history/96ed203f/en-meter-390.png",
+      "sha256": "f1d576cbef2a473ee1eac6f9be0266a7699ef30bb6b0466f386ffe327fca3a02",
+      "bytes": 57605
+    }
+  ]
+}
