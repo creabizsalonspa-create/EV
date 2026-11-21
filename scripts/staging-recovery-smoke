@@ -497,8 +497,8 @@ if (($json['total'] ?? null) !== 2 || count($json['data'] ?? []) !== 2) {
     throw new RuntimeException('Restored synthetic station catalog is incomplete.');
 }
 foreach ($json['data'] as $station) {
-    if (($station['remote_control'] ?? null) !== false || ($station['evidence'] ?? null) !== 'DISCOVERY_ONLY') {
-        throw new RuntimeException('Restored discovery fixtures must never grant command authority.');
+    if (($station['remote_control'] ?? null) !== false || ($station['evidence'] ?? null) !== 'SIMULATED') {
+        throw new RuntimeException('Restored simulator fixtures must never grant command authority.');
     }
 }
 echo "Recovered application HTTP and Laravel migrations: PASS\n";
@@ -553,8 +553,9 @@ record = {
     'laravel_migration_rows': int(count),
     'migration_history_md5': migration_hash,
     'synthetic_data_md5': probe_hash,
-    'restored_http_catalog': '200 and synthetic discovery-only records',
+    'restored_http_catalog': '200 and synthetic non-controllable records',
     'canonical_domain_restored': True,
+    'unpaid_simulated_financial_records_restored': True,
     'all_public_tables_and_sequences_match': True,
     'canonical_domain_fingerprint': domain,
     'external_acceptance': 'not tested',

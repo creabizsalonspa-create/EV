@@ -116,10 +116,11 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
                     for field in ('table_count', 'row_count', 'sequence_count'))
             and 30 <= domain['table_count'] <= 1024
             and business.get('canonical_domain_restored') is True
+            and business.get('unpaid_simulated_financial_records_restored') is True
             and business.get('all_public_tables_and_sequences_match') is True,
             'Canonical domain recovery proof invalid')
     require(business.get('classification') == 'disposable staging software only' and
-            business.get('restored_http_catalog') == '200 and synthetic discovery-only records' and
+            business.get('restored_http_catalog') == '200 and synthetic non-controllable records' and
             business.get('external_acceptance') == 'not tested' and
             business.get('laravel_encrypted_record_restored') is True and
             business.get('wrong_laravel_key_rejected') is True and

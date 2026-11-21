@@ -287,9 +287,10 @@ The integration-controller candidate extends the existing isolated drill with re
 synthetic customer/vehicle/company/site/charger/EVSE/connector/reservation/session
 relationships for both recorded protocol labels, retained inbox rows and encrypted
 canonical command fields. It calls no charging or financial services: commands
-are terminal failed fixtures, stations remain discovery-only, all source workers
-stay disabled and the two networks still have no external egress. No invoice is
-created. This tests recovery of stored software records, not protocol delivery or
+are terminal failed fixtures, stations are explicitly simulated, all source workers
+stay disabled and the two networks still have no external egress. Canonical FinanceService creates two unpaid SIMULATED invoices and their
+immutable journals from explicit fixture tariffs; it never calls payment, refund
+or settlement methods. Restored entries must balance, with no payment/refund rows. This tests recovery of stored software records, not protocol delivery or
 physical charging.
 
 The snapshot records a SHA-256 over every public table's deterministically ordered
@@ -298,13 +299,14 @@ transaction. The target must reproduce that exact fingerprint before its queue
 worker runs. Real joins recheck connector/EVSE/source/session relationships and
 both command secrets must decrypt under the restored application key. Finally,
 the recovered application's actual HTTP catalog must expose both synthetic
-locations without remote-control authority. Existing archive corruption, key,
+simulated locations without remote-control authority. Existing archive corruption, key,
 private-file, source-after-snapshot, queue/session/cache and isolation controls
 remain required. The combined recovery gate rejects missing or malformed domain
 proof; it no longer accepts an empty catalog as broad domain recovery evidence.
 
 This candidate still requires an actual current-source image build and complete
-Docker restore before successful verification is recorded. Full populated
-financial-ledger recovery, coordinated cross-service snapshots, PITR/retention,
+Docker restore before successful verification is recorded. The earlier nonfinancial
+source4b63936d passed the actual isolated Docker restore; financial extension
+verification remains pending. Coordinated cross-service snapshots, PITR/retention,
 offsite storage, real customer uploads and operational production approval remain
 separate gaps. Original atom9.1.10 is not promoted merely by adding these checks.
