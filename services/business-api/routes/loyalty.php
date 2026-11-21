@@ -15,3 +15,18 @@ Route::post('/commercial/loyalty/rewards/{reward}/redeem', [L::class, 'redeem'])
 Route::get('/commercial/loyalty/redemptions', [L::class, 'redemptions']);
 Route::get('/commercial/loyalty/redemptions/{redemption}', [L::class, 'show'])->where('redemption', '[0-9]{1,18}');
 Route::post('/commercial/loyalty/redemptions/{redemption}/{action}', [L::class, 'transition'])->where('redemption', '[0-9]{1,18}')->whereIn('action', ['fulfill', 'reject']);
+
+Route::get('/commercial/coupons', [L::class, 'coupons']);
+Route::post('/commercial/coupons', [L::class, 'publishCoupon']);
+Route::post('/commercial/coupons/{coupon}/revoke', [L::class, 'revokeCoupon'])->where('coupon', '[0-9]{1,18}');
+Route::post('/commercial/coupons/claim', [L::class, 'claimCoupon']);
+Route::get('/commercial/coupons/claims', [L::class, 'couponClaims']);
+Route::post('/commercial/coupons/claim-receipt', [L::class, 'findCouponReceipt']);
+
+Route::post('/commercial/coupons/publication-receipt', [L::class, 'findCouponPublication']);
+
+Route::post('/commercial/coupons/claim-intents/cancel', [L::class, 'cancelCouponIntent']);
+
+require __DIR__.'/referrals.php';
+
+Route::get('/commercial/noncash/status', [L::class, 'noncashStatus']);

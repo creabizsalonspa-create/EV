@@ -449,7 +449,15 @@ class _HostedState extends State<HostedCheckoutView>
     }
   }
 
+  // A real401/419 invalidates the actor fence before it reaches this view.
+  // Accept only its still-owned expiry; a later credential transition, hidden
+  // lifecycle generation or disposed route must never expire a newer actor.
+  bool handlesFailure(Object error, int epoch) =>
+      mounted && epoch == generation &&
+      (current || error is ApiException && error.endsCurrentSession);
+
   void fail(Object e) {
+    busy = false;
     error = e;
     record = null;
     records = null;
@@ -481,7 +489,7 @@ class _HostedState extends State<HostedCheckoutView>
       }
       if (current && epoch == generation) await load();
     } catch (e) {
-      if (current && epoch == generation) setState(() => fail(e));
+      if (handlesFailure(e, epoch)) setState(() => fail(e));
     } finally {
       if (current && epoch == generation) setState(() => busy = false);
     }
@@ -555,7 +563,7 @@ class _HostedState extends State<HostedCheckoutView>
         }
       }
     } catch (e) {
-      if (current && epoch == generation) fail(e);
+      if (handlesFailure(e, epoch)) setState(() => fail(e));
     } finally {
       if (current && epoch == generation) setState(() => busy = false);
     }
@@ -598,7 +606,7 @@ class _HostedState extends State<HostedCheckoutView>
       // Retain creation identity while the financial session exists. An uncertain
       // or lost provider/browser outcome can never allocate a replacement key.
     } catch (e) {
-      if (current && epoch == generation) fail(e);
+      if (handlesFailure(e, epoch)) setState(() => fail(e));
     } finally {
       if (current && epoch == generation) setState(() => busy = false);
     }
@@ -642,7 +650,7 @@ class _HostedState extends State<HostedCheckoutView>
         consent = false;
       });
     } catch (e) {
-      if (current && epoch == generation) fail(e);
+      if (handlesFailure(e, epoch)) setState(() => fail(e));
     } finally {
       if (current && epoch == generation) setState(() => busy = false);
     }
@@ -721,7 +729,7 @@ class _HostedState extends State<HostedCheckoutView>
           !['uncertain', 'needs_review', 'preparing'].contains(r.status))
         await intent.confirmed();
     } catch (e) {
-      if (current && epoch == generation) fail(e);
+      if (handlesFailure(e, epoch)) setState(() => fail(e));
     } finally {
       if (current && epoch == generation) setState(() => busy = false);
     }

@@ -157,7 +157,7 @@ class PlatformController extends Controller
     public function createStation(Request $r)
     {
         abort_unless($r->user()->role === 'vendor', 403);
-        $v = $r->validate(['name' => 'required|string|max:150', 'country' => 'required|string|size:2|uppercase|exists:regions,country', 'currency' => 'required|string|size:3|uppercase', 'timezone' => 'required|timezone', 'latitude' => 'required|numeric|between:-90,90', 'longitude' => 'required|numeric|between:-180,180', 'source' => 'required|in:discovery,simulator', 'connector_type' => 'required|in:CCS2,Type2,CHAdeMO', 'power_kw' => 'required|integer|between:1,1000']);
+        $v = $r->validate(['name' => 'required|string|max:150', 'country' => 'required|string|size:2|uppercase|exists:regions,country', 'currency' => 'required|string|size:3|uppercase', 'timezone' => 'required|timezone', 'latitude' => 'required|numeric|between:-90,90', 'longitude' => 'required|numeric|between:-180,180', 'source' => 'required|in:discovery,simulator,direct_unverified', 'connector_type' => 'required|in:CCS2,Type2,CHAdeMO', 'power_kw' => 'required|integer|between:1,1000']);
 
         abort_unless(DB::table('regions')->where('country', $v['country'])->where('currency', $v['currency'])->exists(), 422, 'Currency does not match configured region.');
 
