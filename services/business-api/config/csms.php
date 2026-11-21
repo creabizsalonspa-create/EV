@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'upstream_registration_enabled' => env('CSMS_UPSTREAM_REGISTRATION_ENABLED', false),
+    'upstream_registration_allow_local_http' => env('CSMS_UPSTREAM_REGISTRATION_ALLOW_LOCAL_HTTP', false),
     // Explicit production service identity. No discovery/JWKS fetch or dev fallback.
     'operations_auth_mode' => env('CSMS_OPERATIONS_AUTH_MODE', 'development'),
     'operations_oauth_token_url' => env('CSMS_OPERATIONS_OAUTH_TOKEN_URL'),

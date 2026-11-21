@@ -84,6 +84,11 @@ jobs:
       - run: npm run test:ocpp
       - run: ./scripts/charging-setup
       - run: ./scripts/charging-bridge-setup
+      - name: Verify audited source registration and private web controls
+        run: |
+          ./scripts/charger-source-registration-setup
+          EV_SOURCE_REGISTRATION_PACE=1 node tests/charger-source-registration.cjs
+          node --test tests/charger-source-registration-ui.cjs
       - run: node tests/charging-session.cjs
       - run: node tests/charging-business.cjs
       - run: node tests/charging-client.cjs

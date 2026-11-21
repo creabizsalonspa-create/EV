@@ -23,6 +23,9 @@ const { privateKey, publicKey } = generateKeyPairSync("rsa", {
   modulusLength: 2048,
 });
 const logger = {
+  getSubLogger() {
+    return this;
+  },
   child() {
     return this;
   },

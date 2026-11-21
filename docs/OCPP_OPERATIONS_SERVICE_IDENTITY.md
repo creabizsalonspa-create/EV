@@ -1,6 +1,6 @@
 # OCPP operations service identity — 20 November 2026
 
-This batch targets the missing service-identity boundary in requirement **5.2.6**. It does not complete production upstream charger registration, enable physical commands, remove any existing simulator gate or establish hardware acceptance. The original requirement remains uncredited until its complete scope and integration evidence are verified.
+This component supplies the service-identity boundary in requirement **5.2.6**. The combined registration vertical is documented in [OCPP_SOURCE_REGISTRATION_20261121.md](OCPP_SOURCE_REGISTRATION_20261121.md). It does not complete production upstream charger registration, enable physical commands, remove any existing simulator gate or establish hardware acceptance. The original requirement remains uncredited until its complete scope and integration evidence are verified.
 
 The canonical command dispatcher, configuration/diagnostic probes, signed firmware and safe reset now obtain credentials through one `OperationsCredentials` service. Production environments cannot mint development `/dev/token` credentials. Explicit `oauth2` mode uses a single HTTPS client-credentials request with HTTP Basic client authentication, form encoding, fixed configured token endpoint, bounded timeouts and no redirects, discovery, retries, JWKS fetch or fallback. Tokens remain in process memory for the operation; there is no new database, cache, logging or financial service.
 
