@@ -124,4 +124,79 @@ class LoyaltyConcurrencyTest extends TestCase
         $this->assertSame(120, $s->account($f['customer']->id)['balance_points'] + $s->account($g['customer']->id)['balance_points']);
         $this->assertDatabaseCount('finance_journals', 4);
     }
+
+    private function coupon(array $f, object $reward, int $limit = 1): string
+    {
+        $code = 'SYNTHETIC-COUPON-'.$reward->id;
+        $this->actingAs($f['maker'])->postJson('/api/commercial/coupons', [
+            'code' => $code, 'reward_id' => $reward->id, 'claim_limit' => $limit,
+            'per_user_limit' => 1, 'starts_at' => now()->subMinute()->toIso8601String(),
+            'ends_at' => now()->addHour()->toIso8601String(), 'idempotency_key' => 'coupon-'.$reward->id,
+        ])->assertCreated();
+
+        return $code;
+    }
+
+    public function test_coupon_identical_process_claims_share_one_canonical_redemption(): void
+    {
+        $f = $this->fixture();
+        $reward = $this->reward($f);
+        $code = $this->coupon($f, $reward);
+        $op = ['coupon', $f['customer']->id, $code, $reward->id, 'same-coupon-key'];
+        $this->assertSame(['201', '201'], $this->race([$op, $op]));
+        $this->assertDatabaseCount('loyalty_coupon_claims', 1);
+        $this->assertDatabaseCount('loyalty_redemptions', 1);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 2);
+    }
+
+    public function test_two_members_cannot_consume_the_last_coupon_unit_twice(): void
+    {
+        $f = $this->fixture();
+        $g = $this->fixture();
+        $reward = $this->reward($f);
+        $code = $this->coupon($f, $reward);
+        $this->assertSame(['201', '409'], $this->race([
+            ['coupon', $f['customer']->id, $code, $reward->id, 'first'],
+            ['coupon', $g['customer']->id, $code, $reward->id, 'second'],
+        ]));
+        $this->assertDatabaseCount('loyalty_coupon_claims', 1);
+        $this->assertDatabaseCount('loyalty_redemptions', 1);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+    }
+
+    public function test_coupon_and_points_redemption_share_the_same_last_stock(): void
+    {
+        $f = $this->fixture();
+        $g = $this->fixture();
+        $s = app(LoyaltyService::class);
+        $s->earn($g['invoice']->id, $g['customer']->id);
+        $reward = $this->reward($f);
+        $code = $this->coupon($f, $reward);
+        $this->assertSame(['201', '409'], $this->race([
+            ['coupon', $f['customer']->id, $code, $reward->id, 'coupon'],
+            ['redeem', $g['customer']->id, $g['invoice']->id, $reward->id, 'points'],
+        ]));
+        $this->assertDatabaseCount('loyalty_redemptions', 1);
+        $redemption = DB::table('loyalty_redemptions')->first();
+        $this->assertSame((int) $redemption->points_cost, 100 - $s->account($g['customer']->id)['balance_points']);
+        $this->assertDatabaseCount('finance_journals', 4);
+    }
+
+    public function test_claim_and_cancellation_race_has_exactly_one_durable_outcome(): void
+    {
+        $f = $this->fixture();
+        $reward = $this->reward($f);
+        $code = $this->coupon($f, $reward);
+        $statuses = $this->race([
+            ['coupon', $f['customer']->id, $code, $reward->id, 'uncertain-race'],
+            ['coupon-cancel', $f['customer']->id, $code, $reward->id, 'uncertain-race'],
+        ]);
+        $this->assertContains($statuses, [['201', '201'], ['201', '409']]);
+        $claims = DB::table('loyalty_coupon_claims')->count();
+        $cancelled = DB::table('loyalty_coupon_claim_intents')->count();
+        $this->assertSame(1, $claims + $cancelled);
+        $this->assertSame($claims, DB::table('loyalty_redemptions')->count());
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+    }
 }

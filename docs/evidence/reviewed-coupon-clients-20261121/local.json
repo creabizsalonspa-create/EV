@@ -1,0 +1,53 @@
+{
+  "backend_dependency": "638d5222",
+  "execution": "local controlled policy + actual Sandbox Laravel; no production activation",
+  "results": {
+    "focused_flutter_passed": 18,
+    "controlled_browser_en_ar_390_checks": 24,
+    "actual_native_http_cases": 1,
+    "actual_browser_en_ar_390_checks": 14,
+    "laravel_cases": 31,
+    "laravel_assertions": 228,
+    "full_analyzer": "clean",
+    "ci_trigger_cases": 8,
+    "full_flutter_passed": 828,
+    "explicit_opt_in_skips": 40
+  },
+  "claims_excluded": [
+    "physical fulfillment",
+    "production activation",
+    "live payment",
+    "physical charger",
+    "real device",
+    "store signing"
+  ],
+  "logs": {
+    "reviewed-coupon-native.log": {
+      "sha256": "4dc5c85a205fb4d2ee39edbe0ab8c7f17d8858bba8b665e2cdc9f45d26ee525e"
+    },
+    "reviewed-coupon-browser.log": {
+      "sha256": "a43a871b3e1673d97d8b8c62cf90eed0ca9c1ff2fa6ee3344ccc6dd7faf40e11"
+    },
+    "reviewed-coupon-http-native.log": {
+      "sha256": "94d1e20faa3e1627260a4ee44118c65351b9a726aea2dbf77a502508506be4e8"
+    },
+    "reviewed-coupon-http-browser.log": {
+      "sha256": "1ff3e5c8337c828bdc449536af8cc85c24e4d375bfb1677e609948ec4f049d6d"
+    },
+    "reviewed-coupon-analyze.log": {
+      "sha256": "0306906e94255818e5468960a579844af960d86ee79f527d7c535a3767afea6d"
+    },
+    "reviewed-coupon-laravel.log": {
+      "sha256": "bac0cc8572f36eb078a50e60e7100a97783da5df6912b4c6e46cbc29c537ee7e"
+    },
+    "reviewed-coupon-ci-canary.log": {
+      "sha256": "1f1a3318a6573440e6469cd4fb3a85e5f02428720ceeb34160cdbe03d98d9d95"
+    },
+    "reviewed-coupon-ci-triggers.log": {
+      "sha256": "133449d6f429f0588126e0403937f271f33f90517460d5c4b39d69c2eeda0f25"
+    },
+    "reviewed-coupon-full-flutter.log": {
+      "sha256": "f81807393e3296f1b4836e947d4d34149372ff6281f06248f032bf6d99d360fe"
+    }
+  }
+}
