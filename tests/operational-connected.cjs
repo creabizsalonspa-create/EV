@@ -7,7 +7,7 @@ const OPERATIONAL_PREP_TIMEOUT_MS = 2 * 60 * 1000;
 const groups = [
   ["auth-bootstrap", "session-cookie-read", "admin-current-authority-e2e"], // real cookie/current-Admin regressions; 3+4+2 = 9 authentication requests
   ["customer-coupons-e2e"], // two synthetic customer logins; own unchanged window and noncash-only claims
-  ["admin-reward-coupons-e2e"], // two synthetic logins; separate unchanged auth window, no financial collection
+  ["admin-reward-coupons-e2e", "admin-referral-programmes-e2e"], // 2+3=5 synthetic logins; unchanged dedicated auth window, no collection
   ["retail-partners-e2e"], // three synthetic Admin/customer logins; own unchanged authentication window, no money or external activation
   ["admin-command-secret-storage-e2e"], // two synthetic cookie logins; own unchanged auth/read window, no command execution
   ["vendor-session-observations-e2e"], // two cookie logins, versioned consent and private GETs; own unchanged window
