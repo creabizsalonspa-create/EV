@@ -45,6 +45,134 @@ class LoyaltyController extends Controller
         return $safe;
     }
 
+    public function publishCoupon(Request $r)
+    {
+        $this->admin($r);
+        abort_unless(config('loyalty.enabled') && ! app()->environment('production'), 503);
+        $values = $r->validate([
+            'code' => ['required', 'string', 'regex:/^[A-Z0-9-]{12,40}$/D'],
+            'reward_id' => 'required|integer|min:1',
+            'claim_limit' => 'required|integer|between:1,1000000',
+            'per_user_limit' => 'required|integer|between:1,100|lte:claim_limit',
+            'starts_at' => 'required|date',
+            'ends_at' => 'required|date|after:starts_at',
+            'idempotency_key' => 'required|string|max:100',
+        ]);
+        $publication = hash('sha256', 'coupon-publish:'.$r->user()->id.':'.$values['idempotency_key']);
+        $codeHash = hash('sha256', $values['code']);
+        unset($values['idempotency_key'], $values['code']);
+        foreach (['reward_id', 'claim_limit', 'per_user_limit'] as $field) {
+            $values[$field] = (int) $values[$field];
+        }
+        foreach (['starts_at', 'ends_at'] as $field) {
+            $values[$field] = Carbon::parse($values[$field])->utc()->toDateTimeString();
+        }
+        abort_unless($values['starts_at'] < $values['ends_at'], 422);
+        $fingerprint = hash('sha256', json_encode([$codeHash, $values], JSON_THROW_ON_ERROR));
+        if ($old = DB::table('loyalty_coupons')->where('publication_key', $publication)->first()) {
+            abort_unless(hash_equals($old->fingerprint, $fingerprint), 409, 'Coupon publication retry content changed.');
+
+            return response()->json($this->couponDetails($old))->header('Cache-Control', 'private, no-store');
+        }
+        $reward = DB::table('loyalty_rewards')->where('id', $values['reward_id'])->lockForUpdate()->first();
+        abort_unless($reward && $values['starts_at'] >= $reward->starts_at
+            && $values['ends_at'] <= $reward->ends_at, 422, 'Coupon dates must be within the reward window.');
+        $now = now()->utc();
+        try {
+            $id = DB::transaction(fn () => DB::table('loyalty_coupons')->insertGetId($values + [
+                'code_hash' => $codeHash, 'publication_key' => $publication, 'fingerprint' => $fingerprint,
+                'created_by' => $r->user()->id, 'created_at' => $now, 'updated_at' => $now,
+            ]));
+        } catch (\Illuminate\Database\UniqueConstraintViolationException) {
+            abort(409, 'Coupon code already allocated.');
+        }
+        $this->couponAudit($r, 'published', $id);
+
+        return response()->json($this->couponDetails(DB::table('loyalty_coupons')->find($id)), 201)->header('Cache-Control', 'private, no-store');
+    }
+
+    public function revokeCoupon(Request $r, int $coupon)
+    {
+        $this->admin($r);
+        $row = DB::table('loyalty_coupons')->where('id', $coupon)->lockForUpdate()->first() ?? abort(404);
+        if ($row->revoked_at === null) {
+            $now = now()->utc();
+            DB::table('loyalty_coupons')->where('id', $coupon)->update(['revoked_at' => $now, 'updated_at' => $now]);
+            $this->couponAudit($r, 'revoked', $coupon);
+        }
+
+        return response()->json($this->couponDetails(DB::table('loyalty_coupons')->find($coupon)))->header('Cache-Control', 'private, no-store');
+    }
+
+    public function coupons(Request $r)
+    {
+        $this->admin($r);
+        $r->validate(['page' => 'sometimes|integer|between:1,100000']);
+
+        return response()->json(DB::table('loyalty_coupons')->orderByDesc('id')->paginate(25)
+            ->through(fn ($row) => $this->couponDetails($row)))->header('Cache-Control', 'private, no-store');
+    }
+
+    public function claimCoupon(Request $r, LoyaltyService $service)
+    {
+        abort_unless($r->user()->role === 'customer', 403);
+        $values = $r->validate([
+            'code' => ['required', 'string', 'regex:/^[A-Z0-9-]{12,40}$/D'],
+            'idempotency_key' => 'required|string|max:100',
+        ]);
+        $claim = $service->claimCoupon($r->user()->id, $values['code'], $values['idempotency_key']);
+
+        return response()->json(['claim' => $this->couponReceipt($claim)])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function couponClaims(Request $r)
+    {
+        abort_unless($r->user()->role === 'customer', 403);
+        $r->validate(['page' => 'sometimes|integer|between:1,100000']);
+
+        return response()->json(DB::table('loyalty_coupon_claims')->where('user_id', $r->user()->id)
+            ->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->couponReceipt($row)))->header('Cache-Control', 'private, no-store');
+    }
+
+    public function findCouponReceipt(Request $r)
+    {
+        abort_unless($r->user()->role === 'customer', 403);
+        $values = $r->validate(['idempotency_key' => 'required|string|max:100']);
+        $key = hash('sha256', 'coupon-claim:'.$r->user()->id.':'.$values['idempotency_key']);
+        $row = DB::table('loyalty_coupon_claims')->where('user_id', $r->user()->id)->where('request_key', $key)->first();
+
+        return response()->json(['claim' => $row ? $this->couponReceipt($row) : null])->header('Cache-Control', 'private, no-store');
+    }
+
+    private function couponReceipt(object $row): array
+    {
+        $redemption = DB::table('loyalty_redemptions')->find($row->redemption_id);
+        $reward = DB::table('loyalty_rewards')->find($redemption->reward_id);
+
+        return [
+            'id' => $row->id, 'coupon_id' => $row->coupon_id, 'redemption_id' => $redemption->id,
+            'reward_name' => $reward->name, 'reward_name_ar' => $reward->name_ar, 'status' => $redemption->status,
+            'claimed_at' => Carbon::parse($row->created_at, 'UTC')->utc()->toISOString(),
+            'points_cost' => 0, 'cash_value' => false, 'fulfillment' => 'MANUAL_NON_MONETARY',
+        ];
+    }
+
+    private function couponDetails(object $row): array
+    {
+        $safe = (array) $row;
+        unset($safe['code_hash'], $safe['publication_key'], $safe['fingerprint']);
+
+        return $safe;
+    }
+
+    private function couponAudit(Request $r, string $action, int $coupon): void
+    {
+        DB::table('audit_events')->insert([
+            'actor_id' => $r->user()->id, 'action' => 'loyalty.coupon.'.$action,
+            'subject' => (string) $coupon, 'created_at' => now(),
+        ]);
+    }
+
     public function account(Request $r, LoyaltyService $service)
     {
         return response()->json($service->account($r->user()->id));
