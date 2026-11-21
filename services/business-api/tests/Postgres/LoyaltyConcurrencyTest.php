@@ -182,4 +182,21 @@ class LoyaltyConcurrencyTest extends TestCase
         $this->assertSame((int) $redemption->points_cost, 100 - $s->account($g['customer']->id)['balance_points']);
         $this->assertDatabaseCount('finance_journals', 4);
     }
+
+    public function test_claim_and_cancellation_race_has_exactly_one_durable_outcome(): void
+    {
+        $f = $this->fixture();
+        $reward = $this->reward($f);
+        $code = $this->coupon($f, $reward);
+        $statuses = $this->race([
+            ['coupon', $f['customer']->id, $code, $reward->id, 'uncertain-race'],
+            ['coupon-cancel', $f['customer']->id, $code, $reward->id, 'uncertain-race'],
+        ]);
+        $this->assertContains($statuses, [['201', '201'], ['201', '409']]);
+        $claims = DB::table('loyalty_coupon_claims')->count();
+        $cancelled = DB::table('loyalty_coupon_claim_intents')->count();
+        $this->assertSame(1, $claims + $cancelled);
+        $this->assertSame($claims, DB::table('loyalty_redemptions')->count());
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+    }
 }

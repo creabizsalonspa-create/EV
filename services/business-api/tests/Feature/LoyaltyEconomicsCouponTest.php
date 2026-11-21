@@ -64,6 +64,77 @@ class LoyaltyEconomicsCouponTest extends TestCase
         $this->assertDatabaseHas('loyalty_redemptions', ['status' => 'pending']);
     }
 
+    public function test_cancellation_is_a_durable_payload_bound_fence_even_if_coupon_is_published_later(): void
+    {
+        $f = $this->fixture();
+        $v = $this->publication($f);
+        $payload = ['code' => $v['code'], 'idempotency_key' => 'unknown-network-intent'];
+        $this->actingAs($f['customer']);
+        $this->postJson('/api/commercial/coupons/claim-intents/cancel', $payload)->assertOk()->assertJsonPath('state', 'cancelled')->assertJsonPath('claim', null);
+        $this->postJson('/api/commercial/coupons/claim-intents/cancel', $payload)->assertOk()->assertJsonPath('state', 'cancelled');
+        $this->postJson('/api/commercial/coupons/claim-intents/cancel', array_replace($payload, ['code' => 'CHANGED-COUPON-01']))->assertConflict();
+        $this->actingAs($f['maker'])->postJson('/api/commercial/coupons', $v)->assertCreated();
+        $this->actingAs($f['customer'])->postJson('/api/commercial/coupons/claim', $payload)->assertConflict();
+        $this->assertDatabaseCount('loyalty_coupon_claim_intents', 1);
+        $this->assertDatabaseCount('loyalty_redemptions', 0);
+    }
+
+    public function test_accepted_claim_wins_cancellation_and_returns_original_private_receipt(): void
+    {
+        $f = $this->fixture();
+        $v = $this->publication($f);
+        $this->actingAs($f['maker'])->postJson('/api/commercial/coupons', $v)->assertCreated();
+        $payload = ['code' => $v['code'], 'idempotency_key' => 'accepted-intent'];
+        $id = $this->actingAs($f['customer'])->postJson('/api/commercial/coupons/claim', $payload)->assertOk()->json('claim.id');
+        $this->postJson('/api/commercial/coupons/claim-intents/cancel', $payload)->assertOk()->assertJsonPath('state', 'accepted')->assertJsonPath('claim.id', $id);
+        $this->assertDatabaseCount('loyalty_coupon_claim_intents', 0);
+        $this->assertDatabaseCount('loyalty_redemptions', 1);
+    }
+
+    public function test_upgrade_preserves_original_coupon_claims_and_honestly_marks_legacy_revocation(): void
+    {
+        $f = $this->fixture();
+        $v = $this->publication($f);
+        $id = $this->actingAs($f['maker'])->postJson('/api/commercial/coupons', $v)->assertCreated()->json('id');
+        $this->actingAs($f['customer'])->postJson('/api/commercial/coupons/claim', ['code' => $v['code'], 'idempotency_key' => 'legacy-claim'])->assertOk();
+        $before = DB::table('loyalty_coupon_claims')->orderBy('id')->get()->toJson();
+        $migration = require database_path('migrations/2026_12_11_000001_harden_loyalty_coupons.php');
+        $migration->down();
+        DB::table('loyalty_coupons')->where('id', $id)->update(['revoked_at' => now()]);
+        $couponBefore = DB::table('loyalty_coupons')->where('id', $id)->first();
+        $migration->up();
+        $this->assertSame($before, DB::table('loyalty_coupon_claims')->orderBy('id')->get()->toJson());
+        $this->assertEquals($couponBefore, DB::table('loyalty_coupons')->where('id', $id)->first());
+        $event = DB::table('loyalty_coupon_revocations')->where('coupon_id', $id)->first();
+        $this->assertNull($event->actor_id);
+        $this->assertTrue((bool) $event->legacy_observation);
+        $this->assertStringContainsString('without actor', $event->reason);
+        $this->assertDatabaseCount('loyalty_redemptions', 1);
+        $this->assertDatabaseCount('finance_payments', 1);
+    }
+
+    public function test_cancelled_intent_evidence_is_immutable_and_cancellation_works_when_economics_are_off(): void
+    {
+        $f = $this->fixture();
+        config(['loyalty.enabled' => false]);
+        $payload = ['code' => 'SYNTHETIC-CANCEL-01', 'idempotency_key' => 'cancelled'];
+        $this->actingAs($f['customer'])->postJson('/api/commercial/coupons/claim-intents/cancel', $payload)->assertOk()->assertJsonPath('state', 'cancelled');
+        $this->expectException(QueryException::class);
+        DB::table('loyalty_coupon_claim_intents')->update(['code_hash' => str_repeat('0', 64)]);
+    }
+
+    public function test_publication_recovery_is_owner_scoped_and_expiry_does_not_hide_an_existing_receipt(): void
+    {
+        $f = $this->fixture();
+        $v = $this->publication($f);
+        $id = $this->actingAs($f['maker'])->postJson('/api/commercial/coupons', $v)->assertCreated()->json('id');
+        $this->postJson('/api/commercial/coupons/publication-receipt', ['idempotency_key' => $v['idempotency_key']])->assertOk()->assertJsonPath('coupon.id', $id);
+        $this->actingAs($f['checker'])->postJson('/api/commercial/coupons/publication-receipt', ['idempotency_key' => $v['idempotency_key']])->assertOk()->assertJsonPath('coupon', null);
+        $this->travel(2)->hours();
+        $this->actingAs($f['maker'])->postJson('/api/commercial/coupons', $v)->assertOk()->assertJsonPath('id', $id);
+        $this->assertDatabaseCount('loyalty_coupons', 1);
+    }
+
     #[TestWith(['loyalty_coupons', 'claim_limit', 99])]
     #[TestWith(['loyalty_coupon_claims', 'request_key', 'tampered'])]
     #[TestWith(['loyalty_coupon_revocations', 'reason', 'tampered'])]

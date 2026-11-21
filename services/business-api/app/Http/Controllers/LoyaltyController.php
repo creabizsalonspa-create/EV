@@ -150,6 +150,19 @@ class LoyaltyController extends Controller
         return response()->json(['claim' => $row ? $this->couponReceipt($row) : null])->header('Cache-Control', 'private, no-store');
     }
 
+    public function cancelCouponIntent(Request $r, LoyaltyService $service)
+    {
+        abort_unless($r->user()->role === 'customer', 403);
+        $v = $r->validate(['code' => ['required', 'string', 'regex:/^[A-Z0-9-]{12,40}$/D'], 'idempotency_key' => 'required|string|max:100']);
+        $result = $service->cancelCouponIntent($r->user()->id, $v['code'], $v['idempotency_key']);
+        $request = hash('sha256', 'coupon-claim:'.$r->user()->id.':'.$v['idempotency_key']);
+
+        return response()->json(['state' => $result['state'],
+            'request_binding' => hash('sha256', hash('sha256', $v['code']).':'.$request),
+            'claim' => $result['claim'] ? $this->couponReceipt($result['claim']) : null,
+        ])->header('Cache-Control', 'private, no-store');
+    }
+
     private function couponReceipt(object $row): array
     {
         $redemption = DB::table('loyalty_redemptions')->find($row->redemption_id);

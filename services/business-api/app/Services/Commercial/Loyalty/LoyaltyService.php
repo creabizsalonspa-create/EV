@@ -253,6 +253,7 @@ class LoyaltyService
                 return $old;
             }
 
+            abort_if(DB::table('loyalty_coupon_claim_intents')->where('request_key', $request)->exists(), 409, 'This coupon claim intent was explicitly cancelled.');
             $coupon = DB::table('loyalty_coupons')->where('code_hash', $hash)->lockForUpdate()->first() ?? abort(404);
             $now = now()->utc();
             abort_unless($coupon->revoked_at === null && $coupon->starts_at <= $now->toDateTimeString()
@@ -285,6 +286,32 @@ class LoyaltyService
             $this->audit($user, 'loyalty.coupon.claimed', (string) $id);
 
             return DB::table('loyalty_coupon_claims')->find($id);
+        }, 3);
+    }
+
+    /** A durable no-economic-action fence for a member's uncertain request. */
+    public function cancelCouponIntent(int $user, string $code, string $key): array
+    {
+        return DB::transaction(function () use ($user, $code, $key) {
+            $current = User::whereKey($user)->lockForUpdate()->firstOrFail();
+            abort_unless($current->role === 'customer' && $current->account_status === 'active', 403);
+            $request = hash('sha256', 'coupon-claim:'.$user.':'.$key);
+            $hash = hash('sha256', $code);
+            if ($claim = DB::table('loyalty_coupon_claims')->where('request_key', $request)->first()) {
+                $coupon = DB::table('loyalty_coupons')->find($claim->coupon_id);
+                abort_unless(hash_equals($coupon->code_hash, $hash), 409, 'Coupon intent content changed.');
+
+                return ['state' => 'accepted', 'claim' => $claim];
+            }
+            $prior = DB::table('loyalty_coupon_claim_intents')->where('request_key', $request)->first();
+            if ($prior) {
+                abort_unless(hash_equals($prior->code_hash, $hash), 409, 'Coupon intent content changed.');
+            } else {
+                DB::table('loyalty_coupon_claim_intents')->insert(['user_id' => $user, 'request_key' => $request, 'code_hash' => $hash, 'created_at' => now()]);
+                $this->audit($user, 'loyalty.coupon.intent_cancelled', $request);
+            }
+
+            return ['state' => 'cancelled', 'claim' => null];
         }, 3);
     }
 
