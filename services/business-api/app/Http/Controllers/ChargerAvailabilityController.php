@@ -127,7 +127,9 @@ final class ChargerAvailabilityController extends Controller
         $row = DB::table(self::TABLE)->where('id', $operation)->where('binding_id', $binding->id)->firstOrFail();
         if ($this->canObserve($row, $binding)) {
             $source->enabled();
-            if ($source->station($binding, false) === $row->source_station_id && ($evidence = $source->confirmation($row))) {
+            if ($source->station($binding, false) === $row->source_station_id
+                && ($evidence = $source->confirmation($row))
+                && $source->station($binding, false) === $row->source_station_id) {
                 DB::transaction(function () use ($request, $company, $charger, $binding, $row, $evidence) {
                     $current = $this->locked($request, $company, $charger, $binding, false);
                     $latest = DB::table(self::TABLE)->where('id', $row->id)->lockForUpdate()->firstOrFail();

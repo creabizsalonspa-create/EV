@@ -79,6 +79,17 @@ class ChargerAvailabilityCommandTest extends TestCase
         $this->postJson($path)->assertOk()->assertJsonPath('status', 'accepted')->assertJsonPath('can_observe', false);
     }
 
+    public function test_source_station_replacement_during_confirmation_keeps_outcome_unresolved(): void
+    {
+        $fixture = $this->fixture('2.0.1');
+        $this->source($fixture, ['operationalStatus' => 'Inoperative'], reply: 'StationReplaced');
+        $id = $this->actingAs($fixture['owner'])->postJson($fixture['path'], $this->body())->assertCreated()->json('id');
+
+        $this->postJson($fixture['path'].'/'.$id.'/observe')->assertOk()
+            ->assertJsonPath('status', 'transport_submitted')->assertJsonPath('observed_at', null);
+        $this->assertDatabaseHas('charger_availability_operations', ['id' => $id, 'source_reply_id' => null]);
+    }
+
     private function body(): array
     {
         return ['requested_state' => 'Inoperative', 'reason' => 'PRIVATE data for simulator', 'idempotency_key' => 'sim-availability'];
@@ -108,7 +119,8 @@ class ChargerAvailabilityCommandTest extends TestCase
     private function source(array $fixture, array $payload, string $reply = 'Accepted', ?callable $onToken = null): void
     {
         Http::preventStrayRequests();
-        Http::fake(function ($request) use ($fixture, $payload, $reply, $onToken) {
+        $stationId = 9;
+        Http::fake(function ($request) use ($fixture, $payload, $reply, $onToken, &$stationId) {
             if (str_ends_with($request->url(), '/dev/token')) {
                 $onToken?->__invoke();
 
@@ -122,11 +134,14 @@ class ChargerAvailabilityCommandTest extends TestCase
                 return $reply === 'Uncertain' ? Http::response([], 503) : Http::response([['success' => true]]);
             }
             if (str_contains($request['query'], 'ChargingStations')) {
-                return Http::response(['data' => ['ChargingStations' => [['id' => 9, 'isOnline' => true, 'protocol' => $fixture['protocol']]]]]);
+                return Http::response(['data' => ['ChargingStations' => [['id' => $stationId, 'isOnline' => true, 'protocol' => $fixture['protocol']]]]]);
             }
             $time = now()->toISOString();
             if (str_contains($request['query'], 'requestMessageId')) {
-                $rows = [['id' => 92, 'type' => 3, 'createdAt' => $time, 'payload' => ['status' => $reply === 'Uncertain' ? 'Accepted' : $reply],
+                if ($reply === 'StationReplaced') {
+                    $stationId = 10;
+                }
+                $rows = [['id' => 92, 'type' => 3, 'createdAt' => $time, 'payload' => ['status' => in_array($reply, ['Uncertain', 'StationReplaced'], true) ? 'Accepted' : $reply],
                     'requestMessageId' => 91, 'correlationId' => $reply === 'Unmatched' ? 'different' : 'synthetic']];
             } elseif (str_contains($request['query'], 'watermark')) {
                 $this->assertSame(90, $request['variables']['watermark']);
