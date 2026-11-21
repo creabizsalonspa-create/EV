@@ -67,8 +67,9 @@ class LoyaltyEconomicsTest extends TestCase
         ]))->assertCreated()->json('id');
         $expired = $this->postJson($url, array_replace($payload, [
             'listed' => true, 'code' => 'EXPIRED-COUPON-01', 'idempotency_key' => 'expired-publication',
-            'ends_at' => now()->subMinute()->toISOString(),
+            'ends_at' => now()->addMinute()->toISOString(),
         ]))->assertCreated()->json('id');
+        $this->travel(2)->minutes();
         $this->getJson($url.'/eligible')->assertForbidden();
         $this->actingAs($fixture['customer'])->getJson($url.'/eligible')->assertOk()
             ->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $listed)->assertDontSee('LISTED-COUPON-01');
@@ -80,7 +81,9 @@ class LoyaltyEconomicsTest extends TestCase
         $this->actingAs(User::factory()->create())->postJson($url.'/claim', [
             'code' => $payload['code'], 'idempotency_key' => 'stock-exhausted',
         ])->assertConflict();
-        $this->actingAs($fixture['maker'])->postJson($url.'/'.$listed.'/revoke')->assertOk()->assertJsonPath('claims', 1);
+        $this->actingAs($fixture['maker'])->postJson($url.'/'.$listed.'/revoke', [
+            'reason' => 'Synthetic listed coupon revocation',
+        ])->assertOk()->assertJsonPath('claims', 1);
         $this->actingAs($fixture['customer'])->postJson($url.'/eligible/'.$listed.'/claim', $claim)->assertOk();
         $this->assertDatabaseCount('loyalty_coupon_claims', 1);
     }
@@ -111,7 +114,7 @@ class LoyaltyEconomicsTest extends TestCase
         $this->postJson($url.'/claim', array_replace($claim, ['idempotency_key' => 'second-claim']))->assertConflict();
         $this->actingAs(User::factory()->create())->postJson($url.'/claim-receipt', ['idempotency_key' => $claim['idempotency_key']])
             ->assertOk()->assertJsonPath('claim', null);
-        $this->actingAs($fixture['maker'])->postJson($url.'/'.$published.'/revoke')->assertOk();
+        $this->actingAs($fixture['maker'])->postJson($url.'/'.$published.'/revoke', ['reason' => 'Synthetic administrative revocation'])->assertOk();
         app(LoyaltyService::class)->transition($receipt['redemption_id'], $fixture['maker'], 'fulfill', 'Synthetic approved manual fulfillment');
         $this->actingAs($fixture['customer'])->getJson($url.'/claims')->assertOk()
             ->assertJsonPath('data.0.status', 'fulfilled')->assertDontSee($code);

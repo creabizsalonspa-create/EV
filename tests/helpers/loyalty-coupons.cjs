@@ -88,6 +88,7 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
 
   await button(adminPanel, "Refresh coupons").click();
   await privateRow.getByText("· 1/2", { exact: true }).waitFor();
+  await privateRow.locator('[name="revocation_reason"]').fill("Synthetic stock retirement");
   await couponPost(admin, `/${privateCoupon.id}/revoke`, () => button(privateRow, "Revoke coupon").click());
   await privateRow.getByText("Revoked", { exact: true }).waitFor();
   const recovered = await couponPost(customer, "/claim-receipt",

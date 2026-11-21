@@ -1065,10 +1065,14 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                 time(card, "Starts", "البداية", row.starts_at);
                 time(card, "Expires", "الانتهاء", row.ends_at);
                 if (row.revoked_at) card.append(t("p", "Revoked", "ملغاة"));
-                else couponButton(card, "Revoke coupon", "إلغاء القسيمة", async () => {
-                    await couponRequest("/" + row.id + "/revoke", "POST", {});
-                    await refresh(number);
-                }, "revoke");
+                else {
+                    const reason = field(card, "revocation_reason", "Revocation reason", "سبب الإلغاء");
+                    reason.maxLength = 500;
+                    couponButton(card, "Revoke coupon", "إلغاء القسيمة", async () => {
+                        await couponRequest("/" + row.id + "/revoke", "POST", { reason: reason.value.trim() });
+                        await refresh(number);
+                    }, "revoke");
+                }
                 records.append(card);
             }
             if (!result.data.length) records.append(role === "admin"

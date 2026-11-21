@@ -22,12 +22,15 @@ use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
 use App\Http\Controllers\FleetReportController;
+use App\Http\Controllers\LoyaltyController;
 use App\Http\Controllers\NotificationCenterController;
 use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\PrechargePricingController;
 use App\Http\Controllers\PrivacyAccessExportController;
+use App\Http\Controllers\ReferralController;
 use App\Http\Controllers\ReservationLifecycleController;
+use App\Http\Controllers\RetailPartnerController;
 use App\Http\Controllers\SimulationController;
 use App\Http\Controllers\StationAvailabilityBlockController;
 use App\Http\Controllers\StationInformationController;
@@ -247,3 +250,10 @@ Route::post('/api/account/privacy-requests/{privacyCase}/access-copy/revoke', [P
 Route::get('/api/stations/{station}/availability-blocks', [StationAvailabilityBlockController::class, 'index'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
 Route::post('/api/stations/{station}/availability-blocks', [StationAvailabilityBlockController::class, 'store'])->where('station', '[0-9]{1,18}')->middleware(['auth', 'throttle:platform-api']);
 Route::post('/api/stations/{station}/availability-blocks/{block}/cancel', [StationAvailabilityBlockController::class, 'cancel'])->where('station', '[0-9]{1,18}')->whereUuid('block')->middleware(['auth', 'throttle:platform-api']);
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/retail_partners.php');
+Route::get('/admin/retail-partners', [RetailPartnerController::class, 'page'])->middleware(['auth', 'throttle:platform-api']);
+
+Route::get('/admin/reward-coupons', [LoyaltyController::class, 'couponPage'])->middleware(['auth', 'throttle:platform-api']);
+
+Route::get('/admin/referral-programs', [ReferralController::class, 'page'])->middleware(['auth', 'throttle:platform-api']);
