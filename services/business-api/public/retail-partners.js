@@ -47,9 +47,11 @@
             "مسودة — تتطلب مراجعة مستقلة",
         ],
         active: ["Approved", "معتمد"],
+        rejected: ["Rejected", "مرفوض"],
         suspended: ["Suspended", "معلّق"],
         terminated: ["Terminated", "منتهي"],
         approve: ["Approve", "اعتماد"],
+        reject: ["Reject draft", "رفض المسودة"],
         suspend: ["Suspend", "تعليق"],
         reinstate: ["Reinstate", "إعادة التفعيل"],
         terminate: ["Terminate permanently", "إنهاء نهائي"],
@@ -258,7 +260,8 @@
             const actions = node("div");
             actions.className = "retail-actions";
             const available = {
-                draft: ["approve", "revise", "terminate"],
+                draft: ["approve", "reject", "revise", "terminate"],
+                rejected: ["revise", "terminate"],
                 active: ["suspend", "terminate"],
                 suspended: ["reinstate", "revise", "terminate"],
                 terminated: [],
