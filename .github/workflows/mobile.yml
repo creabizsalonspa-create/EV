@@ -333,6 +333,7 @@ jobs:
         shell: bash
         run: |
           ./scripts/setup
+          ./scripts/loyalty-test-setup
           ./scripts/start
           node tests/native-connected.cjs
       - run: flutter build ios --simulator --no-codesign --debug --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true

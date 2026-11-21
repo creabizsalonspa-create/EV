@@ -4,6 +4,7 @@ const { execFileSync } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
 const fs = require("node:fs");
 const assert = require("node:assert/strict");
+const { exerciseCoupons, verifyForeignCouponPrivacy } = require("./helpers/loyalty-coupons.cjs");
 (async () => {
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
@@ -113,8 +114,8 @@ const assert = require("node:assert/strict");
       .locator("[name=description_ar]")
       .fill("مكافأة غير نقدية بتسليم يدوي للاختبار فقط");
     await rewardForm.locator("[name=points_cost]").fill("10");
-    await rewardForm.locator("[name=stock]").fill("2");
-    await rewardForm.locator("[name=per_user_limit]").fill("2");
+    await rewardForm.locator("[name=stock]").fill("4");
+    await rewardForm.locator("[name=per_user_limit]").fill("4");
     const published = await mutation(admin, "rewards", () =>
       rewardForm
         .getByRole("button", { name: "Publish loyalty reward", exact: true })
@@ -214,6 +215,21 @@ const assert = require("node:assert/strict");
     await cp
       .getByRole("button", { name: "Points & membership", exact: true })
       .click();
+    const couponKey = await exerciseCoupons({
+      admin, customer, reward: published.reward, run,
+      decide: async (redemptionId) => {
+        await ap.getByRole("button", { name: "Reward requests", exact: true }).click();
+        const decision = ap.locator(".finance-row").filter({
+          has: admin.getByRole("heading", { name: "Reward request #" + redemptionId, exact: true }),
+        }).locator('[data-loyalty-form="Record manual reward decision"]');
+        await decision.locator("[name=action]").selectOption("fulfill");
+        await decision.locator("[name=reason]").fill("Synthetic coupon reward delivery");
+        const result = await mutation(admin, `redemptions/${redemptionId}/fulfill`, () =>
+          decision.getByRole("button", { name: "Record manual reward decision", exact: true }).click(), 200);
+        assert.equal(result.redemption.status, "fulfilled");
+      },
+    });
+    await cp.getByRole("button", { name: "Open loyalty & rewards", exact: true }).click();
     const beforeRefund = await customer.request.get(
       base + "/api/commercial/loyalty/account",
       { headers: { Accept: "application/json" } },
@@ -273,6 +289,7 @@ const assert = require("node:assert/strict");
     await cp.getByRole("button", { name: "Retry loyalty records", exact: true }).click();
     await cp.getByText("Refund or chargeback reversal", { exact: true }).waitFor();
     const foreign = await login("foreign");
+    await verifyForeignCouponPrivacy(foreign, couponKey);
     const hidden = await foreign.request.get(
       base + `/api/commercial/loyalty/redemptions/${redemptions[0]}`,
       { headers: { Accept: "application/json" } },
@@ -327,7 +344,7 @@ const assert = require("node:assert/strict");
     );
     assert.deepEqual(errors, []);
     console.log(
-      "PASS actual Laravel loyalty browser: admin policy/reward publishing, qualified immutable paid invoice earns 100 points, two redemptions, manual fulfill/reject, canonical refund creates -10 non-monetary debt after reconcile, private foreign scope, literal text, Light/Dark three widths, Arabic RTL both themes, logout cleanup. Synthetic economics only; no partner reward or cash-value verification.",
+      "PASS actual Laravel loyalty browser: admin policy/reward publishing, qualified immutable paid invoice earns 100 points, two redemptions, manual fulfill/reject, canonical refund creates -10 non-monetary debt after reconcile, private foreign scope, literal text, Light/Dark three widths, Arabic RTL both themes, logout cleanup. Verified listed/private coupon publication, discovery, claim, revocation, lost-response receipt recovery, fulfillment, refresh and foreign isolation in English and Arabic. Synthetic economics only; no partner reward or cash-value verification.",
     );
   } finally {
     await browser.close();
