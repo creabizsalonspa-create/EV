@@ -2,6 +2,7 @@ const { chromium } = require("playwright");
 const { execFileSync } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 (async () => {
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["127.0.0.1", "localhost"].includes(new URL(base).hostname));
@@ -174,6 +175,80 @@ const assert = require("node:assert/strict");
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     );
+    checks++;
+    fs.mkdirSync("artifacts/operational-browser/retail-partners", {
+      recursive: true,
+    });
+    await b.screenshot({
+      path: "artifacts/operational-browser/retail-partners/ar-dark-mobile.png",
+      fullPage: true,
+    });
+    // Hold an actual Laravel private response across backgrounding. It must
+    // never restore records after the lifecycle generation has been cleared.
+    let held, release;
+    const received = new Promise((resolve) => {
+      held = resolve;
+    });
+    const barrier = new Promise((resolve) => {
+      release = resolve;
+    });
+    let holdOne = true;
+    await b.route("**/api/admin/retail-partners?**", async (route) => {
+      if (!holdOne) return route.continue();
+      holdOne = false;
+      const response = await route.fetch();
+      assert.equal(response.status(), 200);
+      held();
+      await barrier;
+      await route.fulfill({ response });
+    });
+    await b.locator("#search-form button").click();
+    await received;
+    await b.evaluate(() => {
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        value: true,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    assert.equal(await b.locator("#workspace").isVisible(), false);
+    assert.equal(await b.locator("#partners article").count(), 0);
+    checks++;
+    const late = b.waitForResponse((r) =>
+      r.url().includes("/api/admin/retail-partners?"),
+    );
+    release();
+    await late;
+    await b.evaluate(
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve)),
+        ),
+    );
+    assert.equal(await b.locator("#workspace").isVisible(), false);
+    checks++;
+    await b.evaluate(() => {
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        value: false,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await b
+      .getByRole("button", { name: "مراجعة الشريك", exact: true })
+      .first()
+      .waitFor();
+    checks++;
+    const csrf = await b
+      .locator('meta[name="csrf-token"]')
+      .getAttribute("content");
+    const logout = await reviewer.context.request.post(base + "/api/logout", {
+      headers: { "X-CSRF-TOKEN": csrf, Accept: "application/json" },
+    });
+    assert.equal(logout.status(), 204);
+    await b.locator("#search-form button").click();
+    await b.locator("#workspace").waitFor({ state: "hidden" });
+    assert.equal(await b.locator("#partners article").count(), 0);
     checks++;
     const customer = await login("customer");
     assert.equal(await customer.page.locator("#partner-form").count(), 0);
