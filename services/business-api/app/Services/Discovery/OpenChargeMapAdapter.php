@@ -324,8 +324,9 @@ final class OpenChargeMapAdapter
                 ->withHeaders(['X-API-Key' => $key, 'User-Agent' => 'CreaBiz-EV-Discovery/1.0'])
                 ->withOptions(['stream' => true, 'allow_redirects' => false])
                 ->get(self::ORIGIN, $parameters);
+            $stream = $response->toPsrResponse()->getBody();
             if ($response->status() === 429) {
-                throw new LookupFailure('provider_busy', 503);
+                throw new LookupFailure('provider_busy', 503, self::retryDelay($response->header('Retry-After')));
             }
             if (! $response->successful()) {
                 throw new LookupFailure('provider_unavailable', 503);
@@ -334,7 +335,6 @@ final class OpenChargeMapAdapter
             if ($type !== 'application/json' || (int) $response->header('Content-Length') > 2097152) {
                 throw new LookupFailure('invalid_response');
             }
-            $stream = $response->toPsrResponse()->getBody();
             $body = '';
             while (! $stream->eof()) {
                 $chunk = $stream->read(min(16384, 2097152 - strlen($body) + 1));
@@ -365,6 +365,22 @@ final class OpenChargeMapAdapter
                 // Connection cleanup must not expose upstream details.
             }
         }
+    }
+
+    private static function retryDelay(?string $header): int
+    {
+        if (is_string($header) && preg_match('/^[0-9]{1,10}$/D', $header) === 1) {
+            return max(1, min(86400, (int) $header));
+        }
+        if (is_string($header)) {
+            $date = \DateTimeImmutable::createFromFormat('!D, d M Y H:i:s \G\M\T', $header, new \DateTimeZone('UTC'));
+            if ($date !== false && \DateTimeImmutable::getLastErrors() === false
+                && $date->format('D, d M Y H:i:s \G\M\T') === $header) {
+                return max(1, min(86400, $date->getTimestamp() - Carbon::now()->getTimestamp()));
+            }
+        }
+
+        return 60;
     }
 
     /** A cached map coordinate or reported rating must be a finite numeric scalar. */

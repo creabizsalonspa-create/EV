@@ -6,7 +6,8 @@ const fs = require("node:fs"),
   os = require("node:os"),
   path = require("node:path");
 const { BusinessClient } = require("./helpers/business-client.cjs");
-const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
+const { SimulatedCharger, poll, graph } = require("./helpers/csms-local.cjs");
+const { waitForRetainedDiagnosticRequest } = require("./helpers/diagnostic-source-ready.cjs");
 const { waitForDiagnosticServerReady } = require("./helpers/local-service-readiness.cjs");
 (async () => {
   execFileSync("./scripts/diagnostic-logs-setup", { stdio: "pipe" });
@@ -37,13 +38,14 @@ const { waitForDiagnosticServerReady } = require("./helpers/local-service-readin
     const digest = createHash("sha256").update(bytes).digest("hex");
     let uploaded = false,
       transferError = null;
-    device.diagnosticHandler = (payload) => {
+    device.diagnosticHandler = async (payload) => {
       assert.equal(payload.retries, 0);
       const target = new URL(payload.location || payload.log.remoteLocation);
       assert.equal(target.origin, "http://127.0.0.1:8000");
       assert.equal(target.username, "diagnostic");
       assert(/^[a-f0-9]{64}$/.test(target.password));
       assert(/^\/api\/internal\/diagnostic-logs\/\d+$/.test(target.pathname));
+      await waitForRetainedDiagnosticRequest({ graph, identity: f.identity, protocol: f.protocol, payload });
       const auth =
         "Basic " +
         Buffer.from(target.username + ":" + target.password).toString("base64");

@@ -297,6 +297,10 @@ const assert = require("node:assert/strict");
     assert(Number(mapUri.searchParams.get("radius_km")) >= 1);
     assert.equal(mapUri.searchParams.get("radius_km"), "200", "Wide viewport must explicitly cap partner-radius to 200 km");
     await page.getByText("مساحة الخريطة أوسع من 200 كم؛ البحث في تقارير الشركاء ضمن 200 كم فقط من المركز. ليس توافراً مباشراً.", { exact: true }).waitFor();
+    // Late background failures must preserve the exact capped-search disclosure.
+    await page.evaluate(() => window.__testMapTileLayer.fire("tileerror"));
+    await page.getByText("مساحة الخريطة أوسع من 200 كم؛ البحث في تقارير الشركاء ضمن 200 كم فقط من المركز. ليس توافراً مباشراً.", { exact: true }).waitFor();
+    assert.equal(await page.locator("#map-tile-status").isVisible(), true);
     assert(Math.abs(Number(mapUri.searchParams.get("latitude"))) <= 90);
     assert(Math.abs(Number(mapUri.searchParams.get("longitude"))) <= 180);
     // Web Mercator stops at +/-85.0511. Valid polar GPS coordinates must

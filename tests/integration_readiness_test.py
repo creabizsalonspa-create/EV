@@ -19,6 +19,11 @@ def pr(number=57, base=gate.TARGET, draft=False, mergeable=True):
             "mergeable": mergeable, "state": "open", "changed_files": 1}
 
 
+def comparison():
+    return {"status": "ahead", "base_commit": {"sha": "b" * 40},
+            "merge_base_commit": {"sha": "b" * 40}}
+
+
 def checks(names=None):
     names = names or sorted(gate.CORE)
     return [{"name": n, "head_sha": "a" * 40,
@@ -208,6 +213,8 @@ class IntegrationReadinessTest(unittest.TestCase):
                 pass
 
             def get(self, suffix):
+                if suffix.startswith("/git/ref/heads/"): return {"object": {"sha": "b" * 40}}
+                if suffix.startswith("/compare/"): return comparison()
                 if suffix == "/pulls/61":
                     return child
                 raise AssertionError("Unexpected network endpoint " + suffix)
@@ -444,6 +451,8 @@ class CompleteFileInventoryTest(unittest.TestCase):
             class FakeGitHub:
                 def __init__(self,*args,**kwargs):pass
                 def get(self,suffix):
+                    if suffix.startswith("/git/ref/heads/"): return {"object": {"sha": "b" * 40}}
+                    if suffix.startswith("/compare/"): return comparison()
                     if suffix=='/pulls/57': return detail
                     raise AssertionError(suffix)
                 def pages(self,suffix,key=None):
@@ -475,6 +484,8 @@ class MovingIntegrationTargetTest(unittest.TestCase):
             class FakeGitHub:
                 def __init__(self, *args, **kwargs): self.reads = 0
                 def get(self, suffix):
+                    if suffix.startswith("/git/ref/heads/"): return {"object": {"sha": "b" * 40}}
+                    if suffix.startswith("/compare/"): return comparison()
                     if suffix != '/pulls/57': raise AssertionError(suffix)
                     self.reads += 1
                     reply = copy.deepcopy(detail)
@@ -495,6 +506,70 @@ class MovingIntegrationTargetTest(unittest.TestCase):
                 self.assertEqual('blocked', result['status'])
                 self.assertIn(reason, result['blockers'])
                 self.assertFalse(result['merge_executed'])
+
+class CurrentTargetProofTest(unittest.TestCase):
+    def client(self, comparison_result=None, targets=None):
+        detail = pr()
+        # Deliberately stale cached base SHA must not replace the real ref.
+        detail['base']['sha'] = 'c' * 40
+        target_values = iter(targets or ['b' * 40, 'b' * 40])
+        class FakeGitHub:
+            def __init__(self, *args, **kwargs): pass
+            def get(self, suffix):
+                if suffix.startswith('/git/ref/heads/'):
+                    return {'object': {'sha': next(target_values)}}
+                if suffix == '/compare/' + 'b' * 40 + '...' + 'a' * 40:
+                    return comparison_result if comparison_result is not None else comparison()
+                if suffix == '/pulls/57': return detail
+                raise AssertionError(suffix)
+            def pages(self, suffix, key=None):
+                if suffix == '/pulls?state=open': return [detail]
+                if suffix == '/pulls/57/files': return [{'filename':'README.md'}]
+                if suffix.startswith('/commits/'): return checks()
+                if suffix.startswith('/actions/runs?'):
+                    return [{'id':54321, 'event':'pull_request', 'head_sha':'a'*40,
+                             'pull_requests':[{'number':57}]}]
+                raise AssertionError(suffix)
+        return FakeGitHub
+
+    def audit(self, **kwargs):
+        with patch.object(gate, 'GitHub', self.client(**kwargs)):
+            return gate.inspect_live(only_pr=57)
+
+    def test_actual_target_proof_ignores_stale_pr_base_cache(self):
+        report = self.audit()
+        result = report['prs'][0]
+        self.assertEqual('candidate_for_manual_review', result['status'])
+        self.assertEqual('b' * 40, result['integration_target_sha'])
+        self.assertTrue(result['source_contains_current_target'])
+        self.assertFalse(result['merge_executed'])
+
+    def test_diverged_behind_unknown_or_wrong_comparison_blocks_green_checks(self):
+        for value in [
+            {'status':'diverged'}, {'status':'behind'}, {},
+            {'status':'ahead', 'base_commit':{'sha':'b'*40},
+             'merge_base_commit':{'sha':'c'*40}},
+            {'status':'ahead', 'base_commit':{'sha':'c'*40},
+             'merge_base_commit':{'sha':'b'*40}},
+        ]:
+            with self.subTest(value=value):
+                result = self.audit(comparison_result=value)['prs'][0]
+                self.assertEqual('blocked', result['status'])
+                self.assertIn('tested_source_missing_current_target', result['blockers'])
+
+    def test_target_advancing_during_audit_invalidates_all_green_evidence(self):
+        report = self.audit(targets=['b'*40, 'd'*40])
+        self.assertEqual('d'*40, report['final_integration_target_sha'])
+        self.assertEqual('blocked', report['prs'][0]['status'])
+        self.assertIn('integration_target_changed_during_inspection',
+                      report['prs'][0]['blockers'])
+
+    def test_malformed_target_ref_fails_closed(self):
+        for value in ['', 'B'*40, 'b'*39, None, True]:
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, 'Invalid current integration target SHA'):
+                    self.audit(targets=[value])
+
 
 if __name__ == "__main__":
     unittest.main()

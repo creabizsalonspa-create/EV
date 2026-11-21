@@ -1,0 +1,65 @@
+{
+  "pr": 191,
+  "source_sha": "6beb0ee269ed27a248cb5836bdd027a8d61958da",
+  "base_sha": "f694c03f934f9bb3e00b154d512cdabc2a4287b6",
+  "tested_tree": "3059d714b4d82987569befd3fa683856af2e72ee",
+  "required_checks": [
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44492785995/job/135485381304"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44492785969/job/135452552012"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44492785969/job/135452551528"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44492785995/job/135452512539"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44492785995/job/135452512499"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44492785995/job/135452512437"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44492785995/job/135452512372"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44492785995/job/135452512026"
+    },
+    {
+      "name": "agent10-offline",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44492786054/job/135452358275"
+    }
+  ],
+  "integrated_sha": "151acd73e94e12b2e1cdfbe46ce859928d186b92",
+  "merge_tree_matches_tested_source": true,
+  "normal_merge": true
+}

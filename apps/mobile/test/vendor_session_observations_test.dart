@@ -104,6 +104,89 @@ class DirectoryOperationsApi extends OperationsApi {
   }
 }
 
+Map<String, dynamic> meterPage({
+  int session = 27,
+  int number = 1,
+  int cut = 27,
+  bool linked = true,
+}) => {
+  'scope': 'company_csms_meter_history',
+  'company_id': 4,
+  'session_id': session,
+  'through_id': linked ? cut : 0,
+  'source_linked': linked,
+  'protocol': linked ? '2.0.1' : null,
+  'coverage': 'RECORDED_APPLIED_CSMS_EVENTS',
+  'history_complete': false,
+  'billing_authority': false,
+  'physical_energy_verified': false,
+  'commands_sent': false,
+  'network_requests': 0,
+  'evidence': linked ? 'SIMULATED_CSMS' : 'NO_RECORDED_CSMS_LINK',
+  'as_of': '2026-11-19T10:00:00Z',
+  'observations': {
+    'data': linked
+        ? [
+            {
+              'id': number == 1 ? cut : 1,
+              'sequence': number == 1 ? 26 : 0,
+              'kind': number == 1 ? 'ended' : 'started',
+              'cumulative_meter_wh': 1002500,
+              'source_occurred_at': '2026-11-19T09:59:00.123456Z',
+              'recorded_at': '2026-11-19T09:59:01Z',
+            },
+          ]
+        : [],
+    'current_page': number,
+    'last_page': linked ? 2 : 1,
+    'total': linked ? 26 : 0,
+    'per_page': 25,
+  },
+};
+
+class MeterOperationsApi extends OperationsApi {
+  bool newer = false, unlinked = false;
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (!path.endsWith('/meter-history'))
+      return super.request(path, method: method, body: body, query: query);
+    expect(method, 'GET');
+    expect(body, isNull);
+    reads.add(Map.of(query));
+    if (pending != null) return pending!.future;
+    if (this.fail) throw const ApiException(503, 'PRIVATE');
+    return meterPage(
+      session: int.parse(path.split('/')[4]),
+      number: int.parse(query['page']!),
+      cut: query.containsKey('through')
+          ? int.parse(query['through']!)
+          : (newer ? 28 : 27),
+      linked: !unlinked,
+    );
+  }
+}
+
+Widget meters(
+  MeterOperationsApi api, {
+  String lang = 'en',
+  int session = 27,
+  VoidCallback? expired,
+}) => MaterialApp(
+  locale: Locale(lang),
+  supportedLocales: const [Locale('en'), Locale('ar')],
+  localizationsDelegates: GlobalMaterialLocalizations.delegates,
+  home: VendorSessionObservationsView(
+    api: api,
+    companyId: 4,
+    sessionId: session,
+    onExpired: expired ?? () {},
+  ),
+);
 Widget panel(
   OperationsApi api, {
   String lang = 'en',
@@ -203,6 +286,7 @@ void main() {
       api.fail = true;
       final next = find.widgetWithText(OutlinedButton, 'Next');
       await tester.ensureVisible(next);
+      await tester.pumpAndSettle();
       await tester.tap(next);
       await tester.pumpAndSettle();
       expect(find.text('Owned station 27'), findsNothing);
@@ -351,4 +435,194 @@ void main() {
         expect(find.text('Owned station 27'), findsNothing);
       },
     );
+  test(
+    'meter projection is immutable and rejects unsafe counters or acceptance claims',
+    () {
+      final value = meterPage();
+      final parsed = VendorMeterObservationPage.parse(
+        value,
+        company: 4,
+        session: 27,
+        page: 1,
+      );
+      value['observations']['data'][0]['cumulative_meter_wh'] = 0;
+      expect(parsed.items.single.counterWh, 1002500);
+      expect(() => parsed.items.clear(), throwsUnsupportedError);
+      for (final mutate in <void Function(Map<String, dynamic>)>[
+        (v) => v['company_id'] = 5,
+        (v) => v['session_id'] = 28,
+        (v) => v['through_id'] = 1,
+        (v) => v['billing_authority'] = true,
+        (v) => v['history_complete'] = true,
+        (v) => v['physical_energy_verified'] = true,
+        (v) => v['commands_sent'] = true,
+        (v) => v['protocol'] = null,
+        (v) => v['observations']['data'][0]['cumulative_meter_wh'] =
+            9007199254740992,
+        (v) => v['observations']['data'][0]['source_occurred_at'] =
+            '2026-02-30T00:00:00Z',
+        (v) => v['source_linked'] = false,
+      ]) {
+        final raw = meterPage();
+        mutate(raw);
+        expect(
+          () => VendorMeterObservationPage.parse(
+            raw,
+            company: 4,
+            session: 27,
+            page: 1,
+          ),
+          throwsFormatException,
+        );
+      }
+      expect(
+        () => VendorMeterObservationPage.parse(
+          meterPage(),
+          company: 4,
+          session: 27,
+          page: 1,
+          through: 28,
+        ),
+        throwsFormatException,
+      );
+    },
+  );
+  for (final lang in ['en', 'ar'])
+    testWidgets(
+      '$lang meter view holds snapshot across pages and explicitly refreshes',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        final api = MeterOperationsApi();
+        await tester.pumpWidget(meters(api, lang: lang));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('1002500 Wh'), findsOneWidget);
+        expect(
+          tester.widget<Text>(find.textContaining('1002500 Wh')).textDirection,
+          TextDirection.ltr,
+        );
+        expect(
+          find.textContaining(
+            lang == 'ar' ? 'ليست طاقة مستهلكة' : 'not consumed or billed',
+          ),
+          findsOneWidget,
+        );
+        api.newer = true;
+        final next = find.widgetWithText(
+          OutlinedButton,
+          lang == 'ar' ? 'التالي' : 'Next',
+        );
+        await tester.ensureVisible(next);
+        await tester.tap(next);
+        await tester.pumpAndSettle();
+        expect(api.reads.last, {'page': '2', 'through': '27'});
+        final refresh = find.widgetWithText(
+          OutlinedButton,
+          lang == 'ar' ? 'تحديث لقطة السجل' : 'Refresh recorded snapshot',
+        );
+        await tester.ensureVisible(refresh);
+        await tester.tap(refresh);
+        await tester.pumpAndSettle();
+        expect(api.reads.last, {'page': '1'});
+        expect(tester.takeException(), isNull);
+      },
+    );
+  testWidgets(
+    'meter navigation wipes hidden session records and detached row actions stay inert',
+    (tester) async {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final api = MeterOperationsApi();
+      await tester.pumpWidget(panel(api));
+      await tester.pumpAndSettle();
+      final row = find.byKey(const ValueKey('meter-history-27'));
+      final old = tester.widget<OutlinedButton>(row).onPressed!;
+      await tester.ensureVisible(row);
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('1002500 Wh'), findsOneWidget);
+      expect(find.text('Owned station 27', skipOffstage: false), findsNothing);
+      old();
+      await tester.pumpAndSettle();
+      expect(api.reads.length, 2);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('Owned station 27'), findsNothing);
+    },
+  );
+  testWidgets(
+    'failed history page clears counters and retries exact snapshot cursor',
+    (tester) async {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final api = MeterOperationsApi();
+      await tester.pumpWidget(meters(api));
+      await tester.pumpAndSettle();
+      api.fail = true;
+      final next = find.widgetWithText(OutlinedButton, 'Next');
+      await tester.ensureVisible(next);
+      await tester.pumpAndSettle();
+      await tester.tap(next);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('1002500 Wh'), findsNothing);
+      api.fail = false;
+      final retry = find.widgetWithText(OutlinedButton, 'Retry this page');
+      await tester.ensureVisible(retry);
+      await tester.tap(retry);
+      await tester.pumpAndSettle();
+      expect(api.reads.last, {'page': '2', 'through': '27'});
+    },
+  );
+  testWidgets(
+    'unlinked history is explicit and never fabricated from current session total',
+    (tester) async {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final api = MeterOperationsApi()..unlinked = true;
+      await tester.pumpWidget(meters(api));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('No recorded CSMS link'), findsOneWidget);
+      expect(find.textContaining('1002500'), findsNothing);
+    },
+  );
+  testWidgets(
+    'inactive meter mount and late credential conflict do not read or expire newer actor',
+    (tester) async {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      final api = MeterOperationsApi();
+      var expired = 0;
+      await tester.pumpWidget(meters(api, expired: () => expired++));
+      await tester.pumpAndSettle();
+      expect(api.reads, isEmpty);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(api.reads, isEmpty);
+      api.pending = Completer<dynamic>();
+      await tester.tap(
+        find.widgetWithText(OutlinedButton, 'Refresh recorded snapshot'),
+      );
+      await tester.pump();
+      api.epoch++;
+      api.pending!.completeError(const ApiException(409, 'PRIVATE'));
+      await tester.pumpAndSettle();
+      expect(expired, 0);
+      expect(find.textContaining('1002500'), findsNothing);
+    },
+  );
+  testWidgets('new session target rejects late old timeline', (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    final api = MeterOperationsApi()..pending = Completer<dynamic>();
+    final old = api.pending!;
+    await tester.pumpWidget(meters(api, session: 27));
+    await tester.pump();
+    api.pending = null;
+    await tester.pumpWidget(meters(api, session: 28));
+    await tester.pumpAndSettle();
+    old.complete(meterPage());
+    await tester.pumpAndSettle();
+    expect(api.reads.length, 2);
+    expect(find.text('#28'), findsOneWidget);
+  });
 }
