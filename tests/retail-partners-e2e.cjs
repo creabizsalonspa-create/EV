@@ -111,6 +111,30 @@ const fs = require("node:fs");
       .getByRole("button", { name: "Review partner", exact: true })
       .first()
       .click();
+    await b.locator("#detail textarea").fill("Original terms require revision");
+    await b.getByRole("button", { name: "Reject draft", exact: true }).click();
+    await b
+      .locator("#detail")
+      .getByText(/^Rejected ·/)
+      .waitFor();
+    assert.equal(await b.getByRole("button", { name: "Approve", exact: true }).count(), 0);
+    await b.locator("#detail summary").filter({ hasText: "Reject draft" }).click();
+    await b.locator("#detail").getByText("Original terms require revision").waitFor();
+    checks++;
+
+    await a.reload();
+    await a.getByRole("button", { name: "Review partner", exact: true }).first().click();
+    await a.getByRole("button", { name: "Revise terms", exact: true }).click();
+    await a.locator('#partner-form [name="terms"]').fill("Revised synthetic terms after independent rejection.");
+    await a.locator('#partner-form [name="reason"]').fill("Address independent review");
+    const revised = a.waitForResponse(
+      (response) => response.url().endsWith("/revise") && response.status() === 200,
+    );
+    await a.getByRole("button", { name: "Save immutable draft", exact: true }).click();
+    await revised;
+    await b.locator("#detail").getByRole("button", { name: "Refresh records", exact: true }).click();
+    await b.getByRole("button", { name: "Approve", exact: true }).waitFor();
+    checks++;
     await b.locator("#detail textarea").fill("Independent synthetic review");
     await b.getByRole("button", { name: "Approve", exact: true }).click();
     await b

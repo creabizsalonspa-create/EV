@@ -85,6 +85,37 @@ class RetailPartnerTest extends TestCase
         $this->assertSame(2, DB::table('retail_partner_versions')->count());
     }
 
+    public function test_independent_rejection_requires_revised_terms_before_approval(): void
+    {
+        $author = User::factory()->create(['role' => 'admin']);
+        $reviewer = User::factory()->create(['role' => 'admin']);
+        $terms = $this->terms();
+        $id = $this->actingAs($author)->postJson('/api/admin/retail-partners', $terms)->assertCreated()->json('partner.id');
+        $this->decision($id, 'reject')->assertConflict();
+
+        $this->actingAs($reviewer);
+        $key = (string) Str::uuid();
+        $this->decision($id, 'reject', 1, $key)->assertOk()->assertJsonPath('partner.status', 'rejected')
+            ->assertJsonPath('partner.currently_effective', false);
+        $this->decision($id, 'reject', 1, $key)->assertOk()->assertJsonPath('partner.revision', 2);
+        $this->decision($id, 'approve', 1)->assertConflict();
+        $this->decision($id, 'approve', 2)->assertConflict();
+        $this->assertDatabaseCount('retail_partner_events', 2);
+
+        $terms['terms'] = 'Revised after independent rejection of the original terms.';
+        $terms['expected_revision'] = 2;
+        $terms['idempotency_key'] = (string) Str::uuid();
+        $this->actingAs($author)->postJson("/api/admin/retail-partners/{$id}/revise", $terms)->assertOk()
+            ->assertJsonPath('partner.status', 'draft')->assertJsonPath('partner.version.version', 2);
+        $this->actingAs($reviewer);
+        $this->decision($id, 'approve', 3)->assertOk()->assertJsonPath('partner.status', 'active');
+        $this->getJson("/api/admin/retail-partners/{$id}")->assertOk()
+            ->assertJsonPath('events.data.2.action', 'reject')
+            ->assertJsonPath('events.data.2.reason', 'Reviewed internal governance')
+            ->assertJsonPath('events.data.2.version_snapshot.version', 1);
+        $this->assertDatabaseHas('audit_events', ['actor_id' => $reviewer->id, 'action' => 'retail_partner.reject', 'subject' => (string) $id]);
+    }
+
     public function test_customer_vendor_and_guest_cannot_read_or_mutate(): void
     {
         $this->getJson('/api/admin/retail-partners')->assertUnauthorized();

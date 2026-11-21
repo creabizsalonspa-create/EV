@@ -110,4 +110,22 @@ class RetailPartnerConcurrencyTest extends TestCase
         $this->assertSame(['200', '409'], $this->race([[$b->id, $p['id'], 'approve', $decision], [$c->id, $p['id'], 'terminate', $decision]]));
         $this->assertSame(2, DB::table('retail_partner_events')->count());
     }
+
+    public function test_approval_and_rejection_cannot_both_decide_the_same_draft(): void
+    {
+        $author = User::factory()->create(['role' => 'admin']);
+        $approver = User::factory()->create(['role' => 'admin']);
+        $reviewer = User::factory()->create(['role' => 'admin']);
+        $partner = app(PartnerRegistry::class)->mutate($author, null, 'create', $this->terms());
+        $decision = ['reason' => 'Independent synthetic review', 'expected_revision' => 1, 'idempotency_key' => (string) Str::uuid()];
+
+        $this->assertSame(['200', '409'], $this->race([
+            [$approver->id, $partner['id'], 'approve', $decision],
+            [$reviewer->id, $partner['id'], 'reject', $decision],
+        ]));
+        $this->assertDatabaseCount('retail_partner_events', 2);
+        $final = app(PartnerRegistry::class)->read($partner['id']);
+        $this->assertSame(2, $final['revision']);
+        $this->assertContains($final['status'], ['active', 'rejected']);
+    }
 }
