@@ -149,7 +149,11 @@ final class CpoCatalogPublisher
             $withdraw = $operation === 'withdraw';
             abort_if($withdraw && ! $previous, 404);
             abort_if($previous && $module === 'tariffs' && $previous->withdrawn && ! $withdraw, 409, 'Publish a new source tariff version after withdrawal.');
-            $payload = $withdraw ? $this->decode($previous) : $this->source->payload($provider, $contract, $module, $source);
+            $priorPayload = $previous ? $this->decode($previous) : null;
+            $payload = $withdraw ? $priorPayload : $this->source->payload($provider, $contract, $module, $source);
+            $role = $this->credentials->localConfiguration($provider)['roles'][0];
+            $sameIdentity = $priorPayload && $priorPayload['country_code'] === $role['country_code'] && $priorPayload['party_id'] === $role['party_id'];
+            abort_if($withdraw && ! $sameIdentity, 409, 'The earlier publication belongs to a different local CPO identity.');
             $sourceHash = $withdraw ? $previous->source_hash : $this->normalizer->hash($payload);
             $bound = $this->bound($provider, $link);
             if ($previous && $previous->source_hash === $sourceHash && (bool) $previous->withdrawn === $withdraw && (clone $bound)->where('id', $previous->id)->exists()) {
@@ -161,8 +165,8 @@ final class CpoCatalogPublisher
                 foreach ($this->tariffReferences($payload) as $tariff) {
                     abort_unless((clone $bound)->where(['module' => 'tariffs', 'source_id' => (int) substr($tariff, 1), 'withdrawn' => false])->exists(), 409, 'Publish referenced tariffs first.');
                 }
-                if ($previous) {
-                    $payload = $this->includeRemovedEvses($payload, $this->decode($previous));
+                if ($sameIdentity) {
+                    $payload = $this->includeRemovedEvses($payload, $priorPayload);
                 }
             }
             if ($module === 'tariffs' && $withdraw) {

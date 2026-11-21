@@ -163,6 +163,26 @@ class OcpiCpoCatalogTest extends TestCase
         $this->getJson(self::SENDER.'/tariffs', $token)->assertUnauthorized();
     }
 
+    public function test_authority_refresh_cannot_rebind_a_withdrawal_to_another_cpo_identity(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sources = $this->source($owner);
+        [, $tariff] = $sources;
+        [$provider, $token, $operations] = $this->peer($owner, 'owner', $sources);
+        $this->actingAs($admin);
+        $url = $operations.'/tariffs/'.$tariff;
+        $published = $this->publication($url)->assertOk()->json('published_at');
+        config(['ocpi.local_credential_profiles.catalog.roles.0.party_id' => 'EVZ']);
+        DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->update([
+            'generation' => 2, 'configuration_hash' => app(CredentialExchange::class)->configurationHash($provider),
+        ]);
+        $this->publication($url, 'withdraw', $published)->assertConflict();
+        $this->getJson(self::SENDER.'/tariffs', $token)->assertOk()->assertJsonCount(0, 'data');
+        $this->publication($url, 'publish', $published)->assertOk();
+        $this->getJson(self::SENDER.'/tariffs', $token)->assertOk()->assertJsonPath('data.0.party_id', 'EVZ');
+    }
+
     public function test_only_negotiated_sandbox_receiver_gets_one_attempt_per_immutable_publication(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);
