@@ -78,6 +78,8 @@ jobs:
       - run: npm run test:manual-soc
       - run: ./scripts/csms-setup
       - run: ./scripts/csms-start
+      - name: Verify pinned CSMS operations JWT contract (no device commands)
+        run: docker run --rm -v "$PWD/tests/ocpp-operations-jwt.mjs:/tmp/ocpp-operations-jwt.mjs:ro" --entrypoint node creabiz-citrineos-signed:v2.1.0 --test /tmp/ocpp-operations-jwt.mjs
       - run: ./scripts/signed-firmware-validator-test
       - run: npm run test:ocpp
       - run: ./scripts/charging-setup

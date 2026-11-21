@@ -8,6 +8,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\FirmwareCompatibility;
 use App\Services\Charging\MaintenanceActor;
+use App\Services\Charging\OperationsCredentials;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SignedFirmwareCatalog;
 use App\Services\Charging\SourceStatusTime;
@@ -221,7 +222,7 @@ class ChargerFirmwareController extends Controller
                     abort_unless(hash_equals($current->source_payload_digest, hash('sha256', $serialized)), 409, 'Firmware source provenance changed.');
                     $payload = json_decode($serialized, true, 32, JSON_THROW_ON_ERROR);
                     abort_unless(($payload['requestId'] ?? null) === (int) $current->id && ($payload['firmware']['signature'] ?? null) === $release->signature && ($payload['firmware']['signingCertificate'] ?? null) === $release->signing_certificate, 409, 'Approved release lineage changed.');
-                    $token = Http::timeout(5)->withoutRedirecting()->post(config('csms.operations_base_url').'/dev/token', ['roles' => ['admin'], 'tenantId' => 1])->throw()->json('accessToken');
+                    $token = app(OperationsCredentials::class)->token(config('csms.operations_base_url'));
                     abort_unless(is_string($token) && $token !== '', 503);
                     $action = $b->protocol === '1.6' ? 'signedUpdateFirmware' : 'updateFirmware';
                     $wireAttempted = true; // From here even an exception is an uncertain command outcome.
