@@ -6,6 +6,7 @@ import 'strings.dart';
 import 'vendor_topology.dart';
 import 'charger_admission.dart';
 import 'charger_diagnostics.dart';
+import 'charger_availability.dart';
 import 'charger_resets.dart';
 import 'charger_firmware.dart';
 import 'maintenance_windows.dart';
@@ -448,6 +449,22 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                                     ),
                                   ),
                             child: Text(diagnosticsTitle(context)),
+                          ),
+                        if (level == 2 && row['source'] == 'simulator')
+                          OutlinedButton(
+                            onPressed: busy
+                                ? null
+                                : () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => ChargerAvailabilityView(
+                                        api: widget.api,
+                                        companyId: widget.company!['id'] as int,
+                                        chargerId: row['id'] as int,
+                                        onExpired: widget.onExpired,
+                                      ),
+                                    ),
+                                  ),
+                            child: Text(availabilityCommandTitle(context)),
                           ),
                         if (level == 2)
                           OutlinedButton(
