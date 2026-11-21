@@ -95,11 +95,19 @@
         status.dataset.ar = ar;
         status.textContent = text(en, ar);
     };
+    // Background tile delivery is independent of the selected search scope.
+    // Never let a late tile failure erase radius/privacy/projection warnings.
+    const tileStatus = make("p",
+        "Map tiles unavailable. The station list and manual search remain available.",
+        "خلفية الخريطة غير متاحة. تبقى قائمة المحطات والبحث اليدوي متاحين.");
+    tileStatus.id = "map-tile-status";
+    tileStatus.setAttribute("role", "status");
+    tileStatus.hidden = true;
     const canvas = document.createElement("div");
     canvas.id = "station-map";
     canvas.hidden = true;
     canvas.setAttribute("aria-label", "Station map / خريطة المحطات");
-    root.append(intro, enable, disable, focus, searchPartners, searchViewport, searchUnifiedViewport, platformLayerLabel, partnerLayerLabel, ocmLayerLabel, consent, locate, status, canvas);
+    root.append(intro, enable, disable, focus, searchPartners, searchViewport, searchUnifiedViewport, platformLayerLabel, partnerLayerLabel, ocmLayerLabel, consent, locate, status, tileStatus, canvas);
     let locationGeneration = 0;
     let planner,
         selectedCentre = null,
@@ -657,6 +665,7 @@
         selectedCentre = null;
         searchPartners.hidden = true;
         if (map) map.remove();
+        tileStatus.hidden = true;
         popupOpen = false;
         map = markers = partnerMarkers = ocmMarkers = routeLines = picked = null;
         canvas.hidden = true;
@@ -672,7 +681,9 @@
         canvas.hidden = false;
         enable.hidden = true;
         disable.hidden = focus.hidden = searchViewport.hidden = searchUnifiedViewport.hidden = partnerLayerLabel.hidden = platformLayerLabel.hidden = false;
+        tileStatus.hidden = true;
         map = L.map(canvas, { worldCopyJump: true }).setView([24.45, 54.38], 6);
+        const tileMap = map;
         L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
             maxZoom: 19,
             attribution:
@@ -680,14 +691,9 @@
         })
             .addTo(map)
             .on("tileerror", () => {
-                // Tile failures can arrive after a polar GPS selection.
-                // Do not replace its more useful projection warning with a
-                // generic background-tile error: list search still works.
-                if (selectedCentre && Math.abs(selectedCentre.latitude) > 85.05112878) return;
-                setStatus(
-                    "Map tiles unavailable. The station list and manual search remain available.",
-                    "خلفية الخريطة غير متاحة. تبقى قائمة المحطات والبحث اليدوي متاحين.",
-                );
+                // Ignore delivery from a disabled/replaced map instance.
+                if (map !== tileMap) return;
+                tileStatus.hidden = false;
             });
         markers = L.layerGroup().addTo(map);
         partnerMarkers = L.layerGroup().addTo(map);
