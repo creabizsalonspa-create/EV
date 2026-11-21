@@ -13,10 +13,17 @@ const src = fs.readFileSync(
 );
 const guarded = src.split(/\r?\n/).filter(line => line.startsWith('Route::') && line.includes('[0-9]{1,18}'));
 
-test('all thirteen charger-operation numeric routes retain a bounded integer matcher', () => {
-  assert.equal(guarded.length, 13, 'review new charger ID paths before changing the audit inventory');
+test('all sixteen charger-operation numeric routes retain a bounded integer matcher', () => {
+  assert.equal(guarded.length, 16, 'review new charger ID paths before changing the audit inventory');
   assert.doesNotMatch(src, /->whereNumber\(/, 'unbounded route digit constraints must not return');
   const actions = [
+    ['get', '/companies/{company}/chargers/{charger}/source-registration', 'company'],
+    ['get', '/companies/{company}/chargers/{charger}/source-registration', 'charger'],
+    ['post', '/companies/{company}/chargers/{charger}/source-registration', 'company'],
+    ['post', '/companies/{company}/chargers/{charger}/source-registration', 'charger'],
+    ['post', '/companies/{company}/chargers/{charger}/source-registration/{registration}/register', 'company'],
+    ['post', '/companies/{company}/chargers/{charger}/source-registration/{registration}/register', 'charger'],
+    ['post', '/companies/{company}/chargers/{charger}/source-registration/{registration}/register', 'registration'],
     ['get', '/companies/{company}/charging-sessions', 'company'],
     ['get', '/companies/{company}/charging-sessions/{session}/meter-history', 'session'],
     ['get', '/companies/{company}/charging-sessions/{session}/meter-history', 'company'],

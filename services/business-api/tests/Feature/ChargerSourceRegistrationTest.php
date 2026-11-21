@@ -264,4 +264,18 @@ class ChargerSourceRegistrationTest extends TestCase
         $this->assertDatabaseHas('charger_source_registrations', ['id' => $id, 'state' => 'prepared']);
         $this->assertDatabaseCount('csms_bindings', 1);
     }
+
+    public function test_registration_route_ids_reject_overflow_before_a_typed_action_or_source_request(): void
+    {
+        $f = $this->fixture();
+        $this->source();
+        $id = $this->prepare($f);
+        foreach ([str_repeat('9', 19), '1e300', '-1', '1.0', 'text'] as $invalid) {
+            $this->getJson('/api/vendor-ops/companies/'.$invalid.'/chargers/'.$f['charger']->id.'/source-registration')->assertNotFound();
+            $this->getJson('/api/vendor-ops/companies/'.$f['company']->id.'/chargers/'.$invalid.'/source-registration')->assertNotFound();
+            $this->postJson($f['path'].'/'.$invalid.'/register')->assertNotFound();
+        }
+        $this->assertDatabaseHas('charger_source_registrations', ['id' => $id, 'state' => 'prepared']);
+        Http::assertNothingSent();
+    }
 }

@@ -17,9 +17,9 @@ use App\Http\Controllers\VendorOpsController as V;
 use App\Http\Controllers\VendorStaffChargingReadController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/companies/{company}/chargers/{charger}/source-registration', [ChargerSourceRegistrationController::class, 'show'])->where(['company' => '[0-9]{1,18}', 'charger' => '[0-9]{1,18}']);
-Route::post('/companies/{company}/chargers/{charger}/source-registration', [ChargerSourceRegistrationController::class, 'prepare'])->where(['company' => '[0-9]{1,18}', 'charger' => '[0-9]{1,18}']);
-Route::post('/companies/{company}/chargers/{charger}/source-registration/{registration}/register', [ChargerSourceRegistrationController::class, 'register'])->where(['company' => '[0-9]{1,18}', 'charger' => '[0-9]{1,18}', 'registration' => '[0-9]{1,18}']);
+Route::get('/companies/{company}/chargers/{charger}/source-registration', [ChargerSourceRegistrationController::class, 'show'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}');
+Route::post('/companies/{company}/chargers/{charger}/source-registration', [ChargerSourceRegistrationController::class, 'prepare'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}');
+Route::post('/companies/{company}/chargers/{charger}/source-registration/{registration}/register', [ChargerSourceRegistrationController::class, 'register'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}')->where('registration', '[0-9]{1,18}');
 
 Route::get('/companies', [V::class, 'companies']);
 Route::post('/companies', [V::class, 'createCompany']);
