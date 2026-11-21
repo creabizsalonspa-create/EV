@@ -17,13 +17,24 @@ class CredentialExchange
     public function configuration(OcpiProvider $p): array
     {
         $c = config('ocpi.connections.'.$p->connection_key);
-        $local = config('ocpi.local_credentials');
-        abort_unless(is_array($c) && ($c['managed_credentials'] ?? false) === true && is_array($local), 409, 'Managed OCPI credentials are not configured.');
+        abort_unless(is_array($c) && ($c['managed_credentials'] ?? false) === true, 409, 'Managed OCPI credentials are not configured.');
         abort_unless(preg_match('/^[A-Z]{2}$/D', $c['party_country'] ?? '') && preg_match('/^[A-Z0-9]{3}$/D', $c['party_id'] ?? '') && in_array($c['party_role'] ?? null, ['CPO', 'EMSP'], true), 409, 'Approved peer identity is required.');
-        $this->validateLocal($local);
         app(PartnerClient::class)->connection($p, true);
 
-        return [$c, $local];
+        return [$c, $this->localConfiguration($p)];
+    }
+
+    public function localConfiguration(OcpiProvider $provider): array
+    {
+        $profile = config('ocpi.connections.'.$provider->connection_key.'.local_credential_profile');
+        if ($profile !== null) {
+            abort_unless(is_string($profile) && preg_match('/^[A-Za-z0-9_-]{1,80}$/D', $profile), 409);
+        }
+        $local = $profile === null ? config('ocpi.local_credentials') : config('ocpi.local_credential_profiles.'.$profile);
+        abort_unless(is_array($local), 409, 'Approved local OCPI identity is not configured.');
+        $this->validateLocal($local);
+
+        return $local;
     }
 
     private function validateLocal(array $local): void
@@ -46,6 +57,9 @@ class CredentialExchange
         $receivers = $this->receiverModules($p);
         if ($receivers !== []) {
             $identity[] = ['receiver_modules', $receivers];
+        }
+        if (($c['cpo_catalog'] ?? null) !== null) {
+            $identity[] = ['cpo_catalog', app(CpoCatalogContract::class)->approved($p)];
         }
         if (($c['test_commands'] ?? false) === true) {
             abort_unless(is_string($c['test_command_contract'] ?? null) && preg_match('/^[A-Za-z0-9_-]{1,80}$/D', $c['test_command_contract']), 409);
@@ -77,10 +91,9 @@ class CredentialExchange
         return $modules;
     }
 
-    public function localPayload(string $token): array
+    public function localPayload(string $token, OcpiProvider $provider): array
     {
-        $local = config('ocpi.local_credentials');
-        $this->validateLocal($local);
+        $local = $this->localConfiguration($provider);
         $r = $local['roles'][0];
 
         return ['token' => $token, 'url' => $local['url'], 'roles' => [['role' => $r['role'], 'country_code' => $r['country_code'], 'party_id' => $r['party_id'], 'business_details' => ['name' => $r['business_details']['name']]]]];
@@ -206,7 +219,7 @@ class CredentialExchange
         // Discovery is read-only; the atomic claim below fences any changes it observes.
         $endpoint = $this->endpoint($p, $token);
         $localToken = bin2hex(random_bytes(32));
-        $payload = $v['action'] === 'unregister' ? null : $this->localPayload($localToken);
+        $payload = $v['action'] === 'unregister' ? null : $this->localPayload($localToken, $p);
         $configuration = $this->configurationHash($p);
         $version = $v['action'] === 'unregister' && ($link->generation ?? 0) === 2147483647 ? 2147483647 : (int) ($link->generation ?? 0) + 1;
         abort_unless($version <= 2147483647, 409, 'Credential generation exhausted.');
