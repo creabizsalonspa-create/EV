@@ -42,6 +42,20 @@ def evaluate(p, runs, paths, **kwargs):
 
 
 class IntegrationReadinessTest(unittest.TestCase):
+    def test_path_triggered_offline_suite_is_required_before_merge_eligibility(self):
+        for path in ['docs/evidence/requirements/inventory.json',
+                     'tests/operational-connected.cjs',
+                     'scripts/agent10-acceptance-audit.cjs']:
+            with self.subTest(path=path):
+                required = gate.required_checks([path])
+                self.assertIn('agent10-offline', required)
+                result = evaluate(pr(), checks(required - {'agent10-offline'}), [path])
+                self.assertEqual('blocked', result['status'])
+                self.assertIn('agent10-offline', result['missing_required'])
+                self.assertEqual('candidate_for_manual_review',
+                                 evaluate(pr(), checks(required), [path])['status'])
+        self.assertNotIn('agent10-offline', gate.required_checks(['README.md']))
+
     def test_passed_core_checks_are_only_a_manual_review_candidate(self):
         result = evaluate(pr(), checks(), ["scripts/integration-readiness"])
         self.assertEqual("candidate_for_manual_review", result["status"])
@@ -569,6 +583,87 @@ class CurrentTargetProofTest(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(ValueError, 'Invalid current integration target SHA'):
                     self.audit(targets=[value])
+
+
+class SyntheticMergeContentProofTest(unittest.TestCase):
+    def proof(self, changes=None, target='b'*40):
+        import copy
+        merge = {'sha':'d'*40, 'tree':{'sha':'e'*40},
+                 'parents':[{'sha':'b'*40}, {'sha':'a'*40}]}
+        source = {'sha':'a'*40, 'tree':{'sha':'e'*40}}
+        if changes:
+            changes(merge, source)
+        class Client:
+            def get(self, suffix):
+                if suffix == '/git/commits/'+'d'*40: return copy.deepcopy(merge)
+                if suffix == '/git/commits/'+'a'*40: return copy.deepcopy(source)
+                raise AssertionError(suffix)
+        return gate.equivalent_synthetic_merge(Client(), target, 'a'*40, 'd'*40)
+
+    def test_exact_synthetic_parents_and_complete_tree_prove_content(self):
+        proof = self.proof()
+        self.assertEqual(['b'*40, 'a'*40], proof['parents'])
+        self.assertEqual('e'*40, proof['tested_and_merge_tree'])
+        self.assertEqual('d'*40, proof['synthetic_merge_sha'])
+
+    def test_stale_target_reversed_missing_or_extra_parents_never_prove_inclusion(self):
+        cases = [[], [{'sha':'b'*40}], [{'sha':'a'*40},{'sha':'b'*40}],
+                 [{'sha':'c'*40},{'sha':'a'*40}],
+                 [{'sha':'b'*40},{'sha':'a'*40},{'sha':'c'*40}], [True, False]]
+        for parents in cases:
+            with self.subTest(parents=parents):
+                self.assertIsNone(self.proof(lambda m, s: m.update(parents=parents)))
+        self.assertIsNone(self.proof(target='c'*40))
+
+    def test_different_or_malformed_tree_and_wrong_immutable_commit_identity_block(self):
+        for mutate in [
+            lambda m,s:s.update(tree={'sha':'f'*40}),
+            lambda m,s:m.update(tree={'sha':'not-a-tree'}),
+            lambda m,s:m.update(tree=None),
+            lambda m,s:s.update(tree=None),
+            lambda m,s:m.update(sha='f'*40),
+            lambda m,s:s.update(sha='f'*40),
+        ]:
+            self.assertIsNone(self.proof(mutate))
+
+    def test_missing_synthetic_commit_does_not_create_equivalence(self):
+        self.assertIsNone(gate.equivalent_synthetic_merge(object(), 'b'*40, 'a'*40, None))
+
+    def test_content_proof_cannot_override_failed_source_checks_or_target_race(self):
+        import copy
+        detail = pr()
+        detail['merge_commit_sha'] = 'd'*40
+        for failed, moving, expected in [(False,False,'candidate_for_manual_review'),
+                                         (True,False,'blocked'),(False,True,'blocked')]:
+            refs = iter(['b'*40, 'c'*40 if moving else 'b'*40])
+            class Client:
+                def __init__(self,*args,**kwargs): pass
+                def get(self,suffix):
+                    if suffix.startswith('/git/ref/heads/'): return {'object':{'sha':next(refs)}}
+                    if suffix=='/pulls/57': return copy.deepcopy(detail)
+                    if suffix.startswith('/compare/'): return {'status':'diverged'}
+                    if suffix=='/git/commits/'+'d'*40:
+                        return {'sha':'d'*40,'tree':{'sha':'e'*40},'parents':[{'sha':'b'*40},{'sha':'a'*40}]}
+                    if suffix=='/git/commits/'+'a'*40:
+                        return {'sha':'a'*40,'tree':{'sha':'e'*40}}
+                    raise AssertionError(suffix)
+                def pages(self,suffix,key=None):
+                    if suffix=='/pulls?state=open': return [detail]
+                    if suffix=='/pulls/57/files': return [{'filename':'README.md'}]
+                    if suffix.startswith('/commits/'):
+                        runs=checks()
+                        if failed:runs[0]['conclusion']='failure'
+                        return runs
+                    if suffix.startswith('/actions/runs?'):
+                        return [{'id':54321,'event':'pull_request','head_sha':'a'*40,'pull_requests':[{'number':57}]}]
+                    raise AssertionError(suffix)
+            with self.subTest(failed=failed,moving=moving):
+                with patch.object(gate,'GitHub',Client):
+                    result=gate.inspect_live(only_pr=57)['prs'][0]
+                self.assertEqual(expected,result['status'])
+                self.assertFalse(result['source_contains_current_target'])
+                self.assertIsNotNone(result['equivalent_synthetic_merge'])
+                self.assertFalse(result['merge_executed'])
 
 
 if __name__ == "__main__":

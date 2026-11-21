@@ -10,6 +10,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\MaintenanceActor;
+use App\Services\Charging\OperationsCredentials;
 use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
@@ -163,7 +164,7 @@ class ChargerResetController extends Controller
                     app(VendorAccess::class)->operational($company);
                     $this->enabled();
                     $this->idle($b);
-                    $auth = Http::timeout(5)->withoutRedirecting()->post(config('csms.operations_base_url').'/dev/token', ['roles' => ['admin'], 'tenantId' => 1])->throw()->json('accessToken');
+                    $auth = app(OperationsCredentials::class)->token(config('csms.operations_base_url'));
                     abort_unless(is_string($auth) && $auth !== '', 503);
                     $reply = Http::timeout(10)->withoutRedirecting()->withToken($auth)->post(config('csms.operations_base_url').'/ocpp/'.$b->protocol.'/configuration/reset?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), ['type' => $row->reset_type]);
 

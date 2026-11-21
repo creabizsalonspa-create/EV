@@ -7,6 +7,7 @@ use App\Http\Controllers\ChargerDiagnosticLogController;
 use App\Http\Controllers\ChargerDiagnosticsController;
 use App\Http\Controllers\ChargerFirmwareController;
 use App\Http\Controllers\ChargerResetController;
+use App\Http\Controllers\ChargerSourceRegistrationController;
 use App\Http\Controllers\ChargingRepairController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\MaintenanceWindowController;
@@ -15,6 +16,10 @@ use App\Http\Controllers\VendorAgreementController;
 use App\Http\Controllers\VendorOpsController as V;
 use App\Http\Controllers\VendorStaffChargingReadController;
 use Illuminate\Support\Facades\Route;
+
+Route::get('/companies/{company}/chargers/{charger}/source-registration', [ChargerSourceRegistrationController::class, 'show'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}');
+Route::post('/companies/{company}/chargers/{charger}/source-registration', [ChargerSourceRegistrationController::class, 'prepare'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}');
+Route::post('/companies/{company}/chargers/{charger}/source-registration/{registration}/register', [ChargerSourceRegistrationController::class, 'register'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}')->where('registration', '[0-9]{1,18}');
 
 Route::get('/companies', [V::class, 'companies']);
 Route::post('/companies', [V::class, 'createCompany']);

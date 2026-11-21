@@ -166,6 +166,7 @@ def required_checks(paths):
     workflow_root = Path(__file__).resolve().parents[1] / ".github/workflows"
     for filename, names in [
         ("mobile.yml", NATIVE),
+        ("agent10-fast-qa.yml", {"agent10-offline"}),
         ("hasone-customer.yml", HASONE_NATIVE),
         ("finance-commercial.yml", {"financial-browser"}),
         ("agent2-payment-integrity.yml", {"integration-guards"}),
@@ -382,12 +383,40 @@ def source_contains_target(github, target_sha, source_sha):
     """Conservatively require tested source to contain the current target.
 
     This does not replace the controller's local merge-tree verification.
-    Diverged candidates must first integrate the target and rerun their gates.
+    A stacked candidate may instead prove complete tree equivalence separately.
     """
     comparison = github.get("/compare/" + target_sha + "..." + source_sha)
     return (comparison.get("status") in ("ahead", "identical")
             and comparison.get("merge_base_commit", {}).get("sha") == target_sha
             and comparison.get("base_commit", {}).get("sha") == target_sha)
+
+
+def equivalent_synthetic_merge(github, target_sha, source_sha, merge_sha):
+    """Attest content inclusion when a stacked source lacks a merge-history node.
+
+    MERGEABLE alone is insufficient: both immutable parents and the complete
+    merge tree must match the actual target and tested source exactly.
+    """
+    valid_sha = lambda value: isinstance(value, str) and re.fullmatch(r"[a-f0-9]{40}", value)
+    if not all(valid_sha(value) for value in (target_sha, source_sha, merge_sha)):
+        return None
+    merge = github.get("/git/commits/" + merge_sha)
+    source = github.get("/git/commits/" + source_sha)
+    if not isinstance(merge, dict) or not isinstance(source, dict):
+        return None
+    if not isinstance(merge.get("tree"), dict) or not isinstance(source.get("tree"), dict):
+        return None
+    parents = merge.get("parents")
+    tree = merge["tree"].get("sha")
+    if (merge.get("sha") != merge_sha or source.get("sha") != source_sha
+            or not isinstance(parents, list)
+            or [parent.get("sha") if isinstance(parent, dict) else None
+                for parent in parents] != [target_sha, source_sha]
+            or not valid_sha(tree) or source.get("tree", {}).get("sha") != tree):
+        return None
+    return {"synthetic_merge_sha": merge_sha, "target_sha": target_sha,
+            "tested_source_sha": source_sha, "parents": [target_sha, source_sha],
+            "tested_and_merge_tree": tree}
 
 
 def inspect_live(repo=REPOSITORY, target=TARGET, limit=100, only_pr=None,
@@ -452,7 +481,12 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=100, only_pr=None,
         evaluated["integration_target_sha"] = target_sha
         evaluated["source_contains_current_target"] = source_contains_target(
             github, target_sha, before["head"]["sha"])
-        if not evaluated["source_contains_current_target"]:
+        evaluated["equivalent_synthetic_merge"] = (
+            None if evaluated["source_contains_current_target"] else
+            equivalent_synthetic_merge(github, target_sha, before["head"]["sha"],
+                                       before.get("merge_commit_sha")))
+        if (not evaluated["source_contains_current_target"]
+                and evaluated["equivalent_synthetic_merge"] is None):
             evaluated["status"] = "blocked"
             evaluated["blockers"].append("tested_source_missing_current_target")
         if not complete_files:

@@ -1,0 +1,64 @@
+{
+    "provider": "open_charge_map",
+    "evidence": "OPEN_LICENSED_DISCOVERY_ONLY",
+    "availability": "unknown",
+    "remote_control": false,
+    "reservable": false,
+    "billing_eligible": false,
+    "distance_basis": "great_circle",
+    "license_policy": "PER_RECORD_ATTRIBUTION_REQUIRED",
+    "count": 1,
+    "quality_sample": {
+        "evidence": "FILTERED_LICENSED_CROWD_SAMPLE_ONLY",
+        "returned_count": 1,
+        "source_time_unknown_or_future_count": 1,
+        "source_older_than_24h_count": 0,
+        "operational_report_unknown_count": 0,
+        "max_source_sample": 25,
+        "complete_geographic_coverage": false,
+        "live_status_verified": false
+    },
+    "results": [
+        {
+            "id": "ocm:12345",
+            "provider": "open_charge_map",
+            "name": "Fixture open charge station",
+            "address": "Fixture street",
+            "city": "Dubai",
+            "country": "AE",
+            "latitude": 25.2,
+            "longitude": 55.3,
+            "operator_label": "Synthetic Operator",
+            "operator_evidence": "OPEN_CHARGE_MAP_REPORTED_UNVERIFIED",
+            "connections": [
+                {
+                    "reported_connector_type": "Type 2",
+                    "reported_power_kw": 22,
+                    "availability": "unknown"
+                }
+            ],
+            "source_updated_at": null,
+            "source_age_minutes": null,
+            "source_clock_evidence": "SOURCE_TIME_UNKNOWN",
+            "source_status_evidence": "OPEN_CHARGE_MAP_DISCOVERY_ONLY",
+            "reported_operational": true,
+            "reported_operational_evidence": "OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED",
+            "reported_access": "Membership Required",
+            "reported_membership_required": true,
+            "reported_access_key_required": false,
+            "reported_access_evidence": "OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED",
+            "reported_cost_note": "See operator app <script>alert(1)</script>; not a quote",
+            "reported_cost_evidence": "OPEN_CHARGE_MAP_CROWD_PRICE_UNVERIFIED",
+            "data_provider": "Licensed contributor",
+            "data_license": "CC BY-SA 4.0",
+            "attribution": "Open Charge Map / Licensed contributor",
+            "source_url": "https://openchargemap.org/site/poi/details/12345",
+            "availability": "unknown",
+            "remote_control": false,
+            "reservable": false,
+            "billing_eligible": false,
+            "distance_km": 0,
+            "distance_basis": "great_circle"
+        }
+    ]
+}

@@ -27,3 +27,23 @@ blocked its then-pending platform/native checks and missing dependent recovery
 job. This observation is not a final passing PR192 result or production approval.
 
 No original requirement atom receives new completion credit from this guard.
+
+
+## Equivalent stacked merge content
+
+A tested stacked source may contain all target files while lacking only the
+parent PR's later canonical merge-history node. It may qualify for manual review
+without a redundant source change only when GitHub's immutable synthetic merge
+commit has **exactly** the parents `[actual current target, exact tested head]`
+and its entire tree equals the immutable tested source tree. The report records
+that synthetic commit, parents and tree. Stale targets, missing/reversed/extra
+parents, malformed identities and differing trees fail closed. This proof never
+overrides missing, pending or failed exact-source checks or declared dependencies.
+The target is still reread after inspection. The controller must independently
+verify the local predicted merge tree, guard the source SHA on the normal merge,
+and verify the actual result's parents and complete tree. GitHub's MERGEABLE
+label alone supplies none of this evidence.
+
+PR196 deliberately depends on verified PR195 before canonical integration;
+source includes its original retail commits so their combined content can be
+validated in parallel. No original branch is reset or force-pushed.
