@@ -3,6 +3,7 @@
 namespace App\Services\Commercial\Loyalty;
 
 use App\Models\User;
+use App\Services\Commercial\Referrals\ReferralSource;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -262,31 +263,70 @@ class LoyaltyService
             abort_unless((clone $claims)->count() < $coupon->claim_limit
                 && (clone $claims)->where('user_id', $user)->count() < $coupon->per_user_limit, 409, 'Coupon limit reached.');
 
-            $this->reconcileLocked($user, $user);
-            $account = $this->account($user);
-            $reward = DB::table('loyalty_rewards')->where('id', $coupon->reward_id)->lockForUpdate()->first();
-            abort_unless($reward && $reward->starts_at <= $now->toDateTimeString() && $reward->ends_at > $now->toDateTimeString(), 409, 'Reward is unavailable.');
-            $active = DB::table('loyalty_redemptions')->where('reward_id', $reward->id)->whereIn('status', ['pending', 'fulfilled']);
-            abort_unless((clone $active)->count() < $reward->stock
-                && (clone $active)->where('user_id', $user)->count() < $reward->per_user_limit, 409, 'Reward inventory or per-member limit reached.');
-            $policy = $this->policy($reward->currency, $now);
-            $today = DB::table('loyalty_redemptions')->where('user_id', $user)->where('created_at', '>=', $now->copy()->startOfDay())->count();
-            abort_unless($policy && $policy->enabled && $today < $policy->daily_redemption_limit
-                && ! $account['redemption_hold'] && $account['balance_points'] >= 0, 409, 'Reward policy or account hold prevents this claim.');
-
-            $redemption = DB::table('loyalty_redemptions')->insertGetId([
-                'user_id' => $user, 'reward_id' => $reward->id, 'points_cost' => 0,
-                'status' => 'pending', 'request_key' => $request, 'created_at' => $now, 'updated_at' => $now,
-            ]);
+            $redemption = $this->reserveNoncashRewardLocked($user, (int) $coupon->reward_id, $request, 'Coupon entitlement pending manual reward fulfillment.');
             $id = DB::table('loyalty_coupon_claims')->insertGetId([
                 'coupon_id' => $coupon->id, 'user_id' => $user, 'redemption_id' => $redemption,
                 'request_key' => $request, 'created_at' => $now,
             ]);
-            $this->redemptionEvent($redemption, $user, 'requested', 'Coupon entitlement pending manual reward fulfillment.');
             $this->audit($user, 'loyalty.coupon.claimed', (string) $id);
 
             return DB::table('loyalty_coupon_claims')->find($id);
         }, 3);
+    }
+
+    private function reserveNoncashRewardLocked(int $user, int $rewardId, string $request, string $reason, ?int $actor = null): int
+    {
+        $now = now()->utc();
+        $this->reconcileLocked($user, $actor ?? $user);
+        $account = $this->account($user);
+        $reward = DB::table('loyalty_rewards')->where('id', $rewardId)->lockForUpdate()->first();
+        abort_unless($reward && $reward->starts_at <= $now->toDateTimeString() && $reward->ends_at > $now->toDateTimeString(), 409, 'Reward is unavailable.');
+        $active = DB::table('loyalty_redemptions')->where('reward_id', $reward->id)->whereIn('status', ['pending', 'fulfilled']);
+        abort_unless((clone $active)->count() < $reward->stock
+            && (clone $active)->where('user_id', $user)->count() < $reward->per_user_limit, 409, 'Reward inventory or per-member limit reached.');
+        $policy = $this->policy($reward->currency, $now);
+        $today = DB::table('loyalty_redemptions')->where('user_id', $user)->where('created_at', '>=', $now->copy()->startOfDay())->count();
+        abort_unless($policy && $policy->enabled && $today < $policy->daily_redemption_limit
+            && ! $account['redemption_hold'] && $account['balance_points'] >= 0, 409, 'Reward policy or account hold prevents this claim.');
+
+        $redemption = DB::table('loyalty_redemptions')->insertGetId([
+            'user_id' => $user, 'reward_id' => $reward->id, 'points_cost' => 0,
+            'status' => 'pending', 'request_key' => $request, 'created_at' => $now, 'updated_at' => $now,
+        ]);
+        $this->redemptionEvent($redemption, $actor ?? $user, 'requested', $reason);
+
+        return $redemption;
+    }
+
+    /** Read-only canonical receipt/refund/uncertainty evidence; never a new ledger. */
+    public function promotionSource(object $invoice): array
+    {
+        return $this->source($invoice);
+    }
+
+    public function reserveReferralReward(int $qualificationId, string $role): object
+    {
+        $this->enabled();
+        abort_unless(in_array($role, ['referrer', 'member'], true), 422);
+        $qualification = DB::table('loyalty_referral_qualifications')->find($qualificationId) ?? abort(404);
+        $referral = DB::table('loyalty_referrals')->find($qualification->referral_id);
+        $programme = DB::table('loyalty_referral_programmes')->find($referral->programme_id);
+        $user = (int) ($role === 'referrer' ? $referral->referrer_id : $referral->user_id);
+        $reward = (int) ($role === 'referrer' ? $programme->referrer_reward_id : $programme->member_reward_id);
+        $invoice = DB::table('finance_invoices')->find($qualification->invoice_id);
+        abort_unless(app(ReferralSource::class)->eligible($invoice, $programme, $referral), 409, 'The referral invoice no longer qualifies.');
+        $request = hash('sha256', 'referral-reward:'.$qualificationId.':'.$role);
+        if ($old = DB::table('loyalty_redemptions')->where('request_key', $request)->first()) {
+            return $old;
+        }
+        // ReferralService already holds both current customer rows, sorted
+        // invoice rows and sorted reward rows until this transaction commits.
+        abort_unless(DB::transactionLevel() > 0, 409);
+        $beneficiary = User::whereKey($user)->lockForUpdate()->firstOrFail();
+        abort_unless($beneficiary->role === 'customer' && $beneficiary->account_status === 'active' && $beneficiary->email_verified_at !== null, 403);
+        $id = $this->reserveNoncashRewardLocked($user, $reward, $request, 'Verified test referral; pending manual noncash fulfillment.', (int) $referral->user_id);
+
+        return DB::table('loyalty_redemptions')->find($id);
     }
 
     /** A durable no-economic-action fence for a member's uncertain request. */
@@ -324,6 +364,13 @@ class LoyaltyService
             $hint = DB::table('loyalty_redemptions')->find($id);
             abort_unless($hint, 404);
             User::whereKey($hint->user_id)->lockForUpdate()->firstOrFail();
+            $backing = DB::table('loyalty_referral_rewards as rr')->join('loyalty_referral_qualifications as q', 'q.id', '=', 'rr.qualification_id')
+                ->where('rr.redemption_id', $id)->select('q.invoice_id', 'q.referral_id')->first();
+            $invoiceIds = DB::table('loyalty_awards')->where('user_id', $hint->user_id)->pluck('invoice_id')->all();
+            if ($backing) {
+                $invoiceIds[] = $backing->invoice_id;
+            }
+            DB::table('finance_invoices')->whereIn('id', $invoiceIds)->orderBy('id')->lockForUpdate()->get();
             DB::table('loyalty_rewards')->where('id', $hint->reward_id)->lockForUpdate()->first();
             $row = DB::table('loyalty_redemptions')->where('id', $id)->lockForUpdate()->first();
             $target = ['fulfill' => 'fulfilled', 'reject' => 'rejected'][$action] ?? null;
@@ -336,6 +383,12 @@ class LoyaltyService
             abort_unless($row->status === 'pending', 409, 'Redemption already decided.');
             $this->reconcileLocked($row->user_id, $actor);
             if ($target === 'fulfilled') {
+                if ($backing) {
+                    $referral = DB::table('loyalty_referrals')->find($backing->referral_id);
+                    $programme = DB::table('loyalty_referral_programmes')->find($referral->programme_id);
+                    $invoice = DB::table('finance_invoices')->find($backing->invoice_id);
+                    abort_unless(app(ReferralSource::class)->eligible($invoice, $programme, $referral), 409, 'The referral invoice is held, refunded or no longer qualifies.');
+                }
                 $account = $this->account($row->user_id);
                 abort_unless(! $account['redemption_hold'] && $account['balance_points'] >= 0, 409, 'Refund debt or unresolved financial evidence prevents fulfillment.');
             }

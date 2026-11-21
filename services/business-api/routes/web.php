@@ -28,6 +28,7 @@ use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\PrechargePricingController;
 use App\Http\Controllers\PrivacyAccessExportController;
+use App\Http\Controllers\ReferralController;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\RetailPartnerController;
 use App\Http\Controllers\SimulationController;
@@ -254,3 +255,5 @@ Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR
 Route::get('/admin/retail-partners', [RetailPartnerController::class, 'page'])->middleware(['auth', 'throttle:platform-api']);
 
 Route::get('/admin/reward-coupons', [LoyaltyController::class, 'couponPage'])->middleware(['auth', 'throttle:platform-api']);
+
+Route::get('/admin/referral-programs', [ReferralController::class, 'page'])->middleware(['auth', 'throttle:platform-api']);
