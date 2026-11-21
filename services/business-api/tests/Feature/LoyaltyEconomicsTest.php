@@ -49,6 +49,40 @@ class LoyaltyEconomicsTest extends TestCase
         return app(LoyaltyService::class)->publish('loyalty_rewards', $f['maker']->id, array_replace(['currency' => 'AED', 'name' => 'Reusable bottle TEST', 'name_ar' => 'زجاجة قابلة لإعادة الاستخدام', 'description' => 'Manual test reward; no verified partner delivery.', 'description_ar' => 'مكافأة اختبار يدوية', 'points_cost' => 80, 'stock' => 2, 'per_user_limit' => 1, 'starts_at' => now()->subHour()->format('Y-m-d H:i:s'), 'ends_at' => now()->addDays(10)->format('Y-m-d H:i:s')], $extra), 'reward-'.bin2hex(random_bytes(5)));
     }
 
+    public function test_coupon_claim_is_private_idempotent_and_uses_canonical_reward_fulfillment(): void
+    {
+        $fixture = $this->fixture();
+        $this->policy($fixture);
+        $reward = $this->reward($fixture);
+        $url = '/loyalty-test/commercial/coupons';
+        $code = 'SYNTHETIC-REWARD-01';
+        $payload = [
+            'code' => $code, 'reward_id' => $reward->id, 'claim_limit' => 2, 'per_user_limit' => 1,
+            'starts_at' => now()->subMinutes(5)->toISOString(), 'ends_at' => now()->addDay()->toISOString(),
+            'idempotency_key' => 'publish-synthetic-coupon',
+        ];
+        $this->actingAs($fixture['customer'])->postJson($url, $payload)->assertForbidden();
+        $published = $this->actingAs($fixture['maker'])->postJson($url, $payload)->assertCreated()
+            ->assertJsonMissingPath('code_hash')->assertDontSee($code)->json('id');
+        $this->postJson($url, $payload)->assertOk()->assertJsonPath('id', $published);
+        $claim = ['code' => $code, 'idempotency_key' => 'synthetic-claim'];
+        $this->actingAs($fixture['customer']);
+        $receipt = $this->postJson($url.'/claim', $claim)->assertOk()
+            ->assertJsonPath('claim.points_cost', 0)->assertJsonPath('claim.cash_value', false)
+            ->assertJsonPath('claim.status', 'pending')->json('claim');
+        $this->postJson($url.'/claim', $claim)->assertOk()->assertJsonPath('claim.id', $receipt['id']);
+        $this->postJson($url.'/claim', array_replace($claim, ['code' => 'CHANGED-REWARD-01']))->assertConflict();
+        $this->postJson($url.'/claim', array_replace($claim, ['idempotency_key' => 'second-claim']))->assertConflict();
+        $this->actingAs(User::factory()->create())->postJson($url.'/claim-receipt', ['idempotency_key' => $claim['idempotency_key']])
+            ->assertOk()->assertJsonPath('claim', null);
+        $this->actingAs($fixture['maker'])->postJson($url.'/'.$published.'/revoke')->assertOk();
+        app(LoyaltyService::class)->transition($receipt['redemption_id'], $fixture['maker'], 'fulfill', 'Synthetic approved manual fulfillment');
+        $this->actingAs($fixture['customer'])->getJson($url.'/claims')->assertOk()
+            ->assertJsonPath('data.0.status', 'fulfilled')->assertDontSee($code);
+        $this->assertDatabaseCount('loyalty_coupon_claims', 1);
+        $this->assertDatabaseMissing('loyalty_ledger', ['redemption_id' => $receipt['redemption_id']]);
+    }
+
     public function test_revoked_admin_authority_cannot_publish_or_decide_redemptions_from_a_stale_snapshot(): void
     {
         foreach (['role', 'account_status', 'auth_epoch', 'password'] as $field) {
