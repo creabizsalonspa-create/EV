@@ -75,7 +75,7 @@ class LoyaltyEconomicsTest extends TestCase
         $this->postJson($url.'/claim', array_replace($claim, ['idempotency_key' => 'second-claim']))->assertConflict();
         $this->actingAs(User::factory()->create())->postJson($url.'/claim-receipt', ['idempotency_key' => $claim['idempotency_key']])
             ->assertOk()->assertJsonPath('claim', null);
-        $this->actingAs($fixture['maker'])->postJson($url.'/'.$published.'/revoke')->assertOk();
+        $this->actingAs($fixture['maker'])->postJson($url.'/'.$published.'/revoke', ['reason' => 'Synthetic administrative revocation'])->assertOk();
         app(LoyaltyService::class)->transition($receipt['redemption_id'], $fixture['maker'], 'fulfill', 'Synthetic approved manual fulfillment');
         $this->actingAs($fixture['customer'])->getJson($url.'/claims')->assertOk()
             ->assertJsonPath('data.0.status', 'fulfilled')->assertDontSee($code);

@@ -22,3 +22,5 @@ Route::post('/commercial/coupons/{coupon}/revoke', [L::class, 'revokeCoupon'])->
 Route::post('/commercial/coupons/claim', [L::class, 'claimCoupon']);
 Route::get('/commercial/coupons/claims', [L::class, 'couponClaims']);
 Route::post('/commercial/coupons/claim-receipt', [L::class, 'findCouponReceipt']);
+
+Route::post('/commercial/coupons/publication-receipt', [L::class, 'findCouponPublication']);

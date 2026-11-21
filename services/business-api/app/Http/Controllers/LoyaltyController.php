@@ -75,6 +75,7 @@ class LoyaltyController extends Controller
 
             return response()->json($this->couponDetails($old))->header('Cache-Control', 'private, no-store');
         }
+        abort_unless(Carbon::parse($values['ends_at'])->isFuture(), 422, 'A new coupon must have a future expiry.');
         $reward = DB::table('loyalty_rewards')->where('id', $values['reward_id'])->lockForUpdate()->first();
         abort_unless($reward && $values['starts_at'] >= $reward->starts_at
             && $values['ends_at'] <= $reward->ends_at, 422, 'Coupon dates must be within the reward window.');
@@ -95,10 +96,14 @@ class LoyaltyController extends Controller
     public function revokeCoupon(Request $r, int $coupon)
     {
         $this->admin($r);
+        $v = $r->validate(['reason' => 'required|string|min:5|max:500']);
         $row = DB::table('loyalty_coupons')->where('id', $coupon)->lockForUpdate()->first() ?? abort(404);
+        $prior = DB::table('loyalty_coupon_revocations')->where('coupon_id', $coupon)->first();
+        abort_unless(! $prior || hash_equals($prior->reason, $v['reason']), 409, 'Revocation retry reason changed.');
         if ($row->revoked_at === null) {
             $now = now()->utc();
             DB::table('loyalty_coupons')->where('id', $coupon)->update(['revoked_at' => $now, 'updated_at' => $now]);
+            DB::table('loyalty_coupon_revocations')->insert(['coupon_id' => $coupon, 'actor_id' => $r->user()->id, 'reason' => $v['reason'], 'created_at' => $now]);
             $this->couponAudit($r, 'revoked', $coupon);
         }
 
@@ -154,6 +159,8 @@ class LoyaltyController extends Controller
             'id' => $row->id, 'coupon_id' => $row->coupon_id, 'redemption_id' => $redemption->id,
             'reward_name' => $reward->name, 'reward_name_ar' => $reward->name_ar, 'status' => $redemption->status,
             'claimed_at' => Carbon::parse($row->created_at, 'UTC')->utc()->toISOString(),
+            'request_binding' => hash('sha256', DB::table('loyalty_coupons')->where('id', $row->coupon_id)->value('code_hash').':'.$row->request_key),
+            'source' => 'COUPON', 'evidence' => 'TEST_PROMOTIONAL_ECONOMICS', 'delivery_verified' => false,
             'points_cost' => 0, 'cash_value' => false, 'fulfillment' => 'MANUAL_NON_MONETARY',
         ];
     }
@@ -163,7 +170,9 @@ class LoyaltyController extends Controller
         $safe = (array) $row;
         unset($safe['code_hash'], $safe['publication_key'], $safe['fingerprint']);
 
-        return $safe + ['claims' => DB::table('loyalty_coupon_claims')->where('coupon_id', $row->id)->count()];
+        return $safe + ['claims' => DB::table('loyalty_coupon_claims')->where('coupon_id', $row->id)->count(),
+            'revocation' => DB::table('loyalty_coupon_revocations')->where('coupon_id', $row->id)->first(),
+            'evidence' => 'TEST_PROMOTIONAL_ECONOMICS', 'cash_value' => false];
     }
 
     private function couponAudit(Request $r, string $action, int $coupon): void
@@ -172,6 +181,23 @@ class LoyaltyController extends Controller
             'actor_id' => $r->user()->id, 'action' => 'loyalty.coupon.'.$action,
             'subject' => (string) $coupon, 'created_at' => now(),
         ]);
+    }
+
+    public function couponPage(Request $r)
+    {
+        $this->admin($r);
+
+        return response()->view('reward-coupons')->header('Cache-Control', 'no-store, private');
+    }
+
+    public function findCouponPublication(Request $r)
+    {
+        $this->admin($r);
+        $v = $r->validate(['idempotency_key' => 'required|string|max:100']);
+        $key = hash('sha256', 'coupon-publish:'.$r->user()->id.':'.$v['idempotency_key']);
+        $row = DB::table('loyalty_coupons')->where('created_by', $r->user()->id)->where('publication_key', $key)->first();
+
+        return response()->json(['coupon' => $row ? $this->couponDetails($row) : null])->header('Cache-Control', 'private, no-store');
     }
 
     public function account(Request $r, LoyaltyService $service)

@@ -242,7 +242,8 @@ class LoyaltyService
         $this->enabled();
 
         return DB::transaction(function () use ($user, $code, $key) {
-            User::whereKey($user)->lockForUpdate()->firstOrFail();
+            $current = User::whereKey($user)->lockForUpdate()->firstOrFail();
+            abort_unless($current->role === 'customer' && $current->account_status === 'active', 403, 'Only an active customer can claim a reward coupon.');
             $request = hash('sha256', 'coupon-claim:'.$user.':'.$key);
             $hash = hash('sha256', $code);
             if ($old = DB::table('loyalty_coupon_claims')->where('request_key', $request)->first()) {

@@ -22,6 +22,7 @@ use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
 use App\Http\Controllers\FleetReportController;
+use App\Http\Controllers\LoyaltyController;
 use App\Http\Controllers\NotificationCenterController;
 use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
@@ -251,3 +252,5 @@ Route::post('/api/stations/{station}/availability-blocks/{block}/cancel', [Stati
 
 Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/retail_partners.php');
 Route::get('/admin/retail-partners', [RetailPartnerController::class, 'page'])->middleware(['auth', 'throttle:platform-api']);
+
+Route::get('/admin/reward-coupons', [LoyaltyController::class, 'couponPage'])->middleware(['auth', 'throttle:platform-api']);
