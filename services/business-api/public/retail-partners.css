@@ -1,0 +1,61 @@
+.retail-wrap {
+    max-width: 1100px;
+    margin: auto;
+    padding: 1.5rem;
+}
+.retail-wrap header,
+.retail-wrap nav,
+.retail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+}
+.retail-wrap label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-block: 1rem;
+}
+.retail-wrap input,
+.retail-wrap select,
+.retail-wrap textarea {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+.retail-wrap article,
+.retail-wrap #detail,
+.retail-wrap details {
+    padding: 1rem;
+    border: 1px solid var(--border, #64748b);
+    border-radius: 1rem;
+    margin-block: 1rem;
+}
+.retail-wrap article h2 {
+    overflow-wrap: anywhere;
+}
+.retail-wrap textarea {
+    min-height: 6rem;
+}
+.retail-wrap pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font: inherit;
+}
+.retail-wrap #partner-form {
+    max-width: 700px;
+}
+.retail-wrap button {
+    min-height: 44px;
+}
+.retail-wrap [hidden] {
+    display: none !important;
+}
+.retail-wrap #status {
+    min-height: 2rem;
+}
+.retail-wrap :focus-visible {
+    outline: 3px solid #38bdf8;
+    outline-offset: 3px;
+}
