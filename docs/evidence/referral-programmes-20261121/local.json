@@ -1,0 +1,104 @@
+{
+  "application_source_sha": "638d5222c2d3eac5c51b25a3b0d03d22cdd81dc7",
+  "preserved_original_coupon_sha": "cd319a50a91acca53121e46664a33c6fc1806ecf",
+  "recorded_utc": "2026-11-21T05:42:55.630095+00:00",
+  "scope": "Consented source-qualified noncash referrals, backend/Admin coupon completion, default-deny reviewed manual noncash capability. Whole2.9.4/2.9.5 credit pending named-scope review, customer/native consumers and exact merged-source QA.",
+  "results": {
+    "laravel": {
+      "passed": 1809,
+      "skipped": 1,
+      "assertions": 32466
+    },
+    "focused_routes_and_loyalty": {
+      "passed": 49,
+      "assertions": 370
+    },
+    "financial_postgresql": {
+      "passed": 484,
+      "skipped": 1,
+      "assertions": 11512
+    },
+    "postgres_process_and_migrations": {
+      "passed": 109,
+      "assertions": 1586
+    },
+    "actual_laravel_admin_browsers": {
+      "coupon_checks": 12,
+      "referral_checks": 12
+    },
+    "paced_canaries": {
+      "passed": 9
+    },
+    "pint": {
+      "files": 864,
+      "passed": true
+    }
+  },
+  "database_runtime": {
+    "disposable": true,
+    "database": "ev_finance_review",
+    "tmpfs_bytes": 2147483648,
+    "shared_finance_script_modified": false,
+    "storage_wrapper_preserves_all_test_filters_and_suites": true
+  },
+  "production_accepted": false,
+  "production_activation_performed": false,
+  "live_financial_issuer_implemented": false,
+  "artifacts": [
+    {
+      "path": "artifacts/referral-programmes/638d5222/laravel-full.txt",
+      "sha256": "b6358a99d07d4e86aca62868736180eb1bd9e6f44867be3feedea14f400552ac",
+      "bytes": 1959
+    },
+    {
+      "path": "artifacts/referral-programmes/638d5222/laravel-focused.txt",
+      "sha256": "23dad7d0bd1d7726e6a857d7b81defa87a2dd395d40f26490797ff64ff6baa73",
+      "bytes": 112
+    },
+    {
+      "path": "artifacts/referral-programmes/638d5222/postgres-finance.txt",
+      "sha256": "9240e52861c8bdeb6fd456f3fbdccda38692c21fb79eb8d57d3c367f82a478e2",
+      "bytes": 41734
+    },
+    {
+      "path": "artifacts/referral-programmes/638d5222/postgres-process.txt",
+      "sha256": "e5ad0b0335bfc9aefe65f0e1075f6a64c9589f1218de6460e60e6563bb84ec91",
+      "bytes": 11008
+    },
+    {
+      "path": "artifacts/referral-programmes/638d5222/admin-coupon-browser.txt",
+      "sha256": "28af6a0f448e4441a1136e30d91ab1cf99859f4825d5eb37139f84bd58c140b1",
+      "bytes": 175
+    },
+    {
+      "path": "artifacts/referral-programmes/638d5222/admin-referral-browser.txt",
+      "sha256": "cac951e3ffb40d0fb57de3bf9ba7b7149eb4332a05f125995776208f76d4627b",
+      "bytes": 237
+    },
+    {
+      "path": "artifacts/referral-programmes/638d5222/pint.txt",
+      "sha256": "7fae9bdd364feaa9ad3add9560c6371bfd6afd7476aebe8607ae582f81604a53",
+      "bytes": 1201
+    },
+    {
+      "path": "artifacts/referral-programmes/638d5222/paced-canaries.txt",
+      "sha256": "41ffe43f5e404c0a0048761545809a0c30c5ede4bf1097689515c3290c18f6d0",
+      "bytes": 1000
+    },
+    {
+      "path": "artifacts/referral-programmes/638d5222/full-finance-tmpfs-wrapper.sh",
+      "sha256": "50d154d6a1e0548d2fe1a87ec303b6659279baf5aa30b6f548790a96dd1043c4",
+      "bytes": 3422
+    },
+    {
+      "path": "artifacts/operational-browser/reward-coupons/ar-dark-mobile.png",
+      "sha256": "e647b6b2faf5e3642af8f25f4175c5bd07896ce92fe3877b92b7b9ac54b353ef",
+      "bytes": 44536
+    },
+    {
+      "path": "artifacts/operational-browser/referral-programmes/ar-dark-mobile.png",
+      "sha256": "e19dedcb1e64ddc18e3ec831488f4b9466c9b95185acbb5e456b7fbf00e2f0aa",
+      "bytes": 132251
+    }
+  ]
+}
