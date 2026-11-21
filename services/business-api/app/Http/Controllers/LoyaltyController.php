@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\Commercial\Loyalty\LoyaltyService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -83,7 +84,7 @@ class LoyaltyController extends Controller
                 'code_hash' => $codeHash, 'publication_key' => $publication, 'fingerprint' => $fingerprint,
                 'created_by' => $r->user()->id, 'created_at' => $now, 'updated_at' => $now,
             ]));
-        } catch (\Illuminate\Database\UniqueConstraintViolationException) {
+        } catch (UniqueConstraintViolationException) {
             abort(409, 'Coupon code already allocated.');
         }
         $this->couponAudit($r, 'published', $id);
@@ -162,7 +163,7 @@ class LoyaltyController extends Controller
         $safe = (array) $row;
         unset($safe['code_hash'], $safe['publication_key'], $safe['fingerprint']);
 
-        return $safe;
+        return $safe + ['claims' => DB::table('loyalty_coupon_claims')->where('coupon_id', $row->id)->count()];
     }
 
     private function couponAudit(Request $r, string $action, int $coupon): void
