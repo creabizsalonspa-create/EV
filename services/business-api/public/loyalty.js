@@ -984,5 +984,95 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
     button(container, "Open loyalty & rewards", "فتح الولاء والمكافآت", () =>
         load(),
     );
+    if (role === "customer" || role === "admin") {
+        const panel = node("section"), records = node("div");
+        const couponRequest = (path = "", method = "GET", data) => {
+            if (!alive()) throw new DOMException("Session changed", "AbortError");
+            return api("commercial/coupons" + path, method, data, controller.signal);
+        };
+        panel.append(t("h4", "Reward coupons", "قسائم المكافآت"));
+        const code = field(panel, "coupon_code", "Coupon code", "رمز القسيمة");
+        code.autocomplete = "off";
+        code.maxLength = 40;
+        let pending;
+        const labelStatus = value => ({
+            pending: ["Pending fulfillment", "بانتظار التسليم"],
+            fulfilled: ["Fulfilled", "تم التسليم"],
+            rejected: ["Rejected", "مرفوض"],
+        })[value] || ["Status unavailable", "الحالة غير متاحة"];
+        function showReceipt(parent, row) {
+            const line = node("p");
+            line.append(t("span", ...labelStatus(row.status)), node("span", ` · #${row.id} · ${document.documentElement.lang === "ar" ? row.reward_name_ar : row.reward_name} · ${row.claimed_at}`));
+            parent.append(line);
+        }
+        async function refresh(number = 1) {
+            const result = await couponRequest((role === "admin" ? "" : "/claims") + "?page=" + number);
+            if (!alive()) return;
+            if (!Array.isArray(result.data)) throw Error("Invalid coupon history.");
+            records.replaceChildren();
+            for (const row of result.data) {
+                if (role === "customer") {
+                    showReceipt(records, row);
+                    continue;
+                }
+                const card = node("article");
+                card.append(node("p", `#${row.id} · ${row.claims}/${row.claim_limit} · ${row.starts_at} → ${row.ends_at} UTC`));
+                if (row.revoked_at) card.append(t("p", "Revoked", "ملغاة"));
+                else button(card, "Revoke coupon", "إلغاء القسيمة", async () => {
+                    await couponRequest("/" + row.id + "/revoke", "POST", {});
+                    await refresh(number);
+                });
+                records.append(card);
+            }
+            if (number > 1) button(records, "Previous", "السابق", () => refresh(number - 1));
+            if (number < result.last_page) button(records, "Next", "التالي", () => refresh(number + 1));
+        }
+        if (role === "admin") {
+            const reward = field(panel, "coupon_reward", "Reward ID", "معرف المكافأة", "", "number");
+            const cap = field(panel, "coupon_cap", "Total claims", "إجمالي المطالبات", "1", "number");
+            const perUser = field(panel, "coupon_user_cap", "Claims per member", "المطالبات لكل عضو", "1", "number");
+            const start = field(panel, "coupon_start", "Starts (local time)", "البداية (التوقيت المحلي)", "", "datetime-local");
+            const end = field(panel, "coupon_end", "Expires (local time)", "الانتهاء (التوقيت المحلي)", "", "datetime-local");
+            button(panel, "Publish coupon", "نشر القسيمة", async () => {
+                pending ??= {
+                    code: code.value.trim().toUpperCase(), reward_id: Number(reward.value),
+                    claim_limit: Number(cap.value), per_user_limit: Number(perUser.value),
+                    starts_at: new Date(start.value).toISOString(), ends_at: new Date(end.value).toISOString(),
+                    idempotency_key: crypto.randomUUID(),
+                };
+                await couponRequest("", "POST", pending);
+                pending = undefined;
+                code.value = "";
+                await refresh();
+            });
+        } else {
+            panel.append(t("p", "Enter a code you received to claim a noncash reward.", "أدخل الرمز الذي تلقيته للمطالبة بمكافأة غير نقدية."));
+            button(panel, "Claim coupon", "المطالبة بالقسيمة", async () => {
+                pending ??= { code: code.value.trim().toUpperCase(), idempotency_key: crypto.randomUUID() };
+                const result = await couponRequest("/claim", "POST", pending);
+                if (!alive()) return;
+                pending = undefined;
+                code.value = "";
+                records.replaceChildren();
+                showReceipt(records, result.claim);
+            });
+            button(panel, "Check last claim receipt", "التحقق من إيصال المطالبة", async () => {
+                if (!pending) return;
+                const result = await couponRequest("/claim-receipt", "POST", { idempotency_key: pending.idempotency_key });
+                if (!alive() || !result.claim) return;
+                pending = undefined;
+                code.value = "";
+                records.replaceChildren();
+                showReceipt(records, result.claim);
+            });
+        }
+        button(panel, "Clear coupon draft", "مسح مسودة القسيمة", () => {
+            pending = undefined;
+            code.value = "";
+        });
+        button(panel, "Refresh coupons", "تحديث القسائم", () => refresh());
+        panel.append(records);
+        container.append(panel);
+    }
     container.append(content);
 };
