@@ -52,6 +52,7 @@ class LoyaltyController extends Controller
         abort_unless(config('loyalty.enabled') && ! app()->environment('production'), 503);
         $values = $r->validate([
             'code' => ['required', 'string', 'regex:/^[A-Z0-9-]{12,40}$/D'],
+            'listed' => 'sometimes|boolean',
             'reward_id' => 'required|integer|min:1',
             'claim_limit' => 'required|integer|between:1,1000000',
             'per_user_limit' => 'required|integer|between:1,100|lte:claim_limit',
@@ -69,6 +70,7 @@ class LoyaltyController extends Controller
             $values[$field] = Carbon::parse($values[$field])->utc()->toDateTimeString();
         }
         abort_unless($values['starts_at'] < $values['ends_at'], 422);
+        $values['listed'] = (bool) ($values['listed'] ?? false);
         $fingerprint = hash('sha256', json_encode([$codeHash, $values], JSON_THROW_ON_ERROR));
         if ($old = DB::table('loyalty_coupons')->where('publication_key', $publication)->first()) {
             abort_unless(hash_equals($old->fingerprint, $fingerprint), 409, 'Coupon publication retry content changed.');
@@ -112,6 +114,64 @@ class LoyaltyController extends Controller
 
         return response()->json(DB::table('loyalty_coupons')->orderByDesc('id')->paginate(25)
             ->through(fn ($row) => $this->couponDetails($row)))->header('Cache-Control', 'private, no-store');
+    }
+
+    public function discoverCoupons(Request $r, LoyaltyService $service)
+    {
+        abort_unless($r->user()->role === 'customer', 403);
+        $r->validate(['page' => 'sometimes|integer|between:1,100000']);
+        $user = $r->user()->id;
+        $now = now()->utc();
+        $account = $service->account($user);
+        $query = DB::table('loyalty_coupons as coupon')
+            ->join('loyalty_rewards as reward', 'reward.id', '=', 'coupon.reward_id')
+            ->where('coupon.listed', true)->whereNull('coupon.revoked_at')
+            ->where('coupon.starts_at', '<=', $now)->where('coupon.ends_at', '>', $now)
+            ->where('reward.starts_at', '<=', $now)->where('reward.ends_at', '>', $now);
+        foreach ([
+            ['loyalty_coupon_claims', 'coupon_id', 'coupon.id', 'coupon.claim_limit', false],
+            ['loyalty_coupon_claims', 'coupon_id', 'coupon.id', 'coupon.per_user_limit', true],
+            ['loyalty_redemptions', 'reward_id', 'reward.id', 'reward.stock', false],
+            ['loyalty_redemptions', 'reward_id', 'reward.id', 'reward.per_user_limit', true],
+        ] as [$table, $column, $identity, $limit, $personal]) {
+            $query->where(function ($count) use ($table, $column, $identity, $personal, $user) {
+                $count->from($table)->selectRaw('count(*)')->whereColumn($column, $identity);
+                if ($personal) {
+                    $count->where('user_id', $user);
+                }
+                if ($table === 'loyalty_redemptions') {
+                    $count->whereIn('status', ['pending', 'fulfilled']);
+                }
+            }, '<', DB::raw($limit));
+        }
+        $today = DB::table('loyalty_redemptions')->where('user_id', $user)
+            ->where('created_at', '>=', $now->copy()->startOfDay())->count();
+        $query->where(function ($policy) use ($now) {
+            $policy->from('loyalty_policies')->select('daily_redemption_limit')
+                ->whereColumn('currency', 'reward.currency')->where('effective_from', '<=', $now)
+                ->orderByDesc('effective_from')->orderByDesc('id')->limit(1);
+        }, '>', $today);
+        $query->where(function ($policy) use ($now) {
+            $policy->from('loyalty_policies')->select('enabled')
+                ->whereColumn('currency', 'reward.currency')->where('effective_from', '<=', $now)
+                ->orderByDesc('effective_from')->orderByDesc('id')->limit(1);
+        }, '=', true);
+        if (! config('loyalty.enabled') || app()->environment('production') || $account['redemption_hold'] || $account['balance_points'] < 0) {
+            $query->whereRaw('1 = 0');
+        }
+
+        return response()->json($query->orderBy('coupon.ends_at')->orderBy('coupon.id')
+            ->paginate(25, ['coupon.id', 'coupon.ends_at', 'reward.name as reward_name', 'reward.name_ar as reward_name_ar']))
+            ->header('Cache-Control', 'private, no-store');
+    }
+
+    public function claimListedCoupon(Request $r, int $coupon, LoyaltyService $service)
+    {
+        abort_unless($r->user()->role === 'customer', 403);
+        $values = $r->validate(['idempotency_key' => 'required|string|max:100']);
+        $claim = $service->claimCoupon($r->user()->id, null, $values['idempotency_key'], $coupon);
+
+        return response()->json(['claim' => $this->couponReceipt($claim)])->header('Cache-Control', 'private, no-store');
     }
 
     public function claimCoupon(Request $r, LoyaltyService $service)

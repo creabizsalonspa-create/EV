@@ -13,6 +13,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('reward_id')->constrained('loyalty_rewards');
             $table->foreignId('created_by')->constrained('users');
+            $table->boolean('listed')->default(false);
             $table->char('code_hash', 64)->unique();
             $table->char('publication_key', 64)->unique();
             $table->char('fingerprint', 64);

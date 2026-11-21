@@ -237,22 +237,27 @@ class LoyaltyService
         }, 3);
     }
 
-    public function claimCoupon(int $user, string $code, string $key): object
+    public function claimCoupon(int $user, ?string $code, string $key, ?int $listedCoupon = null): object
     {
         $this->enabled();
 
-        return DB::transaction(function () use ($user, $code, $key) {
+        return DB::transaction(function () use ($user, $code, $key, $listedCoupon) {
             User::whereKey($user)->lockForUpdate()->firstOrFail();
             $request = hash('sha256', 'coupon-claim:'.$user.':'.$key);
-            $hash = hash('sha256', $code);
+            $hash = $code === null ? null : hash('sha256', $code);
             if ($old = DB::table('loyalty_coupon_claims')->where('request_key', $request)->first()) {
                 $coupon = DB::table('loyalty_coupons')->find($old->coupon_id);
-                abort_unless(hash_equals($coupon->code_hash, $hash), 409, 'Coupon retry content changed.');
+                abort_unless($listedCoupon !== null
+                    ? $coupon->listed && (int) $coupon->id === $listedCoupon
+                    : $hash !== null && hash_equals($coupon->code_hash, $hash), 409, 'Coupon retry content changed.');
 
                 return $old;
             }
 
-            $coupon = DB::table('loyalty_coupons')->where('code_hash', $hash)->lockForUpdate()->first() ?? abort(404);
+            $query = DB::table('loyalty_coupons');
+            $coupon = ($listedCoupon === null
+                ? $query->where('code_hash', $hash)
+                : $query->where('id', $listedCoupon)->where('listed', true))->lockForUpdate()->first() ?? abort(404);
             $now = now()->utc();
             abort_unless($coupon->revoked_at === null && $coupon->starts_at <= $now->toDateTimeString()
                 && $coupon->ends_at > $now->toDateTimeString(), 409, 'Coupon is unavailable.');

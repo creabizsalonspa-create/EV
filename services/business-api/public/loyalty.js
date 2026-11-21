@@ -1028,6 +1028,7 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             if (number < result.last_page) button(records, "Next", "التالي", () => refresh(number + 1));
         }
         if (role === "admin") {
+            const listed = field(panel, "coupon_listed", "Show to eligible members", "عرض للأعضاء المؤهلين", "", "checkbox", false);
             const reward = field(panel, "coupon_reward", "Reward ID", "معرف المكافأة", "", "number");
             const cap = field(panel, "coupon_cap", "Total claims", "إجمالي المطالبات", "1", "number");
             const perUser = field(panel, "coupon_user_cap", "Claims per member", "المطالبات لكل عضو", "1", "number");
@@ -1036,7 +1037,7 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             button(panel, "Publish coupon", "نشر القسيمة", async () => {
                 pending ??= {
                     code: code.value.trim().toUpperCase(), reward_id: Number(reward.value),
-                    claim_limit: Number(cap.value), per_user_limit: Number(perUser.value),
+                    listed: listed.checked, claim_limit: Number(cap.value), per_user_limit: Number(perUser.value),
                     starts_at: new Date(start.value).toISOString(), ends_at: new Date(end.value).toISOString(),
                     idempotency_key: crypto.randomUUID(),
                 };
@@ -1049,13 +1050,37 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             panel.append(t("p", "Enter a code you received to claim a noncash reward.", "أدخل الرمز الذي تلقيته للمطالبة بمكافأة غير نقدية."));
             button(panel, "Claim coupon", "المطالبة بالقسيمة", async () => {
                 pending ??= { code: code.value.trim().toUpperCase(), idempotency_key: crypto.randomUUID() };
-                const result = await couponRequest("/claim", "POST", pending);
+                const result = await couponRequest(pending.coupon ? "/eligible/" + pending.coupon + "/claim" : "/claim", "POST", pending);
                 if (!alive()) return;
                 pending = undefined;
                 code.value = "";
                 records.replaceChildren();
                 showReceipt(records, result.claim);
             });
+            async function eligible(number = 1) {
+                const result = await couponRequest("/eligible?page=" + number);
+                if (!alive()) return;
+                records.replaceChildren();
+                for (const row of result.data) {
+                    const card = node("article");
+                    card.append(node("p", document.documentElement.lang === "ar" ? row.reward_name_ar : row.reward_name));
+                    card.append(node("p", row.ends_at + " UTC"));
+                    button(card, "Claim listed reward", "المطالبة بالمكافأة المدرجة", async () => {
+                        if (pending && pending.coupon !== row.id) throw Error("Resolve the previous claim first.");
+                        pending ??= { coupon: row.id, idempotency_key: crypto.randomUUID() };
+                        const reply = await couponRequest("/eligible/" + row.id + "/claim", "POST", { idempotency_key: pending.idempotency_key });
+                        if (!alive()) return;
+                        pending = undefined;
+                        records.replaceChildren();
+                        showReceipt(records, reply.claim);
+                    });
+                    records.append(card);
+                }
+                if (!result.data.length) records.append(t("p", "No eligible coupons", "لا توجد قسائم مؤهلة"));
+                if (number > 1) button(records, "Previous coupons", "القسائم السابقة", () => eligible(number - 1));
+                if (number < result.last_page) button(records, "Next coupons", "القسائم التالية", () => eligible(number + 1));
+            }
+            button(panel, "Browse eligible coupons", "تصفح القسائم المؤهلة", () => eligible());
             button(panel, "Check last claim receipt", "التحقق من إيصال المطالبة", async () => {
                 if (!pending) return;
                 const result = await couponRequest("/claim-receipt", "POST", { idempotency_key: pending.idempotency_key });

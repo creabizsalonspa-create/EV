@@ -526,6 +526,8 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
   late final bool Function() ownsSession;
   Map<String, dynamic>? pending;
   List<Map<String, dynamic>> receipts = [];
+  List<Map<String, dynamic>> offers = [];
+  bool browsing = false;
   int page = 1;
   int last = 1;
   int generation = 0;
@@ -550,6 +552,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
       pending?.remove('code');
       code.clear();
       receipts = [];
+      offers = [];
       message = null;
       busy = false;
     });
@@ -574,9 +577,13 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
     return row;
   }
 
-  Future<void> run(String action, {int number = 1}) async {
+  Future<void> run(String action, {int number = 1, int? coupon}) async {
     if (busy || !ownsSession()) return;
-    if (action == 'claim') {
+    if (coupon != null) {
+      if (pending != null && pending!['coupon'] != coupon) return;
+      pending ??= {'coupon': coupon, 'idempotency_key': operationKey()};
+    }
+    if (action == 'claim' && coupon == null) {
       final entered = code.text.trim().toUpperCase();
       if (pending == null && !RegExp(r'^[A-Z0-9-]{12,40}$').hasMatch(entered)) {
         setState(() => message = label('Enter a valid coupon code.', 'أدخل رمز قسيمة صالحاً.'));
@@ -586,27 +593,41 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
       if (!pending!.containsKey('code')) return;
     }
     if (action == 'claim-receipt' && pending == null) return;
+    final read = action == 'claims' || action == 'eligible';
+    final endpoint = coupon == null ? action : 'eligible/$coupon/claim';
     final epoch = ++generation;
     setState(() { busy = true; message = null; });
     try {
       final result = await widget.api.request(
-        'commercial/coupons/$action',
-        method: action == 'claims' ? 'GET' : 'POST',
-        query: action == 'claims' ? {'page': '$number'} : const {},
-        body: action == 'claim' ? Map<String, dynamic>.of(pending!)
+        'commercial/coupons/$endpoint',
+        method: read ? 'GET' : 'POST',
+        query: read ? {'page': '$number'} : const {},
+        body: coupon != null ? {'idempotency_key': pending!['idempotency_key']}
+            : action == 'claim' ? Map<String, dynamic>.of(pending!)
             : action == 'claim-receipt' ? {'idempotency_key': pending!['idempotency_key']} : null,
       );
       if (!mounted || epoch != generation || !ownsSession()) return;
-      if (action == 'claims') {
+      if (action == 'eligible') {
+        final parsed = ApiPage.fromJson(result, (row) => row);
+        setState(() {
+          browsing = true;
+          offers = parsed.items;
+          receipts = [];
+          page = result['current_page'] as int;
+          last = result['last_page'] as int;
+        });
+      } else if (action == 'claims') {
         final parsed = ApiPage.fromJson(result, receipt);
         setState(() {
+          browsing = false;
+          offers = [];
           receipts = parsed.items;
           page = result['current_page'] as int;
           last = result['last_page'] as int;
         });
       } else if (result['claim'] != null) {
         final row = receipt(result['claim']);
-        setState(() { receipts = [row]; pending = null; code.clear(); page = 1; last = 1; });
+        setState(() { browsing = false; offers = []; receipts = [row]; pending = null; code.clear(); page = 1; last = 1; });
       } else {
         setState(() => message = label('No receipt has been recorded for this request.', 'لم يتم تسجيل إيصال لهذا الطلب.'));
       }
@@ -650,6 +671,18 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
             child: Text(label('Clear coupon draft', 'مسح مسودة القسيمة'))),
         TextButton(onPressed: busy ? null : () => run('claims'),
           child: Text(label('Refresh coupon history', 'تحديث سجل القسائم'))),
+        TextButton(onPressed: busy ? null : () => run('eligible'),
+          child: Text(label('Browse eligible coupons', 'تصفح القسائم المؤهلة'))),
+        if (browsing && offers.isEmpty && !busy) Text(label('No eligible coupons', 'لا توجد قسائم مؤهلة')),
+        for (final offer in offers) ListTile(
+          title: Text(label('${offer['reward_name']}', '${offer['reward_name_ar']}')),
+          subtitle: Text('${offer['ends_at']} UTC'),
+          trailing: TextButton(
+            onPressed: busy || offer['id'] is! int || (pending != null && pending!['coupon'] != offer['id'])
+                ? null : () => run('claim', coupon: offer['id'] as int),
+            child: Text(label('Claim', 'مطالبة')),
+          ),
+        ),
         if (busy) const LinearProgressIndicator(),
         if (message != null) Semantics(liveRegion: true, child: Text(message!)),
         for (final row in receipts) ListTile(
@@ -661,9 +694,9 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
             _ => label('Pending fulfillment', 'بانتظار التسليم'),
           }),
         ),
-        if (page > 1) TextButton(onPressed: busy ? null : () => run('claims', number: page - 1),
+        if (page > 1) TextButton(onPressed: busy ? null : () => run(browsing ? 'eligible' : 'claims', number: page - 1),
           child: Text(label('Previous', 'السابق'))),
-        if (page < last) TextButton(onPressed: busy ? null : () => run('claims', number: page + 1),
+        if (page < last) TextButton(onPressed: busy ? null : () => run(browsing ? 'eligible' : 'claims', number: page + 1),
           child: Text(label('Next', 'التالي'))),
       ],
     ),
