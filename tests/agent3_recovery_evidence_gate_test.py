@@ -27,6 +27,8 @@ def evidence():
         'restored_http_catalog': '200 and synthetic non-controllable records',
         'canonical_domain_restored': True,
         'unpaid_simulated_financial_records_restored': True,
+        'authenticated_backup_encryption_roundtrip': True,
+        'wrong_backup_decryption_key_rejected': True,
         'all_public_tables_and_sequences_match': True,
         'canonical_domain_fingerprint': {'table_count': 250, 'row_count': 310, 'sequence_count': 150, 'fingerprint_sha256': 'a'*64},
         'external_acceptance': 'not tested',
@@ -86,6 +88,8 @@ class GateTest(unittest.TestCase):
         cases = [
             ('canonical_domain_restored', False),
             ('unpaid_simulated_financial_records_restored', False),
+            ('authenticated_backup_encryption_roundtrip', False),
+            ('wrong_backup_decryption_key_rejected', False),
             ('all_public_tables_and_sequences_match', False),
             ('canonical_domain_fingerprint', {}),
             ('canonical_domain_fingerprint', {'table_count':True, 'row_count':1, 'sequence_count':1, 'fingerprint_sha256':'a'*64}),

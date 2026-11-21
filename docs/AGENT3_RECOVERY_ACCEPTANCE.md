@@ -311,3 +311,15 @@ cases) passed. Local proof: docs/evidence/recovery-domain-20261121/local.json.
 Exact final-head hosted staging and dependent recovery gates remain required. Coordinated cross-service snapshots, PITR/retention,
 offsite storage, real customer uploads and operational production approval remain
 separate gaps. Original atom9.1.10 is not promoted merely by adding these checks.
+
+
+### Authenticated encryption extension (candidate)
+
+The same candidate now adds standard libsodium secretstream encryption for both
+actual backup archives. It restores only the decrypted, byte-verified files,
+requires wrong-key rejection, and keeps the HMAC manifest key separate. Five
+actual pinned-image runtime tests exercise multichunk/empty/randomized output,
+wrong keys, tampering, truncation, duplicate/reordered frames, trailing data,
+private permissions, links/FIFOs and atomic no-overwrite behavior. Existing
+integrity and recovery controls are retained. See docs/BACKUP_ENCRYPTION.md.
+The extended combined drill still requires current-code runtime and hosted proof.

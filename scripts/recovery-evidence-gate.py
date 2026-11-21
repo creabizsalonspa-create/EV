@@ -117,6 +117,8 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             and 30 <= domain['table_count'] <= 1024
             and business.get('canonical_domain_restored') is True
             and business.get('unpaid_simulated_financial_records_restored') is True
+            and business.get('authenticated_backup_encryption_roundtrip') is True
+            and business.get('wrong_backup_decryption_key_rejected') is True
             and business.get('all_public_tables_and_sequences_match') is True,
             'Canonical domain recovery proof invalid')
     require(business.get('classification') == 'disposable staging software only' and
