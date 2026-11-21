@@ -1,0 +1,81 @@
+{
+  "application_source_sha": "23889864866edad78a5ca2fbfa95028324aefc0d",
+  "canonical_base": "f4f22e80",
+  "recorded_utc": "2026-11-21T04:03:57.499609+00:00",
+  "client_resume_date": "2026-11-21",
+  "scope": "original4.4.6 internal retail partner administration; no customer rewards, finance or live partner activation credit",
+  "results": {
+    "laravel": {
+      "passed": 1777,
+      "skipped": 1,
+      "assertions": 32064
+    },
+    "focused": {
+      "passed": 46,
+      "assertions": 587
+    },
+    "postgres_financial_features": {
+      "passed": 452,
+      "skipped": 1,
+      "assertions": 11262
+    },
+    "postgres_process_and_migrations": {
+      "passed": 102,
+      "assertions": 1497
+    },
+    "actual_laravel_browser": {
+      "checks": 20
+    },
+    "paced_orchestration": {
+      "passed": 9
+    },
+    "pint": {
+      "files": 847,
+      "passed": true
+    }
+  },
+  "hosted_exact_head_verification": "pending Agent5; no local Android/iOS build claimed",
+  "production_acceptance": false,
+  "artifacts": [
+    {
+      "path": "artifacts/retail-partners/23889864/laravel-full.txt",
+      "sha256": "5098f9b363eec8e424b5043d98b1f3cb9e6e77c5714dc7280b9b513500b03622",
+      "bytes": 1927
+    },
+    {
+      "path": "artifacts/retail-partners/23889864/laravel-focused.txt",
+      "sha256": "f1baa2dfc718d64c10a6cd2a587b20f9861aae7fb104cbffff33ad6915ae2268",
+      "bytes": 109
+    },
+    {
+      "path": "artifacts/retail-partners/23889864/postgres-finance.txt",
+      "sha256": "d191b86816caaef08c3ac01d9c8addb1e166828cd3f5bb410d6f17db9697dc71",
+      "bytes": 39033
+    },
+    {
+      "path": "artifacts/retail-partners/23889864/postgres-process.txt",
+      "sha256": "c83c6c158e329cedfaaba77336d5b650c593ea6cde9ac7a12b7923ad83295b5d",
+      "bytes": 10466
+    },
+    {
+      "path": "artifacts/retail-partners/23889864/actual-browser.txt",
+      "sha256": "b23acbe6c8c0b9779e44be223c36d1681fce14fe1e38200668b56fe9773faea6",
+      "bytes": 150
+    },
+    {
+      "path": "artifacts/retail-partners/23889864/orchestration.txt",
+      "sha256": "44d0dd71d0a28d120b67eeca148d2d88b06432e3957a117c11b9eae7a8682130",
+      "bytes": 998
+    },
+    {
+      "path": "artifacts/retail-partners/23889864/pint.txt",
+      "sha256": "37dfbd7ef628d87a16668971787ce9776991ffbec630899fc3de7efdaef741d9",
+      "bytes": 1184
+    },
+    {
+      "path": "artifacts/operational-browser/retail-partners/ar-dark-mobile.png",
+      "sha256": "bb0b128e206efc29689bd63b0101407d7dbbbc2589128961bd2887ce54a9b011",
+      "bytes": 172171
+    }
+  ]
+}
