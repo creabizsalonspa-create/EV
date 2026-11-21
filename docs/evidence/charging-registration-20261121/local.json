@@ -1,0 +1,135 @@
+{
+  "source_sha": "b9b7f4622406904094b3eb10ba15e37c99566e6f",
+  "base_integration_sha": "f4f22e80",
+  "branch": "development/charging-protocol-continuation",
+  "requirement_targets": [
+    "5.2.6",
+    "3.2.6"
+  ],
+  "whole_atom_credit": "Agent5 audit and native consumer/exact-source hosted integration still required; no production acceptance credit",
+  "results": {
+    "laravel": {
+      "passed": 1831,
+      "assertions": 32462,
+      "explicit_pg_only_skip": 1
+    },
+    "postgres_features": {
+      "passed": 994,
+      "assertions": 13083
+    },
+    "postgres_processes": {
+      "passed": 36,
+      "assertions": 558,
+      "new_source_registration_protocol_paired_cases": 4
+    },
+    "postgres_receipt_migrations": {
+      "passed": 2,
+      "assertions": 13
+    },
+    "pinned_citrine_jwt_api_plugin_contract": {
+      "passed": 15
+    },
+    "controlled_web": {
+      "passed": 9
+    },
+    "original_ocpp_outbox": {
+      "protocols": [
+        "1.6",
+        "2.0.1"
+      ],
+      "each_boot": "Accepted",
+      "each_incoming_calls": 2,
+      "explicit_real_admin_mfa": true
+    },
+    "actual_source_web": {
+      "passed": true,
+      "normal_inventory_api_journey": true,
+      "source_protocols": [
+        "1.6",
+        "2.0.1"
+      ],
+      "languages": [
+        "en",
+        "ar"
+      ],
+      "viewport_width": 390,
+      "admin_mfa": true,
+      "owner_read_only": true,
+      "charging_and_finance_digest_unchanged": true,
+      "device_commands_sent": 0
+    },
+    "pint": {
+      "passed": true,
+      "files": 848
+    },
+    "ci_trigger_tests": {
+      "passed": 8
+    }
+  },
+  "native_dependency": {
+    "agent": "Agent4",
+    "initial_source_sha": "e5ae1bef",
+    "read_only_component_cases": 8,
+    "actual_matched_laravel_http_cases": 1,
+    "consumer_not_yet_merged": true,
+    "standalone_android_or_ios_build_not_claimed": true
+  },
+  "hosted_checks": "pending current final source push/PR; no inherited CI credited",
+  "production_acceptance": {
+    "physical_charger": false,
+    "live_identity_provider": false,
+    "source_metadata_only": true,
+    "real_ca": false,
+    "live_psp_bank_or_ocpi": false,
+    "store_or_production_deployment": false
+  },
+  "retained_failed_attempts": [
+    "Initial local development server discarded isolated DB env; fixed owned server with --no-reload, no DB reset.",
+    "Two initial source receipts remain requires_inspection after private-service proxy issue; fixed upper/lower NO_PROXY, never replayed or reset those receipts.",
+    "Pinned upstream fixture initially needed module-relative fastify resolution and getSubLogger; corrected test fixture without altering pinned upstream.",
+    "Explicit positive MFA OCPP fixture initially escaped PHP namespace incorrectly; fixed test-only stdin helper, retained security flags and all old assertions."
+  ],
+  "logs": {
+    "laravel-full.txt": {
+      "path": "artifacts/charging-auth/laravel-full.txt",
+      "sha256": "f19286d65d5d30e4d0e9ace49c55c3417033f2e9f03e39b9c375931dbd1fe95c",
+      "bytes": 1984
+    },
+    "postgres-run.txt": {
+      "path": "artifacts/charging-auth/postgres-run.txt",
+      "sha256": "5dbb115014ebde3edee1519837c3352c3d42abe601b0e442a5c4d0467bbffebe",
+      "bytes": 98838
+    },
+    "controlled-web.txt": {
+      "path": "artifacts/charging-auth/controlled-web.txt",
+      "sha256": "8220982f23882481cc060d65c3609151fdbe4a5bb00d4a7ae94297577f40f854",
+      "bytes": 980
+    },
+    "upstream-jwt-final.txt": {
+      "path": "artifacts/charging-auth/upstream-jwt-final.txt",
+      "sha256": "e4a9b0e02ef60fc77734f1ef3f7bb7706d50032fff9fe8028b50baaeea9dddb6",
+      "bytes": 975
+    },
+    "ocpp-original-mfa.txt": {
+      "path": "artifacts/charging-auth/ocpp-original-mfa.txt",
+      "sha256": "55cf657cc740cf452a134bb1b7bf87a66b2e58b088db76ea50fd23da976fe05f",
+      "bytes": 391
+    },
+    "source-browser-live-final.txt": {
+      "path": "artifacts/charging-auth/source-browser-live-final.txt",
+      "sha256": "cb93b8a98f37f462a1a33d121c82414fa889db56800c2bf38a193455b671bd10",
+      "bytes": 322
+    },
+    "pint-all.txt": {
+      "path": "artifacts/charging-auth/pint-all.txt",
+      "sha256": "f445c8d94849704de48af81a53df6537eb5b8fcdbf99cca09adf5853ac28de24",
+      "bytes": 1185
+    },
+    "ci-triggers.txt": {
+      "path": "artifacts/charging-auth/ci-triggers.txt",
+      "sha256": "133449d6f429f0588126e0403937f271f33f90517460d5c4b39d69c2eeda0f25",
+      "bytes": 106
+    }
+  },
+  "pinned_citrine_base": "ghcr.io/citrineos/citrineos-server:v2.1.0@sha256:45aedf1e5908ea9aeea29028790bfaeb51a6baf5d7c5fefb94d00e549a7aeece"
+}
