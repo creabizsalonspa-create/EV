@@ -122,6 +122,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "sandbox-roaming",
       "partner-favorites",
       "charger-configuration",
+      "charger-availability-command",
       "diagnostic-files",
     ],
   );
@@ -145,6 +146,7 @@ test("operational flags are prepared before login windows and preparation failur
     "./scripts/configuration-read-setup",
     "./scripts/diagnostic-logs-setup",
     "./scripts/reset-operations-setup",
+    "./scripts/availability-command-setup",
   ]);
   const rejected = [];
   assert.throws(
@@ -169,6 +171,7 @@ test("operational adapter setup remains intact after adding the battery discover
     { script: "./scripts/configuration-read-setup", args: [] },
     { script: "./scripts/diagnostic-logs-setup", args: [] },
     { script: "./scripts/reset-operations-setup", args: [] },
+    { script: "./scripts/availability-command-setup", args: [] },
   ]);
 });
 
