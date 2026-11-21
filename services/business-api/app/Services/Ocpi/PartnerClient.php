@@ -190,6 +190,7 @@ class PartnerClient
             throw new OcpiException('Malformed OCPI 2.2.1 details.');
         }
         $endpoints = [];
+        $cpo = app(CpoCatalogContract::class)->approved($provider);
         foreach ($details['endpoints'] as $endpoint) {
             if (! is_array($endpoint) || ! is_string($endpoint['identifier'] ?? null) || ! is_string($endpoint['url'] ?? null) || ! in_array($endpoint['role'] ?? null, ['SENDER', 'RECEIVER'], true)) {
                 throw new OcpiException('Malformed module endpoint.');
@@ -202,6 +203,13 @@ class PartnerClient
                 }
                 $endpoints[$name] = $url;
             }
+            if ($cpo && in_array($endpoint['identifier'], CpoCatalogContract::MODULES, true) && $endpoint['role'] === 'RECEIVER') {
+                $name = $endpoint['identifier'].'_receiver';
+                if (isset($endpoints[$name]) || parse_url($url, PHP_URL_QUERY) !== null) {
+                    throw new OcpiException('Ambiguous CPO catalog receiver endpoint.');
+                }
+                $endpoints[$name] = $url;
+            }
             if (in_array($endpoint['identifier'], self::MODULES, true) && $endpoint['role'] === 'SENDER') {
                 if (isset($endpoints[$endpoint['identifier']])) {
                     throw new OcpiException('Ambiguous duplicate operator module endpoint.');
@@ -209,8 +217,8 @@ class PartnerClient
                 $endpoints[$endpoint['identifier']] = $url;
             }
         }
-        if (! isset($endpoints['locations'])) {
-            throw new OcpiException('Operator does not advertise a readable locations module.');
+        if (! isset($endpoints['locations']) && ! ($cpo && isset($endpoints['locations_receiver'], $endpoints['tariffs_receiver']))) {
+            throw new OcpiException('Operator lacks the approved OCPI catalog modules.');
         }
         DB::transaction(function () use ($provider, $endpoints) {
             $locked = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
@@ -382,9 +390,50 @@ class PartnerClient
             throw new OcpiException('Protocol receiver must not contain a query.');
         }
         $url = $this->guardedUrl($provider, rtrim($provider->endpoints[$module], '/').'/'.implode('/', array_map('rawurlencode', $segments)));
+
+        return $this->sendProtocol($provider, $method, $url, $body, $c['authorization_token'], []);
+    }
+
+    public function cpoCatalogRequest(OcpiProvider $provider, string $module, string $method, array $payload, int $generation, bool $allowMissing = false): array
+    {
+        $this->assertCurrent($provider);
+        $connection = $this->connection($provider);
+        $local = app(CredentialExchange::class)->localConfiguration($provider)['roles'][0];
+        $endpoint = $provider->endpoints[$module.'_receiver'] ?? null;
+        if (! app()->environment(['local', 'testing']) || ! config('ocpi.cpo_push_enabled')
+            || ($connection['environment'] ?? null) !== 'sandbox'
+            || ! app(CpoCatalogContract::class)->approved($provider)
+            || ! in_array([$module, $method], [['locations', 'PUT'], ['tariffs', 'PUT'], ['tariffs', 'DELETE'], ['locations', 'GET'], ['tariffs', 'GET']], true)
+            || ! is_string($endpoint) || parse_url($endpoint, PHP_URL_QUERY) !== null
+            || $payload['country_code'] !== $local['country_code'] || $payload['party_id'] !== $local['party_id']
+            || ! preg_match('/^[ST][1-9][0-9]{0,18}$/D', $payload['id'])) {
+            throw new OcpiException('Approved sandbox CPO receiver is unavailable.');
+        }
+        $guardGeneration = function () use ($provider, $generation) {
+            $this->assertCurrent($provider);
+            if (! DB::table('ocpi_credential_links')->where(['provider_id' => $provider->id, 'generation' => $generation, 'state' => 'active'])->exists()
+                || ! DB::table('users')->where(['id' => $provider->owner_id, 'role' => 'vendor', 'account_status' => 'active'])->exists()) {
+                throw new OcpiException('Catalog authority changed during delivery.');
+            }
+        };
+        $url = $this->guardedUrl($provider, rtrim($endpoint, '/').'/'.$payload['country_code'].'/'.$payload['party_id'].'/'.$payload['id']);
+        $guardGeneration();
+        $result = $this->sendProtocol($provider, $method, $url, $method === 'PUT' ? $payload : null, $connection['authorization_token'], [
+            'OCPI-from-country-code' => $local['country_code'], 'OCPI-from-party-id' => $local['party_id'],
+            'OCPI-to-country-code' => $connection['party_country'], 'OCPI-to-party-id' => $connection['party_id'],
+        ], $method === 'GET' && $module === 'tariffs' && $allowMissing, true);
+        $guardGeneration();
+
+        return $result;
+    }
+
+    private function sendProtocol(OcpiProvider $provider, string $method, string $url, ?array $body, string $token, array $headers, bool $allowMissing = false, bool $strictTrace = false): array
+    {
         try {
             $trace = ['X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()];
-            $r = Http::connectTimeout(5)->timeout(20)->withoutRedirecting()->withOptions(['stream' => true])->withHeaders(['Accept' => 'application/json', 'Authorization' => 'Token '.$c['authorization_token']] + $trace)->send($method, $url, ['json' => $body]);
+            $r = Http::connectTimeout(5)->timeout(20)->withoutRedirecting()->withOptions(['stream' => true])
+                ->withHeaders(['Accept' => 'application/json', 'Authorization' => 'Token '.$token] + $trace + $headers)
+                ->send($method, $url, $body === null ? [] : ['json' => $body]);
             $stream = $r->toPsrResponse()->getBody();
             $text = '';
             try {
@@ -394,12 +443,16 @@ class PartnerClient
             } finally {
                 $stream->close();
             }
-            if (! $r->successful() || strlen($text) > 65536) {
+            if ((! $r->successful() && ! ($allowMissing && $r->notFound())) || strlen($text) > 65536) {
                 throw new OcpiException('Partner transport outcome requires reconciliation.');
+            }
+            if ($strictTrace && (! $r->toPsrResponse()->hasHeader('X-Request-ID') || ! $r->toPsrResponse()->hasHeader('X-Correlation-ID'))) {
+                throw new OcpiException('Catalog receiver did not confirm request tracing.');
             }
             $this->verifyTrace($r, $trace);
             $response = json_decode($text, true, flags: JSON_THROW_ON_ERROR);
-            if (! is_array($response) || ($response['status_code'] ?? null) !== 1000 || ! $this->validEnvelopeTimestamp($response['timestamp'] ?? null)) {
+            $expected = $r->notFound() ? 2001 : 1000;
+            if (! is_array($response) || ($response['status_code'] ?? null) !== $expected || ! $this->validEnvelopeTimestamp($response['timestamp'] ?? null)) {
                 throw new OcpiException('Partner protocol outcome requires reconciliation.');
             }
             $this->assertCurrent($provider);

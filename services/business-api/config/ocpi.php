@@ -29,6 +29,8 @@ foreach ($metadata as $key => $connection) {
         'registration_direction' => $direction,
         'inbound_authorization_token' => $inboundVariable === null ? null : env($inboundVariable),
         'managed_credentials' => ($connection['managed_credentials'] ?? false) === true,
+        'local_credential_profile' => $connection['local_credential_profile'] ?? null,
+        'cpo_catalog' => $connection['cpo_catalog'] ?? null,
         'incoming_modules' => $connection['incoming_modules'] ?? [],
         'test_commands' => ($connection['test_commands'] ?? false) === true,
         'test_command_contract' => $connection['test_command_contract'] ?? null,
@@ -45,4 +47,4 @@ foreach ($metadata as $key => $connection) {
     ];
 }
 
-return ['scheduled_sync_enabled' => env('OCPI_SCHEDULED_SYNC_ENABLED', false), 'test_billing_enabled' => env('OCPI_TEST_BILLING_ENABLED', false), 'test_commands_enabled' => env('OCPI_TEST_COMMANDS_ENABLED', false), 'local_credentials' => json_decode(env('OCPI_LOCAL_CREDENTIALS_JSON', '{}'), true, flags: JSON_THROW_ON_ERROR), 'connections' => $connections, 'max_pages' => 20, 'max_records' => 1000];
+return ['cpo_push_enabled' => env('OCPI_CPO_PUSH_ENABLED', false), 'scheduled_sync_enabled' => env('OCPI_SCHEDULED_SYNC_ENABLED', false), 'test_billing_enabled' => env('OCPI_TEST_BILLING_ENABLED', false), 'test_commands_enabled' => env('OCPI_TEST_COMMANDS_ENABLED', false), 'local_credentials' => json_decode(env('OCPI_LOCAL_CREDENTIALS_JSON', '{}'), true, flags: JSON_THROW_ON_ERROR), 'local_credential_profiles' => json_decode(env('OCPI_LOCAL_CREDENTIAL_PROFILES_JSON', '{}'), true, flags: JSON_THROW_ON_ERROR), 'connections' => $connections, 'max_pages' => 20, 'max_records' => 1000];
