@@ -4,6 +4,37 @@ import 'package:crypto/crypto.dart';
 import 'api.dart';
 import 'strings.dart';
 
+Map<String, dynamic> parseDiagnosticLogPage(dynamic value) {
+  if (value is! Map ||
+      value['can_request'] is! bool ||
+      value['can_manage'] is! bool ||
+      value['maximum_file_bytes'] != 524288 ||
+      value['upload_lifetime_seconds'] != 900 ||
+      value['file_retention_seconds'] != 86400 ||
+      ![
+        'SIMULATED_SOURCE',
+        'AUTHENTICATED_SOURCE',
+      ].contains(value['evidence']) ||
+      value['charging_capacity_changed'] != false ||
+      value['data'] is! List)
+    throw const FormatException('Unexpected log capability');
+  for (final row in value['data']) {
+    if (row is! Map ||
+        row['id'] is! int ||
+        row['id'] <= 0 ||
+        row['id'] > 9007199254740991 ||
+        !['1.6', '2.0.1'].contains(row['protocol']) ||
+        ![
+          'SIMULATED_SOURCE',
+          'AUTHENTICATED_SOURCE',
+        ].contains(row['evidence']) ||
+        row['physical_device_verified'] != false ||
+        row['can_download'] is! bool)
+      throw const FormatException('Invalid log receipt');
+  }
+  return Map<String, dynamic>.from(value);
+}
+
 class ChargerLogsView extends StatefulWidget {
   final EvApi api;
   final int companyId, chargerId;
@@ -99,37 +130,6 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
     }
   }
 
-  Map<String, dynamic> parse(dynamic value) {
-    if (value is! Map ||
-        value['can_request'] is! bool ||
-        value['can_manage'] is! bool ||
-        value['maximum_file_bytes'] != 524288 ||
-        value['upload_lifetime_seconds'] != 900 ||
-        value['file_retention_seconds'] != 86400 ||
-        ![
-          'SIMULATED_SOURCE',
-          'AUTHENTICATED_SOURCE',
-        ].contains(value['evidence']) ||
-        value['charging_capacity_changed'] != false ||
-        value['data'] is! List)
-      throw const FormatException('Unexpected log capability');
-    for (final row in value['data']) {
-      if (row is! Map ||
-          row['id'] is! int ||
-          row['id'] <= 0 ||
-          row['id'] > 9007199254740991 ||
-          !['1.6', '2.0.1'].contains(row['protocol']) ||
-          ![
-            'SIMULATED_SOURCE',
-            'AUTHENTICATED_SOURCE',
-          ].contains(row['evidence']) ||
-          row['physical_device_verified'] != false ||
-          row['can_download'] is! bool)
-        throw const FormatException('Invalid log receipt');
-    }
-    return Map<String, dynamic>.from(value);
-  }
-
   Future<void> load() async {
     if (!foreground || !owner()) return;
     final epoch = ++generation;
@@ -139,7 +139,7 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
       error = null;
     });
     try {
-      final v = parse(
+      final v = parseDiagnosticLogPage(
         await widget.api.request(
           path,
           query: {
@@ -204,7 +204,12 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
   }
 
   Future<void> act(Map row, bool cancel) async {
-    if (busy || !foreground || !owner() || !ownsRow(row) || data?['can_manage'] != true) return;
+    if (busy ||
+        !foreground ||
+        !owner() ||
+        !ownsRow(row) ||
+        data?['can_manage'] != true)
+      return;
     final beforeDialog = generation;
     if (cancel) {
       final ok = await showDialog<bool>(
