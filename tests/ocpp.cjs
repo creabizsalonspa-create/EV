@@ -5,6 +5,43 @@ const execFile = promisify(require("node:child_process").execFile);
 const { BusinessClient } = require("./helpers/business-client.cjs");
 async function businessAccount(role) {
   const client = await new BusinessClient().register(role);
+  if (
+    role === "admin" &&
+    (client.user.admin_second_factor_required === true ||
+      process.env.EV_OCPP_VERIFY_MFA === "1")
+  ) {
+    // Real enrollment/challenge when the existing policy requires it; no
+    // seeded browser session, disabled gate or direct factor-table mutation.
+    const factor = await client.request("admin/second-factor/begin", "POST", {
+      password: client.testCredentials.password,
+    });
+    const container = process.env.EV_OCPP_API_CONTAINER || "ev-business-api";
+    assert(["ev-business-api", "ev-agent1-charging"].includes(container));
+    const code = require("node:child_process")
+      .execFileSync(
+        "docker",
+        [
+          "exec",
+          "-i",
+          "-w",
+          "/app/services/business-api",
+          container,
+          "php",
+          "-r",
+          'require "vendor/autoload.php"; echo App\\Security\\AdminTotp::codeAtStep(trim(stream_get_contents(STDIN)), intdiv(time(), 30));',
+        ],
+        { input: factor.secret, encoding: "utf8", timeout: 10000 },
+      )
+      .trim();
+    assert(/^\d{6}$/.test(code));
+    const confirmation = await client.request(
+      "admin/second-factor/confirm",
+      "POST",
+      { code },
+    );
+    assert.equal(confirmation.verified, true);
+    client.csrf = (await client.request("csrf")).token;
+  }
   return client.request.bind(client);
 }
 async function protocol(version) {

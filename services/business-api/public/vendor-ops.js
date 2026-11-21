@@ -2771,11 +2771,22 @@ window.createVendorWorkspace = ({
             base + `companies/${company.id}/chargers/${charger.id}/admission`;
         const live = () => valid(epoch) && pane.isConnected;
         const refresh = () => admission(company, charger, parent, epoch);
+        if (charger.source === "direct_unverified" && window.mountChargerSourceRegistration) {
+            const source = document.createElement("section");
+            source.dataset.chargerSourceRegistration = "";
+            pane.append(source);
+            window.mountChargerSourceRegistration({
+                root: source,
+                endpoint: base + `companies/${company.id}/chargers/${charger.id}/source-registration`,
+                actor, api, expired, valid: live, signal: controller?.signal,
+                refreshAdmission: refresh,
+            });
+        }
         button(pane, "Refresh admission", refresh);
         const result = await api(path, "GET", undefined, controller?.signal);
         if (!live()) return;
         const profile = result.profile;
-        if (!profile && result.can_manage)
+        if (!profile && result.can_manage && charger.source !== "direct_unverified")
             form(
                 pane,
                 "Prepare identity",

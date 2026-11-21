@@ -1,3 +1,4 @@
+import 'coupons.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' show NumberFormat;
 import 'api.dart';
@@ -87,7 +88,13 @@ String loyaltyText(BuildContext c, String key) =>
 class LoyaltyView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
-  const LoyaltyView({super.key, required this.api, required this.onExpired});
+  final bool customer;
+  const LoyaltyView({
+    super.key,
+    required this.api,
+    required this.onExpired,
+    this.customer = false,
+  });
   @override
   State<LoyaltyView> createState() => _LoyaltyState();
 }
@@ -313,7 +320,17 @@ class _LoyaltyState extends State<LoyaltyView> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(t('title'))),
+    appBar: AppBar(
+      title: Text(t('title')),
+      actions: [
+        if (widget.customer) TextButton(
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+            builder: (_) => CustomerCouponsView(api: widget.api, onExpired: widget.onExpired),
+          )),
+          child: Text(Localizations.localeOf(context).languageCode == 'ar' ? 'القسائم' : 'Coupons'),
+        ),
+      ],
+    ),
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [
