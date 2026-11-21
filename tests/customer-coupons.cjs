@@ -35,10 +35,11 @@ import{mountCustomerCoupons}from'/customer-coupons.js';
 window.EV_MESSAGES={};window.actor={id:1,role:'customer'};window.h={calls:[],lose:false,forge:false,absent:false,accepted:null,never:false};
 const digest=async v=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v)))].map(x=>x.toString(16).padStart(2,'0')).join('');
 const binding=async(code,key)=>digest((await digest(code))+':'+(await digest('coupon-claim:'+actor.id+':'+key)));
-const receipt=b=>({id:1,coupon_id:2,redemption_id:3,reward_name:'<img src=x onerror=alert(1)> literal reward',reward_name_ar:'مكافأة تجريبية',status:'pending',claimed_at:'2026-11-21T12:00:00.000000Z',request_binding:b,source:'COUPON',evidence:'TEST_PROMOTIONAL_ECONOMICS',delivery_verified:false,points_cost:0,cash_value:false,fulfillment:'MANUAL_NON_MONETARY'});
+const receipt=b=>({id:1,coupon_id:2,redemption_id:3,reward_name:'<img src=x onerror=alert(1)> literal reward',reward_name_ar:'مكافأة تجريبية',status:'pending',claimed_at:'2026-11-21T12:00:00.000000Z',request_binding:b,source:'COUPON',evidence:h.reviewed?'REVIEWED_MANUAL_NONCASH':'TEST_PROMOTIONAL_ECONOMICS',activation_mode:h.reviewed?'reviewed_manual':'sandbox',activation_recorded:!h.unrecorded,delivery_verified:false,points_cost:0,cash_value:false,fulfillment:'MANUAL_NON_MONETARY'});
 const api=async(path,method='GET',body)=>{
  h.calls.push({path,method,body:structuredClone(body),saved:localStorage.getItem('creabiz.coupon-intent.v1.1')});
  if(path==='me')return{...actor};
+ if(path==='commercial/noncash/status')return{enabled:!h.disabled,activation_mode:h.disabled?'disabled':h.reviewed?'reviewed_manual':'sandbox',points_actions_enabled:!h.reviewed&&!h.disabled,money_movement:false,fulfillment:'MANUAL_NON_MONETARY',delivery_verified:false,referrals_enabled:!h.disabled,verified_live_source_required:!!h.reviewed};
  if(path.startsWith('commercial/coupons/claims?'))return{data:[],current_page:Number(new URL('http://local/'+path).searchParams.get('page')),per_page:25,last_page:1,total:0};
  if(path.endsWith('claim-intents/cancel'))return{state:h.accepted?'accepted':'cancelled',claim:h.accepted,request_binding:await binding(body.code,body.idempotency_key)};
  if(path.endsWith('claim-receipt'))return{claim:h.absent?null:h.accepted};
@@ -142,7 +143,7 @@ window.dispose=mountCustomerCoupons({container:document.querySelector('#root'),a
         h.calls.find((x) => x.path === "commercial/coupons/claim"),
       );
       assert.deepEqual(resumed.body, initial.body);
-      await page.locator("#root article").waitFor({state:"visible"});
+      await page.locator("#root article").waitFor({ state: "visible" });
       assert.equal(await page.locator("#root img").count(), 0);
       assert(
         (await page.locator("body").innerText()).includes(
@@ -150,7 +151,7 @@ window.dispose=mountCustomerCoupons({container:document.querySelector('#root'),a
             ? "مكافأة تجريبية"
             : "<img src=x onerror=alert(1)> literal reward",
         ),
-        JSON.stringify({lang, body: await page.locator("body").innerText()}),
+        JSON.stringify({ lang, body: await page.locator("body").innerText() }),
       );
       checks++;
       await page.evaluate(() => {
@@ -177,6 +178,55 @@ window.dispose=mountCustomerCoupons({container:document.querySelector('#root'),a
         h.calls.findLast((x) => x.path.endsWith("claim-intents/cancel")),
       );
       assert.equal(cancelled.body.code, code);
+      checks++;
+      await page.evaluate(() => {
+        h.reviewed = true;
+        h.lose = false;
+        h.never = false;
+      });
+      await button("restore").click();
+      await page.waitForFunction(
+        () => !document.querySelector("[data-coupon=claim]").disabled,
+      );
+      await button("code").fill(code);
+      await button("claim").click();
+      await page.waitForFunction(
+        () => localStorage.getItem("creabiz.coupon-intent.v1.1") === null,
+      );
+      await page
+        .getByText(
+          lang === "ar"
+            ? "سجل غير نقدي يدوي مراجع"
+            : "Reviewed manual noncash record",
+          { exact: true },
+        )
+        .waitFor();
+      checks++;
+      await page.evaluate(() => {
+        h.unrecorded = true;
+      });
+      await button("code").fill(code);
+      await button("claim").click();
+      await page.waitForFunction(
+        () =>
+          !document.querySelector("#root").matches("[aria-busy=true]") &&
+          document.querySelector("[data-coupon=claim]").disabled,
+      );
+      assert(
+        await page.evaluate(
+          () => localStorage.getItem("creabiz.coupon-intent.v1.1") !== null,
+        ),
+      );
+      checks++;
+      await page.evaluate(() => {
+        h.disabled = true;
+      });
+      await button("restore").click();
+      await page.waitForFunction(
+        () => !document.querySelector("[data-coupon=inspect]").disabled,
+      );
+      assert(await button("claim").isDisabled());
+      assert(!(await button("retire").isDisabled()));
       checks++;
       await page.evaluate(() => {
         Object.defineProperty(document, "hidden", {

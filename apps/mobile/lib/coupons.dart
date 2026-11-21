@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'financial_operation_store.dart';
 import 'strings.dart';
+import 'noncash_capabilities.dart';
 
 String couponRequestBinding(String code, int owner, String key) {
   String digest(String value) => sha256.convert(utf8.encode(value)).toString();
@@ -15,6 +16,7 @@ bool validCouponCode(String code) =>
 
 class CouponClaimRecord {
   final int id;
+  final NoncashReceiptEvidence provenance;
   final String name, arabicName, status, claimedAt, requestBinding;
   const CouponClaimRecord._(
     this.id,
@@ -23,6 +25,7 @@ class CouponClaimRecord {
     this.status,
     this.claimedAt,
     this.requestBinding,
+    this.provenance,
   );
   factory CouponClaimRecord.parse(dynamic value, {String? expectedBinding}) {
     bool identifier(dynamic v) => v is int && v > 0 && v <= 9007199254740991;
@@ -41,7 +44,6 @@ class CouponClaimRecord {
         value['cash_value'] != false ||
         value['fulfillment'] != 'MANUAL_NON_MONETARY' ||
         value['source'] != 'COUPON' ||
-        value['evidence'] != 'TEST_PROMOTIONAL_ECONOMICS' ||
         value['delivery_verified'] != false ||
         value['claimed_at'] is! String ||
         !RegExp(
@@ -59,6 +61,7 @@ class CouponClaimRecord {
       value['status'],
       value['claimed_at'],
       value['request_binding'],
+      NoncashReceiptEvidence.parse(value),
     );
   }
 }
@@ -84,6 +87,7 @@ class _CouponsState extends State<CustomerCouponsView>
   late FinancialOperationStore store;
   late bool Function() ownerFence;
   FinancialOperation? operation;
+  NoncashCapabilities? capabilities;
   List<CouponClaimRecord> records = [];
   int actor = 0, generation = 0, page = 1, last = 1;
   bool busy = false, foreground = true, needsRestore = false;
@@ -125,6 +129,7 @@ class _CouponsState extends State<CustomerCouponsView>
     records = [];
     code.clear();
     operation = null;
+    capabilities = null;
     actor = 0;
     busy = false;
     message = null;
@@ -206,6 +211,7 @@ class _CouponsState extends State<CustomerCouponsView>
       code.clear();
       actor = 0;
       operation = null;
+      capabilities = null;
     });
     try {
       final me = await api.request('me');
@@ -234,6 +240,11 @@ class _CouponsState extends State<CustomerCouponsView>
         throw const FormatException('Unrecognized saved coupon request.');
       operation = op;
       if (op.pending != null) code.text = op.pending!['body']['code'];
+      final capability = NoncashCapabilities.parse(
+        await api.request('commercial/noncash/status'),
+      );
+      if (!current(run)) return;
+      capabilities = capability;
       final history = await readPage(1);
       if (!current(run)) return;
       setState(() {
@@ -289,6 +300,10 @@ class _CouponsState extends State<CustomerCouponsView>
         op == null ||
         needsRestore)
       return;
+    if (!inspect && capabilities?.enabled != true) {
+      setState(() => message = 'disabled');
+      return;
+    }
     final entered = code.text.trim().toUpperCase();
     if (!inspect && op.pending == null && !validCouponCode(entered)) {
       setState(() => message = 'invalid');
@@ -455,6 +470,10 @@ class _CouponsState extends State<CustomerCouponsView>
       'Claim recorded. Fulfillment requires separate manual review; no delivery is verified.',
       'سُجلت المطالبة. يتطلب التسليم مراجعة يدوية منفصلة؛ لم يُتحقق من التسليم.',
     ),
+    'disabled' => tr(
+      'New coupon claims are disabled. Existing receipts and saved-request cancellation remain available.',
+      'المطالبات الجديدة بالقسائم معطلة. تبقى الإيصالات الموجودة وإلغاء الطلب المحفوظ متاحين.',
+    ),
     'cancelled' => tr(
       'Server permanently retired the unaccepted request. A new coupon draft may now be entered.',
       'أنهى الخادم الطلب غير المقبول نهائياً. يمكن الآن إدخال مسودة قسيمة جديدة.',
@@ -476,8 +495,8 @@ class _CouponsState extends State<CustomerCouponsView>
       children: [
         Text(
           tr(
-            'Test noncash reward coupons. No cash value, transfer, charging discount or verified delivery. Only the server confirms eligibility, stock and manual fulfillment.',
-            'قسائم مكافآت تجريبية غير نقدية. لا قيمة نقدية ولا تحويل ولا خصم شحن ولا تسليم متحقق. الخادم وحده يؤكد الأهلية والمخزون والتسليم اليدوي.',
+            'Noncash reward coupons. Each receipt identifies sandbox or reviewed-manual evidence. No cash value, transfer, charging discount or verified delivery. Only the server confirms eligibility, stock and manual fulfillment.',
+            'قسائم مكافآت غير نقدية. يحدد كل إيصال دليلاً تجريبياً أو يدوياً مراجعاً. لا قيمة نقدية ولا تحويل ولا خصم شحن ولا تسليم متحقق. الخادم وحده يؤكد الأهلية والمخزون والتسليم اليدوي.',
           ),
         ),
         if (!foreground || !ownerFence())
@@ -489,6 +508,7 @@ class _CouponsState extends State<CustomerCouponsView>
           )
         else ...[
           if (busy) const LinearProgressIndicator(),
+          if (capabilities?.enabled == false) Text(messageText('disabled')),
           if (message != null)
             Semantics(liveRegion: true, child: Text(messageText(message!))),
           OutlinedButton(
@@ -521,7 +541,9 @@ class _CouponsState extends State<CustomerCouponsView>
               ),
             FilledButton(
               key: const Key('coupon-claim'),
-              onPressed: busy || needsRestore ? null : () => claim(),
+              onPressed: busy || needsRestore || capabilities?.enabled != true
+                  ? null
+                  : () => claim(),
               child: Text(
                 operation!.pending == null
                     ? tr('Claim coupon', 'المطالبة بالقسيمة')
@@ -552,9 +574,22 @@ class _CouponsState extends State<CustomerCouponsView>
                 title: Text(
                   EvStrings.of(context).arabic ? row.arabicName : row.name,
                 ),
-                subtitle: Text(
-                  '#${row.id} · ${row.claimedAt}',
-                  textDirection: TextDirection.ltr,
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      row.provenance.mode == 'reviewed_manual'
+                          ? tr(
+                              'Reviewed manual noncash record',
+                              'سجل غير نقدي يدوي مراجع',
+                            )
+                          : tr('Sandbox test record', 'سجل تجريبي'),
+                    ),
+                    Text(
+                      '#${row.id} · ${row.claimedAt}',
+                      textDirection: TextDirection.ltr,
+                    ),
+                  ],
                 ),
                 trailing: Text(switch (row.status) {
                   'fulfilled' => tr('Fulfilled record', 'سجل تسليم'),

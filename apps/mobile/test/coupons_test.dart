@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/coupons.dart';
+import 'package:creabiz_ev/noncash_capabilities.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -33,6 +34,7 @@ class CouponApi extends FixtureApi {
       forge = false,
       neverAccepted = false,
       inspectAbsent = false;
+  bool reviewed = false, unrecorded = false, disabled = false;
   Map<String, dynamic>? accepted;
   final posts = <Map<String, dynamic>>[];
   final methods = <String>[];
@@ -46,6 +48,21 @@ class CouponApi extends FixtureApi {
   }) async {
     methods.add('$method $path');
     if (path == 'me') return {'id': actor, 'role': role};
+    if (path == 'commercial/noncash/status')
+      return {
+        'enabled': !disabled,
+        'activation_mode': disabled
+            ? 'disabled'
+            : reviewed
+            ? 'reviewed_manual'
+            : 'sandbox',
+        'points_actions_enabled': !disabled && !reviewed,
+        'money_movement': false,
+        'fulfillment': 'MANUAL_NON_MONETARY',
+        'delivery_verified': false,
+        'referrals_enabled': !disabled,
+        'verified_live_source_required': reviewed,
+      };
     if (path == 'commercial/coupons/claims')
       return {
         'data': <dynamic>[],
@@ -74,7 +91,14 @@ class CouponApi extends FixtureApi {
       body['idempotency_key'],
     );
     if (!neverAccepted)
-      accepted = claimReceipt(forge ? List.filled(64, '0').join() : binding);
+      accepted = {
+        ...claimReceipt(forge ? List.filled(64, '0').join() : binding),
+        'activation_mode': reviewed ? 'reviewed_manual' : 'sandbox',
+        'activation_recorded': !unrecorded,
+        'evidence': reviewed
+            ? 'REVIEWED_MANUAL_NONCASH'
+            : 'TEST_PROMOTIONAL_ECONOMICS',
+      };
     if (lose) throw const ApiException(0, 'PRIVATE-unconfirmed');
     return {'claim': accepted};
   }
@@ -107,6 +131,119 @@ Future<void> enterClaim(WidgetTester t) async {
 }
 
 void main() {
+  test(
+    'noncash capabilities and immutable provenance cannot enable money or relabel a legacy sandbox',
+    () {
+      final reviewed = {
+        'enabled': true,
+        'activation_mode': 'reviewed_manual',
+        'points_actions_enabled': false,
+        'money_movement': false,
+        'fulfillment': 'MANUAL_NON_MONETARY',
+        'delivery_verified': false,
+        'referrals_enabled': false,
+        'verified_live_source_required': true,
+      };
+      expect(NoncashCapabilities.parse(reviewed).mode, 'reviewed_manual');
+      for (final entry in {
+        'points_actions_enabled': true,
+        'money_movement': true,
+        'delivery_verified': true,
+        'activation_mode': 'live_wallet',
+      }.entries) {
+        expect(
+          () =>
+              NoncashCapabilities.parse({...reviewed, entry.key: entry.value}),
+          throwsFormatException,
+        );
+      }
+      expect(
+        NoncashReceiptEvidence.parse({
+          'evidence': 'TEST_PROMOTIONAL_ECONOMICS',
+        }).mode,
+        'sandbox',
+      );
+      expect(
+        () => NoncashReceiptEvidence.parse({
+          'evidence': 'REVIEWED_MANUAL_NONCASH',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => NoncashReceiptEvidence.parse({
+          'activation_mode': 'reviewed_manual',
+          'activation_recorded': false,
+          'evidence': 'REVIEWED_MANUAL_NONCASH',
+        }),
+        throwsFormatException,
+      );
+    },
+  );
+  testWidgets(
+    'reviewed noncash confirmation is classified without test-only or delivery claims',
+    (t) async {
+      final api = CouponApi()..reviewed = true;
+      await t.pumpWidget(view(api, MemoryOperations()));
+      await t.pumpAndSettle();
+      await enterClaim(t);
+      expect(find.text('Reviewed manual noncash record'), findsOneWidget);
+      expect(find.text('Sandbox test record'), findsNothing);
+    },
+  );
+  testWidgets(
+    'an unrecorded reviewed claim never clears its saved recovery identity',
+    (t) async {
+      final api = CouponApi()
+            ..reviewed = true
+            ..unrecorded = true,
+          store = MemoryOperations();
+      await t.pumpWidget(view(api, store));
+      await t.pumpAndSettle();
+      await enterClaim(t);
+      expect(store.values, hasLength(1));
+      expect(find.text('Reviewed manual noncash record'), findsNothing);
+    },
+  );
+  testWidgets(
+    'changing the runtime mode cannot relabel an existing sandbox receipt',
+    (t) async {
+      final api = CouponApi()..lose = true, store = MemoryOperations();
+      await t.pumpWidget(view(api, store));
+      await t.pumpAndSettle();
+      await enterClaim(t);
+      api.reviewed = true;
+      await click(t, 'coupon-restore');
+      await click(t, 'coupon-inspect');
+      expect(find.text('Sandbox test record'), findsOneWidget);
+      expect(find.text('Reviewed manual noncash record'), findsNothing);
+    },
+  );
+  testWidgets(
+    'disabled claims retain read-only receipt and cancellation access',
+    (t) async {
+      final api = CouponApi()..lose = true, store = MemoryOperations();
+      await t.pumpWidget(view(api, store));
+      await t.pumpAndSettle();
+      await enterClaim(t);
+      api.disabled = true;
+      await click(t, 'coupon-restore');
+      expect(
+        t.widget<FilledButton>(find.byKey(const Key('coupon-claim'))).onPressed,
+        isNull,
+      );
+      expect(
+        t
+            .widget<OutlinedButton>(find.byKey(const Key('coupon-inspect')))
+            .onPressed,
+        isNotNull,
+      );
+      expect(
+        t.widget<TextButton>(find.byKey(const Key('coupon-retire'))).onPressed,
+        isNotNull,
+      );
+    },
+  );
+
   test(
     'receipt projection rejects money, delivery, malformed source and wrong request correlation',
     () {

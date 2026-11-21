@@ -13,6 +13,7 @@ export function mountCustomerCoupons({ container, api, ui, actor }) {
         foreground = !document.hidden,
         pending = null,
         active = null,
+        capabilities = null,
         page = 1,
         last = 1;
     const alive = () =>
@@ -61,7 +62,11 @@ export function mountCustomerCoupons({ container, api, ui, actor }) {
         const blocked = busy || !alive() || !foreground;
         for (const b of buttons) b.disabled = blocked;
         code.disabled = blocked || !ready;
-        claim.disabled = blocked || !ready || !navigator.locks?.request;
+        claim.disabled =
+            blocked ||
+            !ready ||
+            !navigator.locks?.request ||
+            capabilities?.enabled !== true;
         inspect.disabled =
             blocked || !ready || !pending || !navigator.locks?.request;
         retire.disabled =
@@ -110,6 +115,44 @@ export function mountCustomerCoupons({ container, api, ui, actor }) {
         digest(
             `${await digest(value)}:${await digest(`coupon-claim:${owner}:${key}`)}`,
         );
+    function capability(v) {
+        if (
+            !v ||
+            typeof v.enabled !== "boolean" ||
+            typeof v.points_actions_enabled !== "boolean" ||
+            typeof v.referrals_enabled !== "boolean" ||
+            typeof v.verified_live_source_required !== "boolean" ||
+            !["disabled", "sandbox", "reviewed_manual"].includes(
+                v.activation_mode,
+            ) ||
+            v.enabled !== (v.activation_mode !== "disabled") ||
+            v.money_movement !== false ||
+            v.fulfillment !== "MANUAL_NON_MONETARY" ||
+            v.delivery_verified !== false ||
+            (v.activation_mode !== "sandbox" &&
+                v.points_actions_enabled !== false) ||
+            (!v.enabled && v.referrals_enabled)
+        )
+            throw Error("Unsupported noncash capability");
+        return { enabled: v.enabled, mode: v.activation_mode };
+    }
+    function provenance(v) {
+        const legacy =
+            !Object.hasOwn(v, "activation_mode") &&
+            !Object.hasOwn(v, "activation_recorded");
+        const mode = legacy ? "sandbox" : v.activation_mode,
+            recorded = legacy ? false : v.activation_recorded;
+        if (!(
+            (mode === "sandbox" &&
+                typeof recorded === "boolean" &&
+                v.evidence === "TEST_PROMOTIONAL_ECONOMICS") ||
+            (mode === "reviewed_manual" &&
+                recorded === true &&
+                v.evidence === "REVIEWED_MANUAL_NONCASH")
+        ))
+            throw Error("Unsupported noncash provenance");
+        return mode;
+    }
     function receipt(v, expected) {
         const id = (v) => Number.isSafeInteger(v) && v > 0;
         if (
@@ -126,7 +169,6 @@ export function mountCustomerCoupons({ container, api, ui, actor }) {
             v.cash_value !== false ||
             v.fulfillment !== "MANUAL_NON_MONETARY" ||
             v.source !== "COUPON" ||
-            v.evidence !== "TEST_PROMOTIONAL_ECONOMICS" ||
             v.delivery_verified !== false ||
             typeof v.claimed_at !== "string" ||
             !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(
@@ -146,6 +188,7 @@ export function mountCustomerCoupons({ container, api, ui, actor }) {
             nameAr: v.reward_name_ar,
             status: v.status,
             time: v.claimed_at,
+            mode: provenance(v),
         };
     }
     function draw(rows) {
@@ -162,6 +205,15 @@ export function mountCustomerCoupons({ container, api, ui, actor }) {
             article.append(
                 name,
                 proof,
+                t(
+                    "p",
+                    ...(row.mode === "reviewed_manual"
+                        ? [
+                              "Reviewed manual noncash record",
+                              "سجل غير نقدي يدوي مراجع",
+                          ]
+                        : ["Sandbox test record", "سجل تجريبي"]),
+                ),
                 t(
                     "p",
                     ...{
@@ -223,10 +275,23 @@ export function mountCustomerCoupons({ container, api, ui, actor }) {
         if (me?.id !== owner || me.role !== role)
             throw new DOMException("Session changed", "AbortError");
         pending = read();
+        const meta = await api(
+            "commercial/noncash/status",
+            "GET",
+            undefined,
+            active?.signal,
+        );
+        if (!current(run)) return;
+        capabilities = capability(meta);
         await history(1, run);
         if (!current(run)) return;
         ready = true;
-        if (pending)
+        if (!capabilities.enabled)
+            message(
+                "New coupon claims are disabled. Existing receipts and saved-request cancellation remain available.",
+                "المطالبات الجديدة بالقسائم معطلة. تبقى الإيصالات الموجودة وإلغاء الطلب المحفوظ متاحين.",
+            );
+        else if (pending)
             message(
                 "A saved claim awaits confirmation. Re-enter its original code to resend or retire it; checking its receipt does not require the code.",
                 "مطالبة محفوظة تنتظر التأكيد. أعد إدخال رمزها الأصلي لإرسالها أو إنهائها؛ لا يتطلب التحقق من الإيصال إدخال الرمز.",
@@ -257,6 +322,7 @@ export function mountCustomerCoupons({ container, api, ui, actor }) {
     }
     async function submit(run, kind) {
         if (!ready) return;
+        if (kind === "claim" && capabilities?.enabled !== true) return;
         let saved = pending;
         if (kind !== "claim" && !saved) return;
         const entered = code.value.trim().toUpperCase();
@@ -375,8 +441,8 @@ export function mountCustomerCoupons({ container, api, ui, actor }) {
         t("h4", "Reward coupons", "قسائم المكافآت"),
         t(
             "p",
-            "Test noncash reward coupons. No cash value, transfer, charging discount or verified delivery. The server owns eligibility, stock and manual fulfillment.",
-            "قسائم مكافآت تجريبية غير نقدية. لا قيمة نقدية ولا تحويل ولا خصم شحن ولا تسليم متحقق. الخادم مسؤول عن الأهلية والمخزون والتسليم اليدوي.",
+            "Noncash reward coupons. Each record identifies sandbox or reviewed-manual evidence. No cash value, transfer, charging discount or verified delivery. The server owns eligibility, stock and manual fulfillment.",
+            "قسائم مكافآت غير نقدية. يحدد كل سجل دليلاً تجريبياً أو يدوياً مراجعاً. لا قيمة نقدية ولا تحويل ولا خصم شحن ولا تسليم متحقق. الخادم مسؤول عن الأهلية والمخزون والتسليم اليدوي.",
         ),
         label,
         status,
@@ -423,6 +489,7 @@ export function mountCustomerCoupons({ container, api, ui, actor }) {
         generation++;
         active?.abort();
         pending = null;
+        capabilities = null;
         ready = false;
         busy = false;
         code.value = "";

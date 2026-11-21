@@ -31,5 +31,5 @@ $request = Request::create('/api/commercial/coupons', 'POST', [
     'idempotency_key' => 'native-coupon-'.$argv[1],
 ]);
 $request->setUserResolver(fn () => $f['maker']);
-app(LoyaltyController::class)->publishCoupon($request);
+DB::transaction(fn () => app(LoyaltyController::class)->publishCoupon($request));
 echo json_encode(['fixture_only' => true, 'customer' => $seed['users']['customer'], 'code' => $code], JSON_THROW_ON_ERROR);
