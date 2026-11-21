@@ -42,6 +42,20 @@ def evaluate(p, runs, paths, **kwargs):
 
 
 class IntegrationReadinessTest(unittest.TestCase):
+    def test_path_triggered_offline_suite_is_required_before_merge_eligibility(self):
+        for path in ['docs/evidence/requirements/inventory.json',
+                     'tests/operational-connected.cjs',
+                     'scripts/agent10-acceptance-audit.cjs']:
+            with self.subTest(path=path):
+                required = gate.required_checks([path])
+                self.assertIn('agent10-offline', required)
+                result = evaluate(pr(), checks(required - {'agent10-offline'}), [path])
+                self.assertEqual('blocked', result['status'])
+                self.assertIn('agent10-offline', result['missing_required'])
+                self.assertEqual('candidate_for_manual_review',
+                                 evaluate(pr(), checks(required), [path])['status'])
+        self.assertNotIn('agent10-offline', gate.required_checks(['README.md']))
+
     def test_passed_core_checks_are_only_a_manual_review_candidate(self):
         result = evaluate(pr(), checks(), ["scripts/integration-readiness"])
         self.assertEqual("candidate_for_manual_review", result["status"])

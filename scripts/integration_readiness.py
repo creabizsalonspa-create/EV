@@ -166,6 +166,7 @@ def required_checks(paths):
     workflow_root = Path(__file__).resolve().parents[1] / ".github/workflows"
     for filename, names in [
         ("mobile.yml", NATIVE),
+        ("agent10-fast-qa.yml", {"agent10-offline"}),
         ("hasone-customer.yml", HASONE_NATIVE),
         ("finance-commercial.yml", {"financial-browser"}),
         ("agent2-payment-integrity.yml", {"integration-guards"}),
