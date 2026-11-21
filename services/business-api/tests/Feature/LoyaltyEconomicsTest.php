@@ -115,8 +115,43 @@ class LoyaltyEconomicsTest extends TestCase
         app(LoyaltyService::class)->transition($receipt['redemption_id'], $fixture['maker'], 'fulfill', 'Synthetic approved manual fulfillment');
         $this->actingAs($fixture['customer'])->getJson($url.'/claims')->assertOk()
             ->assertJsonPath('data.0.status', 'fulfilled')->assertDontSee($code);
+        $this->postJson($url.'/claim-receipt', ['idempotency_key' => $claim['idempotency_key']])
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('claim.id', $receipt['id'])->assertJsonPath('claim.status', 'fulfilled');
         $this->assertDatabaseCount('loyalty_coupon_claims', 1);
         $this->assertDatabaseMissing('loyalty_ledger', ['redemption_id' => $receipt['redemption_id']]);
+    }
+
+    public function test_coupon_expiry_is_rechecked_after_reward_inventory_lock(): void
+    {
+        $fixture = $this->fixture();
+        $this->policy($fixture);
+        $reward = $this->reward($fixture);
+        $url = '/loyalty-test/commercial/coupons';
+        $expiry = now()->startOfSecond()->addMinute();
+        $coupon = $this->actingAs($fixture['maker'])->postJson($url, [
+            'code' => 'LOCK-EXPIRY-REWARD', 'listed' => true, 'reward_id' => $reward->id,
+            'claim_limit' => 1, 'per_user_limit' => 1, 'starts_at' => now()->subMinute()->toISOString(),
+            'ends_at' => $expiry->toISOString(), 'idempotency_key' => 'publish-lock-expiry',
+        ])->assertCreated()->json('id');
+        $lockObserved = false;
+        DB::listen(function ($query) use ($expiry, &$lockObserved) {
+            if (! $lockObserved && str_starts_with($query->sql, 'select * from "loyalty_rewards"')) {
+                $lockObserved = true;
+                $this->travelTo($expiry);
+            }
+        });
+
+        try {
+            $this->actingAs($fixture['customer'])->postJson($url.'/eligible/'.$coupon.'/claim', [
+                'idempotency_key' => 'claim-expired-after-lock',
+            ])->assertConflict()->assertJsonPath('message', 'Coupon is unavailable.');
+            $this->assertTrue($lockObserved);
+            $this->assertDatabaseCount('loyalty_coupon_claims', 0);
+            $this->assertDatabaseCount('loyalty_redemptions', 0);
+        } finally {
+            $this->travelBack();
+        }
     }
 
     public function test_revoked_admin_authority_cannot_publish_or_decide_redemptions_from_a_stale_snapshot(): void

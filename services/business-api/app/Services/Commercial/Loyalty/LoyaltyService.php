@@ -242,7 +242,8 @@ class LoyaltyService
         $this->enabled();
 
         return DB::transaction(function () use ($user, $code, $key, $listedCoupon) {
-            User::whereKey($user)->lockForUpdate()->firstOrFail();
+            $customer = User::whereKey($user)->lockForUpdate()->firstOrFail();
+            abort_unless($customer->role === 'customer' && $customer->account_status === 'active', 403);
             $request = hash('sha256', 'coupon-claim:'.$user.':'.$key);
             $hash = $code === null ? null : hash('sha256', $code);
             if ($old = DB::table('loyalty_coupon_claims')->where('request_key', $request)->first()) {
@@ -258,9 +259,7 @@ class LoyaltyService
             $coupon = ($listedCoupon === null
                 ? $query->where('code_hash', $hash)
                 : $query->where('id', $listedCoupon)->where('listed', true))->lockForUpdate()->first() ?? abort(404);
-            $now = now()->utc();
-            abort_unless($coupon->revoked_at === null && $coupon->starts_at <= $now->toDateTimeString()
-                && $coupon->ends_at > $now->toDateTimeString(), 409, 'Coupon is unavailable.');
+            abort_unless($coupon->revoked_at === null, 409, 'Coupon is unavailable.');
             $claims = DB::table('loyalty_coupon_claims')->where('coupon_id', $coupon->id);
             abort_unless((clone $claims)->count() < $coupon->claim_limit
                 && (clone $claims)->where('user_id', $user)->count() < $coupon->per_user_limit, 409, 'Coupon limit reached.');
@@ -268,6 +267,10 @@ class LoyaltyService
             $this->reconcileLocked($user, $user);
             $account = $this->account($user);
             $reward = DB::table('loyalty_rewards')->where('id', $coupon->reward_id)->lockForUpdate()->first();
+            // Reconciliation and reward inventory locks can outlast the coupon window.
+            $now = now()->utc();
+            abort_unless($coupon->starts_at <= $now->toDateTimeString()
+                && $coupon->ends_at > $now->toDateTimeString(), 409, 'Coupon is unavailable.');
             abort_unless($reward && $reward->starts_at <= $now->toDateTimeString() && $reward->ends_at > $now->toDateTimeString(), 409, 'Reward is unavailable.');
             $active = DB::table('loyalty_redemptions')->where('reward_id', $reward->id)->whereIn('status', ['pending', 'fulfilled']);
             abort_unless((clone $active)->count() < $reward->stock
