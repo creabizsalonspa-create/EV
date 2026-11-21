@@ -304,9 +304,10 @@ private-file, source-after-snapshot, queue/session/cache and isolation controls
 remain required. The combined recovery gate rejects missing or malformed domain
 proof; it no longer accepts an empty catalog as broad domain recovery evidence.
 
-This candidate still requires an actual current-source image build and complete
-Docker restore before successful verification is recorded. The earlier nonfinancial
-source4b63936d passed the actual isolated Docker restore; financial extension
-verification remains pending. Coordinated cross-service snapshots, PITR/retention,
+Source34cdf42b passed the actual clean pinned image build/check and isolated
+PostgreSQL17 restore:189publictables,157sequences and184rows matched, including
+the populated unpaid financial fixtures. All386Python tests (103recovery policy
+cases) passed. Local proof: docs/evidence/recovery-domain-20261121/local.json.
+Exact final-head hosted staging and dependent recovery gates remain required. Coordinated cross-service snapshots, PITR/retention,
 offsite storage, real customer uploads and operational production approval remain
 separate gaps. Original atom9.1.10 is not promoted merely by adding these checks.
