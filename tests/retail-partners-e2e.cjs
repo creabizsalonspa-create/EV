@@ -279,7 +279,7 @@ const fs = require("node:fs");
     checks++;
     assert.deepEqual(errors, []);
     console.log(
-      `Retail actual-Laravel browser: ${checks} checks passed (EN/AR, independent approval, suspend/revise, immutable terms, XSS, themes, responsive, role denial).`,
+      `Retail actual-Laravel browser: ${checks} checks passed (EN/AR, independent rejection and approval, suspend/revise, immutable terms, XSS, themes, responsive, role denial).`,
     );
   } finally {
     await browser.close();

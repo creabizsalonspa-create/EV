@@ -164,6 +164,20 @@ class RetailPartnerTest extends TestCase
         $this->getJson('/api/admin/retail-partners/'.$firstId)->assertOk()->assertJsonPath('events.data.0.version_snapshot.terms', 'Internal reviewed terms; no monetary reward authorization.');
     }
 
+    public function test_reference_search_treats_underscores_and_percent_literally(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        foreach (['PARTNER_001', 'PARTNERX001'] as $reference) {
+            $terms = $this->terms();
+            $terms['reference'] = $reference;
+            $this->postJson('/api/admin/retail-partners', $terms)->assertCreated();
+        }
+
+        $this->getJson('/api/admin/retail-partners?search=partner_001')->assertOk()
+            ->assertJsonCount(1, 'data')->assertJsonPath('data.0.reference', 'PARTNER_001');
+        $this->getJson('/api/admin/retail-partners?search=%25')->assertOk()->assertJsonCount(0, 'data');
+    }
+
     public function test_future_terms_approval_does_not_claim_current_effectiveness(): void
     {
         $a = User::factory()->create(['role' => 'admin']);
