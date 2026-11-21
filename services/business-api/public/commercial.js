@@ -1621,6 +1621,29 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             ui,
             actor: () => actor,
         });
+        if (actor?.role === "customer") {
+            const couponsPanel = panel("Reward coupons", "قسائم المكافآت");
+            import("/customer-coupons.js")
+                .then(({ mountCustomerCoupons }) => {
+                    if (current === epoch && actor?.role === "customer")
+                        mountCustomerCoupons({
+                            container: couponsPanel,
+                            api,
+                            ui,
+                            actor: () => actor,
+                        });
+                })
+                .catch(() => {
+                    if (current === epoch)
+                        couponsPanel.append(
+                            translated(
+                                "p",
+                                "Coupon controls unavailable. Refresh before continuing.",
+                                "عناصر القسائم غير متاحة. حدّث قبل المتابعة.",
+                            ),
+                        );
+                });
+        }
         const analyticsPanel = panel(
             "Financial analytics",
             "التحليلات المالية",

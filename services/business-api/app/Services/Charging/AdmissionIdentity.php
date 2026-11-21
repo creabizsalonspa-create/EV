@@ -28,6 +28,10 @@ class AdmissionIdentity
             }
         }
 
+        if ($requireBound && $charger->source === 'direct_unverified' && ! app(ChargerSourceRegistration::class)->verified($company, $charger)) {
+            return false;
+        }
+
         return true;
     }
 }

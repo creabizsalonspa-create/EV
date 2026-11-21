@@ -24,6 +24,10 @@ try {
     $service = app(LoyaltyService::class);
     if ($operation === 'earn') {
         $service->earn((int) $invoice, (int) $user);
+    } elseif ($operation === 'coupon-cancel') {
+        $service->cancelCouponIntent((int) $user, $invoice, $key);
+    } elseif ($operation === 'coupon') {
+        $service->claimCoupon((int) $user, $invoice, $key);
     } else {
         $service->redeem((int) $user, (int) $reward, (int) $user, $key);
     }
