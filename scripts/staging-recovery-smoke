@@ -176,6 +176,10 @@ docker network inspect "$source_net" "$target_net" |
     --target-container "$target_db"
 docker exec --user www-data "$source_app" php artisan migrate --force --no-interaction
 
+# Populate actual canonical nonfinancial relationships without invoking services.
+docker exec -i --user www-data "$source_app" php /dev/stdin seed < "$root/scripts/recovery-domain-fixture.php"
+docker exec -i --user www-data "$source_app" php /dev/stdin verify < "$root/scripts/recovery-domain-fixture.php"
+
 # A durable synthetic marker proves that data, not just empty schema, survives restore.
 docker exec -i "$source_db" psql -X -v ON_ERROR_STOP=1 -U ev_recovery_review \
   -d ev_recovery_review >/dev/null <<'SQL_SEED'
@@ -259,6 +263,7 @@ probe_fingerprint_sql="SELECT md5(string_agg(marker_key || ':' || marker_value, 
 migration_fingerprint=$(query "$source_db" "$migration_fingerprint_sql")
 probe_fingerprint=$(query "$source_db" "$probe_fingerprint_sql")
 
+docker exec -i --user www-data "$source_app" php /dev/stdin fingerprint < "$root/scripts/recovery-domain-fixture.php" > "$scratch/domain-before.json"
 archive="$scratch/ev_recovery_review.dump"
 docker exec "$source_db" pg_dump -U ev_recovery_review -d ev_recovery_review \
   --format=custom --no-owner --no-privileges > "$archive"
@@ -375,6 +380,11 @@ docker network inspect "$source_net" "$target_net" |
     --source-network "$source_net" --target-network "$target_net" \
     --source-container "$source_db" --source-container "$source_app" \
     --target-container "$target_db" --target-container "$target_app"
+# All public tables and sequence states must match before target workers run.
+docker exec -i --user www-data "$target_app" php /dev/stdin fingerprint < "$root/scripts/recovery-domain-fixture.php" > "$scratch/domain-after.json"
+cmp -- "$scratch/domain-before.json" "$scratch/domain-after.json"
+docker exec -i --user www-data "$target_app" php /dev/stdin verify < "$root/scripts/recovery-domain-fixture.php"
+
 # Recheck source/target isolation and distinct private volumes before extraction.
 docker inspect "$source_db" "$source_app" "$target_db" "$target_app" |
   python3 "$root/scripts/recovery-runtime-guard.py" containers \
@@ -483,8 +493,13 @@ if ($response === false || !preg_match('/^HTTP\/\S+ 200\b/', $headers[0] ?? ''))
     throw new RuntimeException('Restored application did not serve the station catalog.');
 }
 $json = json_decode($response, true, flags: JSON_THROW_ON_ERROR);
-if (($json['data'] ?? null) !== [] || ($json['total'] ?? null) !== 0) {
-    throw new RuntimeException('Restored isolated database must have an empty station catalog.');
+if (($json['total'] ?? null) !== 2 || count($json['data'] ?? []) !== 2) {
+    throw new RuntimeException('Restored synthetic station catalog is incomplete.');
+}
+foreach ($json['data'] as $station) {
+    if (($station['remote_control'] ?? null) !== false || ($station['evidence'] ?? null) !== 'DISCOVERY_ONLY') {
+        throw new RuntimeException('Restored discovery fixtures must never grant command authority.');
+    }
 }
 echo "Recovered application HTTP and Laravel migrations: PASS\n";
 PHP_HTTP
@@ -497,11 +512,12 @@ private_archive_hash=$(sha256sum "$scratch/private-probe.tar.gz" | awk '{print $
 PYTHONPATH="$root/scripts" python3 - "$root/artifacts/agent3-recovery/validation.json" \
   "$archive_hash" "$private_archive_hash" "$migration_count" "$migration_fingerprint" "$probe_fingerprint" \
   "$drill_started_epoch" "$snapshot_started_epoch" "$snapshot_completed_epoch" \
-  "$restore_started_epoch" "$drill_completed_epoch" <<'PY_EVIDENCE'
-import os, sys
+  "$restore_started_epoch" "$drill_completed_epoch" "$scratch/domain-before.json" <<'PY_EVIDENCE'
+import json, os, sys
 from recovery_proof_writer import publish
 path, archive_hash, private_hash, count, migration_hash, probe_hash, \
-    drill_start, snapshot_start, snapshot_end, restore_start, drill_end = sys.argv[1:]
+    drill_start, snapshot_start, snapshot_end, restore_start, drill_end, domain_path = sys.argv[1:]
+domain = json.load(open(domain_path))
 record = {
     'status': 'PASS',
     'source_sha': os.environ.get('GITHUB_SHA', 'local-unverified'),
@@ -537,7 +553,10 @@ record = {
     'laravel_migration_rows': int(count),
     'migration_history_md5': migration_hash,
     'synthetic_data_md5': probe_hash,
-    'restored_http_catalog': '200 and empty',
+    'restored_http_catalog': '200 and synthetic discovery-only records',
+    'canonical_domain_restored': True,
+    'all_public_tables_and_sequences_match': True,
+    'canonical_domain_fingerprint': domain,
     'external_acceptance': 'not tested',
 }
 publish(path, record)

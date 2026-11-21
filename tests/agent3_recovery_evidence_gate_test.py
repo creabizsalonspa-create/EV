@@ -24,7 +24,10 @@ def evidence():
         'migration_history_md5': 'c'*32,
         'synthetic_data_md5': 'd'*32,
         'laravel_migration_rows': 23,
-        'restored_http_catalog': '200 and empty',
+        'restored_http_catalog': '200 and synthetic discovery-only records',
+        'canonical_domain_restored': True,
+        'all_public_tables_and_sequences_match': True,
+        'canonical_domain_fingerprint': {'table_count': 250, 'row_count': 310, 'sequence_count': 150, 'fingerprint_sha256': 'a'*64},
         'external_acceptance': 'not tested',
         'laravel_encrypted_record_restored': True,
         'wrong_laravel_key_rejected': True,
@@ -76,6 +79,23 @@ def evidence():
     return business, csms
 
 class GateTest(unittest.TestCase):
+    def test_missing_partial_or_malformed_canonical_domain_proof_rejected(self):
+        import copy
+        original, csms = evidence()
+        cases = [
+            ('canonical_domain_restored', False),
+            ('all_public_tables_and_sequences_match', False),
+            ('canonical_domain_fingerprint', {}),
+            ('canonical_domain_fingerprint', {'table_count':True, 'row_count':1, 'sequence_count':1, 'fingerprint_sha256':'a'*64}),
+            ('canonical_domain_fingerprint', {'table_count':250, 'row_count':1, 'sequence_count':1, 'fingerprint_sha256':'not-a-digest'}),
+        ]
+        for field, value in cases:
+            with self.subTest(field=field, value=value):
+                business = copy.deepcopy(original)
+                business[field] = value
+                with self.assertRaises(gate.EvidenceError):
+                    gate.inspect_proofs(business, csms, SHA, '1234567', '1')
+
     def test_success_is_never_production_acceptance(self):
         result=gate.inspect_proofs(*evidence(),SHA,'1234567','1')
         self.assertEqual(result['status'],'PASS')

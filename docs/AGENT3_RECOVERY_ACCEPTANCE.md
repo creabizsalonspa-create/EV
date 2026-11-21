@@ -280,3 +280,31 @@ synthetic Docker inspection fixture still uses its default private modes.
 These static, synthetic tests are not proof of a real Docker container or
 PostgreSQL restore. Agent 4 must verify effective namespacing and
 cross-container isolation in a disposable acceptance environment.
+
+## Canonical domain and complete public-table restore verification — 21 November 2026
+
+The integration-controller candidate extends the existing isolated drill with real
+synthetic customer/vehicle/company/site/charger/EVSE/connector/reservation/session
+relationships for both recorded protocol labels, retained inbox rows and encrypted
+canonical command fields. It calls no charging or financial services: commands
+are terminal failed fixtures, stations remain discovery-only, all source workers
+stay disabled and the two networks still have no external egress. No invoice is
+created. This tests recovery of stored software records, not protocol delivery or
+physical charging.
+
+The snapshot records a SHA-256 over every public table's deterministically ordered
+rows and all public sequence states under a bounded repeatable-read, read-only
+transaction. The target must reproduce that exact fingerprint before its queue
+worker runs. Real joins recheck connector/EVSE/source/session relationships and
+both command secrets must decrypt under the restored application key. Finally,
+the recovered application's actual HTTP catalog must expose both synthetic
+locations without remote-control authority. Existing archive corruption, key,
+private-file, source-after-snapshot, queue/session/cache and isolation controls
+remain required. The combined recovery gate rejects missing or malformed domain
+proof; it no longer accepts an empty catalog as broad domain recovery evidence.
+
+This candidate still requires an actual current-source image build and complete
+Docker restore before successful verification is recorded. Full populated
+financial-ledger recovery, coordinated cross-service snapshots, PITR/retention,
+offsite storage, real customer uploads and operational production approval remain
+separate gaps. Original atom9.1.10 is not promoted merely by adding these checks.
