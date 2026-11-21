@@ -1,3 +1,4 @@
+import 'coupons.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' show NumberFormat;
 import 'api.dart';
@@ -87,7 +88,13 @@ String loyaltyText(BuildContext c, String key) =>
 class LoyaltyView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
-  const LoyaltyView({super.key, required this.api, required this.onExpired});
+  final bool customer;
+  const LoyaltyView({
+    super.key,
+    required this.api,
+    required this.onExpired,
+    this.customer = false,
+  });
   @override
   State<LoyaltyView> createState() => _LoyaltyState();
 }
@@ -316,9 +323,9 @@ class _LoyaltyState extends State<LoyaltyView> {
     appBar: AppBar(
       title: Text(t('title')),
       actions: [
-        TextButton(
+        if (widget.customer) TextButton(
           onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
-            builder: (_) => _CouponView(api: widget.api, onExpired: widget.onExpired),
+            builder: (_) => CustomerCouponsView(api: widget.api, onExpired: widget.onExpired),
           )),
           child: Text(Localizations.localeOf(context).languageCode == 'ar' ? 'القسائم' : 'Coupons'),
         ),
@@ -510,162 +517,4 @@ class _LoyaltyRequestState extends State<LoyaltyRequestView> {
       ),
     );
   }
-}
-
-class _CouponView extends StatefulWidget {
-  final EvApi api;
-  final VoidCallback onExpired;
-  const _CouponView({required this.api, required this.onExpired});
-
-  @override
-  State<_CouponView> createState() => _CouponState();
-}
-
-class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
-  final code = TextEditingController();
-  late final bool Function() ownsSession;
-  Map<String, dynamic>? pending;
-  List<Map<String, dynamic>> receipts = [];
-  int page = 1;
-  int last = 1;
-  int generation = 0;
-  bool busy = false;
-  String? message;
-
-  String label(String en, String ar) =>
-      Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
-
-  @override
-  void initState() {
-    super.initState();
-    ownsSession = widget.api.sessionFence();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) return;
-    setState(() {
-      generation++;
-      pending?.remove('code');
-      code.clear();
-      receipts = [];
-      message = null;
-      busy = false;
-    });
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    code.dispose();
-    super.dispose();
-  }
-
-  Map<String, dynamic> receipt(dynamic value) {
-    final row = Map<String, dynamic>.from(value as Map);
-    if (row['id'] is! int || row['points_cost'] != 0 ||
-        row['cash_value'] != false || row['fulfillment'] != 'MANUAL_NON_MONETARY' ||
-        !['pending', 'fulfilled', 'rejected'].contains(row['status']) ||
-        row['reward_name'] is! String || row['reward_name_ar'] is! String ||
-        row['claimed_at'] is! String) {
-      throw const FormatException('Invalid coupon receipt');
-    }
-    return row;
-  }
-
-  Future<void> run(String action, {int number = 1}) async {
-    if (busy || !ownsSession()) return;
-    if (action == 'claim') {
-      final entered = code.text.trim().toUpperCase();
-      if (pending == null && !RegExp(r'^[A-Z0-9-]{12,40}$').hasMatch(entered)) {
-        setState(() => message = label('Enter a valid coupon code.', 'أدخل رمز قسيمة صالحاً.'));
-        return;
-      }
-      pending ??= {'code': entered, 'idempotency_key': operationKey()};
-      if (!pending!.containsKey('code')) return;
-    }
-    if (action == 'claim-receipt' && pending == null) return;
-    final epoch = ++generation;
-    setState(() { busy = true; message = null; });
-    try {
-      final result = await widget.api.request(
-        'commercial/coupons/$action',
-        method: action == 'claims' ? 'GET' : 'POST',
-        query: action == 'claims' ? {'page': '$number'} : const {},
-        body: action == 'claim' ? Map<String, dynamic>.of(pending!)
-            : action == 'claim-receipt' ? {'idempotency_key': pending!['idempotency_key']} : null,
-      );
-      if (!mounted || epoch != generation || !ownsSession()) return;
-      if (action == 'claims') {
-        final parsed = ApiPage.fromJson(result, receipt);
-        setState(() {
-          receipts = parsed.items;
-          page = result['current_page'] as int;
-          last = result['last_page'] as int;
-        });
-      } else if (result['claim'] != null) {
-        final row = receipt(result['claim']);
-        setState(() { receipts = [row]; pending = null; code.clear(); page = 1; last = 1; });
-      } else {
-        setState(() => message = label('No receipt has been recorded for this request.', 'لم يتم تسجيل إيصال لهذا الطلب.'));
-      }
-    } catch (e) {
-      if (!mounted || epoch != generation) return;
-      if (e is ApiException && e.endsCurrentSession) {
-        pending = null;
-        code.clear();
-        receipts = [];
-        widget.onExpired();
-      } else if (ownsSession()) {
-        if (action == 'claim' && e is ApiException && [404, 409, 422].contains(e.status)) {
-          pending = null;
-        }
-        setState(() => message = label(
-          'Coupon request failed. Check the code, expiry and limits. For an uncertain claim, check its receipt.',
-          'تعذر طلب القسيمة. تحقق من الرمز والصلاحية والحدود. تحقق من الإيصال إذا كانت النتيجة غير مؤكدة.',
-        ));
-      }
-    } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(label('Reward coupons', 'قسائم المكافآت'))),
-    body: ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text(label('Enter a code you received to claim a noncash reward.', 'أدخل الرمز الذي تلقيته للمطالبة بمكافأة غير نقدية.')),
-        TextField(controller: code, enabled: !busy && pending == null, maxLength: 40,
-          decoration: InputDecoration(labelText: label('Coupon code', 'رمز القسيمة'))),
-        FilledButton(onPressed: busy || (pending != null && !pending!.containsKey('code')) ? null : () => run('claim'),
-          child: Text(label('Claim coupon', 'المطالبة بالقسيمة'))),
-        if (pending != null)
-          TextButton(onPressed: busy ? null : () => run('claim-receipt'),
-            child: Text(label('Check last claim receipt', 'التحقق من إيصال المطالبة'))),
-        if (pending != null)
-          TextButton(onPressed: busy ? null : () => setState(() { pending = null; code.clear(); }),
-            child: Text(label('Clear coupon draft', 'مسح مسودة القسيمة'))),
-        TextButton(onPressed: busy ? null : () => run('claims'),
-          child: Text(label('Refresh coupon history', 'تحديث سجل القسائم'))),
-        if (busy) const LinearProgressIndicator(),
-        if (message != null) Semantics(liveRegion: true, child: Text(message!)),
-        for (final row in receipts) ListTile(
-          title: Text(label(row['reward_name'] as String, row['reward_name_ar'] as String)),
-          subtitle: Text('${row['claimed_at']} · #${row['id']}'),
-          trailing: Text(switch (row['status']) {
-            'fulfilled' => label('Fulfilled', 'تم التسليم'),
-            'rejected' => label('Rejected', 'مرفوض'),
-            _ => label('Pending fulfillment', 'بانتظار التسليم'),
-          }),
-        ),
-        if (page > 1) TextButton(onPressed: busy ? null : () => run('claims', number: page - 1),
-          child: Text(label('Previous', 'السابق'))),
-        if (page < last) TextButton(onPressed: busy ? null : () => run('claims', number: page + 1),
-          child: Text(label('Next', 'التالي'))),
-      ],
-    ),
-  );
 }

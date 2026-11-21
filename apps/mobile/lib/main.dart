@@ -1601,7 +1601,11 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) =>
-                          LoyaltyView(api: api!, onExpired: expiredSession),
+                          LoyaltyView(
+                            api: api!,
+                            onExpired: expiredSession,
+                            customer: account?.role == 'customer',
+                          ),
                     ),
                   );
                 } else if (value == 'invoices') {
