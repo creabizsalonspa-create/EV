@@ -25,6 +25,7 @@ import 'ocpi_operations.dart';
 import 'invoice_history.dart';
 import 'payment_recovery.dart';
 import 'loyalty.dart';
+import 'referrals.dart';
 import 'financial_documents.dart';
 import 'financial_analytics.dart';
 import 'hosted_checkout.dart';
@@ -1606,6 +1607,16 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                       ),
                     ),
                   );
+                } else if (value == 'referrals' &&
+                    account?.role == 'customer') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ReferralView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'loyalty') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1790,6 +1801,12 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                   enabled: !busy,
                   child: Text(loyaltyText(context, 'title')),
                 ),
+                if (account?.role == 'customer')
+                  PopupMenuItem(
+                    value: 'referrals',
+                    enabled: !busy,
+                    child: Text(referralTitle(context)),
+                  ),
                 if (['vendor', 'admin'].contains(account?.role))
                   PopupMenuItem(
                     value: 'ocpiOperations',
