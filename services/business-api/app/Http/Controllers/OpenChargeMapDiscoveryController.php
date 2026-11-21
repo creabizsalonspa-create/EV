@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Discovery\LicensedSourceCache;
 use App\Services\Discovery\LookupFailure;
 use App\Services\Discovery\OpenChargeMapAdapter;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 /**
  * Source-only licensed discovery, opt-in and disabled by default.
@@ -29,7 +29,7 @@ final class OpenChargeMapDiscoveryController extends Controller
         ]);
     }
 
-    public function search(Request $request, OpenChargeMapAdapter $adapter)
+    public function search(Request $request, OpenChargeMapAdapter $adapter, LicensedSourceCache $sources)
     {
         $input = $request->validate([
             'consent' => 'required|accepted',
@@ -65,7 +65,7 @@ final class OpenChargeMapDiscoveryController extends Controller
             // Cache only the normalized, attribution-safe provider subset
             // under the geographic/country identity. Filtering by locally
             // reported connector details must not trigger duplicate OCM calls.
-            $source = Cache::remember('ocm-discovery:'.$cacheIdentity, now()->addMinutes(5), fn () => $adapter->search(
+            $source = $sources->read($cacheIdentity, $key, fn () => $adapter->search(
                 (float) $input['latitude'],
                 (float) $input['longitude'],
                 (float) $input['radius_km'],
@@ -84,10 +84,15 @@ final class OpenChargeMapDiscoveryController extends Controller
 
             return self::privateResponse($result);
         } catch (LookupFailure $error) {
-            return self::privateResponse([
+            $response = self::privateResponse([
                 'message' => 'Licensed discovery source temporarily unavailable. Manual station searches remain available.',
                 'reason' => $error->reason,
             ], $error->status);
+            if ($error->retryAfter !== null) {
+                $response->header('Retry-After', (string) $error->retryAfter);
+            }
+
+            return $response;
         }
     }
 

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Services\Discovery\LicensedSourceCache;
 use App\Services\Discovery\LookupFailure;
 use App\Services\Discovery\OpenChargeMapAdapter;
 use App\Services\Discovery\OpenChargeMapProjection;
@@ -336,6 +337,94 @@ class OpenChargeMapDiscoveryTest extends TestCase
             $this->assertStringNotContainsString('127.0.0.1/private', $response->getContent());
         }
         Http::assertSentCount(4);
+    }
+
+    public function test_provider_backoff_covers_other_coordinates_and_both_api_mounts_then_expires(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-20T01:00:00Z'));
+        Http::fakeSequence()
+            ->push('', 429, ['Retry-After' => '120'])
+            ->push([$this->point()], 200, ['Content-Type' => 'application/json']);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+            ->assertStatus(503)->assertHeader('Retry-After', '120');
+        $this->travel(30)->seconds();
+        $this->postJson('/api/v1/discovery/open-charge-map/search', array_replace($this->input(), ['radius_km' => 11]))
+            ->assertStatus(503)->assertHeader('Retry-After', '90');
+        Http::assertSentCount(1);
+        $this->travel(91)->seconds();
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())->assertOk();
+        Http::assertSentCount(2);
+    }
+
+    public function test_provider_backoff_preserves_valid_cached_results_and_rotated_credential_is_independent(): void
+    {
+        Http::fakeSequence()
+            ->push([$this->point()], 200, ['Content-Type' => 'application/json'])
+            ->push('', 429, ['Retry-After' => '300'])
+            ->push([$this->point()], 200, ['Content-Type' => 'application/json']);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())->assertOk();
+        $this->postJson('/api/discovery/open-charge-map/search', array_replace($this->input(), ['radius_km' => 11]))->assertStatus(503);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())->assertOk();
+        Http::assertSentCount(2);
+        config(['discovery.ocm_api_key' => 'rotated-synthetic-private-key']);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())->assertOk();
+        Http::assertSentCount(3);
+    }
+
+    public function test_single_flight_refuses_parallel_cold_query_without_provider_io_and_releases_after_failure(): void
+    {
+        $lock = Cache::lock('ocm-flight:'.hash('sha256', 'synthetic-private-ocm-key'), 30);
+        $this->assertTrue($lock->get());
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+            ->assertStatus(503)->assertHeader('Retry-After', '1');
+        Http::assertNothingSent();
+        $lock->release();
+        Http::fakeSequence()->push('', 503)->push([$this->point()], 200, ['Content-Type' => 'application/json']);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())->assertStatus(503);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())->assertOk();
+        Http::assertSentCount(2);
+    }
+
+    public function test_different_queries_cannot_overlap_provider_egress_for_one_credential(): void
+    {
+        $cache = new LicensedSourceCache;
+        $calls = 0;
+        $source = $cache->read('outer-query', 'private-credential', function () use ($cache, &$calls) {
+            $calls++;
+            try {
+                $cache->read('different-query', 'private-credential', function () use (&$calls) {
+                    $calls++;
+
+                    return [];
+                });
+                $this->fail('Overlapping provider lookup must be rejected.');
+            } catch (LookupFailure $error) {
+                $this->assertSame('provider_busy', $error->reason);
+                $this->assertSame(1, $error->retryAfter);
+            }
+            // Another authorized credential does not share this egress lease.
+            $this->assertSame([], $cache->read('independent-query', 'different-credential', fn () => []));
+
+            return ['fixture' => true];
+        });
+        $this->assertSame(['fixture' => true], $source);
+        $this->assertSame(1, $calls);
+        $this->assertSame([], $cache->read('different-query', 'private-credential', fn () => []));
+    }
+
+    public function test_http_date_and_malformed_retry_headers_are_bounded_without_exposing_upstream_text(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-20T01:00:00Z'));
+        Http::fakeSequence()
+            ->push('', 429, ['Retry-After' => 'Fri, 20 Nov 2026 01:02:00 GMT'])
+            ->push('', 429, ['Retry-After' => 'private-provider-detail'])
+            ->push('', 429, ['Retry-After' => '9999999999']);
+        foreach (['120', '60', '86400'] as $expected) {
+            Cache::flush();
+            $response = $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+                ->assertStatus(503)->assertHeader('Retry-After', $expected);
+            $this->assertStringNotContainsString('private-provider-detail', $response->getContent());
+        }
     }
 
     public function test_rate_budget_blocks_excessive_provider_requests_without_exposing_coordinates(): void

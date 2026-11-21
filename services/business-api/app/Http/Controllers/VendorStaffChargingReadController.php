@@ -109,6 +109,7 @@ final class VendorStaffChargingReadController extends Controller
             $query = DB::table('csms_inbox_events')->when($link !== null, fn ($q) => $q->where('link_id', $link->id), fn ($q) => $q->whereRaw('1 = 0'))
                 ->where('outcome', 'applied')->whereIn('type', ['started', 'meter', 'ended']);
             $maximum = (int) ((clone $query)->max('id') ?? 0);
+            abort_unless($maximum >= 0 && $maximum <= 9007199254740991, 422, 'Recorded meter history is unreadable.');
             $through = isset($v['through']) ? (int) $v['through'] : $maximum;
             abort_if($through > $maximum, 422, 'Snapshot cursor is beyond retained source history.');
             $rows = $query->where('id', '<=', $through)->orderByDesc('id')

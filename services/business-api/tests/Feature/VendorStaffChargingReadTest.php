@@ -255,6 +255,20 @@ class VendorStaffChargingReadTest extends TestCase
         $this->getJson($url)->assertNotFound();
     }
 
+    public function test_meter_history_rejects_unsafe_retained_snapshot_even_on_empty_pages(): void
+    {
+        $f = $this->fixture();
+        $m = $this->meterFixture($f, 1);
+        DB::table('csms_inbox_events')->where('link_id', $m['link'])->update(['id' => 9007199254740992]);
+        $this->actingAs($f['staff']);
+        foreach (['', '?page=100000', '?page=100000&through=0'] as $query) {
+            $response = $this->getJson($m['url'].$query)->assertUnprocessable();
+            $this->assertArrayNotHasKey('through_id', $response->json());
+        }
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseHas('csms_inbox_events', ['id' => 9007199254740992]);
+    }
+
     public function test_meter_history_bounds_and_unreadable_counters_fail_without_coercing_or_billing(): void
     {
         $f = $this->fixture();

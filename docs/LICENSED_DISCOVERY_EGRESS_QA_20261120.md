@@ -1,0 +1,21 @@
+# Licensed discovery egress protection — 20 November 2026
+
+Agent 2 owns this candidate on `development/ocpi-discovery-completion-20261120`, based on integrated `151acd73e94e12b2e1cdfbe46ce859928d186b92`. Agent 5 remains the sole integration controller. This extends the existing Open Charge Map adapter, consent flow, attribution, web map layer and bounded quality summaries; it does not rebuild those features.
+
+## Implemented behavior
+
+An approved provider credential now has one shared, nonblocking outbound lease. Concurrent cold searches, including searches for different coordinates, receive a private 503 with `Retry-After: 1` instead of multiplying provider traffic. Successful normalized source results retain the existing five-minute cache and are revalidated/filtered at response time. The lease expires after 30 seconds (outbound HTTP total timeout is eight seconds) and is released after success or failure. No command or provider request is automatically replayed.
+
+An upstream HTTP 429 starts a credential-scoped shared cooldown. Numeric and strict HTTP-date Retry-After values are honored within the documented one-second to one-day safety bound; absent/malformed values use 60 seconds. Cold queries through both API mounts return remaining cooldown without contacting the source. Valid cached results remain available under the original freshness policy; failed lookups never replace them. Credential rotation has an independent lease, cache identity and cooldown. Upstream response streams close on error paths too. Public errors contain only generic reason and bounded numeric Retry-After, never upstream messages, credentials or coordinates. Existing per-IP/minute/day request limits remain intact.
+
+The Laravel cache must be shared among application workers/replicas and support owner-token atomic locks (for example the configured Redis or database cache). The array cache is only a deterministic test implementation. Separate per-host file caches cannot enforce a deployment-wide provider quota; deployment configuration must verify the shared cache before enabling the provider. This change does not enable any source or contact a live provider.
+
+## Verification and limits
+
+Targeted HTTP-fake suite: 24 tests / 271 assertions, including existing license, consent, capability, privacy, freshness and cache validation. Five new cases exercise two mounts/different coordinates, expiry, cached results during cooldown, credential rotation, contention/failure cleanup, HTTP-date/malformed/bounded headers and nested concurrent-call exclusion. Nested callbacks exercise the held shared lock deterministically; they are not a claim of distributed production load acceptance.
+
+Verified locally: full Laravel 1,760 passed / 31,785 assertions, one explicitly PostgreSQL-only skip; all four `npm run test:maps` scripts passed using real Chromium (mixed maps, partner nearby, licensed discovery and asset/license hashes); standalone source projection/transport passed; all five changed PHP files pass Pint. Hosted exact-head CI and Agent 5 integration verification remain separate gates. No original inventory atom receives automatic whole-scope credit from this reliability improvement. The adapter/UI/quality implementation already present should be audited against 6.2.1–6.2.4, with legal/provider approval and genuine coverage/SLA acceptance kept separate. No physical charger, live OCPI authorization, payment, national source coverage or store acceptance is claimed.
+
+## Map status recovery regression
+
+The broader map browser test initially failed at its existing Arabic 200-km scope warning. Investigation found that asynchronous tile failures overwrote the primary map action status. Tile failures now use their own bilingual live-status paragraph, leaving search-radius, privacy and polar-projection messages intact. Callbacks from removed map instances are ignored, and disabling/re-enabling clears the old tile notice. The original required radius assertion is retained; the test now also explicitly fires a late tile error and verifies the capped-radius disclosure still exists alongside the tile notice. No tile consent, GPS consent, search radius or capability guard is relaxed.
