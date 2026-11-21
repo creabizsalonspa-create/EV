@@ -45,7 +45,7 @@ void main() {
         throwsA(isA<ApiException>().having((e) => e.status, 'single use', 422)),
       );
       final account = await fresh.signIn(f['email'], f['new_password']);
-      expect(account.role, 'customer');
+      expect(account.role, f['role']);
       await fresh.signOut();
       body.clear();
       f.clear();

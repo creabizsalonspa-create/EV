@@ -6,16 +6,16 @@ class RecoveryLink {
   final String email, token;
   const RecoveryLink(this.email, this.token);
   static RecoveryLink? parse(String text, Uri origin) {
-    if (text.length > 4096 || text.trim() != text) return null;
+    if (text.length > 4096 || text.trim() != text ||
+        RegExp(r'^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*@').hasMatch(text)) return null;
     final uri = Uri.tryParse(text);
     if (uri == null ||
         !uri.hasScheme ||
         !uri.hasAuthority ||
         !['https', 'http'].contains(uri.scheme) ||
         uri.origin != origin.origin ||
-        uri.userInfo.isNotEmpty ||
-        uri.fragment.isNotEmpty ||
-        !['https', 'http'].contains(uri.scheme) ||
+        uri.authority.contains('@') ||
+        uri.hasFragment ||
         (uri.scheme != 'https' &&
             !['localhost', '127.0.0.1', '::1'].contains(uri.host)))
       return null;

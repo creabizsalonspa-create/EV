@@ -69,6 +69,8 @@ void main() {
       resetLink('https://ev.test:444'),
       resetLink('https://user@ev.test'),
       '${resetLink()}#secret',
+      '${resetLink()}#',
+      resetLink('https://@ev.test'),
       '${resetLink()}&email=other%40example.com',
       '${resetLink()}&redirect=https://other.test',
       '/reset-password/$token?email=a%40b.test',
@@ -167,6 +169,10 @@ void main() {
   testWidgets('Arabic direction with email field LTR and accessible actions', (
     t,
   ) async {
+    t.view.physicalSize = const Size(390, 844);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.resetPhysicalSize);
+    addTearDown(t.view.resetDevicePixelRatio);
     await t.pumpWidget(screen(RecoveryApi(), arabic: true));
     expect(
       Directionality.of(t.element(find.byKey(const Key('recovery-email')))),
