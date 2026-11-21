@@ -3,6 +3,7 @@
 namespace App\Services\Commercial\Referrals;
 
 use App\Services\Commercial\Loyalty\LoyaltyService;
+use App\Services\Commercial\Loyalty\NoncashActivation;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -11,6 +12,16 @@ final class ReferralSource
 {
     public function eligible(object $invoice, object $programme, object $referral): bool
     {
+        if (app()->environment('production')) {
+            // This capability does not turn simulated/test financial receipts
+            // into real qualified charges. A verified-live canonical issuer
+            // and capture source are prerequisites, not client assertions.
+            if ($invoice->evidence !== 'VERIFIED_LIVE'
+                || DB::table('finance_payments')->where('invoice_id', $invoice->id)->where('evidence', '!=', 'VERIFIED_LIVE')->exists()
+                || ! app(NoncashActivation::class)->usable('programme', (int) $programme->id, false)) {
+                return false;
+            }
+        }
         $source = app(LoyaltyService::class)->promotionSource($invoice);
 
         $activeMembers = DB::table('users')->whereIn('id', [$referral->user_id, $referral->referrer_id])

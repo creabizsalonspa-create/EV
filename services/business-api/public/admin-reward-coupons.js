@@ -1,6 +1,11 @@
 (() => {
     const $ = (id) => document.getElementById(id);
     const messages = {
+        sandbox: ["Sandbox record", "سجل اختبار"],
+        reviewed_manual: [
+            "Reviewed manual noncash configuration",
+            "تهيئة يدوية غير نقدية خاضعة للمراجعة",
+        ],
         home: ["Workspace", "مساحة العمل"],
         title: ["Noncash reward coupons", "قسائم المكافآت غير النقدية"],
         notice: [
@@ -72,8 +77,8 @@
             "الجلسة غير متاحة. عُد لمساحة العمل لتسجيل الدخول.",
         ],
         disabled: [
-            "Test commercial economics are disabled. No coupon was published or claimed.",
-            "اقتصاديات الاختبار التجاري معطلة. لم تُنشر أو تُطالب أي قسيمة.",
+            "Noncash rewards are disabled. No coupon was published or claimed.",
+            "المكافآت غير النقدية معطلة. لم تُنشر أو تُطالب أي قسيمة.",
         ],
     };
     let lang = "en";
@@ -184,6 +189,7 @@
             for (const c of data.data) {
                 const card = el("article");
                 card.append(
+                    el("p", t(c.activation_mode || "sandbox")),
                     el("h3", `${t("reward")} ${c.reward_id} · #${c.id}`),
                     el("p", t(c.revoked_at ? "revoked" : "active")),
                     el("p", `${t("claims")}: ${c.claims} / ${c.claim_limit}`),

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Security\CurrentFinanceReader;
+use App\Services\Commercial\Loyalty\NoncashActivation;
 use App\Services\Commercial\Referrals\ReferralRegistry;
 use App\Services\Commercial\Referrals\ReferralSource;
 use Illuminate\Http\Request;
@@ -98,6 +99,10 @@ final class ReferralController extends Controller
     {
         $v = $r->validate(['code' => ['required', 'string', 'regex:/^REF-[A-F0-9]{20}$/D'], 'terms_version' => ['required', 'string', 'regex:/^[a-f0-9]{64}$/D'], 'consent' => 'required|accepted', 'idempotency_key' => 'required|string|max:100']);
 
+        // The accepted validator proves an explicit affirmative value; the
+        // domain service receives one canonical boolean representation.
+        $v['consent'] = true;
+
         return $this->privateJson(['referral' => $service->accept($r->user(), $v)], 201);
     }
 
@@ -134,7 +139,7 @@ final class ReferralController extends Controller
                     'role' => $row->role, 'reward_name' => $row->reward_name, 'reward_name_ar' => $row->reward_name_ar,
                     'status' => $row->status, 'created_at' => Carbon::parse($row->created_at)->utc()->toISOString(),
                     'source_currently_eligible' => app(ReferralSource::class)->eligible($invoice, $p, $referral),
-                    'source' => 'REFERRAL', 'points_cost' => 0, 'cash_value' => false, 'fulfillment' => 'MANUAL_NON_MONETARY', 'delivery_verified' => false];
+                    'source' => 'REFERRAL', ...app(NoncashActivation::class)->metadata('programme', (int) $p->id), 'points_cost' => 0, 'cash_value' => false, 'fulfillment' => 'MANUAL_NON_MONETARY', 'delivery_verified' => false];
             });
 
             return $this->privateJson($rows);

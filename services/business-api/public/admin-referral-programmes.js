@@ -6,6 +6,11 @@
             return n;
         };
     const messages = {
+        sandbox: ["Sandbox programme", "برنامج اختبار"],
+        reviewed_manual: [
+            "Reviewed manual noncash configuration",
+            "تهيئة يدوية غير نقدية خاضعة للمراجعة",
+        ],
         home: ["Workspace", "مساحة العمل"],
         title: ["Referral programmes", "برامج الإحالة"],
         notice: [
@@ -76,8 +81,8 @@
             "تغيّرت الحالة أو هوية الطلب. حدّث البيانات وراجعها.",
         ],
         disabled: [
-            "Test commercial economics are disabled. No new programme was published.",
-            "اقتصاديات الاختبار التجاري معطلة. لم يُنشر برنامج جديد.",
+            "Noncash referral programmes are disabled. No new programme was published.",
+            "برامج الإحالة غير النقدية معطلة. لم يُنشر برنامج جديد.",
         ],
     };
     let lang = "en";
@@ -208,6 +213,7 @@
             for (const p of data.data) {
                 const card = el("article");
                 card.append(
+                    el("p", t(p.activation_mode || "sandbox")),
                     el("h2", lang === "ar" ? p.name_ar : p.name),
                     el("p", t(p.active ? "active" : "inactive")),
                     el("pre", lang === "ar" ? p.terms_ar : p.terms),

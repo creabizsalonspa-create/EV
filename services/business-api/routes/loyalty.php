@@ -28,3 +28,5 @@ Route::post('/commercial/coupons/publication-receipt', [L::class, 'findCouponPub
 Route::post('/commercial/coupons/claim-intents/cancel', [L::class, 'cancelCouponIntent']);
 
 require __DIR__.'/referrals.php';
+
+Route::get('/commercial/noncash/status', [L::class, 'noncashStatus']);

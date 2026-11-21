@@ -37,7 +37,7 @@ class LoyaltyService
 
     public function publish(string $table, User|int $actor, array $values, string $key): object
     {
-        $this->enabled();
+        app(NoncashActivation::class)->requireEnabled();
         abort_unless(in_array($table, ['loyalty_policies', 'loyalty_rewards'], true), 422);
 
         return DB::transaction(function () use ($table, $actor, $values, $key) {
@@ -158,7 +158,7 @@ class LoyaltyService
             }
         }
 
-        return ['tier_by_currency' => (object) $tiers, 'user_id' => $user, 'balance_points' => $balance, 'pending_reconciliation_points' => $pending, 'spendable_points' => $held ? 0 : max(0, $balance - $pending), 'qualified_lifetime_points' => $qualified, 'redemption_hold' => $held, 'unit' => 'NON_MONETARY_POINTS', 'cash_value' => false, 'transferable' => false, 'evidence' => 'TEST_PROMOTIONAL_ECONOMICS'];
+        return ['tier_by_currency' => (object) $tiers, 'user_id' => $user, 'balance_points' => $balance, 'pending_reconciliation_points' => $pending, 'spendable_points' => $held || ! app(NoncashActivation::class)->legacyPointsEnabled() ? 0 : max(0, $balance - $pending), 'qualified_lifetime_points' => $qualified, 'redemption_hold' => $held, 'unit' => 'NON_MONETARY_POINTS', 'cash_value' => false, 'transferable' => false, 'evidence' => 'TEST_PROMOTIONAL_ECONOMICS', 'points_actions_enabled' => app(NoncashActivation::class)->legacyPointsEnabled()];
     }
 
     public function earn(int $invoiceId, int $actor): object
@@ -240,7 +240,7 @@ class LoyaltyService
 
     public function claimCoupon(int $user, string $code, string $key): object
     {
-        $this->enabled();
+        app(NoncashActivation::class)->requireEnabled();
 
         return DB::transaction(function () use ($user, $code, $key) {
             $current = User::whereKey($user)->lockForUpdate()->firstOrFail();
@@ -257,6 +257,7 @@ class LoyaltyService
             abort_if(DB::table('loyalty_coupon_claim_intents')->where('request_key', $request)->exists(), 409, 'This coupon claim intent was explicitly cancelled.');
             $coupon = DB::table('loyalty_coupons')->where('code_hash', $hash)->lockForUpdate()->first() ?? abort(404);
             $now = now()->utc();
+            app(NoncashActivation::class)->requireUsable('coupon', (int) $coupon->id);
             abort_unless($coupon->revoked_at === null && $coupon->starts_at <= $now->toDateTimeString()
                 && $coupon->ends_at > $now->toDateTimeString(), 409, 'Coupon is unavailable.');
             $claims = DB::table('loyalty_coupon_claims')->where('coupon_id', $coupon->id);
@@ -277,7 +278,11 @@ class LoyaltyService
     private function reserveNoncashRewardLocked(int $user, int $rewardId, string $request, string $reason, ?int $actor = null): int
     {
         $now = now()->utc();
-        $this->reconcileLocked($user, $actor ?? $user);
+        $activation = app(NoncashActivation::class);
+        $activation->requirePointIsolation($user);
+        if ($activation->legacyPointsEnabled()) {
+            $this->reconcileLocked($user, $actor ?? $user);
+        }
         $account = $this->account($user);
         $reward = DB::table('loyalty_rewards')->where('id', $rewardId)->lockForUpdate()->first();
         abort_unless($reward && $reward->starts_at <= $now->toDateTimeString() && $reward->ends_at > $now->toDateTimeString(), 409, 'Reward is unavailable.');
@@ -306,11 +311,12 @@ class LoyaltyService
 
     public function reserveReferralReward(int $qualificationId, string $role): object
     {
-        $this->enabled();
+        app(NoncashActivation::class)->requireEnabled();
         abort_unless(in_array($role, ['referrer', 'member'], true), 422);
         $qualification = DB::table('loyalty_referral_qualifications')->find($qualificationId) ?? abort(404);
         $referral = DB::table('loyalty_referrals')->find($qualification->referral_id);
         $programme = DB::table('loyalty_referral_programmes')->find($referral->programme_id);
+        app(NoncashActivation::class)->requireUsable('programme', (int) $programme->id);
         $user = (int) ($role === 'referrer' ? $referral->referrer_id : $referral->user_id);
         $reward = (int) ($role === 'referrer' ? $programme->referrer_reward_id : $programme->member_reward_id);
         $invoice = DB::table('finance_invoices')->find($qualification->invoice_id);
@@ -357,12 +363,26 @@ class LoyaltyService
 
     public function transition(int $id, User|int $actor, string $action, string $reason): object
     {
-        $this->enabled();
+        app(NoncashActivation::class)->requireEnabled();
 
         return DB::transaction(function () use ($id, $actor, $action, $reason) {
             $actor = $this->lockedAdmin($actor);
             $hint = DB::table('loyalty_redemptions')->find($id);
             abort_unless($hint, 404);
+            $activation = app(NoncashActivation::class);
+            if (! $activation->legacyPointsEnabled()) {
+                abort_unless((int) $hint->points_cost === 0, 503, 'Positive-point reward fulfillment is not enabled by manual noncash configuration.');
+                $coupon = DB::table('loyalty_coupon_claims')->where('redemption_id', $id)->first();
+                $referral = DB::table('loyalty_referral_rewards as rr')->join('loyalty_referral_qualifications as q', 'q.id', '=', 'rr.qualification_id')
+                    ->join('loyalty_referrals as r', 'r.id', '=', 'q.referral_id')->where('rr.redemption_id', $id)->value('r.programme_id');
+                abort_unless($coupon || $referral, 409, 'A canonical noncash source commitment is required.');
+                if ($coupon) {
+                    $activation->requireUsable('coupon', (int) $coupon->coupon_id, false);
+                } else {
+                    $activation->requireUsable('programme', (int) $referral, false);
+                }
+                $activation->requirePointIsolation((int) $hint->user_id);
+            }
             User::whereKey($hint->user_id)->lockForUpdate()->firstOrFail();
             $backing = DB::table('loyalty_referral_rewards as rr')->join('loyalty_referral_qualifications as q', 'q.id', '=', 'rr.qualification_id')
                 ->where('rr.redemption_id', $id)->select('q.invoice_id', 'q.referral_id')->first();
@@ -381,7 +401,9 @@ class LoyaltyService
                 return $row;
             }
             abort_unless($row->status === 'pending', 409, 'Redemption already decided.');
-            $this->reconcileLocked($row->user_id, $actor);
+            if ($activation->legacyPointsEnabled()) {
+                $this->reconcileLocked($row->user_id, $actor);
+            }
             if ($target === 'fulfilled') {
                 if ($backing) {
                     $referral = DB::table('loyalty_referrals')->find($backing->referral_id);
@@ -395,7 +417,9 @@ class LoyaltyService
             DB::table('loyalty_redemptions')->where('id', $id)->update(['status' => $target, 'updated_at' => now()]);
             if ($target === 'rejected') {
                 $this->entry($row->user_id, null, $id, 'release', (int) $row->points_cost, $actor);
-                $this->reconcileLocked($row->user_id, $actor);
+                if ($activation->legacyPointsEnabled()) {
+                    $this->reconcileLocked($row->user_id, $actor);
+                }
             }
             $this->redemptionEvent($id, $actor, $target, $reason);
 

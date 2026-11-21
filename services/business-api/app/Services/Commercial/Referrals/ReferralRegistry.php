@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Security\AdminTransactionAuthority;
 use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Loyalty\LoyaltyService;
+use App\Services\Commercial\Loyalty\NoncashActivation;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -13,7 +14,8 @@ final class ReferralRegistry
 {
     public function enabled(): bool
     {
-        return config('loyalty.enabled') && ! app()->environment('production');
+        return app(NoncashActivation::class)->enabled()
+            && (! app()->environment('production') || config('loyalty.referrals.verified_live_source_ready') === true);
     }
 
     private function requireEnabled(): void
@@ -38,7 +40,7 @@ final class ReferralRegistry
 
     public function active(object $programme): bool
     {
-        return $this->enabled() && Carbon::parse($programme->starts_at)->lte(now()) && Carbon::parse($programme->ends_at)->gt(now())
+        return $this->enabled() && app(NoncashActivation::class)->usable('programme', (int) $programme->id) && Carbon::parse($programme->starts_at)->lte(now()) && Carbon::parse($programme->ends_at)->gt(now())
             && ! DB::table('loyalty_referral_programme_revocations')->where('programme_id', $programme->id)->exists();
     }
 
@@ -51,6 +53,7 @@ final class ReferralRegistry
             'minimum_minor' => (string) $p->minimum_minor, 'referrer_reward' => $reward($p->referrer_reward_id), 'member_reward' => $reward($p->member_reward_id),
             'starts_at' => Carbon::parse($p->starts_at)->utc()->toISOString(), 'ends_at' => Carbon::parse($p->ends_at)->utc()->toISOString(), 'active' => $this->active($p),
             'qualification_rule' => 'FIRST_POST_CONSENT_FULLY_PAID_CHARGING_INVOICE', 'refunds_disqualify' => true, 'requires_verified_email' => true,
+            ...app(NoncashActivation::class)->metadata('programme', (int) $p->id),
             'cash_value' => false, 'money_movement' => false, 'fulfillment' => 'MANUAL_NON_MONETARY', 'delivery_verified' => false];
     }
 
@@ -78,6 +81,7 @@ final class ReferralRegistry
                 abort_unless($reward->currency === $v['currency'] && $reward->starts_at <= $v['starts_at'] && $reward->ends_at >= $v['ends_at'], 422, 'Both rewards must cover the programme currency and complete validity window.');
             }
             $id = DB::table('loyalty_referral_programmes')->insertGetId($v + ['terms_version' => $fingerprint, 'created_by' => $actor->id, 'request_key' => $key, 'fingerprint' => $fingerprint, 'created_at' => now()]);
+            app(NoncashActivation::class)->record('programme', (int) $id);
             $this->audit($actor->id, 'programme_published', $id);
 
             return $this->publicProgramme($this->programme($id));
@@ -130,6 +134,7 @@ final class ReferralRegistry
     {
         $this->requireEnabled();
         abort_unless($snapshot->role === 'customer', 403);
+        abort_unless(($v['consent'] ?? false) === true, 422, 'Explicit consent to this exact terms version is required.');
         $hint = DB::table('loyalty_referral_codes')->where('code', $v['code'])->first() ?? abort(404);
         abort_unless((int) $hint->user_id !== $snapshot->id, 409, 'Self referrals are not permitted.');
 
@@ -240,6 +245,7 @@ final class ReferralRegistry
             'status' => $qualification ? 'qualified' : ($withdrawn ? 'withdrawn' : ($closed ? 'expired' : 'accepted')),
             'accepted_at' => Carbon::parse($r->created_at)->utc()->toISOString(),
             'qualification' => $qualification ? ['request_binding' => $qualification->fingerprint, 'own_redemption_id' => (int) $own->redemption_id, 'qualified_at' => Carbon::parse($qualification->created_at)->utc()->toISOString()] : null,
+            ...app(NoncashActivation::class)->metadata('programme', (int) $p->id),
             'cash_value' => false, 'money_movement' => false, 'delivery_verified' => false];
     }
 
