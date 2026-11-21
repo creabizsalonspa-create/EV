@@ -1,3 +1,4 @@
+import 'account_recovery.dart';
 import 'licensed_discovery.dart';
 import 'unified_discovery.dart';
 import 'session_cost.dart';
@@ -720,24 +721,9 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   Future<void> recovery() async {
-    final requestApi = api;
-    if (requestApi == null || account != null || busy) return;
-    final generation = _performGeneration;
-    final session = requestApi.sessionFence();
-    bool current() =>
-        mounted &&
-        account == null &&
-        generation == _performGeneration &&
-        identical(api, requestApi) &&
-        session();
-    final values = await entry(s.t('forgot'), {'email': email.text.trim()});
-    if (values == null || !current()) return;
-    await perform(() async {
-      await requestApi.csrf();
-      if (!current()) return;
-      await requestApi.request('forgot-password', method: 'POST', body: values);
-      if (current()) setState(() => message = 'recoverySent');
-    });
+    if (api == null || busy || account != null) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
+      AccountRecoveryView(api: api!, initialEmail: email.text.trim())));
   }
 
   Future<void> revokeSessions() async {
@@ -1615,7 +1601,11 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) =>
-                          LoyaltyView(api: api!, onExpired: expiredSession),
+                          LoyaltyView(
+                            api: api!,
+                            onExpired: expiredSession,
+                            customer: account?.role == 'customer',
+                          ),
                     ),
                   );
                 } else if (value == 'invoices') {
