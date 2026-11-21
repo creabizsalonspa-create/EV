@@ -1,0 +1,9 @@
+# Native authenticated diagnostic-file consumer
+
+The canonical Flutter diagnostic-file view accepts the existing simulated-source contract and the new explicit `AUTHENTICATED_SOURCE` evidence. Historical rows retain their individual evidence classification. Both paths require physical-device verification and charging-capacity changes to remain false; unsupported evidence or protocol fails closed. Private disclosures no longer mislabel authenticated source records as simulator logs.
+
+Eligible direct OCPP1.6/2.0.1 inventory has a dedicated private-file entry. It does not expose generic production diagnostics or assume registration/permission from the inventory row. The backend rechecks current registration, ownership, source identity and profile/certificate authority. Request, inspect, revoke and export remain explicitly controlled by canonical capability flags. Read-only users do not receive management controls.
+
+Private records clear on refresh/background/disposal. Session/lifecycle/request guards prevent delayed old-context responses and bytes from updating or exporting in a later actor. An old-row export callback cannot read a replacement page. Real owned401 handling uses the API's expiring ownership signal. Downloads still require exact size, MIME and SHA-256 before the user explicitly exports a controlled `.bin` filename. Internal device upload filename suffixes are not used for native export paths.
+
+Focused legacy/authenticated/inventory validation passed23cases; targeted analysis is clean. These are controlled client/transport tests. Agent1 owns authenticated-source dispatch/upload/retention and its final API/source integration proof, which remains required before this follow-up is accepted. This document does not claim a physical device, hardware acceptance, production activation or completion of the entire diagnostic requirement. The completed PR200 recovery/coupon/source-observation candidate remains frozen separately.
