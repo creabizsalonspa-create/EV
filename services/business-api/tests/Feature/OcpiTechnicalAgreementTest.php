@@ -226,6 +226,47 @@ class OcpiTechnicalAgreementTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_scope_and_expiry_gate_ingestion_and_polling_without_removing_retained_history(): void
+    {
+        [$p, $admin, $vendor, $base] = $this->fixture();
+        $this->approve($p, $admin, $base);
+        $p->update(['authorized' => true, 'version' => '2.2.1', 'endpoints' => ['locations' => 'https://peer.example/locations', 'tariffs' => 'https://peer.example/tariffs']]);
+        $this->actingAs($admin);
+        config(['ocpi.scheduled_sync_enabled' => true]);
+        $this->putJson('/api/ocpi/providers/'.$p->id.'/sync-plans/tariffs', ['enabled' => true, 'confirmed' => true, 'interval_minutes' => 60, 'expected_revision' => '0'])->assertConflict();
+        $this->assertSame(0, DB::table('ocpi_sync_plans')->count());
+        $payload = ['country_code' => 'NL', 'party_id' => 'ABC', 'id' => 'retained-location', 'publish' => true,
+            'name' => 'Retained synthetic source', 'address' => 'Fixture street', 'city' => 'Amsterdam', 'country' => 'NLD',
+            'coordinates' => ['latitude' => '52.37', 'longitude' => '4.89'], 'last_updated' => now()->subMinute()->toISOString(),
+            'evses' => [['uid' => 'evse-1', 'status' => 'AVAILABLE', 'connectors' => [['id' => '1', 'standard' => 'IEC_62196_T2_COMBO']]]]];
+        $sync = app(RecordSynchronizer::class);
+        $sync->ingest($p->fresh(), 'locations', [$payload]);
+        $this->travel(2)->days();
+        try {
+            $sync->ingest($p->fresh(), 'locations', [array_replace($payload, ['id' => 'unapproved-late-location'])]);
+            $this->fail('Expired technical scope must prevent a delayed source batch from committing.');
+        } catch (OcpiException) {
+            $this->assertSame(1, OcpiRecord::where('ocpi_provider_id', $p->id)->count());
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_database_rejects_a_review_linked_to_another_provider(): void
+    {
+        [$p, $admin, $vendor, $base] = $this->fixture();
+        $id = $this->approve($p, $admin, $base);
+        $other = OcpiProvider::create(['owner_id' => $vendor->id, 'name' => 'Other synthetic provider', 'connection_key' => 'other-agreement', 'authorized' => false]);
+        try {
+            DB::transaction(fn () => DB::table('ocpi_technical_agreement_events')->insert(['provider_id' => $other->id, 'agreement_id' => $id,
+                'phase' => 'revocation', 'action' => 'revoked', 'request_key' => (string) Str::uuid(), 'request_hash' => str_repeat('0', 64),
+                'reason_ciphertext' => Crypt::encryptString('Synthetic cross-provider corruption probe'), 'actor_id' => $admin->id, 'created_at' => now()]));
+            $this->fail('Cross-provider policy decisions must fail at the database boundary.');
+        } catch (QueryException) {
+            $this->assertSame(1, DB::table('ocpi_technical_agreement_events')->count());
+        }
+        $this->assertSame($id, app(TechnicalAgreement::class)->active($p->fresh())->id);
+    }
+
     public function test_database_forbids_mutating_or_deleting_versioned_policy_and_decision_history(): void
     {
         [$p, $admin, $vendor, $base] = $this->fixture();

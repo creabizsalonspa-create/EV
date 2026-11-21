@@ -13,6 +13,7 @@ class RecordSynchronizer
 
     public function ingest(OcpiProvider $provider, string $module, array $records): array
     {
+        app(TechnicalAgreement::class)->assertActive($provider, $module);
         if (! $provider->authorized || $provider->version !== '2.2.1' || ! in_array($module, PartnerClient::MODULES, true)) {
             throw new OcpiException('Provider is not authorized and negotiated for ingestion.');
         }
@@ -32,6 +33,7 @@ class RecordSynchronizer
             if (! $locked->authorized || $locked->version !== '2.2.1' || $locked->authorization_revision !== $provider->authorization_revision || $locked->owner_id !== $provider->owner_id || $locked->connection_key !== $provider->connection_key) {
                 throw new OcpiException('Provider authorization changed.');
             }
+            app(TechnicalAgreement::class)->assertActive($locked, $module);
             $counts = ['created' => 0, 'updated' => 0, 'duplicate' => 0, 'stale' => 0];
             foreach ($validated as [$raw,$n,$hash]) {
                 $identity = ['ocpi_provider_id' => $locked->id, 'module' => $module, 'country_code' => $n['country_code'], 'party_id' => $n['party_id'], 'external_id' => $n['id']];

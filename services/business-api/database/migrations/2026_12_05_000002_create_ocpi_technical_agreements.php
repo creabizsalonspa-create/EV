@@ -38,7 +38,8 @@ return new class extends Migration
         Schema::create('ocpi_technical_agreement_events', function (Blueprint $t) {
             $t->id();
             $t->foreignId('provider_id')->constrained('ocpi_providers')->restrictOnDelete();
-            $t->foreignId('agreement_id')->constrained('ocpi_technical_agreements')->restrictOnDelete();
+            $t->unsignedBigInteger('agreement_id');
+            $t->foreign(['agreement_id', 'provider_id'])->references(['id', 'provider_id'])->on('ocpi_technical_agreements')->restrictOnDelete();
             $t->string('phase', 20);
             $t->string('action', 20);
             $t->string('request_key', 100);
@@ -55,7 +56,7 @@ return new class extends Migration
                     DB::unprepared("CREATE TRIGGER {$table}_no_".strtolower($operation)." BEFORE {$operation} ON {$table} BEGIN SELECT RAISE(ABORT, 'OCPI agreement history is immutable'); END");
                 }
             } elseif (DB::getDriverName() === 'pgsql') {
-                DB::unprepared("CREATE FUNCTION {$table}_immutable() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'OCPI agreement history is immutable'; END $$");
+                DB::unprepared("CREATE OR REPLACE FUNCTION {$table}_immutable() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'OCPI agreement history is immutable'; END $$");
                 DB::unprepared("CREATE TRIGGER {$table}_immutable BEFORE UPDATE OR DELETE ON {$table} FOR EACH ROW EXECUTE FUNCTION {$table}_immutable()");
             }
         }

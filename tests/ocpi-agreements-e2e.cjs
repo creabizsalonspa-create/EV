@@ -34,7 +34,21 @@ let stage='setup';
       await page.goto(base);await page.locator('#account [name=email]').fill(fixture.admin);await page.locator('#account [name=password]').fill(password);
       const login=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/login'&&r.request().method()==='POST');await page.locator('button[value=login]').click();assert.equal((await login).status(),200);
       if(ar){await page.locator('#language').click();await page.waitForFunction(()=>document.documentElement.lang==='ar');}
-      const open=()=>page.getByRole('button',{name:ar?'اتفاقيات OCPI التقنية':'OCPI technical agreements',exact:true}).click();
+      const open=async()=>{
+        const received=page.waitForResponse(r=>new URL(r.url()).pathname.endsWith('/technical-agreements')&&r.request().method()==='GET');
+        await page.getByRole('button',{name:ar?'اتفاقيات OCPI التقنية':'OCPI technical agreements',exact:true}).click();
+        let response=await received;
+        if(response.status()===429){
+          const seconds=Number(response.headers()['retry-after']);assert(Number.isInteger(seconds)&&seconds>=0&&seconds<=60);
+          console.log('Waiting for the unchanged platform request budget before an explicit history retry.');
+          const deadline=Date.now()+(seconds+1)*1000;
+          while(Date.now()<deadline)await new Promise(r=>setTimeout(r,Math.min(10000,deadline-Date.now())));
+          const retry=page.waitForResponse(r=>new URL(r.url()).pathname.endsWith('/technical-agreements')&&r.request().method()==='GET');
+          await page.getByRole('button',{name:ar?'إعادة قراءة السجل':'Retry history read',exact:true}).click();
+          response=await retry;
+        }
+        assert.equal(response.status(),200,'Read must recover within the real middleware budget.');
+      };
       stage+=(ar?' initial-open':' initial-open');
       await open(); const root=page.locator('[data-ocpi-agreements]');
       const form=root.locator('[data-agreement-propose]');
@@ -48,6 +62,12 @@ let stage='setup';
       const reference=`Synthetic <img src=x> ${run} ${ar?'AR':'EN'}`;
       const fields={reference,evidence_sha256:'a'.repeat(64),terms_en:'Synthetic technical evidence only. No live agreement or partner acceptance.',terms_ar:'دليل تقني اصطناعي لاختبار المراجعة فقط دون شريك أو اتفاقية فعلية.',valid_from:new Date(Date.now()-60000).toISOString().replace(/\.\d{3}Z$/,'Z'),valid_until:new Date(Date.now()+86400000).toISOString().replace(/\.\d{3}Z$/,'Z')};
       for(const [key,value]of Object.entries(fields))await form.locator(`[name=${key}]`).fill(value);await form.locator('[name=module][value=locations]').check();
+      if(!ar){
+        await page.locator('#language').click();await page.waitForFunction(()=>document.documentElement.lang==='ar');
+        assert.equal(await form.locator('[name=terms_en]').inputValue(),fields.terms_en);
+        assert.equal(await form.locator('[name=module][value=locations]').isChecked(),true);
+        await page.locator('#language').click();await page.waitForFunction(()=>document.documentElement.lang==='en');
+      }
       let lost=false, firstBody;
       const mutation=`**/api/ocpi/providers/${fixture.provider_id}/technical-agreements`;
       await page.route(mutation,async route=>{

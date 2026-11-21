@@ -2,6 +2,7 @@
 window.EvOcpiAgreements = (() => {
   const viewers = new WeakMap();
   const label = (tag, en, ar) => {
+    if (tag === 'label') { const node = document.createElement('label'); node.append(label('span', en, ar)); return node; }
     const node = document.createElement(tag);
     node.dataset.en = en; node.dataset.ar = ar;
     node.textContent = document.documentElement.lang === 'ar' ? ar : en;

@@ -64,6 +64,8 @@ final class TechnicalAgreement
                 $j->on('h.active_agreement_id', '=', 'a.id')->on('h.provider_id', '=', 'a.provider_id');
             })
             ->where('a.provider_id', $provider->id)->where('a.provider_owner_id', $provider->owner_id)
+            ->whereBetween('h.revision', [1, 2147483647])->where('a.id', '<=', 9007199254740991)
+            ->where('a.revision', '>=', 1)->whereColumn('a.revision', '<=', 'h.revision')
             ->where('a.configuration_hash', $this->fingerprint($provider))
             ->where('a.valid_from', '<=', $now)->where('a.valid_until', '>', $now)
             ->whereExists(fn ($q) => $q->selectRaw('1')->from('ocpi_technical_agreement_events as e')->whereColumn('e.agreement_id', 'a.id')->where('e.action', 'approved'));

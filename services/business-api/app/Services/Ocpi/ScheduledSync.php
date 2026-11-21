@@ -51,6 +51,8 @@ final class ScheduledSync
             return false;
         }
         try {
+            app(TechnicalAgreement::class)->assertActive($provider, $plan->module);
+
             return hash_equals((string) $plan->configuration_hash, $this->fingerprint($provider));
         } catch (Throwable) {
             return false;
@@ -87,6 +89,7 @@ final class ScheduledSync
             DB::table('ocpi_sync_plans')->insertOrIgnore(['provider_id' => $provider->id, 'module' => $module, 'enabled' => false, 'revision' => 0, 'interval_minutes' => 60, 'created_at' => now(), 'updated_at' => now()]);
             $plan = DB::table('ocpi_sync_plans')->where('provider_id', $provider->id)->where('module', $module)->lockForUpdate()->first();
             if ($enabled) {
+                app(TechnicalAgreement::class)->assertActive($provider, $module);
                 abort_unless(config('ocpi.scheduled_sync_enabled') && is_string($provider->endpoints[$module] ?? null), 409, 'Scheduled polling is not configured for this module.');
                 $hash = $this->fingerprint($provider);
                 if ($this->currentConsent($plan, $provider) && (int) $plan->interval_minutes === $interval) {
