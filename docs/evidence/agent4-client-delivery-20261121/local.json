@@ -1,0 +1,125 @@
+{
+  "runtime_source_sha": "a287dff52e9f52c094ca365a5aee05aed8989898",
+  "date_utc": "2026-11-21",
+  "candidate_pr": 200,
+  "canonical_merge_authority": "Agent5",
+  "tests": {
+    "flutter": {
+      "passed": 823,
+      "explicit_opt_in_skips": 40,
+      "result": "passed"
+    },
+    "flutter_analysis": {
+      "result": "passed",
+      "issues": 0
+    },
+    "laravel": {
+      "passed": 1855,
+      "assertions": 32790,
+      "postgres_only_skips": 1,
+      "result": "passed"
+    },
+    "focused_source_auth_inventory": 30,
+    "focused_coupons": 13,
+    "licensed_discovery_navigation": 17,
+    "native_laravel_reset": 2,
+    "native_existing_hosted_refund_evidence": 3,
+    "native_source_registration_both_protocols": 1,
+    "native_coupon_recovery_cancellation": 1,
+    "controlled_browser_en_ar_390": 18,
+    "actual_laravel_browser_en_ar_390": 14,
+    "ci_trigger_guards": 8,
+    "pacing_controls": 9
+  },
+  "canonical_financial_hashes_unchanged": true,
+  "production_accepted": false,
+  "physical_hardware_accepted": false,
+  "signed_store_build_accepted": false,
+  "new_current_source_hosted_builds": "required_pending_integration_controller_review",
+  "referrals_included": false,
+  "candidate_requirement_review": [
+    "2.9.4",
+    "2.8.7"
+  ],
+  "partial_surface_coverage": [
+    "2.1.3",
+    "3.2.6",
+    "5.2.6",
+    "9.2.6"
+  ],
+  "whole_atom_credit_authority": "Agent5; no automatic stage/weight changes",
+  "logs": {
+    "flutter-final.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/flutter-final.log",
+      "sha256": "719c58885d210ef95294a4e0b32dbf27626977b289373cf03feb04965a571c8f"
+    },
+    "native-analyze-final.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/native-analyze-final.log",
+      "sha256": "12f7c1c1ffbdef74111d756d58a3006d2d3beeafde5d5a9c855be13b24ce93b1"
+    },
+    "laravel-combined.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/laravel-combined.log",
+      "sha256": "14f020033599a7abf73ba8de656bee994d2a5add128a10c60602c7c01fb381b9"
+    },
+    "native-source-and-auth.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/native-source-and-auth.log",
+      "sha256": "cf05d751279a697e7e2af04aff40f69133d4895973904785da9eafbd13c73c62"
+    },
+    "native-coupons.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/native-coupons.log",
+      "sha256": "6d53d3450929f35eb93ae1aced34bb3fc33c1cc8d8a6abee23c8509409da7a93"
+    },
+    "native-account-recovery.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/native-account-recovery.log",
+      "sha256": "2e879faca183e6d9d71406dc1a3178d4eb61af6bdbfffb8003c0503561df05e1"
+    },
+    "native-financial-operations.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/native-financial-operations.log",
+      "sha256": "bb4dbf95c0d4c33c7e377d915b0a1053d397551e6eee2ab3f232cec1fc3eec0a"
+    },
+    "native-case-evidence.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/native-case-evidence.log",
+      "sha256": "5bae8955c77d4411bb9efc63e69cfee875d6b0da7c5ce214567d9eca874cd49d"
+    },
+    "native-hosted-checkout.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/native-hosted-checkout.log",
+      "sha256": "2bf66e7916e85004991ee7ff921b5d293658804d53b74dd11f278768366361cd"
+    },
+    "native-source-registration-http.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/native-source-registration-http.log",
+      "sha256": "33059139308f638a18fe61aec7a31bdc897c555a5b7d4726422496c5bcc68605"
+    },
+    "native-coupons-http.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/native-coupons-http.log",
+      "sha256": "a870508107b3d661cfa04adf17df8e43afb208e5a3202e945920f82145c9832f"
+    },
+    "customer-coupons-browser.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/customer-coupons-browser.log",
+      "sha256": "05d66684b787760fc4ffc818336deccc4916fa28f330b1719c710b35e49d4e14"
+    },
+    "customer-coupons-e2e.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/customer-coupons-e2e.log",
+      "sha256": "1ff3e5c8337c828bdc449536af8cc85c24e4d375bfb1677e609948ec4f049d6d"
+    },
+    "root-licensed-test.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/root-licensed-test.log",
+      "sha256": "cb42e05d354a1fa7c4154a5acba470234f2da0d988dbf2186eb36e1d385fa62e"
+    },
+    "root-licensed-analyze.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/root-licensed-analyze.log",
+      "sha256": "1c61ea4f77c37d9df0b6c9c38286dd4281e44f776633571167fc1397a8845980"
+    },
+    "native-fixture-style.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/native-fixture-style.log",
+      "sha256": "1e01d02d2cb94fb59b56f79e03119ad172f19f4014e72ffc4c2de02625ba631e"
+    },
+    "ci-trigger.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/ci-trigger.log",
+      "sha256": "60bb849356ffbc091f601e17fc6ae0b2eb5e26d734d433da020c6e775efbf97f"
+    },
+    "financial-pacing.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/financial-pacing.log",
+      "sha256": "768f9cd5127b17839699206f64bca0a9cacb99d5fe0b483fa7cece461b0df8ef"
+    }
+  }
+}
