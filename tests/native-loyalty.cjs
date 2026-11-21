@@ -19,6 +19,7 @@ try {
     input,
     JSON.stringify({
       ...fixture,
+      admin: `loyalty-admin-${run}@example.test`,
       customer: `loyalty-customer-${run}@example.test`,
       vendor: `loyalty-vendor-${run}@example.test`,
       foreign: `loyalty-foreign-${run}@example.test`,
