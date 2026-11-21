@@ -5,7 +5,9 @@ import 'operational_analytics.dart';
 import 'strings.dart';
 import 'vendor_topology.dart';
 import 'charger_admission.dart';
+import 'charger_source_registration.dart';
 import 'charger_diagnostics.dart';
+import 'charger_logs.dart';
 import 'charger_resets.dart';
 import 'charger_firmware.dart';
 import 'maintenance_windows.dart';
@@ -410,6 +412,34 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                                       await load(page: data?.current ?? 1);
                                   },
                             child: Text(topologyText(context, 'title')),
+                          ),
+                        if (level == 2 && row['source'] == 'direct_unverified' &&
+                            ['1.6', '2.0.1'].contains(row['ocpp_protocol']) &&
+                            widget.company?['id'] is int && row['id'] is int)
+                          OutlinedButton(
+                            onPressed: busy ? null : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(builder: (_) => ChargerSourceRegistrationView(
+                                api: widget.api,
+                                companyId: widget.company!['id'] as int,
+                                chargerId: row['id'] as int,
+                                onExpired: widget.onExpired,
+                              )),
+                            ),
+                            child: Text(EvStrings.of(context).arabic ? 'التسجيل لدى المصدر' : 'Source registration'),
+                          ),
+                        if (level == 2 && row['source'] == 'direct_unverified' &&
+                            ['1.6', '2.0.1'].contains(row['ocpp_protocol']) &&
+                            widget.company?['id'] is int && row['id'] is int)
+                          OutlinedButton(
+                            onPressed: busy ? null : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(builder: (_) => ChargerLogsView(
+                                api: widget.api,
+                                companyId: widget.company!['id'] as int,
+                                chargerId: row['id'] as int,
+                                onExpired: widget.onExpired,
+                              )),
+                            ),
+                            child: Text(EvStrings.of(context).arabic ? 'ملفات تشخيص المصدر الخاصة' : 'Private source diagnostic files'),
                           ),
                         if (level == 2)
                           OutlinedButton(
