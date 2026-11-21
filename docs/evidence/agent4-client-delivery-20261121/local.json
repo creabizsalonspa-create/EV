@@ -120,6 +120,35 @@
     "financial-pacing.log": {
       "workspace_path": "/workspace/EV-agent4/artifacts/financial-pacing.log",
       "sha256": "768f9cd5127b17839699206f64bca0a9cacb99d5fe0b483fa7cece461b0df8ef"
+    },
+    "native-source-registration-ci.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/native-source-registration-ci.log",
+      "sha256": "fdf8b9bc9f7f00ae14523faa127f200dde5c0452bf90f47aa7c06f955690e99c"
+    },
+    "native-source-fixture-style.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/native-source-fixture-style.log",
+      "sha256": "2455685e40fbae645c7ad362a1a4b7954b8d36529fa4af2744d485251436a4d2"
+    },
+    "ci-trigger-source-followup.log": {
+      "workspace_path": "/workspace/EV-agent4/artifacts/ci-trigger-source-followup.log",
+      "sha256": "133449d6f429f0588126e0403937f271f33f90517460d5c4b39d69c2eeda0f25"
     }
+  },
+  "retained_source_projection_ci": {
+    "driver": "tests/native-source-registration.cjs",
+    "fixture": "services/business-api/tests/Fixtures/native-source-registration.php",
+    "result": "passed",
+    "native_http_cases": 1,
+    "protocols": [
+      "1.6",
+      "2.0.1"
+    ],
+    "synthetic_retained_receipt": true,
+    "source_authentication_performed": false,
+    "source_writes_performed": 0,
+    "expected_current_mapping_matches": false,
+    "commands_sessions_finance_and_retained_rows_unchanged": true,
+    "physical_hardware_accepted": false,
+    "native_connected_own_auth_window": true
   }
 }

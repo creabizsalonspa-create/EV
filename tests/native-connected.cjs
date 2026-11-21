@@ -35,6 +35,7 @@ const { spawnSync } = require("node:child_process");
     ["native-operating-calendar"], // six fixture/browser + three native logins; same production limit
     ["native-financial-analytics"], // 3 logins, separate unchanged authentication window
     ["native-fleet-pagination"], // 3 identities; operational pages only, own unchanged auth window
+    ["native-source-registration"], // retained synthetic snapshots only; one login, no source authentication or commands
     ["native-coupons"], // one synthetic customer; unchanged auth window and mock-only loyalty setup
     ["native-account-recovery"], // synthetic password reset; isolated identity and single-use token
     ["native-vendor-session-observations"], // two identities; delegated read-only scope, own unchanged window

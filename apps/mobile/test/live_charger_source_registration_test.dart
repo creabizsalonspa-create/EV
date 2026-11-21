@@ -8,11 +8,16 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   final path = Platform.environment['EV_NATIVE_SOURCE_REGISTRATION_FIXTURE'];
   test(
-    'actual Laravel owner observes both registered OCPP source snapshots without native controls',
+    'actual Laravel owner projects both OCPP retained source snapshots without native controls',
     () async {
       final f =
           jsonDecode(await File(path!).readAsString()) as Map<String, dynamic>;
       expect(f['fixture_only'], isTrue);
+      if (f['synthetic_retained_receipt'] == true) {
+        expect(f['source_authentication_performed'], isFalse);
+        expect(f['source_writes_performed'], 0);
+        expect(f['expected_inventory_matches'], isFalse);
+      }
       final base = Uri.parse(f['base']);
       expect(base.scheme, 'http');
       expect(['localhost', '127.0.0.1'], contains(base.host));
@@ -31,7 +36,7 @@ void main() {
         );
         final projected = ChargerSourceRegistrationSnapshot.parse(raw);
         expect(projected.state, 'registered');
-        expect(projected.inventoryMatches, isTrue);
+        expect(projected.inventoryMatches, f['expected_inventory_matches'] ?? true);
         expect(projected.verifiedAt, isNotNull);
         expect(raw['can_prepare'], isFalse);
         expect(raw['can_register'], isFalse);
