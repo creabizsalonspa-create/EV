@@ -119,6 +119,15 @@ class OpenChargeMapDiscoveryTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_native_contract_matches_the_shared_flutter_license_and_quality_fixture(): void
+    {
+        Http::fake(['api.openchargemap.io/*' => Http::response([$this->point()], 200, ['Content-Type' => 'application/json'])]);
+        $expected = json_decode(file_get_contents(base_path('../../tests/Fixtures/native-licensed-discovery.json')), true, flags: JSON_THROW_ON_ERROR);
+        $this->postJson('/api/v1/discovery/open-charge-map/search', $this->input())
+            ->assertOk()->assertExactJson($expected);
+        Http::assertSentCount(1);
+    }
+
     public function test_unlicensed_unpublished_and_malformed_source_records_are_not_displayed(): void
     {
         $unlicensed = $this->point();
