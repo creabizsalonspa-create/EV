@@ -175,6 +175,27 @@ const fs = require("node:fs");
       .filter({ hasText: /^Approved$/ })
       .waitFor();
     checks++;
+    const rewards = (page) => page.locator("[data-reward-reviews]");
+    const openRewards = (page) => page.getByRole("button", { name: "Partner reward reviews", exact: true }).click();
+    await openRewards(b);
+    await rewards(b).getByLabel("Existing reward ID").fill(String(fixture.reward_id));
+    await rewards(b).locator("textarea").fill("Review a synthetic reward");
+    await rewards(b).getByRole("button", { name: "Propose reward", exact: true }).click();
+    await rewards(b).locator("[data-reward-review]").waitFor();
+    await a.locator("#partners article").filter({
+      has: a.locator("#retail-partner-status-" + createdPartnerId),
+    }).getByRole("button", { name: "Review partner", exact: true }).click();
+    await openRewards(a);
+    const reviewCard = rewards(a).locator("[data-reward-review]");
+    await reviewCard.locator("textarea").fill("Independent reward review");
+    await reviewCard.getByRole("button", { name: "Approve reward proposal", exact: true }).click();
+    await reviewCard.getByRole("button", { name: "Revoke reward approval", exact: true }).waitFor();
+    await reviewCard.getByRole("button", { name: "Reward decision history", exact: true }).click();
+    await reviewCard.getByText(/^2 · .* · Independent reward review$/).waitFor();
+    await rewards(a).getByText(/Partner fulfillment is disabled/).waitFor();
+    checks++;
+    await b.locator("#detail").getByRole("button", { name: "Refresh records", exact: true }).click();
+    await b.getByRole("button", { name: "Suspend", exact: true }).waitFor();
     await b.locator("#detail textarea").fill("Suspend synthetic partner");
     await b.getByRole("button", { name: "Suspend", exact: true }).click();
     await b
