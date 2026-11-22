@@ -997,7 +997,31 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         code.autocomplete = "off";
         code.maxLength = 40;
         code.pattern = "[A-Za-z0-9\\-]{12,40}";
+        const scope = "creabiz.coupon-claim.v1." + owner;
         let pending;
+        function readPending() {
+            if (role !== "customer") return pending;
+            const value = JSON.parse(sessionStorage.getItem(scope) ?? "null");
+            if (value === null) return undefined;
+            if (typeof value.idempotency_key !== "string" ||
+                !/^[a-f0-9-]{36}$/.test(value.idempotency_key) ||
+                !(Number.isSafeInteger(value.coupon) && value.coupon > 0 && value.codeHash === undefined ||
+                  value.coupon === undefined && /^[a-f0-9]{64}$/.test(value.codeHash))) {
+                throw Error("Invalid saved coupon");
+            }
+            return value;
+        }
+        function savePending(value) {
+            if (role === "customer") {
+                if (value) sessionStorage.setItem(scope, JSON.stringify(value));
+                else sessionStorage.removeItem(scope);
+            }
+            pending = value;
+        }
+        async function digest(value) {
+            const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+            return Array.from(new Uint8Array(bytes), value => value.toString(16).padStart(2, "0")).join("");
+        }
         const locale = () => document.documentElement.lang === "ar";
         const labelStatus = {
             pending: ["Pending fulfillment", "بانتظار التسليم"],
@@ -1012,14 +1036,30 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         }
         const validOffer = row => Number.isSafeInteger(row?.id) && row.id > 0
             && typeof row.reward_name === "string" && typeof row.reward_name_ar === "string";
+        function receiptMode(row) {
+            const legacy = !Object.hasOwn(row, "activation_mode") &&
+                !Object.hasOwn(row, "activation_recorded");
+            const mode = legacy ? "sandbox" : row.activation_mode;
+            const recorded = legacy ? false : row.activation_recorded;
+            if (mode === "sandbox" && typeof recorded === "boolean" &&
+                row.evidence === "TEST_PROMOTIONAL_ECONOMICS") return mode;
+            if (mode === "reviewed_manual" && recorded === true &&
+                row.evidence === "REVIEWED_MANUAL_NONCASH") return mode;
+            throw Error("Unsupported noncash provenance");
+        }
         function receiptCard(row) {
             if (!validOffer(row) || !Object.hasOwn(labelStatus, row.status)
                 || row.points_cost !== 0 || row.cash_value !== false
+                || row.source !== "COUPON" || row.delivery_verified !== false
                 || row.fulfillment !== "MANUAL_NON_MONETARY" || typeof row.claimed_at !== "string")
                 throw Error("Invalid receipt");
             const card = node("article");
             card.append(node("p", "#" + row.id), rewardName(row), t("p", ...labelStatus[row.status]));
             time(card, "Claimed", "تاريخ المطالبة", row.claimed_at);
+            const mode = receiptMode(row);
+            card.append(mode === "reviewed_manual"
+                ? t("p", "Reviewed manual noncash record", "سجل غير نقدي يدوي مراجع")
+                : t("p", "Sandbox test record", "سجل تجريبي"));
             return card;
         }
         const say = (en, ar) => feedback.replaceChildren(t("span", en, ar));
@@ -1034,7 +1074,7 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                         records.replaceChildren();
                         say("Could not load coupons. Please retry.", "تعذر تحميل القسائم. أعد المحاولة.");
                     } else if ([404, 409, 422].includes(error.status)) {
-                        if (operation === "draft") pending = undefined;
+                        if (operation === "draft") savePending(undefined);
                         say("Coupon request declined. Check the code, dates and limits.",
                             "رُفض طلب القسيمة. تحقق من الرمز والتواريخ والحدود.");
                     } else {
@@ -1121,9 +1161,40 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                 await refresh();
             }, "draft");
         } else {
-            function showClaim(result) {
+            async function claimsEnabled() {
+                const value = await api("commercial/noncash/status", "GET", undefined, controller.signal);
+                if (!alive()) return false;
+                if (!value || typeof value.enabled !== "boolean" ||
+                    typeof value.points_actions_enabled !== "boolean" ||
+                    typeof value.referrals_enabled !== "boolean" ||
+                    typeof value.verified_live_source_required !== "boolean" ||
+                    !["disabled", "sandbox", "reviewed_manual"].includes(value.activation_mode) ||
+                    value.enabled !== (value.activation_mode !== "disabled") ||
+                    value.money_movement !== false ||
+                    value.fulfillment !== "MANUAL_NON_MONETARY" ||
+                    value.delivery_verified !== false ||
+                    (value.activation_mode !== "sandbox" && value.points_actions_enabled) ||
+                    (!value.enabled && value.referrals_enabled)) {
+                    throw Error("Unsupported noncash capability");
+                }
+                if (!value.enabled) say(
+                    "New coupon claims are disabled. Existing receipts remain available.",
+                    "المطالبات الجديدة بالقسائم معطلة. تبقى الإيصالات الموجودة متاحة.",
+                );
+                return value.enabled;
+            }
+            async function showClaim(result, saved) {
                 const receipt = receiptCard(result?.claim);
-                pending = undefined;
+                const row = result.claim;
+                if (saved.coupon !== undefined && row.coupon_id !== saved.coupon)
+                    throw Error("Coupon receipt identity changed");
+                if (saved.codeHash) {
+                    const request = await digest("coupon-claim:" + owner + ":" + saved.idempotency_key);
+                    if (row.request_binding !== await digest(saved.codeHash + ":" + request))
+                        throw Error("Coupon receipt binding changed");
+                }
+                if (!alive()) return;
+                savePending(undefined);
                 code.value = "";
                 records.replaceChildren(receipt);
             }
@@ -1134,14 +1205,21 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             panel.append(t("p", "Enter a code you received to claim a noncash reward.", "أدخل الرمز الذي تلقيته للمطالبة بمكافأة غير نقدية."));
             couponButton(panel, "Claim coupon", "المطالبة بالقسيمة", async () => {
                 const entered = code.value.trim().toUpperCase();
-                if (pending && pending.code !== entered) return resolveFirst();
                 if (!validCode()) {
                     say("Enter a valid coupon code.", "أدخل رمز قسيمة صالحاً.");
                     return;
                 }
-                pending ??= { code: entered, idempotency_key: crypto.randomUUID() };
-                const result = await couponRequest("/claim", "POST", pending);
-                if (alive()) showClaim(result);
+                const codeHash = await digest(entered);
+                if (!alive()) return;
+                const previous = readPending();
+                if (previous && previous.codeHash !== codeHash) return resolveFirst();
+                if (!await claimsEnabled()) return;
+                const saved = previous ?? { codeHash, idempotency_key: crypto.randomUUID() };
+                savePending(saved);
+                const result = await couponRequest("/claim", "POST", {
+                    code: entered, idempotency_key: saved.idempotency_key,
+                });
+                if (alive()) await showClaim(result, saved);
             }, "draft");
             async function eligible(number = 1) {
                 const result = await couponRequest("/eligible?page=" + number);
@@ -1155,12 +1233,15 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                     card.append(rewardName(row));
                     time(card, "Expires", "الانتهاء", row.ends_at);
                     couponButton(card, "Claim listed reward", "المطالبة بالمكافأة المدرجة", async () => {
-                        if (pending && pending.coupon !== row.id) return resolveFirst();
-                        pending ??= { coupon: row.id, idempotency_key: crypto.randomUUID() };
+                        const previous = readPending();
+                        if (previous && previous.coupon !== row.id) return resolveFirst();
+                        if (!await claimsEnabled()) return;
+                        const saved = previous ?? { coupon: row.id, idempotency_key: crypto.randomUUID() };
+                        savePending(saved);
                         const reply = await couponRequest("/eligible/" + row.id + "/claim", "POST", {
-                            idempotency_key: pending.idempotency_key,
+                            idempotency_key: saved.idempotency_key,
                         });
-                        if (alive()) showClaim(reply);
+                        if (alive()) await showClaim(reply, saved);
                     }, "draft");
                     records.append(card);
                 }
@@ -1170,24 +1251,25 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             }
             couponButton(panel, "Browse eligible coupons", "تصفح القسائم المؤهلة", () => eligible());
             couponButton(panel, "Check last claim receipt", "التحقق من إيصال المطالبة", async () => {
-                if (!pending) {
+                const saved = readPending();
+                if (!saved) {
                     say("Open coupon history to review recorded claims.", "افتح سجل القسائم لمراجعة المطالبات المسجلة.");
                     return;
                 }
-                const result = await couponRequest("/claim-receipt", "POST", { idempotency_key: pending.idempotency_key });
+                const result = await couponRequest("/claim-receipt", "POST", { idempotency_key: saved.idempotency_key });
                 if (!alive()) return;
                 if (result?.claim === null) {
                     say("No receipt has been recorded for this request.", "لم يتم تسجيل إيصال لهذا الطلب.");
                     return;
                 }
-                showClaim(result);
+                await showClaim(result, saved);
             }, "receipt");
         }
         function validCode() {
             return /^[A-Z0-9-]{12,40}$/.test(code.value.trim().toUpperCase());
         }
         couponButton(panel, "Clear coupon draft", "مسح مسودة القسيمة", () => {
-            pending = undefined;
+            savePending(undefined);
             code.value = "";
         });
         couponButton(panel, "Refresh coupons", "تحديث القسائم", () => refresh());

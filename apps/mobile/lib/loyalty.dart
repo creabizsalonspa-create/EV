@@ -1,8 +1,13 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' show NumberFormat;
 import 'api.dart';
+import 'financial_operation_store.dart';
 import 'strings.dart';
 import 'loyalty_actions.dart';
+import 'noncash_capabilities.dart';
 
 const loyaltyEn = {
   'title': 'Points and rewards',
@@ -87,7 +92,13 @@ String loyaltyText(BuildContext c, String key) =>
 class LoyaltyView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
-  const LoyaltyView({super.key, required this.api, required this.onExpired});
+  final FinancialOperationStore? couponStore;
+  const LoyaltyView({
+    super.key,
+    required this.api,
+    required this.onExpired,
+    this.couponStore,
+  });
   @override
   State<LoyaltyView> createState() => _LoyaltyState();
 }
@@ -319,8 +330,11 @@ class _LoyaltyState extends State<LoyaltyView> {
         TextButton(
           onPressed: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) =>
-                  _CouponView(api: widget.api, onExpired: widget.onExpired),
+              builder: (_) => _CouponView(
+                api: widget.api,
+                onExpired: widget.onExpired,
+                store: widget.couponStore,
+              ),
             ),
           ),
           child: Text(
@@ -522,7 +536,8 @@ class _LoyaltyRequestState extends State<LoyaltyRequestView> {
 class _CouponView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
-  const _CouponView({required this.api, required this.onExpired});
+  final FinancialOperationStore? store;
+  const _CouponView({required this.api, required this.onExpired, this.store});
 
   @override
   State<_CouponView> createState() => _CouponState();
@@ -531,7 +546,12 @@ class _CouponView extends StatefulWidget {
 class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
   final code = TextEditingController();
   late final bool Function() ownsSession;
-  Map<String, dynamic>? pending;
+  FinancialOperation? operation;
+  int? owner;
+  Map<String, dynamic>? get pending => operation?.pending;
+  Map? get draft => pending?['body'] as Map?;
+  static String digest(String value) =>
+      sha256.convert(utf8.encode(value)).toString();
   List<Map<String, dynamic>> receipts = [];
   List<Map<String, dynamic>> offers = [];
   bool browsing = false;
@@ -540,6 +560,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
   int last = 1;
   int generation = 0;
   bool busy = false;
+  NoncashCapabilities? capability;
   String? message;
 
   String label(String en, String ar) =>
@@ -550,14 +571,20 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
     super.initState();
     ownsSession = widget.api.sessionFence();
     WidgetsBinding.instance.addObserver(this);
+    loadCapability();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) return;
+    if (state == AppLifecycleState.resumed) {
+      loadCapability();
+      return;
+    }
     setState(() {
       generation++;
-      pending?.remove('code');
+      operation = null;
+      owner = null;
+      capability = null;
       code.clear();
       clearRecords();
       message = null;
@@ -570,6 +597,42 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     code.dispose();
     super.dispose();
+  }
+
+  Future<void> loadCapability() async {
+    if (!ownsSession()) return;
+    final epoch = ++generation;
+    setState(() => busy = true);
+    try {
+      final me = await widget.api.request('me');
+      if (!mounted || generation != epoch || !ownsSession()) return;
+      if (me['id'] is! int || me['role'] != 'customer') {
+        throw const FormatException('Invalid coupon account');
+      }
+      final op = FinancialOperation(
+        widget.store ?? DeviceFinancialOperationStore(),
+        '${widget.api.base.origin}:${me['id']}:loyalty:coupon',
+        isCurrent: () => mounted && ownsSession(),
+      );
+      await op.restore();
+      if (!mounted || generation != epoch || !ownsSession()) return;
+      setState(() {
+        operation = op;
+        owner = me['id'] as int;
+      });
+      final value = await widget.api.request('commercial/noncash/status');
+      if (!mounted || generation != epoch || !ownsSession()) return;
+      setState(() => capability = NoncashCapabilities.parse(value));
+    } catch (error) {
+      if (mounted &&
+          generation == epoch &&
+          error is ApiException &&
+          error.endsCurrentSession) {
+        widget.onExpired();
+      }
+    } finally {
+      if (mounted && generation == epoch) setState(() => busy = false);
+    }
   }
 
   void clearRecords() {
@@ -596,6 +659,8 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
     if (row['id'] is! int ||
         row['points_cost'] != 0 ||
         row['cash_value'] != false ||
+        row['source'] != 'COUPON' ||
+        row['delivery_verified'] != false ||
         row['fulfillment'] != 'MANUAL_NON_MONETARY' ||
         !['pending', 'fulfilled', 'rejected'].contains(row['status']) ||
         row['reward_name'] is! String ||
@@ -603,28 +668,46 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
         row['claimed_at'] is! String) {
       throw const FormatException('Invalid coupon receipt');
     }
-    return row;
+    return {...row, 'receipt_mode': NoncashReceiptEvidence.parse(row).mode};
   }
 
   Future<void> run(String action, {int number = 1, int? coupon}) async {
-    if (busy || !ownsSession()) return;
-    if (coupon != null) {
-      if (pending != null && pending!['coupon'] != coupon) return;
-      pending ??= {'coupon': coupon, 'idempotency_key': operationKey()};
-    }
-    if (action == 'claim' && coupon == null) {
-      final entered = code.text.trim().toUpperCase();
-      if (pending == null && !RegExp(r'^[A-Z0-9-]{12,40}$').hasMatch(entered)) {
-        setState(
-          () => message = label(
-            'Enter a valid coupon code.',
-            'أدخل رمز قسيمة صالحاً.',
-          ),
-        );
-        return;
+    final op = operation;
+    final ownerId = owner;
+    if (busy ||
+        !ownsSession() ||
+        op == null ||
+        ownerId == null ||
+        (action == 'claim' && capability?.enabled != true))
+      return;
+    final entered = code.text.trim().toUpperCase();
+    Map<String, dynamic>? intent;
+    if (action == 'claim') {
+      if (coupon != null) {
+        if (pending != null && draft?['coupon'] != coupon) return;
+        intent = {'coupon': coupon};
+      } else {
+        if (!RegExp(r'^[A-Z0-9-]{12,40}$').hasMatch(entered)) {
+          setState(
+            () => message = label(
+              'Enter a valid coupon code.',
+              'أدخل رمز قسيمة صالحاً.',
+            ),
+          );
+          return;
+        }
+        final codeHash = digest(entered);
+        if (pending != null && draft?['code_hash'] != codeHash) {
+          setState(
+            () => message = label(
+              'Re-enter the original code or check the saved receipt.',
+              'أعد إدخال الرمز الأصلي أو تحقق من الإيصال المحفوظ.',
+            ),
+          );
+          return;
+        }
+        intent = {'code_hash': codeHash};
       }
-      pending ??= {'code': entered, 'idempotency_key': operationKey()};
-      if (!pending!.containsKey('code')) return;
     }
     if (action == 'claim-receipt' && pending == null) return;
     final read = action == 'claims' || action == 'eligible';
@@ -635,17 +718,19 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
       message = null;
     });
     try {
+      final staged = intent == null ? null : await op.prepare(intent);
+      if (!mounted || epoch != generation || !ownsSession()) return;
+      final key = staged?['idempotency_key'] ?? pending?['key'];
       final result = await widget.api.request(
         'commercial/coupons/$endpoint',
         method: read ? 'GET' : 'POST',
         query: read ? {'page': '$number'} : const {},
-        body: coupon != null
-            ? {'idempotency_key': pending!['idempotency_key']}
-            : action == 'claim'
-            ? Map<String, dynamic>.of(pending!)
-            : action == 'claim-receipt'
-            ? {'idempotency_key': pending!['idempotency_key']}
-            : null,
+        body: read
+            ? null
+            : {
+                'idempotency_key': key,
+                if (action == 'claim' && coupon == null) 'code': entered,
+              },
       );
       if (!mounted || epoch != generation || !ownsSession()) return;
       if (action == 'eligible') {
@@ -670,10 +755,20 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
         });
       } else if (result['claim'] != null) {
         final row = receipt(result['claim']);
+        if (draft?['coupon'] != null && row['coupon_id'] != draft?['coupon']) {
+          throw const FormatException('Coupon receipt identity changed');
+        }
+        if (draft?['code_hash'] case final String codeHash) {
+          final request = digest('coupon-claim:$ownerId:$key');
+          if (row['request_binding'] != digest('$codeHash:$request')) {
+            throw const FormatException('Coupon receipt binding changed');
+          }
+        }
+        await op.confirmed();
+        if (!mounted || epoch != generation || !ownsSession()) return;
         setState(() {
           clearRecords();
           receipts = [row];
-          pending = null;
           code.clear();
         });
       } else if (action == 'claim-receipt' && result['claim'] == null) {
@@ -690,7 +785,8 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
       if (!mounted || epoch != generation) return;
       if (error is ApiException && error.endsCurrentSession) {
         setState(() {
-          pending = null;
+          operation = null;
+          owner = null;
           code.clear();
           clearRecords();
           message = null;
@@ -707,7 +803,6 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           } else if (action == 'claim' &&
               error is ApiException &&
               [404, 409, 422].contains(error.status)) {
-            pending = null;
             message = label(
               'Coupon request declined. Check the code, expiry and limits.',
               'رُفض طلب القسيمة. تحقق من الرمز والصلاحية والحدود.',
@@ -719,6 +814,28 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
             );
           }
         });
+      }
+    } finally {
+      if (mounted && epoch == generation) setState(() => busy = false);
+    }
+  }
+
+  Future<void> clearDraft() async {
+    final op = operation;
+    if (op == null || busy || !ownsSession()) return;
+    final epoch = ++generation;
+    setState(() => busy = true);
+    try {
+      await op.confirmed();
+      if (mounted && epoch == generation && ownsSession()) code.clear();
+    } catch (_) {
+      if (mounted && epoch == generation && ownsSession()) {
+        setState(
+          () => message = label(
+            'Could not clear coupon draft.',
+            'تعذر مسح مسودة القسيمة.',
+          ),
+        );
       }
     } finally {
       if (mounted && epoch == generation) setState(() => busy = false);
@@ -737,9 +854,27 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
             'أدخل الرمز الذي تلقيته للمطالبة بمكافأة غير نقدية.',
           ),
         ),
+        if (capability?.enabled == false)
+          Text(
+            label(
+              'New coupon claims are disabled. Existing receipts remain available.',
+              'المطالبات الجديدة بالقسائم معطلة. تبقى الإيصالات الموجودة متاحة.',
+            ),
+          ),
+        if (capability == null && !busy)
+          TextButton(
+            onPressed: loadCapability,
+            child: Text(
+              label(
+                'Retry coupon availability',
+                'إعادة التحقق من توفر القسائم',
+              ),
+            ),
+          ),
         TextField(
           controller: code,
-          enabled: !busy && pending == null,
+          enabled:
+              !busy && capability?.enabled == true && draft?['coupon'] == null,
           maxLength: 40,
           textCapitalization: TextCapitalization.characters,
           textDirection: TextDirection.ltr,
@@ -748,7 +883,8 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           ),
         ),
         FilledButton(
-          onPressed: busy || (pending != null && !pending!.containsKey('code'))
+          onPressed:
+              busy || capability?.enabled != true || draft?['coupon'] != null
               ? null
               : () => run('claim'),
           child: Text(label('Claim coupon', 'المطالبة بالقسيمة')),
@@ -762,12 +898,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           ),
         if (pending != null)
           TextButton(
-            onPressed: busy
-                ? null
-                : () => setState(() {
-                    pending = null;
-                    code.clear();
-                  }),
+            onPressed: busy ? null : clearDraft,
             child: Text(label('Clear coupon draft', 'مسح مسودة القسيمة')),
           ),
         TextButton(
@@ -791,8 +922,9 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
             trailing: TextButton(
               onPressed:
                   busy ||
+                      capability?.enabled != true ||
                       offer['id'] is! int ||
-                      (pending != null && pending!['coupon'] != offer['id'])
+                      (pending != null && draft?['coupon'] != offer['id'])
                   ? null
                   : () => run('claim', coupon: offer['id'] as int),
               child: Text(label('Claim', 'مطالبة')),
@@ -808,7 +940,17 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
                 row['reward_name_ar'] as String,
               ),
             ),
-            subtitle: Text('${row['claimed_at']} · #${row['id']}'),
+            subtitle: Text(
+              [
+                '${row['claimed_at']} · #${row['id']}',
+                row['receipt_mode'] == 'reviewed_manual'
+                    ? label(
+                        'Reviewed manual noncash record',
+                        'سجل غير نقدي يدوي مراجع',
+                      )
+                    : label('Sandbox test record', 'سجل تجريبي'),
+              ].join('\n'),
+            ),
             trailing: Text(switch (row['status']) {
               'fulfilled' => label('Fulfilled', 'تم التسليم'),
               'rejected' => label('Rejected', 'مرفوض'),

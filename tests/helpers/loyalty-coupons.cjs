@@ -62,6 +62,7 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
   assert.equal(publicReceipt.claim.status, "pending");
   assert.equal(publicReceipt.claim.points_cost, 0);
   await customerPanel.getByText("بانتظار التسليم", { exact: true }).waitFor();
+  await customerPanel.getByText("سجل تجريبي", { exact: true }).waitFor();
   await customer.locator("#language").click();
   await customerPanel.getByText("Pending fulfillment", { exact: true }).waitFor();
 
@@ -81,6 +82,17 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
   await button(customerPanel, "Claim coupon").click();
   await customerPanel.getByText("Coupon request could not be confirmed. Check the receipt or retry the same request.", { exact: true }).waitFor();
   await customer.unroute(claimPath, dropReply);
+  const browserDraft = await customer.evaluate((key) => {
+    return Object.keys(sessionStorage)
+      .filter((name) => name.startsWith("creabiz.coupon-claim.v1."))
+      .map((name) => sessionStorage.getItem(name))
+      .find((raw) => raw.includes(key));
+  }, privateKey);
+  assert(browserDraft && !browserDraft.includes(privateCode));
+  await customer.reload();
+  await customer.locator('a[href="#commercial-finance"]').click();
+  assert.equal(await codeInput.inputValue(), "");
+  const reloadedAt = Date.now();
 
   await codeInput.fill(listedCode);
   await button(customerPanel, "Claim coupon").click();
@@ -91,8 +103,26 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
   await privateRow.locator('[name="revocation_reason"]').fill("Synthetic stock retirement");
   await couponPost(admin, `/${privateCoupon.id}/revoke`, () => button(privateRow, "Revoke coupon").click());
   await privateRow.getByText("Revoked", { exact: true }).waitFor();
+  const capabilityPath = "**/api/commercial/noncash/status";
+  const disableClaims = (route) => route.fulfill({
+    json: {
+      enabled: false, activation_mode: "disabled", points_actions_enabled: false,
+      referrals_enabled: false, verified_live_source_required: false,
+      money_movement: false, fulfillment: "MANUAL_NON_MONETARY", delivery_verified: false,
+    },
+  });
+  await customer.route(capabilityPath, disableClaims);
+  await codeInput.fill(privateCode);
+  const noMutation = () => { throw Error("Disabled capability sent a claim"); };
+  await customer.route(claimPath, noMutation);
+  await button(customerPanel, "Claim coupon").click();
+  await customerPanel.getByText(
+    "New coupon claims are disabled. Existing receipts remain available.", { exact: true },
+  ).waitFor();
+  await customer.unroute(claimPath, noMutation);
   const recovered = await couponPost(customer, "/claim-receipt",
     () => button(customerPanel, "Check last claim receipt").click());
+  await customer.unroute(capabilityPath, disableClaims);
   assert.equal(recovered.claim.id, expectedReceipt.id);
   await customerPanel.getByText("#" + expectedReceipt.id, { exact: true }).waitFor();
   await decide(expectedReceipt.redemption_id);
@@ -107,9 +137,38 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
   await customer.locator("#language").click();
   assert.equal(await customerPanel.getByText("#" + expectedReceipt.id, { exact: true }).count(), 1);
 
+  // Keep the real history request and vary only one receipt's immutable
+  // provenance in a controlled response. Current configuration stays sandbox.
+  const historyPath = "**/api/commercial/coupons/claims?page=1";
+  const reviewedHistory = async (route) => {
+    const response = await route.fetch();
+    assert.equal(response.status(), 200);
+    const history = await response.json();
+    const row = history.data.find((entry) => entry.id === expectedReceipt.id);
+    assert(row);
+    Object.assign(row, {
+      activation_mode: "reviewed_manual",
+      activation_recorded: true,
+      evidence: "REVIEWED_MANUAL_NONCASH",
+    });
+    await route.fulfill({ response, json: history });
+  };
+  await customer.route(historyPath, reviewedHistory, { times: 1 });
+  await button(customerPanel, "Refresh coupons").click();
+  await receipt.getByText("Reviewed manual noncash record", { exact: true }).waitFor();
+  await customer.locator("#language").click();
+  await receipt.getByText("سجل غير نقدي يدوي مراجع", { exact: true }).waitFor();
+  await customer.locator("#language").click();
+  // Reloading the authenticated platform also refreshes its other finance
+  // panels. Preserve the production per-account request limit by letting
+  // that activity leave its minute window before testing a fresh mutation.
+  await customer.waitForTimeout(Math.max(0, 61000 - (Date.now() - reloadedAt)));
   await codeInput.fill(privateCode);
   await couponPost(customer, "/claim", () => button(customerPanel, "Claim coupon").click(), 409);
   await customerPanel.getByText("Coupon request declined. Check the code, dates and limits.", { exact: true }).waitFor();
+  // Restore the loyalty section selected by the caller before the reload.
+  await button(customer.locator("[data-loyalty]"), "Open loyalty & rewards").click();
+  await button(customer.locator("[data-loyalty]"), "Reconcile point reversals and expiry").waitFor();
   return privateKey;
 }
 
