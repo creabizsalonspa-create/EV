@@ -120,6 +120,9 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
     "New coupon claims are disabled. Existing receipts remain available.", { exact: true },
   ).waitFor();
   await customer.unroute(claimPath, noMutation);
+  // Reopening the authenticated workspace refreshes other finance panels.
+  // Wait out their shared per-account request window before receipt recovery.
+  await customer.waitForTimeout(Math.max(0, 61000 - (Date.now() - reloadedAt)));
   const recovered = await couponPost(customer, "/claim-receipt",
     () => button(customerPanel, "Check last claim receipt").click());
   await customer.unroute(capabilityPath, disableClaims);
@@ -127,9 +130,6 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
   await customerPanel.getByText("#" + expectedReceipt.id, { exact: true }).waitFor();
   await decide(expectedReceipt.redemption_id);
 
-  // Reopening the authenticated workspace refreshes other finance panels.
-  // Let that shared per-account request window expire before reading history.
-  await customer.waitForTimeout(Math.max(0, 61000 - (Date.now() - reloadedAt)));
   const historyResponse = customer.waitForResponse((response) => {
     const url = new URL(response.url());
     return url.pathname === "/api/commercial/coupons/claims" &&
