@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Services\Commercial\Loyalty\LoyaltyService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -47,6 +48,102 @@ class RetailPartnerRewardGovernanceTest extends TestCase
     private function approvePartner(User $reviewer, int $partner): void
     {
         $this->actingAs($reviewer)->postJson(self::REGISTRY."/{$partner}/approve", $this->evidence(['expected_revision' => 1]))->assertOk();
+    }
+
+    private function sandboxOffer(array $overrides = []): array
+    {
+        [$maker, $reviewer, $partner, $reward] = $this->setupReview($overrides + ['starts_at' => now()->subMinute()->toISOString()]);
+        $this->approvePartner($reviewer, $partner);
+        $path = self::REGISTRY."/{$partner}/reward-reviews";
+        $review = $this->actingAs($maker)->postJson($path, $this->evidence(['reward_id' => $reward, 'expected_partner_revision' => 2]))
+            ->assertCreated()->json('review.id');
+        $this->actingAs($reviewer)->postJson("$path/$review/approve", $this->evidence(['expected_revision' => 1]))->assertOk();
+        app(LoyaltyService::class)->publish('loyalty_policies', $maker, [
+            'currency' => 'AED', 'minor_units' => 2, 'enabled' => true, 'points_numerator' => 1,
+            'minor_denominator' => 10, 'gold_threshold' => 100, 'platinum_threshold' => 500,
+            'gold_multiplier_bps' => 12500, 'platinum_multiplier_bps' => 15000, 'invoice_cap' => 1000,
+            'daily_cap' => 10000, 'expiry_days' => 30, 'daily_redemption_limit' => 5,
+            'effective_from' => now()->subDay()->toDateTimeString(),
+        ], 'partner-sandbox-policy');
+
+        return [$reviewer, $review, $path];
+    }
+
+    public function test_synthetic_offer_creates_one_private_zero_point_claim_and_uses_canonical_fulfillment(): void
+    {
+        [$reviewer, $review] = $this->sandboxOffer();
+        $customer = User::factory()->create();
+        $base = '/api/commercial/partner-rewards';
+        $this->getJson("$base/offers")->assertForbidden();
+        $this->actingAs($customer)->getJson("$base/offers")->assertOk()->assertJsonPath('data.0.review_id', $review)
+            ->assertJsonPath('data.0.evidence', 'SANDBOX_MANUAL_NONCASH')->assertJsonMissingPath('data.0.proposed_by');
+        $payload = ['idempotency_key' => 'customer-operation'];
+        $claim = $this->postJson("$base/offers/$review/claim", $payload)->assertCreated()
+            ->assertJsonPath('claim.status', 'pending')->assertJsonPath('claim.points_cost', 0)
+            ->assertJsonPath('claim.external_fulfillment_verified', false)->assertJsonMissingPath('claim.request_key')->json('claim');
+        $this->postJson("$base/offers/$review/claim", $payload)->assertCreated()->assertJsonPath('claim.id', $claim['id']);
+        $this->postJson("$base/offers/999/claim", $payload)->assertConflict();
+        $this->postJson("$base/offers/$review/claim", ['idempotency_key' => 'new-request'])->assertConflict();
+        $this->actingAs(User::factory()->create())->getJson("$base/claims")->assertOk()->assertJsonCount(0, 'data');
+        $redemption = '/api/commercial/loyalty/redemptions/'.$claim['redemption_id'];
+        $this->postJson("$redemption/fulfill", ['reason' => 'Manual synthetic fulfillment'])->assertForbidden();
+        $this->actingAs($reviewer)->postJson("$redemption/fulfill", ['reason' => 'Manual synthetic fulfillment'])
+            ->assertOk()->assertJsonPath('redemption.status', 'fulfilled');
+        $this->actingAs($customer)->getJson("$base/claims")->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('data.0.status', 'fulfilled')->assertJsonPath('data.0.external_fulfillment_verified', false);
+        $this->assertDatabaseCount('partner_reward_claims', 1);
+        $this->assertDatabaseCount('loyalty_redemptions', 1);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+        $this->expectException(QueryException::class);
+        DB::table('partner_reward_claims')->where('id', $claim['id'])->delete();
+    }
+
+    public function test_revoked_review_blocks_new_claims_and_fulfillment_but_preserves_receipt_and_release(): void
+    {
+        [$reviewer, $review, $path] = $this->sandboxOffer();
+        $customer = User::factory()->create();
+        $base = '/api/commercial/partner-rewards';
+        $payload = ['idempotency_key' => 'pre-revocation'];
+        $claim = $this->actingAs($customer)->postJson("$base/offers/$review/claim", $payload)->assertCreated()->json('claim');
+        $this->actingAs($reviewer)->postJson("$path/$review/revoke", $this->evidence(['expected_revision' => 2]))->assertOk();
+        $redemption = '/api/commercial/loyalty/redemptions/'.$claim['redemption_id'];
+        $this->postJson("$redemption/fulfill", ['reason' => 'Stale review must not fulfill'])->assertConflict();
+        $this->postJson("$redemption/reject", ['reason' => 'Reviewed offer revoked'])->assertOk()->assertJsonPath('redemption.status', 'rejected');
+        $this->actingAs($customer)->getJson("$base/offers")->assertOk()->assertJsonCount(0, 'data');
+        $this->postJson("$base/offers/$review/claim", $payload)->assertCreated()->assertJsonPath('claim.status', 'rejected');
+        $this->postJson("$base/offers/$review/claim", ['idempotency_key' => 'post-revocation'])->assertConflict();
+        config(['loyalty.enabled' => false]);
+        $this->getJson("$base/offers")->assertStatus(503);
+        $this->getJson("$base/claims")->assertOk()->assertJsonPath('data.0.status', 'rejected');
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_native_bearer_claim_requires_current_verified_customer_and_stays_synthetic(): void
+    {
+        [, $review] = $this->sandboxOffer();
+        $base = '/api/v1/commercial/partner-rewards';
+        $unverified = User::factory()->unverified()->create();
+        $customer = User::factory()->create();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($unverified->createToken('mobile')->plainTextToken)
+            ->postJson("$base/offers/$review/claim", ['idempotency_key' => 'unverified'])->assertForbidden();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($customer->createToken('mobile')->plainTextToken)
+            ->postJson("$base/offers/$review/claim", ['idempotency_key' => 'native'])->assertCreated();
+
+        config(['loyalty.noncash.mode' => 'reviewed_manual', 'loyalty.noncash.fulfillment_reviewed' => true,
+            'loyalty.noncash.approval_reference' => 'QA-DO-NOT-ACTIVATE', 'loyalty.noncash.terms_sha256' => str_repeat('a', 64)]);
+        $this->app->instance('env', 'production');
+        try {
+            $this->getJson("$base/offers")->assertStatus(503);
+            $this->postJson("$base/offers/$review/claim", ['idempotency_key' => 'production'])->assertStatus(503);
+            $this->getJson("$base/claims")->assertOk()->assertJsonCount(1, 'data')
+                ->assertJsonPath('data.0.evidence', 'SANDBOX_MANUAL_NONCASH');
+        } finally {
+            $this->app->instance('env', 'testing');
+        }
     }
 
     public function test_review_requires_exact_partner_terms_and_independent_admin_without_fulfilling_rewards(): void
