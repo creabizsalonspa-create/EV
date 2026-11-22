@@ -11,6 +11,11 @@ use Illuminate\Support\Str;
 
 class PartnerClient
 {
+    private const PROTOCOL_RESPONSE_BYTES = 65_536;
+
+    // Reconciliation reads can return the full catalog record inside an OCPI envelope.
+    private const CATALOG_READ_RESPONSE_BYTES = CpoCatalogContract::MAX_RECORD_BYTES + 8_192;
+
     public const MODULES = ['locations', 'tariffs', 'sessions', 'cdrs'];
 
     public function connection(OcpiProvider $provider, bool $bootstrap = false): array
@@ -418,17 +423,38 @@ class PartnerClient
         };
         $url = $this->guardedUrl($provider, rtrim($endpoint, '/').'/'.$payload['country_code'].'/'.$payload['party_id'].'/'.$payload['id']);
         $guardGeneration();
-        $result = $this->sendProtocol($provider, $method, $url, $method === 'PUT' ? $payload : null, $connection['authorization_token'], [
-            'OCPI-from-country-code' => $local['country_code'], 'OCPI-from-party-id' => $local['party_id'],
-            'OCPI-to-country-code' => $connection['party_country'], 'OCPI-to-party-id' => $connection['party_id'],
-        ], $method === 'GET' && $module === 'tariffs' && $allowMissing, true);
+        $result = $this->sendProtocol(
+            $provider,
+            $method,
+            $url,
+            $method === 'PUT' ? $payload : null,
+            $connection['authorization_token'],
+            [
+                'OCPI-from-country-code' => $local['country_code'],
+                'OCPI-from-party-id' => $local['party_id'],
+                'OCPI-to-country-code' => $connection['party_country'],
+                'OCPI-to-party-id' => $connection['party_id'],
+            ],
+            allowMissing: $method === 'GET' && $module === 'tariffs' && $allowMissing,
+            strictTrace: true,
+            maxResponseBytes: $method === 'GET' ? self::CATALOG_READ_RESPONSE_BYTES : self::PROTOCOL_RESPONSE_BYTES,
+        );
         $guardGeneration();
 
         return $result;
     }
 
-    private function sendProtocol(OcpiProvider $provider, string $method, string $url, ?array $body, string $token, array $headers, bool $allowMissing = false, bool $strictTrace = false): array
-    {
+    private function sendProtocol(
+        OcpiProvider $provider,
+        string $method,
+        string $url,
+        ?array $body,
+        string $token,
+        array $headers,
+        bool $allowMissing = false,
+        bool $strictTrace = false,
+        int $maxResponseBytes = self::PROTOCOL_RESPONSE_BYTES,
+    ): array {
         try {
             $trace = ['X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()];
             $r = Http::connectTimeout(5)->timeout(20)->withoutRedirecting()->withOptions(['stream' => true])
@@ -437,13 +463,13 @@ class PartnerClient
             $stream = $r->toPsrResponse()->getBody();
             $text = '';
             try {
-                while (! $stream->eof() && strlen($text) <= 65536) {
-                    $text .= $stream->read(min(8192, 65537 - strlen($text)));
+                while (! $stream->eof() && strlen($text) <= $maxResponseBytes) {
+                    $text .= $stream->read(min(8192, $maxResponseBytes + 1 - strlen($text)));
                 }
             } finally {
                 $stream->close();
             }
-            if ((! $r->successful() && ! ($allowMissing && $r->notFound())) || strlen($text) > 65536) {
+            if ((! $r->successful() && ! ($allowMissing && $r->notFound())) || strlen($text) > $maxResponseBytes) {
                 throw new OcpiException('Partner transport outcome requires reconciliation.');
             }
             if ($strictTrace && (! $r->toPsrResponse()->hasHeader('X-Request-ID') || ! $r->toPsrResponse()->hasHeader('X-Correlation-ID'))) {

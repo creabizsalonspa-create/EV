@@ -8,6 +8,8 @@ final class CpoCatalogContract
 {
     public const MODULES = ['locations', 'tariffs'];
 
+    public const MAX_RECORD_BYTES = 262_144;
+
     public function approved(OcpiProvider $provider): ?array
     {
         $connection = config('ocpi.connections.'.$provider->connection_key);
