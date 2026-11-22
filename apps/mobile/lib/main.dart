@@ -1,3 +1,4 @@
+import 'licensed_discovery.dart';
 import 'unified_discovery.dart';
 import 'session_cost.dart';
 import 'precharge_pricing.dart';
@@ -25,6 +26,7 @@ import 'ocpi_operations.dart';
 import 'invoice_history.dart';
 import 'payment_recovery.dart';
 import 'loyalty.dart';
+import 'referrals.dart';
 import 'financial_documents.dart';
 import 'financial_analytics.dart';
 import 'hosted_checkout.dart';
@@ -1463,6 +1465,10 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                       api: api!, onExpired: expiredSession,
                     ),
                   ));
+                } else if (value == 'licensedDiscovery') {
+                  await Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => LicensedDiscoveryScreen(api: api!, onExpired: expiredSession),
+                  ));
                 } else if (value == 'inventory') {
                   await Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1606,6 +1612,16 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                       ),
                     ),
                   );
+                } else if (value == 'referrals' &&
+                    account?.role == 'customer') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ReferralView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'loyalty') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1691,6 +1707,11 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                 }
               },
               itemBuilder: (_) => [
+                if (['customer', 'vendor'].contains(account?.role))
+                  PopupMenuItem(
+                    value: 'licensedDiscovery', enabled: !busy,
+                    child: Text(s.arabic ? 'اكتشاف الشحن من مصدر مرخص' : 'Licensed charging discovery'),
+                  ),
                 if (account!.role == 'admin')
                   PopupMenuItem(
                     value: 'vehicleModelCatalog',
@@ -1790,6 +1811,12 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                   enabled: !busy,
                   child: Text(loyaltyText(context, 'title')),
                 ),
+                if (account?.role == 'customer')
+                  PopupMenuItem(
+                    value: 'referrals',
+                    enabled: !busy,
+                    child: Text(referralTitle(context)),
+                  ),
                 if (['vendor', 'admin'].contains(account?.role))
                   PopupMenuItem(
                     value: 'ocpiOperations',

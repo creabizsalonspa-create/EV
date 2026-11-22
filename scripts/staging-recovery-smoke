@@ -50,6 +50,21 @@ with os.fdopen(fd, 'wb') as stream:
     stream.write(os.urandom(32))
 PY_LOCAL_HMAC
 
+# A separate ephemeral encryption key is never reused as the manifest HMAC key.
+python3 - "$scratch/backup-encryption.key" <<'PY_ENCRYPTION_KEY'
+import os, sys
+fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, 'wb') as stream:
+    stream.write(os.urandom(32))
+PY_ENCRYPTION_KEY
+backup_crypt() {
+  docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges --user "$(id -u):$(id -g)" \
+    --mount "type=bind,source=$scratch,target=/backup" \
+    --mount "type=bind,source=$root/scripts/backup-secretstream.php,target=/tool.php,readonly" \
+    --entrypoint php "$image" /tool.php "$1" "/backup/$2" "/backup/$3" "/backup/$4"
+}
+
 # Distinct credentials and isolated networks prove restore independently of source.
 python3 - "$scratch" "$review_id" <<'PY_SETUP'
 import base64, os, pathlib, secrets, sys
@@ -176,6 +191,10 @@ docker network inspect "$source_net" "$target_net" |
     --target-container "$target_db"
 docker exec --user www-data "$source_app" php artisan migrate --force --no-interaction
 
+# Populate actual canonical nonfinancial relationships without invoking services.
+docker exec -i --user www-data "$source_app" php /dev/stdin seed < "$root/scripts/recovery-domain-fixture.php"
+docker exec -i --user www-data "$source_app" php /dev/stdin verify < "$root/scripts/recovery-domain-fixture.php"
+
 # A durable synthetic marker proves that data, not just empty schema, survives restore.
 docker exec -i "$source_db" psql -X -v ON_ERROR_STOP=1 -U ev_recovery_review \
   -d ev_recovery_review >/dev/null <<'SQL_SEED'
@@ -259,11 +278,29 @@ probe_fingerprint_sql="SELECT md5(string_agg(marker_key || ':' || marker_value, 
 migration_fingerprint=$(query "$source_db" "$migration_fingerprint_sql")
 probe_fingerprint=$(query "$source_db" "$probe_fingerprint_sql")
 
+docker exec -i --user www-data "$source_app" php /dev/stdin fingerprint < "$root/scripts/recovery-domain-fixture.php" > "$scratch/domain-before.json"
 archive="$scratch/ev_recovery_review.dump"
 docker exec "$source_db" pg_dump -U ev_recovery_review -d ev_recovery_review \
   --format=custom --no-owner --no-privileges > "$archive"
 [[ -s "$archive" ]] || { echo 'PostgreSQL dump is empty.' >&2; exit 1; }
 snapshot_completed_epoch=$(date -u +%s)
+# Prove encrypted-at-rest transport and restoration of the authenticated bytes.
+backup_crypt encrypt ev_recovery_review.dump business.encrypted backup-encryption.key
+backup_crypt encrypt private-probe.tar.gz private.encrypted backup-encryption.key
+backup_crypt decrypt business.encrypted business.decrypted backup-encryption.key
+backup_crypt decrypt private.encrypted private.decrypted backup-encryption.key
+cmp -- "$archive" "$scratch/business.decrypted"
+cmp -- "$scratch/private-probe.tar.gz" "$scratch/private.decrypted"
+# The unrelated manifest key must not decrypt the database backup.
+if backup_crypt decrypt business.encrypted wrong-key-output backup-hmac.key >/dev/null 2>&1; then
+  echo 'Wrong key decrypted an encrypted backup.' >&2; exit 1
+fi
+[[ ! -e "$scratch/wrong-key-output" ]] || { echo 'Failed decryption published plaintext.' >&2; exit 1; }
+# The real restore consumes decrypted files, not the original plaintext copy.
+rm -- "$archive" "$scratch/private-probe.tar.gz"
+archive="$scratch/business.decrypted"
+mv -- "$scratch/private.decrypted" "$scratch/private-probe.tar.gz"
+
 python3 "$root/scripts/backup-artifact-guard.py" record --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
 # Prove real backup-byte tampering is rejected before the restored DB is touched.
@@ -375,6 +412,11 @@ docker network inspect "$source_net" "$target_net" |
     --source-network "$source_net" --target-network "$target_net" \
     --source-container "$source_db" --source-container "$source_app" \
     --target-container "$target_db" --target-container "$target_app"
+# All public tables and sequence states must match before target workers run.
+docker exec -i --user www-data "$target_app" php /dev/stdin fingerprint < "$root/scripts/recovery-domain-fixture.php" > "$scratch/domain-after.json"
+cmp -- "$scratch/domain-before.json" "$scratch/domain-after.json"
+docker exec -i --user www-data "$target_app" php /dev/stdin verify < "$root/scripts/recovery-domain-fixture.php"
+
 # Recheck source/target isolation and distinct private volumes before extraction.
 docker inspect "$source_db" "$source_app" "$target_db" "$target_app" |
   python3 "$root/scripts/recovery-runtime-guard.py" containers \
@@ -483,8 +525,13 @@ if ($response === false || !preg_match('/^HTTP\/\S+ 200\b/', $headers[0] ?? ''))
     throw new RuntimeException('Restored application did not serve the station catalog.');
 }
 $json = json_decode($response, true, flags: JSON_THROW_ON_ERROR);
-if (($json['data'] ?? null) !== [] || ($json['total'] ?? null) !== 0) {
-    throw new RuntimeException('Restored isolated database must have an empty station catalog.');
+if (($json['total'] ?? null) !== 2 || count($json['data'] ?? []) !== 2) {
+    throw new RuntimeException('Restored synthetic station catalog is incomplete.');
+}
+foreach ($json['data'] as $station) {
+    if (($station['remote_control'] ?? null) !== false || ($station['evidence'] ?? null) !== 'SIMULATED') {
+        throw new RuntimeException('Restored simulator fixtures must never grant command authority.');
+    }
 }
 echo "Recovered application HTTP and Laravel migrations: PASS\n";
 PHP_HTTP
@@ -497,11 +544,12 @@ private_archive_hash=$(sha256sum "$scratch/private-probe.tar.gz" | awk '{print $
 PYTHONPATH="$root/scripts" python3 - "$root/artifacts/agent3-recovery/validation.json" \
   "$archive_hash" "$private_archive_hash" "$migration_count" "$migration_fingerprint" "$probe_fingerprint" \
   "$drill_started_epoch" "$snapshot_started_epoch" "$snapshot_completed_epoch" \
-  "$restore_started_epoch" "$drill_completed_epoch" <<'PY_EVIDENCE'
-import os, sys
+  "$restore_started_epoch" "$drill_completed_epoch" "$scratch/domain-before.json" <<'PY_EVIDENCE'
+import json, os, sys
 from recovery_proof_writer import publish
 path, archive_hash, private_hash, count, migration_hash, probe_hash, \
-    drill_start, snapshot_start, snapshot_end, restore_start, drill_end = sys.argv[1:]
+    drill_start, snapshot_start, snapshot_end, restore_start, drill_end, domain_path = sys.argv[1:]
+domain = json.load(open(domain_path))
 record = {
     'status': 'PASS',
     'source_sha': os.environ.get('GITHUB_SHA', 'local-unverified'),
@@ -514,6 +562,8 @@ record = {
     'post_snapshot_private_write_excluded': True,
     'archive_tamper_rejected': True,
     'run_local_manifest_hmac_verified': True,
+    'authenticated_backup_encryption_roundtrip': True,
+    'wrong_backup_decryption_key_rejected': True,
     'single_transaction_restore': True,
     'isolated_runtime_verified': True,
     'distinct_cluster_system_ids_verified': True,
@@ -537,7 +587,11 @@ record = {
     'laravel_migration_rows': int(count),
     'migration_history_md5': migration_hash,
     'synthetic_data_md5': probe_hash,
-    'restored_http_catalog': '200 and empty',
+    'restored_http_catalog': '200 and synthetic non-controllable records',
+    'canonical_domain_restored': True,
+    'unpaid_simulated_financial_records_restored': True,
+    'all_public_tables_and_sequences_match': True,
+    'canonical_domain_fingerprint': domain,
     'external_acceptance': 'not tested',
 }
 publish(path, record)

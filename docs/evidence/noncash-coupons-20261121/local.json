@@ -1,0 +1,80 @@
+{
+  "application_source_sha": "8f59a33ea360497d42e7558080e07edd2be4c912",
+  "preserved_original_coupon_source": "cd319a50a91acca53121e46664a33c6fc1806ecf",
+  "recorded_utc": "2026-11-21T04:36:43.681027+00:00",
+  "client_resume_date": "2026-11-21",
+  "scope": "Noncash coupon backend/Admin vertical; full original2.9.4 credit pending Agent4 customer/native consumers, exact-source hosted tests and Agent5 review",
+  "results": {
+    "laravel": {
+      "passed": 1789,
+      "skipped": 1,
+      "assertions": 32233
+    },
+    "focused_loyalty_coupon": {
+      "passed": 28,
+      "assertions": 223
+    },
+    "financial_postgresql_features": {
+      "passed": 464,
+      "skipped": 1,
+      "assertions": 11367
+    },
+    "postgresql_process_migration": {
+      "passed": 106,
+      "assertions": 1550
+    },
+    "actual_admin_laravel_browser": {
+      "checks": 12
+    },
+    "paced_orchestration": {
+      "passed": 9
+    },
+    "pint": {
+      "files": 851,
+      "passed": true
+    }
+  },
+  "production_accepted": false,
+  "artifacts": [
+    {
+      "path": "artifacts/noncash-coupons/8f59a33e/laravel-full.txt",
+      "sha256": "7312d9f9d3dcee4cd9eb971248a1c4962730832782feb8a3e6b42f345a804980",
+      "bytes": 1939
+    },
+    {
+      "path": "artifacts/noncash-coupons/8f59a33e/laravel-focused.txt",
+      "sha256": "24671f0e2a040354a9c48e536eb7b751fce68f710bdc152f341ea10ec2742673",
+      "bytes": 91
+    },
+    {
+      "path": "artifacts/noncash-coupons/8f59a33e/postgres-features.txt",
+      "sha256": "ea77159fa3dae59604a839d77edf89ce1a36f6c7ab48257f939be67d70c17c05",
+      "bytes": 39995
+    },
+    {
+      "path": "artifacts/noncash-coupons/8f59a33e/postgres-process.txt",
+      "sha256": "917c9dbec96fc0b2993bfd781d1713ca50be546a4565baf956f88f9c54975896",
+      "bytes": 10718
+    },
+    {
+      "path": "artifacts/noncash-coupons/8f59a33e/actual-admin-browser.txt",
+      "sha256": "28af6a0f448e4441a1136e30d91ab1cf99859f4825d5eb37139f84bd58c140b1",
+      "bytes": 175
+    },
+    {
+      "path": "artifacts/noncash-coupons/8f59a33e/pint.txt",
+      "sha256": "090f7f1ee5fa8947605fe915717b55730aac669e5ff51fb8d3385210074f1c25",
+      "bytes": 1188
+    },
+    {
+      "path": "artifacts/noncash-coupons/8f59a33e/paced-canaries.txt",
+      "sha256": "945bd1e2dc87d399362257a24484db8db5254964e1b0cba47596b829852ef040",
+      "bytes": 999
+    },
+    {
+      "path": "artifacts/operational-browser/reward-coupons/ar-dark-mobile.png",
+      "sha256": "e647b6b2faf5e3642af8f25f4175c5bd07896ce92fe3877b92b7b9ac54b353ef",
+      "bytes": 44536
+    }
+  ]
+}
