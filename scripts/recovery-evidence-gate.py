@@ -110,8 +110,19 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
     require(type(business.get('laravel_migration_rows')) is int and
             business['laravel_migration_rows'] > 0,
             'No restored Laravel migration history')
+    domain = business.get('canonical_domain_fingerprint', {})
+    require(isinstance(domain, dict) and valid_hash(domain.get('fingerprint_sha256'), 64)
+            and all(type(domain.get(field)) is int and domain[field] > 0
+                    for field in ('table_count', 'row_count', 'sequence_count'))
+            and 30 <= domain['table_count'] <= 1024
+            and business.get('canonical_domain_restored') is True
+            and business.get('unpaid_simulated_financial_records_restored') is True
+            and business.get('authenticated_backup_encryption_roundtrip') is True
+            and business.get('wrong_backup_decryption_key_rejected') is True
+            and business.get('all_public_tables_and_sequences_match') is True,
+            'Canonical domain recovery proof invalid')
     require(business.get('classification') == 'disposable staging software only' and
-            business.get('restored_http_catalog') == '200 and empty' and
+            business.get('restored_http_catalog') == '200 and synthetic non-controllable records' and
             business.get('external_acceptance') == 'not tested' and
             business.get('laravel_encrypted_record_restored') is True and
             business.get('wrong_laravel_key_rejected') is True and
@@ -161,6 +172,8 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
         'business_private_archive_sha256': business['synthetic_private_archive_sha256'],
         'csms_dump_sha256': csms['database_archive_sha256'],
         'laravel_migrations_restored': business['laravel_migration_rows'],
+        'canonical_domain_fingerprint': domain,
+        'canonical_domain_restored': True,
         'synthetic_postgis_rows_restored': csms['recovered_rows'],
         **business_timing,
         **csms_timing,

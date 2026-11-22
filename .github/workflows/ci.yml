@@ -215,6 +215,10 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=normal)"
       - name: Build pinned staging runtime and verify offline image boundaries
         run: ./scripts/staging-image-build creabiz-ev-business:ci-review
+      - name: Verify actual offline authenticated backup encryption
+        env:
+          EV_BACKUP_ENCRYPTION_IMAGE: creabiz-ev-business:ci-review
+        run: python3 -B -m unittest discover -s tests -p agent5_backup_encryption_test.py -v
       - name: Verify PostgreSQL17 migrations, HTTP discovery and fresh private-volume ownership
         run: ./scripts/staging-image-smoke creabiz-ev-business:ci-review
       - name: Static validation of disposable recovery runner
