@@ -28,7 +28,9 @@ class PromotionApi extends EvApi {
       'placements': [
         if (eligible)
           {
-            'station_id': 42,
+            'station_id': int.parse(
+              query['station_id'] ?? query['station_ids[0]']!,
+            ),
             'title': 'Synthetic offer',
             'title_ar': 'عرض تجريبي',
             'description': 'Sponsor details',
@@ -83,4 +85,36 @@ void main() {
       expect(find.text('No promotions on this page'), findsOneWidget);
     },
   );
+
+  testWidgets('discovery placements use only the current station page', (
+    tester,
+  ) async {
+    final api = PromotionApi();
+    addTearDown(api.close);
+    Widget page(List<int> ids) => MaterialApp(
+      home: Scaffold(
+        body: StationPromotions.discovery(
+          key: ValueKey(ids.join(',')),
+          api: api,
+          discoveryStations: ids,
+          onExpired: () {},
+        ),
+      ),
+    );
+    await tester.pumpWidget(page([42, 43]));
+    await tester.pumpAndSettle();
+    expect(api.calls.single, {
+      'station_ids[0]': '42',
+      'station_ids[1]': '43',
+      'placement': 'discovery_banner',
+      'page': '1',
+    });
+    expect(find.text('Synthetic offer'), findsOneWidget);
+    api.eligible = false;
+    await tester.pumpWidget(page([99]));
+    await tester.pumpAndSettle();
+    expect(api.calls.last['station_ids[0]'], '99');
+    expect(api.calls.last.containsKey('station_ids[1]'), false);
+    expect(find.text('Synthetic offer'), findsNothing);
+  });
 }

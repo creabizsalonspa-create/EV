@@ -549,6 +549,18 @@ for (final field in [
                     s.t(widget.savedOnly ? 'noSavedStations' : 'noStations'),
                   ),
                 ),
+              if (widget.customer &&
+                  widget.discoveryApi != null &&
+                  !controller.loading &&
+                  controller.error == null &&
+                  page != null &&
+                  page.items.isNotEmpty)
+                StationPromotions.discovery(
+                  key: ValueKey(page.items.map((station) => station.id).join(',')),
+                  api: widget.discoveryApi!,
+                  discoveryStations: page.items.map((station) => station.id).take(25).toList(),
+                  onExpired: widget.onExpired ?? () {},
+                ),
               for (final station in page?.items ?? <Station>[])
                 Card(
                   child: Padding(
@@ -588,6 +600,8 @@ for (final field in [
                         ),
                         if (widget.customer &&
                             widget.discoveryApi != null &&
+                            !controller.loading &&
+                            controller.error == null &&
                             station.country != null)
                           StationPromotions(
                             key: ValueKey('promotions-${station.id}-${station.country}'),

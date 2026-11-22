@@ -9,11 +9,20 @@ class StationPromotions extends StatefulWidget {
     required this.stationId,
     required this.country,
     required this.onExpired,
-  });
+  }) : discoveryStations = const [];
+
+  const StationPromotions.discovery({
+    super.key,
+    required this.api,
+    required this.discoveryStations,
+    required this.onExpired,
+  }) : stationId = null,
+       country = null;
 
   final EvApi api;
-  final int stationId;
-  final String country;
+  final int? stationId;
+  final String? country;
+  final List<int> discoveryStations;
   final VoidCallback onExpired;
 
   @override
@@ -30,6 +39,19 @@ class _StationPromotionsState extends State<StationPromotions> {
   int lastPage = 1;
   bool Function()? currentSession;
 
+  bool get discovery => widget.stationId == null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (discovery) {
+      expanded = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) load(1);
+      });
+    }
+  }
+
   Future<void> load(int requestedPage) async {
     final request = ++generation;
     final fence = widget.api.sessionFence();
@@ -45,9 +67,14 @@ class _StationPromotionsState extends State<StationPromotions> {
       final result = await widget.api.request(
         'commercial/campaign-placements',
         query: {
-          'country': widget.country,
-          'station_id': widget.stationId.toString(),
-          'placement': 'station_detail',
+          if (discovery)
+            for (var i = 0; i < widget.discoveryStations.length; i++)
+              'station_ids[$i]': widget.discoveryStations[i].toString()
+          else ...{
+            'country': widget.country!,
+            'station_id': widget.stationId.toString(),
+          },
+          'placement': discovery ? 'discovery_banner' : 'station_detail',
           'page': requestedPage.toString(),
         },
       );
@@ -62,9 +89,12 @@ class _StationPromotionsState extends State<StationPromotions> {
         throw const FormatException('Invalid station promotions');
       }
       final rows = <Map<String, dynamic>>[];
+      final stations = discovery
+          ? widget.discoveryStations
+          : [widget.stationId];
       for (final row in result['placements'] as List) {
         if (row is! Map ||
-            row['station_id'] != widget.stationId ||
+            !stations.contains(row['station_id']) ||
             row['sponsored'] != true ||
             row['compatibility_verified'] != false ||
             row['availability_verified'] != false ||
@@ -103,20 +133,27 @@ class _StationPromotionsState extends State<StationPromotions> {
     final arabic = Localizations.localeOf(context).languageCode == 'ar';
     String label(String en, String ar) => arabic ? ar : en;
     final visible = expanded && (currentSession?.call() ?? false);
+    if (discovery &&
+        (!visible || (placements?.isEmpty == true && lastPage == 1))) {
+      return const SizedBox.shrink();
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextButton(
-          onPressed: () {
-            setState(() => expanded = !expanded);
-            if (expanded) {
-              load(1);
-            } else {
-              generation++;
-            }
-          },
-          child: Text(label('Sponsored promotions', 'عروض ترويجية برعاية')),
-        ),
+        if (discovery && placements?.isNotEmpty == true)
+          Text(label('Sponsored promotions', 'عروض ترويجية برعاية')),
+        if (!discovery)
+          TextButton(
+            onPressed: () {
+              setState(() => expanded = !expanded);
+              if (expanded) {
+                load(1);
+              } else {
+                generation++;
+              }
+            },
+            child: Text(label('Sponsored promotions', 'عروض ترويجية برعاية')),
+          ),
         if (visible && loading) const LinearProgressIndicator(),
         if (visible && failed)
           TextButton(
