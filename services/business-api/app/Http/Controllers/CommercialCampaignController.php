@@ -152,18 +152,30 @@ class CommercialCampaignController extends Controller
 
     public function eligible(Request $r, CampaignService $s)
     {
-        $v = $r->validate(['country' => ['required', 'regex:/^[A-Z]{2}$/D'], 'placement' => ['required', Rule::in(['discovery_banner', 'station_detail'])], 'region' => 'nullable|string|max:100']);
-        $rows = DB::table('commercial_campaigns')->where('status', 'approved')->where('country', $v['country'])->where('placement', $v['placement'])->where('starts_at', '<=', now())->where('ends_at', '>', now())->where(fn ($q) => $q->whereNull('region')->orWhere('region', $v['region'] ?? ''))->orderBy('id')->paginate(25)->through(function ($row) use ($s) {
-            if (! $s->eligible($row)) {
-                return null;
-            }
+        $v = $r->validate([
+            'country' => ['required_without:station_ids', 'regex:/^[A-Z]{2}$/D'],
+            'placement' => ['required', Rule::in(['discovery_banner', 'station_detail'])],
+            'region' => 'nullable|string|max:100',
+            'station_id' => 'sometimes|integer|min:1|prohibits:station_ids',
+            'station_ids' => ['sometimes', 'array', 'min:1', 'max:25', Rule::prohibitedIf($r->input('placement') !== 'discovery_banner')],
+            'station_ids.*' => 'required|integer|min:1|distinct',
+            'page' => 'sometimes|integer|between:1,100000',
+        ]);
+        $rows = DB::table('commercial_campaigns')
+            ->when(isset($v['station_id']), fn ($q) => $q->where('station_id', $v['station_id']))
+            ->when(isset($v['station_ids']), fn ($q) => $q->whereIn('station_id', $v['station_ids']))
+            ->when(isset($v['country']), fn ($q) => $q->where('country', $v['country']))
+            ->where('status', 'approved')->where('placement', $v['placement'])->where('starts_at', '<=', now())->where('ends_at', '>', now())->where(fn ($q) => $q->whereNull('region')->orWhere('region', $v['region'] ?? ''))->orderBy('id')->paginate(25)->through(function ($row) use ($s) {
+                if (! $s->eligible($row)) {
+                    return null;
+                }
 
-            return ['campaign_id' => $row->id, 'station_id' => $row->station_id, 'title' => $row->title, 'title_ar' => $row->title_ar, 'description' => $row->description, 'description_ar' => $row->description_ar, 'sponsored' => true, 'compatibility_verified' => false, 'availability_verified' => false, 'capability_override' => false];
-        });
+                return ['campaign_id' => $row->id, 'station_id' => $row->station_id, 'title' => $row->title, 'title_ar' => $row->title_ar, 'description' => $row->description, 'description_ar' => $row->description_ar, 'sponsored' => true, 'compatibility_verified' => false, 'availability_verified' => false, 'capability_override' => false];
+            });
 
         // Filtered nulls never become placements; clients must not treat sponsored
         // selection as charger discovery, compatibility, live state or routing proof.
-        return response()->json(['placements' => array_values(array_filter($rows->items())), 'current_page' => $rows->currentPage(), 'last_page' => $rows->lastPage(), 'ranking_basis' => 'SPONSORED_ID_ORDER_NOT_PERFORMANCE', 'client_telemetry_billable' => false]);
+        return response()->json(['placements' => array_values(array_filter($rows->items())), 'current_page' => $rows->currentPage(), 'last_page' => $rows->lastPage(), 'ranking_basis' => 'SPONSORED_ID_ORDER_NOT_PERFORMANCE', 'client_telemetry_billable' => false])->header('Cache-Control', 'private, no-store');
     }
 
     public function delivery(Request $r, CampaignService $s)
