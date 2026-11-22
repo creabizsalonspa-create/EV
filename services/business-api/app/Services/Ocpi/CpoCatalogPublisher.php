@@ -181,7 +181,7 @@ final class CpoCatalogPublisher
             $payload = $this->stamp($payload, $timestamp, $withdraw);
             $this->normalizer->normalize($module, $payload);
             $encoded = json_encode($payload, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
-            abort_if(strlen($encoded) > 262144, 409, 'Publication exceeds the maximum record size.');
+            abort_if(strlen($encoded) > CpoCatalogContract::MAX_RECORD_BYTES, 409, 'Publication exceeds the maximum record size.');
             DB::table(self::TABLE)->updateOrInsert($key, [
                 'owner_id' => $provider->owner_id, 'actor_id' => $actor->id, 'generation' => $link->generation,
                 'authorization_revision' => $provider->authorization_revision, 'configuration_hash' => $link->configuration_hash,
