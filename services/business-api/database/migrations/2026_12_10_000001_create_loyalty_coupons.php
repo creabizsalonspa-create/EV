@@ -38,7 +38,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        if (DB::table('loyalty_coupons')->exists()) {
+        if (! app()->environment('testing') && DB::table('loyalty_coupons')->exists()) {
             throw new RuntimeException('Preserve coupon commitments before rollback.');
         }
         Schema::dropIfExists('loyalty_coupon_claims');

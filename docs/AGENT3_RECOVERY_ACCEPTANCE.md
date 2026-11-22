@@ -280,3 +280,50 @@ synthetic Docker inspection fixture still uses its default private modes.
 These static, synthetic tests are not proof of a real Docker container or
 PostgreSQL restore. Agent 4 must verify effective namespacing and
 cross-container isolation in a disposable acceptance environment.
+
+## Canonical domain and complete public-table restore verification — 21 November 2026
+
+The integration-controller candidate extends the existing isolated drill with real
+synthetic customer/vehicle/company/site/charger/EVSE/connector/reservation/session
+relationships for both recorded protocol labels, retained inbox rows and encrypted
+canonical command fields. It calls no charging or financial services: commands
+are terminal failed fixtures, stations are explicitly simulated, all source workers
+stay disabled and the two networks still have no external egress. Canonical FinanceService creates two unpaid SIMULATED invoices and their
+immutable journals from explicit fixture tariffs; it never calls payment, refund
+or settlement methods. Restored entries must balance, with no payment/refund rows. This tests recovery of stored software records, not protocol delivery or
+physical charging.
+
+The snapshot records a SHA-256 over every public table's deterministically ordered
+rows and all public sequence states under a bounded repeatable-read, read-only
+transaction. The target must reproduce that exact fingerprint before its queue
+worker runs. Real joins recheck connector/EVSE/source/session relationships and
+both command secrets must decrypt under the restored application key. Finally,
+the recovered application's actual HTTP catalog must expose both synthetic
+simulated locations without remote-control authority. Existing archive corruption, key,
+private-file, source-after-snapshot, queue/session/cache and isolation controls
+remain required. The combined recovery gate rejects missing or malformed domain
+proof; it no longer accepts an empty catalog as broad domain recovery evidence.
+
+Source34cdf42b passed the actual clean pinned image build/check and isolated
+PostgreSQL17 restore:189publictables,157sequences and184rows matched, including
+the populated unpaid financial fixtures. All386Python tests (103recovery policy
+cases) passed. Local proof: docs/evidence/recovery-domain-20261121/local.json.
+Exact final-head hosted staging and dependent recovery gates remain required. Coordinated cross-service snapshots, PITR/retention,
+offsite storage, real customer uploads and operational production approval remain
+separate gaps. Original atom9.1.10 is not promoted merely by adding these checks.
+
+
+### Authenticated encryption extension (candidate)
+
+The same candidate now adds standard libsodium secretstream encryption for both
+actual backup archives. It restores only the decrypted, byte-verified files,
+requires wrong-key rejection, and keeps the HMAC manifest key separate. Five
+actual pinned-image runtime tests exercise multichunk/empty/randomized output,
+wrong keys, tampering, truncation, duplicate/reordered frames, trailing data,
+private permissions, links/FIFOs and atomic no-overwrite behavior. Existing
+integrity and recovery controls are retained. See docs/BACKUP_ENCRYPTION.md.
+Current codec12ada42 passed the clean pinned image build/check and actual full
+encrypted-archive restore, including all earlier canonical/financial/private-file
+controls and wrong decryption key rejection. Local proof:
+docs/evidence/recovery-domain-20261121/encrypted-local.json. Final-head hosted
+checks and verified integration remain required.

@@ -1,5 +1,6 @@
 import 'connector_freshness.dart';
 import 'station_information.dart';
+import 'station_promotions.dart';
 import 'charging_reviews.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
@@ -548,6 +549,18 @@ for (final field in [
                     s.t(widget.savedOnly ? 'noSavedStations' : 'noStations'),
                   ),
                 ),
+              if (widget.customer &&
+                  widget.discoveryApi != null &&
+                  !controller.loading &&
+                  controller.error == null &&
+                  page != null &&
+                  page.items.isNotEmpty)
+                StationPromotions.discovery(
+                  key: ValueKey(page.items.map((station) => station.id).join(',')),
+                  api: widget.discoveryApi!,
+                  discoveryStations: page.items.map((station) => station.id).take(25).toList(),
+                  onExpired: widget.onExpired ?? () {},
+                ),
               for (final station in page?.items ?? <Station>[])
                 Card(
                   child: Padding(
@@ -585,6 +598,18 @@ for (final field in [
                           information: station.information,
                           timezone: station.timezone,
                         ),
+                        if (widget.customer &&
+                            widget.discoveryApi != null &&
+                            !controller.loading &&
+                            controller.error == null &&
+                            station.country != null)
+                          StationPromotions(
+                            key: ValueKey('promotions-${station.id}-${station.country}'),
+                            api: widget.discoveryApi!,
+                            stationId: station.id,
+                            country: station.country!,
+                            onExpired: widget.onExpired ?? () {},
+                          ),
                         if (widget.discoveryApi != null)
                           TextButton(
                             onPressed: () => Navigator.of(context).push(

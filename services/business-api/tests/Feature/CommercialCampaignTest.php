@@ -67,6 +67,41 @@ class CommercialCampaignTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_customer_station_placement_is_scoped_and_does_not_consume_delivery(): void
+    {
+        $fixture = $this->fixture();
+        $fixture['values']['placement'] = 'station_detail';
+        $campaign = $this->approved($fixture);
+        $other = $this->fixture();
+        $url = '/api/commercial/campaign-placements?country=AE&placement=station_detail&station_id=';
+        $this->actingAs($fixture['customer']);
+        $this->getJson($url.$other['station']->id)->assertOk()->assertJsonCount(0, 'placements');
+        $this->getJson($url.$fixture['station']->id.'&page=0')->assertUnprocessable();
+        $this->getJson($url.$fixture['station']->id)->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('placements.0.campaign_id', $campaign['id'])
+            ->assertJsonPath('placements.0.availability_verified', false)
+            ->assertJsonPath('client_telemetry_billable', false);
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
+    }
+
+    public function test_discovery_banner_results_fit_the_requested_catalog_page(): void
+    {
+        $first = $this->fixture();
+        $second = $this->fixture();
+        $campaign = $this->approved($first);
+        $this->approved($second);
+        $base = '/api/commercial/campaign-placements?placement=discovery_banner';
+        $this->actingAs($first['customer']);
+        $this->getJson($base)->assertUnprocessable();
+        $firstId = $first['station']->id;
+        $this->getJson($base.'&station_ids[]='.$firstId.'&station_id='.$second['station']->id)->assertUnprocessable();
+        $this->getJson($base.'&station_ids[]='.$firstId.'&station_ids[]='.$firstId)->assertUnprocessable();
+        $this->getJson($base.'&station_ids[]='.$firstId)->assertOk()->assertJsonCount(1, 'placements')
+            ->assertJsonPath('placements.0.campaign_id', $campaign['id'])
+            ->assertJsonPath('placements.0.station_id', $firstId);
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
+    }
+
     public function test_unpaid_or_non_entitled_package_and_foreign_station_cannot_create_campaign(): void
     {
         $f = $this->fixture(paid: false);

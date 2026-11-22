@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/loyalty.dart';
+import 'package:creabiz_ev/financial_operation_store.dart';
 import 'test_support.dart';
 
 class LoyaltyApi extends FixtureApi {
@@ -93,13 +94,21 @@ class LoyaltyApi extends FixtureApi {
   }
 }
 
-Widget app(LoyaltyApi api, {bool ar = false, VoidCallback? expired}) =>
-    MaterialApp(
-      locale: Locale(ar ? 'ar' : 'en'),
-      supportedLocales: const [Locale('en'), Locale('ar')],
-      localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      home: LoyaltyView(api: api, onExpired: expired ?? () {}),
-    );
+Widget app(
+  LoyaltyApi api, {
+  bool ar = false,
+  VoidCallback? expired,
+  FinancialOperationStore? couponStore,
+}) => MaterialApp(
+  locale: Locale(ar ? 'ar' : 'en'),
+  supportedLocales: const [Locale('en'), Locale('ar')],
+  localizationsDelegates: GlobalMaterialLocalizations.delegates,
+  home: LoyaltyView(
+    api: api,
+    onExpired: expired ?? () {},
+    couponStore: couponStore,
+  ),
+);
 Future<void> section(WidgetTester t, String label) async {
   await t.tap(find.byType(DropdownButtonFormField<String>));
   await t.pumpAndSettle();

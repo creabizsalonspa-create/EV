@@ -489,6 +489,18 @@ void main() {
               },
             ],
           };
+        } else if (path == '/api/commercial/noncash/status') {
+          expectSync(loggedIn && role == 'customer', isTrue);
+          result = {
+            'enabled': true,
+            'activation_mode': 'sandbox',
+            'points_actions_enabled': true,
+            'referrals_enabled': false,
+            'money_movement': false,
+            'fulfillment': 'MANUAL_NON_MONETARY',
+            'delivery_verified': false,
+            'verified_live_source_required': false,
+          };
         } else if (path == '/api/commercial/coupons/eligible') {
           expectSync(loggedIn && role == 'customer', isTrue);
           result = {
@@ -523,6 +535,12 @@ void main() {
             result = {
               'claim': {
                 'id': 25,
+                'coupon_id': 18,
+                'source': 'COUPON',
+                'activation_mode': 'sandbox',
+                'activation_recorded': true,
+                'evidence': 'TEST_PROMOTIONAL_ECONOMICS',
+                'delivery_verified': false,
                 'reward_name': 'Synthetic coupon device benefit',
                 'reward_name_ar': 'منفعة قسيمة تجريبية',
                 'status': 'pending',
@@ -1496,6 +1514,10 @@ void main() {
       );
       expect(find.text('Synthetic coupon device benefit'), findsOneWidget);
       await tester.tap(find.text('Claim'));
+      await settle();
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      await tester.tap(find.text('Coupons'));
       await settle();
       final checkReceipt = find.text('Check last claim receipt');
       await tester.scrollUntilVisible(

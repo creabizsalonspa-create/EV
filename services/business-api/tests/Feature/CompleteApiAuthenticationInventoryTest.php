@@ -25,6 +25,9 @@ class CompleteApiAuthenticationInventoryTest extends TestCase
         'GET|HEAD api/regions',
         'GET|HEAD api/roaming-protocol/2.2.1',
         'GET|HEAD api/roaming-protocol/2.2.1/cdrs/{external}',
+        // CPO sender reads require negotiated peer credentials and a current catalog contract.
+        'GET|HEAD api/roaming-protocol/2.2.1/cpo/{module}',
+        'GET|HEAD api/roaming-protocol/2.2.1/cpo/{module}/{external}/{evse?}/{connector?}',
         'GET|HEAD api/roaming-protocol/2.2.1/tokens',
         'GET|HEAD api/roaming-protocol/2.2.1/tokens/{country}/{party}/{uid}',
         'GET|HEAD api/roaming-protocol/versions',

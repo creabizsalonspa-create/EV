@@ -120,6 +120,7 @@ function clearIdentity() {
     user = null;
     renderIdentity();
     clearPrivateViews();
+    clearCatalogPromotions();
     el("stations")
         .querySelectorAll("[data-favorite-control]")
         .forEach((n) => n.remove());
@@ -640,11 +641,91 @@ function renderCatalogMode() {
     el("filters").hidden = favoriteMode;
 }
 
+function sponsorPanel(stations, placement, catalogRequest, identity) {
+    const banner = placement === "discovery_banner";
+    const stationIds = new Set(stations.map(station => station.id));
+    const panel = document.createElement(banner ? "section" : "details");
+    const content = document.createElement("div");
+    const text = (tag, en, ar) => {
+        const element = node(tag, document.documentElement.lang === "ar" ? ar : en);
+        element.dataset.en = en;
+        element.dataset.ar = ar;
+        return element;
+    };
+    panel.dataset.catalogPromotions = placement;
+    panel.hidden = banner;
+    panel.append(
+        banner
+            ? text("h3", "Sponsored discovery offers", "عروض الاكتشاف المموّلة")
+            : text("summary", "Sponsored promotions", "العروض المموّلة"),
+        content,
+    );
+    let revision = 0;
+
+    async function load(page = 1) {
+        const current = ++revision;
+        content.replaceChildren(text("p", "Loading promotions…", "جارٍ تحميل العروض…"));
+        const params = new URLSearchParams({ placement, page });
+        if (banner) {
+            for (const id of stationIds) params.append("station_ids[]", id);
+        } else {
+            params.set("country", stations[0].country);
+            params.set("station_id", stations[0].id);
+        }
+        const alive = () => current === revision && panel.isConnected &&
+            (banner || panel.open) && !catalogRequest.signal.aborted &&
+            identity === client.sessionEpoch;
+        try {
+            const result = await api("commercial/campaign-placements?" + params, "GET",
+                undefined, catalogRequest.signal);
+            if (!alive()) return;
+            content.replaceChildren();
+            for (const item of result.placements) {
+                if (!stationIds.has(item.station_id) || item.sponsored !== true ||
+                    item.availability_verified !== false || item.compatibility_verified !== false ||
+                    item.capability_override !== false) continue;
+                content.append(text("h4", item.title, item.title_ar),
+                    text("p", item.description, item.description_ar));
+            }
+            if (banner) panel.hidden = !content.childElementCount && result.last_page === 1;
+            if (!content.childElementCount)
+                content.append(text("p", "No promotions on this page.", "لا توجد عروض في هذه الصفحة."));
+            for (const [allowed, target, en, ar] of [
+                [result.current_page > 1, result.current_page - 1, "Previous promotions", "العروض السابقة"],
+                [result.current_page < result.last_page, result.current_page + 1, "Next promotions", "العروض التالية"],
+            ]) {
+                if (!allowed) continue;
+                const button = text("button", en, ar);
+                button.type = "button";
+                button.onclick = () => load(target);
+                content.append(button);
+            }
+        } catch {
+            if (alive()) content.replaceChildren(text("p", "Promotions unavailable. Reopen to retry.", "العروض غير متاحة. أعد فتح القسم للمحاولة."));
+        }
+    }
+
+    if (banner) queueMicrotask(() => load());
+    else panel.ontoggle = () => {
+        if (panel.open) load();
+        else {
+            revision++;
+            content.replaceChildren();
+        }
+    };
+    return panel;
+}
+
+function clearCatalogPromotions() {
+    el("discover").querySelectorAll("[data-catalog-promotions]").forEach(panel => panel.remove());
+}
+
 async function stations(query = "") {
     requestedCatalogQuery = query;
     const identity = client.sessionEpoch,
         savedMode = favoriteMode;
     stationRequest?.abort();
+    clearCatalogPromotions();
     const request = new AbortController();
     stationRequest = request;
     el("stations").setAttribute("aria-busy", "true");
@@ -739,6 +820,9 @@ async function stations(query = "") {
     );
     renderedCatalogIdentity = catalogIdentityKey();
     el("stations").replaceChildren();
+    if (user?.role === "customer" && !savedMode && j.data.length) {
+        el("stations").before(sponsorPanel(j.data, "discovery_banner", request, identity));
+    }
     if (!j.data.length)
         el("stations").append(
             ui(
@@ -797,6 +881,7 @@ async function stations(query = "") {
         );
         a.append(details);
         StationInformation.attachCard(a, s);
+        if (user?.role === "customer") a.append(sponsorPanel([s], "station_detail", request, identity));
         const feedback = document.createElement("button");
         feedback.type = "button";
         feedback.dataset.en = "Charging feedback";
