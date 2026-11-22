@@ -67,11 +67,14 @@ const fs = require("node:fs");
     // The real backend commits, but the first response is lost. The editor
     // must retain its request identity so an explicit retry cannot duplicate it.
     let loseReply = true;
+    let createdPartnerId = null;
     await a.route("**/api/admin/retail-partners", async (route) => {
       if (route.request().method() === "POST" && loseReply) {
         loseReply = false;
         const response = await route.fetch();
         assert.equal(response.status(), 201);
+        createdPartnerId = (await response.json()).partner.id;
+        assert(Number.isSafeInteger(createdPartnerId) && createdPartnerId > 0);
         checks++;
         await route.abort("failed");
       } else await route.continue();
@@ -111,11 +114,65 @@ const fs = require("node:fs");
       .getByRole("button", { name: "Review partner", exact: true })
       .first()
       .click();
+    await b.locator("#detail textarea").fill("Original terms require revision");
+    await b.getByRole("button", { name: "Reject draft", exact: true }).click();
+    await b
+      .locator("#detail")
+      .getByText(/^Rejected ·/)
+      .waitFor();
+    await b
+      .locator("#retail-partner-status-" + createdPartnerId)
+      .filter({ hasText: /^Rejected$/ })
+      .waitFor();
+    assert.equal(
+      await b.getByRole("button", { name: "Approve", exact: true }).count(),
+      0,
+    );
+    await b
+      .locator("#detail summary")
+      .filter({ hasText: "Reject draft" })
+      .click();
+    await b
+      .locator("#detail")
+      .getByText("Original terms require revision")
+      .waitFor();
+    checks++;
+
+    await a.reload();
+    await a
+      .getByRole("button", { name: "Review partner", exact: true })
+      .first()
+      .click();
+    await a.getByRole("button", { name: "Revise terms", exact: true }).click();
+    await a
+      .locator('#partner-form [name="terms"]')
+      .fill("Revised synthetic terms after independent rejection.");
+    await a
+      .locator('#partner-form [name="reason"]')
+      .fill("Address independent review");
+    const revised = a.waitForResponse(
+      (response) =>
+        response.url().endsWith("/revise") && response.status() === 200,
+    );
+    await a
+      .getByRole("button", { name: "Save immutable draft", exact: true })
+      .click();
+    await revised;
+    await b
+      .locator("#detail")
+      .getByRole("button", { name: "Refresh records", exact: true })
+      .click();
+    await b.getByRole("button", { name: "Approve", exact: true }).waitFor();
+    checks++;
     await b.locator("#detail textarea").fill("Independent synthetic review");
     await b.getByRole("button", { name: "Approve", exact: true }).click();
     await b
       .locator("#detail")
       .getByText("Currently effective", { exact: true })
+      .waitFor();
+    await b
+      .locator("#retail-partner-status-" + createdPartnerId)
+      .filter({ hasText: /^Approved$/ })
       .waitFor();
     checks++;
     await b.locator("#detail textarea").fill("Suspend synthetic partner");
@@ -255,7 +312,7 @@ const fs = require("node:fs");
     checks++;
     assert.deepEqual(errors, []);
     console.log(
-      `Retail actual-Laravel browser: ${checks} checks passed (EN/AR, independent approval, suspend/revise, immutable terms, XSS, themes, responsive, role denial).`,
+      `Retail actual-Laravel browser: ${checks} checks passed (EN/AR, independent rejection and approval, suspend/revise, immutable terms, XSS, themes, responsive, role denial).`,
     );
   } finally {
     await browser.close();

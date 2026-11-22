@@ -37,6 +37,7 @@ const groups = [
   ["sandbox-roaming"], // isolated synthetic CPO contract; own auth window
   ["partner-favorites"], // own customer/Admin authentication window
   ["charger-configuration"], // two explicit source-device read workflows; own authentication window
+  ["charger-availability-command"], // isolated device and browser acceptance for both OCPP versions
   ["diagnostic-files"], // two scoped file-transfer proofs; dedicated unchanged authentication window
 ];
 // Prepare local adapter flags before the existing initial authentication wait.
@@ -46,6 +47,7 @@ function prepareOperationalAdapters(execute) {
     "./scripts/configuration-read-setup",
     "./scripts/diagnostic-logs-setup",
     "./scripts/reset-operations-setup",
+    "./scripts/availability-command-setup",
   ]) {
     const result = execute(script, [], {
       encoding: "utf8",

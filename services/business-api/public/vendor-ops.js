@@ -985,6 +985,10 @@ window.createVendorWorkspace = ({
                 button(row, "Signed firmware operations", () =>
                     firmwareOperations(company, charger, row, epoch),
                 );
+                if (charger.source === "simulator")
+                    button(row, "Charger availability commands", () =>
+                        availabilityOperations(company, charger, row, epoch),
+                    );
                 button(row, "Safe reset operations", () =>
                     resets(company, charger, row, epoch),
                 );
@@ -1275,6 +1279,69 @@ window.createVendorWorkspace = ({
                     releasePage,
                 ),
             );
+    }
+    async function availabilityOperations(company, charger, parent, epoch, page = 1) {
+        if (!valid(epoch) || !parent.isConnected) return;
+        parent.querySelector("[data-availability-operations]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.availabilityOperations = "";
+        parent.append(pane);
+        const signal = controller?.signal;
+        const path = base + `companies/${company.id}/chargers/${charger.id}/availability-operations`;
+        const current = () => valid(epoch) && pane.isConnected;
+        const load = (next) => availabilityOperations(company, charger, parent, epoch, next);
+        const data = await api(path + `?page=${page}`, "GET", undefined, signal);
+        if (!current()) return;
+        pane.append(ui("h3", "Charger availability commands"), ui("p", "Availability simulation notice"));
+        button(pane, "Refresh", () => load(page));
+        if (data.can_request) {
+            const targets = { "": "Entire charger" };
+            for (const connector of data.connectors)
+                targets[`id-${connector.id}`] = `#${connector.connector_number}`;
+            form(
+                pane,
+                "Request simulated availability change",
+                [
+                    { name: "connector_id", label: "Target", choices: targets, optional: true },
+                    { name: "requested_state", label: "Requested state", choices: { Operative: "Operative", Inoperative: "Inoperative" } },
+                    { name: "reason", label: "Reason", max: 500 },
+                ],
+                async (body) => {
+                    if (!current()) return;
+                    await api(path, "POST", { ...body, connector_id: body.connector_id?.replace(/^id-/, "") || null }, signal);
+                    if (current()) await load(1);
+                },
+            );
+        }
+        const outcomes = {
+            pending: "Pending",
+            dispatching: "Pending",
+            transport_submitted: "Awaiting simulator response",
+            accepted: "Simulator accepted",
+            rejected: "Simulator rejected",
+            scheduled: "Simulator scheduled",
+            outcome_unknown: "Outcome unknown",
+            not_dispatched: "Not sent",
+        };
+        for (const operation of data.data) {
+            if (operation.evidence !== "SIMULATED_SOURCE" || operation.physical_availability_verified !== false) continue;
+            const row = document.createElement("article");
+            row.append(
+                raw("h4", `#${operation.id}`),
+                ui("p", operation.requested_state),
+                ui("p", outcomes[operation.status] || "Outcome unknown"),
+                raw("p", operation.created_at),
+            );
+            if (operation.can_observe)
+                button(row, "Check simulator response", async () => {
+                    if (!current()) return;
+                    await api(path + `/${operation.id}/observe`, "POST", {}, signal);
+                    if (current()) await load(page);
+                });
+            pane.append(row);
+        }
+        if (data.current_page > 1) button(pane, "Previous", () => load(page - 1));
+        if (data.current_page < data.last_page) button(pane, "Next", () => load(page + 1));
     }
     async function resets(company, charger, parent, epoch, page = 1) {
         parent.querySelector("[data-reset-operations]")?.remove();

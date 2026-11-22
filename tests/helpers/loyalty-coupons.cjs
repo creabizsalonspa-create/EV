@@ -127,7 +127,19 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
   await customerPanel.getByText("#" + expectedReceipt.id, { exact: true }).waitFor();
   await decide(expectedReceipt.redemption_id);
 
+  // Reopening the authenticated workspace refreshes other finance panels.
+  // Let that shared per-account request window expire before reading history.
+  await customer.waitForTimeout(Math.max(0, 61000 - (Date.now() - reloadedAt)));
+  const historyResponse = customer.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/commercial/coupons/claims" &&
+      url.searchParams.get("page") === "1" && response.request().method() === "GET";
+  });
   await button(customerPanel, "Refresh coupons").click();
+  const history = await historyResponse;
+  assert.equal(history.status(), 200, await history.text());
+  const fulfilled = (await history.json()).data.find((row) => row.id === expectedReceipt.id);
+  assert.equal(fulfilled?.status, "fulfilled");
   const receipt = customerPanel.locator("article").filter({
     has: customer.getByText("#" + expectedReceipt.id, { exact: true }),
   });
@@ -159,10 +171,6 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
   await customer.locator("#language").click();
   await receipt.getByText("سجل غير نقدي يدوي مراجع", { exact: true }).waitFor();
   await customer.locator("#language").click();
-  // Reloading the authenticated platform also refreshes its other finance
-  // panels. Preserve the production per-account request limit by letting
-  // that activity leave its minute window before testing a fresh mutation.
-  await customer.waitForTimeout(Math.max(0, 61000 - (Date.now() - reloadedAt)));
   await codeInput.fill(privateCode);
   await couponPost(customer, "/claim", () => button(customerPanel, "Claim coupon").click(), 409);
   await customerPanel.getByText("Coupon request declined. Check the code, dates and limits.", { exact: true }).waitFor();

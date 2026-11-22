@@ -22,7 +22,12 @@ final class RetailPartnerController extends Controller
         return DB::transaction(function () use ($r, $registry) {
             AdminTransactionAuthority::requireCurrent($r->user());
             $v = $r->validate(['page' => 'sometimes|integer|between:1,100000', 'search' => 'sometimes|nullable|string|max:80']);
-            $rows = DB::table('retail_partners')->when(isset($v['search']), fn ($q) => $q->where('reference', 'like', '%'.addcslashes($v['search'], '%_\\').'%'))
+            $search = strtoupper(trim($v['search'] ?? ''));
+            $rows = DB::table('retail_partners')->when($search !== '', function ($query) use ($search) {
+                $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search).'%';
+
+                return $query->whereRaw("reference LIKE ? ESCAPE '!'", [$pattern]);
+            })
                 ->orderByDesc('id')->paginate(25)->through(fn ($row) => $registry->read((int) $row->id));
 
             return response()->json($rows)->header('Cache-Control', 'no-store, private');

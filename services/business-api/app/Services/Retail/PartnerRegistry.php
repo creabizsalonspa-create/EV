@@ -43,7 +43,7 @@ final class PartnerRegistry
                 $revision = $current['revision'] + 1;
             }
             if (in_array($action, ['create', 'revise'], true)) {
-                abort_unless($action === 'create' || in_array($current['status'], ['draft', 'suspended'], true), 409, 'Suspend the partner before revising terms.');
+                abort_unless($action === 'create' || in_array($current['status'], ['draft', 'rejected', 'suspended'], true), 409, 'Suspend the partner before revising terms.');
                 $version = DB::table('retail_partner_versions')->insertGetId([
                     'partner_id' => $partnerId, 'version' => $versionNumber,
                     ...array_intersect_key($input, array_flip(['legal_name', 'display_name', 'display_name_ar', 'country', 'category', 'website', 'terms'])),
@@ -53,10 +53,12 @@ final class PartnerRegistry
                 ]);
             } else {
                 $version = $current['version']->id;
-                $allowed = ['approve' => ['draft'], 'suspend' => ['active'], 'reinstate' => ['suspended'], 'terminate' => ['draft', 'active', 'suspended']];
+                $allowed = ['approve' => ['draft'], 'reject' => ['draft'], 'suspend' => ['active'], 'reinstate' => ['suspended'], 'terminate' => ['draft', 'rejected', 'active', 'suspended']];
                 abort_unless(in_array($current['status'], $allowed[$action] ?? [], true), 409, 'Action is not permitted in the current state.');
-                if (in_array($action, ['approve', 'reinstate'], true)) {
+                if (in_array($action, ['approve', 'reject', 'reinstate'], true)) {
                     abort_unless((int) $current['version']->created_by !== $actor->id, 409, 'Another administrator must review these terms.');
+                }
+                if (in_array($action, ['approve', 'reinstate'], true)) {
                     abort_unless(CarbonImmutable::parse($current['version']->expires_at)->isFuture(), 409, 'Partner terms have expired.');
                     abort_unless(DB::table('regions')->where('country', $current['version']->country)->exists(), 409, 'Country configuration is unavailable.');
                 }
@@ -82,7 +84,7 @@ final class PartnerRegistry
         $version = DB::table('retail_partner_versions')->where('id', $event->version_id)->firstOrFail();
         $status = match ($event->action) {
             'create', 'revise' => 'draft', 'approve', 'reinstate' => 'active',
-            'suspend' => 'suspended', 'terminate' => 'terminated',
+            'reject' => 'rejected', 'suspend' => 'suspended', 'terminate' => 'terminated',
         };
         $effective = $status === 'active' && CarbonImmutable::parse($version->effective_from)->lte(now()) && CarbonImmutable::parse($version->expires_at)->gt(now());
 

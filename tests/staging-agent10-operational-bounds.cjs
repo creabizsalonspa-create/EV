@@ -49,7 +49,7 @@ test('operational setup is explicitly deadline bounded and preserves exact comma
     assert.equal(options.killSignal,'SIGTERM');
     return {status:0};
   });
-  assert.deepEqual(seen,['./scripts/configuration-read-setup','./scripts/diagnostic-logs-setup','./scripts/reset-operations-setup']);
+  assert.deepEqual(seen,['./scripts/configuration-read-setup','./scripts/diagnostic-logs-setup','./scripts/reset-operations-setup','./scripts/availability-command-setup']);
   assert.equal(OPERATIONAL_PREP_TIMEOUT_MS,120000);
 });
 test('timed-out or failed preparation fails closed; no follow-on setup or test runs',()=>{
