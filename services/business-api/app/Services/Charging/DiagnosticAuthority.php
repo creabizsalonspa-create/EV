@@ -21,11 +21,16 @@ final class DiagnosticAuthority
     {
         $company = $company->fresh();
         $charger = $charger->fresh();
+        $actor = app(MaintenanceActor::class);
         if ($charger->source === 'simulator') {
-            return app(ChargerResetController::class)->scope($request, $company, $charger, $write);
+            $binding = app(ChargerResetController::class)->scope($request, $company, $charger, $write);
+            $actor->checkBearer($request->user());
+
+            return $binding;
         }
         abort_unless($request->isSecure() || app()->environment(['local', 'testing']), 503, 'HTTPS diagnostic access is required.');
-        app(MaintenanceActor::class)->check($request->user());
+        $actor->check($request->user());
+        $actor->checkBearer($request->user());
         app(VendorAccess::class)->require($request->user(), $company, 'inventory.read');
         abort_unless($charger->company_id === $company->id && $charger->source === 'direct_unverified', 404);
         abort_unless($request->user()->id !== $company->owner_id || in_array($request->user()->role, ['vendor', 'admin'], true), 404);

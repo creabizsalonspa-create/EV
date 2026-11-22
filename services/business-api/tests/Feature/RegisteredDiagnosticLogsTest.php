@@ -38,6 +38,8 @@ class RegisteredDiagnosticLogsTest extends TestCase
 
     private mixed $onToken = null;
 
+    private mixed $onConfirmation = null;
+
     private bool $loseDispatchAck = false;
 
     private int $reportingAttempts = 0;
@@ -100,6 +102,9 @@ class RegisteredDiagnosticLogsTest extends TestCase
             $id = (int) DB::table('charger_diagnostic_logs')->max('id');
             $at = now()->toISOString();
             if (str_contains($query, 'requestMessageId')) {
+                if ($this->onConfirmation) {
+                    ($this->onConfirmation)();
+                }
                 $row = ['id' => 101, 'type' => 3, 'createdAt' => $at, 'payload' => $this->protocol === '1.6' ? ['fileName' => 'diagnostics.log'] : ['status' => 'Accepted']];
                 if ($this->failure === 'string_reply_id') {
                     $row['id'] = '101';
@@ -257,6 +262,37 @@ class RegisteredDiagnosticLogsTest extends TestCase
         $this->postJson($f['path'], ['request_key' => (string) Str::uuid(), 'reason' => 'Recheck changed admission before dispatch'])->assertCreated()->assertJsonPath('dispatch_state', 'not_dispatched');
         $this->assertCount(0, Http::recorded(fn ($r) => str_contains($r->url(), '/reporting/')));
         $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_revoked_mobile_credential_cannot_dispatch_after_source_token_fetch(string $protocol): void
+    {
+        $fixture = $this->fixture($protocol);
+        $token = $fixture['owner']->createToken('mobile');
+        $this->onToken = fn () => $token->accessToken->delete();
+        $this->app['auth']->forgetGuards();
+        $path = str_replace('/api/', '/api/v1/', $fixture['path']);
+        $this->withToken($token->plainTextToken)->postJson($path, [
+            'request_key' => (string) Str::uuid(), 'reason' => 'Validate mobile authority before diagnostics',
+        ])->assertForbidden();
+        $this->assertDatabaseHas('charger_diagnostic_logs', ['dispatch_state' => 'not_dispatched']);
+        $this->assertSame(0, $this->reportingAttempts);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_expired_mobile_credential_cannot_record_source_confirmation(string $protocol): void
+    {
+        config(['sanctum.expiration' => 10]);
+        $fixture = $this->fixture($protocol);
+        $id = $this->create($fixture);
+        $token = $fixture['owner']->createToken('mobile');
+        $token->accessToken->forceFill(['created_at' => now()->subMinutes(9)])->save();
+        $this->onConfirmation = fn () => $this->travel(2)->minutes();
+        $this->app['auth']->forgetGuards();
+        $path = str_replace('/api/', '/api/v1/', $fixture['path']);
+        $this->withToken($token->plainTextToken)->postJson($path.'/'.$id.'/observe')->assertForbidden();
+        $this->assertDatabaseHas('charger_diagnostic_logs', ['id' => $id, 'source_reply_id' => null, 'accepted_at' => null]);
+        $this->assertSame(1, $this->reportingAttempts);
     }
 
     #[DataProvider('protocols')]
