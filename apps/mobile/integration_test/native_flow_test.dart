@@ -77,6 +77,7 @@ void main() {
       var role = 'customer';
       var subscriptionEnrollments = 0;
       var caseEvidenceUploads = 0;
+      String? deviceCouponKey;
       var authenticated = 0;
       var hostedCreated = false, hostedState = 'open';
       var hostedPosts = 0, hostedGets = 0;
@@ -488,6 +489,50 @@ void main() {
               },
             ],
           };
+        } else if (path == '/api/commercial/coupons/eligible') {
+          expectSync(loggedIn && role == 'customer', isTrue);
+          result = {
+            'current_page': 1,
+            'last_page': 1,
+            'total': 1,
+            'data': [
+              {
+                'id': 18,
+                'reward_name': 'Synthetic coupon device benefit',
+                'reward_name_ar': 'منفعة قسيمة تجريبية',
+                'ends_at': '2026-12-01 10:00:00',
+              },
+            ],
+          };
+        } else if (path == '/api/commercial/coupons/eligible/18/claim' ||
+            path == '/api/commercial/coupons/claim-receipt') {
+          expectSync(loggedIn && role == 'customer', isTrue);
+          expectSync(request.method, 'POST');
+          final body =
+              jsonDecode(await utf8.decoder.bind(request).join())
+                  as Map<String, dynamic>;
+          expectSync(body.keys, ['idempotency_key']);
+          if (path.endsWith('/claim')) {
+            expectSync(deviceCouponKey, isNull);
+            deviceCouponKey = body['idempotency_key'] as String;
+            request.response.statusCode = HttpStatus.serviceUnavailable;
+            result = {'message': 'Synthetic uncertain response'};
+          } else {
+            expectSync(deviceCouponKey, isNotNull);
+            expectSync(body['idempotency_key'], deviceCouponKey);
+            result = {
+              'claim': {
+                'id': 25,
+                'reward_name': 'Synthetic coupon device benefit',
+                'reward_name_ar': 'منفعة قسيمة تجريبية',
+                'status': 'pending',
+                'points_cost': 0,
+                'cash_value': false,
+                'fulfillment': 'MANUAL_NON_MONETARY',
+                'claimed_at': '2026-11-01T10:00:00Z',
+              },
+            };
+          }
         } else if (path == '/api/financial/analytics') {
           expectSync(loggedIn, isTrue);
           result = {
@@ -1439,6 +1484,39 @@ void main() {
       await settle();
       expect(find.text('Synthetic device benefit'), findsOneWidget);
       expect(find.textContaining('Points required: 30'), findsOneWidget);
+      await tester.tap(find.text('Coupons'));
+      await settle();
+      await tester.ensureVisible(find.text('Browse eligible coupons'));
+      await tester.tap(find.text('Browse eligible coupons'));
+      await settle();
+      await tester.scrollUntilVisible(
+        find.text('Claim'),
+        160,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Synthetic coupon device benefit'), findsOneWidget);
+      await tester.tap(find.text('Claim'));
+      await settle();
+      final checkReceipt = find.text('Check last claim receipt');
+      await tester.scrollUntilVisible(
+        checkReceipt,
+        -160,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(checkReceipt);
+      await settle();
+      await tester.scrollUntilVisible(
+        find.text('Pending fulfillment'),
+        160,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Pending fulfillment'), findsOneWidget);
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      debugPrint(
+        'DEVICE: coupon discovery and uncertain receipt recovery verified; synthetic TLS fixture',
+      );
+
       await tester.tap(find.byType(BackButton));
       await settle();
       debugPrint(

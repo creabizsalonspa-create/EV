@@ -2691,6 +2691,74 @@ window.EV_MESSAGES = {
         en: "Review firmware source evidence",
         ar: "مراجعة دليل مصدر البرنامج الثابت",
     },
+    "Target": {
+        en: "Target",
+        ar: "الهدف",
+    },
+    "Reason": {
+        en: "Reason",
+        ar: "السبب",
+    },
+    "Pending": {
+        en: "Pending",
+        ar: "قيد الانتظار",
+    },
+    "Charger availability commands": {
+        en: "Charger availability commands",
+        ar: "أوامر إتاحة الشاحن",
+    },
+    "Availability simulation notice": {
+        en: "Simulator responses do not verify physical charger availability or change station notices.",
+        ar: "لا تؤكد ردود المحاكي إتاحة الشاحن الفعلية ولا تغيّر إشعارات المحطة.",
+    },
+    "Entire charger": {
+        en: "Entire charger",
+        ar: "الشاحن بالكامل",
+    },
+    "Request simulated availability change": {
+        en: "Request simulated availability change",
+        ar: "طلب تغيير الإتاحة في المحاكي",
+    },
+    "Requested state": {
+        en: "Requested state",
+        ar: "الحالة المطلوبة",
+    },
+    "Operative": {
+        en: "Operative",
+        ar: "تشغيل",
+    },
+    "Inoperative": {
+        en: "Inoperative",
+        ar: "إيقاف",
+    },
+    "Awaiting simulator response": {
+        en: "Awaiting simulator response",
+        ar: "بانتظار رد المحاكي",
+    },
+    "Simulator accepted": {
+        en: "Simulator accepted",
+        ar: "قبله المحاكي",
+    },
+    "Simulator rejected": {
+        en: "Simulator rejected",
+        ar: "رفضه المحاكي",
+    },
+    "Simulator scheduled": {
+        en: "Simulator scheduled",
+        ar: "جدوله المحاكي",
+    },
+    "Outcome unknown": {
+        en: "Outcome unknown",
+        ar: "النتيجة غير معروفة",
+    },
+    "Not sent": {
+        en: "Not sent",
+        ar: "لم يُرسل",
+    },
+    "Check simulator response": {
+        en: "Check simulator response",
+        ar: "تحقق من رد المحاكي",
+    },
     "Safe reset operations": {
         en: "Safe reset operations",
         ar: "عمليات إعادة التشغيل الآمنة",

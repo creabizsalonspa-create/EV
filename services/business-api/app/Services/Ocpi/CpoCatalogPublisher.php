@@ -347,9 +347,9 @@ final class CpoCatalogPublisher
             $this->admin($actor);
             [, $link] = $this->authority($provider);
             abort_unless($this->bound($provider, $link)->where(['id' => $row->id, 'published_at' => $publishedAt])->exists(), 409);
-            DB::table(self::OPERATIONS)->where('id', $operation->id)->whereIn('state', ['dispatching', 'unknown'])
+            $updated = DB::table(self::OPERATIONS)->where('id', $operation->id)->whereIn('state', ['dispatching', 'unknown'])
                 ->update(['state' => $verified ? 'reconciled' : 'unknown', 'updated_at' => now()]);
-            if ($verified) {
+            if ($verified && $updated === 1) {
                 DB::table('audit_events')->insert([
                     'actor_id' => $actor->id, 'action' => 'ocpi.cpo_reconciled',
                     'subject' => (string) $operation->id, 'created_at' => now(),

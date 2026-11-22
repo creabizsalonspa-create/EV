@@ -199,3 +199,5 @@ Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throt
 Route::get('/v1/stations/{station}/availability-blocks', [StationAvailabilityBlockController::class, 'index'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
 Route::post('/v1/stations/{station}/availability-blocks', [StationAvailabilityBlockController::class, 'store'])->where('station', '[0-9]{1,18}')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::post('/v1/stations/{station}/availability-blocks/{block}/cancel', [StationAvailabilityBlockController::class, 'cancel'])->where('station', '[0-9]{1,18}')->whereUuid('block')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
+
+Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/retail_partners.php');

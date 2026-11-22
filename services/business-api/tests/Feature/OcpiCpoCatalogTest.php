@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\CpoCatalogPublisher;
 use App\Services\Ocpi\CredentialExchange;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -192,8 +193,9 @@ class OcpiCpoCatalogTest extends TestCase
         [$provider, , $operations] = $this->peer($owner, 'owner', $sources);
         config(['ocpi.cpo_push_enabled' => true]);
 
+        $reconcileDuringRead = null;
         Http::preventStrayRequests();
-        Http::fake(function (Request $request) {
+        Http::fake(function (Request $request) use (&$reconcileDuringRead) {
             $reply = ['status_code' => 1000, 'timestamp' => now()->toISOString()];
             if ($request->url() === 'https://emsp.example/ocpi/versions') {
                 return Http::response($reply + ['data' => [['version' => '2.2.1', 'url' => 'https://emsp.example/details']]]);
@@ -212,6 +214,12 @@ class OcpiCpoCatalogTest extends TestCase
                 return Http::response('', 504);
             }
             if ($request->method() === 'GET') {
+                if ($reconcileDuringRead !== null) {
+                    $competing = $reconcileDuringRead;
+                    $reconcileDuringRead = null;
+                    $competing();
+                }
+
                 return Http::response(['status_code' => 2001, 'data' => null, 'timestamp' => now()->toISOString()], 404, $trace);
             }
             $this->assertSame('PUT', $request->method());
@@ -228,10 +236,15 @@ class OcpiCpoCatalogTest extends TestCase
         $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $withdrawn, 'operation_key' => (string) Str::uuid()])->assertOk()->assertJsonPath('delivery', 'unknown');
         $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $withdrawn, 'operation_key' => (string) Str::uuid()])->assertOk()->assertJsonPath('delivery', 'unknown');
         $this->publication($url, 'publish', $withdrawn)->assertConflict();
+        $reconcileDuringRead = function () use ($admin, $provider, $tariff, $withdrawn) {
+            $competing = app(CpoCatalogPublisher::class)->reconcile($admin, $provider, 'tariffs', $tariff, $withdrawn);
+            $this->assertSame('reconciled', $competing['delivery']);
+        };
         $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $withdrawn])->assertOk()->assertJsonPath('delivery', 'reconciled');
         $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $withdrawn])->assertOk()->assertJsonPath('delivery', 'reconciled');
-        Http::assertSentCount(5);
+        Http::assertSentCount(6);
         $this->assertDatabaseCount('ocpi_cpo_publication_operations', 2);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'ocpi.cpo_reconciled')->count());
     }
 
     public function test_cpo_push_rechecks_the_admin_after_the_delivery_claim(): void
