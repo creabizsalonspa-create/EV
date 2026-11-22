@@ -116,6 +116,10 @@ class RetailPartnerRewardGovernanceTest extends TestCase
         config(['loyalty.enabled' => false]);
         $this->getJson("$base/offers")->assertStatus(503);
         $this->getJson("$base/claims")->assertOk()->assertJsonPath('data.0.status', 'rejected');
+        $this->postJson("$base/claim-receipt", $payload)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')->assertJsonPath('claim.status', 'rejected');
+        $this->actingAs(User::factory()->create())->postJson("$base/claim-receipt", $payload)
+            ->assertOk()->assertJsonPath('claim', null);
         $this->assertDatabaseCount('loyalty_ledger', 0);
         $this->assertDatabaseCount('finance_journals', 0);
     }

@@ -319,7 +319,7 @@ class LoyaltyService
         return DB::transaction(function () use ($user, $review, $key) {
             $customer = User::whereKey($user)->lockForUpdate()->firstOrFail();
             abort_unless($customer->role === 'customer' && $customer->account_status === 'active' && $customer->email_verified_at !== null, 403);
-            $request = hash('sha256', 'partner-reward-claim:'.$user.':'.$key);
+            $request = $this->partnerRewardClaimKey($user, $key);
             $claims = DB::table('partner_reward_claims')->where('user_id', $user);
             if ($prior = (clone $claims)->where('request_key', $request)->first()) {
                 abort_unless((int) $prior->review_id === $review, 409, 'Partner reward retry content changed.');
@@ -338,6 +338,17 @@ class LoyaltyService
 
             return $claims->where('id', $id)->firstOrFail();
         }, 3);
+    }
+
+    public function findPartnerRewardClaim(int $user, string $key): ?object
+    {
+        return DB::table('partner_reward_claims')->where('user_id', $user)
+            ->where('request_key', $this->partnerRewardClaimKey($user, $key))->first();
+    }
+
+    private function partnerRewardClaimKey(int $user, string $key): string
+    {
+        return hash('sha256', 'partner-reward-claim:'.$user.':'.$key);
     }
 
     /** Read-only canonical receipt/refund/uncertainty evidence; never a new ledger. */

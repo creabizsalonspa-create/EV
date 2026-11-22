@@ -35,3 +35,4 @@ Route::get('/commercial/noncash/status', [L::class, 'noncashStatus']);
 Route::get('/commercial/partner-rewards/offers', [L::class, 'partnerRewardOffers']);
 Route::post('/commercial/partner-rewards/offers/{review}/claim', [L::class, 'claimPartnerReward'])->where('review', '[0-9]{1,18}');
 Route::get('/commercial/partner-rewards/claims', [L::class, 'partnerRewardClaims']);
+Route::post('/commercial/partner-rewards/claim-receipt', [L::class, 'findPartnerRewardReceipt']);

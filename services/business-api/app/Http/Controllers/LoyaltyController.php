@@ -401,6 +401,16 @@ class LoyaltyController extends Controller
         return response()->json($claims)->header('Cache-Control', 'private, no-store');
     }
 
+    public function findPartnerRewardReceipt(Request $r, LoyaltyService $service, PartnerRewardGovernance $governance)
+    {
+        abort_unless($r->user()->role === 'customer', 403);
+        $input = $r->validate(['idempotency_key' => 'required|string|max:100']);
+        $claim = $service->findPartnerRewardClaim($r->user()->id, $input['idempotency_key']);
+
+        return response()->json(['claim' => $claim ? $this->partnerRewardReceipt($claim) + $governance->sandboxEvidence() : null])
+            ->header('Cache-Control', 'private, no-store');
+    }
+
     private function partnerRewardReceipt(object $claim): array
     {
         return ['id' => (int) $claim->id, 'review_id' => (int) $claim->review_id,
