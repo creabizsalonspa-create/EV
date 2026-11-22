@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ChargerAdmissionController;
+use App\Http\Controllers\ChargerAvailabilityController;
 use App\Http\Controllers\ChargerCertificateController;
 use App\Http\Controllers\ChargerConfigurationController;
 use App\Http\Controllers\ChargerDiagnosticLogController;
@@ -72,6 +73,9 @@ Route::delete('/companies/{company}/chargers/{charger}/admission/credential', [C
 Route::get('/companies/{company}/chargers/{charger}/admission/events', [ChargerAdmissionController::class, 'events']);
 
 Route::get('/companies/{company}/chargers/{charger}/reset-operations', [ChargerResetController::class, 'index']);
+Route::get('/companies/{company}/chargers/{charger}/availability-operations', [ChargerAvailabilityController::class, 'index'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}');
+Route::post('/companies/{company}/chargers/{charger}/availability-operations', [ChargerAvailabilityController::class, 'create'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}');
+Route::post('/companies/{company}/chargers/{charger}/availability-operations/{operation}/observe', [ChargerAvailabilityController::class, 'observe'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}')->where('operation', '[0-9]{1,18}');
 Route::post('/companies/{company}/chargers/{charger}/reset-operations', [ChargerResetController::class, 'create']);
 Route::post('/companies/{company}/chargers/{charger}/reset-operations/{operation}/review', [ChargerResetController::class, 'review'])->where('operation', '[0-9]{1,18}');
 

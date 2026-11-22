@@ -49,6 +49,111 @@ class LoyaltyEconomicsTest extends TestCase
         return app(LoyaltyService::class)->publish('loyalty_rewards', $f['maker']->id, array_replace(['currency' => 'AED', 'name' => 'Reusable bottle TEST', 'name_ar' => 'زجاجة قابلة لإعادة الاستخدام', 'description' => 'Manual test reward; no verified partner delivery.', 'description_ar' => 'مكافأة اختبار يدوية', 'points_cost' => 80, 'stock' => 2, 'per_user_limit' => 1, 'starts_at' => now()->subHour()->format('Y-m-d H:i:s'), 'ends_at' => now()->addDays(10)->format('Y-m-d H:i:s')], $extra), 'reward-'.bin2hex(random_bytes(5)));
     }
 
+    public function test_coupon_discovery_excludes_private_revoked_expired_and_exhausted_offers(): void
+    {
+        $fixture = $this->fixture();
+        $this->policy($fixture);
+        $reward = $this->reward($fixture, ['stock' => 1]);
+        $url = '/loyalty-test/commercial/coupons';
+        $payload = [
+            'code' => 'PRIVATE-COUPON-01', 'reward_id' => $reward->id, 'claim_limit' => 1, 'per_user_limit' => 1,
+            'starts_at' => now()->subMinutes(10)->toISOString(), 'ends_at' => now()->addHour()->toISOString(),
+            'idempotency_key' => 'private-publication',
+        ];
+        $this->actingAs($fixture['maker']);
+        $private = $this->postJson($url, $payload)->assertCreated()->json('id');
+        $listed = $this->postJson($url, array_replace($payload, [
+            'listed' => true, 'code' => 'LISTED-COUPON-01', 'idempotency_key' => 'listed-publication',
+        ]))->assertCreated()->json('id');
+        $expired = $this->postJson($url, array_replace($payload, [
+            'listed' => true, 'code' => 'EXPIRED-COUPON-01', 'idempotency_key' => 'expired-publication',
+            'ends_at' => now()->subMinute()->toISOString(),
+        ]))->assertCreated()->json('id');
+        $this->getJson($url.'/eligible')->assertForbidden();
+        $this->actingAs($fixture['customer'])->getJson($url.'/eligible')->assertOk()
+            ->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $listed)->assertDontSee('LISTED-COUPON-01');
+        $claim = ['idempotency_key' => 'listed-claim'];
+        $this->postJson($url.'/eligible/'.$private.'/claim', $claim)->assertNotFound();
+        $this->postJson($url.'/eligible/'.$expired.'/claim', $claim)->assertConflict();
+        $this->postJson($url.'/eligible/'.$listed.'/claim', $claim)->assertOk();
+        $this->getJson($url.'/eligible')->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs(User::factory()->create())->postJson($url.'/claim', [
+            'code' => $payload['code'], 'idempotency_key' => 'stock-exhausted',
+        ])->assertConflict();
+        $this->actingAs($fixture['maker'])->postJson($url.'/'.$listed.'/revoke')->assertOk()->assertJsonPath('claims', 1);
+        $this->actingAs($fixture['customer'])->postJson($url.'/eligible/'.$listed.'/claim', $claim)->assertOk();
+        $this->assertDatabaseCount('loyalty_coupon_claims', 1);
+    }
+
+    public function test_coupon_claim_is_private_idempotent_and_uses_canonical_reward_fulfillment(): void
+    {
+        $fixture = $this->fixture();
+        $this->policy($fixture);
+        $reward = $this->reward($fixture);
+        $url = '/loyalty-test/commercial/coupons';
+        $code = 'SYNTHETIC-REWARD-01';
+        $payload = [
+            'code' => $code, 'reward_id' => $reward->id, 'claim_limit' => 2, 'per_user_limit' => 1,
+            'starts_at' => now()->subMinutes(5)->toISOString(), 'ends_at' => now()->addDay()->toISOString(),
+            'idempotency_key' => 'publish-synthetic-coupon',
+        ];
+        $this->actingAs($fixture['customer'])->postJson($url, $payload)->assertForbidden();
+        $published = $this->actingAs($fixture['maker'])->postJson($url, $payload)->assertCreated()
+            ->assertJsonMissingPath('code_hash')->assertDontSee($code)->json('id');
+        $this->postJson($url, $payload)->assertOk()->assertJsonPath('id', $published);
+        $claim = ['code' => $code, 'idempotency_key' => 'synthetic-claim'];
+        $this->actingAs($fixture['customer']);
+        $receipt = $this->postJson($url.'/claim', $claim)->assertOk()
+            ->assertJsonPath('claim.points_cost', 0)->assertJsonPath('claim.cash_value', false)
+            ->assertJsonPath('claim.status', 'pending')->json('claim');
+        $this->postJson($url.'/claim', $claim)->assertOk()->assertJsonPath('claim.id', $receipt['id']);
+        $this->postJson($url.'/claim', array_replace($claim, ['code' => 'CHANGED-REWARD-01']))->assertConflict();
+        $this->postJson($url.'/claim', array_replace($claim, ['idempotency_key' => 'second-claim']))->assertConflict();
+        $this->actingAs(User::factory()->create())->postJson($url.'/claim-receipt', ['idempotency_key' => $claim['idempotency_key']])
+            ->assertOk()->assertJsonPath('claim', null);
+        $this->actingAs($fixture['maker'])->postJson($url.'/'.$published.'/revoke')->assertOk();
+        app(LoyaltyService::class)->transition($receipt['redemption_id'], $fixture['maker'], 'fulfill', 'Synthetic approved manual fulfillment');
+        $this->actingAs($fixture['customer'])->getJson($url.'/claims')->assertOk()
+            ->assertJsonPath('data.0.status', 'fulfilled')->assertDontSee($code);
+        $this->postJson($url.'/claim-receipt', ['idempotency_key' => $claim['idempotency_key']])
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('claim.id', $receipt['id'])->assertJsonPath('claim.status', 'fulfilled');
+        $this->assertDatabaseCount('loyalty_coupon_claims', 1);
+        $this->assertDatabaseMissing('loyalty_ledger', ['redemption_id' => $receipt['redemption_id']]);
+    }
+
+    public function test_coupon_expiry_is_rechecked_after_reward_inventory_lock(): void
+    {
+        $fixture = $this->fixture();
+        $this->policy($fixture);
+        $reward = $this->reward($fixture);
+        $url = '/loyalty-test/commercial/coupons';
+        $expiry = now()->startOfSecond()->addMinute();
+        $coupon = $this->actingAs($fixture['maker'])->postJson($url, [
+            'code' => 'LOCK-EXPIRY-REWARD', 'listed' => true, 'reward_id' => $reward->id,
+            'claim_limit' => 1, 'per_user_limit' => 1, 'starts_at' => now()->subMinute()->toISOString(),
+            'ends_at' => $expiry->toISOString(), 'idempotency_key' => 'publish-lock-expiry',
+        ])->assertCreated()->json('id');
+        $lockObserved = false;
+        DB::listen(function ($query) use ($expiry, &$lockObserved) {
+            if (! $lockObserved && str_starts_with($query->sql, 'select * from "loyalty_rewards"')) {
+                $lockObserved = true;
+                $this->travelTo($expiry);
+            }
+        });
+
+        try {
+            $this->actingAs($fixture['customer'])->postJson($url.'/eligible/'.$coupon.'/claim', [
+                'idempotency_key' => 'claim-expired-after-lock',
+            ])->assertConflict()->assertJsonPath('message', 'Coupon is unavailable.');
+            $this->assertTrue($lockObserved);
+            $this->assertDatabaseCount('loyalty_coupon_claims', 0);
+            $this->assertDatabaseCount('loyalty_redemptions', 0);
+        } finally {
+            $this->travelBack();
+        }
+    }
+
     public function test_revoked_admin_authority_cannot_publish_or_decide_redemptions_from_a_stale_snapshot(): void
     {
         foreach (['role', 'account_status', 'auth_epoch', 'password'] as $field) {

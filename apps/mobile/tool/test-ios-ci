@@ -27,6 +27,7 @@ def verified_success(result, text):
             and 'DEVICE: customer favorites and private catalog status verified' in text
             and 'DEVICE: customer map privacy consent navigation verified; no external tiles' in text
             and 'DEVICE: consented one-shot GPS and sourced charging-stop route verified; synthetic platform/provider' in text
+            and 'DEVICE: coupon discovery and uncertain receipt recovery verified; synthetic TLS fixture' in text
             and 'DEVICE: scoped noncash native loyalty evidence verified; synthetic economics' in text
             and 'DEVICE: private financial PDF and durable operation storage verified; synthetic document' in text
             and 'DEVICE: explicit native subscription enrollment verified; synthetic test billing' in text

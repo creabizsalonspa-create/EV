@@ -237,6 +237,64 @@ class LoyaltyService
         }, 3);
     }
 
+    public function claimCoupon(int $user, ?string $code, string $key, ?int $listedCoupon = null): object
+    {
+        $this->enabled();
+
+        return DB::transaction(function () use ($user, $code, $key, $listedCoupon) {
+            $customer = User::whereKey($user)->lockForUpdate()->firstOrFail();
+            abort_unless($customer->role === 'customer' && $customer->account_status === 'active', 403);
+            $request = hash('sha256', 'coupon-claim:'.$user.':'.$key);
+            $hash = $code === null ? null : hash('sha256', $code);
+            if ($old = DB::table('loyalty_coupon_claims')->where('request_key', $request)->first()) {
+                $coupon = DB::table('loyalty_coupons')->find($old->coupon_id);
+                abort_unless($listedCoupon !== null
+                    ? $coupon->listed && (int) $coupon->id === $listedCoupon
+                    : $hash !== null && hash_equals($coupon->code_hash, $hash), 409, 'Coupon retry content changed.');
+
+                return $old;
+            }
+
+            $query = DB::table('loyalty_coupons');
+            $coupon = ($listedCoupon === null
+                ? $query->where('code_hash', $hash)
+                : $query->where('id', $listedCoupon)->where('listed', true))->lockForUpdate()->first() ?? abort(404);
+            abort_unless($coupon->revoked_at === null, 409, 'Coupon is unavailable.');
+            $claims = DB::table('loyalty_coupon_claims')->where('coupon_id', $coupon->id);
+            abort_unless((clone $claims)->count() < $coupon->claim_limit
+                && (clone $claims)->where('user_id', $user)->count() < $coupon->per_user_limit, 409, 'Coupon limit reached.');
+
+            $this->reconcileLocked($user, $user);
+            $account = $this->account($user);
+            $reward = DB::table('loyalty_rewards')->where('id', $coupon->reward_id)->lockForUpdate()->first();
+            // Reconciliation and reward inventory locks can outlast the coupon window.
+            $now = now()->utc();
+            abort_unless($coupon->starts_at <= $now->toDateTimeString()
+                && $coupon->ends_at > $now->toDateTimeString(), 409, 'Coupon is unavailable.');
+            abort_unless($reward && $reward->starts_at <= $now->toDateTimeString() && $reward->ends_at > $now->toDateTimeString(), 409, 'Reward is unavailable.');
+            $active = DB::table('loyalty_redemptions')->where('reward_id', $reward->id)->whereIn('status', ['pending', 'fulfilled']);
+            abort_unless((clone $active)->count() < $reward->stock
+                && (clone $active)->where('user_id', $user)->count() < $reward->per_user_limit, 409, 'Reward inventory or per-member limit reached.');
+            $policy = $this->policy($reward->currency, $now);
+            $today = DB::table('loyalty_redemptions')->where('user_id', $user)->where('created_at', '>=', $now->copy()->startOfDay())->count();
+            abort_unless($policy && $policy->enabled && $today < $policy->daily_redemption_limit
+                && ! $account['redemption_hold'] && $account['balance_points'] >= 0, 409, 'Reward policy or account hold prevents this claim.');
+
+            $redemption = DB::table('loyalty_redemptions')->insertGetId([
+                'user_id' => $user, 'reward_id' => $reward->id, 'points_cost' => 0,
+                'status' => 'pending', 'request_key' => $request, 'created_at' => $now, 'updated_at' => $now,
+            ]);
+            $id = DB::table('loyalty_coupon_claims')->insertGetId([
+                'coupon_id' => $coupon->id, 'user_id' => $user, 'redemption_id' => $redemption,
+                'request_key' => $request, 'created_at' => $now,
+            ]);
+            $this->redemptionEvent($redemption, $user, 'requested', 'Coupon entitlement pending manual reward fulfillment.');
+            $this->audit($user, 'loyalty.coupon.claimed', (string) $id);
+
+            return DB::table('loyalty_coupon_claims')->find($id);
+        }, 3);
+    }
+
     public function transition(int $id, User|int $actor, string $action, string $reason): object
     {
         $this->enabled();

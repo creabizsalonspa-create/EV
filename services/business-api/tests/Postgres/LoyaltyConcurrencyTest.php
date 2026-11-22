@@ -2,6 +2,7 @@
 
 namespace Tests\Postgres;
 
+use App\Models\User;
 use App\Services\Commercial\Loyalty\LoyaltyService;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +28,19 @@ class LoyaltyConcurrencyTest extends TestCase
         $this->migrateDisposableDatabase();
     }
 
+    protected function tearDown(): void
+    {
+        try {
+            // The migration deliberately refuses to discard persisted coupons.
+            if ($this->app && DB::getSchemaBuilder()->hasTable('loyalty_coupons')) {
+                DB::table('loyalty_coupon_claims')->delete();
+                DB::table('loyalty_coupons')->delete();
+            }
+        } finally {
+            parent::tearDown();
+        }
+    }
+
     private function fixture(): array
     {
         $f = (require base_path('tests/Fixtures/vendor-payout.php'))();
@@ -35,9 +49,23 @@ class LoyaltyConcurrencyTest extends TestCase
         return $f;
     }
 
-    private function reward(array $f): object
+    private function reward(array $f, array $overrides = []): object
     {
-        return app(LoyaltyService::class)->publish('loyalty_rewards', $f['maker']->id, ['currency' => 'AED', 'name' => 'TEST limited bottle', 'name_ar' => 'زجاجة اختبار', 'description' => 'Manual test benefit', 'description_ar' => 'مكافأة اختبار', 'points_cost' => 80, 'stock' => 1, 'per_user_limit' => 1, 'starts_at' => now()->subHour()->format('Y-m-d H:i:s'), 'ends_at' => now()->addDay()->format('Y-m-d H:i:s')], 'race-reward');
+        return app(LoyaltyService::class)->publish('loyalty_rewards', $f['maker']->id, array_replace(['currency' => 'AED', 'name' => 'TEST limited bottle', 'name_ar' => 'زجاجة اختبار', 'description' => 'Manual test benefit', 'description_ar' => 'مكافأة اختبار', 'points_cost' => 80, 'stock' => 1, 'per_user_limit' => 1, 'starts_at' => now()->subHour()->format('Y-m-d H:i:s'), 'ends_at' => now()->addDay()->format('Y-m-d H:i:s')], $overrides), 'race-reward');
+    }
+
+    private function coupon(array $f, object $reward, string $code, int $globalLimit, int $userLimit, bool $listed = true): int
+    {
+        return $this->actingAs($f['maker'])->postJson('/api/commercial/coupons', [
+            'code' => $code,
+            'reward_id' => $reward->id,
+            'claim_limit' => $globalLimit,
+            'per_user_limit' => $userLimit,
+            'listed' => $listed,
+            'starts_at' => now()->subMinute()->toISOString(),
+            'ends_at' => now()->addHour()->toISOString(),
+            'idempotency_key' => 'publish-'.$code,
+        ])->assertCreated()->json('id');
     }
 
     private function race(array $operations): array
@@ -123,5 +151,54 @@ class LoyaltyConcurrencyTest extends TestCase
         $this->assertDatabaseCount('loyalty_redemptions', 1);
         $this->assertSame(120, $s->account($f['customer']->id)['balance_points'] + $s->account($g['customer']->id)['balance_points']);
         $this->assertDatabaseCount('finance_journals', 4);
+    }
+
+    public function test_concurrent_coupon_claims_with_identical_keys_create_one_receipt(): void
+    {
+        $f = $this->fixture();
+        $coupon = $this->coupon($f, $this->reward($f, ['stock' => 2, 'per_user_limit' => 2]), 'RACE-REPLAY-01', 2, 2);
+        $op = ['claim-listed', $f['customer']->id, 0, $coupon, 'same-claim'];
+        $this->assertSame(['201', '201'], $this->race([$op, $op]));
+        $this->assertDatabaseCount('loyalty_coupon_claims', 1);
+        $this->assertDatabaseCount('loyalty_redemptions', 1);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 2);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'loyalty.coupon.claimed')->count());
+    }
+
+    public function test_concurrent_coupon_claims_respect_customer_and_global_limits(): void
+    {
+        $f = $this->fixture();
+        $second = User::factory()->create();
+        $third = User::factory()->create();
+        $coupon = $this->coupon($f, $this->reward($f, ['stock' => 10, 'per_user_limit' => 5]), 'RACE-LIMITS-01', 2, 1);
+        $this->assertSame(['201', '409'], $this->race([
+            ['claim-listed', $f['customer']->id, 0, $coupon, 'first'],
+            ['claim-listed', $f['customer']->id, 0, $coupon, 'second'],
+        ]));
+        $this->assertSame(['201', '409'], $this->race([
+            ['claim-listed', $second->id, 0, $coupon, 'third'],
+            ['claim-listed', $third->id, 0, $coupon, 'fourth'],
+        ]));
+        $this->assertDatabaseCount('loyalty_coupon_claims', 2);
+        $this->assertDatabaseCount('loyalty_redemptions', 2);
+        $this->assertSame(1, DB::table('loyalty_coupon_claims')->where('user_id', $f['customer']->id)->count());
+    }
+
+    public function test_private_and_listed_coupons_share_the_last_reward_unit(): void
+    {
+        $f = $this->fixture();
+        $second = User::factory()->create();
+        $reward = $this->reward($f);
+        $privateCode = 'RACE-PRIVATE-01';
+        $this->coupon($f, $reward, $privateCode, 2, 1, false);
+        $listed = $this->coupon($f, $reward, 'RACE-LISTED-01', 2, 1);
+        $this->assertSame(['201', '409'], $this->race([
+            ['claim-code', $f['customer']->id, $privateCode, 0, 'private'],
+            ['claim-listed', $second->id, 0, $listed, 'listed'],
+        ]));
+        $this->assertDatabaseCount('loyalty_coupon_claims', 1);
+        $this->assertDatabaseHas('loyalty_redemptions', ['reward_id' => $reward->id, 'points_cost' => 0, 'status' => 'pending']);
+        $this->assertDatabaseCount('loyalty_allocations', 0);
     }
 }
