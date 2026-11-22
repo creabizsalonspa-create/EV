@@ -272,14 +272,42 @@ final class CpoCatalogPublisher
         if ($existing !== null) {
             return ['delivery' => $existing, 'published_at' => $publishedAt];
         }
-        try {
-            $method = $module === 'tariffs' && $row->withdrawn ? 'DELETE' : 'PUT';
-            $this->partner->cpoCatalogRequest($provider, $module, $method, $payload, $row->generation);
-            $state = 'acknowledged';
-        } catch (OcpiException|HttpExceptionInterface) {
-            $state = 'unknown';
-        }
-        DB::table(self::OPERATIONS)->where('operation_key', $key)->where('state', 'dispatching')->update(['state' => $state, 'updated_at' => now()]);
+        // The claim is committed before I/O. Hold the authority locks across the
+        // one attempt, and never retry this transaction after transport.
+        $state = DB::transaction(function () use ($actor, $provider, $row, $module, $source, $payload, $publishedAt, $key) {
+            $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            $claim = DB::table(self::OPERATIONS)->where('operation_key', $key);
+            $currentState = (clone $claim)->lockForUpdate()->value('state');
+            if ($currentState !== 'dispatching') {
+                return $currentState;
+            }
+            try {
+                $this->admin($actor);
+                [$contract, $link] = $this->authority($current);
+                abort_unless($this->pushEnabled($current) && is_string($current->endpoints[$module.'_receiver'] ?? null)
+                    && $this->bound($current, $link)->where(['id' => $row->id, 'published_at' => $publishedAt])->exists(), 409);
+                if (! $row->withdrawn) {
+                    $fresh = $this->source->payload($current, $contract, $module, $source);
+                    abort_unless(hash_equals($row->source_hash, $this->normalizer->hash($fresh)), 409);
+                }
+            } catch (OcpiException|HttpExceptionInterface) {
+                $claim->delete();
+
+                return null;
+            }
+
+            try {
+                $method = $module === 'tariffs' && $row->withdrawn ? 'DELETE' : 'PUT';
+                $this->partner->cpoCatalogRequest($current, $module, $method, $payload, $row->generation);
+                $state = 'acknowledged';
+            } catch (OcpiException|HttpExceptionInterface) {
+                $state = 'unknown';
+            }
+            $claim->update(['state' => $state, 'updated_at' => now()]);
+
+            return $state;
+        });
+        abort_unless($state !== null, 409, 'Publication source or authority changed before delivery.');
 
         return ['delivery' => $state, 'published_at' => $publishedAt];
     }

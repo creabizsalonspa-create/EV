@@ -233,4 +233,51 @@ class OcpiCpoCatalogTest extends TestCase
         Http::assertSentCount(5);
         $this->assertDatabaseCount('ocpi_cpo_publication_operations', 2);
     }
+
+    public function test_cpo_push_rechecks_the_admin_after_the_delivery_claim(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sources = $this->source($owner);
+        [, $tariff] = $sources;
+        [, , $operations] = $this->peer($owner, 'owner', $sources);
+        config(['ocpi.cpo_push_enabled' => true]);
+
+        $url = $operations.'/tariffs/'.$tariff;
+        $stamp = $this->actingAs($admin)->publication($url)->assertOk()->json('published_at');
+        Http::fake();
+        DB::listen(function ($query) use ($admin) {
+            if (str_starts_with($query->sql, 'insert into "ocpi_cpo_publication_operations"')) {
+                DB::table('users')->where('id', $admin->id)->increment('auth_epoch');
+            }
+        });
+
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertConflict();
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_cpo_publication_operations', 0);
+    }
+
+    public function test_cpo_push_rejects_canonical_edits_after_the_delivery_claim(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sources = $this->source($owner);
+        [$site, $tariff] = $sources;
+        [, , $operations] = $this->peer($owner, 'owner', $sources);
+        config(['ocpi.cpo_push_enabled' => true]);
+
+        $this->actingAs($admin)->publication($operations.'/tariffs/'.$tariff)->assertOk();
+        $url = $operations.'/locations/'.$site;
+        $stamp = $this->publication($url)->assertOk()->json('published_at');
+        Http::fake();
+        DB::listen(function ($query) use ($site) {
+            if (str_starts_with($query->sql, 'insert into "ocpi_cpo_publication_operations"')) {
+                DB::table('vendor_sites')->where('id', $site)->update(['address' => 'Revised station address']);
+            }
+        });
+
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertConflict();
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_cpo_publication_operations', 0);
+    }
 }
