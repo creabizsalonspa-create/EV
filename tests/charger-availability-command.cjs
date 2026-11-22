@@ -62,12 +62,30 @@ async function verify(browser, prefix) {
             device.commands.find((command) => command.action === "ChangeAvailability").payload,
             prefix === "16" ? { connectorId: 0, type: "Inoperative" } : { operationalStatus: "Inoperative" },
         );
+        const expectedStatus = prefix === "16" ? "accepted" : "scheduled";
         const label = prefix === "16" ? "Simulator accepted" : "Simulator scheduled";
+        const observePath = requestPath + `/${receipt.id}/observe`;
+        const row = panel.locator("article").filter({
+            has: page.getByRole("heading", { name: `#${receipt.id}`, exact: true }),
+        });
         await poll(async () => {
-            if (await panel.getByText(label, { exact: true }).isVisible()) return true;
-            await panel.getByRole("button", { name: "Check simulator response", exact: true }).click();
+            const [response] = await Promise.all([
+                page.waitForResponse((candidate) =>
+                    candidate.url().endsWith(observePath) && candidate.request().method() === "POST",
+                ),
+                row.getByRole("button", { name: "Check simulator response", exact: true }).click(),
+            ]);
+            assert.equal(response.status(), 200);
+            const observed = await response.json();
+            assert.equal(observed.id, receipt.id);
+            assert.equal(observed.physical_availability_verified, false);
+            if (observed.status === expectedStatus) return true;
+            assert.equal(observed.status, "transport_submitted");
+            assert.equal(observed.can_observe, true);
             return false;
         }, "correlated simulator confirmation");
+        await row.getByText(label, { exact: true }).waitFor({ state: "visible" });
+        assert.equal(await row.getByRole("button", { name: "Check simulator response", exact: true }).count(), 0);
 
         const replay = await client.request(requestPath, "POST", {
             requested_state: "Inoperative",
