@@ -54,6 +54,8 @@ class ChargingRepairTest extends TestCase
     {
         [$owner, , , $url, $alert, $binding] = $this->repairFixture();
         $this->actingAs($owner);
+        $alertsUrl = str_replace('repair-orders', 'fault-alerts', $url);
+        $this->getJson($alertsUrl)->assertOk()->assertJsonPath('data.0.id', $alert)->assertJsonPath('data.0.repair_review_closed_at', null);
         $create = $this->intent($alert, 0, 'open');
         $id = $this->postJson($url, $create)->assertOk()->assertJsonPath('version', 1)->json('id');
         $this->postJson($url, $create)->assertOk()->assertJsonPath('replayed', true);
@@ -68,7 +70,21 @@ class ChargingRepairTest extends TestCase
         $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertConflict();
         app(FaultMonitor::class)->ingest($binding, ['source_generation' => FaultMonitor::generation($binding), 'events' => [['id' => 11, 'evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => now()->toISOString()]]]);
         $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertOk()->assertJsonPath('capacity_changed', false)->assertJsonPath('commands_sent', false);
+        $closed = $this->getJson($alertsUrl)->assertOk()->assertJsonPath('data.0.id', $alert)
+            ->assertJsonPath('physical_charging_verified', false)->assertJsonMissingPath('data.0.note_ciphertext')
+            ->json('data.0.repair_review_closed_at');
+        $this->assertNotEmpty($closed);
+        $this->getJson(str_replace('/api/', '/api/v1/', $alertsUrl))->assertOk()->assertJsonPath('data.0.repair_review_closed_at', $closed);
+
+        app(FaultMonitor::class)->ingest($binding, ['source_generation' => FaultMonitor::generation($binding), 'events' => [[
+            'id' => 12, 'evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Faulted',
+            'errorCode' => 'GroundFailure', 'timestamp' => now()->toISOString(),
+        ]]]);
+        $this->getJson($alertsUrl)->assertOk()->assertJsonPath('data.0.source_event_id', 12)->assertJsonPath('data.0.repair_review_closed_at', null)
+            ->assertJsonPath('data.1.repair_review_closed_at', $closed);
+
         $this->postJson($url, $this->intent($alert, 4, 'open'))->assertOk();
+        $this->getJson($alertsUrl)->assertOk()->assertJsonPath('data.1.repair_review_closed_at', null);
         $list = $this->getJson($url)->assertOk()->assertJsonPath('data.0.state', 'open')->assertJsonPath('physical_repair_verified', false);
         $this->assertStringNotContainsString('PRIVATE repair', $list->getContent());
         $this->assertStringContainsString('no-store', $list->headers->get('Cache-Control'));
