@@ -1,0 +1,69 @@
+{
+  "scope": "5.2.9 registered-source private diagnostics, not whole requirement acceptance",
+  "source_dependency": "faac6e671649be503d9421da81a779facf36ce62",
+  "laravel": {
+    "passed": 1868,
+    "assertions": 32845,
+    "skipped": 1,
+    "skip_reason": "PostgreSQL-only check"
+  },
+  "focused_security": {
+    "passed": 58,
+    "assertions": 515
+  },
+  "offline_guards": {
+    "passed": 64,
+    "failed": 0
+  },
+  "actual_source_tls": {
+    "protocols": [
+      "1.6",
+      "2.0.1"
+    ],
+    "diagnostic_rpcs": 2,
+    "upload_http_requests": 4,
+    "charging_commands": 0,
+    "charging_and_finance_unchanged": true,
+    "live_identity_provider": false,
+    "physical_hardware": false,
+    "fixture_only": true
+  },
+  "actual_browser": {
+    "private_download_sha256_verified_both_protocols": true,
+    "languages": [
+      "en",
+      "ar"
+    ],
+    "rtl": true,
+    "viewport_width": 390,
+    "horizontal_overflow": false,
+    "page_errors": 0
+  },
+  "native_agent4": {
+    "actual_http_tests": 1,
+    "protocols": [
+      "1.6",
+      "2.0.1"
+    ],
+    "source_consumer_base": "f52973bd",
+    "reads_only": true,
+    "os_exports": 0,
+    "management_mutations": 0,
+    "log": "/workspace/EV-agent4-diagnostics/artifacts/authenticated-diagnostics-http.log"
+  },
+  "hosted_current_candidate": "not yet submitted",
+  "production_accepted": false,
+  "postgres": {
+    "passed": 1031,
+    "assertions": 13461,
+    "concurrency_passed": 36,
+    "concurrency_assertions": 558,
+    "receipt_passed": 2,
+    "receipt_assertions": 13,
+    "disposable_tmpfs": true,
+    "owned_cleanup_completed": true
+  },
+  "ci_trigger_guards": {
+    "passed": 8
+  }
+}

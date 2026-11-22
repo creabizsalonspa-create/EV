@@ -995,6 +995,10 @@ window.createVendorWorkspace = ({
                 button(row, "Source diagnostics", () =>
                     diagnostics(company, charger, row, epoch),
                 );
+                if (charger.source === "direct_unverified")
+                    button(row, "Diagnostic files", () =>
+                        diagnosticFiles(company, charger, row, epoch),
+                    );
                 button(row, "Device operating settings", () =>
                     configurationReads(company, charger, row, epoch),
                 );
@@ -2144,11 +2148,21 @@ window.createVendorWorkspace = ({
             if (
                 typeof result.can_request !== "boolean" ||
                 typeof result.can_manage !== "boolean" ||
-                result.evidence !== "SIMULATED_SOURCE" ||
+                !["SIMULATED_SOURCE", "AUTHENTICATED_SOURCE"].includes(
+                    result.evidence,
+                ) ||
                 result.maximum_file_bytes !== 524288 ||
                 result.charging_capacity_changed !== false
             )
                 throw Error("Unexpected diagnostic capability.");
+            history.append(
+                ui(
+                    "p",
+                    result.evidence === "AUTHENTICATED_SOURCE"
+                        ? "Registered diagnostic source"
+                        : "Simulated diagnostic source",
+                ),
+            );
             if (pending) {
                 history.append(
                     ui(
@@ -2229,7 +2243,7 @@ window.createVendorWorkspace = ({
             };
             for (const row of result.data) {
                 if (
-                    row.evidence !== "SIMULATED_SOURCE" ||
+                    row.evidence !== result.evidence ||
                     row.physical_device_verified !== false ||
                     typeof row.can_download !== "boolean"
                 )
@@ -2838,11 +2852,22 @@ window.createVendorWorkspace = ({
             base + `companies/${company.id}/chargers/${charger.id}/admission`;
         const live = () => valid(epoch) && pane.isConnected;
         const refresh = () => admission(company, charger, parent, epoch);
+        if (charger.source === "direct_unverified" && window.mountChargerSourceRegistration) {
+            const source = document.createElement("section");
+            source.dataset.chargerSourceRegistration = "";
+            pane.append(source);
+            window.mountChargerSourceRegistration({
+                root: source,
+                endpoint: base + `companies/${company.id}/chargers/${charger.id}/source-registration`,
+                actor, api, expired, valid: live, signal: controller?.signal,
+                refreshAdmission: refresh,
+            });
+        }
         button(pane, "Refresh admission", refresh);
         const result = await api(path, "GET", undefined, controller?.signal);
         if (!live()) return;
         const profile = result.profile;
-        if (!profile && result.can_manage)
+        if (!profile && result.can_manage && charger.source !== "direct_unverified")
             form(
                 pane,
                 "Prepare identity",

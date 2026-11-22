@@ -83,10 +83,8 @@ class ConfigurationProbe
 
     public function serviceToken(): string
     {
-        $r = Http::connectTimeout(3)->timeout(5)->withoutRedirecting()->post(rtrim(config('csms.operations_base_url'), '/').'/dev/token', ['roles' => ['admin'], 'tenantId' => 1]);
-        abort_unless($r->successful() && is_string($r->json('accessToken')) && $r->json('accessToken') !== '', 503);
+        return app(OperationsCredentials::class)->token(rtrim(config('csms.operations_base_url'), '/'));
 
-        return $r->json('accessToken');
     }
 
     public function submit(object $binding, string $token, array $payload): bool
