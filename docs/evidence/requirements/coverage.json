@@ -144,18 +144,36 @@
       "test_result": "passed",
       "merge_sha": "151acd73e94e12b2e1cdfbe46ce859928d186b92",
       "evidence": "docs/evidence/integrated-checkpoints-20261120/pr191-verified.json"
+    },
+    "pr193": {
+      "source_sha": "eae11308840fc679a6b553e7c365586c76736f66",
+      "test_result": "passed",
+      "merge_sha": "f4f22e800ad9b98dcd12a97621ba486b9e9ce047",
+      "evidence": "docs/evidence/integrated-checkpoints-20261121/pr193-verified.json"
+    },
+    "pr194": {
+      "source_sha": "8616b83c38f5f082620a839de56245406d528d8b",
+      "test_result": "passed",
+      "merge_sha": "251be69bce90d68763a71302534b0b070ebdb343",
+      "evidence": "docs/evidence/integrated-checkpoints-20261122/pr194-verified.json"
+    },
+    "pr195": {
+      "source_sha": "f2487f6d0c68ab41f7b8185fe8a331e4ecaaebb6",
+      "test_result": "passed",
+      "merge_sha": "2be2a0d30868f35b6b474c297cd2d13ae5503d5d",
+      "evidence": "docs/evidence/integrated-checkpoints-20261122/pr195-verified.json"
     }
   },
   "weighted_percent": {
-    "coded": "58.20",
-    "tested": "58.20",
-    "merged": "58.20",
+    "coded": "60.13",
+    "tested": "60.13",
+    "merged": "60.13",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "4404691/7567560",
-    "tested": "4404691/7567560",
-    "merged": "4404691/7567560",
+    "coded": "4550551/7567560",
+    "tested": "4550551/7567560",
+    "merged": "4550551/7567560",
     "production_accepted": "0"
   },
   "categories": [
@@ -1113,9 +1131,9 @@
       "requirement": "Loyalty/rewards/promotions/referrals",
       "atoms": 7,
       "counts": {
-        "coded": 3,
-        "tested": 3,
-        "merged": 3,
+        "coded": 4,
+        "tested": 4,
+        "merged": 4,
         "production_accepted": 0
       },
       "details": [
@@ -1161,13 +1179,13 @@
         {
           "id": "2.9.4",
           "software_atom": "Coupons",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr194",
+          "note": "Coupon Admin publication and revocation, public and private claims, bilingual customer web and Flutter, actor-scoped receipt recovery and PostgreSQL races against shared reward inventory.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -2530,9 +2548,9 @@
       "requirement": "Admin enterprise/campaigns/partners",
       "atoms": 6,
       "counts": {
-        "coded": 2,
-        "tested": 2,
-        "merged": 2,
+        "coded": 3,
+        "tested": 3,
+        "merged": 3,
         "production_accepted": 0
       },
       "details": [
@@ -2604,13 +2622,13 @@
         {
           "id": "4.4.6",
           "software_atom": "Retail partner administration",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr195",
+          "note": "Bilingual Super Admin retail partner administration, independent review, versioned terms, authorization, audit and lifecycle governance.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         }
@@ -3349,35 +3367,35 @@
       "requirement": "Licensed discovery providers",
       "atoms": 4,
       "counts": {
-        "coded": 0,
-        "tested": 0,
-        "merged": 0,
+        "coded": 2,
+        "tested": 2,
+        "merged": 2,
         "production_accepted": 0
       },
       "details": [
         {
           "id": "6.2.1",
           "software_atom": "Licensed discovery-provider adapter",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr193",
+          "note": "Audited existing software against original PRD6; previously stale uncredited entry. Explicit approved-terms/key gates and truthful source-only capabilities remain; no live provider/production acceptance inferred.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
         {
           "id": "6.2.2",
           "software_atom": "Attribution/rate/cache policies",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr193",
+          "note": "Audited existing software against original PRD6; previously stale uncredited entry. Explicit approved-terms/key gates and truthful source-only capabilities remain; no live provider/production acceptance inferred.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
