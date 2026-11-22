@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/station_promotions.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +10,7 @@ class PromotionApi extends EvApi {
 
   final calls = <Map<String, String>>[];
   bool eligible = true;
+  Future<void>? nextResponse;
 
   @override
   Future<dynamic> request(
@@ -20,6 +23,9 @@ class PromotionApi extends EvApi {
     expect(method, 'GET');
     expect(body, isNull);
     calls.add(query);
+    final response = nextResponse;
+    nextResponse = null;
+    if (response != null) await response;
     return {
       'current_page': 1,
       'last_page': 1,
@@ -94,7 +100,6 @@ void main() {
     Widget page(List<int> ids) => MaterialApp(
       home: Scaffold(
         body: StationPromotions.discovery(
-          key: ValueKey(ids.join(',')),
           api: api,
           discoveryStations: ids,
           onExpired: () {},
@@ -116,5 +121,82 @@ void main() {
     expect(api.calls.last['station_ids[0]'], '99');
     expect(api.calls.last.containsKey('station_ids[1]'), false);
     expect(find.text('Synthetic offer'), findsNothing);
+  });
+
+  testWidgets('background hides placements and starts a fresh discovery read', (
+    tester,
+  ) async {
+    final api = PromotionApi();
+    addTearDown(api.close);
+    final oldResponse = Completer<void>();
+    api.nextResponse = oldResponse.future;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StationPromotions.discovery(
+            api: api,
+            discoveryStations: const [42],
+            onExpired: () {},
+          ),
+        ),
+      ),
+    );
+    expect(api.calls, hasLength(1));
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    oldResponse.complete();
+    await tester.pump();
+    expect(find.text('Synthetic offer'), findsNothing);
+    expect(api.calls, hasLength(1));
+
+    api.eligible = false;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.calls, hasLength(2));
+    expect(find.text('Synthetic offer'), findsNothing);
+  });
+
+  testWidgets('only an expiration still owned by this session is delivered', (
+    tester,
+  ) async {
+    final api = PromotionApi();
+    addTearDown(api.close);
+    var expirationIsCurrent = false;
+    var expirations = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StationPromotions(
+            api: api,
+            stationId: 42,
+            country: 'AE',
+            onExpired: () => expirations++,
+          ),
+        ),
+      ),
+    );
+
+    final error = ApiException(
+      401,
+      'Expired',
+      expirationIsCurrent: () => expirationIsCurrent,
+    );
+    final toggle = find.text('Sponsored promotions');
+    final stale = Completer<void>();
+    api.nextResponse = stale.future;
+    await tester.tap(toggle);
+    await tester.pump();
+    stale.completeError(error);
+    await tester.pumpAndSettle();
+    expect(expirations, 0);
+
+    final current = Completer<void>();
+    api.nextResponse = current.future;
+    expirationIsCurrent = true;
+    await tester.tap(find.text('Retry promotions'));
+    await tester.pump();
+    current.completeError(error);
+    await tester.pumpAndSettle();
+    expect(expirations, 1);
   });
 }

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'api.dart';
@@ -29,7 +30,8 @@ class StationPromotions extends StatefulWidget {
   State<StationPromotions> createState() => _StationPromotionsState();
 }
 
-class _StationPromotionsState extends State<StationPromotions> {
+class _StationPromotionsState extends State<StationPromotions>
+    with WidgetsBindingObserver {
   List<Map<String, dynamic>>? placements;
   bool expanded = false;
   bool loading = false;
@@ -38,21 +40,70 @@ class _StationPromotionsState extends State<StationPromotions> {
   int page = 1;
   int lastPage = 1;
   bool Function()? currentSession;
+  late bool foreground;
 
   bool get discovery => widget.stationId == null;
 
   @override
   void initState() {
     super.initState();
-    if (discovery) {
-      expanded = true;
+    final binding = WidgetsBinding.instance;
+    final lifecycle = binding.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    binding.addObserver(this);
+    reset();
+  }
+
+  @override
+  void didUpdateWidget(covariant StationPromotions oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api ||
+        oldWidget.stationId != widget.stationId ||
+        oldWidget.country != widget.country ||
+        !listEquals(oldWidget.discoveryStations, widget.discoveryStations)) {
+      reset();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == foreground) return;
+
+    setState(() {
+      foreground = resumed;
+      reset();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  void reset() {
+    final generationAtReset = ++generation;
+    placements = null;
+    expanded = discovery;
+    loading = false;
+    failed = false;
+    page = 1;
+    lastPage = 1;
+    currentSession = null;
+
+    if (foreground && discovery && widget.discoveryStations.isNotEmpty) {
+      final ownsSession = widget.api.sessionFence();
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) load(1);
+        if (mounted && generation == generationAtReset && ownsSession()) {
+          load(1);
+        }
       });
     }
   }
 
   Future<void> load(int requestedPage) async {
+    if (!foreground || !expanded) return;
     final request = ++generation;
     final fence = widget.api.sessionFence();
     setState(() {
@@ -114,9 +165,7 @@ class _StationPromotionsState extends State<StationPromotions> {
         lastPage = result['last_page'] as int;
       });
     } on ApiException catch (error) {
-      if (mounted &&
-          request == generation &&
-          [401, 419].contains(error.status)) {
+      if (mounted && request == generation && error.endsCurrentSession) {
         widget.onExpired();
       } else if (current()) {
         setState(() => failed = true);
@@ -132,7 +181,7 @@ class _StationPromotionsState extends State<StationPromotions> {
   Widget build(BuildContext context) {
     final arabic = Localizations.localeOf(context).languageCode == 'ar';
     String label(String en, String ar) => arabic ? ar : en;
-    final visible = expanded && (currentSession?.call() ?? false);
+    final visible = foreground && expanded && (currentSession?.call() ?? false);
     if (discovery &&
         (!visible || (placements?.isEmpty == true && lastPage == 1))) {
       return const SizedBox.shrink();
@@ -144,14 +193,16 @@ class _StationPromotionsState extends State<StationPromotions> {
           Text(label('Sponsored promotions', 'عروض ترويجية برعاية')),
         if (!discovery)
           TextButton(
-            onPressed: () {
-              setState(() => expanded = !expanded);
-              if (expanded) {
-                load(1);
-              } else {
-                generation++;
-              }
-            },
+            onPressed: foreground
+                ? () {
+                    if (expanded) {
+                      setState(reset);
+                    } else {
+                      setState(() => expanded = true);
+                      load(1);
+                    }
+                  }
+                : null,
             child: Text(label('Sponsored promotions', 'عروض ترويجية برعاية')),
           ),
         if (visible && loading) const LinearProgressIndicator(),
