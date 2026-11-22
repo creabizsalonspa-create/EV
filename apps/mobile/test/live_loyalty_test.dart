@@ -92,6 +92,7 @@ void main() {
       await admin.request(
         'commercial/coupons/$privateCoupon/revoke',
         method: 'POST',
+        body: {'reason': 'Synthetic native coupon revocation'},
       );
       expect((await claimPrivate())['id'], privateReceipt['id']);
       await admin.request(

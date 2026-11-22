@@ -1,24 +1,61 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+import 'package:creabiz_ev/financial_operation_store.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'loyalty_test.dart' as loyalty;
 
+class CouponStore implements FinancialOperationStore {
+  final rows = <String, Map<String, dynamic>>{};
+  @override
+  Future<Map<String, dynamic>?> read(String scope) async => rows[scope];
+  @override
+  Future<void> write(String scope, Map<String, dynamic> value) async {
+    rows[scope] = value;
+  }
+
+  @override
+  Future<void> remove(String scope) async {
+    rows.remove(scope);
+  }
+}
+
+String digest(String value) => sha256.convert(utf8.encode(value)).toString();
+
 class CouponApi extends loyalty.LoyaltyApi {
+  CouponApi([this.owner = 1]);
+  final int owner;
   String? claimKey;
   bool failHistory = false;
+  bool disableClaims = false;
+  bool reviewed = false;
+  bool recorded = true;
   bool expire = false;
   bool fulfilled = false;
   bool addMalformedOffer = false;
 
   Map<String, dynamic> get receipt => {
     'id': 19,
+    'coupon_id': 7,
+    'request_binding': digest(
+      "${digest('PRIVATE-CODE-ABC')}:${digest('coupon-claim:$owner:$claimKey')}",
+    ),
     'status': fulfilled ? 'fulfilled' : 'pending',
     'reward_name': 'Synthetic coupon reward',
     'reward_name_ar': 'مكافأة قسيمة تجريبية',
     'claimed_at': '2026-10-28T00:00:00Z',
     'points_cost': 0,
     'cash_value': false,
+    'source': 'COUPON',
+    'delivery_verified': false,
+    'activation_mode': reviewed ? 'reviewed_manual' : 'sandbox',
+    'activation_recorded': recorded,
+    'evidence': reviewed
+        ? 'REVIEWED_MANUAL_NONCASH'
+        : 'TEST_PROMOTIONAL_ECONOMICS',
     'fulfillment': 'MANUAL_NON_MONETARY',
   };
 
@@ -29,6 +66,20 @@ class CouponApi extends loyalty.LoyaltyApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (path == 'me') return {'id': owner, 'role': 'customer'};
+    if (path == 'commercial/noncash/status') {
+      expect(method, 'GET');
+      return {
+        'enabled': !disableClaims,
+        'activation_mode': disableClaims ? 'disabled' : 'sandbox',
+        'points_actions_enabled': !disableClaims,
+        'referrals_enabled': !disableClaims,
+        'money_movement': false,
+        'fulfillment': 'MANUAL_NON_MONETARY',
+        'delivery_verified': false,
+        'verified_live_source_required': false,
+      };
+    }
     if (!path.startsWith('commercial/coupons/')) {
       return super.request(path, method: method, body: body, query: query);
     }
@@ -96,12 +147,70 @@ Future<void> tap(WidgetTester tester, String label) async {
 }
 
 void main() {
+  testWidgets(
+    'reopen restores owner receipt lookup without a saved private code',
+    (tester) async {
+      final api = CouponApi();
+      final foreign = CouponApi(2);
+      final store = CouponStore();
+      addTearDown(api.close);
+      addTearDown(foreign.close);
+      await tester.pumpWidget(loyalty.app(api, couponStore: store));
+      await tester.pumpAndSettle();
+      await tap(tester, 'Coupons');
+      await tester.enterText(find.byType(TextField), 'private-code-abc');
+      await tap(tester, 'Claim coupon');
+      expect(store.rows.values.single['key'], api.claimKey);
+      expect(jsonEncode(store.rows), isNot(contains('PRIVATE-CODE-ABC')));
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(loyalty.app(foreign, couponStore: store));
+      await tester.pumpAndSettle();
+      await tap(tester, 'Coupons');
+      expect(find.text('Check last claim receipt'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(loyalty.app(api, couponStore: store));
+      await tester.pumpAndSettle();
+      await tap(tester, 'Coupons');
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '',
+      );
+      await tap(tester, 'Check last claim receipt');
+      expect(find.text('Pending fulfillment'), findsOneWidget);
+      expect(store.rows, isEmpty);
+    },
+  );
+
+  testWidgets('disabled claiming retains provenance-checked receipt history', (
+    tester,
+  ) async {
+    final api = CouponApi()
+      ..disableClaims = true
+      ..reviewed = true;
+    addTearDown(api.close);
+    await tester.pumpWidget(loyalty.app(api, couponStore: CouponStore()));
+    await tester.pumpAndSettle();
+    await tap(tester, 'Coupons');
+    final claim = find.widgetWithText(FilledButton, 'Claim coupon');
+    expect(tester.widget<FilledButton>(claim).onPressed, isNull);
+    await tap(tester, 'Refresh coupon history');
+    expect(
+      find.textContaining('Reviewed manual noncash record'),
+      findsOneWidget,
+    );
+    api.recorded = false;
+    await tap(tester, 'Refresh coupon history');
+    expect(find.textContaining('Reviewed manual noncash record'), findsNothing);
+    expect(find.text('Could not load coupons. Please retry.'), findsOneWidget);
+    expect(api.claimKey, isNull);
+  });
+
   testWidgets('private coupon receipt survives app pause and history refresh', (
     tester,
   ) async {
     final api = CouponApi();
     addTearDown(api.close);
-    await tester.pumpWidget(loyalty.app(api));
+    await tester.pumpWidget(loyalty.app(api, couponStore: CouponStore()));
     await tester.pumpAndSettle();
     await tap(tester, 'Coupons');
     await tester.enterText(find.byType(TextField), 'private-code-abc');
@@ -143,7 +252,9 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final api = CouponApi()..addMalformedOffer = true;
     addTearDown(api.close);
-    await tester.pumpWidget(loyalty.app(api, ar: true));
+    await tester.pumpWidget(
+      loyalty.app(api, ar: true, couponStore: CouponStore()),
+    );
     await tester.pumpAndSettle();
     await tap(tester, 'القسائم');
     await tap(tester, 'تصفح القسائم المؤهلة');
@@ -165,7 +276,9 @@ void main() {
     final api = CouponApi();
     addTearDown(api.close);
     var expired = 0;
-    await tester.pumpWidget(loyalty.app(api, expired: () => expired++));
+    await tester.pumpWidget(
+      loyalty.app(api, expired: () => expired++, couponStore: CouponStore()),
+    );
     await tester.pumpAndSettle();
     await tap(tester, 'Coupons');
     await tap(tester, 'Browse eligible coupons');
