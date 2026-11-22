@@ -69,7 +69,7 @@ class ChargerCommand extends Model
     private static function redactSecrets(array $data): array
     {
         foreach ($data as $key => $value) {
-            if (CommandSecretFields::secretKey($key) || (is_array($value) && array_key_exists('__creabiz_command_secret', $value))) {
+            if (CommandSecretFields::secretKey($key) || CommandSecretFields::credentialUri($value) || (is_array($value) && array_key_exists('__creabiz_command_secret', $value))) {
                 $data[$key] = '[REDACTED]';
             } elseif (is_array($value)) {
                 $data[$key] = self::redactSecrets($value);

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\ChargerCommand;
 use App\Models\Station;
 use App\Models\User;
+use App\Services\Charging\CommandSecretFields;
 use App\Services\CsmsDispatcher;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Encryption\Encrypter;
@@ -24,6 +25,53 @@ class CommandSecretStorageTest extends TestCase
         $station = Station::create(['vendor_id' => $vendor->id, 'name' => 'Secret storage fixture', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
 
         return ChargerCommand::create(['actor_id' => $vendor->id, 'station_id' => $station->id, 'action' => 'start', 'payload' => ['session_id' => 42, 'id_token' => 'SYNTHETIC-OPAQUE-TOKEN', 'nested' => ['Authorization' => 'SYNTHETIC-BEARER']], 'idempotency_key' => $key, 'payload_hash' => str_repeat('a', 64)]);
+    }
+
+    public function test_protocol_upload_urls_are_sealed_without_changing_dispatch_values(): void
+    {
+        $command = $this->command();
+        $uri = 'https://diagnostic:SYNTHETIC-UPLOAD-CAPABILITY@example.test/files';
+        $payload = ['location' => $uri, 'log' => ['remoteLocation' => $uri], 'mirrors' => [$uri], 'documentation' => 'https://example.test/public'];
+        $command->update(['payload' => $payload, 'confirmation' => ['urls' => [$uri]]]);
+        $raw = $command->fresh()->getRawOriginal('payload');
+        $this->assertStringNotContainsString('SYNTHETIC-UPLOAD', $raw);
+        $this->assertSame($payload, $command->fresh()->payload);
+        $this->assertSame(['urls' => [$uri]], $command->fresh()->confirmation);
+        $public = $command->fresh()->toArray();
+        $this->assertSame('[REDACTED]', $public['payload']['location']);
+        $this->assertSame('[REDACTED]', $public['payload']['log']['remoteLocation']);
+        $this->assertSame('[REDACTED]', $public['payload']['mirrors'][0]);
+        $this->assertSame('https://example.test/public', $public['payload']['documentation']);
+        $this->assertStringNotContainsString('SYNTHETIC-UPLOAD', $command->fresh()->toJson());
+        $command->update(['status' => 'outcome_unknown']);
+        $this->assertSame($raw, $command->fresh()->getRawOriginal('payload'));
+        $inspection = CommandSecretFields::inspect($raw, $command->getAttributes(), 'payload');
+        $this->assertSame(3, $inspection['encrypted_fields']);
+    }
+
+    public function test_legacy_upload_uri_is_redacted_and_can_be_sealed_without_transport_changes(): void
+    {
+        $command = $this->command();
+        $uri = 'https://diagnostic:SYNTHETIC-LEGACY@example.test/files';
+        DB::table('charger_commands')->where('id', $command->id)->update(['payload' => json_encode(['location' => $uri])]);
+        $command = $command->fresh();
+        $this->assertSame('[REDACTED]', $command->toArray()['payload']['location']);
+        $this->assertSame($uri, $command->payload['location']);
+        $command->update(['status' => 'outcome_unknown']);
+        $this->assertStringNotContainsString('SYNTHETIC-LEGACY', $command->fresh()->getRawOriginal('payload'));
+        $this->assertSame($uri, $command->fresh()->payload['location']);
+    }
+
+    public function test_upload_uri_envelope_cannot_be_moved_to_another_protocol_field(): void
+    {
+        $command = $this->command();
+        $command->update(['payload' => ['location' => 'https://diagnostic:SYNTHETIC-CAP@example.test/files']]);
+        $raw = json_decode($command->getRawOriginal('payload'), true, flags: JSON_THROW_ON_ERROR);
+        $raw['remoteLocation'] = $raw['location'];
+        unset($raw['location']);
+        DB::table('charger_commands')->where('id', $command->id)->update(['payload' => json_encode($raw)]);
+        $this->expectException(DecryptException::class);
+        $command->fresh()->payload;
     }
 
     public function test_new_secrets_are_encrypted_but_dispatch_values_and_sql_metadata_survive(): void
