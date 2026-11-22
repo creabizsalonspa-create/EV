@@ -24,4 +24,73 @@ void main() {
     expect(connectorReportedState(null,Duration.zero),'unknown');
     expect(connectorReportedState(value,const Duration(seconds:-1)),'unknown');
   });
+
+  test('unresolved evidence stays unknown past expiry in either language', () {
+    final unresolved = {...value, 'state': 'unknown'};
+    const elapsed = Duration(minutes: 8);
+    expect(connectorReportedState(unresolved, elapsed), 'unknown');
+    expect(
+      connectorFreshnessText(unresolved, elapsed, false),
+      contains('Observed: unknown'),
+    );
+    expect(
+      connectorFreshnessText(unresolved, elapsed, true),
+      contains('وقت الرصد: غير معروف'),
+    );
+    expect(
+      connectorReportedState({...value, 'state': 'stale'}, Duration.zero),
+      'unknown',
+    );
+    expect(
+      connectorReportedState({
+        ...value,
+        'state': 'stale',
+        'reported_status': null,
+        'checked_at': value['valid_until'],
+      }, Duration.zero),
+      'stale',
+    );
+  });
+
+  test(
+    'invalid calendar dates and future microsecond observations fail closed',
+    () {
+      expect(
+        connectorReportedState({
+          ...value,
+          'observed_at': '2026-11-31T05:00:00Z',
+          'checked_at': '2026-12-01T05:04:00Z',
+          'valid_until': '2026-12-01T05:05:00Z',
+        }, Duration.zero),
+        'unknown',
+      );
+      final fractional = {
+        ...value,
+        'observed_at': '2026-11-14T05:00:00.000005Z',
+        'checked_at': '2026-11-14T05:04:00.000010Z',
+        'valid_until': '2026-11-14T05:05:00.000005Z',
+      };
+      expect(
+        connectorReportedState(
+          fractional,
+          const Duration(microseconds: 59999994),
+        ),
+        'Available',
+      );
+      expect(
+        connectorReportedState(
+          fractional,
+          const Duration(microseconds: 59999995),
+        ),
+        'stale',
+      );
+      expect(
+        connectorReportedState({
+          ...fractional,
+          'checked_at': '2026-11-14T05:00:00.000004Z',
+        }, Duration.zero),
+        'unknown',
+      );
+    },
+  );
 }
