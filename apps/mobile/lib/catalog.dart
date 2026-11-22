@@ -1,5 +1,6 @@
 import 'connector_freshness.dart';
 import 'station_information.dart';
+import 'station_promotions.dart';
 import 'charging_reviews.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
@@ -585,6 +586,16 @@ for (final field in [
                           information: station.information,
                           timezone: station.timezone,
                         ),
+                        if (widget.customer &&
+                            widget.discoveryApi != null &&
+                            station.country != null)
+                          StationPromotions(
+                            key: ValueKey('promotions-${station.id}-${station.country}'),
+                            api: widget.discoveryApi!,
+                            stationId: station.id,
+                            country: station.country!,
+                            onExpired: widget.onExpired ?? () {},
+                          ),
                         if (widget.discoveryApi != null)
                           TextButton(
                             onPressed: () => Navigator.of(context).push(

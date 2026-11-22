@@ -53,6 +53,7 @@ const { chromium } = require("playwright"),
         response = await attempt();
       }
       assert.equal(response.status(), 200);
+      if (role === "customer") return { p };
       await p.locator('a[href="#commercial-finance"]').click();
       const panel = p.locator("[data-commercial-campaigns]");
       await panel
@@ -76,6 +77,7 @@ const { chromium } = require("playwright"),
     await v
       .locator("[name=description_ar]")
       .fill("اختبار حزمة مدفوعة دون إثبات مشاهدة بشرية");
+    await v.locator("[name=placement]").selectOption("station_detail");
     await v.locator("[name=budget_units]").fill("3");
     const created = vendor.waitForResponse(
       (r) =>
@@ -157,7 +159,7 @@ const { chromium } = require("playwright"),
       .waitFor();
     const feed = await vendor.request.get(
       base +
-        "/api/commercial/campaign-placements?country=AE&placement=discovery_banner",
+        "/api/commercial/campaign-placements?country=AE&placement=station_detail",
     );
     const placed = (await feed.json()).placements.find(
       (r) => r.campaign_id === id,
@@ -166,6 +168,25 @@ const { chromium } = require("playwright"),
     assert.equal(placed.sponsored, true);
     assert.equal(placed.availability_verified, false);
     assert.equal(placed.capability_override, false);
+    const { p: customer } = await login("customer");
+    await customer.locator('a[href="#discover"]').click();
+    const station = customer.locator(`[data-station-id="${f.station}"]`);
+    const banner = customer.locator('[data-catalog-promotions="discovery_banner"]');
+    await banner.getByText("Browser discovery banner " + run, { exact: true }).waitFor();
+    const catalogOrder = await customer.locator("#stations [data-station-id]")
+      .evaluateAll(cards => cards.map(card => Number(card.dataset.stationId)));
+    assert(catalogOrder.indexOf(f.unrelated_station) < catalogOrder.indexOf(f.station));
+    assert(catalogOrder.includes(f.unrelated_station));
+    const promotions = station.locator("details").filter({ hasText: "Sponsored promotions" });
+    await promotions.locator("summary").click();
+    await promotions.getByText("Browser sponsored " + run + " <img src=x>", { exact: true }).waitFor();
+    assert.equal(await promotions.locator("img").count(), 0);
+    await customer.locator("#language").click();
+    await banner.getByText("عرض اكتشاف " + run, { exact: true }).waitFor();
+    await customer.setViewportSize({ width: 390, height: 844 });
+    assert(await customer.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await station.getByText("حملة برعاية " + run, { exact: true }).waitFor();
+    await station.getByText("العروض المموّلة", { exact: true }).click();
     await decision(
       a,
       admin,
@@ -173,6 +194,19 @@ const { chromium } = require("playwright"),
       "Moderator withdraws sponsored placement",
     );
     await a.locator('[data-campaign-state="suspended"]').waitFor();
+    await station.getByText("العروض المموّلة", { exact: true }).click();
+    await station.getByText("لا توجد عروض في هذه الصفحة.", { exact: true }).waitFor();
+    assert.equal(await station.getByText("حملة برعاية " + run, { exact: true }).count(), 0);
+    const filtered = customer.waitForResponse(response =>
+      response.url().includes("/commercial/campaign-placements?") &&
+      new URL(response.url()).searchParams.get("station_ids[]") === String(f.unrelated_station),
+    );
+    await customer.locator('#filters [name="q"]').fill(f.unrelated_station_name);
+    await customer.locator("#filters").evaluate(form => form.requestSubmit());
+    assert.equal((await filtered).status(), 200);
+    await customer.locator(`[data-station-id="${f.unrelated_station}"]`).waitFor();
+    await station.waitFor({ state: "detached" });
+    await banner.waitFor({ state: "hidden" });
     await v.getByRole("button", { name: "Campaign list", exact: true }).click();
     await v
       .locator(`[data-campaign-record="${id}"]`)
@@ -209,7 +243,7 @@ const { chromium } = require("playwright"),
     }
     assert.deepEqual(errors, []);
     console.log(
-      "PASS actual Laravel campaign UI: paid-package and owned-station choices, immutable draft, vendor submission/admin approval, signed server delivery and forged-client denial, labeled sponsored feed without capability claims, moderation suspension, EN/AR RTL Light/Dark three widths. Synthetic package and publisher evidence only; no human impression or production ad delivery verification.",
+      "PASS actual Laravel campaign UI: paid-package and owned-station choices, immutable draft, vendor submission/admin approval, signed server delivery and forged-client denial, labeled sponsored feed without capability claims, moderation suspension, filtered customer station promotions and discovery banners, EN/AR RTL Light/Dark three widths. Synthetic package and publisher evidence only; no human impression or production ad delivery verification.",
     );
   } finally {
     await browser.close();

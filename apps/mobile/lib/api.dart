@@ -52,6 +52,7 @@ class Account {
 class Station {
   final int id;
   final String name;
+  final String? country;
   final String connector;
   final String source;
   final int powerKw;
@@ -69,6 +70,7 @@ class Station {
       longitude = double.tryParse('${json['longitude']}'),
       id = json['id'] as int,
       name = json['name'] as String,
+      country = json['country'] is String ? json['country'] as String : null,
       timezone = json['timezone'] as String? ?? 'UTC',
       reservationTerms = json['reservation_terms'] is Map ? Map<String,dynamic>.from(json['reservation_terms'] as Map) : null,
       information = json['information'] is Map ? Map<String, dynamic>.from(json['information'] as Map) : null,
