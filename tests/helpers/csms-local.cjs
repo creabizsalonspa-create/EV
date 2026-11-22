@@ -80,6 +80,7 @@ class SimulatedCharger {
     this.pending = new Map();
     this.commands = [];
     this.acceptSafeReset = false;
+    this.availabilityReply = null;
     this.firmwareHandler = null;
     this.configurationHandler = null;
     this.diagnosticHandler = null;
@@ -129,6 +130,8 @@ class SimulatedCharger {
                 ]),
               ),
             );
+        } else if (m[2] === "ChangeAvailability" && this.availabilityReply) {
+          this.socket.send(JSON.stringify([3, m[1], { status: this.availabilityReply }]));
         } else if (m[2] === "Reset" && this.acceptSafeReset) {
           assert(["Soft", "OnIdle"].includes(m[3].type), "Unsafe reset mode");
           this.socket.send(JSON.stringify([3, m[1], { status: "Accepted" }]));

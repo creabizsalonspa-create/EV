@@ -16,7 +16,7 @@ const { spawnSync } = require("node:child_process");
       "native-recurring-payments",
       "native-vendor-onboarding",
     ], // 9 logins
-    ["native-loyalty", "native-financial-operations"], // 8 logins: loyalty3 plus financial5; same production limit
+    ["native-loyalty", "native-financial-operations"], // 9 logins: loyalty4 plus financial5; same production limit
     ["native-commercial-parity", "native-case-evidence"], // 8 logins; own fresh unchanged authentication window
     ["native-hosted-checkout"], // 3 independent authenticated identities
     ["native-corporate-hosted"], // 3 payer/driver/vendor identities; separate auth window
