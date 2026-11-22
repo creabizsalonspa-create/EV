@@ -1,7 +1,7 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),{spawnSync}=require('node:child_process');
 const script=path.resolve('scripts/dependency-inventory.py');
-function run(root){return spawnSync('python3',[script,'--root',root],{encoding:'utf8',timeout:10000,maxBuffer:4*1024*1024});}
+function run(root,...args){return spawnSync('python3',[script,'--root',root,...args],{encoding:'utf8',timeout:10000,maxBuffer:4*1024*1024});}
 function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'ev-dependency-inventory-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));return root;}
 function write(root,name,value){const file=path.join(root,name);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,typeof value==='string'?value:JSON.stringify(value));}
 function inputs(root){
@@ -11,6 +11,7 @@ function inputs(root){
 }
 test('offline inventory preserves package instances, hashes and unknown licenses without executing source locators',t=>{
  const root=fixture(t);inputs(root);write(root,'node_modules/ignored/package-lock.json','PRIVATE INVALID JSON');write(root,'unlocked/package.json',{dependencies:{missing:'1.0.0'}});
+ const strict=run(root,'--require-source-match');assert.equal(strict.status,2);assert.equal(strict.stdout,'');
  const first=run(root);assert.equal(first.status,0,first.stderr);assert.equal(first.stdout,run(root).stdout);const result=JSON.parse(first.stdout);
  assert.equal(result.component_count,7);assert.equal(result.lockfiles.length,3);assert.equal(new Set(result.components.map(c=>c.id)).size,7);assert.deepEqual(result.components.filter(c=>c.name==='demo'&&c.ecosystem==='npm').map(c=>c.version),['1.0.0','2.0.0']);
  assert(result.components.some(c=>c.ecosystem==='pub'&&c.source_kind==='path'&&c.development_only));assert.equal(result.components_without_license_declarations,3);assert(result.lockfiles.every(c=>/^[a-f0-9]{64}$/.test(c.sha256)));assert.deepEqual(result.manifests_without_inventory_lock,['unlocked/package.json']);assert.doesNotMatch(first.stdout,/DO-NOT-EMIT|DO-NOT-FOLLOW|https:/);
@@ -52,8 +53,10 @@ test('changed checkout locks stay distinct from the recorded source commit',t=>{
  const git=(...args)=>{const r=spawnSync('git',args,{cwd:root,encoding:'utf8',timeout:10000});assert.equal(r.status,0,'Synthetic inventory Git fixture failed');};
  git('init','-q');git('add','package-lock.json');git('-c','user.name=Inventory fixture','-c','user.email=fixture@example.test','-c','core.hooksPath=/dev/null','-c','commit.gpgsign=false','commit','-qm','Synthetic lock snapshot');
  let data=JSON.parse(run(root).stdout);assert.equal(data.lockfiles_match_source_commit,true);assert.equal(data.tracked_checkout_dirty,false);
+ const strict=run(root,'--require-source-match');assert.equal(strict.status,0,strict.stderr);assert.equal(strict.stdout,run(root).stdout);
  write(root,'package-lock.json',{lockfileVersion:3,packages:{'node_modules/demo':{version:'2.0.0',license:'MIT'}}});write(root,'untracked/pubspec.lock','DO-NOT-PARSE');
  const result=run(root);assert.equal(result.status,0,result.stderr);data=JSON.parse(result.stdout);assert.equal(data.lockfiles_match_source_commit,false);assert.equal(data.tracked_checkout_dirty,true);assert.equal(data.lockfiles.length,1);assert.equal(data.components[0].version,'2.0.0');assert.equal(data.production_accepted,false);
+ const rejected=run(root,'--require-source-match');assert.equal(rejected.status,2);assert.equal(rejected.stdout,'');assert.match(rejected.stderr,/clean Git checkout/);
 });
 test('oversized source locks fail before parsing and never return a partial inventory',t=>{
  const root=fixture(t),file=path.join(root,'package-lock.json');fs.writeFileSync(file,'');fs.truncateSync(file,21*1024*1024);const result=run(root);assert.equal(result.status,2);assert.equal(result.stdout,'');assert.doesNotMatch(result.stderr,/Traceback/);

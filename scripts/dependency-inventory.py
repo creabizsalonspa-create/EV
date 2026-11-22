@@ -235,12 +235,19 @@ def inventory(root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parent.parent)
+    parser.add_argument('--require-source-match', action='store_true',
+                        help='Reject inventories without a clean Git checkout and commit-matched locks.')
     args = parser.parse_args()
     try:
-        print(json.dumps(inventory(args.root), sort_keys=True, indent=2))
+        report = inventory(args.root)
     except (InventoryError, OSError, ValueError, TypeError, UnicodeError):
         print(json.dumps({'error': 'Dependency inventory rejected unsupported, malformed or unsafe lockfile data.'}), file=sys.stderr)
         return 2
+    if args.require_source_match and (report['tracked_checkout_dirty'] is not False
+                                      or report['lockfiles_match_source_commit'] is not True):
+        print(json.dumps({'error': 'Release inventory requires a clean Git checkout with commit-matched locks.'}), file=sys.stderr)
+        return 2
+    print(json.dumps(report, sort_keys=True, indent=2))
     return 0
 
 
