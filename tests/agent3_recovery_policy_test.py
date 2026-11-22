@@ -24,6 +24,23 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
         self.assertLess(workflow.index(command),
                         workflow.index('bash scripts/staging-recovery-smoke creabiz-ev-business:ci-review'))
 
+    def test_canonical_domain_snapshot_is_compared_before_worker_boot(self):
+        code = self.source
+        self.assertIn('php /dev/stdin seed', code)
+        self.assertEqual(2, code.count('php /dev/stdin fingerprint'))
+        self.assertIn('cmp -- "$scratch/domain-before.json" "$scratch/domain-after.json"', code)
+        self.assertLess(code.index('cmp -- "$scratch/domain-before.json"'),
+                        code.index('php artisan queue:work'))
+        fixture = (ROOT / 'scripts/recovery-domain-fixture.php').read_text()
+        self.assertIn("app()->environment() !== 'staging'", fixture)
+        self.assertIn("!== 'ev_recovery_review'", fixture)
+        self.assertIn('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY', fixture)
+        self.assertIn('FROM pg_sequences', fixture)
+        self.assertIn('FROM pg_tables', fixture)
+        self.assertNotIn('env(', fixture)
+        self.assertIn('hash_update($hash, strlen($row->wire)', fixture)
+        self.assertNotIn('echo $row', fixture)
+
     def test_script_parses_as_bash(self):
         subprocess.run(["bash", "-n", str(SCRIPT)], check=True, timeout=10)
 

@@ -142,6 +142,24 @@
       "test_result": "passed",
       "merge_sha": "151acd73e94e12b2e1cdfbe46ce859928d186b92",
       "evidence": "docs/evidence/integrated-checkpoints-20261120/pr191-verified.json"
+    },
+    "pr193": {
+      "source_sha": "eae11308840fc679a6b553e7c365586c76736f66",
+      "test_result": "passed",
+      "merge_sha": "f4f22e800ad9b98dcd12a97621ba486b9e9ce047",
+      "evidence": "docs/evidence/integrated-checkpoints-20261121/pr193-verified.json"
+    },
+    "pr194": {
+      "source_sha": "8616b83c38f5f082620a839de56245406d528d8b",
+      "test_result": "passed",
+      "merge_sha": "251be69bce90d68763a71302534b0b070ebdb343",
+      "evidence": "docs/evidence/integrated-checkpoints-20261122/pr194-verified.json"
+    },
+    "pr195": {
+      "source_sha": "f2487f6d0c68ab41f7b8185fe8a331e4ecaaebb6",
+      "test_result": "passed",
+      "merge_sha": "2be2a0d30868f35b6b474c297cd2d13ae5503d5d",
+      "evidence": "docs/evidence/integrated-checkpoints-20261122/pr195-verified.json"
     }
   },
   "production_acceptance": null,
@@ -676,9 +694,9 @@
     {
       "prd": "2.9",
       "requirement": "Loyalty/rewards/promotions/referrals",
-      "implemented_code_scope": "PR18 noncash Silver/Gold/Platinum tiers, immutable points ledger with refund clawback/debt/expiry, stock-limited redemption and manual fulfillment; customer/admin web/API. Production mutations disabled by default.",
-      "automated_evidence_scope": "Verified PR18 exact-source platform and PostgreSQL financial/concurrency checks; LoyaltyEconomicsTest and browser loyalty workflows. No live economics or native parity acceptance.; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
-      "remaining_scope": "Coupons, referrals, promotions, vendor participation, broader reward fulfillment, native parity and real operational acceptance.",
+      "implemented_code_scope": "PR18 noncash Silver/Gold/Platinum tiers, immutable points ledger with refund clawback/debt/expiry, stock-limited redemption and manual fulfillment; customer/admin web/API. Production mutations disabled by default. Verified Admin coupon publication and revocation and customer discovery, private codes, idempotent claims and actor-scoped receipt recovery across web and Flutter.",
+      "automated_evidence_scope": "Verified PR18 exact-source platform and PostgreSQL financial/concurrency checks; LoyaltyEconomicsTest and browser loyalty workflows. No live economics or native parity acceptance.; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Coupon lifecycle, privacy, inventory concurrency and recovery verified on SQLite, PostgreSQL, Chromium and hosted Android/iOS.",
+      "remaining_scope": "Referrals, promotions, vendor participation, broader reward fulfillment and real operational acceptance remain open.",
       "atoms": [
         {
           "id": "2.9.1",
@@ -704,9 +722,9 @@
         {
           "id": "2.9.4",
           "software_atom": "Coupons",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr194",
+          "note": "Coupon Admin publication and revocation, public and private claims, bilingual customer web and Flutter, actor-scoped receipt recovery and PostgreSQL races against shared reward inventory."
         },
         {
           "id": "2.9.5",
@@ -1465,9 +1483,9 @@
     {
       "prd": "4.4",
       "requirement": "Admin enterprise/campaigns/partners",
-      "implemented_code_scope": "Basic fleet accounts/membership/cost centers/vehicle assignment",
-      "automated_evidence_scope": "EnterpriseTest; fleet web/native. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
-      "remaining_scope": "B2B agreements/billing/admin governance, loyalty/campaigns/ads/retail partner workflows",
+      "implemented_code_scope": "Basic fleet accounts/membership/cost centers/vehicle assignment Verified bilingual Super Admin retail partner administration with immutable terms, independent approval and rejection, suspension, reinstatement and termination.",
+      "automated_evidence_scope": "EnterpriseTest; fleet web/native. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Exact-source Laravel, PostgreSQL, Chromium and integrated GitHub jobs passed for the retail registry.",
+      "remaining_scope": "B2B agreements, billing governance, loyalty, campaigns, advertising and external retail partner activation remain open.",
       "atoms": [
         {
           "id": "4.4.1",
@@ -1507,9 +1525,9 @@
         {
           "id": "4.4.6",
           "software_atom": "Retail partner administration",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr195",
+          "note": "Bilingual Super Admin retail partner administration, independent review, versioned terms, authorization, audit and lifecycle governance."
         }
       ]
     },
@@ -1922,23 +1940,23 @@
     {
       "prd": "6.2",
       "requirement": "Licensed discovery providers",
-      "implemented_code_scope": "No Open Charge Map provider access or coverage claimed",
-      "automated_evidence_scope": "No complete feature acceptance suite; not implemented. No completed merged product module; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
-      "remaining_scope": "Implement approved provider adapter with API/license/attribution/rate policies and UI integration",
+      "implemented_code_scope": "Open Charge Map licensed discovery adapter with a fixed HTTPS origin, server-only API key, explicit approved-terms and location-consent gates, per-record open-license/attribution validation and truthful source-only capabilities. Bounded results, radius/deduplication, byte/redirect/MIME/calendar validation, credential-scoped shared quota/cache/cooldown/lease and cache revalidation are integrated through PR193. Web EN/AR provider search/map/quality UI exists; complete required native integration and broader operator coverage-quality monitoring remain separate uncredited scope.",
+      "automated_evidence_scope": "OpenChargeMapDiscoveryTest24/271 plus real Laravel/Chromium licensed discovery, mixed-map and projection/transport regressions. PR193 final sourceeae11308840fc679a6b553e7c365586c76736f66 passed all8 applicable exact-source gates, including platform, both PostgreSQL matrices, CSMS, staging, both native platforms and dependent recovery, then mergedf4f22e800ad9b98dcd12a97621ba486b9e9ce047 with identical tested/integrated trees. Proof: docs/evidence/integrated-checkpoints-20261121/pr193-verified.json. No live provider access, legal activation approval, national coverage or production SLA accepted.",
+      "remaining_scope": "Complete provider-specific native frontend parity (6.2.3) and broader operator coverage-quality monitoring (6.2.4). Approved API access/key, actual licensed activation and live provider coverage/SLA acceptance remain external; these are not inferred from fixture or browser verification.",
       "atoms": [
         {
           "id": "6.2.1",
           "software_atom": "Licensed discovery-provider adapter",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr193",
+          "note": "Audited existing software against original PRD6; previously stale uncredited entry. Explicit approved-terms/key gates and truthful source-only capabilities remain; no live provider/production acceptance inferred."
         },
         {
           "id": "6.2.2",
           "software_atom": "Attribution/rate/cache policies",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr193",
+          "note": "Audited existing software against original PRD6; previously stale uncredited entry. Explicit approved-terms/key gates and truthful source-only capabilities remain; no live provider/production acceptance inferred."
         },
         {
           "id": "6.2.3",

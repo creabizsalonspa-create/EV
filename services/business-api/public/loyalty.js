@@ -997,7 +997,31 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         code.autocomplete = "off";
         code.maxLength = 40;
         code.pattern = "[A-Za-z0-9\\-]{12,40}";
+        const scope = "creabiz.coupon-claim.v1." + owner;
         let pending;
+        function readPending() {
+            if (role !== "customer") return pending;
+            const value = JSON.parse(sessionStorage.getItem(scope) ?? "null");
+            if (value === null) return undefined;
+            if (typeof value.idempotency_key !== "string" ||
+                !/^[a-f0-9-]{36}$/.test(value.idempotency_key) ||
+                !(Number.isSafeInteger(value.coupon) && value.coupon > 0 && value.codeHash === undefined ||
+                  value.coupon === undefined && /^[a-f0-9]{64}$/.test(value.codeHash))) {
+                throw Error("Invalid saved coupon");
+            }
+            return value;
+        }
+        function savePending(value) {
+            if (role === "customer") {
+                if (value) sessionStorage.setItem(scope, JSON.stringify(value));
+                else sessionStorage.removeItem(scope);
+            }
+            pending = value;
+        }
+        async function digest(value) {
+            const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+            return Array.from(new Uint8Array(bytes), value => value.toString(16).padStart(2, "0")).join("");
+        }
         const locale = () => document.documentElement.lang === "ar";
         const labelStatus = {
             pending: ["Pending fulfillment", "بانتظار التسليم"],
@@ -1012,14 +1036,30 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         }
         const validOffer = row => Number.isSafeInteger(row?.id) && row.id > 0
             && typeof row.reward_name === "string" && typeof row.reward_name_ar === "string";
+        function receiptMode(row) {
+            const legacy = !Object.hasOwn(row, "activation_mode") &&
+                !Object.hasOwn(row, "activation_recorded");
+            const mode = legacy ? "sandbox" : row.activation_mode;
+            const recorded = legacy ? false : row.activation_recorded;
+            if (mode === "sandbox" && typeof recorded === "boolean" &&
+                row.evidence === "TEST_PROMOTIONAL_ECONOMICS") return mode;
+            if (mode === "reviewed_manual" && recorded === true &&
+                row.evidence === "REVIEWED_MANUAL_NONCASH") return mode;
+            throw Error("Unsupported noncash provenance");
+        }
         function receiptCard(row) {
             if (!validOffer(row) || !Object.hasOwn(labelStatus, row.status)
                 || row.points_cost !== 0 || row.cash_value !== false
+                || row.source !== "COUPON" || row.delivery_verified !== false
                 || row.fulfillment !== "MANUAL_NON_MONETARY" || typeof row.claimed_at !== "string")
                 throw Error("Invalid receipt");
             const card = node("article");
             card.append(node("p", "#" + row.id), rewardName(row), t("p", ...labelStatus[row.status]));
             time(card, "Claimed", "تاريخ المطالبة", row.claimed_at);
+            const mode = receiptMode(row);
+            card.append(mode === "reviewed_manual"
+                ? t("p", "Reviewed manual noncash record", "سجل غير نقدي يدوي مراجع")
+                : t("p", "Sandbox test record", "سجل تجريبي"));
             return card;
         }
         const say = (en, ar) => feedback.replaceChildren(t("span", en, ar));
@@ -1034,7 +1074,7 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                         records.replaceChildren();
                         say("Could not load coupons. Please retry.", "تعذر تحميل القسائم. أعد المحاولة.");
                     } else if ([404, 409, 422].includes(error.status)) {
-                        if (operation === "draft") pending = undefined;
+                        if (operation === "draft") savePending(undefined);
                         say("Coupon request declined. Check the code, dates and limits.",
                             "رُفض طلب القسيمة. تحقق من الرمز والتواريخ والحدود.");
                     } else {
@@ -1065,10 +1105,14 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                 time(card, "Starts", "البداية", row.starts_at);
                 time(card, "Expires", "الانتهاء", row.ends_at);
                 if (row.revoked_at) card.append(t("p", "Revoked", "ملغاة"));
-                else couponButton(card, "Revoke coupon", "إلغاء القسيمة", async () => {
-                    await couponRequest("/" + row.id + "/revoke", "POST", {});
-                    await refresh(number);
-                }, "revoke");
+                else {
+                    const reason = field(card, "revocation_reason", "Revocation reason", "سبب الإلغاء");
+                    reason.maxLength = 500;
+                    couponButton(card, "Revoke coupon", "إلغاء القسيمة", async () => {
+                        await couponRequest("/" + row.id + "/revoke", "POST", { reason: reason.value.trim() });
+                        await refresh(number);
+                    }, "revoke");
+                }
                 records.append(card);
             }
             if (!result.data.length) records.append(role === "admin"
@@ -1117,9 +1161,40 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                 await refresh();
             }, "draft");
         } else {
-            function showClaim(result) {
+            async function claimsEnabled() {
+                const value = await api("commercial/noncash/status", "GET", undefined, controller.signal);
+                if (!alive()) return false;
+                if (!value || typeof value.enabled !== "boolean" ||
+                    typeof value.points_actions_enabled !== "boolean" ||
+                    typeof value.referrals_enabled !== "boolean" ||
+                    typeof value.verified_live_source_required !== "boolean" ||
+                    !["disabled", "sandbox", "reviewed_manual"].includes(value.activation_mode) ||
+                    value.enabled !== (value.activation_mode !== "disabled") ||
+                    value.money_movement !== false ||
+                    value.fulfillment !== "MANUAL_NON_MONETARY" ||
+                    value.delivery_verified !== false ||
+                    (value.activation_mode !== "sandbox" && value.points_actions_enabled) ||
+                    (!value.enabled && value.referrals_enabled)) {
+                    throw Error("Unsupported noncash capability");
+                }
+                if (!value.enabled) say(
+                    "New coupon claims are disabled. Existing receipts remain available.",
+                    "المطالبات الجديدة بالقسائم معطلة. تبقى الإيصالات الموجودة متاحة.",
+                );
+                return value.enabled;
+            }
+            async function showClaim(result, saved) {
                 const receipt = receiptCard(result?.claim);
-                pending = undefined;
+                const row = result.claim;
+                if (saved.coupon !== undefined && row.coupon_id !== saved.coupon)
+                    throw Error("Coupon receipt identity changed");
+                if (saved.codeHash) {
+                    const request = await digest("coupon-claim:" + owner + ":" + saved.idempotency_key);
+                    if (row.request_binding !== await digest(saved.codeHash + ":" + request))
+                        throw Error("Coupon receipt binding changed");
+                }
+                if (!alive()) return;
+                savePending(undefined);
                 code.value = "";
                 records.replaceChildren(receipt);
             }
@@ -1130,14 +1205,21 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             panel.append(t("p", "Enter a code you received to claim a noncash reward.", "أدخل الرمز الذي تلقيته للمطالبة بمكافأة غير نقدية."));
             couponButton(panel, "Claim coupon", "المطالبة بالقسيمة", async () => {
                 const entered = code.value.trim().toUpperCase();
-                if (pending && pending.code !== entered) return resolveFirst();
                 if (!validCode()) {
                     say("Enter a valid coupon code.", "أدخل رمز قسيمة صالحاً.");
                     return;
                 }
-                pending ??= { code: entered, idempotency_key: crypto.randomUUID() };
-                const result = await couponRequest("/claim", "POST", pending);
-                if (alive()) showClaim(result);
+                const codeHash = await digest(entered);
+                if (!alive()) return;
+                const previous = readPending();
+                if (previous && previous.codeHash !== codeHash) return resolveFirst();
+                if (!await claimsEnabled()) return;
+                const saved = previous ?? { codeHash, idempotency_key: crypto.randomUUID() };
+                savePending(saved);
+                const result = await couponRequest("/claim", "POST", {
+                    code: entered, idempotency_key: saved.idempotency_key,
+                });
+                if (alive()) await showClaim(result, saved);
             }, "draft");
             async function eligible(number = 1) {
                 const result = await couponRequest("/eligible?page=" + number);
@@ -1151,12 +1233,15 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                     card.append(rewardName(row));
                     time(card, "Expires", "الانتهاء", row.ends_at);
                     couponButton(card, "Claim listed reward", "المطالبة بالمكافأة المدرجة", async () => {
-                        if (pending && pending.coupon !== row.id) return resolveFirst();
-                        pending ??= { coupon: row.id, idempotency_key: crypto.randomUUID() };
+                        const previous = readPending();
+                        if (previous && previous.coupon !== row.id) return resolveFirst();
+                        if (!await claimsEnabled()) return;
+                        const saved = previous ?? { coupon: row.id, idempotency_key: crypto.randomUUID() };
+                        savePending(saved);
                         const reply = await couponRequest("/eligible/" + row.id + "/claim", "POST", {
-                            idempotency_key: pending.idempotency_key,
+                            idempotency_key: saved.idempotency_key,
                         });
-                        if (alive()) showClaim(reply);
+                        if (alive()) await showClaim(reply, saved);
                     }, "draft");
                     records.append(card);
                 }
@@ -1166,28 +1251,188 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             }
             couponButton(panel, "Browse eligible coupons", "تصفح القسائم المؤهلة", () => eligible());
             couponButton(panel, "Check last claim receipt", "التحقق من إيصال المطالبة", async () => {
-                if (!pending) {
+                const saved = readPending();
+                if (!saved) {
                     say("Open coupon history to review recorded claims.", "افتح سجل القسائم لمراجعة المطالبات المسجلة.");
                     return;
                 }
-                const result = await couponRequest("/claim-receipt", "POST", { idempotency_key: pending.idempotency_key });
+                const result = await couponRequest("/claim-receipt", "POST", { idempotency_key: saved.idempotency_key });
                 if (!alive()) return;
                 if (result?.claim === null) {
                     say("No receipt has been recorded for this request.", "لم يتم تسجيل إيصال لهذا الطلب.");
                     return;
                 }
-                showClaim(result);
+                await showClaim(result, saved);
             }, "receipt");
         }
         function validCode() {
             return /^[A-Z0-9-]{12,40}$/.test(code.value.trim().toUpperCase());
         }
         couponButton(panel, "Clear coupon draft", "مسح مسودة القسيمة", () => {
-            pending = undefined;
+            savePending(undefined);
             code.value = "";
         });
         couponButton(panel, "Refresh coupons", "تحديث القسائم", () => refresh());
         panel.append(records);
+        container.append(panel);
+    }
+    if (role === "customer") {
+        const panel = node("section"), programmes = node("div"), accountStatus = node("div"), history = node("div");
+        panel.dataset.referralPanel = "true";
+        const call = (path, method = "GET", data) => {
+            if (!alive()) throw new DOMException("Session changed", "AbortError");
+            return api("commercial/" + path, method, data, controller.signal);
+        };
+        const show = (parent, en, ar) => parent.append(t("p", en, ar));
+        const localized = (parent, en, ar) => {
+            const text = node("p", document.documentElement.lang === "ar" ? ar : en);
+            text.dataset.en = en;
+            text.dataset.ar = ar;
+            parent.append(text);
+        };
+        const codePattern = /^REF-[A-F0-9]{20}$/;
+        const versionPattern = /^[a-f0-9]{64}$/;
+        function message(en, ar) {
+            return new Error(document.documentElement.lang === "ar" ? ar : en);
+        }
+        async function loadReferral() {
+            accountStatus.replaceChildren();
+            const result = await call("referrals/account");
+            if (!alive()) return;
+            const referral = result.referral;
+            if (referral === null) {
+                show(accountStatus, "No referral recorded", "لا توجد إحالة مسجلة");
+                return;
+            }
+            const states = {
+                accepted: ["Accepted, awaiting a qualifying invoice", "مقبولة، بانتظار فاتورة مؤهلة"],
+                qualified: ["Qualified", "مؤهلة"],
+                expired: ["Expired", "منتهية الصلاحية"],
+                withdrawn: ["Consent withdrawn", "تم سحب الموافقة"],
+            };
+            if (!referral || !Object.hasOwn(states, referral.status) || referral.cash_value !== false) {
+                throw message("Referral status is unavailable.", "حالة الإحالة غير متاحة.");
+            }
+            show(accountStatus, ...states[referral.status]);
+            if (referral.status === "accepted") {
+                const invoice = field(accountStatus, "referral_invoice_id", "Qualifying invoice ID", "رقم الفاتورة المؤهلة");
+                invoice.inputMode = "numeric";
+                let request;
+                button(accountStatus, "Verify invoice eligibility", "التحقق من أهلية الفاتورة", async () => {
+                    const id = Number(invoice.value);
+                    if (!/^[0-9]+$/.test(invoice.value) || !Number.isSafeInteger(id) || id < 1) {
+                        throw message("Enter a valid invoice ID.", "أدخل رقم فاتورة صالحاً.");
+                    }
+                    if (request && request.invoice_id !== id) {
+                        throw message("Refresh referral status before changing the invoice.", "حدّث حالة الإحالة قبل تغيير الفاتورة.");
+                    }
+                    request ??= { invoice_id: id, idempotency_key: crypto.randomUUID() };
+                    await call("referrals/qualify", "POST", request);
+                    if (alive()) await loadReferral();
+                });
+            }
+            if (!["accepted", "expired"].includes(referral.status)) return;
+            const reason = field(accountStatus, "referral_withdrawal_reason", "Withdrawal reason", "سبب سحب الموافقة");
+            reason.maxLength = 500;
+            button(accountStatus, "Withdraw referral consent", "سحب الموافقة على الإحالة", async () => {
+                if (reason.value.trim().length < 5) {
+                    throw message("Enter a withdrawal reason.", "أدخل سبب سحب الموافقة.");
+                }
+                await call("referrals/withdraw", "POST", { reason: reason.value.trim() });
+                if (alive()) await loadReferral();
+            });
+        }
+        async function loadProgrammes(page = 1) {
+            programmes.replaceChildren();
+            const result = await call("referral-programs?page=" + page);
+            if (!alive()) return;
+            for (const programme of result.data) {
+                const card = node("article");
+                localized(card, programme.name, programme.name_ar);
+                localized(card, programme.terms, programme.terms_ar);
+                if (programme.active && Number.isSafeInteger(programme.id) && versionPattern.test(programme.terms_version)) {
+                    const detail = node("div");
+                    button(card, "Open referral programme", "فتح برنامج الإحالة", async () => {
+                        detail.replaceChildren();
+                        const account = await call("referrals/account?program_id=" + programme.id);
+                        if (alive() && account.program_id === programme.id) renderAccount(detail, programme, account);
+                    });
+                    card.append(detail);
+                }
+                programmes.append(card);
+            }
+            if (!result.data.length) show(programmes, "No referral programmes", "لا توجد برامج إحالة");
+            if (page > 1) button(programmes, "Previous programmes", "البرامج السابقة", () => loadProgrammes(page - 1));
+            if (page < result.last_page) button(programmes, "Next programmes", "البرامج التالية", () => loadProgrammes(page + 1));
+        }
+        function renderAccount(parent, programme, account) {
+            parent.replaceChildren();
+            const reload = async () => {
+                const current = await call("referrals/account?program_id=" + programme.id);
+                if (alive() && current.program_id === programme.id) renderAccount(parent, programme, current);
+            };
+            button(parent, "Refresh referral account", "تحديث حساب الإحالة", reload);
+            if (codePattern.test(account.own_code?.code || "")) {
+                parent.append(t("p", "Your referral code", "رمز الإحالة الخاص بك"), node("code", account.own_code.code));
+            } else if (account.software_activation === true) {
+                let codeKey;
+                button(parent, "Create referral code", "إنشاء رمز إحالة", async () => {
+                    codeKey ??= crypto.randomUUID();
+                    await call("referrals/codes", "POST", { program_id: programme.id, idempotency_key: codeKey });
+                    if (alive()) await reload();
+                });
+            }
+            if (account.referral) {
+                show(parent, "A referral is recorded for this account.", "توجد إحالة مسجلة لهذا الحساب.");
+            }
+            if (account.can_accept !== true || account.software_activation !== true) return;
+            const code = field(parent, "referral_code", "Referral code", "رمز الإحالة");
+            code.maxLength = 24;
+            code.autocomplete = "off";
+            const consent = field(parent, "referral_consent", "I accept these programme terms", "أوافق على شروط هذا البرنامج", "", "checkbox");
+            let pending;
+            button(parent, "Accept referral", "قبول الإحالة", async () => {
+                const entered = code.value.trim().toUpperCase();
+                if (!consent.checked || !codePattern.test(entered)) {
+                    throw message("Enter a valid referral code and accept the terms.", "أدخل رمز إحالة صالحاً ووافق على الشروط.");
+                }
+                if (pending && pending.code !== entered) {
+                    throw message("Refresh the referral account before changing the request.", "حدّث حساب الإحالة قبل تعديل الطلب.");
+                }
+                pending ??= { code: entered, terms_version: programme.terms_version, consent: true, idempotency_key: crypto.randomUUID() };
+                await call("referrals/accept", "POST", pending);
+                if (alive()) {
+                    pending = undefined;
+                    code.value = "";
+                    await reload();
+                }
+            });
+        }
+        async function loadRewards(page = 1) {
+            history.replaceChildren();
+            const result = await call("referrals/rewards?page=" + page);
+            if (!alive()) return;
+            const statuses = {
+                pending: ["Pending fulfillment", "بانتظار التسليم"],
+                fulfilled: ["Fulfilled", "تم التسليم"],
+                rejected: ["Rejected", "مرفوض"],
+            };
+            for (const row of result.data) {
+                if (row.source !== "REFERRAL" || row.cash_value !== false || row.points_cost !== 0 || !Object.hasOwn(statuses, row.status)) continue;
+                const card = node("article");
+                localized(card, row.reward_name, row.reward_name_ar);
+                show(card, ...statuses[row.status]);
+                history.append(card);
+            }
+            if (!result.data.length) show(history, "No referral rewards", "لا توجد مكافآت إحالة");
+            if (page > 1) button(history, "Previous referral rewards", "مكافآت الإحالة السابقة", () => loadRewards(page - 1));
+            if (page < result.last_page) button(history, "Next referral rewards", "مكافآت الإحالة التالية", () => loadRewards(page + 1));
+        }
+        panel.append(t("h4", "Referrals", "الإحالات"));
+        button(panel, "Browse referral programmes", "تصفح برامج الإحالة", () => loadProgrammes());
+        button(panel, "Check my referral status", "التحقق من حالة إحالتي", loadReferral);
+        button(panel, "View referral rewards", "عرض مكافآت الإحالة", () => loadRewards());
+        panel.append(programmes, accountStatus, history);
         container.append(panel);
     }
     container.append(content);
