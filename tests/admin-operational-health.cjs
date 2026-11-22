@@ -65,3 +65,30 @@ test('Untrusted email handoff metrics and fabricated delivery claims fail closed
         assert(f.root.textContent.includes('could not load'));
     }
 });
+
+test('resolved incident state remains visible beyond the bounded recent timeline', async () => {
+    for (const ar of [false, true]) {
+        const locale = fixture(ar);
+        const data = report();
+        data.incidents = {
+            store_readable: true,
+            monitoring_enabled: true,
+            automatic_retry: false,
+            external_alert_delivery: false,
+            production_recovery_verified: false,
+            open: [],
+            resolved: [{
+                condition_key: 'scheduler_stale',
+                state: 'resolved',
+                opened_at: '2026-11-15T12:00:00Z',
+                resolved_at: '2026-11-15T12:30:00Z',
+            }],
+            recent_events: [],
+        };
+        locale.setActor({role: 'admin'}, async () => data);
+        click(locale);
+        await flush();
+        assert(locale.root.textContent.includes(ar ? 'الحوادث التي تم حلها' : 'Resolved incidents'));
+        assert(locale.root.textContent.includes('2026-11-15T12:30:00Z'));
+    }
+});
