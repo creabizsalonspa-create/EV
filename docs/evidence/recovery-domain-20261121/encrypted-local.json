@@ -1,0 +1,63 @@
+{
+  "all_public_tables_and_sequences_match": true,
+  "archive_tamper_rejected": true,
+  "authenticated_backup_encryption_roundtrip": true,
+  "canonical_domain_fingerprint": {
+    "fingerprint_sha256": "c679bed4a1ba1fe19fa7113d9f900a412babbd6d216d4fe41993fc013c4cceba",
+    "row_count": 184,
+    "sequence_count": 157,
+    "table_count": 189
+  },
+  "canonical_domain_restored": true,
+  "classification": "disposable staging software only",
+  "database_session_cache_restored": true,
+  "distinct_cluster_system_ids_verified": true,
+  "drill_completed_epoch": 1795234511,
+  "drill_started_epoch": 1795234434,
+  "dump_sha256": "d31d8860824d9b1f356002b70718c59471def4591676ee4e8aacdc638b5e209c",
+  "durable_queue_job_restored_and_executed": true,
+  "external_acceptance": "not tested",
+  "isolated_runtime_verified": true,
+  "laravel_encrypted_record_restored": true,
+  "laravel_migration_rows": 131,
+  "local_validation": {
+    "crypto_runtime_tests": {
+      "log_sha256": "3856e8e2680fe2243f4b9e9f711d2087814493d65a18dfc5e5a833cd3e4e67aa",
+      "passed": 5
+    },
+    "physical_or_production_accepted": false,
+    "python_default_discovery": {
+      "explicit_image_opt_in_skipped": 5,
+      "passed": 386,
+      "total": 391
+    },
+    "recovery_policies_passed": 103,
+    "runtime_image_sha256": "sha256:3bc118cdbf69ac37e7d670ffe34f14d1664b51c2ba10b79f2d2c786a9d1aa28b"
+  },
+  "migration_history_md5": "98c78c40fc46c0211eb03b98a3bf73ee",
+  "post_snapshot_private_write_excluded": true,
+  "post_snapshot_queue_write_excluded": true,
+  "post_snapshot_session_cache_changes_excluded": true,
+  "post_snapshot_write_excluded": true,
+  "postgresql": "17-alpine pinned image",
+  "private_archive_tamper_rejected": true,
+  "queue_worker_started": true,
+  "restore_started_epoch": 1795234494,
+  "restore_target_previously_empty": true,
+  "restored_http_catalog": "200 and synthetic non-controllable records",
+  "run_local_manifest_hmac_verified": true,
+  "scheduler_bootstrapped": true,
+  "single_transaction_restore": true,
+  "snapshot_completed_epoch": 1795234457,
+  "snapshot_started_epoch": 1795234456,
+  "source_sha": "c12ada4216d6f20f4ec76982d54536c079406dbc",
+  "status": "PASS",
+  "synthetic_data_md5": "0dc9af34e9d38f5f501a43bd031240d5",
+  "synthetic_private_archive_sha256": "51147eb61048aa8ae9e90c1204b40e4720b3cce0ed5a470d0572d0210ef93198",
+  "synthetic_private_file_restored": true,
+  "unpaid_simulated_financial_records_restored": true,
+  "workflow_run_attempt": "1",
+  "workflow_run_id": "local-agent5-encrypted-domain",
+  "wrong_backup_decryption_key_rejected": true,
+  "wrong_laravel_key_rejected": true
+}

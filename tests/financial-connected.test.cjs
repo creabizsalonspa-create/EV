@@ -84,6 +84,8 @@ test("post-finance operational windows preserve all suites and do not consume th
       "auth-bootstrap",
       "session-cookie-read",
       "admin-current-authority-e2e",
+      "admin-reward-coupons-e2e",
+      "admin-referral-programmes-e2e",
       "retail-partners-e2e",
       "admin-command-secret-storage-e2e",
       "vendor-session-observations-e2e",

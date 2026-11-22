@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Commercial\Campaigns\CampaignService;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -34,4 +35,14 @@ $f = (require __DIR__.'/commercial-campaigns.php')();
 foreach (['admin', 'vendor', 'other', 'customer'] as $role) {
     $f[$role]->forceFill(['name' => 'Synthetic campaign '.$role, 'email' => 'campaign-'.$role.'-'.$argv[2].'@example.test', 'password' => Hash::make($argv[3])])->save();
 }
-echo json_encode(['fixture_only' => true, 'invoice' => $f['invoice']->id, 'station' => $f['station']->id]);
+$campaigns = app(CampaignService::class);
+$banner = $campaigns->create($f['vendor'], array_replace($f['values'], [
+    'budget_units' => 2, 'title' => 'Browser discovery banner '.$argv[2], 'title_ar' => 'عرض اكتشاف '.$argv[2],
+]));
+$campaigns->action($banner->id, $f['vendor'], 'submit', 'Synthetic discovery banner review');
+$campaigns->action($banner->id, $f['admin'], 'approve', 'Independent synthetic discovery banner approval');
+$unrelatedStation = $f['station']->replicate();
+$unrelatedStation->name = 'Unrelated station '.$argv[2];
+$unrelatedStation->save();
+echo json_encode(['fixture_only' => true, 'invoice' => $f['invoice']->id, 'station' => $f['station']->id,
+    'unrelated_station' => $unrelatedStation->id, 'unrelated_station_name' => $unrelatedStation->name]);

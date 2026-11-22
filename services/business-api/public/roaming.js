@@ -1092,6 +1092,117 @@ window.createRoamingWorkspace = ({
             }
         }
     }
+    async function cpoCatalog(provider, host) {
+        const viewer = actor(), epoch = generation, version = ++details;
+        const current = () => epoch === generation && version === details && host.isConnected
+            && !document.hidden && actor()?.id === viewer?.id && actor()?.role === "admin";
+        const t = (en, ar) => document.documentElement.lang === "ar" ? ar : en;
+        const node = (tag, text) => {
+            const element = document.createElement(tag);
+            if (text !== undefined) element.textContent = text;
+            return element;
+        };
+        const root = node("section");
+        root.dataset.cpoCatalog = "";
+        host.replaceChildren(root);
+        const path = `ocpi/providers/${provider.id}/cpo-catalog`;
+        let page = 1, busy = false;
+        const title = t("CPO catalog publications", "منشورات كتالوج مشغّل الشحن");
+        const moduleName = module => module === "locations" ? t("Location", "الموقع") : t("Tariff", "التعرفة");
+
+        const action = (parent, label, work, confirmText) => {
+            const control = node("button", label);
+            control.type = "button";
+            parent.append(control);
+            control.onclick = async () => {
+                if (busy || !current() || (confirmText && !confirm(confirmText))) return;
+                busy = true;
+                control.disabled = true;
+                try { await work(); }
+                catch {
+                    if (current()) {
+                        const feedback = node("p", t("Outcome unavailable. Refresh and review the recorded publication before retrying.", "النتيجة غير متاحة. حدّث الصفحة وراجع المنشور المسجل قبل المحاولة مجددًا."));
+                        feedback.setAttribute("role", "alert");
+                        root.append(feedback);
+                    }
+                } finally {
+                    busy = false;
+                    if (control.isConnected) control.disabled = false;
+                }
+            };
+        };
+        const change = async (module, source, next, expected = null) => {
+            await api(`${path}/${module}/${source}`, "PUT", {action: next, confirmed: true, expected});
+            if (current()) await load();
+        };
+        async function load() {
+            const result = await api(`${path}?page=${page}`);
+            if (!current()) return;
+            root.replaceChildren(node("h3", title));
+            action(root, t("Refresh", "تحديث"), load);
+            if (!result.configured) {
+                root.append(node("p", t("No CPO catalog contract is configured for this provider.", "لم يُهيّأ عقد كتالوج لمشغّل الشحن لهذا الشريك.")));
+                return;
+            }
+            root.append(node("p", t("Publish approved tariffs before locations that refer to them. Published EVSE availability is unknown.", "انشر التعرفات المعتمدة قبل المواقع المرتبطة بها. حالة توفّر وحدات الشحن المنشورة غير معروفة.")));
+            for (const module of ["tariffs", "locations"]) {
+                const label = node("label", moduleName(module));
+                const source = node("select");
+                for (const id of result.sources[module]) {
+                    if (!/^[1-9][0-9]{0,17}$/.test(id)) continue;
+                    const option = node("option", `#${id}`);
+                    option.value = id;
+                    source.append(option);
+                }
+                if (source.options.length === 0) continue;
+                label.append(source);
+                root.append(label);
+                action(root, t("Publish approved source", "نشر المصدر المعتمد"), () => change(module, source.value, "publish"),
+                    t("Make this source visible to the approved roaming partner?", "هل تريد إتاحة هذا المصدر لشريك التجوال المعتمد؟"));
+            }
+            for (const row of result.history.data) {
+                const item = node("article");
+                const scope = `${moduleName(row.module)} #${row.source_id}`;
+                const state = row.withdrawn ? t("Withdrawn", "مسحوب") : t("Published", "منشور");
+                item.append(node("h4", scope), node("p", `${state} · ${row.published_at}`));
+                if (!row.authority_current) item.append(node("p", t("Earlier authorization. Review and publish under the current contract.", "تفويض سابق. راجع وانشر بموجب العقد الحالي.")));
+                if (!row.withdrawn || row.module === "locations") action(item, t("Publish current source", "نشر المصدر الحالي"),
+                    () => change(row.module, row.source_id, "publish", row.published_at),
+                    t("Publish the current approved source?", "هل تريد نشر المصدر المعتمد الحالي؟"));
+                if (!row.withdrawn) action(item, t("Withdraw publication", "سحب المنشور"),
+                    () => change(row.module, row.source_id, "withdraw", row.published_at),
+                    t("Withdraw this publication from the approved roaming partner?", "هل تريد سحب هذا المنشور من شريك التجوال المعتمد؟"));
+                const delivery = {
+                    dispatching: t("Delivery recorded; acknowledgement pending", "سُجّل الإرسال ولم يرد إقرار بعد"),
+                    acknowledged: t("Sandbox receiver acknowledged", "أقرّ مستلم البيئة التجريبية"),
+                    reconciled: t("Delivery confirmed by sandbox receiver read", "أُكّد الإرسال بقراءة المستلم التجريبي"),
+                    unknown: t("Delivery outcome unknown. Review partner evidence.", "نتيجة الإرسال غير معروفة. راجع أدلة الشريك."),
+                };
+                if (row.delivery) item.append(node("p", delivery[row.delivery] || t("Review delivery", "راجع الإرسال")));
+                if (result.sandbox_push && row.authority_current && !row.delivery) action(item, t("Send to sandbox receiver", "إرسال إلى المستلم التجريبي"), async () => {
+                    await api(`${path}/${row.module}/${row.source_id}/push`, "POST", {confirmed: true, published_at: row.published_at, operation_key: crypto.randomUUID()});
+                    if (current()) await load();
+                }, t("Send this publication to the approved sandbox receiver?", "هل تريد إرسال المنشور إلى المستلم التجريبي المعتمد؟"));
+                if (result.sandbox_push && row.authority_current && ["unknown", "dispatching"].includes(row.delivery)) {
+                    action(item, t("Reconcile sandbox delivery", "مطابقة الإرسال التجريبي"), async () => {
+                        await api(`${path}/${row.module}/${row.source_id}/reconcile`, "POST", {confirmed: true, published_at: row.published_at});
+                        if (current()) await load();
+                    }, t("Read the approved sandbox receiver to verify this delivery?", "هل تريد قراءة المستلم التجريبي المعتمد للتحقق من الإرسال؟"));
+                }
+                root.append(item);
+            }
+            const go = async next => {page = next; await load();};
+            if (page > 1) action(root, t("Previous", "السابق"), () => go(page - 1));
+            if (page < result.history.last_page) action(root, t("Next", "التالي"), () => go(page + 1));
+        }
+        try { await load(); }
+        catch {
+            if (!current()) return;
+            root.replaceChildren(node("h3", title), node("p", t("Catalog authority unavailable. Review provider credentials and negotiation.", "صلاحية الكتالوج غير متاحة. راجع بيانات اعتماد الشريك والتفاوض.")));
+            action(root, t("Refresh", "تحديث"), load);
+        }
+    }
+
     async function providers(page = 1) {
         clear();
         if (!["vendor", "admin"].includes(actor()?.role)) return;
@@ -1172,6 +1283,9 @@ window.createRoamingWorkspace = ({
                     return window.EvOcpiSyncPlans.open({host: detail, providerId: provider.id, api,
                         current: () => epoch === generation && version === details && actor()?.id === viewer?.id && actor()?.role === viewer?.role});
                 });
+                if (actor()?.role === "admin") {
+                    button(card, "CPO catalog publications", () => cpoCatalog(provider, detail));
+                }
                 button(card, "Roaming credentials", () =>
                     credentialWorkspace(provider, detail),
                 );

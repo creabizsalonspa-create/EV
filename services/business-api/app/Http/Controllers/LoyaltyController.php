@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\Commercial\Loyalty\LoyaltyService;
+use App\Services\Commercial\Loyalty\NoncashActivation;
+use App\Services\Commercial\Referrals\ReferralRegistry;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -49,7 +51,7 @@ class LoyaltyController extends Controller
     public function publishCoupon(Request $r)
     {
         $this->admin($r);
-        abort_unless(config('loyalty.enabled') && ! app()->environment('production'), 503);
+        app(NoncashActivation::class)->requireEnabled();
         $values = $r->validate([
             'code' => ['required', 'string', 'regex:/^[A-Z0-9-]{12,40}$/D'],
             'listed' => 'sometimes|boolean',
@@ -77,6 +79,7 @@ class LoyaltyController extends Controller
 
             return response()->json($this->couponDetails($old))->header('Cache-Control', 'private, no-store');
         }
+        abort_unless(Carbon::parse($values['ends_at'])->isFuture(), 422, 'A new coupon must have a future expiry.');
         $reward = DB::table('loyalty_rewards')->where('id', $values['reward_id'])->lockForUpdate()->first();
         abort_unless($reward && $values['starts_at'] >= $reward->starts_at
             && $values['ends_at'] <= $reward->ends_at, 422, 'Coupon dates must be within the reward window.');
@@ -89,6 +92,7 @@ class LoyaltyController extends Controller
         } catch (UniqueConstraintViolationException) {
             abort(409, 'Coupon code already allocated.');
         }
+        app(NoncashActivation::class)->record('coupon', (int) $id);
         $this->couponAudit($r, 'published', $id);
 
         return response()->json($this->couponDetails(DB::table('loyalty_coupons')->find($id)), 201)->header('Cache-Control', 'private, no-store');
@@ -97,10 +101,14 @@ class LoyaltyController extends Controller
     public function revokeCoupon(Request $r, int $coupon)
     {
         $this->admin($r);
+        $v = $r->validate(['reason' => 'required|string|min:5|max:500']);
         $row = DB::table('loyalty_coupons')->where('id', $coupon)->lockForUpdate()->first() ?? abort(404);
+        $prior = DB::table('loyalty_coupon_revocations')->where('coupon_id', $coupon)->first();
+        abort_unless(! $prior || hash_equals($prior->reason, $v['reason']), 409, 'Revocation retry reason changed.');
         if ($row->revoked_at === null) {
             $now = now()->utc();
             DB::table('loyalty_coupons')->where('id', $coupon)->update(['revoked_at' => $now, 'updated_at' => $now]);
+            DB::table('loyalty_coupon_revocations')->insert(['coupon_id' => $coupon, 'actor_id' => $r->user()->id, 'reason' => $v['reason'], 'created_at' => $now]);
             $this->couponAudit($r, 'revoked', $coupon);
         }
 
@@ -205,6 +213,19 @@ class LoyaltyController extends Controller
         return response()->json(['claim' => $row ? $this->couponReceipt($row) : null])->header('Cache-Control', 'private, no-store');
     }
 
+    public function cancelCouponIntent(Request $r, LoyaltyService $service)
+    {
+        abort_unless($r->user()->role === 'customer', 403);
+        $v = $r->validate(['code' => ['required', 'string', 'regex:/^[A-Z0-9-]{12,40}$/D'], 'idempotency_key' => 'required|string|max:100']);
+        $result = $service->cancelCouponIntent($r->user()->id, $v['code'], $v['idempotency_key']);
+        $request = hash('sha256', 'coupon-claim:'.$r->user()->id.':'.$v['idempotency_key']);
+
+        return response()->json(['state' => $result['state'],
+            'request_binding' => hash('sha256', hash('sha256', $v['code']).':'.$request),
+            'claim' => $result['claim'] ? $this->couponReceipt($result['claim']) : null,
+        ])->header('Cache-Control', 'private, no-store');
+    }
+
     private function couponReceipt(object $row): array
     {
         $redemption = DB::table('loyalty_redemptions')->find($row->redemption_id);
@@ -214,6 +235,8 @@ class LoyaltyController extends Controller
             'id' => $row->id, 'coupon_id' => $row->coupon_id, 'redemption_id' => $redemption->id,
             'reward_name' => $reward->name, 'reward_name_ar' => $reward->name_ar, 'status' => $redemption->status,
             'claimed_at' => Carbon::parse($row->created_at, 'UTC')->utc()->toISOString(),
+            'request_binding' => hash('sha256', DB::table('loyalty_coupons')->where('id', $row->coupon_id)->value('code_hash').':'.$row->request_key),
+            'source' => 'COUPON', ...app(NoncashActivation::class)->metadata('coupon', (int) $row->coupon_id), 'delivery_verified' => false,
             'points_cost' => 0, 'cash_value' => false, 'fulfillment' => 'MANUAL_NON_MONETARY',
         ];
     }
@@ -223,7 +246,9 @@ class LoyaltyController extends Controller
         $safe = (array) $row;
         unset($safe['code_hash'], $safe['publication_key'], $safe['fingerprint']);
 
-        return $safe + ['claims' => DB::table('loyalty_coupon_claims')->where('coupon_id', $row->id)->count()];
+        return $safe + ['claims' => DB::table('loyalty_coupon_claims')->where('coupon_id', $row->id)->count(),
+            'revocation' => DB::table('loyalty_coupon_revocations')->where('coupon_id', $row->id)->first(),
+            ...app(NoncashActivation::class)->metadata('coupon', (int) $row->id, true), 'cash_value' => false];
     }
 
     private function couponAudit(Request $r, string $action, int $coupon): void
@@ -232,6 +257,36 @@ class LoyaltyController extends Controller
             'actor_id' => $r->user()->id, 'action' => 'loyalty.coupon.'.$action,
             'subject' => (string) $coupon, 'created_at' => now(),
         ]);
+    }
+
+    public function couponPage(Request $r)
+    {
+        $this->admin($r);
+
+        return response()->view('reward-coupons')->header('Cache-Control', 'no-store, private');
+    }
+
+    public function findCouponPublication(Request $r)
+    {
+        $this->admin($r);
+        $v = $r->validate(['idempotency_key' => 'required|string|max:100']);
+        $key = hash('sha256', 'coupon-publish:'.$r->user()->id.':'.$v['idempotency_key']);
+        $row = DB::table('loyalty_coupons')->where('created_by', $r->user()->id)->where('publication_key', $key)->first();
+
+        return response()->json(['coupon' => $row ? $this->couponDetails($row) : null])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function noncashStatus(Request $r)
+    {
+        abort_unless(in_array($r->user()->role, ['admin', 'customer'], true), 403);
+        $policy = app(NoncashActivation::class);
+
+        return response()->json(['enabled' => $policy->enabled(), 'activation_mode' => $policy->mode(),
+            'points_actions_enabled' => $policy->legacyPointsEnabled(), 'money_movement' => false,
+            'fulfillment' => 'MANUAL_NON_MONETARY', 'delivery_verified' => false,
+            'referrals_enabled' => app(ReferralRegistry::class)->enabled(),
+            'verified_live_source_required' => app()->environment('production'),
+        ])->header('Cache-Control', 'private, no-store');
     }
 
     public function account(Request $r, LoyaltyService $service)

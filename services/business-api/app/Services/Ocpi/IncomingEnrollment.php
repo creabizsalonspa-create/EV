@@ -78,7 +78,7 @@ class IncomingEnrollment
             $capsule = json_encode($body, JSON_THROW_ON_ERROR);
             DB::table('ocpi_credential_operations')->insert(['provider_id' => $p->id, 'actor_id' => null, 'generation' => $active->generation, 'action' => 'peer_register', 'idempotency_key' => 'incoming-'.$prepared->id, 'payload_hash' => hash('sha256', $capsule), 'reason' => Crypt::encryptString('Authenticated preapproved peer enrollment'), 'source_payload_ciphertext' => Crypt::encryptString($capsule), 'source_payload_hash' => hash('sha256', $capsule), 'state' => 'acknowledged', 'attempted_at' => now(), 'completed_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
 
-            return $exchange->localPayload($token);
+            return $exchange->localPayload($token, $current);
         }, 3);
     }
 

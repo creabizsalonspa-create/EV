@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\CpoCatalogContract;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\IncomingEnrollment;
 use App\Services\Ocpi\OcpiMessageHeaders;
@@ -51,7 +52,7 @@ class OcpiProtocolCredentialsController extends Controller
     {
         try {
             [$p, $link] = $this->authenticate($r, $exchange, $resource);
-            $local = $exchange->localPayload($link->state === 'active' ? Crypt::decryptString($link->local_token_ciphertext) : '');
+            $local = $exchange->localPayload($link->state === 'active' ? Crypt::decryptString($link->local_token_ciphertext) : '', $p);
             if ($r->isMethod('POST') && $resource === 'credentials') {
                 if ($link->state !== 'awaiting_registration') {
                     return $this->reply(null, 2000, 405);
@@ -67,9 +68,12 @@ class OcpiProtocolCredentialsController extends Controller
                 if (app()->environment(['local', 'testing']) && config('ocpi.test_commands_enabled') && ($configured['test_commands'] ?? false) === true) {
                     $sandbox[] = ['identifier' => 'tokens', 'role' => 'SENDER', 'url' => $base.'2.2.1/tokens'];
                 }
+                $senders = app(CpoCatalogContract::class)->approved($p)
+                    ? array_map(fn ($module) => ['identifier' => $module, 'role' => 'SENDER', 'url' => $base.'2.2.1/cpo/'.$module], CpoCatalogContract::MODULES)
+                    : [];
                 $data = match ($resource) {
                     'versions' => [['version' => '2.2.1', 'url' => $base.'2.2.1']],
-                    'details' => ['version' => '2.2.1', 'endpoints' => array_merge([['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => $base.'2.2.1/credentials']], array_map(fn ($module) => ['identifier' => $module, 'role' => 'RECEIVER', 'url' => $base.'2.2.1/'.$module], $exchange->receiverModules($p)), $sandbox)],
+                    'details' => ['version' => '2.2.1', 'endpoints' => array_merge([['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => $base.'2.2.1/credentials']], array_map(fn ($module) => ['identifier' => $module, 'role' => 'RECEIVER', 'url' => $base.'2.2.1/'.$module], $exchange->receiverModules($p)), $sandbox, $senders)],
                     'credentials' => $local,
                 };
 
@@ -92,7 +96,7 @@ class OcpiProtocolCredentialsController extends Controller
                 $capsule = json_encode($body, JSON_THROW_ON_ERROR);
                 DB::table('ocpi_credential_operations')->insert(['provider_id' => $p->id, 'actor_id' => null, 'generation' => $generation, 'action' => $peer ? 'peer_rotate' : 'peer_revoke', 'idempotency_key' => (string) Str::uuid(), 'payload_hash' => hash('sha256', $capsule), 'reason' => Crypt::encryptString('Authenticated peer credentials lifecycle operation'), 'source_payload_ciphertext' => Crypt::encryptString($capsule), 'source_payload_hash' => hash('sha256', $capsule), 'state' => 'acknowledged', 'attempted_at' => now(), 'completed_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
 
-                return $peer ? $exchange->localPayload($token) : null;
+                return $peer ? $exchange->localPayload($token, $current) : null;
             });
 
             return $this->reply($data);
