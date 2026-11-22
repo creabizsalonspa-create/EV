@@ -142,7 +142,7 @@ class OcpiProtocolRecordsController extends Controller
             }, 3);
             $response = $this->reply(null, 1000, $counts['created'] ? 201 : 200);
             if ($module === 'cdrs') {
-                $url = $exchange->localPayload('')['url'];
+                $url = $exchange->localPayload('', $provider)['url'];
                 $response->header('Location', substr($url, 0, -strlen('versions')).'2.2.1/cdrs/'.rawurlencode($id));
             }
 

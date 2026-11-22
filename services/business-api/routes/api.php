@@ -14,6 +14,7 @@ use App\Http\Controllers\EnterpriseController as E;
 use App\Http\Controllers\FleetReportController;
 use App\Http\Controllers\MobileAuthController as M;
 use App\Http\Controllers\NotificationCenterController;
+use App\Http\Controllers\OcpiCpoCatalogController;
 use App\Http\Controllers\OcpiProtocolCredentialsController;
 use App\Http\Controllers\OcpiProtocolRecordsController;
 use App\Http\Controllers\OcpiRoamingProtocolController;
@@ -170,6 +171,9 @@ Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function (
     Route::match(['GET', 'PUT', 'DELETE'], '2.2.1/tariffs/{country}/{party}/{external}', [OcpiProtocolRecordsController::class, 'tariff']);
     Route::post('2.2.1/cdrs', [OcpiProtocolRecordsController::class, 'cdr']);
     Route::get('2.2.1/cdrs/{external}', [OcpiProtocolRecordsController::class, 'cdr']);
+    Route::get('2.2.1/cpo/{module}', [OcpiCpoCatalogController::class, 'protocol'])->whereIn('module', ['locations', 'tariffs']);
+    Route::get('2.2.1/cpo/{module}/{external}/{evse?}/{connector?}', [OcpiCpoCatalogController::class, 'protocol'])
+        ->where('module', 'locations')->where('external', 'S[1-9][0-9]{0,17}')->where('evse', 'E[1-9][0-9]{0,17}')->where('connector', 'C[1-9][0-9]{0,17}');
     Route::get('versions', [OcpiProtocolCredentialsController::class, 'handle']);
     Route::get('2.2.1', [OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'details');
     Route::match(['GET', 'POST', 'PUT', 'DELETE'], '2.2.1/credentials', [OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'credentials');

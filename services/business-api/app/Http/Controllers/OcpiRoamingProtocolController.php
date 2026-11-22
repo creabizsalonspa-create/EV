@@ -194,7 +194,7 @@ class OcpiRoamingProtocolController extends Controller
             $offset = (int) ($v['offset'] ?? 0);
             $limit = (int) ($v['limit'] ?? 25);
             if ($offset + $limit < $total) {
-                $local = app(CredentialExchange::class)->localPayload('');
+                $local = app(CredentialExchange::class)->localPayload('', $p);
                 $base = substr($local['url'], 0, -strlen('versions')).'2.2.1/tokens';
                 $reply->header('Link', '<'.$base.'?'.http_build_query(array_merge($v, ['offset' => $offset + $limit, 'limit' => $limit])).'>; rel="next"');
             }
