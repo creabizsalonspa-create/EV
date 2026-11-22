@@ -50,7 +50,7 @@ class OcpiCpoCatalogTest extends TestCase
         return [$site, $tariff, $evse, $connector];
     }
 
-    private function peer(User $vendor, string $key, array $sources): array
+    private function peer(User $vendor, string $key, array $sources, array $extraConnectors = []): array
     {
         [$site, $tariff, , $connector] = $sources;
         config([
@@ -66,7 +66,7 @@ class OcpiCpoCatalogTest extends TestCase
                 'cpo_catalog' => ['id' => 'catalog-'.$key, 'sites' => [
                     $site => ['city' => 'Ras Al Khaimah', 'country' => 'ARE', 'country_code' => 'AE', 'connectors' => [
                         $connector => ['format' => 'CABLE', 'power_type' => 'DC', 'max_voltage' => 500, 'max_amperage' => 100, 'tariff_ids' => [$tariff]],
-                    ]],
+                    ] + $extraConnectors],
                 ], 'tariffs' => [$tariff]],
             ],
         ]);
@@ -268,6 +268,62 @@ class OcpiCpoCatalogTest extends TestCase
         $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertConflict();
         Http::assertNothingSent();
         $this->assertDatabaseCount('ocpi_cpo_publication_operations', 0);
+    }
+
+    public function test_cpo_reconciliation_can_read_the_full_size_of_a_published_location(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sources = $this->source($owner);
+        [$site, $tariff] = $sources;
+        $siteRecord = DB::table('vendor_sites')->find($site);
+        $contractConnectors = [];
+        for ($number = 1; $number <= 36; $number++) {
+            $charger = DB::table('vendor_chargers')->insertGetId([
+                'company_id' => $siteRecord->company_id, 'site_id' => $site, 'asset_reference' => 'large-'.$number,
+                'manufacturer' => 'Test', 'model' => 'Test', 'source' => 'simulator',
+            ]);
+            $evse = DB::table('charging_evses')->insertGetId(['charger_id' => $charger, 'number' => 1, 'mode' => 'simulator']);
+            for ($port = 1; $port <= 10; $port++) {
+                $connector = DB::table('vendor_connectors')->insertGetId([
+                    'charger_id' => $charger, 'connector_number' => $port, 'connector_type' => 'CCS2', 'max_power_kw' => 50,
+                ]);
+                DB::table('charging_connector_mappings')->insert(['station_id' => $siteRecord->station_id, 'evse_id' => $evse, 'connector_id' => $connector]);
+                $contractConnectors[$connector] = ['format' => 'CABLE', 'power_type' => 'DC', 'max_voltage' => 500, 'max_amperage' => 100, 'tariff_ids' => [$tariff]];
+            }
+        }
+        [, , $operations] = $this->peer($owner, 'owner', $sources, $contractConnectors);
+        config(['ocpi.cpo_push_enabled' => true]);
+
+        $sentRecord = null;
+        $oversizedRead = true;
+        $this->actingAs($admin)->publication($operations.'/tariffs/'.$tariff)->assertOk();
+        $url = $operations.'/locations/'.$site;
+        $stamp = $this->publication($url)->assertOk()->json('published_at');
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use (&$sentRecord, &$oversizedRead) {
+            if ($request->method() === 'PUT') {
+                $this->assertNull($sentRecord);
+                $sentRecord = $request->data();
+
+                return Http::response('', 504);
+            }
+            $this->assertSame('GET', $request->method());
+            $trace = ['X-Request-ID' => $request->header('X-Request-ID')[0], 'X-Correlation-ID' => $request->header('X-Correlation-ID')[0]];
+            $response = ['status_code' => 1000, 'data' => $sentRecord, 'timestamp' => now()->toISOString()];
+            $this->assertGreaterThan(65_536, strlen(json_encode($response, JSON_THROW_ON_ERROR)));
+            if ($oversizedRead) {
+                $response['status_message'] = str_repeat('a', 300_000);
+                $oversizedRead = false;
+            }
+
+            return Http::response($response, 200, $trace);
+        });
+
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertOk()->assertJsonPath('delivery', 'unknown');
+        $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])->assertOk()->assertJsonPath('delivery', 'unknown');
+        $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])->assertOk()->assertJsonPath('delivery', 'reconciled');
+        Http::assertSentCount(3);
     }
 
     public function test_cpo_push_rejects_canonical_edits_after_the_delivery_claim(): void
