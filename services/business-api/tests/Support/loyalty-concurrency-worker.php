@@ -22,11 +22,12 @@ if (! is_file($gate)) {
 }
 try {
     $service = app(LoyaltyService::class);
-    if ($operation === 'earn') {
-        $service->earn((int) $invoice, (int) $user);
-    } else {
-        $service->redeem((int) $user, (int) $reward, (int) $user, $key);
-    }
+    match ($operation) {
+        'earn' => $service->earn((int) $invoice, (int) $user),
+        'redeem' => $service->redeem((int) $user, (int) $reward, (int) $user, $key),
+        'claim-code' => $service->claimCoupon((int) $user, $invoice, $key),
+        'claim-listed' => $service->claimCoupon((int) $user, null, $key, (int) $reward),
+    };
     echo '201';
 } catch (HttpException $e) {
     echo $e->getStatusCode();

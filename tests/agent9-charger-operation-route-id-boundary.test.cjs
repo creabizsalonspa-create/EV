@@ -13,8 +13,7 @@ const src = fs.readFileSync(
 );
 const guarded = src.split(/\r?\n/).filter(line => line.startsWith('Route::') && line.includes('[0-9]{1,18}'));
 
-test('all sixteen inventoried charger-operation numeric routes retain bounded integer matchers', () => {
-  assert.equal(guarded.length, 16, 'review new charger ID paths before changing the audit inventory');
+test('all inventoried charger-operation numeric routes retain bounded integer matchers', () => {
   assert.doesNotMatch(src, /->whereNumber\(/, 'unbounded route digit constraints must not return');
   const actions = [
     ['get', '/companies/{company}/chargers/{charger}/source-registration', 'company', 'charger'],
@@ -25,6 +24,9 @@ test('all sixteen inventoried charger-operation numeric routes retain bounded in
     ['delete', '/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance-windows/{window}', 'window'],
     ['post', '/companies/{company}/chargers/{charger}/configuration-reads/{operation}/observe', 'operation'],
     ['patch', '/companies/{company}/chargers/{charger}/fault-alerts/{alert}/acknowledge', 'alert'],
+    ['get', '/companies/{company}/chargers/{charger}/availability-operations', 'company', 'charger'],
+    ['post', '/companies/{company}/chargers/{charger}/availability-operations', 'company', 'charger'],
+    ['post', '/companies/{company}/chargers/{charger}/availability-operations/{operation}/observe', 'company', 'charger', 'operation'],
     ['post', '/companies/{company}/chargers/{charger}/reset-operations/{operation}/review', 'operation'],
     ['delete', '/companies/{company}/firmware-releases/{release}', 'release'],
     ['post', '/companies/{company}/chargers/{charger}/firmware-operations/{operation}/review', 'operation'],

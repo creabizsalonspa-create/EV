@@ -6,6 +6,7 @@ const OPERATIONAL_SUITE_TIMEOUT_MS = 12 * 60 * 1000;
 const OPERATIONAL_PREP_TIMEOUT_MS = 2 * 60 * 1000;
 const groups = [
   ["auth-bootstrap", "session-cookie-read", "admin-current-authority-e2e"], // real cookie/current-Admin regressions; 3+4+2 = 9 authentication requests
+  ["retail-partners-e2e"], // three synthetic Admin/customer logins; own unchanged authentication window, no money or external activation
   ["admin-command-secret-storage-e2e"], // two synthetic cookie logins; own unchanged auth/read window, no command execution
   ["vendor-session-observations-e2e"], // two cookie logins, versioned consent and private GETs; own unchanged window
   ["invoice-history", "money-input", "tariffs", "managed-gate"], // 3+0+4+2 = 9 logins
@@ -35,6 +36,7 @@ const groups = [
   ["sandbox-roaming"], // isolated synthetic CPO contract; own auth window
   ["partner-favorites"], // own customer/Admin authentication window
   ["charger-configuration"], // two explicit source-device read workflows; own authentication window
+  ["charger-availability-command"], // isolated device and browser acceptance for both OCPP versions
   ["diagnostic-files"], // two scoped file-transfer proofs; dedicated unchanged authentication window
 ];
 // Prepare local adapter flags before the existing initial authentication wait.
@@ -44,6 +46,7 @@ function prepareOperationalAdapters(execute) {
     "./scripts/configuration-read-setup",
     "./scripts/diagnostic-logs-setup",
     "./scripts/reset-operations-setup",
+    "./scripts/availability-command-setup",
   ]) {
     const result = execute(script, [], {
       encoding: "utf8",
