@@ -12,6 +12,7 @@ import 'vehicle_model_catalog.dart';
 import 'vehicle_manual_soc.dart';
 import 'reservation_vehicle.dart';
 import 'reservation_policy.dart';
+import 'reservation_times.dart';
 import 'reservation_intent.dart';
 import 'vehicle_driver_preferences.dart';
 import 'vehicle_battery.dart';
@@ -839,7 +840,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
               Text(
                 s.t('stationSlot', {
                   'id': row['station_id'],
-                  'time': row['starts_at'],
+                  'time': reservationTime(context, row, 'starts_at'),
                 }),
               ),
             if (tab == 1 && row['vehicle_connector_type'] != null)
@@ -850,7 +851,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
               ReservationPolicyPanel(terms: Map<String,dynamic>.from(row['reservation_terms_snapshot'] as Map)),
             if (tab == 1 && row['checked_in_at'] != null)
               Text(
-                '${arrivalText(context, 'reported')} · ${row['checked_in_at']}',
+                '${arrivalText(context, 'reported')} · ${reservationTime(context, row, 'checked_in_at')}',
               ),
             if (tab == 1 &&
                 account?.role == 'customer' &&
