@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:creabiz_ev/main.dart';
+import 'package:creabiz_ev/account_recovery.dart';
 import 'package:creabiz_ev/preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -99,10 +100,10 @@ void main() {
 
     final Future<void> oldRecovery = workspace.recovery();
     await tester.pumpAndSettle();
-    expect(find.byType(EntryDialog), findsOneWidget);
+    expect(find.byType(AccountRecoveryView), findsOneWidget);
     await tester.enterText(
-      find.byType(TextFormField).last, 'synthetic@example.test');
-    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      find.byKey(const Key('recovery-email')), 'synthetic@example.test');
+    await tester.tap(find.byKey(const Key('recovery-send')));
     await tester.pump();
     await api.recoveryStarted.future;
 
