@@ -360,6 +360,14 @@ class PartnerClient
         $records = [];
         $seen = [];
         for ($page = 0; $page < (int) config('ocpi.max_pages', 20); $page++) {
+            // Every catalog page may outlive a vendor suspension. Do not
+            // dispatch new partner traffic for unpublishable locations/tariffs.
+            // Admin-only historical sessions/CDRs remain separately permitted.
+            if (in_array($module, ['locations', 'tariffs'], true)
+                && ! User::whereKey($provider->owner_id)->where('role', 'vendor')
+                    ->where('account_status', 'active')->exists()) {
+                throw new OcpiException('Inactive operator owner cannot synchronize public catalog modules.');
+            }
             $url = $this->guardedUrl($provider, $url);
             if (isset($seen[$url])) {
                 throw new OcpiException('Operator pagination loop detected.');
