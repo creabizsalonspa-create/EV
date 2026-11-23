@@ -68,6 +68,34 @@ const { chromium } = require("playwright"),
     await ops
       .getByRole("button", { name: "Open chargers", exact: true })
       .click();
+    // An unbooted simulator has no complete live source identity. The new
+    // per-connector source view must fail closed, without a device command,
+    // customer data or any physical availability assertion.
+    await ops
+      .getByRole("button", { name: "Source diagnostics", exact: true })
+      .click();
+    const liveSource = ops.locator("[data-source-diagnostics]");
+    await liveSource.getByRole("button", {
+      name: "Read live connector source", exact: true,
+    }).waitFor();
+    const pendingLive = page.waitForResponse((r) =>
+      new URL(r.url()).pathname ===
+        `/api/vendor-ops/companies/${f.company_id}/chargers/${f.charger_id}/live-connectors` &&
+      r.request().method() === "GET",
+    );
+    await liveSource.getByRole("button", {
+      name: "Read live connector source", exact: true,
+    }).click();
+    const unavailableLive = await pendingLive;
+    assert([409, 503].includes(unavailableLive.status()));
+    await liveSource.getByText(
+      "Local connector source unavailable; no control is authorized.",
+      { exact: true },
+    ).waitFor();
+    assert.equal(
+      await liveSource.getByText("Recent source status:", { exact: false }).count(),
+      0,
+    );
     await ops
       .getByRole("button", { name: "Secure charger admission", exact: true })
       .click();
