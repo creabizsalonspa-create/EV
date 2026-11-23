@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/financial_documents.dart';
+import 'package:creabiz_ev/vendor_company.dart' show VendorDocumentPreview;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
