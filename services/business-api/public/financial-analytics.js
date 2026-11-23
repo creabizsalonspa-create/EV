@@ -11,6 +11,18 @@ export function mountFinancialAnalytics({ container, api, ui, actor }) {
         window.EV_MESSAGES[en] ||= { en, ar };
         return ui(tag, en);
     };
+    const accessibleLabel = (node, en, ar) => {
+        window.EV_MESSAGES[en] ||= { en, ar };
+        // The locale controller re-translates these named attributes when
+        // language changes; never combine two languages in one screen-reader label.
+        node.dataset.i18nAria = en;
+        node.setAttribute(
+            "aria-label",
+            window.EvLocale?.text(en) ??
+                (document.documentElement.lang === "ar" ? ar : en),
+        );
+        return node;
+    };
     const n = (tag, value) => {
         const e = document.createElement(tag);
         e.textContent = String(value ?? "");
@@ -91,10 +103,7 @@ export function mountFinancialAnalytics({ container, api, ui, actor }) {
     };
     function links(parent) {
         const links = n("nav", "");
-        links.setAttribute(
-            "aria-label",
-            "Private report downloads / تنزيلات التقرير الخاصة",
-        );
+        accessibleLabel(links, "Private report downloads", "تنزيلات التقرير الخاصة");
         for (const [kind, en, ar] of [
             ["export", "Download report CSV", "تنزيل التقرير CSV"],
             ["pdf", "Download report PDF", "تنزيل التقرير PDF"],
@@ -182,10 +191,7 @@ export function mountFinancialAnalytics({ container, api, ui, actor }) {
         content.append(scope);
         const categoryFilter = document.createElement("select"),
             filterLabel = t("label", "Financial activity", "النشاط المالي");
-        categoryFilter.setAttribute(
-            "aria-label",
-            "Financial activity / النشاط المالي",
-        );
+        accessibleLabel(categoryFilter, "Financial activity", "النشاط المالي");
         categoryFilter.append(
             Object.assign(
                 t("option", "All financial categories", "جميع الفئات المالية"),
@@ -274,9 +280,14 @@ export function mountFinancialAnalytics({ container, api, ui, actor }) {
                     meter.value = p[period];
                     meter.style.width = "100%";
                     meter.style.accentColor = "var(--accent)";
+                    accessibleLabel(
+                        meter,
+                        period === "current" ? "Current period" : "Previous period",
+                        period === "current" ? "الفترة الحالية" : "الفترة السابقة",
+                    );
                     meter.setAttribute(
-                        "aria-label",
-                        `${period} ${money(p[period], p.meta.currency, p.meta.minor_units)}`,
+                        "aria-valuetext",
+                        money(p[period], p.meta.currency, p.meta.minor_units),
                     );
                     card.append(line, meter);
                 }

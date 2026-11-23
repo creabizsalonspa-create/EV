@@ -86,6 +86,22 @@ const assert = require("node:assert/strict");
       1,
     );
     assert.equal(await collected.locator("meter").count(), 2);
+    // Accessible names must track the selected language, not read two
+    // languages simultaneously or expose raw unlocalized period identifiers.
+    assert.equal(
+      await panel.locator('nav[data-i18n-aria="Private report downloads"]')
+        .getAttribute("aria-label"),
+      "Private report downloads",
+    );
+    assert.equal(
+      await panel.locator('select[data-i18n-aria="Financial activity"]')
+        .getAttribute("aria-label"),
+      "Financial activity",
+    );
+    const currentMeter = collected.locator('meter[data-i18n-aria="Current period"]').first();
+    assert.equal(await currentMeter.getAttribute("aria-label"), "Current period");
+    assert.match(await currentMeter.getAttribute("aria-valuetext"), /^[A-Z]{3} /);
+    const originalMeterValue = await currentMeter.getAttribute("value");
     const csvDownload = vendor.waitForEvent("download");
     await panel
       .getByRole("link", { name: "Download report CSV", exact: true })
@@ -164,6 +180,18 @@ const assert = require("node:assert/strict");
     await collected
       .getByText("مقبوضات الشحن المسجلة", { exact: true })
       .waitFor();
+    assert.equal(
+      await panel.locator('nav[data-i18n-aria="Private report downloads"]')
+        .getAttribute("aria-label"),
+      "تنزيلات التقرير الخاصة",
+    );
+    assert.equal(
+      await panel.locator('select[data-i18n-aria="Financial activity"]')
+        .getAttribute("aria-label"),
+      "النشاط المالي",
+    );
+    assert.equal(await currentMeter.getAttribute("aria-label"), "الفترة الحالية");
+    assert.equal(await currentMeter.getAttribute("value"), originalMeterValue);
     const arabicDownload = vendor.waitForEvent("download");
     await panel
       .getByRole("link", { name: "تنزيل التقرير PDF", exact: true })

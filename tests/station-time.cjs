@@ -3,8 +3,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const { test } = require("node:test");
-function subject() {
-    const context = { window: {} };
+function subject(language = "en") {
+    const context = { window: { EvLocale: { language } } };
     vm.runInNewContext(fs.readFileSync("services/business-api/public/station-time.js", "utf8"), context);
     return context.window.EvStationTime;
 }
@@ -43,4 +43,31 @@ test("published station timezone renders a precise UTC instant in EN/AR; unknown
     assert.equal(displayStationTime("2026-11-16 06:00:00", "Invalid/Zone"), null);
     assert.equal(displayStationTime("unverified", "Asia/Dubai"), null);
     assert.equal(displayStationTime("2026-11-16T06:00:00", "Asia/Dubai"), null);
+});
+
+test("station-local time errors respect current English/Arabic language without mixed bilingual alerts", () => {
+    const english = subject("en"), arabic = subject("ar");
+    const message = (fn) => {
+        try {
+            fn();
+        } catch (error) {
+            return error.message;
+        }
+        assert.fail("Expected invalid station-local time to be rejected");
+    };
+    const englishGap = message(() => english.toUtc("2026-03-08T02:30", "America/New_York"));
+    const arabicGap = message(() => arabic.toUtc("2026-03-08T02:30", "America/New_York"));
+    assert.match(englishGap, /does not exist/);
+    assert.doesNotMatch(englishGap, /[ء-ي]/);
+    assert.match(arabicGap, /[ء-ي]/);
+    assert.doesNotMatch(arabicGap, /does not exist/);
+    const arabicZone = message(() => arabic.toUtc("2026-11-16T10:00", "Not/Real"));
+    assert.match(arabicZone, /توقيت المحطة غير متاح/);
+    assert.doesNotMatch(arabicZone, /timezone is unavailable/);
+    const arabicRepeated = message(() => arabic.toUtc("2026-11-01T01:30", "America/New_York"));
+    assert.match(arabicRepeated, /هذا الوقت المحلي يتكرر/);
+    assert.doesNotMatch(arabicRepeated, /occurs twice/);
+    const arabicInvalid = message(() => arabic.toUtc("2026-02-30T10:00", "UTC"));
+    assert.match(arabicInvalid, /اختر تاريخاً صحيحاً/);
+    assert.doesNotMatch(arabicInvalid, /valid calendar date/);
 });
