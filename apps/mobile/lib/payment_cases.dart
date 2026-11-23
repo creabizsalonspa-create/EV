@@ -658,6 +658,27 @@ class _EvidenceState extends State<CaseEvidenceView>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final resumed = state == AppLifecycleState.resumed;
+    // A system picker may briefly report inactive while retaining the current
+    // authenticated document selection. Hidden/paused/detached is a full
+    // background transition, even when inactive already changed foreground.
+    if (!resumed &&
+        state != AppLifecycleState.inactive &&
+        choosingFile) {
+      generation++;
+      choosingFile = false;
+      foreground = false;
+      setState(() {
+        operation = null;
+        page = null;
+        file = null;
+        consent = false;
+        canUpload = false;
+        busy = false;
+        done = false;
+        error = null;
+      });
+      return;
+    }
     if (foreground == resumed) return;
     foreground = resumed;
     if (!resumed) {
