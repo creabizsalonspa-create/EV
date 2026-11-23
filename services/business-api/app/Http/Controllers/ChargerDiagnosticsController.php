@@ -128,8 +128,15 @@ class ChargerDiagnosticsController extends Controller
         $b = $this->binding($r, $company, $charger);
         $rows = DB::table('charging_fault_alerts as a')->join('charging_status_observations as o', 'o.id', '=', 'a.observation_id')
             ->leftJoin('charging_status_observations as recovery', 'recovery.id', '=', 'a.recovery_observation_id')
+            ->leftJoin('charging_repair_orders as repair', 'repair.alert_id', '=', 'a.id')
+            ->leftJoin('charging_repair_events as closure', function ($join) {
+                $join->on('closure.order_id', '=', 'repair.id')->on('closure.version', '=', 'repair.version')
+                    ->where('closure.state', 'closed')->where('repair.state', 'closed')->whereNotNull('recovery.id');
+            })
             ->where('o.source_generation', FaultMonitor::generation($b))->orderByDesc('o.source_event_id')
-            ->select('a.id', 'o.source_event_id', 'o.evse_number', 'o.connector_number', 'o.status', 'o.error_code', 'o.occurred_at', 'a.acknowledged_at', 'recovery.occurred_at as recovery_observed_at')->paginate(25);
+            ->select('a.id', 'o.source_event_id', 'o.evse_number', 'o.connector_number', 'o.status', 'o.error_code',
+                'o.occurred_at', 'a.acknowledged_at', 'recovery.occurred_at as recovery_observed_at', 'closure.created_at as repair_review_closed_at')
+            ->paginate(25);
 
         return response()->json($rows->toArray() + ['can_manage_faults' => app(VendorAccess::class)->capabilities($r->user(), $company)['inventory_write'], 'evidence' => 'SIMULATED_SOURCE', 'physical_charging_verified' => false])->header('Cache-Control', 'private, no-store');
     }

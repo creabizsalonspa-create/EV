@@ -43,6 +43,7 @@ class DiagnosticsApi extends FixtureApi {
 class FaultDiagnosticsApi extends DiagnosticsApi {
   int acknowledgments = 0;
   bool acknowledged = false;
+  bool reviewClosed = false;
   bool active = true;
   @override
   bool Function() sessionFence() =>
@@ -86,7 +87,10 @@ class FaultDiagnosticsApi extends DiagnosticsApi {
           'status': 'Faulted',
           'error_code': 'GroundFailure',
           'occurred_at': '2026-11-05T01:00:00Z',
-          'recovery_observed_at': null,
+          'recovery_observed_at': reviewClosed ? '2026-11-05T02:30:00Z' : null,
+          'repair_review_closed_at': reviewClosed
+              ? '2026-11-05T03:00:00Z'
+              : null,
           'acknowledged_at': acknowledged ? '2026-11-05T02:00:00Z' : null,
         },
       ],
@@ -218,6 +222,34 @@ void main() {
       expect(api.acknowledgments, 0);
     },
   );
+  testWidgets(
+    'fault alerts display current repair closure without sending commands',
+    (tester) async {
+      final api = FaultDiagnosticsApi()..reviewClosed = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ChargerDiagnosticsView(
+            api: api,
+            companyId: 1,
+            chargerId: 2,
+            onExpired: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Fault alerts'));
+      await tester.pumpAndSettle();
+      expect(find.text('Recovery source observed'), findsOneWidget);
+      expect(find.text('Repair review closed'), findsOneWidget);
+
+      api.reviewClosed = false;
+      await tester.tap(find.text('Fault alerts'));
+      await tester.pumpAndSettle();
+      expect(find.text('Repair review closed'), findsNothing);
+      expect(api.acknowledgments, 0);
+    },
+  );
+
   testWidgets(
     'fault acknowledgment has no blind retry after a lost response; read recovers state',
     (tester) async {
