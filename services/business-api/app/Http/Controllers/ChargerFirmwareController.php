@@ -118,7 +118,8 @@ class ChargerFirmwareController extends Controller
     {
         $this->enabled();
         $binding = $guard->scope($r, $company, $charger);
-        $data = $source->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}', ['name' => $binding->identifier]);
+        $identityQuery = 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}';
+        $data = $source->graph($identityQuery, ['name' => $binding->identifier]);
         $stations = $data['ChargingStations'] ?? null;
         abort_unless(is_array($stations) && array_is_list($stations) && count($stations) === 1 &&
             is_array($stations[0]) && is_int($stations[0]['id'] ?? null) && $stations[0]['id'] > 0 &&
@@ -155,6 +156,40 @@ class ChargerFirmwareController extends Controller
             (int) $fresh->id === (int) $binding->id &&
             $fresh->identifier === $binding->identifier && $fresh->protocol === $binding->protocol,
             409, 'Charger owner, model or source binding changed during inspection.');
+
+        // A source can disconnect, change firmware, or move between the
+        // first read and the private compatibility response. A second,
+        // independent authenticated observation must preserve its exact
+        // identity and monotonically recent heartbeat; a previous online
+        // flag is not proof of continuing firmware eligibility.
+        $reviewRows = $source->graph($identityQuery, [
+            'name' => $binding->identifier,
+        ])['ChargingStations'] ?? null;
+        abort_unless(is_array($reviewRows) && array_is_list($reviewRows) &&
+            count($reviewRows) === 1 && is_array($reviewRows[0]) &&
+            is_int($reviewRows[0]['id'] ?? null) &&
+            $reviewRows[0]['id'] === $observed['id'] &&
+            ($reviewRows[0]['isOnline'] ?? null) === true &&
+            ($reviewRows[0]['protocol'] ?? null) === $observed['protocol'] &&
+            ($reviewRows[0]['chargePointVendor'] ?? null) === $observed['chargePointVendor'] &&
+            ($reviewRows[0]['chargePointModel'] ?? null) === $observed['chargePointModel'] &&
+            ($reviewRows[0]['firmwareVersion'] ?? null) === $observed['firmwareVersion'] &&
+            is_string($reviewRows[0]['latestOcppMessageTimestamp'] ?? null), 409,
+            'Authenticated source firmware identity changed during inspection.');
+        $followupTime = SourceStatusTime::parse($reviewRows[0]['latestOcppMessageTimestamp']);
+        abort_unless($followupTime->gte($lastMessage) &&
+            $followupTime->gte(now()->subMinutes(5)), 409,
+            'Firmware source heartbeat changed during inspection.');
+        $finalCompany = VendorCompany::findOrFail($company->id);
+        $finalCharger = VendorCharger::findOrFail($charger->id);
+        $finalBinding = $guard->scope($r, $finalCompany, $finalCharger);
+        abort_unless($finalCompany->owner_id === $company->owner_id &&
+            $finalCharger->manufacturer === $charger->manufacturer &&
+            $finalCharger->model === $charger->model &&
+            $finalCharger->site_id === $charger->site_id &&
+            (int) $finalBinding->id === (int) $binding->id &&
+            $finalBinding->identifier === $binding->identifier, 409,
+            'Owned firmware source changed after source recheck.');
 
         $matrix = [];
         $releases = DB::table('charger_firmware_releases')
