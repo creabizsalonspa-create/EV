@@ -60,3 +60,29 @@ it does not claim physical concurrency acceptance, or imply revocation can undo
 a provider request already lawfully dispatched before the credential changed.
 The full original external-dispute/document/PSP requirements remain unfinished;
 do not award atom credit from this isolated hardening alone.
+
+
+## Live-Admin authority for provider dispute inspection (Agent 3 hardening)
+
+The controller's interactive `POST /commercial/external-disputes/{id}/reconcile`
+passes the original authenticated Admin snapshot into the service.
+`ExternalDisputes::apply` checks the **persisted account row** under the same
+transaction that locks the canonical invoice and may change the provider case
+or settlement hold. The check runs **after both Stripe TEST GET calls**, so
+Admin suspension, role removal, auth-epoch revocation or password rotation
+during provider IO cannot release a dispute hold or create notifications.
+
+The evidence create/retry paths also bind the same original Admin snapshot
+through the preliminary dispute reconciliation before reserving any evidence
+operation. A second check protects recovered evidence and provider-observation
+writes. All provider HTTP remains outside DB transactions and account-first
+lock ordering is retained.
+
+The signed provider webhook and explicit TEST-only CLI scan intentionally use
+the existing **noninteractive** trusted service path; neither is given an
+invented Admin user. Regressions revoke the interactive Admin after the
+dispute GET and after the separate charge GET, then assert a 409 with
+the original finance hold, case, invoice journals, events and notifications
+untouched. No live provider access, automatic chargeback allocation or original
+requirement completion is claimed; exact-head CI and Agent 5 integration
+are required.
