@@ -112,3 +112,36 @@ This contributes a partial native-source slice to original 3.5.9 and
 7.1.10 alongside the revenue-cohort 3.6.2 candidate. All remain
 **uncredited until exact-head Flutter/Android/iOS/Laravel acceptance and
 Agent 5 integration**; no independent tax-law or provider certification.
+
+
+## Immediate account-change privacy on rendered native revenue
+
+The native `VendorFinanceView` payouts overview,
+`VendorEarningsView` owner invoice/CSV preview and
+`VendorRevenueCohortView` daily income can each finish rendering
+*before* an account is logged out. Rechecking their captured
+`sessionFence()` only when the next widget build happens does
+not itself trigger repaint, and can leave confidential amounts,
+a CSV affordance or finance navigation visible on screen.
+
+This branch now adds the **same non-secret synchronous
+`EvApi.sessionEvents` generation broadcast** as Agent 3 PRs #243,
+#265 and #272. Each of the three vendor finance views observes its
+current API, immediately clears already painted owned finance
+source/CSV/PDF and pending spinners on generation invalidation,
+and detaches the observer on client swap or disposal. An old
+HTTP response cannot resurrect data because its request generation
+is invalidated; no automatic payout, CSV saving or remote settlement
+is initiated.
+
+Three real Flutter widget regressions log out **after** the
+original vendor finance overview, a 1-page owner earnings report,
+and daily cohort total were completely rendered. Without waiting
+for another request or building a new app widget, the tests require
+private amount/CSV/control elements to disappear and confirm no
+additional HTTP request was sent.
+
+The additive API event implementation should be integrated **once**
+by Agent 5 when the independent native PRs are merged, retaining
+each domain's three native listeners. This is still TEST financial
+source and has no real bank/PSP collection or payout authority.
