@@ -130,9 +130,13 @@ class CsmsPilotProbeTest extends TestCase
                     ->update(['vendor_id' => User::factory()->create(['role' => 'vendor'])->id]);
             }
             $rows = [
-                ['id' => 25, 'connectorDatabaseId' => 8, 'connectorStatus' => 'Available',
+                ['id' => 25, 'connectorDatabaseId' => 8,
+                    'evseId' => $fixture['protocol'] === '1.6' ? 0 : 1,
+                    'connectorId' => 2, 'connectorStatus' => 'Available',
                     'timestamp' => now()->toISOString()],
-                ['id' => 24, 'connectorDatabaseId' => 7, 'connectorStatus' => 'Available',
+                ['id' => 24, 'connectorDatabaseId' => 7,
+                    'evseId' => $fixture['protocol'] === '1.6' ? 0 : 1,
+                    'connectorId' => 1, 'connectorStatus' => 'Available',
                     'timestamp' => now()->subSecond()->toISOString()],
             ];
             if ($state === 'busy') {
@@ -143,6 +147,24 @@ class CsmsPilotProbeTest extends TestCase
             }
             if ($state === 'unknown_status') {
                 $rows[0]['connectorStatus'] = 'NotAnOcppStatus';
+            }
+            if ($state === 'source_target_wrong') {
+                $rows[0]['connectorId'] = 3;
+            }
+            if ($state === 'source_target_duplicate') {
+                $rows[0]['connectorId'] = 1;
+            }
+            if ($state === 'source_target_changed') {
+                $rows[] = array_replace($rows[1], [
+                    'id' => 23, 'connectorId' => 2,
+                    'timestamp' => now()->subSeconds(3)->toISOString(),
+                ]);
+            }
+            if ($state === 'source_target_string') {
+                $rows[0]['connectorId'] = '2';
+            }
+            if ($state === 'source_evse_wrong') {
+                $rows[0]['evseId'] = $fixture['protocol'] === '1.6' ? 1 : 0;
             }
             if ($state === 'unknown_connector') {
                 $rows[0]['connectorDatabaseId'] = 9;
@@ -178,6 +200,7 @@ class CsmsPilotProbeTest extends TestCase
             $this->assertTrue($report['software_source_observed']);
             $this->assertTrue($report['source_idle_candidate']);
             $this->assertTrue($report['source_connector_count_matches_local_topology']);
+            $this->assertTrue($report['source_connector_targets_match_local_topology']);
             $this->assertFalse($report['pending_local_charging_or_maintenance_review']);
             $this->assertFalse($report['physical_topology_verified']);
             $this->assertSame(2, $report['idle_connectors_with_recent_safe_status']);
@@ -288,6 +311,23 @@ class CsmsPilotProbeTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_wrong_source_connector_target_blocks_matching_count_evidence_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $this->source($f, 'source_target_wrong');
+            $this->assertSame(1, Artisan::call('csms:pilot-probe', [
+                'binding' => $f['binding'],
+            ]));
+            $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+            $this->assertTrue($report['source_connector_count_matches_local_topology']);
+            $this->assertFalse($report['source_connector_targets_match_local_topology']);
+            $this->assertFalse($report['software_source_observed']);
+            $this->assertFalse($report['physical_topology_verified']);
+            $this->assertDatabaseCount('charger_commands', 0);
+        }
+    }
+
     public function test_removed_canonical_mapping_never_counts_as_source_ready(): void
     {
         $f = $this->fixture();
@@ -301,7 +341,7 @@ class CsmsPilotProbeTest extends TestCase
 
     public function test_invalid_source_identity_clocks_and_connector_events_fail_closed(): void
     {
-        foreach (['ambiguous', 'object_station', 'wrong_vendor', 'wrong_model', 'no_firmware', 'relative_clock', 'unknown_connector', 'unknown_status', 'overflow', 'reversed_clock', 'duplicate_event', 'reassigned', 'suspended_owner', 'model_changed', 'maintenance'] as $case) {
+        foreach (['ambiguous', 'object_station', 'wrong_vendor', 'wrong_model', 'no_firmware', 'relative_clock', 'unknown_connector', 'unknown_status', 'source_target_duplicate', 'source_target_changed', 'source_target_string', 'source_evse_wrong', 'overflow', 'reversed_clock', 'duplicate_event', 'reassigned', 'suspended_owner', 'model_changed', 'maintenance'] as $case) {
             $f = $this->fixture();
             $this->source($f, $case);
             $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
