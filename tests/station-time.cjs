@@ -58,8 +58,8 @@ test("station-local time errors respect current English/Arabic language without 
     const englishGap = message(() => english.toUtc("2026-03-08T02:30", "America/New_York"));
     const arabicGap = message(() => arabic.toUtc("2026-03-08T02:30", "America/New_York"));
     assert.match(englishGap, /does not exist/);
-    assert.doesNotMatch(englishGap, /[\\u0600-\\u06FF]/);
-    assert.match(arabicGap, /[\\u0600-\\u06FF]/);
+    assert.doesNotMatch(englishGap, /[ء-ي]/);
+    assert.match(arabicGap, /[ء-ي]/);
     assert.doesNotMatch(arabicGap, /does not exist/);
     const arabicZone = message(() => arabic.toUtc("2026-11-16T10:00", "Not/Real"));
     assert.match(arabicZone, /توقيت المحطة غير متاح/);
