@@ -117,3 +117,28 @@ addition. No financial journal, payable settlement or actual payout is
 created. This is defensive software verification; source approval
 authenticity, merchant acceptance, exact-head CI and Agent 5 merge
 remain independent requirements.
+
+
+## Private settlement and adjustment receipts (Agent 3 continuation)
+
+The Vendor/Admin settlements list, direct settlement detail, newly drafted
+settlement, exact idempotent draft replay, adjustment creation and adjustment
+replay now **redact the server-owned `request_key` and `fingerprint`**
+from every public response. Persisted immutable hashes remain in their
+original database records and continue to enforce same-key idempotency.
+No change to who can read, draft, reject, approve or simulate a payout;
+this is a privacy-only DTO boundary.
+
+A settlement detail's `reconciled` boolean now calls the canonical
+`SettlementService::reconciles` exact, signed accumulator instead of
+casting the immutable source and an unchecked collection sum to ints.
+Refund-debt lines remain legal and are checked against the payable
+amount. Any oversized or inexact source fails 409 instead of returning
+an incorrect green reconciliation. End-to-end tests exercise owner
+list/detail/draft retries and Admin adjustment replay, verify request
+keys remain server-owned, and test signed-detail arithmetic and overflow
+without modifying the canonical cash ledger.
+
+These are partial backend authority and integrity improvements, not
+external payout confirmation or production acceptance. Tests require
+exact-source CI, Agent 5 merge and integrated checks.
