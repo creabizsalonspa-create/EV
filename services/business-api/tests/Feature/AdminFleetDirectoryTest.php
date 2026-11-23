@@ -115,6 +115,48 @@ class AdminFleetDirectoryTest extends TestCase
         ]);
     }
 
+    public function test_private_fleet_finance_reports_authorize_before_filters_and_never_redirect_bad_csv(): void
+    {
+        $owner = User::factory()->create(['role' => 'customer']);
+        $outsider = User::factory()->create(['role' => 'customer']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $fleet = Fleet::create([
+            'owner_id' => $owner->id,
+            'name' => 'Synthetic enterprise operations',
+            'country' => 'AE',
+        ]);
+        $url = '/api/fleets/'.$fleet->id.'/report';
+        $valid = '?from=2026-11-01&through=2026-11-15';
+        $invalid = '?from=invalid&through=2026-11-15&format=csv';
+        $before = DB::table('finance_journals')->count();
+
+        $this->actingAs($outsider)->getJson($url.$valid)->assertNotFound();
+        $this->getJson($url.$invalid)->assertNotFound();
+        $this->get($url.$invalid)->assertNotFound();
+        $this->get($url.$valid.'&format=csv')->assertNotFound();
+
+        $this->actingAs($owner);
+        $this->getJson($url.$valid)->assertOk()->assertJsonPath(
+            'fleet.id', $fleet->id
+        )->assertJsonPath('physical_charging_verified', false)
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->get($url.$invalid)->assertUnprocessable()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('message', 'Invalid private fleet report filters.');
+        $this->get($url.$valid.'&format=csv')->assertOk()
+            ->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('Content-Type', 'text/csv; charset=UTF-8');
+
+        $this->actingAs($admin)->getJson($url.$valid)->assertOk();
+        DB::table('users')->where('id', $admin->id)->update([
+            'role' => 'customer',
+        ]);
+        $this->getJson($url.$invalid)->assertConflict();
+        $this->get($url.$invalid)->assertConflict();
+        $this->getJson('/api/admin/fleets?owner_id=0')->assertConflict();
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
     public function test_fleet_owner_directory_rejects_bad_filters_and_revoked_admin(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

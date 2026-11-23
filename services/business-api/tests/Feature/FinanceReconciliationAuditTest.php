@@ -104,6 +104,37 @@ class FinanceReconciliationAuditTest extends TestCase
         $this->actingAs($foreignOwner)->getJson($this->url())->assertOk()->assertJsonPath('total', 1);
     }
 
+
+    public function test_reconciliation_csv_is_spreadsheet_literal_and_exact_without_changing_immutable_invoices(): void
+    {
+        [$vendor, $customer, $invoice] = $this->fixture();
+        $before = DB::table('finance_journals')->count();
+        // Issued invoice numbers are immutable, so the source must not be
+        // overwritten simply to simulate an untrusted imported reference.
+        $encode = new \ReflectionMethod(
+            \App\Http\Controllers\FinanceReconciliationAuditController::class,
+            'literalCsv'
+        );
+        foreach (['=HYPERLINK("https://unsafe.test","open")', '+SUM(3,5)',
+            '-CMD', '@DDE', "\t=source"] as $formula) {
+            $this->assertSame("'".$formula, $encode->invoke(null, $formula));
+        }
+        $this->assertSame($invoice->number,
+            $encode->invoke(null, $invoice->number));
+
+        $this->actingAs($vendor)->getJson($this->url())
+            ->assertOk()->assertJsonPath('data.0.invoice_number', $invoice->number);
+        $csv = $this->get($this->url().'/export');
+        $csv->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->assertStringContainsString($invoice->number, $csv->streamedContent());
+        $this->assertDatabaseHas('finance_invoices', [
+            'id' => $invoice->id, 'number' => $invoice->number,
+        ]);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_revoked_vendor_and_admin_snapshots_cannot_read_private_reconciliation_or_csv(): void
     {
         [$vendor, $customer, $invoice] = $this->fixture();

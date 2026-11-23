@@ -427,4 +427,87 @@ class SettlementTest extends TestCase
             ->assertOk()->assertJsonPath('data.0.invoice_id', $invoice->id);
         $this->assertDatabaseCount('finance_journals', 2);
     }
+
+    public function test_vendor_earnings_json_and_plain_csv_reject_unbounded_or_non_numeric_pages(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
+        $this->actingAs($this->vendor);
+        $before = DB::table('finance_journals')->count();
+
+        foreach (['page=0', 'page=-1', 'page=10001', 'page=not-a-number'] as $filter) {
+            $this->getJson($path.'?currency=AED&'.$filter)->assertUnprocessable();
+            $this->get($path.'/export?currency=AED&'.$filter)
+                ->assertUnprocessable()->assertHeader('Cache-Control', 'no-store, private');
+        }
+
+        $this->getJson($path.'?currency=AED&per_page=1&page=10000')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonCount(0, 'data');
+        $csv = $this->get($path.'/export?currency=AED&per_page=1&page=10000');
+        $csv->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertStringNotContainsString($invoice->number, $csv->streamedContent());
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
+    public function test_vendor_earnings_rejects_unsafe_financial_numbers_without_mutating_immutable_invoices(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
+        $before = DB::table('finance_journals')->count();
+
+        // Issued finance invoices are protected by SQLite/PostgreSQL
+        // immutability triggers: do not bypass those safeguards in tests.
+        // Exercise the exact primitive on malformed external aggregates instead.
+        $minor = new \ReflectionMethod(\App\Http\Controllers\VendorEarningsController::class, 'minor');
+        foreach ([9007199254740992, -9007199254740992, 'not-a-number', 1.5] as $unsafe) {
+            try {
+                $minor->invoke(null, $unsafe, true);
+                $this->fail('Inexact source value reached financial output.');
+            } catch (HttpException $e) {
+                $this->assertSame(409, $e->getStatusCode());
+            }
+        }
+        $this->assertSame(-450, $minor->invoke(null, -450, true));
+        try {
+            $minor->invoke(null, -1, false);
+            $this->fail('Negative unsigned amount accepted.');
+        } catch (HttpException $e) {
+            $this->assertSame(409, $e->getStatusCode());
+        }
+
+        $this->actingAs($this->vendor)->getJson($path.'?currency=AED')
+            ->assertOk()->assertJsonPath('total', 1);
+        $this->get($path.'/export?currency=AED')->assertOk();
+        $this->assertDatabaseHas('finance_invoices', [
+            'id' => $invoice->id, 'subtotal_minor' => 1000,
+        ]);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
+    public function test_vendor_earnings_csv_encodes_unsafe_numbers_as_spreadsheet_literals_only(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
+        $before = DB::table('finance_journals')->count();
+
+        // Test the CSV-only cell encoder without illegally changing a signed,
+        // immutable finance invoice to a fabricated provider filename.
+        $cell = new \ReflectionMethod(\App\Http\Controllers\VendorEarningsController::class, 'csvInvoiceNumber');
+        foreach (['=HYPERLINK("https://untrusted.test","open")', '+SUM(1,2)',
+            '-cmd', '@danger', "\t=malicious"] as $formula) {
+            $this->assertSame("'".$formula, $cell->invoke(null, $formula));
+        }
+        $this->assertSame('INV-2026-AE-0001', $cell->invoke(null, 'INV-2026-AE-0001'));
+
+        $this->actingAs($this->vendor)
+            ->getJson($path.'?currency=AED')->assertOk()
+            ->assertJsonPath('data.0.invoice_number', $invoice->number);
+        $csv = $this->get($path.'/export?currency=AED');
+        $csv->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertStringContainsString($invoice->number, $csv->streamedContent());
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
 }
