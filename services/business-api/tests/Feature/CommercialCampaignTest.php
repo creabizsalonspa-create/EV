@@ -170,6 +170,34 @@ class CommercialCampaignTest extends TestCase
         $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
     }
 
+    public function test_spent_server_delivery_budget_is_not_a_live_sponsored_placement_page(): void
+    {
+        $this->freezeTime();
+        $first = $this->fixture();
+        $first['values']['budget_units'] = 1;
+        $spent = $this->approved($first);
+        $second = $this->fixture();
+        $active = $this->approved($second);
+        $this->delivery($spent['id'], 'server-proven-unit')->assertOk();
+        $before = DB::table('commercial_campaign_deliveries')->count();
+        $beforeLedger = DB::table('commercial_subscription_ledger')->count();
+
+        $url = '/api/commercial/campaign-placements?country=AE'
+            .'&placement=discovery_banner&per_page=1';
+        $this->actingAs($first['customer'])->getJson($url)->assertOk()
+            ->assertJsonCount(1, 'placements')
+            ->assertJsonPath('placements.0.campaign_id', $active['id'])
+            ->assertJsonPath('last_page', 1)
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('placements.0.compatibility_verified', false)
+            ->assertJsonPath('placements.0.capability_override', false);
+        $this->getJson($url.'&page=2')->assertOk()
+            ->assertJsonCount(0, 'placements')
+            ->assertJsonPath('total', 1);
+        $this->assertSame($before, DB::table('commercial_campaign_deliveries')->count());
+        $this->assertSame($beforeLedger, DB::table('commercial_subscription_ledger')->count());
+    }
+
     public function test_unpaid_or_non_entitled_package_and_foreign_station_cannot_create_campaign(): void
     {
         $f = $this->fixture(paid: false);
