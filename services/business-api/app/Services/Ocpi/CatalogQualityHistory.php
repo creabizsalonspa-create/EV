@@ -44,8 +44,12 @@ final class CatalogQualityHistory
             ['sampled_at', 'state', 'max_age_seconds', ...self::COUNTS]
         );
 
-        // Retention is strictly scoped to this provider and enforced within
-        // the provider ingestion lock. Never trim another tenant's evidence.
+        // Strict rolling seven-day clock horizon, independent of source
+        // sync frequency; an idle provider cannot expose months-old samples.
+        DB::table(self::TABLE)->where('provider_id', $provider->id)
+            ->where('observed_hour', '<', $sampledAt->subHours(self::RETAIN_HOURS)->format('Y-m-d H:i:s.u'))
+            ->delete();
+        // Retention is scoped to this provider and serialized by its ingest lock.
         $keep = DB::table(self::TABLE)->where('provider_id', $provider->id)
             ->orderByDesc('observed_hour')->orderByDesc('id')
             ->limit(self::RETAIN_HOURS)->pluck('id');
@@ -67,6 +71,8 @@ final class CatalogQualityHistory
             abort_unless($actor->role === 'admin' || $current->owner_id === $actor->id, 404);
 
             $rows = DB::table(self::TABLE)->where('provider_id', $current->id)
+                ->where('observed_hour', '>=', CarbonImmutable::now('UTC')
+                    ->subHours(self::RETAIN_HOURS)->format('Y-m-d H:i:s.u'))
                 ->orderByDesc('observed_hour')->orderByDesc('id')
                 ->limit(self::READ_LIMIT)->get([
                     'observed_hour', 'sampled_at', 'state', 'max_age_seconds',
