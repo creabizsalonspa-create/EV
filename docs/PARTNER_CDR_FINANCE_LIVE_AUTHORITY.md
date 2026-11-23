@@ -68,3 +68,12 @@ entire report and export affordance to fail closed. These fields are not
 stored in the displayed report. A synthetic widget regression injects a
 `payload.token` and confirms no invoice card, PDF action or token text
 can appear. Backend JSON continues to project only sanitized references.
+
+
+The native parser also validates the response's `total`, `per_page`,
+`last_page` and exact selected-page row count against the canonical
+paginator, including empty filter results. It will not display a report
+with impossible row totals, an out-of-range page or a forged partial
+page that changes which invoices appear in the current financial card.
+A widget regression tampers with the reported total and confirms all
+private invoice and PDF surfaces fail closed.
