@@ -75,7 +75,8 @@ window.EvPrivacyRequests = (() => {
         return (
             state.request !== null &&
             state.generation === generation &&
-            !controller.signal.aborted
+            !controller.signal.aborted &&
+            (state !== states.mine || !document.hidden)
         );
     }
 
@@ -127,7 +128,7 @@ window.EvPrivacyRequests = (() => {
         );
         state.root.append(form, reset, reload, message, results);
         async function refresh(target = 1) {
-            if (!state.request || viewGeneration !== state.generation) return;
+            if (!state.request || viewGeneration !== state.generation || document.hidden) return;
             state.controller?.abort();
             const controller = new AbortController();
             state.controller = controller;
@@ -372,7 +373,7 @@ window.EvPrivacyRequests = (() => {
         form.onsubmit = async (event) => {
             event.preventDefault();
             if (!state.request || viewGeneration !== state.generation ||
-                state.submitting) return;
+                state.submitting || document.hidden) return;
             if (details.value.trim().length < 10) {
                 message.textContent =
                     "Please explain your request in at least 10 characters.";
@@ -724,6 +725,10 @@ window.EvPrivacyRequests = (() => {
         // private-copy reveal, including a response delivered after pageshow.
         states.mine.visibilityVersion++;
         states.admin.visibilityVersion++;
+        // A customer response may arrive after this tab becomes visible again.
+        // Abort its previous read/controller so it cannot restore private
+        // history or withdrawal/export actions without an explicit refresh.
+        states.mine.controller?.abort();
         wipeSensitive(states.mine);
         wipeSensitive(states.admin);
     }

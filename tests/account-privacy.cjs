@@ -102,6 +102,56 @@ const page = (data = [record]) => ({
   data,
 });
 
+test("hidden-first customer web mount and resume do not fetch private history", async () => {
+  const ui = fixture();
+  let reads = 0;
+  ui.hide();
+  ui.setSelfActor({ id: 3, role: "customer" }, async () => {
+    reads++;
+    return page([{ ...record, details: "PRIVATE BACKGROUND ACCOUNT DETAILS" }]);
+  });
+  await tick();
+  assert.equal(reads, 0);
+  assert(!ui.mine.textContent.includes("PRIVATE BACKGROUND ACCOUNT DETAILS"));
+  ui.show();
+  await tick();
+  assert.equal(reads, 0, "Resume cannot silently read private account history");
+  const refresh = nodes(ui.mine, "button").find((b) =>
+    b.textContent.startsWith("Refresh requests"));
+  assert.ok(refresh);
+  await refresh.onclick();
+  await tick();
+  assert.equal(reads, 1);
+  assert.match(ui.mine.textContent, /PRIVATE BACKGROUND ACCOUNT DETAILS/);
+});
+
+test("customer history read started before hide cannot render after visible resume", async () => {
+  const ui = fixture();
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  let reads = 0;
+  ui.setSelfActor({ id: 3, role: "customer" }, async () => {
+    reads++;
+    if (reads === 1) return pending;
+    return page([{ ...record, details: "FRESH FOREGROUND HISTORY" }]);
+  });
+  assert.equal(reads, 1);
+  ui.hide();
+  ui.show();
+  release(page([{ ...record, details: "PRIVATE OBSOLETE HIDDEN HISTORY" }]));
+  await tick();
+  await tick();
+  assert(!ui.mine.textContent.includes("PRIVATE OBSOLETE HIDDEN HISTORY"));
+  assert(!nodes(ui.mine, "button").some((b) =>
+    b.textContent.startsWith("Withdraw request")));
+  const refresh = nodes(ui.mine, "button").find((b) =>
+    b.textContent.startsWith("Refresh requests"));
+  await refresh.onclick();
+  await tick();
+  assert.equal(reads, 2);
+  assert.match(ui.mine.textContent, /FRESH FOREGROUND HISTORY/);
+});
+
 test("guest context never fetches and both private views clear on signout", async () => {
   const ui = fixture(),
     calls = [];
