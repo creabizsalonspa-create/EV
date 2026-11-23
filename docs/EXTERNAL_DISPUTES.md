@@ -86,3 +86,15 @@ the original finance hold, case, invoice journals, events and notifications
 untouched. No live provider access, automatic chargeback allocation or original
 requirement completion is claimed; exact-head CI and Agent 5 integration
 are required.
+
+
+### Bounded Admin deadline-queue paging
+
+The read-only authenticated deadline review also requires an exact
+`page=1..10000` and `per_page=1..25`; invalid, negative or nonnumeric
+pages return 422 rather than falling back to a different private page.
+Empty high-numbered pages expose no dispute rows but retain accurate
+total and the requested page number. Deadline priority and ADMIN-only
+tenant/amount suppression are unchanged; this never polls the PSP or
+submits evidence. Added regression cases assert no new financial postings
+or provider actions.
