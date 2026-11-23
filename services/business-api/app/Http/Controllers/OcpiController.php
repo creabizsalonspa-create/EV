@@ -38,6 +38,8 @@ class OcpiController extends Controller
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['owner_id' => 'required|integer|exists:users,id', 'name' => 'required|string|max:150', 'connection_key' => 'required|string|alpha_dash|max:80|unique:ocpi_providers', 'authorized' => 'required|boolean']);
         abort_unless(User::whereKey($v['owner_id'])->where('role', 'vendor')->exists(), 422, 'Provider owner must be a vendor.');
+        abort_if($v['authorized'] && ! User::whereKey($v['owner_id'])->where('account_status', 'active')->exists(),
+            409, 'Suspended partner owners cannot receive new provider authorization.');
         abort_unless(is_array(config('ocpi.connections.'.$v['connection_key'])), 422, 'Connection must first be provisioned in secure server configuration.');
 
         return DB::transaction(function () use ($r, $v, $client) {
@@ -61,6 +63,8 @@ class OcpiController extends Controller
 
         return DB::transaction(function () use ($r, $provider, $v, $client) {
             $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            abort_if($v['authorized'] && ! User::whereKey($provider->owner_id)->where('role', 'vendor')
+                ->where('account_status', 'active')->exists(), 409, 'Partner owner is not active.');
             $exhausted = $provider->authorization_revision >= PHP_INT_MAX;
             // Revocation must remain available at the terminal generation.
             // Reauthorization is permanently blocked, so that generation cannot recur.
@@ -85,6 +89,8 @@ class OcpiController extends Controller
     public function negotiate(Request $r, OcpiProvider $provider, PartnerClient $client)
     {
         $this->owner($r, $provider);
+        abort_unless(User::whereKey($provider->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(),
+            409, 'Partner owner is not active.');
         try {
             $endpoints = $client->negotiate($provider);
         } catch (OcpiException $e) {
@@ -97,6 +103,8 @@ class OcpiController extends Controller
     public function sync(Request $r, OcpiProvider $provider, string $module, PartnerClient $client, RecordSynchronizer $sync)
     {
         $this->owner($r, $provider);
+        abort_unless(User::whereKey($provider->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(),
+            409, 'Partner owner is not active.');
         abort_unless(in_array($module, PartnerClient::MODULES, true), 404);
         try {
             $records = $client->pull($provider, $module);
