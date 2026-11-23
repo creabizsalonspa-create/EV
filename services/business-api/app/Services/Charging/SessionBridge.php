@@ -128,16 +128,29 @@ class SessionBridge
         $link->update(['closed_without_dispatch_at' => now(), 'closure_reason' => $reason]);
     }
 
-    public function stop(ChargingSession $session, int $actor, string $role): array
+    public function stop(ChargingSession $session, int $actor, string $role, ?User $consentingActor = null): array
     {
         $this->enabled();
-        $r = Reservation::findOrFail($session->reservation_id);
-        $station = Station::findOrFail($r->station_id);
-        abort_unless($actor === $r->user_id || ($role === 'vendor' && $actor === $station->vendor_id) || $role === 'admin', 404);
 
-        return DB::transaction(function () use ($session, $actor, $station) {
+        return DB::transaction(function () use ($session, $actor, $role, $consentingActor) {
+            // Current credentials and station ownership are the actual stop
+            // authority, not the route-bound request's stale user snapshot.
+            $current = $consentingActor
+                ? app(ChargingActorConsent::class)->capture($consentingActor)
+                : User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            abort_unless($current->id === $actor && $current->role === $role
+                && $current->account_status === 'active', 409, 'Charging account authorization changed.');
+            $sourceSession = ChargingSession::whereKey($session->id)->firstOrFail();
+            $reservation = Reservation::findOrFail($sourceSession->reservation_id);
+            $station = Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
+            $r = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
+            abort_unless(($role === 'customer' && $actor === $r->user_id)
+                || ($role === 'vendor' && $actor === $station->vendor_id)
+                || $role === 'admin', 404);
             $link = SessionLink::where('charging_session_id', $session->id)->lockForUpdate()->firstOrFail();
             $s = ChargingSession::whereKey($session->id)->lockForUpdate()->firstOrFail();
+            abort_unless($s->reservation_id === $r->id && $r->station_id === $station->id,
+                409, 'Source session ownership changed during stop.');
             if ($link->stop_command_id || $s->status === 'stopped') {
                 return $this->summary($link);
             }
