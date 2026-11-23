@@ -91,6 +91,11 @@ class RecordSynchronizer
                 }
             }
             $locked->update(['last_synced_at' => now()]);
+            if ($module === 'locations' && ($counts['created'] + $counts['updated']) > 0) {
+                // The whole quality observation commits or rolls back together
+                // with the canonical normalized source batch.
+                app(CatalogQualityHistory::class)->capture($locked);
+            }
 
             return $counts;
         });
