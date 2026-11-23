@@ -50,6 +50,29 @@ const assert = require('node:assert/strict');
                         if (path === 'ocpi/owner-options?page=1')
                             return paged([]);
                         if (path.includes('/contract-review')) {
+                            if (path.endsWith('/history')) {
+                                return {
+                                    scope: 'private_ocpi_contract_review_history',
+                                    current_revision: window.syntheticReview.revision,
+                                    history: {
+                                        total: window.syntheticReview.revision,
+                                        data: window.syntheticReview.revision ? [{
+                                            revision: window.syntheticReview.revision,
+                                            decision: window.syntheticReview.state === 'revoked' ? 'revoke' : 'review',
+                                            recorded_at: '2026-11-23T09:00:00Z',
+                                            ...(window.viewer?.role === 'admin' ? {
+                                                reason: 'Synthetic internal document check, not external partner approval.',
+                                                reference_id: 'LEGAL-SYNTHETIC-CASE-001',
+                                                evidence_sha256: 'a'.repeat(64),
+                                            } : {}),
+                                        }] : [],
+                                    },
+                                    external_partner_acceptance_verified: false,
+                                    contract_legally_executed_verified: false,
+                                    live_roaming_enabled: false,
+                                    payment_authority: false,
+                                };
+                            }
                             if (method === 'POST') {
                                 if (window.viewer?.role !== 'admin' ||
                                     !body.idempotency_key ||
@@ -99,6 +122,11 @@ const assert = require('node:assert/strict');
                 { exact: false }).waitFor();
             assert.equal(await page.evaluate(() => window.writeCount), 1);
             assert.equal(await page.locator('form[data-contract-review-action="revoke"]').count(), 1);
+            await page.getByRole('button', { name: arabic
+                ? 'قراءة سجل مراجعة العقد' : 'Read contract review history' }).click();
+            await page.getByText('Synthetic internal document check, not external partner approval.',
+                { exact: true }).waitFor();
+            assert.equal(await page.getByText('LEGAL-SYNTHETIC-CASE-001', { exact: true }).count(), 1);
 
             await page.evaluate(async () => {
                 window.viewer = { id: 27, role: 'vendor' };
@@ -108,6 +136,11 @@ const assert = require('node:assert/strict');
             await page.getByText(arabic ? 'تمت مراجعته داخلياً فقط' : 'Internally reviewed only',
                 { exact: false }).waitFor();
             assert.equal(await page.locator('form[data-contract-review-action]').count(), 0);
+            await page.getByRole('button', { name: arabic
+                ? 'قراءة سجل مراجعة العقد' : 'Read contract review history' }).click();
+            assert.equal(await page.getByText('Synthetic internal document check, not external partner approval.',
+                { exact: true }).count(), 0);
+            assert.equal(await page.getByText('LEGAL-SYNTHETIC-CASE-001', { exact: true }).count(), 0);
             assert.equal(await page.evaluate(() => window.writeCount), 1);
 
             await page.evaluate(async () => {
