@@ -19,6 +19,7 @@ const loyaltyActionEn = {
       'Server confirmed the operation. Review the authoritative account and reward-request history.',
   'invalid': 'Enter a positive invoice ID.',
   'history': 'Account and request history',
+  'refresh': 'Restore the current customer request',
 };
 const loyaltyActionAr = {
   'redeem': 'طلب المكافأة',
@@ -34,6 +35,7 @@ const loyaltyActionAr = {
   'done': 'أكد الخادم العملية. راجع الحساب الأصلي وسجل طلبات المكافآت.',
   'invalid': 'أدخل معرف فاتورة موجباً.',
   'history': 'الحساب وسجل الطلبات',
+  'refresh': 'استعادة طلب العميل الحالي',
 };
 String loyaltyActionText(BuildContext c, String k) =>
     (Localizations.localeOf(c).languageCode == 'ar'
@@ -314,6 +316,16 @@ class _ActionState extends State<LoyaltyActionView>
               readOnly: busy || operation?.pending != null || confirmed,
               keyboardType: TextInputType.number,
               decoration: InputDecoration(labelText: t('invoice')),
+            ),
+          if (!busy && operation == null && !confirmed)
+            OutlinedButton(
+              onPressed: () {
+                if (same()) {
+                  setState(() => busy = true);
+                  restore();
+                }
+              },
+              child: Text(t('refresh')),
             ),
           FilledButton(
             onPressed: busy || confirmed || operation == null
