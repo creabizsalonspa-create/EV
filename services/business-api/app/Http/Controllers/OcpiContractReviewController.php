@@ -66,6 +66,7 @@ final class OcpiContractReviewController extends Controller
     private static function status(?object $review, User $owner): array
     {
         $currentOwner = $review && (int) $review->owner_id === (int) $owner->id;
+
         return [
             'state' => $currentOwner ? ($review->decision === 'review' ? 'internally_reviewed' : 'revoked') : 'missing',
             'revision' => (int) ($review->revision ?? 0),
@@ -85,6 +86,7 @@ final class OcpiContractReviewController extends Controller
         $payload = DB::transaction(function () use ($request, $provider) {
             $actor = $this->actor($request);
             [$owner, $current] = $this->provider($provider, $actor);
+
             return self::status(self::last($current), $owner);
         }, 3);
 
@@ -119,6 +121,7 @@ final class OcpiContractReviewController extends Controller
                     $result['reference_id'] = $row->reference_id;
                     $result['evidence_sha256'] = $row->evidence_sha256;
                 }
+
                 return $result;
             });
 
@@ -168,6 +171,7 @@ final class OcpiContractReviewController extends Controller
                     && (int) $prior->reviewer_id === (int) $actor->id
                     && hash_equals($prior->payload_hash, $hash), 409,
                     'Contract review idempotency identity is already bound.');
+
                 return [self::status($last, $owner) + ['idempotent_replay' => true], false];
             }
             abort_unless((int) ($last->revision ?? 0) === (int) $v['expected_revision'], 409,

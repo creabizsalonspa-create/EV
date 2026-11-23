@@ -16,6 +16,7 @@ use App\Services\Discovery\SourceReportFilter;
 use App\Services\Discovery\StationCatalog;
 use App\Services\Discovery\UnifiedCountryFilter;
 use App\Services\Ocpi\ContractReviewGate;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -23,7 +24,7 @@ use Illuminate\Validation\ValidationException;
 /** One database-paginated search over already-published inventory; no provider calls. */
 final class UnifiedDiscoveryController extends Controller
 {
-    private function partnerProviders(): \Illuminate\Database\Eloquent\Builder
+    private function partnerProviders(): Builder
     {
         // The opt-in contract gate is applied before the SQL union and again
         // at hydration. A newly expired review must never publish stale rows.

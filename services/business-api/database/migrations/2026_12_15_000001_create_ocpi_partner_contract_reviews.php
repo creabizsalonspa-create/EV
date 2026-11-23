@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -31,10 +32,12 @@ return new class extends Migration
 
     public function down(): void
     {
-        // Contract-review audit records are not erased by routine rollback.
-        if (Schema::hasTable('ocpi_partner_contract_reviews')
-            && \Illuminate\Support\Facades\DB::table('ocpi_partner_contract_reviews')->exists()) {
-            throw new \RuntimeException('OCPI contract-review records require a data-preserving rollback.');
+        // Preserve audit evidence in real environments. Isolated PostgreSQL
+        // concurrency tests must be able to migrate:fresh their temporary
+        // schemas even after a fixture has inserted internal review rows.
+        if (! app()->environment('testing') && Schema::hasTable('ocpi_partner_contract_reviews')
+            && DB::table('ocpi_partner_contract_reviews')->exists()) {
+            throw new RuntimeException('OCPI contract-review records require a data-preserving rollback.');
         }
         Schema::dropIfExists('ocpi_partner_contract_reviews');
     }
