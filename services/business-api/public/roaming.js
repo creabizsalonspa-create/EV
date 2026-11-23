@@ -1397,6 +1397,26 @@ window.createRoamingWorkspace = ({
         ]) {
             if (Array.isArray(result[key])) target.append(raw('p', `${document.documentElement.lang === 'ar' ? ar : en}: ${result[key].filter(x => ['locations', 'tariffs', 'sessions', 'cdrs'].includes(x)).join(', ') || '—'}`));
         }
+        const matrix = result.capability_matrix;
+        if (matrix && matrix.evidence === "NEGOTIATED_AND_CONFIGURED_SOFTWARE_ONLY"
+            && matrix.live_roaming_verified === false && matrix.payment_authority === false
+            && matrix.partner_conformance_verified === false && Array.isArray(matrix.modules)) {
+            const ar = document.documentElement.lang === "ar";
+            target.append(raw("p", ar
+                ? "وحدات الشريك المُهيأة أو المتفاوض عليها فقط؛ لا تمثل موافقة للتجوال الفعلي أو صلاحية للشحن."
+                : "Configured or negotiated modules only — not live roaming approval or charging authority."));
+            for (const capability of matrix.modules) {
+                if (!["locations", "tariffs", "sessions", "cdrs"].includes(capability.module)) continue;
+                const labels = [
+                    ["partner_sender_negotiated", ar ? "قراءة الشريك" : "Partner read"],
+                    ["local_receiver_active", ar ? "استقبال محلي" : "Local receive"],
+                    ["local_sender_active", ar ? "إرسال محلي" : "Local send"],
+                    ["sandbox_delivery_software_enabled", ar ? "إرسال تجريبي" : "Sandbox delivery"],
+                ];
+                target.append(raw("p", `${capability.module}: ${labels.map(([key, label]) =>
+                    `${label} ${capability[key] === true ? (ar ? "نعم" : "yes") : (ar ? "لا" : "no")}`).join(" · ")}`));
+            }
+        }
         if (result.bootstrap_expires_at)
             line(
                 target,
