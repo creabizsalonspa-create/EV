@@ -8,6 +8,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\ConnectorFreshness;
 use App\Services\Charging\FaultMonitor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
@@ -222,7 +223,7 @@ class ChargerDiagnosticsTest extends TestCase
                 $this->assertNotNull($alert->recovery_observation_id,
                     '2.0.1 status does not require a 1.6 errorCode.');
             }
-            $view = app(\App\Services\Charging\ConnectorFreshness::class)
+            $view = app(ConnectorFreshness::class)
                 ->present($binding, 1, 1);
             $this->assertSame($protocol === '1.6' ? 'unknown' : 'recent', $view['state']);
             $this->assertSame($protocol === '1.6' ? null : 'Available', $view['reported_status']);
@@ -233,7 +234,7 @@ class ChargerDiagnosticsTest extends TestCase
                 $this->assertSame(1, $monitor->ingest($binding, [
                     'source_generation' => $generation, 'events' => [$contradictory],
                 ]));
-                $faulted = app(\App\Services\Charging\ConnectorFreshness::class)->present($binding, 1, 1);
+                $faulted = app(ConnectorFreshness::class)->present($binding, 1, 1);
                 $this->assertSame('recent', $faulted['state']);
                 $this->assertSame('Faulted', $faulted['reported_status']);
                 $this->assertSame(0, DB::table('charging_fault_alerts')->whereNotNull('recovery_observation_id')->count());
@@ -242,7 +243,7 @@ class ChargerDiagnosticsTest extends TestCase
                 'source_generation' => $generation, 'events' => [$cleared],
             ]));
             $this->assertNotNull(DB::table('charging_fault_alerts')->value('recovery_observation_id'));
-            $available = app(\App\Services\Charging\ConnectorFreshness::class)
+            $available = app(ConnectorFreshness::class)
                 ->present($binding, 1, 1);
             $this->assertSame('recent', $available['state']);
             $this->assertSame('Available', $available['reported_status']);
