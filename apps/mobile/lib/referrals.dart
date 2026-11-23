@@ -29,7 +29,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   final code = TextEditingController();
   final invoice = TextEditingController();
   final reason = TextEditingController();
-  late final bool Function() ownsSession;
+  late bool Function() ownsSession;
   FinancialOperation? operation;
   ApiPage<Map<String, dynamic>>? programmes;
   ApiPage<Map<String, dynamic>>? rewards;
@@ -55,6 +55,36 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
     ownsSession = widget.api.sessionFence();
     WidgetsBinding.instance.addObserver(this);
     load();
+  }
+
+  @override
+  void didUpdateWidget(covariant ReferralView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        !identical(oldWidget.store, widget.store)) {
+      // The State may be reused after a customer login without a new route.
+      // Never let an old account's referral draft or secure intent migrate.
+      generation++;
+      ownsSession = widget.api.sessionFence();
+      operation = null;
+      programmes = null;
+      rewards = null;
+      selected = null;
+      account = null;
+      ownerReferral = null;
+      emailVerified = false;
+      busy = true;
+      message = null;
+      clearFields();
+      final api = widget.api;
+      final session = ownsSession;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && identical(api, widget.api) &&
+            identical(session, ownsSession) && session()) {
+          load();
+        }
+      });
+    }
   }
 
   @override
@@ -165,8 +195,14 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
 
   static final validCode = RegExp(r'^REF-[A-F0-9]{20}$');
 
+  bool scoped(EvApi api, bool Function() fence) =>
+      mounted && identical(api, widget.api) &&
+      identical(fence, ownsSession) && fence();
+
   Future<void> run(Future<void> Function(int) action) async {
-    if (!ownsSession()) return;
+    final api = widget.api;
+    final fence = ownsSession;
+    if (!scoped(api, fence)) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -175,10 +211,10 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
     try {
       await action(epoch);
     } catch (error) {
-      if (mounted && generation == epoch) {
+      if (current(epoch) && scoped(api, fence)) {
         if (error is ApiException && error.endsCurrentSession) {
           widget.onExpired();
-        } else if (ownsSession()) {
+        } else {
           setState(
             () => message = t(
               'Referral request could not be confirmed. Check the status or retry a pending request.',
@@ -188,7 +224,9 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
         }
       }
     } finally {
-      if (current(epoch)) setState(() => busy = false);
+      if (current(epoch) && scoped(api, fence)) {
+        setState(() => busy = false);
+      }
     }
   }
 
