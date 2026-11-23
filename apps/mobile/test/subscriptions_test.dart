@@ -142,6 +142,27 @@ void main() {
     }
   });
 
+  testWidgets('open subscription billing action clears consent and replay UI on logout',
+      (t) async {
+    final api = SubscriptionApi();
+    final store = VendorOperationStore();
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionActionView(
+      api: api, onExpired: () {}, action: 'enroll',
+      plan: api.plan, store: store,
+    )));
+    await t.pumpAndSettle();
+    expect(find.byType(CheckboxListTile), findsOneWidget);
+    final before = api.calls.length;
+    await api.forgetSession();
+    await t.pump();
+    expect(find.byType(CheckboxListTile), findsNothing);
+    expect(find.byType(FilledButton), findsNothing);
+    expect(find.text(subscriptionEn['privateCleared']!), findsOneWidget);
+    expect(api.calls.length, before);
+    expect(store.values, isEmpty);
+  });
+
   testWidgets('old identity cannot fetch plans after logout during me', (t) async {
     final api = SubscriptionApi()..meWait = Completer<dynamic>();
     addTearDown(api.close);
