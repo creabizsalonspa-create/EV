@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\OcpiCatalogObservationsController;
 use App\Http\Controllers\OcpiController;
+use App\Http\Controllers\OcpiContractReviewController;
 use App\Http\Controllers\OcpiCpoCatalogController;
 use App\Http\Controllers\OcpiCredentialsController;
 use App\Http\Controllers\OcpiProvisioningController;
@@ -17,6 +18,9 @@ Route::get('/connection-options', [OcpiProvisioningController::class, 'connectio
 Route::get('/owner-options', [OcpiProvisioningController::class, 'owners']);
 Route::get('/providers/{provider}/credentials', [OcpiCredentialsController::class, 'status']);
 Route::post('/providers/{provider}/credentials', [OcpiCredentialsController::class, 'exchange']);
+Route::get('/providers/{provider}/contract-review', [OcpiContractReviewController::class, 'show'])->where('provider', '[0-9]{1,18}');
+Route::get('/providers/{provider}/contract-review/history', [OcpiContractReviewController::class, 'history'])->where('provider', '[0-9]{1,18}');
+Route::post('/providers/{provider}/contract-review', [OcpiContractReviewController::class, 'decide'])->where('provider', '[0-9]{1,18}');
 Route::get('/providers', [OcpiController::class, 'providers']);
 Route::post('/providers', [OcpiController::class, 'create']);
 Route::patch('/providers/{provider}/authorization', [OcpiController::class, 'authorization']);
@@ -33,8 +37,8 @@ Route::get('/providers/{provider}/catalog-observations', [OcpiCatalogObservation
 
 Route::get('/providers/{provider}/cpo-catalog', [OcpiCpoCatalogController::class, 'show'])->where('provider', '[0-9]{1,18}');
 Route::put('/providers/{provider}/cpo-catalog/{module}/{source}', [OcpiCpoCatalogController::class, 'change'])
-    ->whereIn('module', ['locations', 'tariffs', 'sessions', 'cdrs'])->where('source', '[1-9][0-9]{0,17}');
+    ->whereIn('module', ['locations', 'tariffs'])->where('source', '[1-9][0-9]{0,17}');
 Route::post('/providers/{provider}/cpo-catalog/{module}/{source}/push', [OcpiCpoCatalogController::class, 'push'])
-    ->whereIn('module', ['locations', 'tariffs', 'sessions', 'cdrs'])->where('source', '[1-9][0-9]{0,17}');
+    ->whereIn('module', ['locations', 'tariffs'])->where('source', '[1-9][0-9]{0,17}');
 Route::post('/providers/{provider}/cpo-catalog/{module}/{source}/reconcile', [OcpiCpoCatalogController::class, 'reconcile'])
-    ->whereIn('module', ['locations', 'tariffs', 'sessions', 'cdrs'])->where('source', '[1-9][0-9]{0,17}');
+    ->whereIn('module', ['locations', 'tariffs'])->where('source', '[1-9][0-9]{0,17}');

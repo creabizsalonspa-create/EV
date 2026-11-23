@@ -33,14 +33,13 @@ class RecordSynchronizer
             if (! $locked->authorized || $locked->version !== '2.2.1' || $locked->authorization_revision !== $provider->authorization_revision || $locked->owner_id !== $provider->owner_id || $locked->connection_key !== $provider->connection_key) {
                 throw new OcpiException('Provider authorization changed.');
             }
-            // A location/tariff response can arrive after the owning vendor
-            // was suspended. Do not mutate a catalog that may later reappear
-            // upon reactivation. Existing sessions/CDRs remain eligible for
-            // explicitly admin-authorized historical financial reconciliation.
             if (in_array($module, ['locations', 'tariffs'], true)
                 && ! User::whereKey($locked->owner_id)->where('role', 'vendor')
                     ->where('account_status', 'active')->exists()) {
                 throw new OcpiException('Inactive operator owner cannot publish catalog source records.');
+            }
+            if (! app(ContractReviewGate::class)->current($locked)) {
+                throw new OcpiException('Current partner owner contract review expired before source ingestion.');
             }
             $counts = ['created' => 0, 'updated' => 0, 'duplicate' => 0, 'stale' => 0];
             foreach ($validated as [$raw,$n,$hash]) {
