@@ -77,6 +77,36 @@ class OcpiPublicOwnerVisibilityTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_suspended_owner_cannot_gain_new_provider_authorization_or_request_partner_sync(): void
+    {
+        $f = $this->fixture();
+        $f['owner']->forceFill(['account_status' => 'suspended'])->save();
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+
+        $providerPath = '/api/ocpi/providers/'.$f['provider']->id;
+        $this->postJson($providerPath.'/negotiate')->assertConflict();
+        $this->postJson($providerPath.'/sync/locations')->assertConflict();
+
+        // Revocation must remain possible, but reauthorization must require
+        // an active vendor owner, even for an authenticated administrator.
+        $this->patchJson($providerPath.'/authorization', ['authorized' => false])->assertOk();
+        $this->patchJson($providerPath.'/authorization', ['authorized' => true])->assertConflict();
+
+        config(['ocpi.connections.suspended-fixture' => [
+            'origin' => 'https://peer.example',
+            'authorization_token' => base64_encode('synthetic-only'),
+        ]]);
+        $this->postJson('/api/ocpi/providers', [
+            'owner_id' => $f['owner']->id, 'name' => 'Suspended test peer',
+            'connection_key' => 'suspended-fixture', 'authorized' => true,
+        ])->assertConflict();
+
+        $this->getJson('/api/roaming/locations')->assertJsonPath('total', 0);
+        $this->assertDatabaseCount('ocpi_providers', 1);
+        $this->assertDatabaseCount('ocpi_records', 1);
+        Http::assertNothingSent();
+    }
+
     public function test_changed_owner_role_is_not_public_approval_and_reactivation_restores_read_only_catalog(): void
     {
         $f = $this->fixture();
