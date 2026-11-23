@@ -439,6 +439,43 @@ class ChargerCommandTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_source_binding_reassignment_during_token_fetch_does_not_send_a_charger_command(): void
+    {
+        config(['csms.simulator_enabled' => true]);
+        Http::preventStrayRequests();
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($vendor);
+        $binding = DB::table('csms_bindings')->insertGetId([
+            'station_id' => $station->id, 'identifier' => 'ev-test-token-race-original',
+            'protocol' => '2.0.1', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $command = ChargerCommand::create([
+            'actor_id' => $vendor->id, 'station_id' => $station->id,
+            'consent_auth_epoch' => (int) $vendor->auth_epoch,
+            'action' => 'start', 'idempotency_key' => 'token-race',
+            'payload_hash' => str_repeat('d', 64), 'payload' => [],
+        ]);
+        Http::fake(function ($request) use ($binding) {
+            if (str_ends_with($request->url(), '/dev/token')) {
+                DB::table('csms_bindings')->where('id', $binding)->update([
+                    'identifier' => 'ev-test-token-race-reassigned',
+                ]);
+
+                return Http::response(['accessToken' => 'synthetic-short-lived-token']);
+            }
+
+            return Http::response([['success' => true]]);
+        });
+        $blocked = app(CsmsDispatcher::class)->dispatch($command->id);
+        $this->assertSame('pending', $blocked->status);
+        $this->assertSame('pre_dispatch_transport_setup_failed', $blocked->failure_code);
+        $this->assertSame('pending', $command->fresh()->status);
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/ocpp/'));
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('command_source_observations', 0);
+    }
+
     public function test_http_submission_does_not_claim_charger_acceptance_and_is_not_replayed(): void
     {
         config(['csms.simulator_enabled' => true]);
