@@ -126,6 +126,25 @@ void main() {
     expect(api.posts, 0);
   });
 
+  testWidgets('already rendered private PDF list vanishes immediately on sign-out event',
+      (tester) async {
+    final api = DocumentApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api));
+    await tester.pumpAndSettle();
+    expect(find.text('CB-TDOC-AE-P-2026-000000041'), findsOneWidget);
+    expect(find.text('View private PDF'), findsOneWidget);
+    final reads = api.requests;
+    // No request is pending, and the API role is not changed by a widget
+    // rebuild. The signal must repaint without a synthetic UI trigger.
+    await api.forgetSession();
+    await tester.pump();
+    expect(find.text('CB-TDOC-AE-P-2026-000000041'), findsNothing);
+    expect(find.text('View private PDF'), findsNothing);
+    expect(find.text(financialEn['privateCleared']!), findsOneWidget);
+    expect(api.requests, reads);
+  });
+
   testWidgets('old-account list reply cannot display another customer document',
       (tester) async {
     final api = DocumentApi()..listHeld = Completer<dynamic>();
