@@ -121,6 +121,27 @@ void main() {
     },
   );
 
+  testWidgets('already loaded native plan and invoice source is erased on logout signal',
+      (t) async {
+    for (final detail in [false, true]) {
+      final api = SubscriptionApi();
+      await t.pumpWidget(host(detail
+          ? SubscriptionDetailView(api: api, onExpired: () {}, id: 4)
+          : SubscriptionsView(api: api, onExpired: () {})));
+      await t.pumpAndSettle();
+      final label = detail ? 'Benefits are not active' : 'Published <literal> plan';
+      expect(find.text(label), findsOneWidget);
+      final before = api.calls.length;
+      await api.forgetSession();
+      await t.pump();
+      expect(find.text(label), findsNothing);
+      expect(find.text(subscriptionEn['privateCleared']!), findsOneWidget);
+      expect(api.calls.length, before);
+      await t.pumpWidget(const SizedBox());
+      api.close();
+    }
+  });
+
   testWidgets('old identity cannot fetch plans after logout during me', (t) async {
     final api = SubscriptionApi()..meWait = Completer<dynamic>();
     addTearDown(api.close);
