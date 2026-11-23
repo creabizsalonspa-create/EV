@@ -173,6 +173,19 @@ class CommercialCampaignController extends Controller
             'page' => 'sometimes|integer|between:1,100000',
             'per_page' => 'sometimes|integer|between:1,25',
         ]);
+        $page = (int) ($v['page'] ?? 1);
+        $size = (int) ($v['per_page'] ?? 25);
+        if (! config('campaigns.enabled')) {
+            // A disabled sponsorship adapter never publishes an ad, and
+            // does not perform per-invoice finance lookups just to return
+            // a false approved-candidate page.
+            return response()->json([
+                'placements' => [], 'current_page' => $page,
+                'last_page' => 1, 'per_page' => $size, 'total' => 0,
+                'ranking_basis' => 'SPONSORED_ID_ORDER_NOT_PERFORMANCE',
+                'client_telemetry_billable' => false,
+            ])->header('Cache-Control', 'private, no-store');
+        }
 
         // Cheap relational exclusions first. Never turn a paid package
         // entitlement into a claim of real audience impressions, or assume
@@ -225,8 +238,6 @@ class CommercialCampaignController extends Controller
             ];
         }
 
-        $page = (int) ($v['page'] ?? 1);
-        $size = (int) ($v['per_page'] ?? 25);
         $total = count($valid);
         $last = max(1, (int) ceil($total / $size));
         $placements = array_slice($valid, ($page - 1) * $size, $size);
