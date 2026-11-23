@@ -84,6 +84,7 @@ class OcpiCatalogQualityHistoryTest extends TestCase
             ->assertJsonPath('samples.1.published_count', 2);
 
         $changed = $this->location('recent');
+        $changed['last_updated'] = $first['last_updated'];
         $changed['name'] = 'Conflicting replay';
         try {
             $service->ingest($provider, 'locations', [$this->location('never-inserted'), $changed]);
