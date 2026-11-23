@@ -187,7 +187,7 @@ bool catalogQualityHistoryValid(dynamic d, {required int providerId}) {
       d['sample_limit'] != 30 ||
       d['retention_hours'] != 168 ||
       d['evidence'] != 'STORED_PARTNER_CATALOG_TIMESTAMPS_ONLY' ||
-      d['sample_completeness'] != 'SUCCESSFUL_CHANGED_LOCATION_SYNCS_ONLY' ||
+      d['sample_completeness'] != 'STORED_SYNC_AND_OPTIONAL_PERIODIC_SNAPSHOTS' ||
       [
         'source_covers_whole_network',
         'live_availability_verified',
