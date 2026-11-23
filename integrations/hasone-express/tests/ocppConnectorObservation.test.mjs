@@ -52,6 +52,8 @@ test('OCPP1.6 inconsistent fault receipts fail closed instead of showing healthy
  }
  c.connectors['0_2']={...row(),status:'Available',errorCode:'NoError'};
  assert.equal(presentConnectorObservation(source(),c,{now}).status,'Available');
+ c.connectors['0_2']={...row(),status:'Faulted',errorCode:'NoError'};
+ assert.equal(presentConnectorObservation(source(),c,{now}),null);
  c.connectors['0_2']={...row(),status:'Faulted',errorCode:'GroundFailure'};
  assert.equal(presentConnectorObservation(source(),c,{now}).status,'Faulted');
  assert.equal('availability' in presentConnectorObservation(source(),c,{now}),false);
