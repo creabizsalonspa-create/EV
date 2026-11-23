@@ -74,3 +74,17 @@ backend/PostgreSQL and combined end-to-end acceptance **must run successfully
 at this branch's exact HEAD before Agent 5 integration**. The original 3.7.4
 is not credited yet. User credentials and production payment/provider data
 were not accessed or modified.
+
+
+### Late source completion and spinner disposal
+
+An earlier draft could reject a late response correctly but still leave
+`CircularProgressIndicator` mounted because its `finally` handler
+required a now-revoked session fence. All three view classes now
+distinguish a **current screen generation with revoked credentials**
+from a superseded screen generation: the former always schedules a
+privacy-safe repaint, disables the stale spinner, and clears sensitive
+plan, invoice, event, pending-action and error fields. The latter does
+nothing, preventing an old request from erasing a later account's
+legitimate source. No old callback invokes `onExpired` unless the
+exception specifically carries current-session expiration evidence.
