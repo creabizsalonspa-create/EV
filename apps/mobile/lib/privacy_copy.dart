@@ -32,6 +32,11 @@ class _PrivacyCopyState extends State<PrivacyCopyPage>
   void initState() {
     super.initState();
     current = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    // A copy page can first mount after the OS already hid the application.
+    // Reauthentication controls must not appear until the page is reopened
+    // from current-account request history in an active foreground session.
+    hidden = lifecycle != null && lifecycle != AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     fence = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && !current() && !hidden) clear();
