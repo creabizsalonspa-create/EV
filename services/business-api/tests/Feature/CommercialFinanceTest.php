@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\CommercialFinanceController;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
@@ -9,6 +10,7 @@ use App\Models\User;
 use App\Services\Finance\FinanceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use ReflectionMethod;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -142,8 +144,8 @@ class CommercialFinanceTest extends TestCase
 
     public function test_aggregate_reporting_refuses_browser_inexact_minor_unit_integer_before_json_serialization(): void
     {
-        $method = new \ReflectionMethod(
-            \App\Http\Controllers\CommercialFinanceController::class,
+        $method = new ReflectionMethod(
+            CommercialFinanceController::class,
             'exactAggregate'
         );
         $this->assertSame(0, $method->invoke(null, '0'));
