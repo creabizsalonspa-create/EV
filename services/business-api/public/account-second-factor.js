@@ -2,11 +2,38 @@
 window.EvAccountSecondFactor = (() => {
     const root = document.getElementById('account-second-factor');
     let generation = 0, request, state, seed, codes = [], busy = false;
+    const visible = () =>
+        document.visibilityState !== 'hidden' && document.hidden !== true;
     const label = (tag, en, ar) => {
         const node = document.createElement(tag); node.dataset.en = en; node.dataset.ar = ar;
         node.textContent = document.documentElement.lang === 'ar' ? ar : en; return node;
     };
     function clear() { generation++; request = state = seed = null; codes = []; busy = false; root.replaceChildren(); root.hidden = true; }
+    function showClosed() {
+        if (!request) return;
+        root.hidden = false;
+        root.replaceChildren(label('p',
+            'Private authenticator settings closed. Return to this tab and refresh explicitly.',
+            'أُغلقت إعدادات المصادقة الخاصة. ارجع إلى الصفحة وحدّث الحالة بنفسك.'));
+        const refresh = label('button', 'Refresh authenticator status', 'تحديث حالة تطبيق التحقق');
+        refresh.type = 'button';
+        const version = generation;
+        refresh.onclick = async () => {
+            if (version !== generation || !request || !visible() || busy) return;
+            busy = true; refresh.disabled = true;
+            try {
+                const data = valid(await request('account/second-factor'));
+                if (version !== generation || !visible()) return;
+                state = data; seed = null; codes = [];
+                render();
+            } catch {
+                if (version === generation && visible()) showClosed();
+            } finally {
+                if (version === generation) { busy = false; refresh.disabled = false; }
+            }
+        };
+        root.append(refresh);
+    }
     function input(form, name, en, ar) {
         const row = label('label', en, ar), field = document.createElement('input');
         field.name = name; field.type = 'password'; field.required = true; field.maxLength = 128;
@@ -15,6 +42,7 @@ window.EvAccountSecondFactor = (() => {
     }
     function valid(data) { if (!data || typeof data.enabled !== 'boolean' || typeof data.pending !== 'boolean') throw Error('Invalid factor status'); return data; }
     function render() {
+        if (!visible() || !state) { showClosed(); return; }
         root.replaceChildren(); root.append(label('h2', 'Authenticator two-factor authentication', 'المصادقة الثنائية بتطبيق التحقق'));
         root.append(label('p', state.enabled ? 'Authenticator is enabled.' : 'Authenticator is not enabled.', state.enabled ? 'تطبيق التحقق مفعّل.' : 'تطبيق التحقق غير مفعّل.'));
         if (state.enabled && Number.isInteger(state.recovery_remaining)) root.append(label('p', 'Recovery codes remaining: ' + state.recovery_remaining, 'رموز الاسترداد المتبقية: ' + state.recovery_remaining));
@@ -30,7 +58,7 @@ window.EvAccountSecondFactor = (() => {
         }
         const version = generation;
         async function act(action) {
-            if (busy || version !== generation) return;
+            if (busy || version !== generation || !visible()) return;
             busy = true; root.querySelectorAll('button').forEach(n => n.disabled = true);
             try { await action(); }
             catch { if (version === generation) notice.replaceChildren(label('p', 'Action not confirmed. Refresh status and use your current password and a fresh authenticator or unused recovery code.', 'لم يتأكد الإجراء. حدّث الحالة واستخدم كلمة مرورك الحالية ورمز تحقق جديداً أو رمز استرداد غير مستخدم.')); }
@@ -66,11 +94,25 @@ window.EvAccountSecondFactor = (() => {
     async function setActor(actor, api) {
         clear(); if (!['customer', 'vendor'].includes(actor?.role)) return;
         request = api; const version = generation;
-        try { const data = valid(await api('account/second-factor')); if (version !== generation) return; state = data; root.hidden = false; render(); }
-        catch { if (version === generation) { root.hidden = false; root.append(label('p', 'Authenticator status is unavailable.', 'حالة تطبيق التحقق غير متاحة.')); } }
+        if (!visible()) { showClosed(); return; }
+        try {
+            const data = valid(await api('account/second-factor'));
+            if (version !== generation || !visible()) return;
+            state = data; root.hidden = false; render();
+        } catch {
+            if (version === generation && visible()) showClosed();
+        }
+    }
+    function obscure() {
+        // BFCache and background tabs must not retain setup seeds, recovery
+        // codes or a previous account's private MFA status/action controls.
+        generation++; busy = false; seed = null; codes = []; state = null;
+        root.querySelectorAll('input').forEach(n => n.value = '');
+        showClosed();
     }
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState !== 'visible' && state) { generation++; busy = false; seed = null; codes = []; root.querySelectorAll('input').forEach(n => n.value = ''); render(); }
+        if (!visible()) obscure();
     });
+    window.addEventListener?.('pagehide', obscure);
     return {setActor, clear};
 })();
