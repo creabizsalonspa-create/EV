@@ -37,6 +37,14 @@ final class OcpiCpoAdminAuthorityTest extends TestCase
             'auth_epoch' => $admin->auth_epoch,
             'password' => $admin->password,
         ];
+        $adminCalls = [
+            static fn () => $publisher->show($admin, $provider),
+            static fn () => $publisher->change($admin, $provider, 'tariffs', 1, 'publish', null),
+            static fn () => $publisher->push($admin, $provider, 'tariffs', 1,
+                '2026-11-23T00:00:00Z', 'unauthorized-source-key'),
+            static fn () => $publisher->reconcile($admin, $provider, 'tariffs', 1,
+                '2026-11-23T00:00:00Z'),
+        ];
         foreach ([
             ['account_status' => 'suspended'],
             ['role' => 'customer'],
@@ -44,11 +52,13 @@ final class OcpiCpoAdminAuthorityTest extends TestCase
             ['password' => 'different-synthetic-password-hash'],
         ] as $change) {
             DB::table('users')->where('id', $admin->id)->update(array_replace($initial, $change));
-            try {
-                $publisher->show($admin, $provider);
-                $this->fail('A stale Admin identity read private CPO publication state.');
-            } catch (HttpException $error) {
-                $this->assertSame(403, $error->getStatusCode());
+            foreach ($adminCalls as $call) {
+                try {
+                    $call();
+                    $this->fail('A stale Admin request reached private CPO publication or delivery.');
+                } catch (HttpException $error) {
+                    $this->assertSame(403, $error->getStatusCode());
+                }
             }
         }
         DB::table('users')->where('id', $admin->id)->update($initial);
@@ -62,6 +72,24 @@ final class OcpiCpoAdminAuthorityTest extends TestCase
             $this->fail('A non-Admin session must not become an Admin through an ID-only lookup.');
         } catch (HttpException $error) {
             $this->assertSame(403, $error->getStatusCode());
+        }
+
+        $newOwner = User::factory()->create(['role' => 'vendor', 'account_status' => 'active']);
+        DB::table('ocpi_providers')->where('id', $provider->id)
+            ->update(['owner_id' => $newOwner->id]);
+        $staleOwnerReadsAndMutations = [
+            ...$adminCalls,
+            static fn () => $publisher->read($provider,
+                (object) ['generation' => 1, 'local_token_digest' => str_repeat('a', 64)],
+                'locations', ['offset' => 0, 'limit' => 1], null),
+        ];
+        foreach ($staleOwnerReadsAndMutations as $call) {
+            try {
+                $call();
+                $this->fail('A stale CPO provider read or published under a replacement owner.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
         }
 
         Http::assertNothingSent();
