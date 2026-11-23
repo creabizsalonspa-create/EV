@@ -198,6 +198,39 @@ class CommercialCampaignTest extends TestCase
         $this->assertSame($beforeLedger, DB::table('commercial_subscription_ledger')->count());
     }
 
+    public function test_default_sponsored_page_is_full_when_first_paid_package_budget_is_exhausted(): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture(['campaign_slots' => 30, 'campaign_units' => 50]);
+        $service = app(CampaignService::class);
+        $ids = [];
+        for ($i = 0; $i < 26; $i++) {
+            $values = $f['values'];
+            $values['budget_units'] = 1;
+            $values['idempotency_key'] = 'full-paid-page-'.$i;
+            $campaign = $service->create($f['vendor'], $values);
+            $ids[] = $campaign->id;
+            $service->action($campaign->id, $f['vendor'], 'submit',
+                'Vendor requests approval of full page '.$i);
+            $service->action($campaign->id, $f['admin'], 'approve',
+                'Administrator approved package source '.$i);
+        }
+        $this->delivery($ids[0], 'spent-first-page')->assertOk();
+        $receipts = DB::table('commercial_campaign_deliveries')->count();
+        $journals = DB::table('finance_journals')->count();
+        $this->actingAs($f['customer'])
+            ->getJson('/api/commercial/campaign-placements?country=AE&placement=discovery_banner')
+            ->assertOk()->assertJsonCount(25, 'placements')
+            ->assertJsonPath('placements.0.campaign_id', $ids[1])
+            ->assertJsonPath('placements.24.campaign_id', $ids[25])
+            ->assertJsonPath('current_page', 1)
+            ->assertJsonPath('last_page', 1)
+            ->assertJsonPath('total', 25)
+            ->assertJsonPath('per_page', 25);
+        $this->assertSame($receipts, DB::table('commercial_campaign_deliveries')->count());
+        $this->assertSame($journals, DB::table('finance_journals')->count());
+    }
+
     public function test_unpaid_or_non_entitled_package_and_foreign_station_cannot_create_campaign(): void
     {
         $f = $this->fixture(paid: false);
