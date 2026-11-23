@@ -226,6 +226,18 @@ class ChargerDiagnosticsTest extends TestCase
                 ->present($binding, 1, 1);
             $this->assertSame($protocol === '1.6' ? 'unknown' : 'recent', $view['state']);
             $this->assertSame($protocol === '1.6' ? null : 'Available', $view['reported_status']);
+            if ($protocol === '1.6') {
+                $contradictory = $this->statusEvent(25, 'Available', 2);
+                $contradictory['timestamp'] = now()->subSeconds(90)->toISOString();
+                $contradictory['errorCode'] = 'GroundFailure';
+                $this->assertSame(1, $monitor->ingest($binding, [
+                    'source_generation' => $generation, 'events' => [$contradictory],
+                ]));
+                $faulted = app(\App\Services\Charging\ConnectorFreshness::class)->present($binding, 1, 1);
+                $this->assertSame('recent', $faulted['state']);
+                $this->assertSame('Faulted', $faulted['reported_status']);
+                $this->assertSame(0, DB::table('charging_fault_alerts')->whereNotNull('recovery_observation_id')->count());
+            }
             $this->assertSame(0, $monitor->ingest($binding, [
                 'source_generation' => $generation, 'events' => [$cleared],
             ]));
@@ -235,8 +247,8 @@ class ChargerDiagnosticsTest extends TestCase
             $this->assertSame('recent', $available['state']);
             $this->assertSame('Available', $available['reported_status']);
         });
-        $this->assertDatabaseCount('charging_status_observations', 3);
-        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertDatabaseCount('charging_status_observations', $protocol === '1.6' ? 4 : 3);
+        $this->assertDatabaseCount('charging_fault_alerts', $protocol === '1.6' ? 2 : 1);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
         Http::assertNothingSent();
