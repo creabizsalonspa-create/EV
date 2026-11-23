@@ -201,10 +201,11 @@ class ChargingRepairTest extends TestCase
             'events' => [[
                 'id' => 11, 'evseId' => 1, 'connectorId' => 1,
                 'connectorStatus' => 'Available', 'errorCode' => 'NoError',
-                'timestamp' => now()->subMinutes(7)->toISOString(),
+                'timestamp' => now()->toISOString(),
             ]],
         ]);
         $this->assertNotNull(DB::table('charging_fault_alerts')->where('id', $alert)->value('recovery_observation_id'));
+        $this->travel(7)->minutes();
         $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertConflict();
         $this->assertDatabaseHas('charging_repair_orders', [
             'alert_id' => $alert, 'state' => 'review', 'version' => 3,
