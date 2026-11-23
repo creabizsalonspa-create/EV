@@ -18,7 +18,7 @@ const assert = require('node:assert/strict');
                     ui:(tag,text)=>{const n=document.createElement(tag);n.textContent=text;return n;},
                     api:async (path,method='GET')=>{
                         if (method!=='GET') { window.writes++; throw Error('Unexpected write'); }
-                        if (path.includes('/credentials')) return {configured:true,state:'active',configured_receiver_modules:['locations','tariffs'],active_receiver_modules:[],available_actions:[],operations:paged([])};
+                        if (path.includes('/credentials')) return {configured:true,state:'active',charging_commands_enabled:false,billing_eligible:false,configured_receiver_modules:['locations','tariffs'],active_receiver_modules:[],available_actions:[],operations:paged([])};
                         if (path.includes('/records/tariffs')) return paged([{id:4,external_id:'retired-1',catalog_retired:true,normalized:{currency:'EUR',elements:[]},payload:{token:'PRIVATE-PARTNER-TOKEN'}}]);
                         if (path.startsWith('ocpi/providers')) return paged([{id:7,name:'Approved partner',authorized:true,version:'2.2.1'}]);
                         return paged([]);
@@ -27,10 +27,13 @@ const assert = require('node:assert/strict');
                 await window.workspace.setActor();
             });
             await page.getByRole('button',{name:'Roaming credentials',exact:true}).click();
+            await page.getByText(ar?'استقبال التفويض النشط: —':'Active credential reception: —',{exact:true}).waitFor();
             assert.equal(await page.getByText(ar?'استقبال الشريك المهيأ: locations, tariffs':'Configured partner reception: locations, tariffs',{exact:true}).count(),1);
             assert.equal(await page.getByText(ar?'استقبال التفويض النشط: —':'Active credential reception: —',{exact:true}).count(),1);
             await page.getByRole('button',{name:'Roaming tariffs',exact:true}).click();
-            assert.equal(await page.getByText(ar?'تعرفة مسحوبة من الشريك. محفوظة للسجل فقط وليست عرضاً حالياً.':'Withdrawn partner tariff. Historical source only; not a current offer.',{exact:true}).count(),1);
+            const historical = page.getByText(ar?'تعرفة مسحوبة من الشريك. محفوظة للسجل فقط وليست عرضاً حالياً.':'Withdrawn partner tariff. Historical source only; not a current offer.',{exact:true});
+            await historical.waitFor();
+            assert.equal(await historical.count(),1);
             assert.equal(await page.getByText('PRIVATE-PARTNER-TOKEN').count(),0);
             assert.equal(await page.evaluate(()=>window.writes),0);
             await page.evaluate(async ()=>{window.currentActor=null;await window.workspace.setActor();});
