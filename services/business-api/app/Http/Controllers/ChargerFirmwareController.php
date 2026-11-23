@@ -139,12 +139,22 @@ class ChargerFirmwareController extends Controller
         abort_unless(in_array($observed['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true) &&
             $observed['chargePointVendor'] === $charger->manufacturer &&
             $observed['chargePointModel'] === $charger->model, 409, 'Source charger identity differs from the owned inventory.');
-        // HTTP source inspection must not preserve a revoked staff grant,
-        // changed login or replaced charger binding in a private response.
-        $fresh = $guard->scope($r, $company, $charger);
-        abort_unless((int) $fresh->id === (int) $binding->id &&
+        // A captured charger model/company is not a current ownership
+        // statement. A source read can overlap local model reassignment,
+        // owner changes or staff revocation; rehydrate both sides before
+        // showing a signed firmware recommendation.
+        $currentCompany = VendorCompany::findOrFail($company->id);
+        $currentCharger = VendorCharger::findOrFail($charger->id);
+        $fresh = $guard->scope($r, $currentCompany, $currentCharger);
+        abort_unless($currentCompany->owner_id === $company->owner_id &&
+            $currentCharger->company_id === $charger->company_id &&
+            $currentCharger->site_id === $charger->site_id &&
+            $currentCharger->manufacturer === $charger->manufacturer &&
+            $currentCharger->model === $charger->model &&
+            $currentCharger->ocpp_protocol === $charger->ocpp_protocol &&
+            (int) $fresh->id === (int) $binding->id &&
             $fresh->identifier === $binding->identifier && $fresh->protocol === $binding->protocol,
-            409, 'Charger source binding changed during inspection.');
+            409, 'Charger owner, model or source binding changed during inspection.');
 
         $matrix = [];
         $releases = DB::table('charger_firmware_releases')
