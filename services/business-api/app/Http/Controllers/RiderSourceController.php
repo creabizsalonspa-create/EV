@@ -30,15 +30,32 @@ class RiderSourceController extends Controller
             if (! $reply->successful() || $reply->json('errors') || ! is_array($stations) || count($stations) !== 1 || $stations[0]['isOnline'] !== true || ! in_array($stations[0]['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true)) {
                 return false;
             }
-            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), ['query' => 'query($station:Int!,$connector:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:2){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},connectorDatabaseId:{_eq:$connector}},order_by:{id:desc},limit:1){evseId connectorId connectorStatus timestamp}}', 'variables' => ['station' => $stations[0]['id'], 'connector' => (int) $v['connectorId']]]);
+            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), ['query' => 'query($station:Int!,$connector:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:2){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},connectorDatabaseId:{_eq:$connector}},order_by:{id:desc},limit:1){evseId connectorId connectorStatus errorCode timestamp}}', 'variables' => ['station' => $stations[0]['id'], 'connector' => (int) $v['connectorId']]]);
             $connectors = $reply->json('data.Connectors');
             $status = $reply->json('data.StatusNotifications.0');
             if (! $reply->successful() || $reply->json('errors') || ! is_array($connectors) || count($connectors) !== 1 || (int) $connectors[0]['id'] !== (int) $v['connectorId'] || ! is_array($status)) {
                 return false;
             }
             $at = SourceStatusTime::parse($status['timestamp'] ?? null);
+            // A negative status blacklist permits malformed, Reserved,
+            // Charging and Occupied source receipts to authorize another
+            // rider. Only an explicit fresh Available connector is eligible.
+            // OCPP 1.6 also requires an explicit NoError receipt: an
+            // Available/GroundFailure contradiction must never authorize.
+            if (($status['connectorStatus'] ?? null) !== 'Available'
+                || ($binding->protocol === '1.6' && ($status['errorCode'] ?? null) !== 'NoError')) {
+                return false;
+            }
+            // For OCPP 2.0.1 the source-supplied EVSE, an optional request
+            // scope and the immutable canonical map must agree exactly.
+            if ($binding->protocol === '2.0.1' && isset($v['evseId'])
+                && (int) $v['evseId'] !== (int) $evse->source_evse_number) {
+                return false;
+            }
 
-            return (int) ($status['evseId'] ?? 0) === (int) $evse->source_evse_number && (int) $status['connectorId'] === (int) $map->source_connector_number && ! in_array($status['connectorStatus'], ['Faulted', 'Unavailable'], true) && $at->lte(now()) && $at->gte(now()->subMinutes(5));
+            return (int) ($status['evseId'] ?? 0) === (int) $evse->source_evse_number
+                && (int) ($status['connectorId'] ?? 0) === (int) $map->source_connector_number
+                && $at->lte(now()) && $at->gte(now()->subMinutes(5));
         } catch (Throwable) {
             return false;
         }
