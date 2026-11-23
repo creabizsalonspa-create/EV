@@ -34,6 +34,16 @@ jobs:
         run: python3 -B -m unittest discover -s tests -p integration_dependencies_test.py
       - name: Verify queued Actions cancellation safety controls
         run: python3 -B -m unittest discover -s tests -p ci_queue_triage_test.py
+      - name: Generate commit-matched dependency inventory
+        run: |
+          node --test tests/agent9-dependency-inventory.test.cjs
+          mkdir -p artifacts/dependency-inventory
+          python3 scripts/dependency-inventory.py --require-source-match > artifacts/dependency-inventory/inventory.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dependency-inventory
+          path: artifacts/dependency-inventory/inventory.json
+          if-no-files-found: error
       - run: ./scripts/setup
       - run: ./scripts/php /usr/bin/composer validate --strict
       - run: ./scripts/php vendor/bin/pint --test
