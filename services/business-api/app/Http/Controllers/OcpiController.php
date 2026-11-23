@@ -32,7 +32,8 @@ class OcpiController extends Controller
     private function billingProvider(Request $r, OcpiProvider $route): OcpiProvider
     {
         $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
-        abort_unless(in_array($actor->role, ['vendor', 'admin'], true), 403);
+        // Retain legacy non-enumerating 404 for customers/foreign peers.
+        abort_unless(in_array($actor->role, ['vendor', 'admin'], true), 404);
         $provider = OcpiProvider::whereKey($route->id)->lockForUpdate()->firstOrFail();
         abort_unless($actor->role === 'admin'
             || (int) $provider->owner_id === (int) $actor->id, 404);
