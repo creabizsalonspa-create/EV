@@ -6,6 +6,7 @@ import 'vendor_company.dart' show VendorDocumentPreview;
 
 const operationalLabels = {
   'mapped_evses': ['Mapped EVSEs', 'وحدات EVSE المرتبطة'],
+  'mapped_connectors': ['Mapped connectors', 'الموصلات المرتبطة'],
   'source_started': ['Source starts', 'بدايات المصدر'],
   'source_completed': ['Completed source sessions', 'جلسات المصدر المكتملة'],
   'pending_source': [
@@ -23,6 +24,10 @@ const operationalLabels = {
   'possible_evse_seconds': [
     'Current EVSE window seconds',
     'ثواني الفترة لوحدات EVSE الحالية',
+  ],
+  'possible_connector_seconds': [
+    'Current mapped connector window seconds',
+    'ثواني الفترة للموصلات المرتبطة الحالية',
   ],
   'status_known_seconds': [
     'Fresh status evidence seconds',
