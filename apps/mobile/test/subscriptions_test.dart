@@ -491,6 +491,25 @@ void main() {
       expect(api.writes, 0);
     },
   );
+  test('accepted private subscription invoice source is deep immutable', () {
+    final raw = SubscriptionApi().summary;
+    final report = subscriptionSummary(raw, 1, id: 4);
+    (raw['invoices'] as List).first['total_minor'] = 42;
+    (raw['subscription'] as Map)['user_id'] = 9;
+    (raw['plan'] as Map)['name'] = 'Stale account changed plan';
+    expect((report['invoices'] as List).first['total_minor'], 1313);
+    expect((report['subscription'] as Map)['user_id'], 1);
+    expect((report['plan'] as Map)['name'], 'Published <literal> plan');
+    expect(
+      () => (report['invoices'] as List).first['total_minor'] = 2,
+      throwsUnsupportedError,
+    );
+    expect(
+      () => (report['subscription'] as Map)['user_id'] = 4,
+      throwsUnsupportedError,
+    );
+  });
+
   test(
     'summary rejects unbalanced or live evidence and mismatched invoice source',
     () {
