@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/ocpi_credentials.dart';
@@ -95,8 +96,16 @@ void main() {
     testWidgets('source-only OCPI capabilities are shown without charging claims ($ar)', (tester) async {
       final api = CredentialsApi();
       await tester.pumpWidget(
-        MaterialApp(locale: Locale(ar ? 'ar' : 'en'), supportedLocales: const [Locale('en'), Locale('ar')],
-          home: OcpiCredentialsView(api: api, providerId: 7, onExpired: () {})),
+        MaterialApp(
+          locale: Locale(ar ? 'ar' : 'en'),
+          supportedLocales: const [Locale('en'), Locale('ar')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: OcpiCredentialsView(api: api, providerId: 7, onExpired: () {}),
+        ),
       );
       await tester.pumpAndSettle();
       expect(find.textContaining(ar ? 'وحدات المصدر المهيأة' : 'Configured/negotiated source modules only'), findsOneWidget);
