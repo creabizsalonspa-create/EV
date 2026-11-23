@@ -117,7 +117,8 @@ Future<void> open(
 
 void main() {
   test('valid issuance source is immutable and retains non-cashflow semantics', () {
-    final c = VendorRevenueCohortSnapshot.parse(cohort(),
+    final raw = cohort();
+    final c = VendorRevenueCohortSnapshot.parse(raw,
       vendorId: 1, currency: 'AED',
       from: '2026-11-01', to: '2026-11-03');
     expect(c.days.length, 3);
@@ -125,6 +126,14 @@ void main() {
     expect(c.money('net_vendor_allocated_minor'), 'AED 7.99');
     expect(c.source['not_cashflow_or_payout_eligibility'], true);
     expect(() => c.totals['paid_minor'] = 1, throwsUnsupportedError);
+    raw['data'][0]['paid_minor'] = 2;
+    raw['totals']['paid_minor'] = 2;
+    expect(c.source['data'][0]['paid_minor'], 1099);
+    expect(c.totals['paid_minor'], 1099);
+    expect(() => c.source['data'][0]['paid_minor'] = 3,
+        throwsUnsupportedError);
+    expect(() => c.source['totals']['paid_minor'] = 3,
+        throwsUnsupportedError);
   });
 
   test('rejects forged live evidence tenant periods totals and unsafe amounts', () {
