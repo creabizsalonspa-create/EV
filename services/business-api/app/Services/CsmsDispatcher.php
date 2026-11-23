@@ -32,9 +32,20 @@ class CsmsDispatcher
         $actorId = $hint->actor_id;
         $command = DB::transaction(function () use ($id, $stationId, $actorId) {
             $actor = User::whereKey($actorId)->lockForUpdate()->firstOrFail();
-            Station::whereKey($stationId)->lockForUpdate()->firstOrFail();
+            $station = Station::whereKey($stationId)->lockForUpdate()->firstOrFail();
             $c = ChargerCommand::whereKey($id)->lockForUpdate()->firstOrFail();
             abort_unless($c->station_id === $stationId && $c->actor_id === $actorId, 409, 'Command station changed.');
+            // An accepted simulator command is never transportable after
+            // its canonical station changes source (including stop commands).
+            // Do not re-target a queued outbox row or attempt external I/O.
+            if ($station->source !== 'simulator') {
+                if ($c->status === 'pending') {
+                    $c->failure_code = 'pre_dispatch_source_changed';
+                    $c->save();
+                }
+
+                return null;
+            }
             if ($c->status === 'pending') {
                 if (isset($c->payload['session_id'])) {
                     $linked = SessionLink::where('charging_session_id', $c->payload['session_id'])->first();
