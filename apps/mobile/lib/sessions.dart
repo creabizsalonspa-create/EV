@@ -470,16 +470,40 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
   @override
   void didUpdateWidget(covariant SessionsView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.api != widget.api || oldWidget.role != widget.role) {
-      generation++; data = null; error = null; busy = false;
+    if (!identical(oldWidget.api, widget.api) ||
+        oldWidget.role != widget.role || !ownSession()) {
+      generation++;
+      data = null;
+      error = null;
+      busy = false;
       ownSession = widget.api.sessionFence();
-      if (foreground) load();
+      final api = widget.api;
+      final fence = ownSession;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && foreground && identical(api, widget.api) &&
+            identical(fence, ownSession) && fence()) {
+          load();
+        }
+      });
     }
   }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    foreground = state == AppLifecycleState.resumed;
-    if (!foreground && mounted) setState(() { generation++; data = null; error = null; busy = false; });
+    final resumed = state == AppLifecycleState.resumed;
+    if (foreground == resumed) return;
+    foreground = resumed;
+    if (!resumed && mounted) {
+      generation++;
+      setState(() {
+        data = null;
+        error = null;
+        busy = false;
+      });
+    } else if (mounted) {
+      // A private charging history is never implicitly fetched on resume.
+      setState(() {});
+    }
   }
   @override
   void dispose() {
