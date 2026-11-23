@@ -87,11 +87,20 @@ class CsmsPilotProbeTest extends TestCase
                     ->update(['vendor_id' => User::factory()->create(['role' => 'vendor'])->id]);
             }
             $rows = [
-                ['id' => 25, 'connectorDatabaseId' => 8, 'connectorStatus' => 'Charging',
+                ['id' => 25, 'connectorDatabaseId' => 8, 'connectorStatus' => 'Available',
                     'timestamp' => now()->toISOString()],
                 ['id' => 24, 'connectorDatabaseId' => 7, 'connectorStatus' => 'Available',
                     'timestamp' => now()->subSecond()->toISOString()],
             ];
+            if ($state === 'busy') {
+                $rows[0]['connectorStatus'] = 'Charging';
+            }
+            if ($state === 'fault') {
+                $rows[0]['errorCode'] = 'PowerSwitchFailure';
+            }
+            if ($state === 'unknown_status') {
+                $rows[0]['connectorStatus'] = 'NotAnOcppStatus';
+            }
             if ($state === 'unknown_connector') {
                 $rows[0]['connectorDatabaseId'] = 9;
             }
@@ -104,9 +113,9 @@ class CsmsPilotProbeTest extends TestCase
             }
 
             return Http::response(['data' => [
-                'Transactions' => [],
+                'Transactions' => $state === 'active' ? [['id' => 99]] : [],
                 'Connectors' => [['id' => 7], ['id' => 8]],
-                'StatusNotifications' => $rows,
+                'StatusNotifications' => $state === 'overflow' ? array_fill(0, 1001, $rows[0]) : $rows,
             ]]);
         });
     }
@@ -123,6 +132,8 @@ class CsmsPilotProbeTest extends TestCase
             $this->assertSame(2, $report['connector_count']);
             $this->assertSame(2, $report['connectors_with_recent_status']);
             $this->assertTrue($report['software_source_observed']);
+            $this->assertTrue($report['source_idle_candidate']);
+            $this->assertSame(2, $report['idle_connectors_with_recent_safe_status']);
             foreach (['device_commands_sent', 'database_mutations', 'hardware_pilot_approved',
                 'physical_hardware_accepted', 'production_accepted'] as $field) {
                 $this->assertFalse($report[$field]);
@@ -151,9 +162,27 @@ class CsmsPilotProbeTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_active_transactions_and_nonidle_or_faulted_connectors_prevent_source_pilot_success(): void
+    {
+        foreach (['active', 'busy', 'fault'] as $case) {
+            $f = $this->fixture();
+            $this->source($f, $case);
+            $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+            $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+            $this->assertSame('requires_source_review', $report['status']);
+            $this->assertFalse($report['software_source_observed']);
+            $this->assertFalse($report['source_idle_candidate']);
+            $this->assertFalse($report['physical_hardware_accepted']);
+            $this->assertFalse($report['device_commands_sent']);
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_invalid_source_identity_clocks_and_connector_events_fail_closed(): void
     {
-        foreach (['ambiguous', 'object_station', 'relative_clock', 'unknown_connector', 'reversed_clock', 'duplicate_event', 'reassigned'] as $case) {
+        foreach (['ambiguous', 'object_station', 'relative_clock', 'unknown_connector', 'unknown_status', 'overflow', 'reversed_clock', 'duplicate_event', 'reassigned'] as $case) {
             $f = $this->fixture();
             $this->source($f, $case);
             $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
