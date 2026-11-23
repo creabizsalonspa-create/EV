@@ -87,6 +87,13 @@ void main() {
   for (final ar in [false, true]) {
     testWidgets('malformed SMS start receipt cannot authorize foreign challenge ($ar)',
         (tester) async {
+      // The consent+password+submit sequence extends below the default
+      // 800x600 widget-test viewport; hit-test the actual button, not an
+      // offscreen finder that can silently miss a tap.
+      tester.view.physicalSize = const Size(900, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       final api = PhoneApi()..malformedAcknowledgment = true;
       addTearDown(api.close);
       await tester.pumpWidget(screen(api, arabic: ar));
@@ -94,14 +101,20 @@ void main() {
       await tester.enterText(find.byKey(const Key('phone-number')), '+971501234567');
       await tester.enterText(find.byKey(const Key('phone-password')), 'current-password');
       await tester.tap(find.byType(CheckboxListTile));
-      await tester.tap(find.text(ar ? 'طلب رسالة تحقق' : 'Request verification SMS'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<CheckboxListTile>(
+          find.byType(CheckboxListTile)).value, isTrue);
+      final send = find.text(ar ? 'طلب رسالة تحقق' : 'Request verification SMS');
+      await tester.ensureVisible(send);
+      await tester.tap(send);
       await tester.pumpAndSettle();
       expect(api.writes, hasLength(1));
       expect(find.byKey(const Key('phone-code')), findsNothing);
       expect(find.textContaining('../foreign-account'), findsNothing);
       api.malformedAcknowledgment = false;
       await tester.enterText(find.byKey(const Key('phone-password')), 'current-password');
-      await tester.tap(find.text(ar ? 'طلب رسالة تحقق' : 'Request verification SMS'));
+      await tester.ensureVisible(send);
+      await tester.tap(send);
       await tester.pumpAndSettle();
       expect(api.writes, hasLength(2));
       expect(api.writes.first['idempotency_key'], api.writes.last['idempotency_key']);
