@@ -142,7 +142,13 @@ class _PartnerBillingState extends State<PartnerBillingPage>
       bool amount(dynamic value) =>
           value is int && value >= 0 && value <= 9007199254740991;
       for (final item in result['data'] as List) {
-        if (item is! Map || item['billing'] is! Map ||
+        const allowedSourceFields = {
+          'id', 'external_id', 'country_code', 'party_id', 'currency',
+          'credit', 'received_at', 'source', 'billing',
+        };
+        if (item is! Map ||
+            item.keys.any((field) => !allowedSourceFields.contains(field)) ||
+            item['billing'] is! Map ||
             item['source'] is! Map || item['external_id'] is! String ||
             item['country_code'] is! String || item['party_id'] is! String ||
             item['credit'] is! bool) {
