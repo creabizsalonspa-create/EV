@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'api.dart';
@@ -203,6 +204,18 @@ class _VendorFinanceState extends State<VendorFinanceView>
   int generation = 0, target = 1;
   bool busy = false, foreground = true, hidden = false;
   late bool Function() authorized;
+  StreamSubscription<int>? sessionEvents;
+
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        clearPrivate();
+      });
+    });
+  }
+
   bool active(int n, bool Function() current) =>
       mounted && foreground && authorized() && current() && n == generation;
   void clearPrivate() {
@@ -224,6 +237,7 @@ class _VendorFinanceState extends State<VendorFinanceView>
     super.initState();
     authorized = widget.api.sessionFence();
     WidgetsBinding.instance.addObserver(this);
+    observe(widget.api);
     foreground =
         WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
@@ -234,6 +248,7 @@ class _VendorFinanceState extends State<VendorFinanceView>
   void didUpdateWidget(covariant VendorFinanceView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.api != widget.api) {
+      observe(widget.api);
       clearPrivate();
       authorized = widget.api.sessionFence();
       final replacement = widget.api;
@@ -258,6 +273,7 @@ class _VendorFinanceState extends State<VendorFinanceView>
 
   @override
   void dispose() {
+    sessionEvents?.cancel();
     generation++;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -1257,6 +1273,24 @@ class _VendorEarningsState extends State<VendorEarningsView>
   VendorEarningsSnapshot? report;
   String? csvPreview;
   bool Function()? session;
+  StreamSubscription<int>? sessionEvents;
+
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        generation++;
+        report = null;
+        csvPreview = null;
+        error = null;
+        busy = false;
+        hidden = true;
+        session = null;
+      });
+    });
+  }
+
   Object? error;
   bool busy = false, foreground = true, hidden = false;
   int generation = 0;
@@ -1266,6 +1300,7 @@ class _VendorEarningsState extends State<VendorEarningsView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    observe(widget.api);
     foreground =
         WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
@@ -1277,6 +1312,7 @@ class _VendorEarningsState extends State<VendorEarningsView>
   void didUpdateWidget(covariant VendorEarningsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.api != widget.api || oldWidget.currency != widget.currency) {
+      if (oldWidget.api != widget.api) observe(widget.api);
       generation++;
       report = null;
       csvPreview = null;
