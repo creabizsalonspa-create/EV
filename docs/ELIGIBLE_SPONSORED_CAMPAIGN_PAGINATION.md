@@ -90,3 +90,26 @@ The disabled response does not query invoice entitlement, register
 server deliveries, or override station discovery availability. A
 feature test confirms no sponsored placement or financial journal
 changes occur while the adapter is disabled.
+
+
+## Revoked vendor business authority (Agent 3 follow-up)
+
+A previously **approved, paid** campaign must not remain deliverable when
+its **owning vendor account is suspended or demoted**. The canonical
+`CampaignService::billing()` eligibility check now requires both
+`role=vendor` and persisted `account_status=active`; the very same
+source-of-truth check is used for catalog placement eligibility and
+HMAC-signed delivery ingestion. Admin approval history and prepaid
+invoice/receipt remain immutable and are not recreated or edited.
+
+`CommercialCampaignTest` now exercises two independently paid vendors.
+A suspended/demoted vendor disappears from eligible-first
+`total/last_page` while another vendor's eligible placement remains;
+fresh signed delivery is rejected, no ledger/finance journal entry or
+delivery unit is created, and reinstating the original active vendor
+restores the existing approved campaign. One valid signed delivery
+is then recorded, and identical replay returns the original receipt.
+The test is a runnable source candidate only; exact-head CI and
+Agent 5 integration are still required. No real ad impression, PSP
+payment, account moderation approval, or production acceptance is
+inferred.
