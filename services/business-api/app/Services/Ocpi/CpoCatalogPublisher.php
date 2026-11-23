@@ -6,6 +6,7 @@ use App\Models\OcpiProvider;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
@@ -25,10 +26,6 @@ final class CpoCatalogPublisher
 
     private function admin(User $actor): void
     {
-        // An existing admin epoch is not sufficient after a credential
-        // rotation or an account role change. CPO source snapshots and
-        // dispatch claims must remain tied to the original authenticated
-        // principal, not merely an existing user ID.
         abort_unless($actor->role === 'admin', 403);
         $current = User::whereKey($actor->id)->lockForUpdate()->first();
         abort_unless($current && $current->role === 'admin'
@@ -38,12 +35,6 @@ final class CpoCatalogPublisher
             403, 'Admin authorization changed. Sign in again.');
     }
 
-    /**
-     * All CPO reads and writes lock Admin (when present), owner, then provider.
-     * This is the same order as current provider authorization and catalog
-     * ingestion, preventing a suspended/transferred vendor from racing a
-     * stale publication into another tenant's external source view.
-     */
     private function currentProvider(OcpiProvider $snapshot, ?User $actor = null): OcpiProvider
     {
         if ($actor !== null) {
@@ -63,11 +54,9 @@ final class CpoCatalogPublisher
         $contract = $this->contracts->approved($provider);
         $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->lockForUpdate()->first();
         $owner = User::whereKey($provider->owner_id)->lockForUpdate()->first();
-        abort_unless($contract && $provider->authorized && $provider->version === '2.2.1'
-            && $owner?->role === 'vendor' && $owner->account_status === 'active'
+        abort_unless($contract && $provider->authorized && $provider->version === '2.2.1' && $owner?->role === 'vendor' && $owner->account_status === 'active'
             && app(ContractReviewGate::class)->current($provider, $owner)
-            && $link?->state === 'active' && $link->owner_id === $provider->owner_id
-            && hash_equals($link->configuration_hash, $this->credentials->configurationHash($provider)), 403);
+            && $link?->state === 'active' && $link->owner_id === $provider->owner_id && hash_equals($link->configuration_hash, $this->credentials->configurationHash($provider)), 403);
 
         return [$contract, $link];
     }
@@ -100,9 +89,14 @@ final class CpoCatalogPublisher
                 return $row;
             });
 
+            $sources = ['locations' => array_map('strval', array_keys($contract['sites'])), 'tariffs' => array_map('strval', $contract['tariffs'])];
+            if (($contract['session_exports'] ?? []) !== []) {
+                $sources['sessions'] = $sources['cdrs'] = array_map('strval', array_keys($contract['session_exports']));
+            }
+
             return [
                 'configured' => true,
-                'sources' => ['locations' => array_map('strval', array_keys($contract['sites'])), 'tariffs' => array_map('strval', $contract['tariffs'])],
+                'sources' => $sources,
                 'history' => $history,
                 'sandbox_push' => $this->pushEnabled($provider),
             ];
@@ -111,7 +105,19 @@ final class CpoCatalogPublisher
 
     private function decode(object $record): array
     {
-        return json_decode($record->payload, true, flags: JSON_THROW_ON_ERROR);
+        $payload = in_array($record->module, CpoCatalogContract::SESSION_MODULES, true)
+            ? Crypt::decryptString($record->payload) : $record->payload;
+
+        return json_decode($payload, true, flags: JSON_THROW_ON_ERROR);
+    }
+
+    private function sourcePayload(OcpiProvider $provider, array $contract, string $module, int $source): array
+    {
+        if (in_array($module, CpoCatalogContract::SESSION_MODULES, true)) {
+            return app(CpoSessionSource::class)->payload($provider, $contract, $module, $source);
+        }
+
+        return $this->source->payload($provider, $contract, $module, $source);
     }
 
     private function stamp(array $payload, string $timestamp, bool $withdraw): array
@@ -177,15 +183,32 @@ final class CpoCatalogPublisher
             $previous = DB::table(self::TABLE)->where($key)->first();
             abort_if($previous && $previous->owner_id !== $provider->owner_id, 409);
             $withdraw = $operation === 'withdraw';
+            $sessionRecord = in_array($module, CpoCatalogContract::SESSION_MODULES, true);
+            abort_if($sessionRecord && $withdraw, 409, 'Final session records are immutable.');
+
             abort_if($withdraw && ! $previous, 404);
             abort_if($previous && $module === 'tariffs' && $previous->withdrawn && ! $withdraw, 409, 'Publish a new source tariff version after withdrawal.');
             $priorPayload = $previous ? $this->decode($previous) : null;
-            $payload = $withdraw ? $priorPayload : $this->source->payload($provider, $contract, $module, $source);
+            $payload = $withdraw ? $priorPayload : $this->sourcePayload($provider, $contract, $module, $source);
             $role = $this->credentials->localConfiguration($provider)['roles'][0];
             $sameIdentity = $priorPayload && $priorPayload['country_code'] === $role['country_code'] && $priorPayload['party_id'] === $role['party_id'];
             abort_if($withdraw && ! $sameIdentity, 409, 'The earlier publication belongs to a different local CPO identity.');
             $sourceHash = $withdraw ? $previous->source_hash : $this->normalizer->hash($payload);
             $bound = $this->bound($provider, $link);
+            if ($sessionRecord) {
+                abort_if($previous && $previous->source_hash !== $sourceHash, 409, 'Changed final source requires review.');
+                $location = (clone $bound)->where(['module' => 'locations', 'source_id' => (int) $contract['session_exports'][$source]['site_id'], 'withdrawn' => false])->first();
+                $evse = $payload['evse_uid'] ?? $payload['cdr_location']['evse_uid'];
+                $connector = $payload['connector_id'] ?? $payload['cdr_location']['connector_id'];
+                $publishedEvse = $location ? collect($this->decode($location)['evses'])->firstWhere('uid', $evse) : null;
+                abort_unless($publishedEvse && $publishedEvse['status'] !== 'REMOVED' && collect($publishedEvse['connectors'])->contains('id', $connector),
+                    409, 'Publish the approved session location and connector first.');
+                if ($module === 'cdrs') {
+                    $sessionHash = $this->normalizer->hash($this->sourcePayload($provider, $contract, 'sessions', $source));
+                    abort_unless((clone $bound)->where(['module' => 'sessions', 'source_id' => $source, 'source_hash' => $sessionHash])->exists(),
+                        409, 'Publish the matching final session first.');
+                }
+            }
             if ($previous && $previous->source_hash === $sourceHash && (bool) $previous->withdrawn === $withdraw && (clone $bound)->where('id', $previous->id)->exists()) {
                 return ['id' => $payload['id'], 'published_at' => $previous->published_at, 'withdrawn' => $withdraw];
             }
@@ -215,7 +238,7 @@ final class CpoCatalogPublisher
             DB::table(self::TABLE)->updateOrInsert($key, [
                 'owner_id' => $provider->owner_id, 'actor_id' => $actor->id, 'generation' => $link->generation,
                 'authorization_revision' => $provider->authorization_revision, 'configuration_hash' => $link->configuration_hash,
-                'source_hash' => $sourceHash, 'payload' => $encoded, 'withdrawn' => $withdraw, 'published_at' => $timestamp,
+                'source_hash' => $sourceHash, 'payload' => $sessionRecord ? Crypt::encryptString($encoded) : $encoded, 'withdrawn' => $withdraw, 'published_at' => $timestamp,
             ]);
             DB::table('audit_events')->insert([
                 'actor_id' => $actor->id, 'action' => 'ocpi.cpo_'.$operation,
@@ -231,6 +254,7 @@ final class CpoCatalogPublisher
         return DB::transaction(function () use ($provider, $authenticatedLink, $module, $window, $source) {
             $current = $this->currentProvider($provider);
             [, $link] = $this->authority($current);
+            abort_unless(in_array($module, $this->contracts->modules($current), true), 404);
             abort_unless($current->authorization_revision === $provider->authorization_revision && $link->generation === $authenticatedLink->generation
                 && hash_equals($link->local_token_digest, $authenticatedLink->local_token_digest), 401);
             $query = $this->bound($current, $link)->where('module', $module);
@@ -287,8 +311,10 @@ final class CpoCatalogPublisher
             if ($operation) {
                 return [$current, $row, $payload, $operation->state];
             }
+            abort_if($module === 'cdrs' && DB::table(self::OPERATIONS)->where('publication_id', $row->id)->exists(),
+                409, 'An immutable CDR has already been dispatched to this partner.');
             if (! $row->withdrawn) {
-                $fresh = $this->source->payload($current, $contract, $module, $source);
+                $fresh = $this->sourcePayload($current, $contract, $module, $source);
                 abort_unless(hash_equals($row->source_hash, $this->normalizer->hash($fresh)), 409, 'Canonical catalog source changed. Review and publish again.');
             }
             DB::table(self::OPERATIONS)->insert([
@@ -304,27 +330,19 @@ final class CpoCatalogPublisher
         // The claim is committed before I/O. Hold the authority locks across the
         // one attempt, and never retry this transaction after transport.
         $state = DB::transaction(function () use ($actor, $provider, $row, $module, $source, $payload, $publishedAt, $key) {
-            try {
-                $current = $this->currentProvider($provider, $actor);
-            } catch (HttpExceptionInterface) {
-                // The external request has not been sent. Remove only this
-                // unresolved claim, never replay or mark it acknowledged.
-                DB::table(self::OPERATIONS)->where('operation_key', $key)
-                    ->where('state', 'dispatching')->delete();
-
-                return null;
-            }
+            $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
             $claim = DB::table(self::OPERATIONS)->where('operation_key', $key);
             $currentState = (clone $claim)->lockForUpdate()->value('state');
             if ($currentState !== 'dispatching') {
                 return $currentState;
             }
             try {
+                $this->admin($actor);
                 [$contract, $link] = $this->authority($current);
                 abort_unless($this->pushEnabled($current) && is_string($current->endpoints[$module.'_receiver'] ?? null)
                     && $this->bound($current, $link)->where(['id' => $row->id, 'published_at' => $publishedAt])->exists(), 409);
                 if (! $row->withdrawn) {
-                    $fresh = $this->source->payload($current, $contract, $module, $source);
+                    $fresh = $this->sourcePayload($current, $contract, $module, $source);
                     abort_unless(hash_equals($row->source_hash, $this->normalizer->hash($fresh)), 409);
                 }
             } catch (OcpiException|HttpExceptionInterface) {
@@ -334,7 +352,11 @@ final class CpoCatalogPublisher
             }
 
             try {
-                $method = $module === 'tariffs' && $row->withdrawn ? 'DELETE' : 'PUT';
+                $method = match ($module) {
+                    'cdrs' => 'POST',
+                    'tariffs' => $row->withdrawn ? 'DELETE' : 'PUT',
+                    default => 'PUT',
+                };
                 $this->partner->cpoCatalogRequest($current, $module, $method, $payload, $row->generation);
                 $state = 'acknowledged';
             } catch (OcpiException|HttpExceptionInterface) {
@@ -349,7 +371,7 @@ final class CpoCatalogPublisher
         return ['delivery' => $state, 'published_at' => $publishedAt];
     }
 
-    public function reconcile(User $actor, OcpiProvider $provider, string $module, int $source, string $publishedAt): array
+    public function reconcile(User $actor, OcpiProvider $provider, string $module, int $source, string $publishedAt, ?string $cdrReceipt = null): array
     {
         [$current, $row, $operation] = DB::transaction(function () use ($actor, $provider, $module, $source, $publishedAt) {
             $current = $this->currentProvider($provider, $actor);
@@ -366,14 +388,15 @@ final class CpoCatalogPublisher
         if (in_array($operation->state, ['acknowledged', 'reconciled'], true)) {
             return ['delivery' => $operation->state, 'published_at' => $publishedAt];
         }
+        abort_if($module === 'cdrs' && $cdrReceipt === null, 409, 'An uncertain CDR delivery requires a peer-assigned receipt.');
         $payload = $this->decode($row);
         $deleted = $module === 'tariffs' && $row->withdrawn;
         $verified = false;
         try {
-            $evidence = $this->partner->cpoCatalogRequest($current, $module, 'GET', $payload, $row->generation, $deleted);
+            $evidence = $this->partner->cpoCatalogRequest($current, $module, 'GET', $payload, $row->generation, $deleted, $cdrReceipt);
             $verified = $deleted
                 ? $evidence['status_code'] === 2001 && array_key_exists('data', $evidence) && $evidence['data'] === null
-                : is_array($evidence['data'] ?? null) && hash_equals($this->normalizer->hash($payload), $this->normalizer->hash($evidence['data']));
+                : is_array($evidence['data'] ?? null) && hash_equals($this->normalizer->hash($payload, preserveZeroFraction: false), $this->normalizer->hash($evidence['data'], preserveZeroFraction: false));
         } catch (OcpiException|HttpExceptionInterface) {
             // An unavailable or mismatched source is still an unknown delivery.
         }
