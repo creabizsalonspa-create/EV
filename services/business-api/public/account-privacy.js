@@ -545,10 +545,45 @@ window.EvPrivacyRequests = (() => {
                     controller.signal,
                 );
                 if (!active(state, generation, controller)) return;
-                const items = Array.isArray(response.data) ? response.data : [];
+                if (!Array.isArray(response?.data) ||
+                    !Number.isSafeInteger(response.current_page) ||
+                    response.current_page !== page ||
+                    !Number.isSafeInteger(response.last_page) ||
+                    response.last_page < page ||
+                    response.last_page > 100000 ||
+                    !Number.isSafeInteger(response.total) ||
+                    response.total < 0 ||
+                    response.last_page !==
+                        Math.max(1, Math.ceil(response.total / 25)) ||
+                    response.data.length > 25 ||
+                    response.data.length > response.total)
+                    throw Error("Unverified Admin privacy queue");
+                const items = response.data;
+                const seen = new Set();
                 for (const record of items) {
-                    const caseId = Number(record.id);
-                    if (!Number.isSafeInteger(caseId) || caseId <= 0) continue;
+                    if (!record || typeof record !== "object" ||
+                        Array.isArray(record) ||
+                        !Number.isSafeInteger(record.id) || record.id < 1 ||
+                        seen.has(record.id) ||
+                        !["access", "correction", "erasure"].includes(record.kind) ||
+                        !["pending", "reviewing", "blocked_external",
+                          "closed_review", "withdrawn"].includes(record.status) ||
+                        typeof record.details !== "string" ||
+                        record.details.length > 2000 ||
+                        (record.owner != null &&
+                            (typeof record.owner !== "object" ||
+                             !Number.isSafeInteger(record.owner.id) ||
+                             record.owner.id < 1 ||
+                             (record.owner.name != null &&
+                              typeof record.owner.name !== "string") ||
+                             (record.owner.email != null &&
+                              typeof record.owner.email !== "string")))) {
+                        throw Error("Unverified Admin privacy record");
+                    }
+                    seen.add(record.id);
+                }
+                for (const record of items) {
+                    const caseId = record.id;
                     const card = el("article");
                     card.append(
                         el(
@@ -635,9 +670,22 @@ window.EvPrivacyRequests = (() => {
                                 );
                                 if (!active(state, generation, controller))
                                     return;
-                                const entries = Array.isArray(response.data)
-                                    ? response.data
-                                    : [];
+                                const entries = response?.data;
+                                if (!Array.isArray(entries) ||
+                                    entries.length > 25 ||
+                                    entries.some((entry) =>
+                                        !entry || typeof entry !== "object" ||
+                                        !Number.isSafeInteger(entry.id) || entry.id < 1 ||
+                                        !["pending", "reviewing", "blocked_external",
+                                          "closed_review", "withdrawn"].includes(entry.from_status) ||
+                                        !["pending", "reviewing", "blocked_external",
+                                          "closed_review", "withdrawn"].includes(entry.to_status) ||
+                                        typeof entry.note !== "string" ||
+                                        entry.note.length > 2000 ||
+                                        typeof entry.created_at !== "string" ||
+                                        entry.created_at.length > 80)) {
+                                    throw Error("Unverified Admin decision history");
+                                }
                                 const list = el("ul");
                                 for (const item of entries) {
                                     list.append(

@@ -364,6 +364,68 @@ test("pending Admin private queue GET cannot reveal account data across BFCache 
   assert(!ui.admin.textContent.includes("Stale owner"));
 });
 
+
+test("malformed Admin private queues fail closed instead of showing false empty or decision controls",async()=>{
+  const valid={
+    ...record,kind:"erasure",details:"Private data subject reason",
+    owner:{id:3,name:"Owner",email:"owner@example.test"},
+  };
+  for(const wrong of [
+    {data:"not-a-list",current_page:1,last_page:1,total:0},
+    {data:[valid],current_page:2,last_page:2,total:26},
+    {data:[valid],current_page:1,last_page:1,total:0},
+    {data:[valid,valid],current_page:1,last_page:1,total:2},
+    page([{...valid,id:"22"}]),
+    page([{...valid,kind:"untrusted"}]),
+    page([{...valid,status:"untrusted"}]),
+    page([{...valid,owner:{id:"3"}}]),
+    page([{...valid,details:123}]),
+  ]){
+    const ui=fixture(),calls=[];
+    let corrupt=true;
+    ui.setAdminActor({id:4,role:"admin"},async(path,method="GET")=>{
+      calls.push({path,method});
+      return corrupt?wrong:page([valid]);
+    });
+    await tick();
+    assert.match(ui.admin.textContent,/Privacy queue unavailable/);
+    assert.equal(nodes(ui.admin,"article").length,0);
+    assert.equal(nodes(ui.admin,"form").filter(f=>nodes(f,"textarea").length).length,0);
+    assert(!ui.admin.textContent.includes("No requests match these filters"));
+    corrupt=false;
+    const filters=nodes(ui.admin,"form").find(f=>f.attributes["aria-label"]==="Admin privacy request filters");
+    await filters.onsubmit({preventDefault(){}});
+    await tick();
+    assert.match(ui.admin.textContent,/Private data subject reason/);
+    assert.equal(nodes(ui.admin,"article").length,1);
+    assert(calls.every(c=>c.method==="GET"));
+  }
+});
+
+test("malformed Admin decision history never appears as a successful empty timeline",async()=>{
+  const ui=fixture();let broken=true;
+  const valid={...record,kind:"erasure",details:"Private review reason",
+    owner:{id:3,name:"Private owner"}};
+  ui.setAdminActor({id:4,role:"admin"},async(path)=>{
+    if(path.endsWith("/reviews"))
+      return broken
+        ? {data:[{id:1,from_status:"pending",to_status:"reviewing",
+                 note:{secret:"INVALID PRIVATE NOTE"},created_at:"2026-11-23"}]}
+        : {data:[{id:1,from_status:"pending",to_status:"reviewing",
+                 note:"Verified authorized decision",created_at:"2026-11-23"}]};
+    return page([valid]);
+  });
+  await tick();
+  const history=nodes(ui.admin,"button").find(x=>
+    x.textContent.startsWith("Private review history"));
+  await history.onclick();
+  assert.match(ui.admin.textContent,/Review history unavailable/);
+  assert(!ui.admin.textContent.includes("No recorded review decisions"));
+  broken=false;
+  await history.onclick();
+  assert.match(ui.admin.textContent,/Verified authorized decision/);
+});
+
 test("Admin can filter and record a stage transition with expected prior state", async () => {
   const ui = fixture(),
     calls = [];
