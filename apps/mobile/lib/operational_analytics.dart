@@ -339,6 +339,7 @@ class _OperationalState extends State<OperationalAnalyticsView>
         MaterialPageRoute<void>(
           builder: (_) => VendorDocumentPreview(
             document: doc,
+            revokedSessionEvents: widget.api.sessionEvents,
             title: tr('Charging operational analytics', 'تحليلات تشغيل الشحن'),
             notice: operationalNotice[ar ? 1 : 0],
           ),
