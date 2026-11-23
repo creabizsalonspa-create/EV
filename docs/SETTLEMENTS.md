@@ -91,3 +91,29 @@ formula prefixes; existing legitimate API and immutable journal tests
 remain the required regression gates. This remains an internal
 simulation-backed audit, **not** automatic live PSP/bank reconciliation.
 All changes require exact-head Finance/Platform CI and Agent 5 integration.
+
+
+## Canonical settlement balance checked arithmetic (Agent 3 continuation)
+
+The **underlying** `SettlementService::balances()` now validates every
+authoritative payment, refund, reserved settlement line, invoice
+component, approved adjustment and completed settlement aggregate as an
+exact integer *before* applying arithmetic or serializing a private
+statement. It rejects PHP float/boolean, malformed or browser-inexact
+money, and verifies each running gross/commission/tax/refund/available
+sum against ±(2^53−1). The former `array_sum` of signed payable lines
+could turn a large otherwise valid collection of line items into an
+inexact floating-point total; the new checked accumulation fails closed
+with HTTP 409. All historical signed negative refund debts and payable
+adjustments within range remain supported.
+
+A real authenticated feature regression creates two individually
+representable, synthetic test-only signed approved adjustment records
+whose total is exactly 2^53. It requires 409 from the Vendor statement,
+Vendor earnings report and settlement draft, **before** any payable
+reservation is created. A second regression covers exact positive and
+negative range bounds, float/boolean source rejection and grouped
+addition. No financial journal, payable settlement or actual payout is
+created. This is defensive software verification; source approval
+authenticity, merchant acceptance, exact-head CI and Agent 5 merge
+remain independent requirements.
