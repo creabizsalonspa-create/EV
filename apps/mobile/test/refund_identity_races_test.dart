@@ -94,9 +94,7 @@ void main() {
     expect(api.posts, 0);
     expect(store.writes, 0);
     expect(find.text('Request a refund'), findsOneWidget);
-    expect(tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Submit request'),
-    ).onPressed, isNull);
+    expect(find.widgetWithText(FilledButton, 'Submit request'), findsNothing);
   });
 
   testWidgets('vendor review restore rejects old owner after delayed me', (
@@ -112,9 +110,7 @@ void main() {
     await tester.pump();
     expect(api.posts, 0);
     expect(store.writes, 0);
-    expect(tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Confirm'),
-    ).onPressed, isNull);
+    expect(find.widgetWithText(FilledButton, 'Confirm'), findsNothing);
   });
 
   testWidgets('customer consent cannot submit when account changed in dialog', (
