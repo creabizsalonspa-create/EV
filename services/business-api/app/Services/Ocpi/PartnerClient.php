@@ -80,6 +80,12 @@ class PartnerClient
         if (! $current || ! $current->authorized || $current->authorization_revision !== $provider->authorization_revision || $current->connection_key !== $provider->connection_key || $current->owner_id !== $provider->owner_id) {
             throw new OcpiException('Operator authorization changed; refresh and negotiate again.');
         }
+        // Enforced manual review is time/owner scoped: an expired review or
+        // a newly changed owner cannot dispatch a further remote OCPI GET,
+        // command or CPO sender request. This is not legal conformance proof.
+        if (! app(ContractReviewGate::class)->current($current)) {
+            throw new OcpiException('Current partner owner requires a fresh internal contract review.');
+        }
     }
 
     /** Reject contradictory peer tracing without breaking previously approved headerless sandbox fixtures. */
