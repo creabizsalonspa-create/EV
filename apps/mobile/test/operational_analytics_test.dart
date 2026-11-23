@@ -50,9 +50,8 @@ class OpsApi extends FixtureApi {
         {
           'name': 'Synthetic site',
           'site_id': 1,
-          // The canonical backend emits connector coverage separately
-          // from the EVSE window. The fake must carry both dimensions.
-          'possible_connector_seconds': 0,
+          // The canonical metric map contains both EVSE and connector
+          // exposure denominators; their values must remain distinct.
           for (final key in operationalLabels.keys)
             key: key == 'maximum_observed_site_interval_average_w' && unknownDemand
                 ? null
@@ -83,6 +82,23 @@ void main() {
     expect(find.text('Maximum sum of observed interval averages (W), not grid peak: Unknown'), findsOneWidget);
     expect(find.textContaining('Inexact source metric'), findsNothing);
   });
+  testWidgets('separate EVSE and connector coverage is visible in bilingual-safe source metrics',
+    (tester) async {
+      final api = OpsApi();
+      await tester.pumpWidget(app(api, () {}));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Current mapped connector window seconds: 0'),
+        180,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Current mapped connector window seconds: 0'),
+          findsOneWidget);
+      expect(find.text('Mapped connectors: 0'), findsOneWidget);
+      expect(find.textContaining('Physical availability confirmed'),
+          findsNothing);
+    },
+  );
   testWidgets(
     'source metrics render without authority promotion and stale accounts clear report',
     (tester) async {
