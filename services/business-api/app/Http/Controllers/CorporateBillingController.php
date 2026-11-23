@@ -25,6 +25,12 @@ class CorporateBillingController extends Controller
         return $data;
     }
 
+    /** Keep any external invoice/cost-center identifiers literal in CSV tools. */
+    private static function safeCsvCell(string $value): string
+    {
+        return preg_match('/^[\\s\\p{C}]*[=+\\-@]/u', $value) ? "'".$value : $value;
+    }
+
     public function index(Request $r, CorporateBilling $service)
     {
         $fleet = $r->validate(['fleet_id' => 'required|integer|min:1']);
@@ -181,13 +187,14 @@ class CorporateBillingController extends Controller
         $f = fopen('php://temp', 'w+');
         fputcsv($f, ['statement', 'invoice', 'cost_center', 'subtotal_minor', 'tax_minor', 'total_minor', 'currency', 'minor_units'], ',', '"', '');
         foreach ($v['lines'] as $line) {
-            $safe = static fn (string $text) => preg_match('/^[\s\p{C}]*[=+\-@]/u', $text) ? "'".$text : $text;
-            fputcsv($f, [$v['statement']->number, $line->invoice_number, $safe($line->cost_center_code), (int) $line->subtotal_minor, (int) $line->tax_minor, (int) $line->total_minor, $v['statement']->currency, (int) $v['statement']->minor_units], ',', '"', '');
+            fputcsv($f, [self::safeCsvCell((string) $v['statement']->number),
+                self::safeCsvCell((string) $line->invoice_number),
+                self::safeCsvCell((string) $line->cost_center_code), (int) $line->subtotal_minor, (int) $line->tax_minor, (int) $line->total_minor, $v['statement']->currency, (int) $v['statement']->minor_units], ',', '"', '');
         }
         rewind($f);
         $data = stream_get_contents($f);
         fclose($f);
 
-        return response($data)->header('Content-Type', 'text/csv; charset=utf-8')->header('Content-Disposition', 'attachment; filename="corporate-statement-'.$statement.'.csv"')->header('Cache-Control', 'private, no-store');
+        return response($data)->header('Content-Type', 'text/csv; charset=utf-8')->header('Content-Disposition', 'attachment; filename="corporate-statement-'.$statement.'.csv"')->header('Cache-Control', 'private, no-store')->header('X-Content-Type-Options', 'nosniff');
     }
 }
