@@ -31,6 +31,22 @@ class FinancialSources
         return $number;
     }
 
+    /**
+     * An immutable TEST document must not be rendered from floating-point
+     * array_sum results when individually valid line items overflow.
+     * Signed settlement refund debts remain supported within exact bounds.
+     */
+    private static function sumExact(array $lines, string $field, bool $signed = false): int
+    {
+        $total = 0;
+        foreach ($lines as $line) {
+            $value = self::exactMoney($line[$field], $signed);
+            $total = self::exactMoney($total + $value, $signed);
+        }
+
+        return $total;
+    }
+
     public const TABLES = [
         'charging_invoice' => 'finance_invoices',
         'charging_credit' => 'finance_refunds',
@@ -53,7 +69,10 @@ class FinancialSources
             $user = (int) $row->payer_id;
             $vendor = null;
             $lines = $detail['lines']->map(fn ($line) => ['reference' => $line->invoice_number, 'invoice_id' => (int) $line->invoice_id, 'amount_minor' => self::exactMoney($line->total_minor), 'subtotal_minor' => self::exactMoney($line->subtotal_minor), 'tax_minor' => self::exactMoney($line->tax_minor), 'cost_center_code' => $line->cost_center_code, 'cost_center_name' => $line->cost_center_name, 'reason' => $line->cost_center_code.' — '.$line->cost_center_name])->all();
-            abort_unless(array_sum(array_column($lines, 'amount_minor')) === self::exactMoney($row->total_minor) && array_sum(array_column($lines, 'subtotal_minor')) === self::exactMoney($row->subtotal_minor) && array_sum(array_column($lines, 'tax_minor')) === self::exactMoney($row->tax_minor), 409, 'Corporate statement source lines do not reconcile.');
+            abort_unless(self::sumExact($lines, 'amount_minor') === self::exactMoney($row->total_minor)
+                && self::sumExact($lines, 'subtotal_minor') === self::exactMoney($row->subtotal_minor)
+                && self::sumExact($lines, 'tax_minor') === self::exactMoney($row->tax_minor),
+                409, 'Corporate statement source lines do not reconcile.');
             $countries = DB::table('finance_invoices')->whereIn('id', array_column($lines, 'invoice_id'))->pluck('country')->unique();
             abort_unless($countries->count() === 1, 409, 'Corporate statement requires one immutable invoice jurisdiction.');
             $values = [
@@ -78,7 +97,8 @@ class FinancialSources
 
                 return ['invoice_id' => $line->invoice_id ? (int) $line->invoice_id : null, 'adjustment_id' => $line->adjustment_id ? (int) $line->adjustment_id : null, 'reference' => $invoice?->number ?? ('ADJ-'.$adjustment->id), 'amount_minor' => self::exactMoney($line->amount_minor, true), 'reason' => $adjustment?->reason];
             })->all();
-            abort_unless(array_sum(array_column($lines, 'amount_minor')) === self::exactMoney($row->amount_minor, true), 409, 'Settlement statement lines do not reconcile.');
+            abort_unless(self::sumExact($lines, 'amount_minor', true) === self::exactMoney($row->amount_minor, true),
+                409, 'Settlement statement lines do not reconcile.');
             $values = [
                 'country' => null, 'issuer_vendor_id' => null, 'tax_bps' => null,
                 'original_number' => $row->number, 'invoice_reference' => $row->number,
