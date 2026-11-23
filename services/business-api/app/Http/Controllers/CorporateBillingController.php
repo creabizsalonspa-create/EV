@@ -9,6 +9,21 @@ use Illuminate\Support\Facades\DB;
 
 class CorporateBillingController extends Controller
 {
+    private const MAX_EXACT_MINOR = 9_007_199_254_740_991;
+
+    /** Source monetary fields must remain exact before immutable corporate CSV. */
+    private static function exactMinor(mixed $value): int
+    {
+        abort_unless(is_int($value) || is_string($value), 409,
+            'Corporate statement amount is not an exact minor-unit integer.');
+        $minor = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($minor !== false && $minor >= 0
+            && $minor <= self::MAX_EXACT_MINOR,
+            409, 'Corporate statement amount exceeds exact integer bounds.');
+
+        return $minor;
+    }
+
     /**
      * Client responses contain business decisions, never private replay keys
      * or payload fingerprints used to prove original request identity.
@@ -28,7 +43,7 @@ class CorporateBillingController extends Controller
     /** Keep any external invoice/cost-center identifiers literal in CSV tools. */
     private static function safeCsvCell(string $value): string
     {
-        return preg_match('/^[\\s\\p{C}]*[=+\\-@]/u', $value) ? "'".$value : $value;
+        return preg_match('/^[\\p{Z}\\p{Cc}\\p{Cf}]*[=+\\-@]/u', $value) ? "'".$value : $value;
     }
 
     public function index(Request $r, CorporateBilling $service)
@@ -189,7 +204,7 @@ class CorporateBillingController extends Controller
         foreach ($v['lines'] as $line) {
             fputcsv($f, [self::safeCsvCell((string) $v['statement']->number),
                 self::safeCsvCell((string) $line->invoice_number),
-                self::safeCsvCell((string) $line->cost_center_code), (int) $line->subtotal_minor, (int) $line->tax_minor, (int) $line->total_minor, $v['statement']->currency, (int) $v['statement']->minor_units], ',', '"', '');
+                self::safeCsvCell((string) $line->cost_center_code), self::exactMinor($line->subtotal_minor), self::exactMinor($line->tax_minor), self::exactMinor($line->total_minor), $v['statement']->currency, (int) $v['statement']->minor_units], ',', '"', '');
         }
         rewind($f);
         $data = stream_get_contents($f);
