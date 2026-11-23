@@ -133,7 +133,13 @@ void main() {
       );
       await tester.pumpAndSettle();
       final cancel = find.text('Cancel firmware before dispatch');
+      // This action is deliberately below the fold on compact phones. Scroll
+      // it into the actual test viewport before tapping; an off-screen tap
+      // cannot open the guarded review dialog or exercise cancellation.
+      await tester.drag(find.byType(ListView), const Offset(0, -300));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(cancel);
+      await tester.pumpAndSettle();
       await tester.tap(cancel);
       await tester.pumpAndSettle();
       await tester.enterText(
