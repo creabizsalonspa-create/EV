@@ -150,12 +150,19 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
         data.last < requested ||
         data.last > 100000 ||
         data.total < 0 ||
-        data.items.length > 25) {
+        data.items.length > 25 ||
+        data.total < (requested - 1) * 25 + data.items.length ||
+        data.last != (data.total == 0 ? 1 : (data.total - 1) ~/ 25 + 1)) {
       throw const FormatException('Unverified private request page');
     }
+    final seen = <int>{};
     for (final row in data.items) {
       if (row['id'] is! int ||
           (row['id'] as int) <= 0 ||
+          !seen.add(row['id'] as int) ||
+          (row['created_at'] != null &&
+              (row['created_at'] is! String ||
+                  (row['created_at'] as String).length > 80)) ||
           !const {'access', 'correction', 'erasure'}.contains(row['kind']) ||
           !const {
             'pending', 'reviewing', 'closed_review', 'blocked_external', 'withdrawn',
@@ -166,7 +173,11 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
           (row['copy'] != null &&
               (row['copy'] is! Map ||
                   !const {'available', 'expired', 'revoked'}
-                      .contains((row['copy'] as Map)['status'])))) {
+                      .contains((row['copy'] as Map)['status']) ||
+                  ((row['copy'] as Map)['status'] == 'available' &&
+                      ((row['copy'] as Map)['expires_at'] is! String ||
+                          (((row['copy'] as Map)['expires_at']) as String)
+                              .length > 80))))) {
         throw const FormatException('Unverified private request record');
       }
     }

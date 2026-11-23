@@ -19,6 +19,8 @@ class _PrivacyApi extends EvApi {
   int privateReads = 0;
   bool failRead = false;
   bool malformedRow = false;
+  bool duplicateIds = false;
+  bool invalidPage = false;
   bool failReadbackOnce = false;
   bool failPostAfterHold = false;
 
@@ -45,10 +47,12 @@ class _PrivacyApi extends EvApi {
                 {'id': 'not-an-integer', 'kind': 'access',
                   'status': 'pending', 'details': 'PRIVATE MALFORMED ITEM'},
               ]
-            : rows,
-        'current_page': 1,
-        'last_page': 1,
-        'total': rows.length,
+            : duplicateIds && rows.isNotEmpty
+                ? [rows.first, rows.first]
+                : rows,
+        'current_page': invalidPage ? 2 : 1,
+        'last_page': invalidPage ? 2 : 1,
+        'total': invalidPage ? 26 : duplicateIds ? 2 : rows.length,
       };
     }
     if (path == 'account/privacy-requests' && method == 'POST') {
@@ -84,6 +88,45 @@ class _PrivacyApi extends EvApi {
 }
 
 void main() {
+
+  for (final language in ['en', 'ar']) {
+    for (final failureMode in ['duplicate', 'wrong-page']) {
+      testWidgets('private pagination verification fails closed ($language, $failureMode)',
+          (tester) async {
+        final api = _PrivacyApi();
+        addTearDown(api.close);
+        api.rows.add({
+          'id': 44,
+          'kind': 'access',
+          'status': 'pending',
+          'details': 'PRIVATE UNVERIFIED ROW',
+        });
+        api.duplicateIds = failureMode == 'duplicate';
+        api.invalidPage = failureMode == 'wrong-page';
+        await tester.pumpWidget(MaterialApp(
+          locale: Locale(language),
+          supportedLocales: const [Locale('en'), Locale('ar')],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          home: PrivacyRequestsView(api: api, onExpired: () {}),
+        ));
+        await tester.pumpAndSettle();
+        expect(find.text('PRIVATE UNVERIFIED ROW'), findsNothing);
+        expect(find.text(language == 'ar' ? 'سحب الطلب' : 'Withdraw request'),
+            findsNothing);
+        expect(find.byKey(const Key('privacy-error')), findsOneWidget);
+        api.duplicateIds = api.invalidPage = false;
+        final refresh = find.byTooltip(language == 'ar' ? 'تحديث' : 'Refresh');
+        await tester.ensureVisible(refresh);
+        await tester.tap(refresh);
+        await tester.pumpAndSettle();
+        expect(find.text('PRIVATE UNVERIFIED ROW'), findsOneWidget);
+        expect(find.text(language == 'ar' ? 'سحب الطلب' : 'Withdraw request'),
+            findsOneWidget);
+        expect(find.byKey(const Key('privacy-error')), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
 
   for (final language in ['en', 'ar']) {
     testWidgets('a failed private history refresh removes old actions and safely recovers ($language)',
