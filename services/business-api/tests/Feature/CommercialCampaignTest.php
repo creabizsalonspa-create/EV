@@ -254,6 +254,61 @@ class CommercialCampaignTest extends TestCase
         $this->assertSame($beforeJournals, DB::table('finance_journals')->count());
     }
 
+    public function test_suspended_or_demoted_paid_vendor_cannot_buy_visibility_or_consume_signed_delivery(): void
+    {
+        $this->freezeTime();
+        $blocked = $this->fixture();
+        $suspendedCampaign = $this->approved($blocked);
+        $valid = $this->fixture();
+        $activeCampaign = $this->approved($valid);
+        $this->assertSame('approved', DB::table('commercial_campaigns')
+            ->where('id', $suspendedCampaign['id'])->value('status'));
+        $cash = DB::table('commercial_subscription_ledger')->count();
+        $journals = DB::table('finance_journals')->count();
+        $receipts = DB::table('commercial_campaign_deliveries')->count();
+        $url = '/api/commercial/campaign-placements?country=AE&placement=discovery_banner&per_page=1';
+
+        // A previously approved and fully paid campaign loses placement
+        // authority as soon as its owning business account is suspended.
+        DB::table('users')->where('id', $blocked['vendor']->id)
+            ->update(['account_status' => 'suspended']);
+        $this->actingAs($valid['customer'])->getJson($url)
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('last_page', 1)
+            ->assertJsonPath('placements.0.campaign_id', $activeCampaign['id']);
+        $this->getJson($url.'&page=2')->assertOk()
+            ->assertJsonCount(0, 'placements')->assertJsonPath('total', 1);
+        $this->delivery($suspendedCampaign['id'], 'suspended-vendor')->assertConflict();
+        $this->assertSame($receipts, DB::table('commercial_campaign_deliveries')->count());
+
+        // A change in business role must also revoke publishing. Neither
+        // a source campaign status nor paid entitlement is rewritten.
+        DB::table('users')->where('id', $blocked['vendor']->id)
+            ->update(['account_status' => 'active', 'role' => 'customer']);
+        $this->getJson($url)->assertOk()->assertJsonPath('total', 1);
+        $this->delivery($suspendedCampaign['id'], 'demoted-vendor')->assertConflict();
+
+        // Reinstatement restores the existing paid entitlement without
+        // minting a new unit, charge, campaign or unreviewed approval.
+        DB::table('users')->where('id', $blocked['vendor']->id)
+            ->update(['role' => 'vendor']);
+        $this->getJson($url)->assertOk()
+            ->assertJsonPath('total', 2)->assertJsonPath('last_page', 2)
+            ->assertJsonPath('placements.0.campaign_id', $suspendedCampaign['id']);
+        $this->getJson($url.'&page=2')->assertOk()
+            ->assertJsonPath('placements.0.campaign_id', $activeCampaign['id']);
+        $this->delivery($suspendedCampaign['id'], 'restored-vendor')->assertOk()
+            ->assertJsonPath('duplicate', false);
+        $this->delivery($suspendedCampaign['id'], 'restored-vendor')->assertOk()
+            ->assertJsonPath('duplicate', true);
+        $this->assertDatabaseHas('commercial_campaigns', [
+            'id' => $suspendedCampaign['id'], 'status' => 'approved',
+        ]);
+        $this->assertSame($receipts + 1, DB::table('commercial_campaign_deliveries')->count());
+        $this->assertSame($cash, DB::table('commercial_subscription_ledger')->count());
+        $this->assertSame($journals, DB::table('finance_journals')->count());
+    }
+
     public function test_unpaid_or_non_entitled_package_and_foreign_station_cannot_create_campaign(): void
     {
         $f = $this->fixture(paid: false);
