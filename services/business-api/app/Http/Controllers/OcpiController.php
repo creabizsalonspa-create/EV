@@ -43,6 +43,13 @@ class OcpiController extends Controller
         abort_unless(is_array(config('ocpi.connections.'.$v['connection_key'])), 422, 'Connection must first be provisioned in secure server configuration.');
 
         return DB::transaction(function () use ($r, $v, $client) {
+            // Recheck after request validation and lock the owner before
+            // creating an authorized provider. A suspended/transferred owner
+            // cannot race an administrative create into a public catalog.
+            $owner = User::whereKey($v['owner_id'])->lockForUpdate()->firstOrFail();
+            abort_unless($owner->role === 'vendor', 422, 'Provider owner must be a vendor.');
+            abort_if($v['authorized'] && $owner->account_status !== 'active', 409,
+                'Suspended partner owners cannot receive new provider authorization.');
             $provider = OcpiProvider::create($v);
             if ($provider->authorized) {
                 try {
