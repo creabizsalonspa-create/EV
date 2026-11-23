@@ -107,6 +107,34 @@ class OcpiPublicOwnerVisibilityTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_admin_can_reconcile_legacy_session_history_without_republishing_suspended_owner_locations(): void
+    {
+        $f = $this->fixture();
+        config(['ocpi.connections.visibility-fixture' => [
+            'origin' => 'https://peer.example',
+            'authorization_token' => base64_encode('offline-only-history'),
+        ]]);
+        $f['provider']->update([
+            'endpoints' => ['sessions' => 'https://peer.example/sessions'],
+        ]);
+        Http::fake(['https://peer.example/sessions' => Http::response([
+            'status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => [],
+        ])]);
+        $f['owner']->forceFill(['account_status' => 'suspended'])->save();
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+
+        $path = '/api/ocpi/providers/'.$f['provider']->id.'/sync/';
+        $this->postJson($path.'locations')->assertConflict();
+        $this->postJson($path.'sessions')->assertOk()->assertJsonPath('counts.created', 0)
+            ->assertJsonPath('billing_eligible', false)
+            ->assertJsonPath('remote_control', false);
+        $this->getJson('/api/roaming/locations')->assertOk()->assertJsonPath('total', 0);
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_changed_owner_role_is_not_public_approval_and_reactivation_restores_read_only_catalog(): void
     {
         $f = $this->fixture();
