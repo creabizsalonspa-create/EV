@@ -28,8 +28,17 @@ class _PartnerBillingState extends State<PartnerBillingPage>
   Map<String, dynamic>? report;
   String kind = 'all', message = '';
   Map<String, String> appliedFilters = {'kind': 'all'};
-  bool busy = false;
+  bool busy = false, foreground = true;
   int generation = 0;
+  bool active(int epoch) =>
+      mounted && foreground && current() && epoch == generation;
+  void invalidate() {
+    generation++;
+    report = null;
+    message = '';
+    busy = false;
+  }
+  void filterEdited(String value) => setState(invalidate);
   String t(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
   @override
@@ -37,7 +46,9 @@ class _PartnerBillingState extends State<PartnerBillingPage>
     super.initState();
     current = widget.api.sessionFence();
     WidgetsBinding.instance.addObserver(this);
-    load();
+    foreground = WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    if (foreground) load();
   }
 
   @override
@@ -45,21 +56,27 @@ class _PartnerBillingState extends State<PartnerBillingPage>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.api != widget.api ||
         oldWidget.providerId != widget.providerId) {
-      generation++;
+      invalidate();
       currency.clear();
       country.clear();
       party.clear();
-      report = null;
       appliedFilters = {'kind': 'all'};
       kind = 'all';
       current = widget.api.sessionFence();
-      load();
+      if (foreground) {
+        final api = widget.api;
+        final provider = widget.providerId;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && identical(widget.api, api) &&
+              provider == widget.providerId) load();
+        });
+      }
     }
   }
 
   @override
   void dispose() {
-    generation++;
+    invalidate();
     WidgetsBinding.instance.removeObserver(this);
     currency.dispose();
     country.dispose();
@@ -69,23 +86,22 @@ class _PartnerBillingState extends State<PartnerBillingPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed && mounted) {
-      generation++;
-      currency.clear();
-      country.clear();
-      party.clear();
-      setState(() {
-        report = null;
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) {
+        invalidate();
+        currency.clear();
+        country.clear();
+        party.clear();
         appliedFilters = {'kind': 'all'};
-        busy = false;
-        message = '';
         kind = 'all';
-      });
-    }
+      }
+    });
   }
 
   Future<void> load({int page = 1, bool applyFilters = false}) async {
-    if (!current()) return;
+    if (!foreground || !current() || page < 1 || page > 100000) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -108,7 +124,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
         'ocpi/providers/${widget.providerId}/billing-reconciliation',
         query: {...appliedFilters, 'page': '$page'},
       );
-      if (!mounted || !current() || epoch != generation) return;
+      if (!active(epoch)) return;
       if (result is! Map<String, dynamic> ||
           result['provider_id'] != widget.providerId ||
           result['schema_version'] != 1 ||
@@ -119,7 +135,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
         throw const FormatException('Unverified report');
       setState(() => report = result);
     } catch (error) {
-      if (!mounted || !current() || epoch != generation) return;
+      if (!active(epoch)) return;
       setState(
         () => message = t(
           'Report unavailable. Refresh current source state.',
@@ -129,20 +145,12 @@ class _PartnerBillingState extends State<PartnerBillingPage>
       if (error is ApiException && [401, 419].contains(error.status))
         widget.onExpired();
     } finally {
-      if (mounted && epoch == generation) {
-        setState(() {
-          busy = false;
-          if (!current()) {
-            report = null;
-            message = '';
-          }
-        });
-      }
+      if (active(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> pdf() async {
-    if (busy || report == null || !current()) return;
+    if (busy || report == null || !foreground || !current()) return;
     final epoch = generation;
     final query = {
       ...appliedFilters,
@@ -159,7 +167,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
         widget.providerId,
         query,
       );
-      if (!mounted || !current() || epoch != generation) return;
+      if (!active(epoch)) return;
       if (document.mime != 'application/pdf' ||
           document.bytes.length < 5 ||
           String.fromCharCodes(document.bytes.take(5)) != '%PDF-') {
@@ -178,7 +186,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
         ),
       );
     } catch (error) {
-      if (!mounted || !current() || epoch != generation) return;
+      if (!active(epoch)) return;
       setState(
         () => message = t(
           'Export unavailable. Narrow filters to at most 250 records and refresh.',
@@ -188,7 +196,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
       if (error is ApiException && [401, 419].contains(error.status))
         widget.onExpired();
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (active(epoch)) setState(() => busy = false);
     }
   }
 
@@ -298,7 +306,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
   }
 
   @override
-  Widget build(BuildContext context) => !current()
+  Widget build(BuildContext context) => !foreground || !current()
       ? Scaffold(
           body: Center(child: Text(t('Sign in again.', 'سجّل الدخول مجددًا.'))),
         )
@@ -320,11 +328,13 @@ class _PartnerBillingState extends State<PartnerBillingPage>
               TextField(
                 controller: currency,
                 maxLength: 3,
+                onChanged: filterEdited,
                 decoration: InputDecoration(labelText: t('Currency', 'العملة')),
               ),
               TextField(
                 controller: country,
                 maxLength: 2,
+                onChanged: filterEdited,
                 decoration: InputDecoration(
                   labelText: t('Country code', 'رمز الدولة'),
                 ),
@@ -332,6 +342,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
               TextField(
                 controller: party,
                 maxLength: 3,
+                onChanged: filterEdited,
                 decoration: InputDecoration(
                   labelText: t('Party ID', 'رمز الطرف'),
                 ),
@@ -351,7 +362,10 @@ class _PartnerBillingState extends State<PartnerBillingPage>
                 ],
                 onChanged: busy
                     ? null
-                    : (value) => setState(() => kind = value!),
+                    : (value) => setState(() {
+                        kind = value!;
+                        invalidate();
+                      }),
               ),
               TextButton(
                 onPressed: busy ? null : () => load(applyFilters: true),
