@@ -134,7 +134,9 @@ class SettlementService
 
         return DB::transaction(function () use ($vendor, $currency, $actor, $key) {
             User::whereKey($actor)->lockForUpdate()->firstOrFail();
-            User::whereKey($vendor)->where('role', 'vendor')->lockForUpdate()->firstOrFail();
+            $vendorAccount = User::whereKey($vendor)->where('role', 'vendor')->lockForUpdate()->firstOrFail();
+            abort_unless($vendorAccount->account_status === 'active', 409,
+                'A suspended vendor cannot reserve new payable settlements.');
             $requestKey = hash('sha256', $actor.':'.$key);
             if ($old = DB::table('commercial_settlements')->where('request_key', $requestKey)->first()) {
                 abort_unless((int) $old->vendor_id === $vendor && $old->currency === $currency, 409, 'Settlement key payload mismatch.');
@@ -162,7 +164,14 @@ class SettlementService
         return DB::transaction(function () use ($id, $actor, $action) {
             $hint = DB::table('commercial_settlements')->find($id);
             abort_unless($hint, 404);
-            User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
+            $vendorAccount = User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
+            // Reject remains available for supervised release of an old
+            // reservation; approval/execution must recheck current vendor status.
+            if ($action !== 'reject') {
+                abort_unless($vendorAccount->role === 'vendor'
+                    && $vendorAccount->account_status === 'active', 409,
+                    'Vendor payout approval is held until account review.');
+            }
             $s = DB::table('commercial_settlements')->where('id', $id)->lockForUpdate()->first();
             // Durable provider claims retain this reservation even after a timeout.
             // Cancel only a provably unsent/failed payout through its own workflow.
