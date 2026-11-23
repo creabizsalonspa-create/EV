@@ -36,6 +36,10 @@ const operationalLabels = {
     'Reported fault seconds',
     'ثواني الأعطال المبلغ عنها',
   ],
+  'reported_non_fault_unavailable_seconds': [
+    'Reported unavailable seconds without a fault',
+    'ثواني عدم التوفر المبلغ عنها دون عطل',
+  ],
   'maximum_observed_site_interval_average_w': [
     'Maximum sum of observed interval averages (W), not grid peak',
     'أقصى مجموع لمتوسطات الفترات المرصودة (واط)، وليس ذروة الشبكة',
@@ -158,6 +162,10 @@ class _OperationalState extends State<OperationalAnalyticsView>
       if (row is! Map || row['name'] is! String || !exact(row['site_id']))
         throw const FormatException('Invalid site');
       for (final key in operationalLabels.keys) {
+        if (key == 'reported_non_fault_unavailable_seconds' &&
+            !row.containsKey(key)) {
+          continue;
+        }
         if (key == 'maximum_observed_site_interval_average_w' &&
             row.containsKey(key) &&
             row[key] == null) {

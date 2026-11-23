@@ -1716,6 +1716,7 @@ window.createVendorWorkspace = ({
             status_known_seconds: "Fresh status evidence seconds",
             status_unknown_seconds: "Unknown connector seconds",
             reported_fault_seconds: "Reported fault seconds",
+            reported_non_fault_unavailable_seconds: "Reported unavailable seconds without a fault",
             maximum_session_interval_average_w:
                 "Maximum observed session interval average (W)",
             maximum_observed_site_interval_average_w:

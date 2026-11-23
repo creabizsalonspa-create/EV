@@ -68,6 +68,22 @@ void main() {
     expect(find.textContaining('Inexact source metric'), findsNothing);
   });
   testWidgets(
+    'reported unavailable seconds remain separate from fault evidence',
+    (tester) async {
+      await tester.pumpWidget(app(OpsApi(), () {}));
+      await tester.pumpAndSettle();
+      final metric = find.text(
+        'Reported unavailable seconds without a fault: 0',
+      );
+      await tester.scrollUntilVisible(
+        metric,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(metric, findsOneWidget);
+    },
+  );
+  testWidgets(
     'source metrics render without authority promotion and stale accounts clear report',
     (tester) async {
       final api = OpsApi();
