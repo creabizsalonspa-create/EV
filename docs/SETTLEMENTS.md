@@ -66,3 +66,28 @@ not create payment/refund/settlement transactions, edit canonical journals
 or enable real payouts. Exact-head Finance/Platform CI and Agent 5 merge
 are still required; original 3.5.9 remains partial until all required
 surfaces and integrated verification are complete.
+
+
+## Reconciliation audit exact-source safety (Agent 3 continuation)
+
+`InvoiceReconciliationAudit::inspect()` now verifies exact signed
+minor-unit source values **before** its legacy integer casts, for the
+immutable invoice components, source journals, posted debit/credit entries,
+payments, refunds and unpaid credits. It rejects PHP float/boolean,
+non-integral decimal strings and source totals outside the ±(2^53−1)
+browser-safe bound with HTTP 409 rather than misreporting a rounded damaged
+source as `reconciled`. Signed negative accounting anomalies inside the
+exact range remain available for the original mismatch classifiers; no
+journal is silently corrected, recalculated or written. Per-invoice
+refunded component, journal-entry and collection aggregate sums receive
+the same exact-bound checks before serialization.
+
+The finance reconciliation CSV formula-literal guard now also recognizes
+Unicode separation/format/control characters such as nonbreaking space,
+zero-width space, bidi controls and BOM preceding an initial formula
+introducer. Added private audit feature regressions for exact numeric
+limits, rejected float/boolean/exponent sources and Unicode-hidden
+formula prefixes; existing legitimate API and immutable journal tests
+remain the required regression gates. This remains an internal
+simulation-backed audit, **not** automatic live PSP/bank reconciliation.
+All changes require exact-head Finance/Platform CI and Agent 5 integration.
