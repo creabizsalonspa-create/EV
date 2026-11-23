@@ -706,8 +706,10 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
   Future<void> run(String action, {int number = 1, int? coupon}) async {
     final op = operation;
     final ownerId = owner;
+    final api = widget.api;
+    final fence = ownsSession;
     if (busy ||
-        !ownsSession() ||
+        !scoped(api, fence) ||
         op == null ||
         ownerId == null ||
         (action == 'claim' && capability?.enabled != true))
@@ -745,15 +747,16 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
     final read = action == 'claims' || action == 'eligible';
     final endpoint = coupon == null ? action : 'eligible/$coupon/claim';
     final epoch = ++generation;
+    bool current() => generation == epoch && scoped(api, fence);
     setState(() {
       busy = true;
       message = null;
     });
     try {
       final staged = intent == null ? null : await op.prepare(intent);
-      if (!mounted || epoch != generation || !ownsSession()) return;
+      if (!current()) return;
       final key = staged?['idempotency_key'] ?? pending?['key'];
-      final result = await widget.api.request(
+      final result = await api.request(
         'commercial/coupons/$endpoint',
         method: read ? 'GET' : 'POST',
         query: read ? {'page': '$number'} : const {},
@@ -764,7 +767,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
                 if (action == 'claim' && coupon == null) 'code': entered,
               },
       );
-      if (!mounted || epoch != generation || !ownsSession()) return;
+      if (!current()) return;
       if (action == 'eligible') {
         final parsed = ApiPage.fromJson(result, offer);
         setState(() {
@@ -797,7 +800,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           }
         }
         await op.confirmed();
-        if (!mounted || epoch != generation || !ownsSession()) return;
+        if (!current()) return;
         setState(() {
           clearRecords();
           receipts = [row];
@@ -814,7 +817,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
         throw const FormatException('Missing coupon receipt');
       }
     } catch (error) {
-      if (!mounted || epoch != generation) return;
+      if (!current()) return;
       if (error is ApiException && error.endsCurrentSession) {
         setState(() {
           operation = null;
@@ -824,7 +827,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           message = null;
         });
         widget.onExpired();
-      } else if (ownsSession()) {
+      } else if (current()) {
         setState(() {
           if (read) {
             clearRecords();
@@ -848,7 +851,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
         });
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current()) setState(() => busy = false);
     }
   }
 
