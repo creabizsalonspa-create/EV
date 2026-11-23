@@ -120,7 +120,7 @@ void main() {
         throwsFormatException);
     expect(() => verify(document(csv([row()]), mime: 'application/pdf')),
         throwsFormatException);
-    expect(() => verify(document('X' * 70000)), throwsFormatException);
+    expect(() => verify(document(List.filled(70000, 'X').join())), throwsFormatException);
   });
 
   test('rejects changed amounts, truncated rows, extra rows and column reorder',
