@@ -13,6 +13,20 @@ final class FinanceApprovalQueueController extends Controller
 {
     private const MAX_BROWSER_MINOR = 9_007_199_254_740_991;
 
+    /** Verify signed source values before numeric coercion in Admin review. */
+    private static function exactMinor(mixed $value): int
+    {
+        abort_unless(is_int($value) || is_string($value), 409,
+            'Financial approval source is not an exact integer.');
+        $amount = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($amount !== false &&
+            $amount <= self::MAX_BROWSER_MINOR &&
+            $amount >= -self::MAX_BROWSER_MINOR,
+            409, 'Financial approval amount exceeds browser-safe integer bounds.');
+
+        return $amount;
+    }
+
     public function index(Request $request)
     {
         // Keep the live Admin identity locked until all private review rows
@@ -71,14 +85,9 @@ final class FinanceApprovalQueueController extends Controller
         abort_if($sourceGroups->count() > 200, 422,
             'Narrow the review queue filters before summarizing more than 200 financial scopes.');
         $groups = $sourceGroups->map(static function ($group): array {
-            $amount = filter_var($group->signed_amount_minor, FILTER_VALIDATE_INT);
-            $count = filter_var($group->review_count, FILTER_VALIDATE_INT);
-            abort_if($amount === false ||
-                $amount > self::MAX_BROWSER_MINOR ||
-                $amount < -self::MAX_BROWSER_MINOR ||
-                $count === false || $count < 0 ||
-                $count > self::MAX_BROWSER_MINOR,
-                409, 'Financial approval group exceeds exact integer bounds.');
+            $amount = self::exactMinor($group->signed_amount_minor);
+            $count = self::exactMinor($group->review_count);
+            abort_if($count < 0, 409, 'Financial approval group count is invalid.');
 
             return [
                 'kind' => $group->kind,
@@ -97,10 +106,7 @@ final class FinanceApprovalQueueController extends Controller
         return response()->json([
             'data' => $page->getCollection()->map(static function ($row): array {
                 // Refuse silently rounded JSON amounts in Customer/Vendor/Admin.
-                $amount = filter_var($row->amount_minor, FILTER_VALIDATE_INT);
-                abort_if($amount === false || $amount > self::MAX_BROWSER_MINOR ||
-                    $amount < -self::MAX_BROWSER_MINOR, 409,
-                    'Financial approval amount exceeds browser-safe integer bounds.');
+                $amount = self::exactMinor($row->amount_minor);
 
                 return [
                     'kind' => $row->kind,
