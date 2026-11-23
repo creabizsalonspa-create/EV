@@ -6,16 +6,16 @@ use App\Http\Controllers\OcpiController;
 use App\Http\Controllers\OcpiProvisioningController;
 use App\Models\OcpiProvider;
 use App\Models\User;
-use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\PartnerBillingExport;
 use App\Services\Ocpi\PartnerBillingReconciliation;
+use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Tests\TestCase;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\TestCase;
 
 class OcpiOwnerEligibilityTest extends TestCase
 {
