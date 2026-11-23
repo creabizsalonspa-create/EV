@@ -196,6 +196,52 @@ class ChargerDiagnosticsTest extends TestCase
         $this->assertSame(1, DB::table('audit_events')->where('action', 'vendor_ops.charging_fault.acknowledged')->count());
     }
 
+    #[DataProvider('protocols')]
+    public function test_only_explicit_noerror_recovers_ocpp16_fault_and_advertises_available(string $protocol): void
+    {
+        [, , $charger] = $this->fixture($protocol);
+        $binding = DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->first();
+        $monitor = app(FaultMonitor::class);
+        $generation = FaultMonitor::generation($binding);
+        $this->travelTo(now()->startOfSecond());
+
+        $fault = $this->statusEvent(10, 'Faulted', 3);
+        $ambiguous = $this->statusEvent(20, 'Available', 2);
+        $ambiguous['errorCode'] = null;
+        $cleared = $this->statusEvent(30, 'Available', 1);
+        DB::transaction(function () use ($monitor, $binding, $generation, $protocol, $fault, $ambiguous, $cleared) {
+            $this->assertSame(1, $monitor->ingest($binding, [
+                'source_generation' => $generation, 'events' => [$fault, $ambiguous],
+            ]));
+            $alert = DB::table('charging_fault_alerts')->first();
+            $this->assertNotNull($alert);
+            if ($protocol === '1.6') {
+                $this->assertNull($alert->recovery_observation_id,
+                    'A missing 1.6 fault code cannot prove a cleared charger fault.');
+            } else {
+                $this->assertNotNull($alert->recovery_observation_id,
+                    '2.0.1 status does not require a 1.6 errorCode.');
+            }
+            $view = app(\\App\\Services\\Charging\\ConnectorFreshness::class)
+                ->present($binding, 1, 1);
+            $this->assertSame($protocol === '1.6' ? 'unknown' : 'recent', $view['state']);
+            $this->assertSame($protocol === '1.6' ? null : 'Available', $view['reported_status']);
+            $this->assertSame(0, $monitor->ingest($binding, [
+                'source_generation' => $generation, 'events' => [$cleared],
+            ]));
+            $this->assertNotNull(DB::table('charging_fault_alerts')->value('recovery_observation_id'));
+            $available = app(\\App\\Services\\Charging\\ConnectorFreshness::class)
+                ->present($binding, 1, 1);
+            $this->assertSame('recent', $available['state']);
+            $this->assertSame('Available', $available['reported_status']);
+        });
+        $this->assertDatabaseCount('charging_status_observations', 3);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_backward_source_pages_recover_old_faults_and_changed_replay_is_rejected(): void
     {
         [$owner, , $charger] = $this->fixture();
