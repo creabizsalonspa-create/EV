@@ -15,6 +15,7 @@ class PrivateListApi extends FixtureApi {
   int identity = 0;
   int reads = 0;
   bool deny = false;
+  bool malformedRefund = false, malformedCase = false;
   Completer<dynamic>? delayed;
 
   @override
@@ -63,7 +64,15 @@ class PrivateListApi extends FixtureApi {
     delayed = null;
     if (waiting != null) return waiting.future;
     if (deny) throw const ApiException(401, 'Private diagnostic');
-    return response(path);
+    final data = response(path);
+    final records = data['data'] as List;
+    if (path == 'finance/refund-requests' && malformedRefund) {
+      (records.single as Map<String, dynamic>)['id'] = 'forged-id';
+    }
+    if (path == 'commercial/cases' && malformedCase) {
+      (records.single as Map<String, dynamic>)['status'] = 'invented_paid';
+    }
+    return data;
   }
 }
 
@@ -196,4 +205,40 @@ void main() {
     expect(expired, 1);
     expect(find.text('Private diagnostic'), findsNothing);
   });
+  testWidgets('malformed financial history fails closed until explicit valid refresh', (
+    tester,
+  ) async {
+    final api = PrivateListApi('Valid refund')..malformedRefund = true;
+    await tester.pumpWidget(screen(RefundRequestsView(
+      api: api,
+      role: 'customer',
+      onExpired: () {},
+    )));
+    await tester.pumpAndSettle();
+    expect(find.text('Valid refund'), findsNothing);
+    expect(api.reads, 1);
+    api.malformedRefund = false;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Valid refund'), findsOneWidget);
+    expect(api.reads, 2);
+  });
+
+  testWidgets('forged payment case outcome cannot appear or open private evidence', (
+    tester,
+  ) async {
+    final api = PrivateListApi('Untrusted case')..malformedCase = true;
+    await tester.pumpWidget(screen(PaymentCasesView(
+      api: api,
+      onExpired: () {},
+    )));
+    await tester.pumpAndSettle();
+    expect(find.text('Untrusted case'), findsNothing);
+    expect(find.text('Private evidence'), findsNothing);
+    api.malformedCase = false;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Untrusted case'), findsOneWidget);
+  });
+
 }
