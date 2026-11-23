@@ -133,6 +133,19 @@ class EvApi {
   final SessionVault? vault;
   bool _remembered = false;
   int _epoch = 0;
+  // Synchronous, privacy-only invalidation signal. Every mounted native
+  // financial document/report can clear old account data immediately when
+  // an authenticated context changes, without polling or trusting an old
+  // request to complete. The event has no cookie, user ID or token.
+  final StreamController<int> _sessionEvents =
+      StreamController<int>.broadcast(sync: true);
+  Stream<int> get sessionEvents => _sessionEvents.stream;
+
+  void _invalidateSessionGeneration() {
+    _epoch++;
+    if (!_sessionEvents.isClosed) _sessionEvents.add(_epoch);
+  }
+
   // Block UI requests that could use an old account while credentials change.
   int? _authTransitionEpoch;
   String? _authTransitionOperation;
@@ -162,7 +175,7 @@ class EvApi {
 
   Future<void> forgetSession() async {
     // Invalidate pending saves before deletion; a late response cannot recreate it.
-    _epoch++;
+    _invalidateSessionGeneration();
     try {
       if (vault != null)
         await _vaultOperation(() => vault!.delete(base.origin));
@@ -793,10 +806,11 @@ class EvApi {
   }
 
   void close() {
-    _epoch++;
+    _invalidateSessionGeneration();
     _remembered = false;
     _cookies.clear();
     _csrf = null;
+    _sessionEvents.close();
     _http.close(force: true);
   }
 }
