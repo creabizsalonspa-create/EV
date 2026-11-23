@@ -347,6 +347,9 @@ void main() {
     final inflated = api.quality();
     (inflated['samples'] as List).first['stale_count'] = 99;
     expect(catalogQualityHistoryValid(inflated, providerId: 7), isFalse);
+    final misleading = api.quality();
+    (misleading['samples'] as List).first['state'] = 'within_policy';
+    expect(catalogQualityHistoryValid(misleading, providerId: 7), isFalse);
     final promoted = api.quality()..['source_covers_whole_network'] = true;
     expect(catalogQualityHistoryValid(promoted, providerId: 7), isFalse);
     final stale = api.quality();
