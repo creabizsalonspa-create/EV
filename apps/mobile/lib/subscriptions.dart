@@ -114,6 +114,25 @@ String subscriptionText(BuildContext c, String k) =>
         : subscriptionEn)[k] ??
     subscriptionEn['unknown']!;
 
+/// Freeze validated invoice, entitlement and owner evidence before a client
+/// retains it. A mutable fixture/transport map must never rewrite accepted
+/// financial source metadata after the account authorization check.
+dynamic _immutableSubscriptionValue(dynamic value) {
+  if (value is Map) {
+    return Map<String, dynamic>.unmodifiable(value.map(
+      (key, item) => MapEntry(
+        key as String, _immutableSubscriptionValue(item),
+      ),
+    ));
+  }
+  if (value is List) {
+    return List<dynamic>.unmodifiable(
+      value.map(_immutableSubscriptionValue),
+    );
+  }
+  return value;
+}
+
 /// Server summary validation is shared by reads and mutation acknowledgements.
 /// A response for another subscription/owner never clears a pending operation.
 Map<String, dynamic> subscriptionSummary(dynamic value, int owner, {int? id}) {
@@ -140,7 +159,7 @@ Map<String, dynamic> subscriptionSummary(dynamic value, int owner, {int? id}) {
       throw const FormatException('Unsupported invoice evidence.');
     }
   }
-  return data;
+  return _immutableSubscriptionValue(data) as Map<String, dynamic>;
 }
 
 List<String> subscriptionActions(Map<String, dynamic> sub, {DateTime? now}) {
