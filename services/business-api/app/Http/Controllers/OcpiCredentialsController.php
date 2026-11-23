@@ -18,9 +18,33 @@ class OcpiCredentialsController extends Controller
 {
     public function status(Request $r, OcpiProvider $provider, CredentialExchange $exchange)
     {
-        abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $r->user()->id === $provider->owner_id), 404);
-        $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
-        $configured = true;
+        return DB::transaction(function () use ($r, $provider, $exchange) {
+            // Private credential and module metadata is tied to the current
+            // authenticated identity, not a stale request/session snapshot.
+            $snapshot = $r->user();
+            abort_unless($snapshot instanceof User &&
+                ($snapshot->role === 'admin' ||
+                    ($snapshot->role === 'vendor' && (int) $snapshot->id === (int) $provider->owner_id)), 404);
+            $actor = User::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
+            abort_unless($actor->account_status === 'active' &&
+                in_array($actor->role, ['vendor', 'admin'], true), 403);
+            abort_unless($actor->role === $snapshot->role &&
+                (int) $actor->auth_epoch === (int) $snapshot->auth_epoch &&
+                hash_equals((string) $actor->password, (string) $snapshot->password),
+                409, 'Account credentials changed. Sign in again.');
+
+            // Serialize provider ownership and credential-state reads with
+            // account revocation and administrative partner changes. Lock
+            // owner before provider, matching the existing onboarding order.
+            $owner = (int) $actor->id === (int) $provider->owner_id
+                ? $actor : User::whereKey($provider->owner_id)->lockForUpdate()->first();
+            $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            abort_unless($owner && (int) $owner->id === (int) $provider->owner_id,
+                409, 'Provider ownership changed. Reload to review current credentials.');
+            abort_unless($actor->role === 'admin' ||
+                (int) $actor->id === (int) $provider->owner_id, 404);
+            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+            $configured = true;
         $receiverModules = [];
         try {
             $exchange->configuration($provider);
@@ -45,8 +69,7 @@ class OcpiCredentialsController extends Controller
             $state = 'enrollment_expired';
         }
         $actions = [];
-        $owner = User::find($provider->owner_id);
-        $ownerVendor = $owner?->role === 'vendor';
+        $ownerVendor = $owner->role === 'vendor';
         $ownerActive = $ownerVendor && $owner->account_status === 'active';
         if ($configured && $provider->authorized && $r->user()->role === 'admin' && $ownerVendor) {
             if ($state === 'active') {
@@ -88,6 +111,7 @@ class OcpiCredentialsController extends Controller
         );
 
         return response()->json(['capability_matrix' => $capabilities, 'configured_receiver_modules' => $receiverModules, 'active_receiver_modules' => $activeReceivers, 'configured' => $configured, 'state' => $state, 'generation' => $link->generation ?? 0, 'exchanged_at' => $link->exchanged_at ?? null, 'bootstrap_expires_at' => $link->bootstrap_expires_at ?? null, 'available_actions' => $actions, 'partner_acceptance_verified' => false, 'charging_commands_enabled' => false, 'billing_eligible' => false, 'operations' => DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)->orderByDesc('id')->paginate(25, ['id', 'generation', 'action', 'state', 'attempted_at', 'completed_at', 'created_at'])->toArray()])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function exchange(Request $r, OcpiProvider $provider, CredentialExchange $exchange)
