@@ -57,11 +57,13 @@ class OcpiProvisioningController extends Controller
 
     public function owners(Request $request)
     {
-        $v = $request->validate(['q' => 'nullable|string|max:80']);
-        $page = $this->currentAdminRead($request, static fn () => User::where('role', 'vendor')
-            ->where('account_status', 'active')
-            ->when(trim($v['q'] ?? '') !== '', fn ($q) => $q->where('name', 'like', '%'.trim($v['q']).'%'))
-            ->orderBy('id')->paginate(25, ['id', 'name']));
+        $page = $this->currentAdminRead($request, static function () use ($request) {
+            $v = $request->validate(['q' => 'nullable|string|max:80']);
+
+            return User::where('role', 'vendor')->where('account_status', 'active')
+                ->when(trim($v['q'] ?? '') !== '', fn ($q) => $q->where('name', 'like', '%'.trim($v['q']).'%'))
+                ->orderBy('id')->paginate(25, ['id', 'name']);
+        });
 
         return response()->json($page)->header('Cache-Control', 'private, no-store');
     }
