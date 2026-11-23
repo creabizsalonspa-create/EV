@@ -1,0 +1,225 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\Charging\ConnectorMapping;
+use App\Models\Charging\Evse;
+use App\Models\Station;
+use App\Models\User;
+use App\Models\VendorOps\VendorCharger;
+use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorConnector;
+use App\Models\VendorOps\VendorSite;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Factory;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Tests\TestCase;
+
+class ChargerLiveConnectorsTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function fixture(string $protocol = '1.6'): array
+    {
+        Http::preventStrayRequests();
+        config([
+            'csms.session_bridge_enabled' => true,
+            'csms.graphql_secret' => str_repeat('x', 64),
+            'csms.graphql_url' => 'https://source.test/graphql',
+        ]);
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $station = Station::create([
+            'vendor_id' => $owner->id, 'name' => 'Live source simulator',
+            'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai',
+            'latitude' => 25, 'longitude' => 55, 'source' => 'simulator',
+            'connector_type' => 'CCS2', 'power_kw' => 50,
+        ]);
+        $company = VendorCompany::create([
+            'owner_id' => $owner->id, 'legal_name' => 'Synthetic owner',
+            'country' => 'AE', 'trade_license_number' => 'SYNTHETIC',
+            'license_expires_on' => now()->addYear()->toDateString(),
+            'status' => 'approved',
+        ]);
+        $site = VendorSite::create([
+            'company_id' => $company->id, 'station_id' => $station->id,
+            'name' => 'Local', 'country' => 'AE', 'timezone' => 'Asia/Dubai',
+            'address' => 'Synthetic', 'latitude' => 25, 'longitude' => 55,
+        ]);
+        $charger = VendorCharger::create([
+            'company_id' => $company->id, 'site_id' => $site->id,
+            'asset_reference' => 'LIVE-'.$protocol, 'manufacturer' => 'Synthetic',
+            'model' => 'Fixture', 'source' => 'simulator', 'ocpp_protocol' => $protocol,
+        ]);
+        $binding = DB::table('csms_bindings')->insertGetId([
+            'station_id' => $station->id, 'vendor_charger_id' => $charger->id,
+            'identifier' => 'ev-test-live-'.$charger->id, 'protocol' => $protocol,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $evse = Evse::create([
+            'charger_id' => $charger->id, 'number' => 1, 'mode' => 'csms',
+            'binding_id' => $binding,
+            'source_evse_number' => $protocol === '1.6' ? 0 : 1,
+        ]);
+        for ($number = 1; $number <= 2; $number++) {
+            $connector = VendorConnector::create([
+                'charger_id' => $charger->id, 'connector_number' => $number,
+                'connector_type' => 'CCS2', 'max_power_kw' => 50,
+            ]);
+            ConnectorMapping::create([
+                'station_id' => $station->id, 'evse_id' => $evse->id,
+                'connector_id' => $connector->id,
+                'source_connector_number' => $number,
+            ]);
+        }
+
+        return [
+            'owner' => $owner, 'company' => $company, 'charger' => $charger,
+            'url' => '/api/vendor-ops/companies/'.$company->id.'/chargers/'.$charger->id.'/live-connectors',
+            'protocol' => $protocol,
+        ];
+    }
+
+    private function source(array $fixture, string $case = 'healthy'): void
+    {
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        $stationReads = 0;
+        Http::fake(function ($request) use ($fixture, $case, &$stationReads) {
+            $this->assertSame('https://source.test/graphql', $request->url());
+            $this->assertSame(str_repeat('x', 64), $request->header('x-hasura-admin-secret')[0] ?? null);
+            if (str_contains($request['query'], 'ChargingStations')) {
+                $stationReads++;
+                $row = [
+                    'id' => 42, 'protocol' => $fixture['protocol'],
+                    'isOnline' => $case !== 'offline',
+                    'chargePointVendor' => 'Synthetic', 'chargePointModel' => 'Fixture',
+                    'firmwareVersion' => 'sim-fw',
+                    'latestOcppMessageTimestamp' => $case === 'stale'
+                        ? now()->subMinutes(10)->toISOString() : now()->toISOString(),
+                ];
+                if ($stationReads === 2 && $case === 'firmware_changed') {
+                    $row['firmwareVersion'] = 'unreviewed-fw';
+                }
+                if ($stationReads === 2 && $case === 'disconnected') {
+                    $row['isOnline'] = false;
+                }
+
+                return Http::response(['data' => ['ChargingStations' => [$row]]]);
+            }
+            if ($case === 'revoke_during_read') {
+                DB::table('users')->where('id', $fixture['owner']->id)->increment('auth_epoch');
+            }
+            $events = [
+                [
+                    'id' => 12, 'connectorDatabaseId' => 8,
+                    'evseId' => $fixture['protocol'] === '1.6' ? 0 : 1,
+                    'connectorId' => 2, 'connectorStatus' => 'Charging',
+                    'errorCode' => null, 'timestamp' => now()->subSeconds(30)->toISOString(),
+                ],
+                [
+                    'id' => 11, 'connectorDatabaseId' => 7,
+                    'evseId' => $fixture['protocol'] === '1.6' ? 0 : 1,
+                    'connectorId' => 1, 'connectorStatus' => 'Available',
+                    'errorCode' => 'NoError', 'timestamp' => now()->subMinute()->toISOString(),
+                ],
+            ];
+            if ($case === 'unknown_connector') {
+                $events[0]['connectorDatabaseId'] = 999;
+            }
+            if ($case === 'wrong_target') {
+                $events[0]['connectorId'] = 3;
+            }
+            if ($case === 'duplicate_target') {
+                $events[0]['connectorId'] = 1;
+            }
+            if ($case === 'clock_regressed') {
+                $events[1]['timestamp'] = now()->toISOString();
+            }
+            if ($case === 'invalid_status') {
+                $events[1]['connectorStatus'] = 'DISPATCH_AUTHORIZED';
+            }
+            if ($case === 'source_stale_event') {
+                $events[0]['timestamp'] = now()->subMinutes(12)->toISOString();
+                $events[1]['timestamp'] = now()->subMinutes(13)->toISOString();
+            }
+
+            return Http::response(['data' => [
+                'Connectors' => [['id' => 7], ['id' => 8]],
+                'StatusNotifications' => $events,
+            ]]);
+        });
+    }
+
+    public function test_read_only_live_connector_statuses_are_scoped_and_not_physical_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $this->source($f);
+            $this->actingAs($f['owner'])->getJson($f['url'])->assertOk()
+                ->assertJsonPath('evidence', 'SIMULATED_CSMS_SOURCE')
+                ->assertJsonPath('protocol', $protocol)
+                ->assertJsonPath('source_topology_matches_local', true)
+                ->assertJsonPath('source_identity_rechecked', true)
+                ->assertJsonPath('physical_availability_verified', false)
+                ->assertJsonPath('remote_control_authorized', false)
+                ->assertJsonPath('commands_sent', false)
+                ->assertJsonCount(2, 'connectors')
+                ->assertJsonPath('connectors.0.source_connector_number', 1)
+                ->assertJsonPath('connectors.0.reported_status', 'Available')
+                ->assertJsonPath('connectors.0.state', 'recent')
+                ->assertJsonPath('connectors.0.physical_available', false)
+                ->assertJsonPath('connectors.1.reported_status', 'Charging');
+            Http::assertSentCount(3);
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+            $this->assertDatabaseCount('charging_status_observations', 0);
+        }
+    }
+
+    public function test_offline_stale_or_unmatched_source_never_promotes_connector_availability(): void
+    {
+        foreach (['offline', 'stale', 'disconnected', 'wrong_target', 'source_stale_event'] as $state) {
+            $f = $this->fixture();
+            $this->source($f, $state);
+            $result = $this->actingAs($f['owner'])->getJson($f['url'])->assertOk()
+                ->assertJsonPath('physical_availability_verified', false)
+                ->assertJsonPath('commands_sent', false);
+            $this->assertFalse($result->json('source_online') && $state !== 'wrong_target' && $state !== 'source_stale_event');
+            $this->assertNotSame('recent', $result->json('connectors.0.state') === 'recent' &&
+                $result->json('connectors.1.state') === 'recent' ? 'recent' : 'review');
+            $this->assertDatabaseCount('charger_commands', 0);
+        }
+    }
+
+    public function test_tampered_id_event_order_status_or_station_identity_fail_closed_without_leaking_source(): void
+    {
+        foreach (['unknown_connector', 'duplicate_target', 'clock_regressed',
+            'invalid_status', 'firmware_changed', 'revoke_during_read'] as $state) {
+            $f = $this->fixture();
+            $this->source($f, $state);
+            $response = $this->actingAs($f['owner'])->getJson($f['url']);
+            $this->assertContains($response->status(), [403, 409, 503]);
+            $response->assertDontSee(str_repeat('x', 64));
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        }
+    }
+
+    public function test_unrelated_vendor_and_production_environment_have_no_live_source_access(): void
+    {
+        $f = $this->fixture();
+        $this->source($f);
+        $this->actingAs(User::factory()->create(['role' => 'vendor']))
+            ->getJson($f['url'])->assertNotFound();
+        Http::assertNothingSent();
+        $old = app()->environment();
+        try {
+            app()->detectEnvironment(fn () => 'production');
+            $this->actingAs($f['owner'])->getJson($f['url'])->assertServiceUnavailable();
+            Http::assertNothingSent();
+        } finally {
+            app()->detectEnvironment(fn () => $old);
+        }
+    }
+}
