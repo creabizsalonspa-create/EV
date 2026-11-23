@@ -287,6 +287,83 @@ test("self-service captures a real private reason without claiming automated del
   assert.equal(details.value, "");
 });
 
+
+test("Admin private reviewer notes, owner identifiers and actions disappear on tab hide",async()=>{
+  const ui=fixture();const calls=[];
+  const privateRecord={
+    ...record, kind:"access", status:"reviewing",
+    details:"PRIVATE REVIEWER CASE FOR OTHER PERSON",
+    owner:{id:3,name:"PRIVATE CUSTOMER NAME",email:"private.owner@example.test"},
+  };
+  ui.setAdminActor({id:4,role:"admin"},async(path,method="GET")=>{
+    calls.push({path,method});
+    return page([privateRecord]);
+  });
+  await tick();
+  assert.match(ui.admin.textContent,/PRIVATE REVIEWER CASE FOR OTHER PERSON/);
+  const notes=nodes(ui.admin,"textarea");
+  const passwords=nodes(ui.admin,"input").filter(x=>x.type==="password");
+  assert.equal(notes.length,1);
+  assert.equal(passwords.length,1);
+  notes[0].value="PRIVATE INTERNAL DECISION BEFORE HIDE";
+  passwords[0].value="PRIVATE ADMIN REAUTHENTICATION";
+  const oldDecision=nodes(ui.admin,"form").find(f=>nodes(f,"textarea").length);
+  assert.ok(oldDecision);
+  ui.hide();
+  assert(!ui.admin.textContent.includes("PRIVATE CUSTOMER NAME"));
+  assert(!ui.admin.textContent.includes("private.owner@example.test"));
+  assert(!ui.admin.textContent.includes("PRIVATE REVIEWER CASE"));
+  assert.equal(notes[0].value,"");
+  assert.equal(passwords[0].value,"");
+  assert.equal(nodes(ui.admin,"article").length,0);
+  ui.show();
+  assert.equal(calls.length,1,"resume must not auto-fetch Admin queue");
+  await oldDecision.onsubmit({preventDefault(){}});
+  assert.equal(calls.length,1,"detached decision cannot run after hide");
+  const filters=nodes(ui.admin,"form").find(f=>f.attributes["aria-label"]==="Admin privacy request filters");
+  await filters.onsubmit({preventDefault(){}});
+  await tick();
+  assert.equal(calls.length,2);
+  assert.match(ui.admin.textContent,/PRIVATE CUSTOMER NAME/);
+  assert(calls.every(c=>c.method==="GET"));
+});
+
+test("Admin initially hidden queue requires explicit foreground filter submission",async()=>{
+  const ui=fixture();let reads=0;
+  ui.hide();
+  ui.setAdminActor({id:4,role:"admin"},async()=>{reads++;return page([])});
+  await tick();assert.equal(reads,0);
+  ui.show();await tick();assert.equal(reads,0);
+  const filters=nodes(ui.admin,"form").find(f=>f.attributes["aria-label"]==="Admin privacy request filters");
+  assert.ok(filters);
+  await filters.onsubmit({preventDefault(){}});
+  await tick();
+  assert.equal(reads,1);
+});
+
+test("pending Admin private queue GET cannot reveal account data across BFCache restore",async()=>{
+  const ui=fixture();
+  let release,reads=0;
+  const pending=new Promise(resolve=>{release=resolve});
+  ui.setAdminActor({id:4,role:"admin"},async()=>{
+    reads++;
+    return reads===1?pending:page([{...record,details:"CURRENT ADMIN DATA",
+      owner:{id:3,name:"Fresh owner"}}]);
+  });
+  ui.pagehide();
+  ui.show();
+  release(page([{...record,details:"PRIVATE OLD BFCache DATA",
+    owner:{id:3,name:"Stale owner"}}]));
+  await tick();await tick();
+  assert(!ui.admin.textContent.includes("PRIVATE OLD BFCache DATA"));
+  const filters=nodes(ui.admin,"form").find(f=>f.attributes["aria-label"]==="Admin privacy request filters");
+  await filters.onsubmit({preventDefault(){}});
+  await tick();
+  assert.equal(reads,2);
+  assert.match(ui.admin.textContent,/CURRENT ADMIN DATA/);
+  assert(!ui.admin.textContent.includes("Stale owner"));
+});
+
 test("Admin can filter and record a stage transition with expected prior state", async () => {
   const ui = fixture(),
     calls = [];

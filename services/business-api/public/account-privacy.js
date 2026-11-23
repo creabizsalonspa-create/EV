@@ -78,7 +78,7 @@ window.EvPrivacyRequests = (() => {
             state.request !== null &&
             state.generation === generation &&
             !controller.signal.aborted &&
-            (state !== states.mine || !document.hidden)
+            !document.hidden
         );
     }
 
@@ -504,6 +504,16 @@ window.EvPrivacyRequests = (() => {
         message.setAttribute("role", "status");
         const results = el("div");
         state.root.append(filters, message, results);
+        const viewGeneration = state.generation;
+        state.onHide = () => {
+            if (viewGeneration !== state.generation || !state.request) return;
+            // Admin queues contain other peoples' identifiers and internal
+            // reviewer notes. A hidden page or BFCache entry must not retain
+            // those records or an actionable prior decision form.
+            results.replaceChildren();
+            message.textContent =
+                "Private review queue closed. Return and apply filters to reload. / أُغلقت قائمة المراجعة الخاصة. ارجع وطبّق المرشحات لإعادة التحميل.";
+        };
 
         const allowed = {
             pending: ["reviewing", "blocked_external"],
@@ -513,7 +523,8 @@ window.EvPrivacyRequests = (() => {
             withdrawn: [],
         };
         async function load(page = 1) {
-            if (!state.request) return;
+            if (!state.request || document.hidden ||
+                viewGeneration !== state.generation) return;
             state.controller?.abort();
             const controller = new AbortController();
             state.controller = controller;
@@ -683,6 +694,9 @@ window.EvPrivacyRequests = (() => {
                             choices.map((v) => [v, v.replaceAll("_", " ")]),
                         );
                         const note = el("textarea");
+                        // This is an internal private explanation, not a
+                        // durable draft across background/logout transitions.
+                        state.secrets.add(note);
                         note.minLength = 10;
                         note.maxLength = 2000;
                         note.required = true;
@@ -762,6 +776,8 @@ window.EvPrivacyRequests = (() => {
         }
         filters.onsubmit = (event) => {
             event.preventDefault();
+            if (viewGeneration !== state.generation ||
+                document.hidden || !state.request) return;
             load(1);
         };
         load(1);
@@ -778,7 +794,9 @@ window.EvPrivacyRequests = (() => {
         // Abort its previous read/controller so it cannot restore private
         // history or withdrawal/export actions without an explicit refresh.
         states.mine.controller?.abort();
+        states.admin.controller?.abort();
         states.mine.onHide?.();
+        states.admin.onHide?.();
         wipeSensitive(states.mine);
         wipeSensitive(states.admin);
     }
