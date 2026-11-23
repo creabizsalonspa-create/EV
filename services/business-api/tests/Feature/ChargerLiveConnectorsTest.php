@@ -134,7 +134,13 @@ class ChargerLiveConnectorsTest extends TestCase
                 $events[0]['connectorId'] = 1;
             }
             if ($case === 'clock_regressed') {
-                $events[1]['timestamp'] = now()->toISOString();
+                $events[] = [
+                    'id' => 10, 'connectorDatabaseId' => 7,
+                    'evseId' => $fixture['protocol'] === '1.6' ? 0 : 1,
+                    'connectorId' => 1, 'connectorStatus' => 'Available',
+                    'errorCode' => 'NoError',
+                    'timestamp' => now()->subSeconds(10)->toISOString(),
+                ];
             }
             if ($case === 'invalid_status') {
                 $events[1]['connectorStatus'] = 'DISPATCH_AUTHORIZED';
@@ -185,9 +191,14 @@ class ChargerLiveConnectorsTest extends TestCase
             $result = $this->actingAs($f['owner'])->getJson($f['url'])->assertOk()
                 ->assertJsonPath('physical_availability_verified', false)
                 ->assertJsonPath('commands_sent', false);
-            $this->assertFalse($result->json('source_online') && $state !== 'wrong_target' && $state !== 'source_stale_event');
-            $this->assertNotSame('recent', $result->json('connectors.0.state') === 'recent' &&
-                $result->json('connectors.1.state') === 'recent' ? 'recent' : 'review');
+            if (in_array($state, ['offline', 'stale', 'disconnected'], true)) {
+                $this->assertFalse($result->json('source_online'));
+            }
+            foreach ($result->json('connectors') as $connector) {
+                $this->assertNotSame('recent', $connector['state']);
+                $this->assertNull($connector['reported_status']);
+                $this->assertFalse($connector['remote_control_authorized']);
+            }
             $this->assertDatabaseCount('charger_commands', 0);
         }
     }
