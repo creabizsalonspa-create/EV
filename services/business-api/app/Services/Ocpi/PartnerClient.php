@@ -236,6 +236,9 @@ class PartnerClient
             if (! $locked->authorized || $locked->authorization_revision !== $provider->authorization_revision || $locked->connection_key !== $provider->connection_key || $locked->owner_id !== $provider->owner_id) {
                 throw new OcpiException('Operator authorization changed; stale negotiation was discarded.');
             }
+            if (! app(ContractReviewGate::class)->current($locked)) {
+                throw new OcpiException('Current partner owner contract review expired before negotiation was accepted.');
+            }
             if ($locked->authorization_revision >= PHP_INT_MAX) {
                 throw new OcpiException('Operator authorization revision is exhausted.');
             }
