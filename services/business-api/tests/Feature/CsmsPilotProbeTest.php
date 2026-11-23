@@ -95,6 +95,12 @@ class CsmsPilotProbeTest extends TestCase
         Http::fake(function ($request) use ($fixture, $state, &$stationReads) {
             $this->assertSame('http://127.0.0.1:8095/v1/graphql', $request->url());
             $this->assertSame(str_repeat('a', 64), $request->header('x-hasura-admin-secret')[0] ?? null);
+            if ($state === 'http_503') {
+                return Http::response(['message' => 'PRIVATE UPSTREAM ERROR'], 503);
+            }
+            if ($state === 'graphql_errors') {
+                return Http::response(['errors' => [['message' => 'PRIVATE SOURCE SCHEMA SECRET']]]);
+            }
             if (str_contains($request['query'], 'ChargingStations')) {
                 $stationReads++;
                 $row = [
@@ -103,7 +109,8 @@ class CsmsPilotProbeTest extends TestCase
                     'chargePointModel' => $state === 'wrong_model' ? 'Other' : 'Fixture',
                     'firmwareVersion' => $state === 'no_firmware' ? null : 'sim-fw-v1',
                     'latestOcppMessageTimestamp' => $state === 'relative_clock' ? 'now'
-                        : ($state === 'stale' ? now()->subMinutes(10)->toISOString() : now()->toISOString()),
+                        : ($state === 'future_station_clock' ? now()->addMinute()->toISOString()
+                        : ($state === 'stale' ? now()->subMinutes(10)->toISOString() : now()->toISOString())),
                 ];
                 if ($stationReads === 2) {
                     if ($state === 'station_offline_after_inventory') {
@@ -185,6 +192,13 @@ class CsmsPilotProbeTest extends TestCase
             if ($state === 'unknown_connector') {
                 $rows[0]['connectorDatabaseId'] = 9;
             }
+            if ($state === 'stale_connector') {
+                $rows[0]['timestamp'] = now()->subMinutes(10)->toISOString();
+                $rows[1]['timestamp'] = now()->subMinutes(11)->toISOString();
+            }
+            if ($state === 'future_status_clock') {
+                $rows[0]['timestamp'] = now()->addMinute()->toISOString();
+            }
             if ($state === 'reversed_clock') {
                 $rows[0]['timestamp'] = now()->subSeconds(30)->toISOString();
                 $rows[1]['timestamp'] = now()->subSeconds(5)->toISOString();
@@ -194,7 +208,7 @@ class CsmsPilotProbeTest extends TestCase
             }
 
             return Http::response(['data' => [
-                'Transactions' => $state === 'active' ? [['id' => 99]] : [],
+                'Transactions' => $state === 'active' ? [['id' => 99]] : ($state === 'multiple_active' ? [['id' => 99], ['id' => 100]] : []),
                 'Connectors' => [['id' => 7], ['id' => 8]],
                 'StatusNotifications' => $state === 'overflow' ? array_fill(0, 1001, $rows[0]) : $rows,
             ]]);
@@ -261,6 +275,21 @@ class CsmsPilotProbeTest extends TestCase
         $this->assertFalse($report['software_source_observed']);
         $this->assertFalse($report['production_accepted']);
         Http::assertSentCount(3);
+    }
+
+    public function test_stale_connector_events_require_review_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $this->source($f, 'stale_connector');
+            $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+            $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+            $this->assertSame('requires_source_review', $report['status']);
+            $this->assertFalse($report['software_source_observed']);
+            $this->assertSame(0, $report['connectors_with_recent_status']);
+            $this->assertFalse($report['physical_hardware_accepted']);
+            Http::assertSentCount(3);
+        }
     }
 
     public function test_active_transactions_and_nonidle_or_faulted_connectors_prevent_source_pilot_success(): void
@@ -372,12 +401,13 @@ class CsmsPilotProbeTest extends TestCase
 
     public function test_invalid_source_identity_clocks_and_connector_events_fail_closed(): void
     {
-        foreach (['ambiguous', 'object_station', 'wrong_vendor', 'wrong_model', 'no_firmware', 'relative_clock', 'unknown_connector', 'unknown_status', 'source_target_duplicate', 'source_target_changed', 'source_target_string', 'source_evse_wrong', 'overflow', 'reversed_clock', 'duplicate_event', 'reassigned', 'suspended_owner', 'model_changed', 'maintenance', 'station_firmware_changed', 'station_clock_regressed', 'station_identity_replaced'] as $case) {
+        foreach (['ambiguous', 'object_station', 'wrong_vendor', 'wrong_model', 'no_firmware', 'relative_clock', 'unknown_connector', 'unknown_status', 'source_target_duplicate', 'source_target_changed', 'source_target_string', 'source_evse_wrong', 'overflow', 'reversed_clock', 'duplicate_event', 'reassigned', 'suspended_owner', 'model_changed', 'maintenance', 'station_firmware_changed', 'station_clock_regressed', 'station_identity_replaced', 'http_503', 'graphql_errors', 'future_station_clock', 'future_status_clock', 'multiple_active'] as $case) {
             $f = $this->fixture();
             $this->source($f, $case);
             $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
             $this->assertStringContainsString('Source pilot probe blocked', Artisan::output());
             $this->assertStringNotContainsString(str_repeat('a', 64), Artisan::output());
+            $this->assertStringNotContainsString('PRIVATE', Artisan::output());
             Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
                 || str_contains($request->url(), '/ocpp/'));
         }
