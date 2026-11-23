@@ -131,6 +131,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.posts, 0);
     expect(store.writes, 0);
+    expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets('vendor consent cannot review refund after account change', (
@@ -151,5 +152,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.posts, 0);
     expect(store.writes, 0);
+    expect(find.byType(TextField), findsNothing);
   });
 }
