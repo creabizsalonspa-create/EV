@@ -96,6 +96,18 @@ void main() {
     expect(() => FinancialDocumentRecord.fromJson({
       ...financialRecord(), 'legal_status': 'LEGALLY_APPROVED',
     }), throwsFormatException);
+    for (final forged in [
+      {...financialRecord(), 'id': 9007199254740992},
+      {...financialRecord(), 'source_id': 9007199254740992},
+      {...financialRecord(), 'number': '=HYPERLINK("token")'},
+      {...financialRecord(), 'number': 'CB-TDOC-US-V0-2026-000000041'},
+      {...financialRecord(), 'external_provider_verified': true},
+    ]) {
+      expect(
+        () => FinancialDocumentRecord.fromJson(forged),
+        throwsFormatException,
+      );
+    }
   });
 
   testWidgets('private source listing validates exact requested kind and source',
