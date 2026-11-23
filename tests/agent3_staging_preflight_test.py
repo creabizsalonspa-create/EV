@@ -91,6 +91,17 @@ class PreflightTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(p.PreflightError):
                 p.validate_env(env)
 
+    def test_registered_source_and_partner_network_settings_are_isolated(self):
+        for key in ('CSMS_UPSTREAM_REGISTRATION_ENABLED', 'OCPI_SCHEDULED_SYNC_ENABLED',
+                    'OCPI_CPO_PUSH_ENABLED'):
+            with self.subTest(setting=key), self.assertRaisesRegex(p.PreflightError, key):
+                p.validate_env({**valid(), key: 'true'})
+        for key in ('OCPI_CONNECTIONS_JSON', 'OCPI_LOCAL_CREDENTIALS_JSON',
+                    'OCPI_LOCAL_CREDENTIAL_PROFILES_JSON'):
+            p.validate_env({**valid(), key: '{}'})
+            with self.subTest(setting=key), self.assertRaisesRegex(p.PreflightError, key):
+                p.validate_env({**valid(), key: '{"external":"redacted-test-value"}'})
+
     def test_file_permissions_duplicates_and_symlink_denied(self):
         with tempfile.TemporaryDirectory() as d:
             file=Path(d)/'env'
