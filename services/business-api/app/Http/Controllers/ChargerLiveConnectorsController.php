@@ -15,6 +15,30 @@ use Illuminate\Support\Facades\DB;
  */
 final class ChargerLiveConnectorsController extends Controller
 {
+    private function approvedSourceEndpoint(): bool
+    {
+        $url = config('csms.graphql_url');
+        if (! is_string($url) || strlen($url) > 512) {
+            return false;
+        }
+        $parts = parse_url($url);
+        if (! is_array($parts) ||
+            ! in_array($parts['scheme'] ?? null, ['http', 'https'], true) ||
+            ! is_string($parts['host'] ?? null) || $parts['host'] === '' ||
+            isset($parts['user']) || isset($parts['pass']) ||
+            isset($parts['query']) || isset($parts['fragment'])) {
+            return false;
+        }
+
+        // Never deliver a privileged Hasura secret over plaintext to a
+        // hostname other than a fixed local loopback / sandbox service.
+        return $parts['scheme'] === 'https' ||
+            in_array(strtolower($parts['host']), [
+                'localhost', '127.0.0.1', '[::1]',
+                'citrine', 'hasura', 'citrine-hasura', 'ev-hasura',
+            ], true);
+    }
+
     private function inventory(object $binding, VendorCharger $charger): array
     {
         $rows = DB::table('charging_connector_mappings as mapping')
@@ -81,7 +105,10 @@ final class ChargerLiveConnectorsController extends Controller
         ChargerResetController $guard,
         RemoteSessionAuthorization $source
     ) {
-        abort_unless(app()->environment(['local', 'testing']) && config('csms.session_bridge_enabled'), 503,
+        abort_unless(app()->environment(['local', 'testing']) &&
+            config('csms.session_bridge_enabled') &&
+            $this->approvedSourceEndpoint() &&
+            strlen((string) config('csms.graphql_secret')) >= 32, 503,
             'Local source connector monitoring is disabled.');
         $binding = $guard->scope($r, $company, $charger);
         $local = $this->inventory($binding, $charger);
