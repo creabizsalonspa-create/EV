@@ -166,6 +166,12 @@
       "test_result": "passed",
       "merge_sha": "f7af52ac9c8d10b79d0627f4d1fc5242b13f18bb",
       "evidence": "docs/evidence/integrated-checkpoints-20261123/pr197-licensed-frontend.json"
+    },
+    "pr205": {
+      "source_sha": "bf8def77164ff17da3e7c033ee1313a8f8ab7a42",
+      "test_result": "passed",
+      "merge_sha": "775b0b8e18f5f285ef613725de2dd60e9d361e36",
+      "evidence": "docs/evidence/integrated-checkpoints-20261123/pr205-verified.json"
     }
   },
   "production_acceptance": null,
@@ -700,9 +706,9 @@
     {
       "prd": "2.9",
       "requirement": "Loyalty/rewards/promotions/referrals",
-      "implemented_code_scope": "PR18 noncash Silver/Gold/Platinum tiers, immutable points ledger with refund clawback/debt/expiry, stock-limited redemption and manual fulfillment; customer/admin web/API. Production mutations disabled by default. Verified Admin coupon publication and revocation and customer discovery, private codes, idempotent claims and actor-scoped receipt recovery across web and Flutter.",
-      "automated_evidence_scope": "Verified PR18 exact-source platform and PostgreSQL financial/concurrency checks; LoyaltyEconomicsTest and browser loyalty workflows. No live economics or native parity acceptance.; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Coupon lifecycle, privacy, inventory concurrency and recovery verified on SQLite, PostgreSQL, Chromium and hosted Android/iOS.",
-      "remaining_scope": "Referrals, promotions, vendor participation, broader reward fulfillment and real operational acceptance remain open.",
+      "implemented_code_scope": "PR18 noncash Silver/Gold/Platinum tiers, immutable points ledger with refund clawback/debt/expiry, stock-limited redemption and manual fulfillment; customer/admin web/API. Production mutations disabled by default. Verified Admin coupon publication and revocation and customer discovery, private codes, idempotent claims and actor-scoped receipt recovery across web and Flutter. Referral terms, consent, code sharing, qualification, withdrawal and private reward history are integrated for Admin/customer web and Flutter. Test rewards use the canonical noncash registry.",
+      "automated_evidence_scope": "Verified PR18 exact-source platform and PostgreSQL financial/concurrency checks; LoyaltyEconomicsTest and browser loyalty workflows. No live economics or native parity acceptance.; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Coupon lifecycle, privacy, inventory concurrency and recovery verified on SQLite, PostgreSQL, Chromium and hosted Android/iOS. PR205 exact source passed the Laravel, PostgreSQL, finance browser and Android/iOS workflows. The integrated descendant with the corrected coupon test schedule passed equivalent-tree platform and native checks.",
+      "remaining_scope": "Promotions, partner rewards, vendor participation, broader reward fulfillment and real operational acceptance remain open.",
       "atoms": [
         {
           "id": "2.9.1",
@@ -735,9 +741,9 @@
         {
           "id": "2.9.5",
           "software_atom": "Referrals",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr205",
+          "note": "Referral programme terms, consent, codes, qualifying noncash rewards and private recovery history across Admin/customer web and Flutter."
         },
         {
           "id": "2.9.6",

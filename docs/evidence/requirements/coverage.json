@@ -168,18 +168,24 @@
       "test_result": "passed",
       "merge_sha": "f7af52ac9c8d10b79d0627f4d1fc5242b13f18bb",
       "evidence": "docs/evidence/integrated-checkpoints-20261123/pr197-licensed-frontend.json"
+    },
+    "pr205": {
+      "source_sha": "bf8def77164ff17da3e7c033ee1313a8f8ab7a42",
+      "test_result": "passed",
+      "merge_sha": "775b0b8e18f5f285ef613725de2dd60e9d361e36",
+      "evidence": "docs/evidence/integrated-checkpoints-20261123/pr205-verified.json"
     }
   },
   "weighted_percent": {
-    "coded": "60.73",
-    "tested": "60.73",
-    "merged": "60.73",
+    "coded": "61.07",
+    "tested": "61.07",
+    "merged": "61.07",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "1148899/1891890",
-    "tested": "1148899/1891890",
-    "merged": "1148899/1891890",
+    "coded": "577667/945945",
+    "tested": "577667/945945",
+    "merged": "577667/945945",
     "production_accepted": "0"
   },
   "categories": [
@@ -1137,9 +1143,9 @@
       "requirement": "Loyalty/rewards/promotions/referrals",
       "atoms": 7,
       "counts": {
-        "coded": 4,
-        "tested": 4,
-        "merged": 4,
+        "coded": 5,
+        "tested": 5,
+        "merged": 5,
         "production_accepted": 0
       },
       "details": [
@@ -1198,13 +1204,13 @@
         {
           "id": "2.9.5",
           "software_atom": "Referrals",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr205",
+          "note": "Referral programme terms, consent, codes, qualifying noncash rewards and private recovery history across Admin/customer web and Flutter.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
