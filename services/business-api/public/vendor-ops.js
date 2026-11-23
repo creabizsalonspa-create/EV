@@ -2592,6 +2592,12 @@ window.createVendorWorkspace = ({
             live.append(ui("p", "Checking authenticated local connector source…"));
             const current = () => valid(epoch) && actor() === liveViewer &&
                 !document.hidden && live.isConnected;
+            // A former live observation is not a persisted permission or
+            // current state when the browser leaves the foreground.
+            document.addEventListener("visibilitychange", () => {
+                if (document.hidden && live.isConnected)
+                    live.replaceChildren();
+            }, { signal: controller?.signal });
             try {
                 const result = await api(
                     base + `companies/${company.id}/chargers/${charger.id}/live-connectors`,
