@@ -178,7 +178,12 @@ void main() {
     final api = RevenueApi();
     await open(tester, api);
     expect(find.byKey(const Key('revenue-cohort-total-issued')), findsOneWidget);
-    expect(find.textContaining('Issued: AED 10.99'), findsOneWidget);
+    expect(
+      tester.widget<Text>(
+        find.byKey(const Key('revenue-cohort-total-issued')),
+      ).data,
+      'Issued: AED 10.99',
+    );
     expect(api.queries.single['currency'], 'AED');
     expect(api.calls.where((c) => c.startsWith('POST ')), isEmpty);
     expect(find.textContaining('No bank or PSP verification'), findsOneWidget);
@@ -240,7 +245,7 @@ void main() {
     await tester.pump();
     expect(api.queries, isNotEmpty);
     final oldQuery = api.queries.single;
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     await tester.pump();
     api.stalled!.complete(cohort(
       from: oldQuery['from']!, to: oldQuery['to']!,
