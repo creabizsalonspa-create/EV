@@ -142,3 +142,27 @@ without modifying the canonical cash ledger.
 These are partial backend authority and integrity improvements, not
 external payout confirmation or production acceptance. Tests require
 exact-source CI, Agent 5 merge and integrated checks.
+
+
+## Live vendor-account payout authority (Agent 3 continuation)
+
+The settlement writer now checks the persisted owning vendor's
+`account_status=active` under the same vendor row lock when drafting a
+new payable, rather than merely checking the `vendor` role. An
+administrator cannot reserve new funds for a suspended merchant.
+Approval and simulated execution also recheck that the payee remains
+an active vendor under lock; a demoted or suspended merchant cannot
+receive a subsequent state advancement.
+
+**Rejection remains available** to a current administrator even while
+the vendor is suspended/demoted, so an existing pending or approved
+claim can be cancelled safely and reserved funds released for supervised
+review. Historical settlement, invoice and audit records are preserved;
+no automatic real payout is enabled.
+
+`SettlementTest` exercises suspension before approval and drafting,
+then reinstatement, approval, post-approval role demotion, blocked
+execution and successful Admin rejection with the original event trail.
+It verifies no new payment, bank claim, refund or finance journal
+mutation. Agent 5 should reconcile this gate with the independent
+TEST-only payout workflow and validate exact-head CI before integration.
