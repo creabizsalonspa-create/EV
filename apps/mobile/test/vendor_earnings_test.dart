@@ -241,6 +241,29 @@ void main() {
     },
   );
 
+  testWidgets('background during CSV download discards private bytes and does not reload',
+    (t) async {
+      final api = EarningsApi()..csvWait = Completer<PrivateDocument>();
+      addTearDown(api.close);
+      await t.pumpWidget(app(api));
+      await t.pumpAndSettle();
+      final button = find.byKey(const Key('vendor-earnings-export'));
+      await t.ensureVisible(button);
+      await t.tap(button);
+      await t.pump();
+      final calls = api.calls.length;
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await t.pump();
+      api.csvWait!.complete(pageCsv());
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('vendor-earnings-csv-preview')),
+          findsNothing);
+      expect(find.byKey(const Key('vendor-earnings-overall')), findsNothing);
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await t.pumpAndSettle();
+      expect(api.calls.length, calls);
+    },
+  );
   testWidgets(
     'background clears private data and returning requires explicit refresh',
     (t) async {
