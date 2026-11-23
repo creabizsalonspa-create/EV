@@ -135,7 +135,7 @@ class ChargerLiveConnectorsTest extends TestCase
                 [
                     'id' => 12, 'connectorDatabaseId' => 8,
                     'evseId' => $fixture['protocol'] === '1.6' ? 0 : 1,
-                    'connectorId' => 2, 'connectorStatus' => 'Charging',
+                    'connectorId' => 2, 'connectorStatus' => $fixture['protocol'] === '1.6' ? 'Charging' : 'Occupied',
                     'errorCode' => null, 'timestamp' => now()->subSeconds(30)->toISOString(),
                 ],
                 [
@@ -171,6 +171,9 @@ class ChargerLiveConnectorsTest extends TestCase
                     'errorCode' => 'GroundFailure',
                     'timestamp' => $events[1]['timestamp'],
                 ];
+            }
+            if ($case === 'wrong_protocol_status') {
+                $events[0]['connectorStatus'] = $fixture['protocol'] === '1.6' ? 'Occupied' : 'Charging';
             }
             if ($case === 'invalid_status') {
                 $events[1]['connectorStatus'] = 'DISPATCH_AUTHORIZED';
@@ -223,7 +226,7 @@ class ChargerLiveConnectorsTest extends TestCase
                 ->assertJsonPath('connectors.0.reported_status', 'Available')
                 ->assertJsonPath('connectors.0.state', 'recent')
                 ->assertJsonPath('connectors.0.physical_available', false)
-                ->assertJsonPath('connectors.1.reported_status', 'Charging');
+                ->assertJsonPath('connectors.1.reported_status', $protocol === '1.6' ? 'Charging' : 'Occupied');
             Http::assertSentCount(3);
             $this->assertDatabaseCount('charger_commands', 0);
             $this->assertDatabaseCount('finance_invoices', 0);
@@ -247,6 +250,16 @@ class ChargerLiveConnectorsTest extends TestCase
         Http::assertSentCount(3);
         Http::assertSent(fn ($request) => $request->url() === $endpoint
             && ($request->header('x-hasura-admin-secret')[0] ?? null) === str_repeat('x', 64));
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_ocpp201_charging_status_from_old_protocol_is_not_a_valid_source_receipt(): void
+    {
+        $f = $this->fixture('2.0.1');
+        $this->source($f, 'wrong_protocol_status');
+        $this->actingAs($f['owner'])->getJson($f['url'])->assertConflict()
+            ->assertDontSee('remote_control_authorized');
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
@@ -322,7 +335,7 @@ class ChargerLiveConnectorsTest extends TestCase
     public function test_tampered_id_event_order_status_or_station_identity_fail_closed_without_leaking_source(): void
     {
         foreach (['unknown_connector', 'duplicate_target', 'clock_regressed',
-            'invalid_status', 'firmware_changed', 'revoke_during_read',
+            'invalid_status', 'wrong_protocol_status', 'firmware_changed', 'revoke_during_read',
             'model_changed_during_read', 'contradictory_same_timestamp',
             'mapping_changed_during_read', 'ambiguous_source',
             'source_identity_disappeared', 'malformed_source_id',
