@@ -85,6 +85,12 @@ class ChargerResetController extends Controller
                     $row['connectorDatabaseId'] > 0 &&
                     is_string($row['connectorStatus'] ?? null) &&
                     is_string($row['timestamp'] ?? null), 409, 'Malformed source connector status.');
+                // A status from a connector absent from the exact current station
+                // inventory is contradictory source evidence, not a harmless row.
+                // It could represent a newly registered or incorrectly mapped
+                // outlet whose occupancy was omitted from our idle decision.
+                abort_unless(isset($known[$row['connectorDatabaseId']]), 409,
+                    'Source status references an unknown connector; manual review is required.');
                 $statusAt = SourceStatusTime::parse($row['timestamp']);
                 // Descending source event IDs must never carry increasing
                 // timestamps. Otherwise an earlier-clock Available report

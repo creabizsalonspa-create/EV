@@ -111,6 +111,83 @@ class ChargerFirmwareController extends Controller
         return response()->json($page + ['can_manage' => $r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 'adapter_enabled' => (bool) config('csms.firmware_enabled'), 'physical_execution_verified' => false])->header('Cache-Control', 'private, no-store');
     }
 
+    /**
+     * Source-bound, read-only signed release matrix for one owned charger.
+     * It is never permission to dispatch firmware or proof of physical testing.
+     */
+    public function compatibility(Request $r, VendorCompany $company, VendorCharger $charger, ChargerResetController $guard, RemoteSessionAuthorization $source, FirmwareCompatibility $compatibility)
+    {
+        $this->enabled();
+        $binding = $guard->scope($r, $company, $charger);
+        $data = $source->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}', ['name' => $binding->identifier]);
+        $stations = $data['ChargingStations'] ?? null;
+        abort_unless(is_array($stations) && array_is_list($stations) && count($stations) === 1 &&
+            is_array($stations[0]) && is_int($stations[0]['id'] ?? null) && $stations[0]['id'] > 0 &&
+            ($stations[0]['isOnline'] ?? null) === true &&
+            is_string($stations[0]['protocol'] ?? null) &&
+            is_string($stations[0]['chargePointVendor'] ?? null) &&
+            is_string($stations[0]['chargePointModel'] ?? null) &&
+            is_string($stations[0]['firmwareVersion'] ?? null) &&
+            strlen($stations[0]['firmwareVersion']) > 0 &&
+            strlen($stations[0]['firmwareVersion']) <= 80 &&
+            is_string($stations[0]['latestOcppMessageTimestamp'] ?? null), 409, 'A current typed source firmware identity is required.');
+        $observed = $stations[0];
+        // GraphQL's online flag can survive a silent disconnect; firmware
+        // eligibility must be based on a strictly parsed recent heartbeat.
+        $lastMessage = SourceStatusTime::parse($observed['latestOcppMessageTimestamp']);
+        abort_unless($lastMessage->gte(now()->subMinutes(5)), 409,
+            'Source firmware identity is stale; refresh before planning maintenance.');
+        abort_unless(in_array($observed['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true) &&
+            $observed['chargePointVendor'] === $charger->manufacturer &&
+            $observed['chargePointModel'] === $charger->model, 409, 'Source charger identity differs from the owned inventory.');
+        // HTTP source inspection must not preserve a revoked staff grant,
+        // changed login or replaced charger binding in a private response.
+        $fresh = $guard->scope($r, $company, $charger);
+        abort_unless((int) $fresh->id === (int) $binding->id &&
+            $fresh->identifier === $binding->identifier && $fresh->protocol === $binding->protocol,
+            409, 'Charger source binding changed during inspection.');
+
+        $matrix = [];
+        $releases = DB::table('charger_firmware_releases')
+            ->where('company_id', $company->id)
+            ->where('manufacturer', $charger->manufacturer)
+            ->where('model', $charger->model)
+            ->orderByDesc('id')->limit(100)->get();
+        foreach ($releases as $release) {
+            // Validate each stored manifest signature against its approved
+            // identity. Badly modified evidence blocks the entire projection.
+            $policy = $compatibility->approved($release);
+            $active = $release->revoked_at === null;
+            $matching = $active && $policy !== null &&
+                in_array($binding->protocol, $policy['protocols'], true) &&
+                in_array($observed['firmwareVersion'], $policy['from_versions'], true);
+            $matrix[] = [
+                'release_id' => $release->id,
+                'version' => $release->version,
+                'sha256' => $release->sha256,
+                'revoked' => ! $active,
+                'signed_compatibility_policy' => $policy !== null,
+                'protocols' => $policy['protocols'] ?? [],
+                'from_versions' => $policy['from_versions'] ?? [],
+                'matches_observed_source' => $matching,
+            ];
+        }
+
+        return response()->json([
+            'charger_id' => $charger->id,
+            'protocol' => $binding->protocol,
+            'manufacturer' => $charger->manufacturer,
+            'model' => $charger->model,
+            'observed_source_firmware' => $observed['firmwareVersion'],
+            'source_last_message_at' => $lastMessage->toISOString(),
+            'source_freshness_seconds' => 300,
+            'source_snapshot_verified' => true,
+            'physical_hardware_accepted' => false,
+            'firmware_dispatch_authorized' => false,
+            'releases' => $matrix,
+        ])->header('Cache-Control', 'private, no-store');
+    }
+
     private function sourceCapability(object $binding): void
     {
         $nonce = (string) Str::uuid();
