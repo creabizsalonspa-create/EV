@@ -302,6 +302,15 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const disputeReview = rootAdmin.locator(".finance-row").filter({
       has: admin.getByText("Browser dispute " + run, { exact: true }),
     });
+    assert.equal(
+      await disputeReview.locator("bdi[data-case-minor-amount]").textContent(),
+      "50",
+      "Customer dispute should display exact canonical 0.50 as 50 minor units",
+    );
+    assert.equal(
+      await disputeReview.getByText("Disputed amount (minor units)", { exact: true }).count(),
+      1,
+    );
     await disputeReview
       .locator("[name=resolution]")
       .fill("Accepted browser dispute");
@@ -580,6 +589,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       .getByRole("heading", { name: "المالية والأعمال", exact: true })
       .waitFor();
     assert.equal(await customer.locator("html").getAttribute("dir"), "rtl");
+    await root.getByText("المبلغ المتنازع عليه (وحدات نقدية صغرى)", { exact: true }).first().waitFor();
     await customer.setViewportSize({ width: 390, height: 900 });
     for (const theme of ["light", "dark"]) {
       await customer.locator("#theme-choice").selectOption(theme);
