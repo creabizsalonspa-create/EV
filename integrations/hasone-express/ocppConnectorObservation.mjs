@@ -30,6 +30,7 @@ export function presentConnectorObservation(source,charger,{now=new Date()}={}){
      'OtherError','OverCurrentFailure','OverVoltage','PowerMeterFailure',
      'PowerSwitchFailure','ReaderFailure','ResetFailure','UnderVoltage','WeakSignal']);
    if(typeof row.errorCode!=='string' || !errors.has(row.errorCode) ||
+      (row.status==='Faulted' && row.errorCode==='NoError') ||
       (row.status!=='Faulted' && row.errorCode!=='NoError'))return null;
  }
  const receiptAgeSeconds=Math.floor((now-row.receivedAt)/1000);
