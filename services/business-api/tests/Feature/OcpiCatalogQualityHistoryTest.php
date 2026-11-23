@@ -122,4 +122,35 @@ class OcpiCatalogQualityHistoryTest extends TestCase
         $this->actingAs($owner)->getJson($url)->assertConflict()->assertJsonMissingPath('samples');
         Http::assertNothingSent();
     }
+    public function test_quality_history_expires_after_seven_days_even_if_provider_never_syncs_again(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10T10:30:00Z'));
+        [$owner, $provider, $url] = $this->fixture();
+        app(RecordSynchronizer::class)->ingest($provider, 'locations', [$this->location('week-old')]);
+        $this->actingAs($owner)->getJson($url)->assertOk()->assertJsonPath('count', 1);
+        $this->travelTo(Carbon::parse('2026-11-19T10:30:00Z'));
+        $this->getJson($url)->assertOk()->assertJsonPath('count', 0)->assertJsonPath('samples', []);
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 1);
+        app(RecordSynchronizer::class)->ingest($provider, 'locations', [$this->location('recent')]);
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 1);
+        $this->getJson($url)->assertOk()->assertJsonPath('count', 1)
+            ->assertJsonPath('samples.0.observed_hour', '2026-11-19T10:00:00.000000Z');
+        Http::assertNothingSent();
+    }
+
+    public function test_invalid_policy_records_unknown_state_without_issuing_fake_freshness_counts(): void
+    {
+        [$owner, $provider, $url] = $this->fixture();
+        config(['partner_catalog.max_age_seconds' => null]);
+        app(RecordSynchronizer::class)->ingest($provider, 'locations', [$this->location('one')]);
+        $this->actingAs($owner)->getJson($url)->assertOk()
+            ->assertJsonPath('samples.0.state', 'policy_unavailable')
+            ->assertJsonPath('samples.0.published_count', null)
+            ->assertJsonPath('samples.0.within_policy_count', null)
+            ->assertJsonPath('samples.0.max_age_seconds', null)
+            ->assertJsonPath('live_availability_verified', false);
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 1);
+        Http::assertNothingSent();
+    }
+
 }
