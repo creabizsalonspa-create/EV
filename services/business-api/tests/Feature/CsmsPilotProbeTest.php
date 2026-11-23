@@ -79,7 +79,8 @@ class CsmsPilotProbeTest extends TestCase
                 ];
 
                 return Http::response(['data' => ['ChargingStations' =>
-                    $state === 'ambiguous' ? [$row, $row] : [$row]]]);
+                    $state === 'ambiguous' ? [$row, $row]
+                        : ($state === 'object_station' ? ['station' => $row] : [$row])]]);
             }
             if ($state === 'reassigned') {
                 DB::table('stations')->where('id', $fixture['station']->id)
@@ -95,7 +96,11 @@ class CsmsPilotProbeTest extends TestCase
                 $rows[0]['connectorDatabaseId'] = 9;
             }
             if ($state === 'reversed_clock') {
-                $rows[1]['timestamp'] = now()->addSecond()->toISOString();
+                $rows[0]['timestamp'] = now()->subSeconds(30)->toISOString();
+                $rows[1]['timestamp'] = now()->subSeconds(5)->toISOString();
+            }
+            if ($state === 'duplicate_event') {
+                $rows[1]['id'] = $rows[0]['id'];
             }
 
             return Http::response(['data' => [
@@ -148,7 +153,7 @@ class CsmsPilotProbeTest extends TestCase
 
     public function test_invalid_source_identity_clocks_and_connector_events_fail_closed(): void
     {
-        foreach (['ambiguous', 'relative_clock', 'unknown_connector', 'reversed_clock', 'reassigned'] as $case) {
+        foreach (['ambiguous', 'object_station', 'relative_clock', 'unknown_connector', 'reversed_clock', 'duplicate_event', 'reassigned'] as $case) {
             $f = $this->fixture();
             $this->source($f, $case);
             $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
