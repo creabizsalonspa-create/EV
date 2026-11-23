@@ -1159,7 +1159,12 @@ window.createVendorWorkspace = ({
                         controller?.signal,
                     );
                     if (!valid(epoch) || !preview.isConnected) return;
-                    if (!matrix || matrix.physical_hardware_accepted !== false ||
+                    if (!matrix || matrix.source_snapshot_verified !== true ||
+                        matrix.charger_id !== charger.id ||
+                        matrix.manufacturer !== charger.manufacturer ||
+                        matrix.model !== charger.model ||
+                        matrix.protocol !== charger.ocpp_protocol ||
+                        matrix.physical_hardware_accepted !== false ||
                         matrix.firmware_dispatch_authorized !== false ||
                         !Array.isArray(matrix.releases)) {
                         throw new Error("Source compatibility shape requires review");
