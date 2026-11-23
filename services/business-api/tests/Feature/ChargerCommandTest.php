@@ -55,9 +55,14 @@ class ChargerCommandTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
         Http::assertNothingSent();
 
-        // Changing only the account owner must not permit a charger from a
-        // different company/site lineage to bind to this station.
+        // An aligned owner is necessary but not sufficient: cross-country
+        // source inventory must remain ineligible for this station.
         $company->update(['owner_id' => $owner->id]);
+        $site->update(['country' => 'US']);
+        $this->postJson('/api/stations/'.$station->id.'/csms-binding', $input)
+            ->assertConflict();
+        $this->assertDatabaseCount('csms_bindings', 0);
+        $site->update(['country' => 'AE']);
         $this->postJson('/api/stations/'.$station->id.'/csms-binding', $input)
             ->assertCreated();
         $this->assertDatabaseHas('csms_bindings', [
