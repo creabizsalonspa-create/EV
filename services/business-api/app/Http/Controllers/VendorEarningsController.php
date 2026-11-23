@@ -24,6 +24,10 @@ final class VendorEarningsController extends Controller
      */
     private static function minor(mixed $value, bool $signed = false): int
     {
+        // Reject values already coerced through floating point or boolean
+        // conversion, even when PHP would validate them as integral.
+        abort_unless(is_int($value) || is_string($value), 409,
+            'Financial source exceeds exact integer bounds.');
         $number = filter_var($value, FILTER_VALIDATE_INT);
         abort_if($number === false || $number > self::MAX_EXACT_MINOR
             || $number < ($signed ? -self::MAX_EXACT_MINOR : 0),
@@ -35,7 +39,7 @@ final class VendorEarningsController extends Controller
     /** Only CSV gets the spreadsheet-literal prefix; source JSON remains exact. */
     private static function csvInvoiceNumber(string $number): string
     {
-        return preg_match('/^[\\s\\x00-\\x1f]*[=+@-]/u', $number)
+        return preg_match('/^[\\p{Z}\\p{Cc}\\p{Cf}]*[=+@-]/u', $number)
             ? "'".$number : $number;
     }
 
