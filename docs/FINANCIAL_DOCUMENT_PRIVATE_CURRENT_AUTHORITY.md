@@ -206,3 +206,31 @@ from Laravel's private-disk, hash and authorization controls.
 Agent 5 should preserve the optional viewer revocation parameter
 and propagate it to other relevant TEST partner/analytics financial
 PDF routes when integrating Agent 3 PRs #243 and #252.
+
+
+## Exact multi-line document source totals (Agent 3 continuation)
+
+Financial source validation now checks the **aggregate**, not only each
+individual amount, when preparing an immutable bilingual consolidated
+corporate statement or vendor settlement document. The previous
+`array_sum` of individually exact corporate line subtotals, taxes and
+totals—or signed vendor settlement debit/credit lines—could produce an
+already-rounded PHP float above ±(2^53−1), or silently cast an
+unrepresentable total into a fabricated immutable snapshot. The
+`FinancialSources::sumExact()` helper validates every signed/unsigned
+line and **each running sum** through the existing exact integer
+source-money guard. It rejects unsafe source data with 409 **before**
+incrementing the document sequence, writing encrypted PDF/CSV or
+creating an audited document record. Normal signed vendor refund-debt
+lines and corporate invoice totals are unchanged.
+
+Added `FinancialDocumentsTest` regression vectors for PostgreSQL-style
+integer strings, mixed signed settlement lines, PHP float/boolean
+sources and two individually representable 2^52 totals whose sum is
+2^53. The native test document fixture now uses a properly structured
+`CB-TDOC-AE-P-2026-000000009` number; a separate negative assertion
+continues rejecting the legacy `TEST-PRIVATE-9` token. No legal
+invoice approval, live merchant/bank payment, physical charging
+or production source acceptance is implied. Exact-current-source
+Platform/Finance/Native hosted gates and Agent 5 integration are
+required.
