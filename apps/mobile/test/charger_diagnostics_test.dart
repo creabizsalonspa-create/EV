@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/charger_diagnostics.dart';
@@ -263,6 +264,12 @@ void main() {
       final api = LiveDiagnosticsApi();
       await tester.pumpWidget(MaterialApp(
         locale: const Locale('ar'),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: ChargerDiagnosticsView(
           api: api, companyId: 1, chargerId: 2, onExpired: () {},
         ),
