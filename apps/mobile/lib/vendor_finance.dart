@@ -1227,9 +1227,13 @@ class VendorEarningsSnapshot {
         Map<String, dynamic>.unmodifiable(Map<String, dynamic>.from(row)),
       );
     }
+    final immutableRows = List<Map<String, dynamic>>.unmodifiable(rows);
     return VendorEarningsSnapshot._(
-      Map<String, dynamic>.unmodifiable(Map<String, dynamic>.from(raw)),
-      List<Map<String, dynamic>>.unmodifiable(rows),
+      Map<String, dynamic>.unmodifiable({
+        ...Map<String, dynamic>.from(raw),
+        'data': immutableRows,
+      }),
+      immutableRows,
     );
   }
 }
