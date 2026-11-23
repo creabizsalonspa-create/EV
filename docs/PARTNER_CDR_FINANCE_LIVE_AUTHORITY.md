@@ -77,3 +77,32 @@ with impossible row totals, an out-of-range page or a forged partial
 page that changes which invoices appear in the current financial card.
 A widget regression tampers with the reported total and confirms all
 private invoice and PDF surfaces fail closed.
+
+
+### Exact hosted Flutter failure repair (real macOS/Ubuntu jobs)
+
+The native CI run against the preceding branch head
+`79e413f1db62db1bbdb5b0f8a41e668e4e051a33` completed **red**
+on both Ubuntu and macOS despite a successful analyzer. The downloaded
+raw job logs identified **two** defects:
+
+1. The new forged-pagination widget test deliberately assigned
+   `result.total=300`, but its fake `BillingApi.request` incorrectly
+   overwrote the injected total with `2` before the app saw it.
+   The corrected fixture preserves the source-provided total and last
+   page for nonempty reports; production source verifier continues
+   rejecting mismatched page geometry. This fixes the test, not the
+   security requirement.
+2. An old account session could expire while a partner JSON/PDF
+   request was pending. Its `finally` used the now-false old auth
+   fence to decide whether to stop a spinner; the UI remained in
+   infinite loading and `pumpAndSettle` timed out. The corrected
+   source state distinguishes the **same current view generation with
+   revoked credentials** from a later account/view generation.
+   Only the former is repainted with spinner stopped and private
+   invoice data cleared; the latter is left untouched. This corrects
+   an actual native privacy/lifecycle bug.
+
+No provider payment, settlement, consent, private raw token or document
+generation behavior changed. The new branch head requires a completely
+new full Native/Platform CI pass; a prior red run is not acceptance.
