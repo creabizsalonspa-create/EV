@@ -460,9 +460,13 @@ The response authenticates the unique typed CitrineOS source station,
 compares its manufacturer/model/negotiated protocol to the current company
 inventory, and requires a strictly parsed absolute source heartbeat within
 five minutes. Any missing/mismatched/stale/relative source identity returns a
-fail-closed error rather than a compatibility recommendation. Current
-authorization and source binding are rechecked after the authenticated
-network read. Approved release rows are limited to the company's matching
+fail-closed error rather than a compatibility recommendation. It reads
+the authenticated source twice, requiring the **same source station ID,
+manufacturer, model, protocol and exact firmware version**, still-online
+status, and a monotonic absolute heartbeat no older than five minutes.
+Current authorization, owner, charger manufacturer/model/site and canonical
+source binding are independently rechecked around and after these reads.
+The returned last heartbeat is from the final verified observation. Approved release rows are limited to the company's matching
 manufacturer/model and each exposes `signed_compatibility_policy`,
 `signer_currently_trusted`, `protocols`, `from_versions`,
 `revoked` and `matches_observed_source`. Only an unrevoked manifest with
