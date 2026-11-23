@@ -3,6 +3,7 @@
 namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
+use App\Models\User;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -226,9 +227,15 @@ class PartnerClient
             throw new OcpiException('Operator lacks the approved OCPI catalog modules.');
         }
         DB::transaction(function () use ($provider, $endpoints) {
+            // Negotiation performs outbound I/O before this transaction. Pin the
+            // owner state before provider publication, so a vendor suspended
+            // during the peer response cannot leave an apparently valid catalog.
+            $owner = User::whereKey($provider->owner_id)->lockForUpdate()->first();
             $locked = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            if (! $locked->authorized || $locked->authorization_revision !== $provider->authorization_revision || $locked->connection_key !== $provider->connection_key || $locked->owner_id !== $provider->owner_id) {
-                throw new OcpiException('Operator authorization changed; stale negotiation was discarded.');
+            if (! $owner || $owner->role !== 'vendor' || $owner->account_status !== 'active'
+                || ! $locked->authorized || $locked->authorization_revision !== $provider->authorization_revision
+                || $locked->connection_key !== $provider->connection_key || $locked->owner_id !== $provider->owner_id) {
+                throw new OcpiException('Operator authorization or owner activity changed; stale negotiation was discarded.');
             }
             if ($locked->authorization_revision >= PHP_INT_MAX) {
                 throw new OcpiException('Operator authorization revision is exhausted.');
