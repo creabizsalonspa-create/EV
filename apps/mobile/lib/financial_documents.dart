@@ -94,8 +94,10 @@ class FinancialDocumentRecord {
       locale = j['locale'] as String,
       pdfHash = j['pdf_sha256'] as String,
       current = j['current_source_state'] as String? {
-    if (id < 1 ||
-        sourceId < 1 ||
+    if (id < 1 || id > 9007199254740991 ||
+        sourceId < 1 || sourceId > 9007199254740991 ||
+        !RegExp(r'^CB-TDOC-[A-Z]{2}-(P|V[1-9][0-9]*)-[0-9]{4}-[0-9]{9}$')
+            .hasMatch(number) ||
         !financialKinds.contains(kind) ||
         !['en', 'ar'].contains(locale) ||
         !RegExp(r'^[a-f0-9]{64}$').hasMatch(pdfHash) ||
