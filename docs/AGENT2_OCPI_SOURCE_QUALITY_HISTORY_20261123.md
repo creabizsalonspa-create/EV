@@ -24,6 +24,8 @@ Source branch: `agent2/ocpi-catalog-quality-history-20261123`. Base dependency i
 
 Applicable checks after integration are Laravel `OcpiCatalogQualityHistoryTest` on SQLite and PostgreSQL; existing OCPI catalog/ingestion regression; the EN/AR Chromium `tests/partner-catalog-observations.cjs`; Flutter `test/ocpi_catalog_observations_test.dart` plus full source/native/device CI; and SQL data-preserving migration acceptance. No hosted exact-head or canonical merge acceptance may be inferred from source presence.
 
+**Bounded physical cleanup:** In addition to the seven-day read filter and per-provider cleanup on changed ingests, `php artisan ocpi:expire-source-quality-snapshots --limit=500` deletes UTC-hour observations past the 168-hour retention boundary when a provider has stopped syncing. This is an hourly, globally bounded database-only cleanup, even when optional sampling is disabled; it does not erase canonical OCPI records or send any external request. Rows that were updated to a nonexpired hour between selection and deletion are rechecked against the retention cutoff. Tests cover idle-provider expiry, reject zero limits, idempotent reruns and oldest-first one-row batches that retain current samples. The cleanup scheduler must be operated on an installed, migrated instance; no production migration or cleanup has been executed as part of this PR.
+
 External gaps are still explicit: complete physical network coverage, operator feed licensing/SLA, real station freshness, conformant live roaming, actual operator settlements and app-store/production release acceptance. The aggregate original 42-category/312-atom inventory remains unchanged until integrated and verified evidence warrants stage credit.
 
 ## Offline hourly aging without changed syncs
