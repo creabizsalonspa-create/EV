@@ -556,6 +556,11 @@ class SignedFirmwareTest extends TestCase
     public function test_read_only_signed_firmware_matrix_matches_verified_source_without_authorizing_dispatch(): void
     {
         foreach (['1.6', '2.0.1'] as $protocol) {
+            // Each protocol needs an independent authenticated source fake.
+            // Laravel's earlier HTTP stub would otherwise shadow the next
+            // protocol's charger identity and produce a false 409.
+            Http::swap(new Factory);
+            Http::preventStrayRequests();
             $f = $this->fixture($protocol, [
                 'protocols' => ['1.6', '2.0.1'],
                 'from_versions' => ['sim-fw-v1'],
