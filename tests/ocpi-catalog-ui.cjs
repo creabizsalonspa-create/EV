@@ -18,7 +18,7 @@ const assert = require('node:assert/strict');
                     ui:(tag,text)=>{const n=document.createElement(tag);n.textContent=text;return n;},
                     api:async (path,method='GET')=>{
                         if (method!=='GET') { window.writes++; throw Error('Unexpected write'); }
-                        if (path.includes('/credentials')) return {configured:true,state:'active',configured_receiver_modules:['locations','tariffs'],active_receiver_modules:[],available_actions:[],operations:paged([])};
+                        if (path.includes('/credentials')) return {configured:true,state:'active',charging_commands_enabled:false,billing_eligible:false,configured_receiver_modules:['locations','tariffs'],active_receiver_modules:[],available_actions:[],operations:paged([])};
                         if (path.includes('/records/tariffs')) return paged([{id:4,external_id:'retired-1',catalog_retired:true,normalized:{currency:'EUR',elements:[]},payload:{token:'PRIVATE-PARTNER-TOKEN'}}]);
                         if (path.startsWith('ocpi/providers')) return paged([{id:7,name:'Approved partner',authorized:true,version:'2.2.1'}]);
                         return paged([]);
