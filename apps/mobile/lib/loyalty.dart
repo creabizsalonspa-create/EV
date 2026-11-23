@@ -881,7 +881,15 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    if (!ownsSession()) return const Scaffold();
+    final api = widget.api;
+    final fence = ownsSession;
+    bool same() => scoped(api, fence);
+    void guardedRun(String action, {int number = 1, int? coupon}) {
+      if (same()) run(action, number: number, coupon: coupon);
+    }
+    return Scaffold(
     appBar: AppBar(title: Text(label('Reward coupons', 'قسائم المكافآت'))),
     body: ListView(
       padding: const EdgeInsets.all(16),
@@ -901,7 +909,9 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           ),
         if (capability == null && !busy)
           TextButton(
-            onPressed: loadCapability,
+            onPressed: () {
+              if (same()) loadCapability();
+            },
             child: Text(
               label(
                 'Retry coupon availability',
@@ -924,27 +934,29 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           onPressed:
               busy || capability?.enabled != true || draft?['coupon'] != null
               ? null
-              : () => run('claim'),
+              : () => guardedRun('claim'),
           child: Text(label('Claim coupon', 'المطالبة بالقسيمة')),
         ),
         if (pending != null)
           TextButton(
-            onPressed: busy ? null : () => run('claim-receipt'),
+            onPressed: busy ? null : () => guardedRun('claim-receipt'),
             child: Text(
               label('Check last claim receipt', 'التحقق من إيصال المطالبة'),
             ),
           ),
         if (pending != null)
           TextButton(
-            onPressed: busy ? null : clearDraft,
+            onPressed: busy ? null : () {
+              if (same()) clearDraft();
+            },
             child: Text(label('Clear coupon draft', 'مسح مسودة القسيمة')),
           ),
         TextButton(
-          onPressed: busy ? null : () => run('claims'),
+          onPressed: busy ? null : () => guardedRun('claims'),
           child: Text(label('Refresh coupon history', 'تحديث سجل القسائم')),
         ),
         TextButton(
-          onPressed: busy ? null : () => run('eligible'),
+          onPressed: busy ? null : () => guardedRun('eligible'),
           child: Text(label('Browse eligible coupons', 'تصفح القسائم المؤهلة')),
         ),
         if (hasHistory && receipts.isEmpty && !busy)
@@ -964,7 +976,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
                       offer['id'] is! int ||
                       (pending != null && draft?['coupon'] != offer['id'])
                   ? null
-                  : () => run('claim', coupon: offer['id'] as int),
+                  : () => guardedRun('claim', coupon: offer['id'] as int),
               child: Text(label('Claim', 'مطالبة')),
             ),
           ),
@@ -999,17 +1011,18 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           TextButton(
             onPressed: busy
                 ? null
-                : () => run(browsing ? 'eligible' : 'claims', number: page - 1),
+                : () => guardedRun(browsing ? 'eligible' : 'claims', number: page - 1),
             child: Text(label('Previous', 'السابق')),
           ),
         if (page < last)
           TextButton(
             onPressed: busy
                 ? null
-                : () => run(browsing ? 'eligible' : 'claims', number: page + 1),
+                : () => guardedRun(browsing ? 'eligible' : 'claims', number: page + 1),
             child: Text(label('Next', 'التالي')),
           ),
       ],
     ),
   );
+  }
 }
