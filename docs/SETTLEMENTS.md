@@ -50,8 +50,9 @@ source may already have been rounded or coerced. Integer and canonical
 decimal-string minor units are supported; sources outside the signed/unsigned
 2^53−1 browser-safe bound remain rejected with 409.
 
-Invoice numbers in the **CSV only**, never the immutable database or JSON,
-are prefixed as spreadsheet literals when a formula introducer
+Invoice numbers **and source evidence labels** in the **CSV only**, never
+in the immutable database or JSON, are prefixed as spreadsheet literals
+when a formula introducer
 (`=`, `+`, `-`, `@`) is preceded by Unicode whitespace, controls,
 format or bidirectional markers. This includes invisible zero-width,
 BOM, RTL override and nonbreaking-space prefixes, in addition to
