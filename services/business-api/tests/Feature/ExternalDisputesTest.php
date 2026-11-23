@@ -236,6 +236,64 @@ class ExternalDisputesTest extends TestCase
         Http::assertSent(fn ($r) => $r->method() === 'POST' && $r->hasHeader('Idempotency-Key') && $r['submit'] === 'false');
     }
 
+    public function test_evidence_does_not_dispatch_after_admin_epoch_revocation_during_provider_inspection(): void
+    {
+        $id = $this->providerEvent('evt_EvidenceRevokedDuringGet')->assertOk()->json('dispute_id');
+        $revoked = false;
+        $this->fakeProvider(function ($request) use (&$revoked) {
+            if (str_contains($request->url(), '/charges/')) {
+                return Http::response(['id' => 'ch_Dispute', 'livemode' => false, 'payment_intent' => 'pi_Dispute', 'paid' => true, 'captured' => true, 'amount_captured' => 1000, 'currency' => 'aed']);
+            }
+            if ($request->method() === 'GET' && ! $revoked) {
+                // Simulate an independent Admin session revoking credentials
+                // while the request waits on its authoritative provider GET.
+                DB::table('users')->where('id', $this->admin->id)->update([
+                    'auth_epoch' => (int) $this->admin->auth_epoch + 1,
+                ]);
+                $revoked = true;
+            }
+
+            return Http::response($this->body);
+        });
+
+        $this->actingAs($this->admin)->postJson(
+            '/dispute-test/commercial/external-disputes/'.$id.'/evidence',
+            ['idempotency_key' => 'no-revoked-post', 'submit' => false,
+                'evidence' => ['product_description' => 'Sensitive provider evidence']]
+        )->assertConflict();
+        $this->assertTrue($revoked);
+        $this->assertDatabaseCount('external_dispute_evidence', 0);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
+    public function test_uncertain_evidence_retry_does_not_dispatch_after_admin_role_revocation_during_inspection(): void
+    {
+        [$id, $operation] = $this->uncertainStoredEvidence();
+        $revoked = false;
+        $this->fakeProvider(function ($request) use (&$revoked) {
+            if (str_contains($request->url(), '/charges/')) {
+                return Http::response(['id' => 'ch_Dispute', 'livemode' => false, 'payment_intent' => 'pi_Dispute', 'paid' => true, 'captured' => true, 'amount_captured' => 1000, 'currency' => 'aed']);
+            }
+            if ($request->method() === 'GET' && ! $revoked) {
+                DB::table('users')->where('id', $this->admin->id)->update(['role' => 'vendor']);
+                $revoked = true;
+            }
+
+            return Http::response($this->body);
+        });
+
+        $this->actingAs($this->admin)->postJson(
+            '/dispute-test/commercial/external-disputes/'.$id.'/evidence/'.$operation->id.'/retry'
+        )->assertConflict();
+        $this->assertTrue($revoked);
+        $this->assertDatabaseHas('external_dispute_evidence', [
+            'id' => $operation->id, 'status' => 'uncertain',
+        ]);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_evidence_deadline_blocks_new_submission(): void
     {
         $id = $this->providerEvent()->assertOk()->json('dispute_id');
