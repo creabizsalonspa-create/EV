@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Http\Controllers\FleetReportController;
 use App\Http\Controllers\CorporateBillingController;
+use App\Http\Controllers\FleetReportController;
 use App\Models\ChargingSession;
 use App\Models\Finance\TariffVersion;
 use App\Models\Fleet;
