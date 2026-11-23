@@ -106,3 +106,28 @@ raw job logs identified **two** defects:
 No provider payment, settlement, consent, private raw token or document
 generation behavior changed. The new branch head requires a completely
 new full Native/Platform CI pass; a prior red run is not acceptance.
+
+
+## Immediate native account logout after a CDR invoice was rendered
+
+An already displayed partner invoice and TEST CDR finance PDF link
+could otherwise remain visible after a separate account logout
+because Flutter did not necessarily rebuild when the API's old
+session fence became false. The shared additive, non-secret
+`EvApi.sessionEvents` stream now emits synchronously on every
+credential generation change, and the native
+`PartnerBillingPage` listens to erase the formerly authorized
+provider invoice, export authority, filter drafts, and pending
+spinner immediately. An old HTTP or PDF response can no longer
+re-populate that generation; no new request is sent.
+
+A new Flutter widget regression lets a partner invoice finish
+painting, then calls `forgetSession()` without a second HTTP
+response or synthetic widget rebuild, and checks invoice number
+and private PDF action disappear immediately. The identical
+additive API generation notifier also exists on Agent3 PRs
+#236, #243, #265 and #272; integration owner Agent5 should
+apply this nonsecret signal **once** and keep the distinct
+domain listeners. Exact Native macOS/Ubuntu and Laravel/OCPI
+combined CI are still required; this is not a live partner
+settlement or a proof of PSP/bank remittance.
