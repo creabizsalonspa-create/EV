@@ -857,14 +857,17 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
 
   Future<void> clearDraft() async {
     final op = operation;
-    if (op == null || busy || !ownsSession()) return;
+    final api = widget.api;
+    final fence = ownsSession;
+    if (op == null || busy || !scoped(api, fence)) return;
     final epoch = ++generation;
+    bool current() => generation == epoch && scoped(api, fence);
     setState(() => busy = true);
     try {
       await op.confirmed();
-      if (mounted && epoch == generation && ownsSession()) code.clear();
+      if (current()) code.clear();
     } catch (_) {
-      if (mounted && epoch == generation && ownsSession()) {
+      if (current()) {
         setState(
           () => message = label(
             'Could not clear coupon draft.',
@@ -873,7 +876,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
         );
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current()) setState(() => busy = false);
     }
   }
 
