@@ -2,12 +2,16 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\OcpiController;
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\PartnerClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class OcpiOwnerEligibilityTest extends TestCase
 {
@@ -106,6 +110,33 @@ class OcpiOwnerEligibilityTest extends TestCase
         $this->assertDatabaseMissing('audit_events', [
             'action' => 'ocpi.provider_authorized', 'subject' => (string) $provider->id,
         ]);
+        Http::assertNothingSent();
+    }
+
+    public function test_stale_route_bound_provider_cannot_authorize_after_owner_transfer(): void
+    {
+        $original = $this->vendor();
+        $replacement = $this->vendor();
+        $provider = $this->pending($original);
+        $stale = $provider->fresh();
+        DB::table('ocpi_providers')->where('id', $provider->id)->update(['owner_id' => $replacement->id]);
+
+        $admin = $this->admin();
+        $request = Request::create('/api/ocpi/providers/'.$provider->id.'/authorization',
+            'PATCH', ['authorized' => true]);
+        $request->setUserResolver(static fn () => $admin);
+        try {
+            app(OcpiController::class)->authorization($request, $stale, app(PartnerClient::class));
+            $this->fail('An old provider model authorized its replacement owner.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $fresh = $provider->fresh();
+        $this->assertSame($replacement->id, $fresh->owner_id);
+        $this->assertFalse($fresh->authorized);
+        $this->assertSame(0, $fresh->authorization_revision);
+        $this->assertDatabaseMissing('audit_events', ['action' => 'ocpi.provider_authorized',
+            'subject' => (string) $provider->id]);
         Http::assertNothingSent();
     }
 
