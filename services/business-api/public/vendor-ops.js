@@ -1171,17 +1171,23 @@ window.createVendorWorkspace = ({
                     }
                     preview.append(
                         ui("h4", "Authenticated source snapshot"),
-                        raw("p", `Source firmware: ${matrix.observed_source_firmware}`),
-                        raw("p", `Last source heartbeat: ${matrix.source_last_message_at}`),
+                        ui("p", "Source firmware: {version}", {version: matrix.observed_source_firmware}),
+                        ui("p", "Last source heartbeat: {at}", {at: matrix.source_last_message_at}),
                         ui("p", "Source evidence does not prove physical installation or authorize firmware dispatch."),
                     );
                     for (const release of matrix.releases) {
                         if (!release || typeof release !== "object") continue;
-                        preview.append(raw(
+                        preview.append(ui(
                             "p",
-                            `${release.version}: ${release.matches_observed_source === true
-                                ? "Signed source match"
-                                : "Not verified for this source"}`,
+                            "{version}: {status}",
+                            {
+                                version: String(release.version),
+                                status: {
+                                    translate: release.matches_observed_source === true
+                                        ? "Signed source match"
+                                        : "Not verified for this source",
+                                },
+                            },
                         ));
                     }
                 } catch (_) {
