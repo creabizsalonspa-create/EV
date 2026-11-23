@@ -139,6 +139,31 @@ class PartnerBillingReconciliationTest extends TestCase
         $this->assertSame($before, DB::table('finance_journals')->count());
     }
 
+    public function test_plain_browser_financial_exports_reject_bad_filters_after_owner_authorization(): void
+    {
+        [$owner, , $outsider, , , , , $provider] = $this->scenario();
+        $path = '/api/ocpi/providers/'.$provider->id.'/billing-reconciliation';
+        $before = DB::table('finance_journals')->count();
+        $this->actingAs($outsider);
+        $this->getJson($path.'?kind=unsupported')->assertNotFound();
+        $this->get($path.'/csv?kind=unsupported')->assertNotFound();
+        $this->get($path.'/pdf?locale=invalid')->assertNotFound();
+
+        $this->actingAs($owner);
+        foreach ([
+            'kind=unsupported', 'currency=invalid', 'page=1',
+            'country_code=ZZZ',
+        ] as $query) {
+            $this->get($path.'/csv?'.$query)->assertUnprocessable()
+                ->assertHeader('Cache-Control', 'no-store, private');
+            $this->get($path.'/pdf?'.$query)->assertUnprocessable();
+        }
+        $this->get($path.'/csv?kind=credits')->assertOk()
+            ->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_provider_reassignment_and_changed_source_cannot_reveal_the_previous_vendor_invoice(): void
     {
         [$owner,,$other,$invoice,,$intent,,$provider] = $this->scenario();
