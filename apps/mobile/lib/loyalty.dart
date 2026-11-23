@@ -625,39 +625,45 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  bool scoped(EvApi api, bool Function() fence) =>
+      mounted && identical(widget.api, api) &&
+      identical(ownsSession, fence) && fence();
+
   Future<void> loadCapability() async {
-    if (!ownsSession()) return;
+    final api = widget.api;
+    final fence = ownsSession;
+    if (!scoped(api, fence)) return;
     final epoch = ++generation;
+    bool current() => generation == epoch && scoped(api, fence);
     setState(() => busy = true);
     try {
-      final me = await widget.api.request('me');
-      if (!mounted || generation != epoch || !ownsSession()) return;
+      final me = await api.request('me');
+      if (!current()) return;
       if (me['id'] is! int || me['role'] != 'customer') {
         throw const FormatException('Invalid coupon account');
       }
       final op = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
-        '${widget.api.base.origin}:${me['id']}:loyalty:coupon',
-        isCurrent: () => mounted && ownsSession(),
+        '${api.base.origin}:${me['id']}:loyalty:coupon',
+        isCurrent: () => scoped(api, fence),
       );
       await op.restore();
-      if (!mounted || generation != epoch || !ownsSession()) return;
+      if (!current()) return;
       setState(() {
         operation = op;
         owner = me['id'] as int;
       });
-      final value = await widget.api.request('commercial/noncash/status');
-      if (!mounted || generation != epoch || !ownsSession()) return;
+      final value = await api.request('commercial/noncash/status');
+      if (!current()) return;
       setState(() => capability = NoncashCapabilities.parse(value));
     } catch (error) {
-      if (mounted &&
-          generation == epoch &&
+      if (current() &&
           error is ApiException &&
           error.endsCurrentSession) {
         widget.onExpired();
       }
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (current()) setState(() => busy = false);
     }
   }
 
