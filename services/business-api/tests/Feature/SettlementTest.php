@@ -233,6 +233,52 @@ class SettlementTest extends TestCase
         $this->assertSame(900, $this->draft()['amount_minor']);
     }
 
+    public function test_suspended_or_demoted_vendor_holds_new_settlement_and_execution_but_allows_rejection(): void
+    {
+        $this->invoice();
+        $this->configure();
+        $pending = $this->draft('before-moderation');
+        $beforeJournals = DB::table('finance_journals')->count();
+        $base = '/settlement-test/commercial';
+        $path = $base.'/settlements/'.$pending['id'];
+        DB::table('users')->where('id', $this->vendor->id)
+            ->update(['account_status' => 'suspended']);
+
+        $this->actingAs($this->admin)->postJson($path.'/approve')->assertConflict();
+        $this->postJson($path.'/simulate-payout')->assertConflict();
+        $this->postJson($base.'/vendors/'.$this->vendor->id.'/settlements', [
+            'currency' => 'AED', 'idempotency_key' => 'must-not-draft-suspended',
+        ])->assertConflict();
+        // A private Admin can still reject an old reservation and release
+        // its funds for supervised resolution, never paying a suspended vendor.
+        $this->postJson($path.'/reject')->assertOk()
+            ->assertJsonPath('state', 'rejected');
+
+        DB::table('users')->where('id', $this->vendor->id)
+            ->update(['account_status' => 'active']);
+        $approved = $this->postJson(
+            $base.'/vendors/'.$this->vendor->id.'/settlements',
+            ['currency' => 'AED', 'idempotency_key' => 'after-reviewed-reinstatement']
+        )->assertCreated()->json();
+        $approvedPath = $base.'/settlements/'.$approved['id'];
+        $this->postJson($approvedPath.'/approve')->assertOk()
+            ->assertJsonPath('state', 'approved');
+
+        DB::table('users')->where('id', $this->vendor->id)
+            ->update(['role' => 'customer']);
+        $this->postJson($approvedPath.'/simulate-payout')->assertConflict();
+        $this->postJson($approvedPath.'/reject')->assertOk()
+            ->assertJsonPath('state', 'rejected');
+
+        $this->assertDatabaseCount('commercial_settlements', 2);
+        $this->assertSame(2, DB::table('commercial_settlements')
+            ->where('state', 'rejected')->count());
+        $this->assertDatabaseCount('commercial_payouts', 0);
+        $this->assertDatabaseCount('commercial_settlement_events', 5);
+        $this->assertSame($beforeJournals, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_refund_after_reservation_blocks_approval_and_rejection_releases_revised_funds(): void
     {
         $invoice = $this->invoice();
