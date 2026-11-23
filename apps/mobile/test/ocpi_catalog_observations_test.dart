@@ -372,4 +372,28 @@ void main() {
     expect(api.reads, [{'quality': '1'}]);
   });
 
+  testWidgets('previous account hourly quality records vanish on native auth epoch transition',
+      (tester) async {
+    final api = CatalogApi();
+    await tester.pumpWidget(view(api));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(OutlinedButton));
+    await tester.tap(find.byType(OutlinedButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Private catalog operator'), findsOneWidget);
+    expect(api.reads, [{'quality': '1'}]);
+
+    // Same EvApi instance is retained, but the session fence has changed.
+    // Rebuilding the app must not show cached private quality samples.
+    await api.forgetSession();
+    await tester.pumpWidget(view(api, ar: true));
+    await tester.pumpAndSettle();
+    expect(find.text('Private catalog operator'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('catalog-quality-2026-11-23T10:00:00.000000Z')),
+      findsNothing,
+    );
+    expect(api.reads.length, 1);
+  });
+
 }
