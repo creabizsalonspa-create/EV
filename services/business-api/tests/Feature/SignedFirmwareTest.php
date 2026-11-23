@@ -214,7 +214,7 @@ class SignedFirmwareTest extends TestCase
         $company = VendorCompany::create(['owner_id' => $owner->id, 'legal_name' => 'Synthetic firmware', 'country' => 'AE', 'trade_license_number' => 'SYNTHETIC', 'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved']);
         $site = VendorSite::create(['company_id' => $company->id, 'station_id' => $station->id, 'name' => 'Fixture', 'country' => 'AE', 'timezone' => 'Asia/Dubai', 'address' => 'Synthetic', 'latitude' => 25, 'longitude' => 55]);
         $charger = VendorCharger::create(['company_id' => $company->id, 'site_id' => $site->id, 'asset_reference' => 'FIRMWARE', 'manufacturer' => 'Synthetic', 'model' => 'Fixture', 'source' => 'simulator', 'ocpp_protocol' => $protocol]);
-        $binding = DB::table('csms_bindings')->insertGetId(['station_id' => $station->id, 'vendor_charger_id' => $charger->id, 'identifier' => 'ev-test-firmware-unit', 'protocol' => $protocol, 'created_at' => now(), 'updated_at' => now()]);
+        $binding = DB::table('csms_bindings')->insertGetId(['station_id' => $station->id, 'vendor_charger_id' => $charger->id, 'identifier' => 'ev-test-firmware-unit-'.$charger->id, 'protocol' => $protocol, 'created_at' => now(), 'updated_at' => now()]);
         $releases = '/api/vendor-ops/companies/'.$company->id.'/firmware-releases';
         $path = '/api/vendor-ops/companies/'.$company->id.'/chargers/'.$charger->id.'/firmware-operations';
 
