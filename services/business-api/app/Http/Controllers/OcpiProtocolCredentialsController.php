@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\ContractReviewGate;
 use App\Services\Ocpi\CpoCatalogContract;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\IncomingEnrollment;
@@ -37,6 +38,11 @@ class OcpiProtocolCredentialsController extends Controller
         abort_unless($link->state === 'active' || $provisional || $enrolling, 401);
         $p = OcpiProvider::findOrFail($link->provider_id);
         abort_unless($p->authorized && $p->owner_id === $link->owner_id && User::whereKey($p->owner_id)->where('role', 'vendor')->exists() && ($resource !== 'catalog' || User::whereKey($p->owner_id)->where('account_status', 'active')->exists()) && hash_equals($link->configuration_hash, $exchange->configurationHash($p)), 401);
+        // An expired internal review stops reads, protocol negotiation,
+        // registration and rotation. Explicit peer DELETE remains available
+        // for safe credential decommissioning without a new agreement.
+        abort_unless($r->isMethod('DELETE')
+            || app(ContractReviewGate::class)->current($p), 401);
 
         return [$p, $link];
     }
@@ -86,6 +92,8 @@ class OcpiProtocolCredentialsController extends Controller
                 $current = OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
                 $active = DB::table('ocpi_credential_links')->where('id', $link->id)->lockForUpdate()->firstOrFail();
                 abort_unless($current->authorized && $current->owner_id === $p->owner_id && $current->connection_key === $p->connection_key && $current->authorization_revision === $p->authorization_revision && $active->state === 'active' && $active->local_token_digest === $link->local_token_digest && hash_equals($active->configuration_hash, $exchange->configurationHash($current)) && User::whereKey($current->owner_id)->where('role', 'vendor')->when($peer !== null, fn ($q) => $q->where('account_status', 'active'))->exists(), 401);
+                abort_unless($peer === null
+                    || app(ContractReviewGate::class)->current($current), 401);
                 if ($peer) {
                     abort_unless($active->generation < 2147483647 && $current->authorization_revision < PHP_INT_MAX, 409);
                 }
