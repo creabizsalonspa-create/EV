@@ -578,14 +578,32 @@ class SignedFirmwareTest extends TestCase
                 ->assertJsonPath('releases.0.signer_currently_trusted', true)
                 ->assertJsonPath('releases.0.matches_observed_source', true)
                 ->assertJsonPath('releases.0.revoked', false);
-            $this->assertSame(1, Http::recorded()->count(), 'Only a source identity read is allowed.');
+            $this->assertSame(2, Http::recorded()->count(), 'Two read-only authenticated station identity checks are required.');
             Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
                 || str_contains($request->url(), '/signedUpdateFirmware?')
                 || str_contains($request->url(), '/updateFirmware?'));
             $this->actingAs(User::factory()->create(['role' => 'vendor']))
                 ->getJson($path)->assertNotFound();
-            $this->assertSame(1, Http::recorded()->count(), 'Foreign operators cannot read the source.');
+            $this->assertSame(2, Http::recorded()->count(), 'Foreign operators cannot read the source.');
         }
+    }
+
+    public function test_firmware_matrix_rejects_source_firmware_version_drift_between_authenticated_reads(): void
+    {
+        $f = $this->fixture('2.0.1', [
+            'protocols' => ['2.0.1'],
+            'from_versions' => ['sim-fw-v1'],
+        ]);
+        $this->source($f, drift: true);
+        $path = str_replace('/firmware-operations', '/firmware-compatibility', $f['path']);
+        $this->actingAs($f['owner'])->getJson($path)->assertConflict()
+            ->assertDontSee('changed-source-version');
+        Http::assertSentCount(2);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/signedUpdateFirmware?')
+            || str_contains($request->url(), '/updateFirmware?'));
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        $this->assertDatabaseCount('charger_reset_operations', 0);
     }
 
     public function test_read_only_firmware_matrix_rejects_midflight_owned_charger_model_change(): void
