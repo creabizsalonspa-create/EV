@@ -71,6 +71,12 @@ class StationAvailabilityBlockTest extends TestCase
         // The retained login cannot inherit newly issued credentials.
         $this->postJson($path, $body)->assertConflict();
         $vendor->refresh();
+        // A refreshed model is not a new login. Renew the browser session
+        // explicitly at the current epoch after invalidating the old guard.
+        $this->app['auth']->forgetGuards();
+        $this->actingAs($vendor, 'web')->withSession([
+            'account_auth_epoch' => (int) $vendor->auth_epoch,
+        ]);
         $id = $this->postJson($path, $body)->assertCreated()->json('id');
         $this->assertNotEmpty($id);
 
