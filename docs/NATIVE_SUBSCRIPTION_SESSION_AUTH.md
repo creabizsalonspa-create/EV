@@ -88,3 +88,33 @@ plan, invoice, event, pending-action and error fields. The latter does
 nothing, preventing an old request from erasing a later account's
 legitimate source. No old callback invokes `onExpired` unless the
 exception specifically carries current-session expiration evidence.
+
+
+### Immediate erasure of a completed billing screen on account logout
+
+An external logout can invalidate `EvApi.sessionFence()` without
+scheduling a widget repaint. That means the prior native subscription
+catalog, private invoice history or a consent/submit button that
+finished rendering **before** logout could remain onscreen. The
+additive native `EvApi.sessionEvents` stream now synchronously
+emits a non-secret generation integer when an authenticated
+context is cleared or closed. All three subscription classes
+subscribe to the currently selected API and immediately dispose
+their old plan, invoice, entitlement, billing-operation display,
+consent buttons and spinner on invalidation. They detach listeners
+on API replacement and view disposal.
+
+New widget tests sign out after a completed plan list, after a
+completed invoice history and while a billing consent form is open,
+without an unrelated UI rebuild or second HTTP call. They require
+the private source and submit controls to disappear immediately.
+Original saved financial-operation nonce and provider request remain
+in their **original** encrypted store for explicit owner
+reconciliation after uncertain outcomes; none is auto-replayed.
+
+The same **byte-identical additive EvApi session event primitive**
+appears in PRs #243 and #272 (and will be reconciled once by
+Agent 5), while each domain's own listeners remain specific to its
+source data and testable action. These are Flutter security
+acceptance improvements; no real bank/PSP, hardware or legal
+certification is claimed.
