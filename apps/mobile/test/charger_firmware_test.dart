@@ -17,6 +17,7 @@ class FirmwareApi extends FixtureApi {
   bool active = true;
   bool failCompatibility = false;
   bool invalidCompatibility = false;
+  bool signerUntrusted = false;
   bool listUnavailable = false;
   Completer<void>? delayedCompatibility;
   int compatibilityReads = 0;
@@ -59,6 +60,7 @@ class FirmwareApi extends FixtureApi {
             'release_id': 1,
             'version': 'sim-v1',
             'signed_compatibility_policy': true,
+            'signer_currently_trusted': !signerUntrusted,
             'revoked': false,
             'matches_observed_source': true,
           },
@@ -203,6 +205,15 @@ void main() {
     expect(api.attempts, isEmpty);
 
     api.failCompatibility = false;
+    api.signerUntrusted = true;
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Signed source match'), findsNothing);
+    expect(find.textContaining('Not verified for this source'), findsOneWidget);
+    expect(api.attempts, isEmpty);
+
+    api.signerUntrusted = false;
     api.invalidCompatibility = true;
     await tester.ensureVisible(button);
     await tester.tap(button);
