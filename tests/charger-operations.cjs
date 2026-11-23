@@ -221,6 +221,12 @@ const { chromium } = require("playwright"),
       ),
       false,
     );
+    // Return from Arabic recovery review and reopen an independent scoped
+    // source panel before testing the known local simulator.
+    await page.locator("#language").click();
+    await ops.getByRole("button", {
+      name: "Source diagnostics", exact: true,
+    }).click();
     // Supply only a generated local 2.0.1 simulator. A fully authenticated
     // typed Boot/Heartbeat plus persisted matching status event must permit
     // a *recent source report*, but never physical availability or command.
