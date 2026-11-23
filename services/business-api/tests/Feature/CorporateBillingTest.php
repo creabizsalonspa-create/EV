@@ -178,6 +178,47 @@ class CorporateBillingTest extends TestCase
         $this->assertSame($before + 2, DB::table('finance_journals')->count());
     }
 
+    public function test_corporate_statement_export_refuses_rounded_source_money_and_hidden_formulas(): void
+    {
+        $exact = new \ReflectionMethod(
+            \App\Http\Controllers\CorporateBillingController::class,
+            'exactMinor'
+        );
+        $this->assertSame(9_007_199_254_740_991,
+            $exact->invoke(null, '9007199254740991'));
+        $this->assertSame(0, $exact->invoke(null, '0'));
+        foreach ([100.0, true, false, 0.1, '-1', '1e2',
+            '9007199254740992', 'wrong-source'] as $unsafe) {
+            try {
+                $exact->invoke(null, $unsafe);
+                $this->fail('Unsafe corporate source money was rounded into a CSV.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+
+        $literal = new \ReflectionMethod(
+            \App\Http\Controllers\CorporateBillingController::class,
+            'safeCsvCell'
+        );
+        foreach (["\u{00A0}=SUM(1,1)", "\u{200B}@hidden",
+            "\u{202E}+bidi", "\u{FEFF}-bom"] as $formula) {
+            $this->assertSame("'".$formula, $literal->invoke(null, $formula));
+        }
+
+        $a = $this->agreement();
+        $claim = $this->approved($a, $this->invoice());
+        $statement = $this->issue($a, [$claim])
+            ->assertCreated()->json('statement');
+        $cash = DB::table('finance_journals')->count();
+        $this->actingAs($this->owner)->get(
+            $this->url('statements/'.$statement['id'].'/export')
+        )->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertSee('ENGINEERING');
+        $this->assertSame($cash, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('corporate_receipts', 0);
+    }
+
     public function test_corporate_statement_csv_keeps_formula_like_cost_centers_literal(): void
     {
         $agreement = $this->agreement();
