@@ -131,7 +131,10 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
                 'Request changed or key conflicts. Refresh before retrying.',
                 'تغير الطلب أو تعارض المعرف. حدّث قبل إعادة المحاولة.',
               )
-            : e.toString(),
+            : t(
+                'Unable to verify the result. Refresh your private request history before trying again.',
+                'تعذّر التحقق من النتيجة. حدّث سجل طلباتك الخاصة قبل المحاولة مجدداً.',
+              ),
       );
   }
 

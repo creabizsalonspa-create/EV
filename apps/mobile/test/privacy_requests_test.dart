@@ -17,6 +17,7 @@ class _PrivacyApi extends EvApi {
   Completer<void>? holdPost;
   Completer<void>? holdWithdraw;
   int privateReads = 0;
+  bool failRead = false;
   bool failReadbackOnce = false;
   bool failPostAfterHold = false;
 
@@ -29,6 +30,9 @@ class _PrivacyApi extends EvApi {
   }) async {
     if (path == 'account/privacy-requests' && method == 'GET') {
       privateReads++;
+      if (failRead) {
+        throw const ApiException(503, 'PRIVATE_INTERNAL_FAILURE_CONTEXT');
+      }
       if (holdGet != null) await holdGet!.future;
       if (rows.isNotEmpty && failReadbackOnce) {
         failReadbackOnce = false;
@@ -74,6 +78,33 @@ class _PrivacyApi extends EvApi {
 }
 
 void main() {
+
+  for (final language in ['en', 'ar']) {
+    testWidgets('private request failures never expose transport diagnostics ($language)',
+        (tester) async {
+      final api = _PrivacyApi()..failRead = true;
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: PrivacyRequestsView(api: api, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('PRIVATE_INTERNAL_FAILURE_CONTEXT'), findsNothing);
+      expect(find.textContaining(language == 'ar' ? 'تعذّر التحقق' : 'Unable to verify'),
+          findsOneWidget);
+      api.failRead = false;
+      final refresh = find.byTooltip(language == 'ar' ? 'تحديث' : 'Refresh');
+      await tester.ensureVisible(refresh);
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(find.textContaining(language == 'ar' ? 'تعذّر التحقق' : 'Unable to verify'),
+          findsNothing);
+      expect(find.byKey(const Key('privacy-reason')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   for (final language in ['en', 'ar']) {
     testWidgets('first inactive privacy mount requires foreground refresh ($language)',
