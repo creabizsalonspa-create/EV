@@ -494,9 +494,9 @@ class SettlementTest extends TestCase
         $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
         $before = DB::table('finance_journals')->count();
 
-        // Test the CSV-only cell encoder without illegally changing a signed,
+        // Invoice/provider evidence share the CSV-only cell encoder; never change a signed,
         // immutable finance invoice to a fabricated provider filename.
-        $cell = new \ReflectionMethod(VendorEarningsController::class, 'csvInvoiceNumber');
+        $cell = new \ReflectionMethod(VendorEarningsController::class, 'csvLiteral');
         foreach (['=HYPERLINK("https://untrusted.test","open")', '+SUM(1,2)',
             '-cmd', '@danger', "\t=malicious", "\u{200B}=hidden",
             "\u{202E}@bidi", "\u{FEFF}+bom", "\u{00A0}=nbsp"] as $formula) {
