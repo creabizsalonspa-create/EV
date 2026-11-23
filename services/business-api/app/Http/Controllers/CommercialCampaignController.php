@@ -208,8 +208,8 @@ class CommercialCampaignController extends Controller
                 ->whereColumn('st.id', 'c.station_id')
                 ->whereColumn('st.vendor_id', 'c.vendor_id')
                 ->whereColumn('st.country', 'c.country'))
-            ->whereRaw("(SELECT COUNT(*) FROM commercial_campaign_deliveries AS d
-                WHERE d.campaign_id = c.id AND d.kind = ?) < c.budget_units",
+            ->whereRaw('(SELECT COUNT(*) FROM commercial_campaign_deliveries AS d
+                WHERE d.campaign_id = c.id AND d.kind = ?) < c.budget_units',
                 ['delivery'])
             ->orderBy('c.id')
             ->limit(1001)
