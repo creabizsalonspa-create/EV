@@ -235,9 +235,9 @@ class _RefundListState extends State<RefundRequestsView>
           if (visible && busy) const Center(child: CircularProgressIndicator()),
           if (currentError != null)
             Text(EvStrings.of(c).t(errorKey(currentError))),
-          if (currentPage != null && currentPage!.items.isEmpty) Text(t('empty')),
+          if (currentPage != null && currentPage.items.isEmpty) Text(t('empty')),
           if (currentPage != null) ...[
-            for (final row in currentPage!.items)
+            for (final row in currentPage.items)
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -296,17 +296,17 @@ class _RefundListState extends State<RefundRequestsView>
               spacing: 12,
               children: [
                 OutlinedButton(
-                  onPressed: busy || !visible || currentPage!.current <= 1
+                  onPressed: busy || !visible || currentPage.current <= 1
                       ? null
-                      : () => load(number: currentPage!.current - 1),
+                      : () => load(number: currentPage.current - 1),
                   child: Text(t('previous')),
                 ),
-                Text('${currentPage!.current} / ${currentPage!.last}'),
+                Text('${currentPage.current} / ${currentPage.last}'),
                 OutlinedButton(
                   onPressed: busy || !visible ||
-                        currentPage!.current >= currentPage!.last
+                        currentPage.current >= currentPage.last
                       ? null
-                      : () => load(number: currentPage!.current + 1),
+                      : () => load(number: currentPage.current + 1),
                   child: Text(t('next')),
                 ),
               ],
