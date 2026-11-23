@@ -55,10 +55,18 @@ class OcpiCredentialsController extends Controller
             }
         }
 
-        $activeReceivers = $configured && $state === 'active' && $provider->authorized
+        // A persisted state label alone is not proof that this generation's
+        // opaque peer/local tokens remain present. Never advertise active
+        // receiver rights or a CPO Sender for a partial credential record.
+        $tokenBound = $link && $state === 'active' && $link->owner_id === $provider->owner_id
+            && $link->generation >= 1 && is_string($link->local_token_digest)
+            && preg_match('/^[a-f0-9]{64}$/D', $link->local_token_digest)
+            && is_string($link->local_token_ciphertext) && $link->local_token_ciphertext !== ''
+            && is_string($link->remote_token_ciphertext) && $link->remote_token_ciphertext !== '';
+        $activeReceivers = $configured && $tokenBound && $provider->authorized
             ? ($ownerActive ? $receiverModules : array_values(array_intersect($receiverModules, ['sessions', 'cdrs']))) : [];
         $capabilities = app(PartnerCapabilityMatrix::class)->read(
-            $provider, $configured, $configured && $state === 'active' && $provider->authorized && $ownerActive,
+            $provider, $configured, $configured && $tokenBound && $provider->authorized && $ownerActive,
             $ownerActive, $receiverModules, $activeReceivers
         );
 
