@@ -355,6 +355,10 @@ void main() {
     final stale = api.quality();
     (stale['samples'] as List).first['sampled_at'] = '2026-11-23T11:02:00.000000Z';
     expect(catalogQualityHistoryValid(stale, providerId: 7), isFalse);
+    final invalidCalendar = api.quality();
+    (invalidCalendar['samples'] as List).first['observed_hour'] =
+        '2026-02-30T10:00:00.000000Z';
+    expect(catalogQualityHistoryValid(invalidCalendar, providerId: 7), isFalse);
     expect(catalogQualityHistoryValid(api.quality(), providerId: 8), isFalse);
   });
   testWidgets('forged quality authority fails closed without previous samples',

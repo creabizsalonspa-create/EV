@@ -32,8 +32,9 @@ window.EvPartnerCatalogObservations=(()=>{
   let previous=null;
   const metrics=['published_count','within_policy_count','stale_count','unknown_age_count','future_clock_count'];
   const timestamp=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+  const strictInstant=v=>typeof v==='string'&&timestamp.test(v)&&Number.isFinite(Date.parse(v))&&new Date(Date.parse(v)).toISOString().slice(0,23)===v.slice(0,23);
   for(const row of d.samples){
-   if(!row||typeof row!=='object'||!timestamp.test(row.observed_hour)||!timestamp.test(row.sampled_at))return false;
+   if(!row||typeof row!=='object'||!strictInstant(row.observed_hour)||!strictInstant(row.sampled_at))return false;
    const hour=Date.parse(row.observed_hour),at=Date.parse(row.sampled_at);
    if(!Number.isFinite(hour)||!Number.isFinite(at)||!row.observed_hour.endsWith(':00:00.000000Z')||at<hour||at>=hour+3600000||(previous!==null&&hour>=previous))return false;
    previous=hour;
