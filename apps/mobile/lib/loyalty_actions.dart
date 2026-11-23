@@ -168,7 +168,8 @@ class _ActionState extends State<LoyaltyActionView>
       final pending = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${api.base.origin}:${me['id']}:loyalty:$action:${reward ?? 'account'}',
-        isCurrent: () => current(),
+        isCurrent: () => scoped(api, fence) &&
+            widget.action == action && widget.reward == reward,
       );
       await pending.restore();
       if (!current()) return;
