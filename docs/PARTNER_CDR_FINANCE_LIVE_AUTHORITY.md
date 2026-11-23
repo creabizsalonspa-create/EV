@@ -60,3 +60,11 @@ draft filter invalidation, applied PDF filters, impossible 2^53 financial
 amounts, forged pagination, lifecycle cancellation, cross-provider
 mismatch and logout. This is no claim of verified CDR cash collection,
 live PSP or partner settlement.
+
+The native response contract additionally permits only the known bounded
+source-card fields. A peer's raw OCPI CDR `payload`, card/token IDs,
+private source credential fields, or unexpected top-level fields cause the
+entire report and export affordance to fail closed. These fields are not
+stored in the displayed report. A synthetic widget regression injects a
+`payload.token` and confirms no invoice card, PDF action or token text
+can appear. Backend JSON continues to project only sanitized references.
