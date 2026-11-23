@@ -241,7 +241,10 @@ bool catalogQualityHistoryValid(dynamic d, {required int providerId}) {
                   value['stale_count'] +
                   value['unknown_age_count'] !=
               value['published_count'] ||
-          value['future_clock_count'] > value['unknown_age_count']) {
+          value['future_clock_count'] > value['unknown_age_count'] ||
+          value['state'] != (value['published_count'] == 0
+              ? 'empty' : (value['stale_count'] + value['unknown_age_count'] > 0
+                  ? 'attention' : 'within_policy'))) {
         return false;
       }
     } else if (!['unavailable', 'policy_unavailable']
