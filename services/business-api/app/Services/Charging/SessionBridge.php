@@ -11,6 +11,9 @@ use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Models\VendorOps\VendorCharger;
+use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorSite;
 use App\Services\Finance\FinanceService;
 use App\Services\Finance\Money;
 use App\Services\Finance\PrechargePricing;
@@ -188,14 +191,53 @@ class SessionBridge
         $hash = hash('sha256', json_encode($identity, JSON_THROW_ON_ERROR));
 
         $result = DB::transaction(function () use ($v, $at, $hash) {
+            // Lock the station ahead of the session link: signed event data
+            // alone cannot authorize a previously bound but now reparented
+            // source, and source rebinding must not race invoice issuance.
+            $sessionHint = ChargingSession::whereKey($v['session_id'])->firstOrFail();
+            $reservationHint = Reservation::whereKey($sessionHint->reservation_id)->firstOrFail();
+            $station = Station::whereKey($reservationHint->station_id)->lockForUpdate()->firstOrFail();
             $link = SessionLink::where('charging_session_id', $v['session_id'])->lockForUpdate()->firstOrFail();
+            $session = ChargingSession::whereKey($link->charging_session_id)->firstOrFail();
+            $reservation = Reservation::whereKey($session->reservation_id)->firstOrFail();
+            abort_unless($session->id === $sessionHint->id
+                && $reservation->id === $reservationHint->id
+                && $reservation->station_id === $station->id
+                && $station->source === 'simulator', 409,
+                'Charging source topology changed; reconcile before posting source events.');
+            $binding = DB::table('csms_bindings')->where('id', $link->binding_id)->first();
+            abort_unless($binding && $binding->station_id === $station->id
+                && $binding->identifier === $link->identifier
+                && $binding->protocol === $link->protocol
+                && hash_equals($link->identifier, $v['identifier'])
+                && $link->protocol === $v['protocol'], 409,
+                'Signed source receipt no longer matches the canonical binding.');
+            if ($binding->vendor_charger_id !== null) {
+                $charger = VendorCharger::find($binding->vendor_charger_id);
+                $site = $charger ? VendorSite::find($charger->site_id) : null;
+                $company = $charger ? VendorCompany::find($charger->company_id) : null;
+                abort_unless($charger && $site && $company
+                    && $charger->source === 'simulator'
+                    && $charger->ocpp_protocol === $binding->protocol
+                    && $site->company_id === $company->id
+                    && $site->station_id === $station->id
+                    && $company->owner_id === $station->vendor_id
+                    && $station->country === $company->country
+                    && $site->country === $station->country, 409,
+                    'Charger ownership or source binding changed.');
+            }
             if ($link->connector_mapping_id) {
                 $map = ConnectorMapping::findOrFail($link->connector_mapping_id);
                 $evse = Evse::findOrFail($map->evse_id);
-                abort_unless(($v['source_connector_number'] ?? null) === $map->source_connector_number && ($v['source_evse_number'] ?? null) === $evse->source_evse_number && $evse->binding_id === $link->binding_id, 409, 'Canonical source target mismatch.');
+                abort_unless(($v['source_connector_number'] ?? null) === $map->source_connector_number
+                    && ($v['source_evse_number'] ?? null) === $evse->source_evse_number
+                    && $evse->binding_id === $binding->id
+                    && $map->station_id === $station->id
+                    && ($binding->vendor_charger_id === null
+                        || $evse->charger_id === $binding->vendor_charger_id), 409,
+                    'Canonical source target mismatch.');
             }
             abort_unless($link->closed_without_dispatch_at === null, 409, 'This request was closed before dispatch; unexpected source activity requires reconciliation.');
-            abort_unless(hash_equals($link->identifier, $v['identifier']) && $link->protocol === $v['protocol'], 409, 'CSMS binding mismatch.');
             $old = DB::table('csms_inbox_events')->where('event_id', $v['event_id'])->first();
             if ($old) {
                 abort_unless($old->link_id === $link->id && hash_equals($old->fingerprint, $hash), 409, 'Event identity payload conflict.');
