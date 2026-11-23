@@ -185,6 +185,22 @@ final class OcpiCpoAdminAuthorityTest extends TestCase
                 $this->assertSame(403, $error->getStatusCode());
             }
         }
+        // Restore unexpired evidence and simulate a fully rebound, active
+        // peer credential to another tenant: the previous owner's approval
+        // must still not authorize CPO catalog access.
+        DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+            ->update(['valid_until' => now('UTC')->addDay()->toDateString()]);
+        $replacement = User::factory()->create(['role' => 'vendor', 'account_status' => 'active']);
+        $provider->update(['owner_id' => $replacement->id]);
+        DB::table('ocpi_credential_links')->where('provider_id', $provider->id)
+            ->update(['owner_id' => $replacement->id]);
+        try {
+            $publisher->show($admin, $provider->fresh());
+            $this->fail('Previous owner review approved a different vendors CPO catalog.');
+        } catch (HttpException $error) {
+            $this->assertSame(403, $error->getStatusCode());
+        }
+
         $this->assertDatabaseCount('ocpi_cpo_catalog', 0);
         $this->assertDatabaseCount('ocpi_cpo_publication_operations', 0);
         $this->assertDatabaseCount('finance_payments', 0);
