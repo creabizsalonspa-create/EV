@@ -110,7 +110,12 @@ void main() {
     await tester.pump();
     expect(api.posts, 0);
     expect(store.writes, 0);
-    expect(find.widgetWithText(FilledButton, 'Confirm'), findsNothing);
+    // The review shell retains a disabled confirmation control while
+    // authentication is pending. It must not become actionable, dispatch
+    // a POST, or restore the earlier reviewer's private operation.
+    final confirm = find.widgetWithText(FilledButton, 'Confirm');
+    expect(confirm, findsOneWidget);
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
   });
 
   testWidgets('customer consent cannot submit when account changed in dialog', (
