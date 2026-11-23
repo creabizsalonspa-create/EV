@@ -42,7 +42,10 @@ void main() {
     final row=<String,dynamic>{'id':7,'name':'Platform source','latitude':'25.2','longitude':'55.3','evidence':'SIMULATED'};
     final point=PartnerMapPoint.fromPublishedCatalog(row)!;
     expect(point.platformCatalog,true);expect(point.catalogEvidence,'SIMULATED');expect(point.providerLabel,isNull);
-    for(final update in <Map<String,dynamic>>[{'id':0},{'latitude':89},{'evidence':'LIVE_VERIFIED'},{'name':null}])expect(PartnerMapPoint.fromPublishedCatalog({...row,...update}),isNull);
+    for(final update in <Map<String,dynamic>>[
+      {'id':0}, {'latitude':89}, {'evidence':'LIVE_VERIFIED'}, {'name':null},
+      {'evidence':'DISCOVERY_ONLY', 'reservable':true},
+    ]) expect(PartnerMapPoint.fromPublishedCatalog({...row,...update}),isNull);
   });
 
   testWidgets('mixed map keeps supplier labels and tile consent independent of source', (tester) async {
