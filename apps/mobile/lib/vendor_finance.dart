@@ -4,6 +4,7 @@ import 'api.dart';
 import 'strings.dart';
 import 'financial_documents.dart';
 import 'financial_operation_store.dart';
+import 'vendor_earnings_csv.dart';
 import 'vendor_revenue_cohorts.dart';
 
 const vendorFinanceEn = {
@@ -1226,9 +1227,13 @@ class VendorEarningsSnapshot {
         Map<String, dynamic>.unmodifiable(Map<String, dynamic>.from(row)),
       );
     }
+    final immutableRows = List<Map<String, dynamic>>.unmodifiable(rows);
     return VendorEarningsSnapshot._(
-      Map<String, dynamic>.unmodifiable(Map<String, dynamic>.from(raw)),
-      List<Map<String, dynamic>>.unmodifiable(rows),
+      Map<String, dynamic>.unmodifiable({
+        ...Map<String, dynamic>.from(raw),
+        'data': immutableRows,
+      }),
+      immutableRows,
     );
   }
 }
@@ -1250,6 +1255,7 @@ class VendorEarningsView extends StatefulWidget {
 class _VendorEarningsState extends State<VendorEarningsView>
     with WidgetsBindingObserver {
   VendorEarningsSnapshot? report;
+  String? csvPreview;
   bool Function()? session;
   Object? error;
   bool busy = false, foreground = true, hidden = false;
@@ -1273,8 +1279,15 @@ class _VendorEarningsState extends State<VendorEarningsView>
     if (oldWidget.api != widget.api || oldWidget.currency != widget.currency) {
       generation++;
       report = null;
+      csvPreview = null;
       error = null;
-      if (foreground) load();
+      if (foreground) {
+        final api = widget.api, currency = widget.currency;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && identical(widget.api, api) &&
+              widget.currency == currency) load();
+        });
+      }
     }
   }
 
@@ -1286,6 +1299,7 @@ class _VendorEarningsState extends State<VendorEarningsView>
       if (!foreground) {
         generation++;
         report = null;
+        csvPreview = null;
         error = null;
         busy = false;
         hidden = true;
@@ -1296,6 +1310,8 @@ class _VendorEarningsState extends State<VendorEarningsView>
   @override
   void dispose() {
     generation++;
+    report = null;
+    csvPreview = null;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -1308,6 +1324,7 @@ class _VendorEarningsState extends State<VendorEarningsView>
       busy = true;
       error = null;
       report = null;
+      csvPreview = null;
       hidden = false;
     });
     bool active() => mounted && foreground && generation == epoch && current();
@@ -1337,6 +1354,52 @@ class _VendorEarningsState extends State<VendorEarningsView>
       setState(() => error = e);
       if (e is ApiException && [401, 419].contains(e.status))
         widget.onExpired();
+    } finally {
+      if (active()) setState(() => busy = false);
+    }
+  }
+
+  /// Copyable in-memory export of the currently visible private invoice
+  /// page. Every CSV cell must match the source JSON snapshot.
+  Future<void> viewCsv() async {
+    final data = report;
+    final current = session;
+    if (!foreground || busy || data == null || current == null || !current()) {
+      return;
+    }
+    final epoch = generation;
+    setState(() {
+      busy = true;
+      error = null;
+      csvPreview = null;
+    });
+    bool active() => mounted && foreground && generation == epoch &&
+        current();
+    try {
+      final vendorId = data.source['vendor_id'] as int;
+      final page = data.source['current_page'] as int;
+      final document = await widget.api.downloadVendorEarningsPage(
+        vendorId,
+        currency: widget.currency,
+        page: page,
+        perPage: data.source['per_page'] as int,
+      );
+      if (!active()) return;
+      final copy = VendorEarningsCsv.verifiedText(
+        document,
+        vendorId: vendorId,
+        currency: widget.currency,
+        page: page,
+        source: data.source,
+        rows: data.rows,
+      );
+      if (active()) setState(() => csvPreview = copy);
+    } catch (e) {
+      if (!active()) return;
+      setState(() => error = e);
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        widget.onExpired();
+      }
     } finally {
       if (active()) setState(() => busy = false);
     }
@@ -1381,6 +1444,29 @@ class _VendorEarningsState extends State<VendorEarningsView>
               ),
             ),
           if (data != null) ...[
+            OutlinedButton(
+              key: const Key('vendor-earnings-export'),
+              onPressed: busy ? null : viewCsv,
+              child: Text(t(
+                'View copyable CSV for this invoice page',
+                'عرض CSV قابل للنسخ لصفحة الفواتير هذه',
+              )),
+            ),
+            if (csvPreview != null) ...[
+              Text(
+                t(
+                  'Private source CSV, current invoice page only. No bank or PSP verification. Copy manually only to a trusted destination.',
+                  'CSV خاص بالمصدر لهذه الصفحة فقط. لا يوجد تحقق مصرفي أو من مزود الدفع. انسخه يدوياً إلى وجهة موثوقة فقط.',
+                ),
+              ),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SelectableText(
+                  csvPreview!,
+                  key: const Key('vendor-earnings-csv-preview'),
+                ),
+              ),
+            ],
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),

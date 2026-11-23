@@ -74,3 +74,41 @@ as the native/web JSON report. UTF-8 CSV uses explicit RFC quote/escape
 controls and `X-Content-Type-Options: nosniff`. A new feature test
 covers malformed uppercase currency, invalid calendar dates, reversed or
 oversized UTC periods and confirms no invoice or journal change on rejection.
+
+
+### Additional native vendor invoice-earnings CSV parity
+
+The already implemented canonical `GET
+/commercial/vendors/{vendor}/earnings/export` now has a strictly bounded
+**native copyable CSV preview** in `VendorEarningsView`, alongside the
+existing paginated invoice source. This is a viewing/copying surface, not
+a persisted file, device share, tax invoice, bank statement or transfer.
+
+- Flutter's `EvApi.downloadVendorEarningsPage` uses the same authenticated
+  cookie/native session as the JSON report and pins the exact vendor,
+  uppercase currency, current requested page 1–10,000 and `per_page`
+  1–25. It refuses non-CSV MIME and bodies over 64 KiB.
+- `VendorEarningsCsv.verifiedText` parses quoted UTF-8 RFC-style CSV
+  and requires the exact original canonical 18-column schema, exact row
+  count, same original invoice IDs, numbers, currencies, precision,
+  evidence and every integer amount as the previously validated and
+  loaded JSON snapshot. Formula-leading invoice identifiers must match
+  the literal-cell prefix from the existing server CSV sanitizer.
+- A source-changing or inexact/mismatched export is **never displayed**.
+  The viewer holds a copyable in-memory string only, clears it on
+  refresh, pagination, account/API change, screen disposal and
+  background transition; late downloads from revoked sessions cannot
+  repopulate it. No permanent file or real payment action is created.
+- Pure CSV parser regressions cover commas/quotes, `=,+,-,@` spreadsheet
+  identifiers, invalid UTF-8, wrong vendor/page/source, incorrect
+  amounts and header/order, over-limit files and empty pages.
+  Widget tests cover view/refresh, native page identity, rejected
+  tampered CSV and stale account downloads. The existing genuine
+  Laravel loopback financial fixture now requests, verifies and checks
+  the real CSV bytes for the logged-in vendor and rejects customer/
+  foreign downloads (no journal changes).
+
+This contributes a partial native-source slice to original 3.5.9 and
+7.1.10 alongside the revenue-cohort 3.6.2 candidate. All remain
+**uncredited until exact-head Flutter/Android/iOS/Laravel acceptance and
+Agent 5 integration**; no independent tax-law or provider certification.
