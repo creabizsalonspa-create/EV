@@ -40,6 +40,56 @@ class DiagnosticsApi extends FixtureApi {
   }
 }
 
+class LiveDiagnosticsApi extends DiagnosticsApi {
+  bool malformed = false, failing = false, expired = false, active = true;
+  int sourceReads = 0, writes = 0;
+  Completer<dynamic>? deferred;
+  @override
+  bool Function() sessionFence() => () => active;
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path.endsWith('/live-connectors')) {
+      expect(method, 'GET');
+      sourceReads++;
+      if (deferred != null) return deferred!.future;
+      if (expired) throw const ApiException(401, 'PRIVATE AUTH TOKEN');
+      if (failing) throw const ApiException(503, 'PRIVATE UPSTREAM SECRET');
+      return {
+        'company_id': 1, 'charger_id': 2, 'protocol': '2.0.1',
+        'source_online': true,
+        'source_topology_matches_local': true,
+        'source_identity_rechecked': true,
+        'source_firmware_version': 'sim-fw-v1',
+        'source_last_message_at': '2026-11-23T06:00:00Z',
+        'observed_at': '2026-11-23T06:00:00Z',
+        'evidence': 'SIMULATED_CSMS_SOURCE',
+        'physical_availability_verified': false,
+        'remote_control_authorized': false,
+        'commands_sent': false,
+        'connectors': [{
+          'mapping_id': 9,
+          'source_evse_number': 1,
+          'source_connector_number': 2,
+          'operator_maintenance_blocked': false,
+          'state': 'recent',
+          'reported_status': 'Charging',
+          'error_code': null,
+          'source_event_at': '2026-11-23T05:59:00Z',
+          'physical_available': malformed,
+          'remote_control_authorized': false,
+        }],
+      };
+    }
+    if (method != 'GET') writes++;
+    return super.request(path, method: method, body: body, query: query);
+  }
+}
+
 class FaultDiagnosticsApi extends DiagnosticsApi {
   int acknowledgments = 0;
   bool acknowledged = false;
@@ -114,6 +164,91 @@ class DeferredDiagnosticsApi extends DiagnosticsApi {
 }
 
 void main() {
+  testWidgets(
+    'explicit native source inspection is read-only and leaves physical connector status unverified',
+    (tester) async {
+      final api = LiveDiagnosticsApi();
+      await tester.pumpWidget(MaterialApp(home: ChargerDiagnosticsView(
+        api: api, companyId: 1, chargerId: 2, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(api.sourceReads, 0);
+      await tester.tap(find.text('Read live connector source'));
+      await tester.pumpAndSettle();
+      expect(api.sourceReads, 1);
+      expect(find.textContaining('Recent CSMS report: Charging'), findsOneWidget);
+      expect(find.textContaining('no physical connector availability'), findsOneWidget);
+      expect(api.writes, 0);
+    },
+  );
+
+  testWidgets(
+    'malformed or unavailable source loses recent status and never exposes transport secrets',
+    (tester) async {
+      final api = LiveDiagnosticsApi()..malformed = true;
+      await tester.pumpWidget(MaterialApp(home: ChargerDiagnosticsView(
+        api: api, companyId: 1, chargerId: 2, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Read live connector source'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Recent CSMS report'), findsNothing);
+      expect(find.textContaining('Live connector source unavailable'), findsOneWidget);
+      api.malformed = false;
+      await tester.tap(find.text('Read live connector source'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Recent CSMS report: Charging'), findsOneWidget);
+      api.failing = true;
+      await tester.tap(find.text('Read live connector source'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Recent CSMS report'), findsNothing);
+      expect(find.textContaining('PRIVATE UPSTREAM SECRET'), findsNothing);
+      expect(api.writes, 0);
+    },
+  );
+
+  testWidgets(
+    'expired source access clears private data and invokes the session-expiry callback',
+    (tester) async {
+      final api = LiveDiagnosticsApi();
+      int expired = 0;
+      await tester.pumpWidget(MaterialApp(home: ChargerDiagnosticsView(
+        api: api, companyId: 1, chargerId: 2,
+        onExpired: () { expired++; api.active = false; },
+      )));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Read live connector source'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Recent CSMS report: Charging'), findsOneWidget);
+      api.expired = true;
+      await tester.tap(find.text('Read live connector source'));
+      await tester.pumpAndSettle();
+      expect(expired, 1);
+      expect(find.textContaining('Recent CSMS report'), findsNothing);
+      expect(find.textContaining('PRIVATE AUTH TOKEN'), findsNothing);
+      expect(api.writes, 0);
+    },
+  );
+
+  testWidgets(
+    'Arabic live source inspection is explicit and read-only',
+    (tester) async {
+      final api = LiveDiagnosticsApi();
+      await tester.pumpWidget(MaterialApp(
+        locale: const Locale('ar'),
+        home: ChargerDiagnosticsView(
+          api: api, companyId: 1, chargerId: 2, onExpired: () {},
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.sourceReads, 0);
+      await tester.tap(find.text('قراءة حالة موصلات المصدر المباشر'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('تقرير حديث من نظام الشحن: Charging'), findsOneWidget);
+      expect(api.writes, 0);
+    },
+  );
+
   testWidgets(
     'background hides private observations and drops late source reads',
     (tester) async {
