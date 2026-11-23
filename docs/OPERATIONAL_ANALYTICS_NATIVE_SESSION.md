@@ -39,3 +39,17 @@ in place. Exact-head Flutter widget/analyze/Android/iOS and Laravel/CI acceptanc
 is required prior to Agent 5 integration. The current repository environment
 cannot assert physical charger uptime or site power without approved hardware
 and source observations.
+
+
+### Connector-coverage denominator displayed separately
+
+Operational status evidence now presents **mapped connector count** and
+**current mapped-connector window seconds** independently from mapped
+EVSE count and EVSE busy/window seconds, in English and Arabic. This
+prevents treating unknown connector status as physical uptime and makes
+`known + unknown = possible connector exposure` visually auditable.
+The native parser independently checks this invariant and rejects
+fault exposure above known source coverage, impossible busy periods or
+client-visible claims of verified physical availability. A widget
+regression tests the distinct source denominator. No real hardware
+verification is claimed.
