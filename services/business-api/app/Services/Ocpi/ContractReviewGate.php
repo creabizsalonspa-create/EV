@@ -42,7 +42,7 @@ final class ContractReviewGate
                         ->whereColumn('newer.provider_id', 'review.provider_id')
                         ->whereColumn('newer.revision', '>', 'review.revision');
                 });
-            });
+        });
     }
 
     public function current(OcpiProvider $provider, ?User $owner = null): bool
