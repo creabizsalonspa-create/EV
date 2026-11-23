@@ -54,7 +54,11 @@ ineligible row; page 2 contains the other, page 3 is empty,
 and `total/last_page` refer only to eligible placements. Also verify
 catalog `station_ids` is filtered **before** eligible pagination,
 invalid page-size rejection and unchanged canonical finance journals,
-subscription ledger and signed delivery count after all lookups.
+subscription ledger and signed delivery count after all lookups. A second
+real-source regression signs and records a delivery that fully consumes the
+first vendor's approved campaign budget, then proves page 1 shows only the
+other vendor's still-entitled sponsored station, with no additional
+signed delivery or package-spend mutations.
 
 **No production sponsor impressions, billing-provider collection, ad
 content compliance review, or feature completion is claimed.** Exact
