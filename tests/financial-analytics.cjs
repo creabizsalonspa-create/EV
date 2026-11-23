@@ -98,7 +98,7 @@ const assert = require("node:assert/strict");
         .getAttribute("aria-label"),
       "Financial activity",
     );
-    const currentMeter = panel.locator('meter[data-i18n-aria="Current period"]').first();
+    const currentMeter = collected.locator('meter[data-i18n-aria="Current period"]').first();
     assert.equal(await currentMeter.getAttribute("aria-label"), "Current period");
     assert.match(await currentMeter.getAttribute("aria-valuetext"), /^[A-Z]{3} /);
     const originalMeterValue = await currentMeter.getAttribute("value");
