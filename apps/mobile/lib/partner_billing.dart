@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'invoice.dart';
@@ -22,6 +23,23 @@ class PartnerBillingPage extends StatefulWidget {
 class _PartnerBillingState extends State<PartnerBillingPage>
     with WidgetsBindingObserver {
   late bool Function() current;
+  StreamSubscription<int>? sessionEvents;
+
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        invalidate();
+        currency.clear();
+        country.clear();
+        party.clear();
+        appliedFilters = {'kind': 'all'};
+        kind = 'all';
+      });
+    });
+  }
+
   final currency = TextEditingController(),
       country = TextEditingController(),
       party = TextEditingController();
@@ -46,6 +64,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
     super.initState();
     current = widget.api.sessionFence();
     WidgetsBinding.instance.addObserver(this);
+    observe(widget.api);
     foreground = WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     if (foreground) load();
@@ -56,6 +75,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.api != widget.api ||
         oldWidget.providerId != widget.providerId) {
+      if (oldWidget.api != widget.api) observe(widget.api);
       invalidate();
       currency.clear();
       country.clear();
@@ -76,6 +96,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
 
   @override
   void dispose() {
+    sessionEvents?.cancel();
     invalidate();
     WidgetsBinding.instance.removeObserver(this);
     currency.dispose();
