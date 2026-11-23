@@ -194,6 +194,22 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
       await matrix.getByText(`${f.version}: تطابق مصدر موقع`, { exact: true }).waitFor();
       await o.p.locator("#language").click();
       await matrix.getByRole("heading", { name: "Authenticated source snapshot", exact: true }).waitFor();
+      const compatibilityPath = `**/api/vendor-ops/companies/${f.company_id}/chargers/${f.charger_id}/firmware-compatibility`;
+      // A contradictory upstream/browser projection cannot promote a
+      // revoked signer into a visually trusted firmware upgrade option.
+      await o.p.route(compatibilityPath, async (route) => {
+        const sourceReply = await route.fetch();
+        assert.equal(sourceReply.status(), 200);
+        const result = await sourceReply.json();
+        assert(result.releases.length > 0);
+        result.releases[0].signer_currently_trusted = false;
+        await route.fulfill({ response: sourceReply, json: result });
+      }, { times: 1 });
+      await check.click();
+      await matrix.getByText(`${f.version}: Not verified for this source`, { exact: true }).waitFor();
+      assert.equal(await matrix.getByText(`${f.version}: Signed source match`, { exact: true }).count(), 0);
+      await check.click();
+      await matrix.getByText(`${f.version}: Signed source match`, { exact: true }).waitFor();
       assert.equal(charger.commands.filter(c=>["SignedUpdateFirmware","UpdateFirmware"].includes(c.action)).length,0);
       const submittedReply=o.p.waitForResponse(r=>new URL(r.url()).pathname==='/api/'+path&&r.request().method()==='POST');
       const [submitted]=await Promise.all([submittedReply,form.getByRole("button", { name: "Save", exact: true }).click()]);
