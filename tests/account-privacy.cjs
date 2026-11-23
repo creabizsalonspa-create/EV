@@ -102,6 +102,66 @@ const page = (data = [record]) => ({
   data,
 });
 
+test("hide clears existing customer history, withdrawal controls and the private draft", async () => {
+  const ui = fixture();
+  ui.setSelfActor({ id: 3, role: "customer" }, async () =>
+    page([{ ...record, details: "PRIVATE HISTORY THAT MUST DISAPPEAR" }]));
+  await tick();
+  const form = nodes(ui.mine, "form")[0];
+  const draft = nodes(form, "textarea")[0];
+  draft.value = "PRIVATE UNSUBMITTED DRAFT DETAIL";
+  assert.match(ui.mine.textContent, /PRIVATE HISTORY THAT MUST DISAPPEAR/);
+  assert(nodes(ui.mine, "button").some((b) =>
+    b.textContent.startsWith("Withdraw request")));
+  ui.hide();
+  assert(!ui.mine.textContent.includes("PRIVATE HISTORY THAT MUST DISAPPEAR"));
+  assert(!nodes(ui.mine, "button").some((b) =>
+    b.textContent.startsWith("Withdraw request")));
+  assert.equal(draft.value, "");
+  const results = ui.mine.children.find((x) => x.tag === "div");
+  assert.equal(results.attributes["aria-busy"], undefined);
+  ui.show();
+  assert(!ui.mine.textContent.includes("PRIVATE HISTORY THAT MUST DISAPPEAR"));
+});
+
+test("hidden submit completion preserves same request identity for deliberate retry", async () => {
+  const ui = fixture(), posts = [];
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  let committed = [];
+  ui.setSelfActor({id: 3, role:"customer"}, async (path, method="GET", body) => {
+    if (method === "POST") {
+      posts.push(body);
+      if (posts.length === 1) await pending;
+      committed = [{...record, details:body.details, kind:body.kind}];
+      return { id: record.id };
+    }
+    return page(committed);
+  });
+  await tick();
+  const form = nodes(ui.mine, "form")[0];
+  const draft = nodes(form, "textarea")[0];
+  draft.value = "Please check my private account details before deletion.";
+  const first = form.onsubmit({preventDefault(){}});
+  assert.equal(posts.length, 1);
+  ui.hide();
+  ui.show();
+  release();
+  await first;
+  assert.equal(posts.length, 1);
+  assert(!ui.mine.textContent.includes("Request recorded for manual review"));
+  const reload = nodes(ui.mine, "button").find((b) => b.textContent.startsWith("Refresh requests"));
+  await reload.onclick();
+  await tick();
+  // A subsequent explicit retry with identical body must reuse the prior key.
+  draft.value = posts[0].details;
+  await form.onsubmit({preventDefault(){}});
+  await tick();
+  assert.equal(posts.length, 2);
+  assert.equal(posts[1].idempotency_key, posts[0].idempotency_key);
+  assert.match(ui.mine.textContent,/Request recorded for manual review/);
+});
+
 test("hidden-first customer web mount and resume do not fetch private history", async () => {
   const ui = fixture();
   let reads = 0;

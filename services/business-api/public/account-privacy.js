@@ -12,6 +12,7 @@ window.EvPrivacyRequests = (() => {
             previews: new Set(),
             secrets: new Set(),
             visibilityVersion: 0,
+            onHide: null,
         },
         admin: {
             root: adminRoot,
@@ -66,6 +67,7 @@ window.EvPrivacyRequests = (() => {
         state.generation++;
         state.controller?.abort();
         state.controller = null;
+        state.onHide = null;
         state.request = null;
         state.pending = null;
         state.submitting = false;
@@ -113,7 +115,7 @@ window.EvPrivacyRequests = (() => {
         message.setAttribute("role", "status");
         const results = el("div");
         const reset = button("Start different request / طلب مختلف", () => {
-            if (viewGeneration !== state.generation || !state.request) return;
+            if (viewGeneration !== state.generation || !state.request || document.hidden) return;
             if (state.submitting) {
                 message.textContent = "Wait for the current request to settle before starting a different one. / انتظر اكتمال الطلب الحالي قبل بدء طلب مختلف.";
                 return;
@@ -127,6 +129,17 @@ window.EvPrivacyRequests = (() => {
             refresh(),
         );
         state.root.append(form, reset, reload, message, results);
+        state.onHide = () => {
+            if (viewGeneration !== state.generation || !state.request) return;
+            // Clear the *entire* private result tree, not only export previews.
+            // An aborted GET can otherwise leave old history, withdrawal actions
+            // and a permanent aria-busy indicator in the backgrounded document.
+            results.replaceChildren();
+            results.removeAttribute("aria-busy");
+            details.value = "";
+            message.textContent =
+                "Private request history closed. Return and refresh to verify the current state. / أُغلق سجل الطلبات الخاص. ارجع وحدّث للتحقق من الحالة.";
+        };
         async function refresh(target = 1) {
             if (!state.request || viewGeneration !== state.generation || document.hidden) return;
             state.controller?.abort();
@@ -380,6 +393,7 @@ window.EvPrivacyRequests = (() => {
                 return;
             }
             const generation = state.generation;
+            const visibilityVersion = state.visibilityVersion;
             const body = { kind: kind.value, details: details.value.trim() };
             if (
                 state.pending &&
@@ -403,9 +417,11 @@ window.EvPrivacyRequests = (() => {
                     "POST",
                     state.pending,
                 );
-                if (generation !== state.generation) return;
+                if (generation !== state.generation ||
+                    visibilityVersion !== state.visibilityVersion || document.hidden) return;
                 const rows = await refresh();
-                if (generation !== state.generation) return;
+                if (generation !== state.generation ||
+                    visibilityVersion !== state.visibilityVersion || document.hidden) return;
                 if (!rows?.some((row) => row.id === receipt.id))
                     throw Error("Request readback unavailable");
                 state.pending = null;
@@ -413,7 +429,8 @@ window.EvPrivacyRequests = (() => {
                 message.textContent =
                     "Request recorded for manual review. No data has been automatically deleted.";
             } catch {
-                if (generation === state.generation) {
+                if (generation === state.generation &&
+                    visibilityVersion === state.visibilityVersion && !document.hidden) {
                     message.textContent =
                         "Request could not be confirmed. Check history or retry the unchanged request safely.";
                 }
@@ -729,6 +746,7 @@ window.EvPrivacyRequests = (() => {
         // Abort its previous read/controller so it cannot restore private
         // history or withdrawal/export actions without an explicit refresh.
         states.mine.controller?.abort();
+        states.mine.onHide?.();
         wipeSensitive(states.mine);
         wipeSensitive(states.admin);
     }
