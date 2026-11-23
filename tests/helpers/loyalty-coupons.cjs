@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { waitForFreshWindow } = require("./auth-batches.cjs");
 
 const panel = (page) => page.locator("[data-coupon-panel]");
 const button = (area, name) => area.getByRole("button", { name, exact: true });
@@ -92,7 +93,6 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
   await customer.reload();
   await customer.locator('a[href="#commercial-finance"]').click();
   assert.equal(await codeInput.inputValue(), "");
-  const reloadedAt = Date.now();
 
   await codeInput.fill(listedCode);
   await button(customerPanel, "Claim coupon").click();
@@ -120,6 +120,9 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
     "New coupon claims are disabled. Existing receipts remain available.", { exact: true },
   ).waitFor();
   await customer.unroute(claimPath, noMutation);
+  // Reopening the workspace refreshes finance panels against the same
+  // per-account budget. Wait before the first receipt or history request.
+  await waitForFreshWindow({ wait: (ms) => customer.waitForTimeout(ms) });
   const recovered = await couponPost(customer, "/claim-receipt",
     () => button(customerPanel, "Check last claim receipt").click());
   await customer.unroute(capabilityPath, disableClaims);
@@ -127,9 +130,6 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
   await customerPanel.getByText("#" + expectedReceipt.id, { exact: true }).waitFor();
   await decide(expectedReceipt.redemption_id);
 
-  // Reopening the authenticated workspace refreshes other finance panels.
-  // Let that shared per-account request window expire before reading history.
-  await customer.waitForTimeout(Math.max(0, 61000 - (Date.now() - reloadedAt)));
   const historyResponse = customer.waitForResponse((response) => {
     const url = new URL(response.url());
     return url.pathname === "/api/commercial/coupons/claims" &&
