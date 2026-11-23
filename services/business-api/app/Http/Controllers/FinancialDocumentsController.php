@@ -114,22 +114,28 @@ class FinancialDocumentsController extends Controller
 
     public function generate(Request $r, FinancialDocuments $documents)
     {
-        return DB::transaction(function () use ($r, $documents) {
-            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
-            $v = $r->validate([
-                'source_kind' => [
-                    'required', Rule::in(array_keys(FinancialSources::TABLES)),
-                ],
-                'source_id' => 'required|integer|min:1',
-                'locale' => 'required|in:en,ar',
-            ]);
-            $row = $documents->generate(
-                $actor, $v['source_kind'], (int) $v['source_id'], $v['locale']
-            );
+        // Verify current identity before parsing private source IDs. The
+        // service independently locks and rechecks this same identity
+        // inside its OWN encrypted-file/DB transaction. Do not wrap file
+        // writes in an outer controller transaction: an unrelated response
+        // formatting exception after the inner write could rollback DB
+        // but strand private encrypted files outside the filesystem cleanup.
+        $actor = DB::transaction(
+            fn () => app(CurrentFinanceReader::class)->requireCurrent($r), 3
+        );
+        $v = $r->validate([
+            'source_kind' => [
+                'required', Rule::in(array_keys(FinancialSources::TABLES)),
+            ],
+            'source_id' => 'required|integer|min:1',
+            'locale' => 'required|in:en,ar',
+        ]);
+        $row = $documents->generate(
+            $actor, $v['source_kind'], (int) $v['source_id'], $v['locale']
+        );
 
-            return response()->json($documents->metadata($row, true), 201)
-                ->header('Cache-Control', 'private, no-store');
-        }, 3);
+        return response()->json($documents->metadata($row, true), 201)
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function show(Request $r, int $document, FinancialDocuments $documents)
