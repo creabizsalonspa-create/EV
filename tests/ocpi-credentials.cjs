@@ -17,6 +17,13 @@ withCredentialsFixture(async (f) => {
   const state = await client.request(path);
   assert.equal(state.state, "active");
   assert.deepEqual(state.available_actions, ["rotate", "unregister"]);
+  assert.equal(state.capability_matrix.evidence, "NEGOTIATED_AND_CONFIGURED_SOFTWARE_ONLY");
+  assert.equal(state.capability_matrix.credentials_current, true);
+  assert.equal(state.capability_matrix.partner_conformance_verified, false);
+  assert.equal(state.capability_matrix.live_roaming_verified, false);
+  assert.equal(state.capability_matrix.payment_authority, false);
+  assert.deepEqual(state.capability_matrix.modules.map((m) => m.module), ["locations", "tariffs", "sessions", "cdrs"]);
+  assert(state.capability_matrix.modules.every((m) => Object.values(m).every((v) => typeof v === "string" || typeof v === "boolean")));
   assert(!JSON.stringify(state).includes(f.local_token));
   const protocol = async (method, token, body) => {
     const r = await fetch(f.base + "/api/roaming-protocol/2.2.1/credentials", {
@@ -81,6 +88,8 @@ withCredentialsFixture(async (f) => {
     await detail
       .getByText("Peer rotated credentials", { exact: false })
       .waitFor();
+    await detail.getByText("Configured or negotiated modules only", { exact: false }).waitFor();
+    await detail.getByText("locations: Partner read", { exact: false }).waitFor();
     assert(!(await detail.textContent()).includes(newToken));
     assert(
       !(await page.locator("body").textContent()).includes(
@@ -96,6 +105,8 @@ withCredentialsFixture(async (f) => {
     await detail
       .getByText("قام الشريك بتدوير بيانات الاعتماد", { exact: false })
       .waitFor();
+    await detail.getByText("وحدات الشريك المُهيأة", { exact: false }).waitFor();
+    await detail.getByText("locations: قراءة الشريك", { exact: false }).waitFor();
     assert(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth + 1,
@@ -110,6 +121,8 @@ withCredentialsFixture(async (f) => {
   const revoked = await client.request(path);
   assert.equal(revoked.state, "revoked");
   assert.deepEqual(revoked.available_actions, []);
+  assert.equal(revoked.capability_matrix.credentials_current, false);
+  assert(revoked.capability_matrix.modules.every((m) => m.local_sender_active === false));
   console.log(
     "PASS: actual local protocol peer rotation/revocation and old-token denial; Admin EN/AR390px credential history, no tokens in UI, no external peer request or charging/billing action. Initial authority is explicitly synthetic.",
   );
