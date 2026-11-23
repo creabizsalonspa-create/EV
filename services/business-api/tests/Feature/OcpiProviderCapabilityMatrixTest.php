@@ -94,6 +94,28 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
         $this->assertDatabaseCount('charging_sessions', 0);
     }
 
+    public function test_incomplete_active_token_link_cannot_advertise_private_module_authority(): void
+    {
+        [, $admin, $provider, $path] = $this->fixture();
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id);
+        $link->update(['local_token_ciphertext' => null]);
+        $this->actingAs($admin)->getJson($path)->assertOk()
+            ->assertJsonPath('state', 'active')
+            ->assertJsonPath('capability_matrix.credentials_current', false)
+            ->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', false)
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_configured', true)
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_active', false)
+            ->assertJsonPath('active_receiver_modules', []);
+        $link->update(['local_token_ciphertext' => Crypt::encryptString('SYNTHETIC-RESTORED'),
+            'remote_token_ciphertext' => null]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.credentials_current', false)
+            ->assertJsonPath('capability_matrix.modules.2.local_receiver_active', false)
+            ->assertJsonPath('capability_matrix.live_roaming_verified', false);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_credential_links', 1);
+    }
+
     public function test_cpo_sender_requires_current_generation_and_sandbox_delivery_remains_nonlive(): void
     {
         [$owner, $admin, $provider, $path] = $this->fixture();
