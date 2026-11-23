@@ -50,6 +50,95 @@ class CommercialFinanceTest extends TestCase
         $this->actingAs(User::factory()->create())->getJson('/api/finance/report')->assertJsonCount(0, 'groups');
     }
 
+    public function test_private_refund_requests_never_echo_idempotency_secrets_while_preserving_exact_one_refund(): void
+    {
+        [$customer, $vendor, $invoice] = $this->fixture();
+        $key = 'raw-private-customer-replay-nonce-11-23';
+        $body = [
+            'amount_minor' => 40, 'reason' => 'Original invoice dispute',
+            'idempotency_key' => $key,
+        ];
+        $url = '/api/finance/invoices/'.$invoice->id.'/refund-requests';
+
+        $this->actingAs($customer);
+        $created = $this->postJson($url, $body)->assertCreated()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonMissingPath('request_key')
+            ->assertJsonMissingPath('fingerprint');
+        $id = $created->json('id');
+        $this->assertDatabaseHas('finance_refund_requests', [
+            'id' => $id, 'user_id' => $customer->id, 'request_key' => $key,
+            'status' => 'pending',
+        ]);
+        $this->assertStringNotContainsString($key, $created->getContent());
+
+        $this->postJson($url, $body)->assertOk()
+            ->assertJsonPath('id', $id)
+            ->assertJsonMissingPath('request_key')
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->getJson('/api/finance/refund-requests')
+            ->assertOk()->assertJsonPath('data.0.id', $id)
+            ->assertJsonMissingPath('data.0.request_key');
+
+        $this->actingAs($vendor);
+        $this->getJson('/api/finance/refund-requests')
+            ->assertOk()->assertJsonPath('data.0.id', $id)
+            ->assertJsonMissingPath('data.0.request_key');
+        $review = ['decision' => 'approve', 'note' => 'Provider mock only'];
+        $this->postJson('/api/finance/refund-requests/'.$id.'/review', $review)
+            ->assertOk()->assertJsonPath('status', 'approved')
+            ->assertJsonMissingPath('request_key')
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->postJson('/api/finance/refund-requests/'.$id.'/review', $review)
+            ->assertOk()->assertJsonMissingPath('request_key');
+        $this->assertDatabaseCount('finance_refunds', 1);
+
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->getJson('/api/finance/refund-requests')
+            ->assertOk()->assertJsonPath('data.0.id', $id)
+            ->assertJsonMissingPath('data.0.request_key');
+        $this->actingAs($customer)->getJson('/api/finance/refund-requests')
+            ->assertOk()->assertJsonMissingPath('data.0.fingerprint');
+        $this->assertDatabaseHas('finance_refund_requests', [
+            'id' => $id, 'request_key' => $key, 'status' => 'approved',
+        ]);
+        $this->assertDatabaseCount('finance_refunds', 1);
+    }
+
+    public function test_private_refund_validation_never_precedes_current_account_and_invoice_authorization(): void
+    {
+        [$customer, $vendor, $invoice] = $this->fixture();
+        $url = '/api/finance/invoices/'.$invoice->id.'/refund-requests';
+        $this->actingAs($customer)->postJson($url, [
+            'amount_minor' => 0,
+        ])->assertUnprocessable();
+
+        $created = $this->postJson($url, [
+            'amount_minor' => 10, 'reason' => 'Review source',
+            'idempotency_key' => 'authorized-only',
+        ])->assertCreated();
+        $id = $created->json('id');
+        $this->actingAs(User::factory()->create())
+            ->postJson('/api/finance/refund-requests/'.$id.'/review', [
+                'decision' => 'forged', 'note' => '',
+            ])->assertNotFound();
+        $this->actingAs($vendor)->postJson('/api/finance/refund-requests/'.$id.'/review', [
+            'decision' => 'forged', 'note' => '',
+        ])->assertUnprocessable();
+
+        // Deliberately retain the old authenticated Laravel model while
+        // revoking the actual persisted finance-review account role.
+        DB::table('users')->where('id', $vendor->id)
+            ->update(['role' => 'customer']);
+        $this->postJson('/api/finance/refund-requests/'.$id.'/review', [
+            'decision' => 'forged', 'note' => '',
+        ])->assertConflict();
+        $this->assertDatabaseHas('finance_refund_requests', [
+            'id' => $id, 'status' => 'pending',
+        ]);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_rejection_releases_reserved_amount_and_validation(): void
     {
         [$u,$v,$i] = $this->fixture();
