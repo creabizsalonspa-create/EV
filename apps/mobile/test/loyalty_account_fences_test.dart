@@ -176,6 +176,9 @@ void main() {
   testWidgets('old coupon claim callback cannot dispatch after session epoch changes', (
     tester,
   ) async {
+    addTearDown(() => tester.binding.handleAppLifecycleStateChanged(
+      AppLifecycleState.resumed,
+    ));
     final api = AccountScopeCouponApi(1);
     final store = coupon.CouponStore();
     await tester.pumpWidget(existing.app(api, couponStore: store));
@@ -189,9 +192,11 @@ void main() {
     ).onPressed!;
     api.epoch++;
     priorClaim();
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(api.claimKey, isNull);
     expect(store.rows, isEmpty);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
     expect(find.text('Claim coupon'), findsNothing);
     expect(tester.takeException(), isNull);
   });
