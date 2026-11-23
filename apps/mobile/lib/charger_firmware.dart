@@ -173,12 +173,21 @@ class _FirmwareState extends State<ChargerFirmwareView>
       final result = await widget.api.request(
         '$base/chargers/${widget.chargerId}/firmware-compatibility',
       );
-      if (current(epoch) && result is Map) {
-        setState(() {
-          sourceCompatibility = Map<String, dynamic>.from(result);
-          compatibilityError = null;
-        });
+      if (!current(epoch)) return;
+      if (result is! Map ||
+          result['source_snapshot_verified'] != true ||
+          result['charger_id'] != widget.chargerId ||
+          result['manufacturer'] != widget.manufacturer ||
+          result['model'] != widget.model ||
+          result['physical_hardware_accepted'] != false ||
+          result['firmware_dispatch_authorized'] != false ||
+          result['releases'] is! List) {
+        throw const FormatException('Unverified source compatibility projection.');
       }
+      setState(() {
+        sourceCompatibility = Map<String, dynamic>.from(result);
+        compatibilityError = null;
+      });
     } catch (e) {
       if (current(epoch)) {
         setState(() {
