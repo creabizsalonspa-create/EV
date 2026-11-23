@@ -191,7 +191,9 @@ class _RefundListState extends State<RefundRequestsView>
         ),
         (r) => r,
       );
-      if (mounted && foreground && authorized() && generation == epoch) setState(() => page = result);
+      if (mounted && foreground && authorized() && generation == epoch) {
+        setState(() => page = result);
+      }
     } catch (e) {
       if (mounted && foreground && authorized() && generation == epoch) {
         setState(() => error = e);
@@ -199,7 +201,9 @@ class _RefundListState extends State<RefundRequestsView>
           widget.onExpired();
       }
     } finally {
-      if (mounted && foreground && authorized() && generation == epoch) setState(() => busy = false);
+      if (mounted && foreground && authorized() && generation == epoch) {
+        setState(() => busy = false);
+      }
     }
   }
 
@@ -211,92 +215,103 @@ class _RefundListState extends State<RefundRequestsView>
     final boundApi = widget.api;
     final boundFence = boundApi.sessionFence();
     return Scaffold(
-    appBar: AppBar(title: Text(t('title'))),
-    body: ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text(t('notice')),
-        OutlinedButton(
-          onPressed: busy || !visible ? null : () {
-            if (identical(boundApi, widget.api) && boundFence()) load(number: target);
-          },
-          child: Text(t('refresh')),
-        ),
-        if (visible && busy) const Center(child: CircularProgressIndicator()),
-        if (currentError != null) Text(EvStrings.of(c).t(errorKey(currentError))),
-        if (currentPage != null && currentPage!.items.isEmpty) Text(t('empty')),
-        if (currentPage != null) ...[
-          for (final row in currentPage!.items)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '#${row['id']} · ${t(['pending', 'approved', 'rejected'].contains(row['status']) ? row['status'] : 'unknown')}',
-                    ),
-                    Text('${row['reason'] ?? ''}'),
-                    if (row['ocpi_credit_record_id'] != null)
+      appBar: AppBar(title: Text(t('title'))),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(t('notice')),
+          OutlinedButton(
+            onPressed: busy || !visible
+                ? null
+                : () {
+                    if (identical(boundApi, widget.api) && boundFence()) {
+                      load(number: target);
+                    }
+                  },
+            child: Text(t('refresh')),
+          ),
+          if (visible && busy) const Center(child: CircularProgressIndicator()),
+          if (currentError != null)
+            Text(EvStrings.of(c).t(errorKey(currentError))),
+          if (currentPage != null && currentPage!.items.isEmpty) Text(t('empty')),
+          if (currentPage != null) ...[
+            for (final row in currentPage!.items)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        '${Localizations.localeOf(c).languageCode == 'ar' ? 'مرجع مصدر الإشعار الدائن' : 'Source credit record'}: ${row['ocpi_credit_record_id']}',
+                        '#${row['id']} · ${t(['pending', 'approved', 'rejected'].contains(row['status']) ? row['status'] : 'unknown')}',
                       ),
-                    Text(
-                      '${row['amount_minor']} · ${Localizations.localeOf(c).languageCode == 'ar' ? 'وحدات نقدية صغرى' : 'minor units'}',
-                    ),
-                    ..._sourceCreditEvidence(c, row),
-                    if (row['decision_note'] != null)
-                      Text('${row['decision_note']}'),
-                    if (widget.role == 'vendor' && row['status'] == 'pending')
-                      OutlinedButton(
-                        onPressed: busy || !visible
-                            ? null
-                            : () async {
-                                if (!foreground ||
-                                    !authorized() ||
-                                    !boundFence() ||
-                                    !identical(boundApi, widget.api) ||
-                                    widget.role != 'vendor') return;
-                                await Navigator.of(c).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => RefundDecisionView(
-                                      api: boundApi,
-                                      onExpired: widget.onExpired,
-                                      requestId: row['id'] as int,
+                      Text('${row['reason'] ?? ''}'),
+                      if (row['ocpi_credit_record_id'] != null)
+                        Text(
+                          '${Localizations.localeOf(c).languageCode == 'ar' ? 'مرجع مصدر الإشعار الدائن' : 'Source credit record'}: ${row['ocpi_credit_record_id']}',
+                        ),
+                      Text(
+                        '${row['amount_minor']} · ${Localizations.localeOf(c).languageCode == 'ar' ? 'وحدات نقدية صغرى' : 'minor units'}',
+                      ),
+                      ..._sourceCreditEvidence(c, row),
+                      if (row['decision_note'] != null)
+                        Text('${row['decision_note']}'),
+                      if (widget.role == 'vendor' && row['status'] == 'pending')
+                        OutlinedButton(
+                          onPressed: busy || !visible
+                              ? null
+                              : () async {
+                                  if (!foreground ||
+                                      !authorized() ||
+                                      !boundFence() ||
+                                      !identical(boundApi, widget.api) ||
+                                      widget.role != 'vendor') return;
+                                  await Navigator.of(c).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => RefundDecisionView(
+                                        api: boundApi,
+                                        onExpired: widget.onExpired,
+                                        requestId: row['id'] as int,
+                                      ),
                                     ),
-                                  ),
-                                );
-                                if (mounted && foreground && authorized() &&
-                                    boundFence() && identical(boundApi, widget.api) &&
-                                    widget.role == 'vendor') load(number: target);
-                              },
-                        child: Text(t('review')),
-                      ),
-                  ],
+                                  );
+                                  if (mounted &&
+                                      foreground &&
+                                      authorized() &&
+                                      boundFence() &&
+                                      identical(boundApi, widget.api) &&
+                                      widget.role == 'vendor') {
+                                    load(number: target);
+                                  }
+                                },
+                          child: Text(t('review')),
+                        ),
+                    ],
+                  ),
                 ),
               ),
+            Wrap(
+              spacing: 12,
+              children: [
+                OutlinedButton(
+                  onPressed: busy || !visible || currentPage!.current <= 1
+                      ? null
+                      : () => load(number: currentPage!.current - 1),
+                  child: Text(t('previous')),
+                ),
+                Text('${currentPage!.current} / ${currentPage!.last}'),
+                OutlinedButton(
+                  onPressed: busy || !visible ||
+                        currentPage!.current >= currentPage!.last
+                      ? null
+                      : () => load(number: currentPage!.current + 1),
+                  child: Text(t('next')),
+                ),
+              ],
             ),
-          Wrap(
-            spacing: 12,
-            children: [
-              OutlinedButton(
-                onPressed: busy || !visible || currentPage!.current <= 1
-                    ? null
-                    : () => load(number: currentPage!.current - 1),
-                child: Text(t('previous')),
-              ),
-              Text('${currentPage!.current} / ${currentPage!.last}'),
-              OutlinedButton(
-                onPressed: busy || !visible || currentPage!.current >= currentPage!.last
-                    ? null
-                    : () => load(number: currentPage!.current + 1),
-                child: Text(t('next')),
-              ),
-            ],
-          ),
+          ],
         ],
-      ],
-    ),
+      ),
     );
   }
 }
