@@ -14,6 +14,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Tests\Support\FinancialDocumentFixtures;
 use Tests\TestCase;
@@ -72,6 +73,90 @@ class FinancialDocumentsTest extends TestCase
         $this->assertStringNotContainsString($f['customer']->name, $row->encrypted_snapshot);
         $this->assertStringNotContainsString('%PDF-', app(FinancialDocuments::class)->disk()->get($row->pdf_path));
         $this->assertDatabaseHas('financial_document_sequences', ['next_number' => 2]);
+    }
+
+    public function test_revoked_customer_source_cannot_read_download_or_generate_private_invoice_documents(): void
+    {
+        $f = $this->documentFixture();
+        $customer = $f['customer'];
+        $this->actingAs($customer);
+        $document = $this->generate($f['invoice']->id)
+            ->assertCreated()->json();
+        $docId = $document['id'];
+        $detail = '/document-test/financial/documents/'.$docId;
+        $before = DB::table('financial_documents')->count();
+        $sequence = DB::table('financial_document_sequences')->value('next_number');
+        $journals = DB::table('finance_journals')->count();
+        $persisted = DB::table('users')->where('id', $customer->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
+        $restore = (array) $persisted;
+        $original = $this->get($detail.'/download/pdf')
+            ->assertOk()->getContent();
+
+        foreach ([
+            ['role' => 'vendor'],
+            ['account_status' => 'suspended'],
+            ['auth_epoch' => (int) $persisted->auth_epoch + 1],
+            ['password' => Hash::make('rotated-private-document-customer')],
+        ] as $revocation) {
+            DB::table('users')->where('id', $customer->id)->update($revocation);
+            // Deliberately keep the original Laravel authenticated model.
+            // A cached role/password cannot authorize encrypted documents.
+            $this->getJson('/document-test/financial/documents')->assertConflict();
+            $this->getJson($detail)->assertConflict();
+            $this->get($detail.'/download/pdf')->assertConflict();
+            $this->get($detail.'/download/csv')->assertConflict();
+            $this->generate($f['invoice']->id)->assertConflict();
+            DB::table('users')->where('id', $customer->id)->update($restore);
+        }
+
+        $this->assertSame($before, DB::table('financial_documents')->count());
+        $this->assertSame($sequence,
+            DB::table('financial_document_sequences')->value('next_number'));
+        $this->assertSame($journals, DB::table('finance_journals')->count());
+        $this->assertSame(
+            hash('sha256', $original),
+            hash('sha256', $this->get($detail.'/download/pdf')->assertOk()->getContent())
+        );
+        Http::assertNothingSent();
+    }
+
+    public function test_revoked_issuer_admin_never_probes_profile_validation_or_publishes_after_role_change(): void
+    {
+        $f = $this->documentFixture();
+        $admin = $f['admin'];
+        $this->actingAs($admin);
+        $this->getJson('/document-test/financial/profiles')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $bad = ['vendor_id' => -1, 'country' => 'wrong'];
+        $profileCount = DB::table('financial_profile_versions')->count();
+        $documentCount = DB::table('financial_documents')->count();
+        $persisted = DB::table('users')->where('id', $admin->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
+        $restore = (array) $persisted;
+
+        $this->postJson('/document-test/financial/profiles', $bad)->assertUnprocessable();
+        foreach ([
+            ['role' => 'vendor'],
+            ['account_status' => 'suspended'],
+            ['auth_epoch' => (int) $persisted->auth_epoch + 1],
+            ['password' => Hash::make('rotated-private-issuer-admin')],
+        ] as $revocation) {
+            DB::table('users')->where('id', $admin->id)->update($revocation);
+            $this->getJson('/document-test/financial/profiles')->assertConflict();
+            $this->postJson('/document-test/financial/profiles', $bad)
+                ->assertConflict();
+            $this->postJson('/document-test/financial/documents', [
+                'source_kind' => 'invalid-source',
+            ])->assertConflict();
+            DB::table('users')->where('id', $admin->id)->update($restore);
+        }
+        $this->assertSame($profileCount,
+            DB::table('financial_profile_versions')->count());
+        $this->assertSame($documentCount,
+            DB::table('financial_documents')->count());
+        $this->assertDatabaseCount('financial_document_sequences', 0);
+        Http::assertNothingSent();
     }
 
     public function test_all_four_immutable_source_types_generate_without_creating_financial_postings(): void
