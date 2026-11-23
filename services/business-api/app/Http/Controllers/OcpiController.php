@@ -64,18 +64,24 @@ class OcpiController extends Controller
         $v = $r->validate(['authorized' => 'required|boolean']);
 
         return DB::transaction(function () use ($r, $provider, $v, $client) {
-            $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            $exhausted = $provider->authorization_revision >= PHP_INT_MAX;
-            // Revocation must remain available at the terminal generation.
-            // Reauthorization is permanently blocked, so that generation cannot recur.
-            abort_if($v['authorized'] && $exhausted, 409, 'Operator authorization revision is exhausted.');
+            // For activation, acquire owner before provider, as all OCPI
+            // source reads do. A transferred provider must be reloaded and
+            // re-reviewed, never authorized under the previous owner lock.
+            $owner = null;
             if ($v['authorized']) {
-                // A suspended or reassigned owner cannot gain fresh OCPI authority.
-                // Revocation remains possible even when that owner is ineligible.
                 $owner = User::whereKey($provider->owner_id)->lockForUpdate()->first();
                 abort_unless($owner && $owner->role === 'vendor' && $owner->account_status === 'active',
                     422, 'Provider owner must be an active vendor.');
             }
+            $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            if ($v['authorized']) {
+                abort_unless((int) $provider->owner_id === (int) $owner->id, 409,
+                    'Provider ownership changed; review the current owner before authorizing.');
+            }
+            $exhausted = $provider->authorization_revision >= PHP_INT_MAX;
+            // Revocation must remain available at the terminal generation.
+            // Reauthorization is permanently blocked, so that generation cannot recur.
+            abort_if($v['authorized'] && $exhausted, 409, 'Operator authorization revision is exhausted.');
             $provider->authorized = $v['authorized'];
             if ($provider->authorized) {
                 try {
