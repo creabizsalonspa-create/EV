@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
@@ -16,6 +18,7 @@ class FirmwareApi extends FixtureApi {
   bool failCompatibility = false;
   bool invalidCompatibility = false;
   bool listUnavailable = false;
+  Completer<void>? delayedCompatibility;
   int compatibilityReads = 0;
   @override
   bool Function() sessionFence() =>
@@ -36,6 +39,7 @@ class FirmwareApi extends FixtureApi {
     if (path.endsWith('/firmware-compatibility')) {
       expect(method, 'GET');
       compatibilityReads++;
+      if (delayedCompatibility != null) await delayedCompatibility!.future;
       if (failCompatibility) {
         throw const ApiException(503, 'PRIVATE SOURCE SECRET');
       }
@@ -205,6 +209,36 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Authenticated source snapshot'), findsNothing);
     expect(find.textContaining('could not be verified'), findsOneWidget);
+    expect(api.attempts, isEmpty);
+  });
+
+  testWidgets('an unfinished source-matrix read fences all firmware maintenance actions', (tester) async {
+    final api = FirmwareApi()..delayedCompatibility = Completer<void>();
+    await tester.pumpWidget(MaterialApp(
+      home: ChargerFirmwareView(
+        api: api,
+        companyId: 1,
+        chargerId: 2,
+        manufacturer: 'Synthetic',
+        model: 'Fixture',
+        onExpired: () {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+    final inspection = find.text('Check live source firmware compatibility');
+    await tester.ensureVisible(inspection);
+    await tester.tap(inspection);
+    await tester.pump();
+    expect(api.compatibilityReads, 1);
+    final submit = find.ancestor(
+      of: find.text('Request signed firmware'),
+      matching: find.byType(FilledButton),
+    );
+    expect(tester.widget<FilledButton>(submit).onPressed, isNull);
+    expect(api.attempts, isEmpty);
+    api.delayedCompatibility!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Authenticated source snapshot'), findsOneWidget);
     expect(api.attempts, isEmpty);
   });
 
