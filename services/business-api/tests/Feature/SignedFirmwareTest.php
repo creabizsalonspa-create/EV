@@ -588,6 +588,36 @@ class SignedFirmwareTest extends TestCase
         }
     }
 
+    public function test_read_only_firmware_matrix_rejects_midflight_owned_charger_model_change(): void
+    {
+        $f = $this->fixture('2.0.1', [
+            'protocols' => ['2.0.1'],
+            'from_versions' => ['sim-fw-v1'],
+        ]);
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($f) {
+            $this->assertSame('http://source.test/graph', $request->url());
+            $this->assertSame(str_repeat('s', 64), $request->header('x-hasura-admin-secret')[0] ?? null);
+            DB::table('vendor_chargers')->where('id', $f['charger']->id)
+                ->update(['model' => 'Reassigned while source was being read']);
+
+            return Http::response(['data' => ['ChargingStations' => [[
+                'id' => 9, 'protocol' => '2.0.1', 'isOnline' => true,
+                'chargePointVendor' => 'Synthetic', 'chargePointModel' => 'Fixture',
+                'firmwareVersion' => 'sim-fw-v1',
+                'latestOcppMessageTimestamp' => now()->toISOString(),
+            ]]]]);
+        });
+        $path = str_replace('/firmware-operations', '/firmware-compatibility', $f['path']);
+        $this->actingAs($f['owner'])->getJson($path)->assertConflict()
+            ->assertDontSee('Reassigned while source was being read');
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        $this->assertDatabaseCount('charger_reset_operations', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_firmware_matrix_denies_wrong_source_and_does_not_recommend_changed_or_revoked_release(): void
     {
         $f = $this->fixture('1.6', [
