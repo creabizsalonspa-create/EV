@@ -186,7 +186,7 @@ class OcpiController extends Controller
         $v = $request->validate(['q' => 'nullable|string|max:80', 'country' => 'nullable|string|regex:/^[A-Z]{3}$/D', 'connector_standard' => 'nullable|string|max:64']);
         $text = trim($v['q'] ?? '');
 
-        return OcpiRecord::where('module', 'locations')->where('normalized->publish', true)->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'))
+        return OcpiRecord::where('module', 'locations')->where('normalized->publish', true)->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->select('id'))
             ->when($text !== '', fn ($q) => $q->where(fn ($q) => $q->whereLike('normalized->name', '%'.$text.'%')->orWhereLike('normalized->city', '%'.$text.'%')->orWhereLike('normalized->address', '%'.$text.'%')))
             ->when(! empty($v['country']), fn ($q) => $q->where('normalized->country', $v['country']))
             ->when(! empty($v['connector_standard']), fn ($q) => $q->whereJsonContains('normalized->connector_standards', $v['connector_standard']))
