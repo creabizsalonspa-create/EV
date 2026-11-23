@@ -82,6 +82,31 @@ for(const ar of [false,true]){
   assert.ok(find(ui.root,n=>n.tag==='form').length>0);
  });
 }
+
+test('stale detached SMS form cannot reuse old consent after a malformed status refresh',async()=>{
+ const ui=fixture();let malformed=false;const writes=[];
+ await ui.setActor({role:'customer'},async (path,method,body)=>{
+  if(method){writes.push(body);return {id:'owned',status:'pending'};}
+  return malformed?{...status,challenge:{id:'../malicious',status:'pending'}}:status;
+ });
+ const oldForm=find(ui.root,n=>n.tag==='form')[0];
+ const consent=find(oldForm,n=>n.type==='checkbox')[0];
+ consent.checked=true;
+ input(oldForm,'phone').value='+971501234567';
+ input(oldForm,'password').value='PRIVATE_REAUTH_CREDENTIAL';
+ malformed=true;
+ await button(ui,'Refresh verification status').onclick();await tick();
+ assert.equal(find(ui.root,n=>n.tag==='form').length,0);
+ assert.equal(input(oldForm,'password').value,'');
+ assert.equal(input(oldForm,'phone').value,'');
+ assert.equal(consent.checked,false);
+ consent.checked=true;
+ input(oldForm,'phone').value='+971501234567';
+ input(oldForm,'password').value='EXPLICIT_STALE_REENTRY';
+ submit(oldForm);await tick();
+ assert.equal(writes.length,0,'detached prior-generation action cannot request SMS');
+ assert.doesNotMatch(ui.root.textContent,/PRIVATE_REAUTH_CREDENTIAL|malicious/);
+});
 test('disabled delivery and unsupported actors never expose a fake verification form',async()=>{
  const ui=fixture(true),calls=[];
  await ui.setActor({role:'admin'},async path=>calls.push(path));assert.equal(calls.length,0);
