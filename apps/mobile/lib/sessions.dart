@@ -71,7 +71,21 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
     } catch (e) {
       if (current()) failed(e);
     } finally {
-      if (current()) setState(() => busy = false);
+      if (current()) {
+        setState(() => busy = false);
+      } else if (mounted && foreground && request == generation &&
+          identical(widget.api, api) && identical(ownSession, fence) &&
+          !fence()) {
+        // An old account may revoke while the initial spinner is active.
+        // It cannot sign out, render data or overwrite a replacement actor,
+        // but the existing spinner must be removed from the frame; otherwise
+        // Flutter pumpAndSettle never completes on the revoked private view.
+        setState(() {
+          busy = false;
+          data = null;
+          error = null;
+        });
+      }
     }
   }
 
