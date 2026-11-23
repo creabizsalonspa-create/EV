@@ -113,7 +113,7 @@ final class OcpiContractReviewController extends Controller
                 if ($actor->role === 'admin') {
                     try {
                         $result['reason'] = Crypt::decryptString($row->reason_ciphertext);
-                    } catch (\\Throwable) {
+                    } catch (\Throwable) {
                         abort(409, 'Contract review audit note requires recovery.');
                     }
                     $result['reference_id'] = $row->reference_id;
