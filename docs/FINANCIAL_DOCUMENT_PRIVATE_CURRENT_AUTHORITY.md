@@ -140,7 +140,12 @@ Signed settlement/adjustment lines retain their sign. Line totals
 must still exactly match the canonical source parent; underflow,
 over-range values and overflowed rollups cannot create immutable
 numbered artifacts. The original database is not modified or
-silently rounded.
+silently rounded. The source validator also rejects **PHP floats and booleans**
+before `FILTER_VALIDATE_INT`: PHP accepts 100.0 or true as an integer
+even though a prior floating-point conversion may already have destroyed
+source precision. Database integer values and unrounded decimal strings
+remain accepted. Targeted feature regressions explicitly cover both
+coercion cases; no existing financial document is regenerated.
 
 New `FinancialDocumentsTest` pure-source bounds regression verifies
 zero, exact 2^53−1 positive/negative, first out-of-range value,
