@@ -134,8 +134,10 @@ class FinancialOperation {
     final current = await store.read(scope);
     checkCurrent();
     if (current != null && pending != null && current['key'] == pending!['key']) {
+      // Once deletion starts it is already the durable acknowledgement.
+      // Never throw a post-commit "not acknowledged" error: that would
+      // invite a replacement key despite the original having been deleted.
       await store.remove(scope);
-      checkCurrent();
     }
     pending = null;
   });
