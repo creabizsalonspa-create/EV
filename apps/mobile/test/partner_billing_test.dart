@@ -84,6 +84,27 @@ class BillingApi extends FixtureApi {
 }
 
 void main() {
+  testWidgets('already rendered partner invoice and private PDF disappear on logout event',
+      (tester) async {
+    final api = BillingApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: PartnerBillingPage(api: api, providerId: 7, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('SIM-PRIVATE'),
+      200, scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('SIM-PRIVATE'), findsOneWidget);
+    final before = api.queries.length;
+    await api.forgetSession();
+    await tester.pump();
+    expect(find.text('SIM-PRIVATE'), findsNothing);
+    expect(find.text('View filtered private PDF'), findsNothing);
+    expect(api.queries.length, before);
+  });
+
   testWidgets(
     'private PDF uses applied filters and reports bounded export failure',
     (tester) async {
