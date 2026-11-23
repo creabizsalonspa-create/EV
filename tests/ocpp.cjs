@@ -197,6 +197,21 @@ async function protocol(version, profile) {
       if (version === "ocpp1.6") {
         assert.equal(notifications[2].errorCode, "GroundFailure");
       }
+      // Bounded concurrent read-only source load: every independent read
+      // must resolve the same typed authenticated station, not an adjacent
+      // model, protocol or firmware from another simulator.
+      const identityQuery =
+        "query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id chargePointVendor chargePointModel firmwareVersion protocol}}";
+      const reads = await Promise.all(
+        Array.from({length: 8}, () => graph(identityQuery, {name: station})),
+      );
+      for (const read of reads) {
+        assert.equal(read.ChargingStations.length, 1);
+        assert.equal(read.ChargingStations[0].id, source.id);
+        assert.equal(read.ChargingStations[0].chargePointVendor, profile.vendor);
+        assert.equal(read.ChargingStations[0].chargePointModel, profile.model);
+        assert.equal(read.ChargingStations[0].firmwareVersion, profile.firmware);
+      }
       const tokenResponse = await fetch("http://127.0.0.1:8080/dev/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
