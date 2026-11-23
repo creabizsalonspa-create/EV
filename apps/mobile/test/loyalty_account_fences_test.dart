@@ -84,8 +84,13 @@ void main() {
     await tester.pumpWidget(existing.app(old));
     await tester.pumpAndSettle();
     expect(find.text('Posted points: 10'), findsOneWidget);
+    // OutlinedButton.icon has its own runtime widget type, so find.byType
+    // does not match it even though it is an OutlinedButton subclass.
     final priorRefresh = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, 'Refresh'),
+      find.ancestor(
+        of: find.text('Refresh'),
+        matching: find.byWidgetPredicate((w) => w is OutlinedButton),
+      ).first,
     ).onPressed!;
     await tester.pumpWidget(existing.app(current));
     await tester.pumpAndSettle();
