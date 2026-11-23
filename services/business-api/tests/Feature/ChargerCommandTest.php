@@ -73,6 +73,39 @@ class ChargerCommandTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_changed_canonical_station_source_blocks_both_pending_start_and_stop_without_transport(): void
+    {
+        config(['csms.simulator_enabled' => true]);
+        Http::preventStrayRequests();
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        foreach (['start', 'stop'] as $action) {
+            $station = $this->station($vendor);
+            DB::table('csms_bindings')->insert([
+                'station_id' => $station->id,
+                'identifier' => 'ev-test-source-change-'.$action,
+                'protocol' => '1.6',
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $command = ChargerCommand::create([
+                'consent_auth_epoch' => $action === 'start' ? (int) $vendor->auth_epoch : null,
+                'actor_id' => $vendor->id, 'station_id' => $station->id,
+                'action' => $action, 'idempotency_key' => 'source-change-'.$action,
+                'payload_hash' => str_repeat('a', 64),
+                'payload' => $action === 'stop' ? ['transaction_id' => '123'] : [],
+            ]);
+            DB::table('stations')->where('id', $station->id)->update(['source' => 'partner']);
+            $result = app(CsmsDispatcher::class)->dispatch($command->id);
+            $this->assertSame('pending', $result->status);
+            $this->assertSame('pre_dispatch_source_changed', $result->failure_code);
+            $this->assertDatabaseHas('charger_commands', [
+                'id' => $command->id, 'status' => 'pending',
+                'failure_code' => 'pre_dispatch_source_changed',
+            ]);
+            Http::assertNothingSent();
+        }
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     private function station(User $vendor): Station
     {
         return Station::create(['vendor_id' => $vendor->id, 'name' => 'CSMS simulation', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
