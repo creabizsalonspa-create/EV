@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Http\Controllers\OcpiContractReviewController;
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\OcpiException;
+use App\Services\Ocpi\PartnerClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -194,6 +196,69 @@ final class OcpiPartnerContractReviewTest extends TestCase
         $this->actingAs($owner)->getJson($path)->assertNotFound();
         $this->assertDatabaseCount('ocpi_partner_contract_reviews', 1);
         Http::assertNothingSent();
+    }
+
+    public function test_optional_contract_policy_blocks_network_dispatch_when_review_expires_or_owner_transfers(): void
+    {
+        config(['ocpi.contract_review_required' => true]);
+        [$owner, $admin, $provider, $path] = $this->fixture();
+        $this->actingAs($admin)->postJson($path, $this->review())->assertCreated();
+        $this->patchJson('/api/ocpi/providers/'.$provider->id.'/authorization',
+            ['authorized' => true])->assertOk();
+
+        Http::fake([
+            'https://partner.example/ocpi/versions' => Http::response([
+                'status_code' => 1000,
+                'timestamp' => '2026-11-23T08:00:00Z',
+                'data' => [[
+                    'version' => '2.2.1',
+                    'url' => 'https://partner.example/ocpi/2.2.1',
+                ]],
+            ]),
+            'https://partner.example/ocpi/2.2.1' => Http::response([
+                'status_code' => 1000,
+                'timestamp' => '2026-11-23T08:00:00Z',
+                'data' => [
+                    'version' => '2.2.1',
+                    'endpoints' => [[
+                        'identifier' => 'locations',
+                        'role' => 'SENDER',
+                        'url' => 'https://partner.example/locations',
+                    ]],
+                ],
+            ]),
+        ]);
+        $client = app(PartnerClient::class);
+        $this->assertArrayHasKey('locations', $client->negotiate($provider->fresh()));
+        Http::assertSentCount(2);
+
+        // Natural expiry is not a remote permission merely because the
+        // provider's authorized flag remains set in an earlier generation.
+        DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+            ->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+        try {
+            $client->negotiate($provider->fresh());
+            $this->fail('Expired internal contract evidence dispatched a remote OCPI request.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('internal contract review', $error->getMessage());
+        }
+        Http::assertSentCount(2);
+
+        // An existing digest cannot authorize a newly assigned owner, even
+        // if an earlier integration erroneously left authorized=true.
+        $replacement = User::factory()->create(['role' => 'vendor', 'account_status' => 'active']);
+        DB::table('ocpi_providers')->where('id', $provider->id)
+            ->update(['owner_id' => $replacement->id]);
+        try {
+            $client->negotiate($provider->fresh());
+            $this->fail('A prior owner contract review dispatched under new ownership.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('internal contract review', $error->getMessage());
+        }
+        Http::assertSentCount(2);
+        $this->assertDatabaseCount('ocpi_partner_contract_reviews', 1);
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
     }
 
     public function test_contract_review_rejects_stale_revision_reused_key_expired_date_and_owner_suspension(): void
