@@ -7,6 +7,9 @@ use App\Http\Controllers\OcpiProvisioningController;
 use App\Models\OcpiProvider;
 use App\Models\User;
 use App\Services\Ocpi\PartnerClient;
+use App\Services\Ocpi\PartnerBillingExport;
+use App\Services\Ocpi\PartnerBillingReconciliation;
+use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -213,6 +216,67 @@ class OcpiOwnerEligibilityTest extends TestCase
         $this->assertDatabaseCount('ocpi_providers', 2);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_private_remote_and_billing_endpoints_recheck_live_vendor_identity_before_external_or_finance_work(): void
+    {
+        $owner = $this->vendor();
+        $other = $this->vendor();
+        $provider = $this->pending($owner);
+        $request = Request::create('/api/ocpi/providers/'.$provider->id, 'GET');
+        $request->setUserResolver(static fn () => $owner);
+        $controller = app(OcpiController::class);
+        $attempts = [
+            static fn () => $controller->negotiate($request, $provider, app(PartnerClient::class)),
+            static fn () => $controller->sync($request, $provider, 'locations',
+                app(PartnerClient::class), app(RecordSynchronizer::class)),
+            static fn () => $controller->billingReconciliation($request, $provider,
+                app(PartnerBillingReconciliation::class)),
+            static fn () => $controller->billingExport($request, $provider,
+                app(PartnerBillingReconciliation::class), app(PartnerBillingExport::class), 'csv'),
+        ];
+
+        $initial = [
+            'role' => 'vendor',
+            'account_status' => 'active',
+            'auth_epoch' => $owner->auth_epoch,
+            'password' => $owner->password,
+        ];
+        foreach ([
+            [['account_status' => 'suspended'], 403],
+            [['role' => 'customer'], 403],
+            [['auth_epoch' => (int) $owner->auth_epoch + 1], 409],
+            [['password' => 'rotated-synthetic-password-hash'], 409],
+        ] as [$change, $status]) {
+            DB::table('users')->where('id', $owner->id)->update(array_replace($initial, $change));
+            foreach ($attempts as $attempt) {
+                try {
+                    $attempt();
+                    $this->fail('Revoked partner account reached a private remote/finance operation.');
+                } catch (HttpException $e) {
+                    $this->assertSame($status, $e->getStatusCode());
+                }
+            }
+        }
+        DB::table('users')->where('id', $owner->id)->update($initial);
+
+        // Even a still-authenticated former owner cannot operate on a
+        // provider model captured before the reassignment committed.
+        DB::table('ocpi_providers')->where('id', $provider->id)->update([
+            'owner_id' => $other->id,
+        ]);
+        foreach ($attempts as $attempt) {
+            try {
+                $attempt();
+                $this->fail('A stale provider model exposed its replacement tenant.');
+            } catch (HttpException $e) {
+                $this->assertSame(409, $e->getStatusCode());
+            }
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
     }
 
     public function test_stale_admin_mutations_cannot_create_or_authorize_ocpi_providers(): void
