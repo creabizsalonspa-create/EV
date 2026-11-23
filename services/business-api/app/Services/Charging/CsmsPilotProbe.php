@@ -184,7 +184,13 @@ final class CsmsPilotProbe
             DB::table('charger_reset_operations')->where('binding_id', $bindingId)
                 ->whereNull('reviewed_at')->exists() ||
             DB::table('charger_firmware_operations')->where('binding_id', $bindingId)
-                ->whereNull('reviewed_at')->exists();
+                ->whereNull('reviewed_at')->exists() ||
+            DB::table('charger_commands')->where('station_id', $binding->station_id)
+                ->whereIn('status', ['pending', 'dispatching', 'submitted', 'outcome_unknown'])->exists() ||
+            DB::table('reservations')->where('station_id', $binding->station_id)
+                ->where('status', 'confirmed')
+                ->where('starts_at', '<', now()->addMinutes(5))
+                ->where('starts_at', '>', now()->subMinutes(30))->exists();
         $covered = $recentConnectorCount === count($known);
         $idle = $idleConnectorCount === count($known) && count($active) === 0;
         $observed = $station['isOnline'] && $recent && $covered && $idle &&
