@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:crypto/crypto.dart';
 import 'api.dart';
@@ -140,7 +141,20 @@ class _DocumentsState extends State<FinancialDocumentsView>
   bool busy = false, uncertain = false, foreground = true, hidden = false;
   bool mutationInFlight = false;
   bool Function()? currentSession;
+  StreamSubscription<int>? sessionEvents;
   int generation = 0, target = 1;
+
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        erasePrivate();
+        currentSession = null;
+        uncertain = false;
+      });
+    });
+  }
 
   bool get current => foreground && (currentSession?.call() ?? false);
   bool active(int epoch, bool Function() fence) =>
@@ -164,6 +178,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    observe(widget.api);
     kind = widget.sourceKind ?? kind;
     source.text = widget.sourceId?.toString() ?? '';
     foreground = WidgetsBinding.instance.lifecycleState == null ||
@@ -178,6 +193,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
     if (oldWidget.api != widget.api ||
         oldWidget.sourceKind != widget.sourceKind ||
         oldWidget.sourceId != widget.sourceId) {
+      if (oldWidget.api != widget.api) observe(widget.api);
       erasePrivate();
       currentSession = null;
       uncertain = false;
@@ -214,6 +230,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
 
   @override
   void dispose() {
+    sessionEvents?.cancel();
     erasePrivate();
     WidgetsBinding.instance.removeObserver(this);
     source.dispose();
