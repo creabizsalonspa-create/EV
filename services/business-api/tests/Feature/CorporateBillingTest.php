@@ -119,6 +119,65 @@ class CorporateBillingTest extends TestCase
         $this->getJson($this->url('statements/'.$s['id']))->assertOk()->assertJsonPath('state', 'simulated_paid');
     }
 
+    public function test_corporate_business_receipts_hide_internal_idempotency_material_across_all_clients(): void
+    {
+        $agreement = $this->agreement();
+        $before = DB::table('finance_journals')->count();
+        $this->assertArrayNotHasKey('request_key', $agreement);
+        $this->assertArrayNotHasKey('fingerprint', $agreement);
+        $this->actingAs($this->owner)->getJson(
+            '/corporate-test/commercial/corporate?fleet_id='.$this->fleet->id
+        )->assertOk()
+            ->assertJsonMissingPath('agreements.0.request_key')
+            ->assertJsonMissingPath('agreements.0.fingerprint');
+
+        $invoice = $this->invoice();
+        $claim = $this->claim($agreement, $invoice);
+        $this->assertArrayNotHasKey('request_key', $claim);
+        $this->assertArrayNotHasKey('fingerprint', $claim);
+        $this->actingAs($this->owner)->getJson(
+            $this->url('agreements/'.$agreement['id'].'/claims')
+        )->assertOk()
+            ->assertJsonMissingPath('data.0.request_key')
+            ->assertJsonMissingPath('data.0.fingerprint');
+        $this->postJson($this->url('claims/'.$claim['id'].'/review'), [
+            'decision' => 'approved', 'reason' => 'Corporate test review',
+        ])->assertOk();
+
+        $statement = $this->issue($agreement, [$claim])->assertCreated()
+            ->assertJsonMissingPath('statement.request_key')
+            ->assertJsonMissingPath('statement.fingerprint')->json('statement');
+        $this->getJson($this->url('agreements/'.$agreement['id'].'/statements'))
+            ->assertOk()->assertJsonMissingPath('data.0.request_key')
+            ->assertJsonMissingPath('data.0.fingerprint');
+        $this->getJson($this->url('statements/'.$statement['id']))
+            ->assertOk()->assertJsonMissingPath('statement.request_key')
+            ->assertJsonMissingPath('statement.fingerprint');
+
+        $this->postJson($this->url('statements/'.$statement['id'].'/simulate-payment'), [
+            'idempotency_key' => 'corporate-secret-output',
+        ])->assertOk()->assertJsonPath('real_payment_processed', false)
+            ->assertJsonMissingPath('receipt.request_key')
+            ->assertJsonMissingPath('receipt.fingerprint');
+        $this->getJson($this->url('statements/'.$statement['id']))
+            ->assertOk()->assertJsonMissingPath('receipt.request_key')
+            ->assertJsonMissingPath('receipt.fingerprint');
+        $this->getJson($this->url('agreements/'.$agreement['id'].'/statements'))
+            ->assertOk()->assertJsonMissingPath('data.0.receipt.request_key')
+            ->assertJsonMissingPath('data.0.receipt.fingerprint');
+
+        // Server-owned immutable replay identity remains for same-key retries.
+        $this->assertSame(64, strlen(DB::table('corporate_agreements')
+            ->where('id', $agreement['id'])->value('request_key')));
+        $this->assertSame(64, strlen(DB::table('corporate_claims')
+            ->where('id', $claim['id'])->value('fingerprint')));
+        $this->assertSame(64, strlen(DB::table('corporate_statements')
+            ->where('id', $statement['id'])->value('request_key')));
+        $this->assertSame(64, strlen(DB::table('corporate_receipts')
+            ->where('statement_id', $statement['id'])->value('fingerprint')));
+        $this->assertSame($before + 2, DB::table('finance_journals')->count());
+    }
+
     public function test_revoked_corporate_owner_and_admin_cannot_read_or_collect_private_statements(): void
     {
         $agreement = $this->agreement();
