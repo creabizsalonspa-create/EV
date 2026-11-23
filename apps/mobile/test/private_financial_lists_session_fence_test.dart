@@ -15,7 +15,7 @@ class PrivateListApi extends FixtureApi {
   int identity = 0;
   int reads = 0;
   bool deny = false;
-  bool malformedRefund = false, malformedCase = false;
+  bool malformedRefund = false, malformedCase = false, malformedAmount = false;
   Completer<dynamic>? delayed;
 
   @override
@@ -38,6 +38,7 @@ class PrivateListApi extends FixtureApi {
         {
           'id': 7,
           'invoice_id': 3,
+          'amount_minor': 125,
           'reason': label,
           'status': 'open',
           'evidence': 'MOCK_PROVIDER',
@@ -71,6 +72,9 @@ class PrivateListApi extends FixtureApi {
     }
     if (path == 'commercial/cases' && malformedCase) {
       (records.single as Map<String, dynamic>)['status'] = 'invented_paid';
+    }
+    if (path == 'commercial/cases' && malformedAmount) {
+      (records.single as Map<String, dynamic>)['amount_minor'] = '125.00';
     }
     return data;
   }
@@ -239,6 +243,24 @@ void main() {
     await tester.tap(find.text('Refresh'));
     await tester.pumpAndSettle();
     expect(find.text('Untrusted case'), findsOneWidget);
+  });
+
+  testWidgets('case history refuses a textual money amount until a validated refresh', (
+    tester,
+  ) async {
+    final api = PrivateListApi('Amount must remain exact')..malformedAmount = true;
+    await tester.pumpWidget(screen(PaymentCasesView(
+      api: api,
+      onExpired: () {},
+    )));
+    await tester.pumpAndSettle();
+    expect(find.text('Amount must remain exact'), findsNothing);
+    expect(find.textContaining('Disputed amount (minor units):'), findsNothing);
+    api.malformedAmount = false;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Amount must remain exact'), findsOneWidget);
+    expect(find.text('Disputed amount (minor units): 125'), findsOneWidget);
   });
 
 }
