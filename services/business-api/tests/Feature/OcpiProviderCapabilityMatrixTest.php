@@ -2,16 +2,16 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\OcpiCredentialsController;
 use App\Models\OcpiProvider;
 use App\Models\User;
-use App\Http\Controllers\OcpiCredentialsController;
 use App\Services\Ocpi\CredentialExchange;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpKernel\Exception\HttpException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class OcpiProviderCapabilityMatrixTest extends TestCase
