@@ -178,6 +178,34 @@ class CorporateBillingTest extends TestCase
         $this->assertSame($before + 2, DB::table('finance_journals')->count());
     }
 
+    public function test_corporate_statement_csv_keeps_formula_like_cost_centers_literal(): void
+    {
+        $agreement = $this->agreement();
+        $this->center = DB::table('cost_centers')->insertGetId([
+            'fleet_id' => $this->fleet->id,
+            'code' => '  =SUM(1+1)',
+            'name' => 'Synthetic spreadsheet formula identifier',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $claim = $this->approved($agreement, $this->invoice());
+        $statement = $this->issue($agreement, [$claim])
+            ->assertCreated()->json('statement');
+        $before = DB::table('finance_journals')->count();
+
+        $this->actingAs($this->owner);
+        $this->getJson($this->url('statements/'.$statement['id']))
+            ->assertOk()->assertJsonPath('lines.0.cost_center_code', '  =SUM(1+1)');
+        $csv = $this->get($this->url('statements/'.$statement['id'].'/export'))
+            ->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('Cache-Control', 'no-store, private')->getContent();
+        $this->assertStringContainsString("'  =SUM(1+1)", $csv);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseHas('corporate_claims', [
+            'id' => $claim['id'], 'cost_center_code' => '  =SUM(1+1)',
+        ]);
+    }
+
     public function test_revoked_corporate_owner_and_admin_cannot_read_or_collect_private_statements(): void
     {
         $agreement = $this->agreement();
