@@ -126,6 +126,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '1.25');
     await tester.enterText(find.byType(TextField).at(1), 'Customer request');
+    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Submit request'));
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Submit request'));
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsOneWidget);
@@ -144,6 +146,8 @@ void main() {
     await tester.pumpWidget(reviewScreen(api, store));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Review denied');
+    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Confirm').first);
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Confirm').first);
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsOneWidget);
