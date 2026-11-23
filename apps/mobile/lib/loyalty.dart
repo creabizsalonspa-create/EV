@@ -394,20 +394,28 @@ class _LoyaltyState extends State<LoyaltyView>
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    if (!foreground || !authorized()) return const Scaffold();
+    final api = widget.api;
+    final fence = authorized;
+    bool same() => scoped(api, fence);
+    return Scaffold(
     appBar: AppBar(
       title: Text(t('title')),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => _CouponView(
-                api: widget.api,
-                onExpired: widget.onExpired,
-                store: widget.couponStore,
+          onPressed: () {
+            if (!same()) return;
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => _CouponView(
+                  api: api,
+                  onExpired: widget.onExpired,
+                  store: widget.couponStore,
+                ),
               ),
-            ),
-          ),
+            );
+          },
           child: Text(
             Localizations.localeOf(context).languageCode == 'ar'
                 ? 'القسائم'
@@ -431,7 +439,7 @@ class _LoyaltyState extends State<LoyaltyView>
           onChanged: busy
               ? null
               : (value) {
-                  if (value != null) {
+                  if (value != null && same()) {
                     section = value;
                     load();
                   }
@@ -445,13 +453,17 @@ class _LoyaltyState extends State<LoyaltyView>
             children: [
               for (final kind in ['earn', 'reconcile'])
                 OutlinedButton(
-                  onPressed: busy ? null : () => action(kind),
+                  onPressed: busy ? null : () {
+                     if (same()) action(kind);
+                   },
                   child: Text(loyaltyActionText(context, kind)),
                 ),
             ],
           ),
         OutlinedButton.icon(
-          onPressed: busy ? null : () => load(number: target),
+          onPressed: busy ? null : () {
+             if (same()) load(number: target);
+           },
           icon: const Icon(Icons.refresh),
           label: Text(t('refresh')),
         ),
@@ -469,7 +481,7 @@ class _LoyaltyState extends State<LoyaltyView>
               OutlinedButton(
                 onPressed: busy || page!.current <= 1
                     ? null
-                    : () => load(number: page!.current - 1),
+                    : () { if (same()) load(number: page!.current - 1); },
                 child: Text(t('previous')),
               ),
               Text(
@@ -478,7 +490,7 @@ class _LoyaltyState extends State<LoyaltyView>
               OutlinedButton(
                 onPressed: busy || page!.current >= page!.last
                     ? null
-                    : () => load(number: page!.current + 1),
+                    : () { if (same()) load(number: page!.current + 1); },
                 child: Text(t('next')),
               ),
             ],
@@ -487,6 +499,7 @@ class _LoyaltyState extends State<LoyaltyView>
       ],
     ),
   );
+  }
 }
 
 class LoyaltyRequestView extends StatefulWidget {
