@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +10,7 @@ import 'vendor_finance_test.dart' show VendorOperationStore, PausedVendorStore;
 class SubscriptionApi extends FixtureApi {
   bool lost = false, wrongOwner = false;
   int writes = 0;
+  Completer<dynamic>? meWait, detailWait, eventsWait, postWait;
   final bodies = <Map<String, dynamic>>[];
   final plan = <String, dynamic>{
     'id': 7,
@@ -58,12 +60,14 @@ class SubscriptionApi extends FixtureApi {
     queries.add(query);
     if (expired)
       throw const ApiException(401, 'private-subscription-diagnostic');
-    if (path == 'me') return {'id': 1, 'role': 'customer'};
+    if (path == 'me') {
+      return meWait?.future ?? {'id': 1, 'role': 'customer'};
+    }
     if (method == 'POST') {
       writes++;
       bodies.add({...body!});
       if (lost) throw const ApiException(0, 'private-subscription-diagnostic');
-      return summary;
+      return postWait?.future ?? summary;
     }
     if (path == 'commercial/plans')
       return {
@@ -72,7 +76,13 @@ class SubscriptionApi extends FixtureApi {
         'last_page': 2,
         'total': 26,
       };
-    if (path == 'commercial/subscriptions/4') return summary;
+    if (path == 'commercial/subscriptions/4') {
+      return detailWait?.future ?? summary;
+    }
+    if (path == 'commercial/subscriptions/4/events') {
+      return eventsWait?.future ??
+          {'data': [], 'current_page': 1, 'last_page': 1, 'total': 0};
+    }
     return {'data': [], 'current_page': 1, 'last_page': 1, 'total': 0};
   }
 }
@@ -93,6 +103,117 @@ Future<void> confirm(WidgetTester t) async {
 }
 
 void main() {
+  testWidgets('old identity cannot fetch plans after logout during me', (t) async {
+    final api = SubscriptionApi()..meWait = Completer<dynamic>();
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionsView(api: api, onExpired: () {})));
+    await t.pump();
+    expect(api.calls, contains('GET me'));
+    await api.forgetSession();
+    api.meWait!.complete({'id': 1, 'role': 'customer'});
+    await t.pumpAndSettle();
+    expect(api.calls.where((call) => call == 'GET commercial/plans'), isEmpty);
+    expect(find.text('Published <literal> plan'), findsNothing);
+    expect(find.text(subscriptionEn['privateCleared']!), findsOneWidget);
+  });
+
+  testWidgets('catalog clears source on background and needs explicit refresh', (t) async {
+    final api = SubscriptionApi();
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionsView(api: api, onExpired: () {})));
+    await t.pumpAndSettle();
+    expect(find.text('Published <literal> plan'), findsOneWidget);
+    final before = api.calls.length;
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await t.pump();
+    expect(find.text('Published <literal> plan'), findsNothing);
+    expect(find.text(subscriptionEn['privateCleared']!), findsOneWidget);
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await t.pumpAndSettle();
+    expect(api.calls.length, before);
+    await t.tap(find.text('Refresh'));
+    await t.pumpAndSettle();
+    expect(api.calls.length, before + 2);
+    expect(find.text('Published <literal> plan'), findsOneWidget);
+  });
+
+  testWidgets('revoked user cannot initiate invoice history read after late detail', (t) async {
+    final api = SubscriptionApi()..detailWait = Completer<dynamic>();
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionDetailView(
+      api: api, onExpired: () {}, id: 4,
+    )));
+    await t.pump();
+    await api.forgetSession();
+    api.detailWait!.complete(api.summary);
+    await t.pumpAndSettle();
+    expect(api.calls.where((call) => call.endsWith('/events')), isEmpty);
+    expect(find.text('Benefits are not active'), findsNothing);
+    expect(find.text(subscriptionEn['privateCleared']!), findsOneWidget);
+  });
+
+  testWidgets('native subscription invoice and history vanish while inactive', (t) async {
+    final api = SubscriptionApi();
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionDetailView(
+      api: api, onExpired: () {}, id: 4,
+    )));
+    await t.pumpAndSettle();
+    expect(find.text('Benefits are not active'), findsOneWidget);
+    final before = api.calls.length;
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await t.pump();
+    expect(find.text('Benefits are not active'), findsNothing);
+    expect(find.textContaining('1.313 KWD'), findsNothing);
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await t.pumpAndSettle();
+    expect(api.calls.length, before);
+    await t.tap(find.text('Refresh'));
+    await t.pumpAndSettle();
+    expect(find.text('Benefits are not active'), findsOneWidget);
+  });
+
+  testWidgets('saved native subscription nonce remains private in unknown-outcome UI', (t) async {
+    final api = SubscriptionApi()..lost = true;
+    final store = VendorOperationStore();
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionActionView(
+      api: api, onExpired: () {}, action: 'enroll',
+      plan: api.plan, store: store,
+    )));
+    await t.pumpAndSettle();
+    await confirm(t);
+    await t.pumpAndSettle();
+    expect(store.values.length, 1);
+    expect(find.text(subscriptionEn['pendingIntent']!), findsOneWidget);
+    expect(find.textContaining('idempotency_key'), findsNothing);
+    expect(find.textContaining('private-subscription-diagnostic'), findsNothing);
+  });
+
+  testWidgets('late old-account enrollment response cannot confirm saved intent', (t) async {
+    final api = SubscriptionApi()..postWait = Completer<dynamic>();
+    final store = VendorOperationStore();
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionActionView(
+      api: api, onExpired: () {}, action: 'enroll',
+      plan: api.plan, store: store,
+    )));
+    await t.pumpAndSettle();
+    await t.ensureVisible(find.byType(CheckboxListTile));
+    await t.tap(find.byType(CheckboxListTile));
+    await t.pumpAndSettle();
+    await t.ensureVisible(find.byType(FilledButton));
+    await t.tap(find.byType(FilledButton));
+    await t.pump();
+    expect(api.writes, 1);
+    await api.forgetSession();
+    api.postWait!.complete(api.summary);
+    await t.pumpAndSettle();
+    expect(find.text(subscriptionEn['done']!), findsNothing);
+    expect(find.textContaining('idempotency_key'), findsNothing);
+    expect(store.values.length, 1);
+  });
+
   testWidgets(
     'account change during secure persistence blocks enrollment even before the route disposes',
     (t) async {
