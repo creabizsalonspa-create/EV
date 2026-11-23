@@ -6,7 +6,8 @@ import 'package:creabiz_ev/phone_verification.dart';
 
 class PhoneApi extends EvApi {
   PhoneApi() : super(Uri.parse('https://example.invalid'));
-  bool available = true, lost = false, malformedChallenge = false;
+  bool available = true, lost = false,
+      malformedChallenge = false, malformedAcknowledgment = false;
   int privateReads = 0, authEpoch = 0;
   @override
   bool Function() sessionFence() {
@@ -31,6 +32,9 @@ class PhoneApi extends EvApi {
     writes.add({'path': path, ...?body});
     if (path.endsWith('/challenges')) {
       if (lost) throw const ApiException(0, 'Synthetic lost response');
+      if (malformedAcknowledgment) {
+        return {'id': '../foreign-account', 'status': 'pending'};
+      }
       challenge = {'id': 'owned-challenge', 'status': 'pending'};
       return challenge;
     }
@@ -46,6 +50,32 @@ Widget screen(PhoneApi api, {bool arabic = false}) => MaterialApp(locale: Locale
   ],
   home: PhoneVerificationView(api: api));
 void main() {
+
+  for (final ar in [false, true]) {
+    testWidgets('malformed SMS start receipt cannot authorize foreign challenge ($ar)',
+        (tester) async {
+      final api = PhoneApi()..malformedAcknowledgment = true;
+      addTearDown(api.close);
+      await tester.pumpWidget(screen(api, arabic: ar));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('phone-number')), '+971501234567');
+      await tester.enterText(find.byKey(const Key('phone-password')), 'current-password');
+      await tester.tap(find.byType(CheckboxListTile));
+      await tester.tap(find.text(ar ? 'طلب رسالة تحقق' : 'Request verification SMS'));
+      await tester.pumpAndSettle();
+      expect(api.writes, hasLength(1));
+      expect(find.byKey(const Key('phone-code')), findsNothing);
+      expect(find.textContaining('../foreign-account'), findsNothing);
+      api.malformedAcknowledgment = false;
+      await tester.enterText(find.byKey(const Key('phone-password')), 'current-password');
+      await tester.tap(find.text(ar ? 'طلب رسالة تحقق' : 'Request verification SMS'));
+      await tester.pumpAndSettle();
+      expect(api.writes, hasLength(2));
+      expect(api.writes.first['idempotency_key'], api.writes.last['idempotency_key']);
+      expect(find.byKey(const Key('phone-code')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   for (final arabic in [false, true]) {
     testWidgets('initially inactive SMS screen never reads on resume ($arabic)',

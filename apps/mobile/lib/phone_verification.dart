@@ -117,7 +117,16 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
         final data = await widget.api.request('account/phone/challenges',
             method: 'POST', body: payload);
       if (!current(version)) return;
-      if (data is! Map || data['id'] is! String || !['pending','uncertain'].contains(data['status'])) throw const ApiException(502, 'Invalid challenge');
+      if (data is! Map ||
+          data['id'] is! String ||
+          !RegExp(r'^[A-Za-z0-9_-]{1,64}$').hasMatch(data['id'] as String) ||
+          !const {'pending', 'uncertain'}.contains(data['status']) ||
+          (data['attempts_remaining'] != null &&
+              (data['attempts_remaining'] is! int ||
+                  data['attempts_remaining'] < 0 ||
+                  data['attempts_remaining'] > 5))) {
+        throw const ApiException(502, 'Unverified phone challenge receipt');
+      }
       setState(() { challenge = Map<String, dynamic>.from(data); intentKey = intentPhone = null; scrub(); });
       });
     } finally {
