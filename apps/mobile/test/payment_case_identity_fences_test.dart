@@ -26,7 +26,9 @@ class SessionCaseStore implements FinancialOperationStore {
   }
 
   @override
-  Future<void> remove(String scope) async => entries.remove(scope);
+  Future<void> remove(String scope) async {
+    entries.remove(scope);
+  }
 }
 
 class FencedCaseApi extends FixtureApi {
