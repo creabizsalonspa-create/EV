@@ -47,7 +47,7 @@ class NoticeApi extends FixtureApi {
                       {
                         'state': 'outcome_unknown',
                         'created_at': '2026-11-14',
-                        'evidence': 'X' * 2001,
+                        'evidence': List<String>.filled(2001, 'X').join(),
                       },
                     ]
                   : emptyHistory
@@ -92,7 +92,7 @@ void main() {
       addTearDown(api.close);
       await tester.pumpWidget(screen(api, ar: ar));
       await tester.pumpAndSettle();
-      expect(find.textContaining('X' * 2001), findsNothing);
+      expect(find.textContaining(List<String>.filled(2001, 'X').join()), findsNothing);
       expect(find.textContaining(ar ? 'النتيجة غير متاحة.' : 'Outcome unavailable.'),
           findsOneWidget);
       api.malformedReceipt = false;
