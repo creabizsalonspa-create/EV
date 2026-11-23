@@ -15,6 +15,7 @@ return new class extends Migration
         Schema::create('ocpi_catalog_quality_history', function (Blueprint $table) {
             $table->id();
             $table->foreignId('provider_id')->constrained('ocpi_providers')->restrictOnDelete();
+            $table->foreignId('owner_id')->constrained('users')->restrictOnDelete();
             $table->dateTime('observed_hour', 6);
             $table->dateTime('sampled_at', 6);
             $table->string('state', 24);
@@ -24,7 +25,7 @@ return new class extends Migration
             $table->unsignedInteger('stale_count')->nullable();
             $table->unsignedInteger('unknown_age_count')->nullable();
             $table->unsignedInteger('future_clock_count')->nullable();
-            $table->unique(['provider_id', 'observed_hour'], 'ocpi_quality_provider_hour_unique');
+            $table->unique(['provider_id', 'owner_id', 'observed_hour'], 'ocpi_quality_tenant_hour_unique');
         });
     }
 
