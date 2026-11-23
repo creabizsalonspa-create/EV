@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Documents\FinancialDocuments;
 use App\Services\Commercial\Documents\FinancialProfiles;
 use App\Services\Commercial\Documents\FinancialSources;
-use App\Security\CurrentFinanceReader;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
