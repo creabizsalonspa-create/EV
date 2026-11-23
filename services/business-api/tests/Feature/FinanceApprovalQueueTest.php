@@ -143,6 +143,57 @@ class FinanceApprovalQueueTest extends TestCase
         $this->assertDatabaseCount('commercial_adjustment_approvals', 1);
     }
 
+    public function test_admin_approval_summary_is_all_filtered_pending_source_and_currency_isolated_not_a_payout(): void
+    {
+        [$invoice, $refund, $settlement, $adjustment] = $this->seedApprovals();
+        $preJournal = DB::table('finance_journals')->count();
+        $preRefunds = DB::table('finance_refunds')->count();
+        $preSettlements = DB::table('commercial_settlement_events')->count();
+        $preApproval = DB::table('commercial_adjustment_approvals')->count();
+
+        $this->actingAs($this->admin);
+        $page = $this->getJson($this->base().'?per_page=1&page=2')
+            ->assertOk()->assertJsonPath('total', 3)
+            ->assertJsonCount(1, 'data')
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('summary.scope',
+                'ALL_CURRENT_FILTERED_PENDING_RECORDS_NOT_PAGE')
+            ->assertJsonPath('summary.currency_and_precision_isolated', true)
+            ->assertJsonPath('summary.not_a_payment_or_payout_authority', true)
+            ->assertJsonCount(3, 'summary.groups');
+        $groups = collect($page->json('summary.groups'))->keyBy('kind');
+        foreach (['refund', 'settlement', 'adjustment'] as $kind) {
+            $this->assertSame('AED', $groups[$kind]['currency']);
+            $this->assertSame(2, $groups[$kind]['minor_units']);
+            $this->assertSame(1, $groups[$kind]['review_count']);
+            $this->assertSame(
+                'PENDING_RECORDS_NOT_FINANCIAL_BALANCE',
+                $groups[$kind]['basis']
+            );
+        }
+        $this->assertSame(25, $groups['refund']['signed_amount_minor']);
+        $this->assertSame(60, $groups['settlement']['signed_amount_minor']);
+        $this->assertSame(-10, $groups['adjustment']['signed_amount_minor']);
+
+        $refundOnly = $this->getJson($this->base().'?kind=refund&per_page=1')
+            ->assertOk()->assertJsonCount(1, 'summary.groups')
+            ->assertJsonPath('summary.groups.0.kind', 'refund')
+            ->assertJsonPath('summary.groups.0.signed_amount_minor', 25)
+            ->assertJsonPath('summary.groups.0.review_count', 1);
+        $this->assertStringNotContainsString(
+            'Private customer complaint', $refundOnly->getContent()
+        );
+        $this->getJson($this->base().'?currency=USD')
+            ->assertOk()->assertJsonPath('total', 0)
+            ->assertJsonCount(0, 'summary.groups');
+        $this->getJson($this->base().'?vendor_id='.($this->vendor->id + 99999))
+            ->assertOk()->assertJsonCount(0, 'summary.groups');
+        $this->assertSame($preJournal, DB::table('finance_journals')->count());
+        $this->assertSame($preRefunds, DB::table('finance_refunds')->count());
+        $this->assertSame($preSettlements, DB::table('commercial_settlement_events')->count());
+        $this->assertSame($preApproval, DB::table('commercial_adjustment_approvals')->count());
+    }
+
     public function test_revoked_admin_session_cannot_read_approval_queue_or_export(): void
     {
         $this->seedApprovals();
