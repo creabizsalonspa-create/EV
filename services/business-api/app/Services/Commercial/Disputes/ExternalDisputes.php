@@ -150,7 +150,8 @@ class ExternalDisputes
 
     public function evidence(int $id, int $actor, array $evidence, bool $submit, string $key, ?User $actorSnapshot = null): object
     {
-        abort_unless(DB::table('users')->where('id', $actor)->where('role', 'admin')->exists(), 403);
+        abort_unless($actorSnapshot instanceof User && $actorSnapshot->id === $actor
+            && $actorSnapshot->role === 'admin', 403, 'A current Admin session is required for provider evidence.');
         abort_unless($evidence !== [] && count(array_diff(array_keys($evidence), ['product_description', 'service_date', 'refund_policy_disclosure', 'refund_refusal_explanation', 'access_activity_log', 'uncategorized_text'])) === 0, 422);
         foreach ($evidence as $value) {
             abort_unless(is_string($value) && strlen($value) > 0 && strlen($value) <= 5000, 422);
@@ -172,10 +173,8 @@ class ExternalDisputes
             // Recheck this request's original Admin credential snapshot under a
             // live account row lock BEFORE reserving an evidence operation.
             // A revoked Admin must not send provider evidence after the read.
-            if ($actorSnapshot !== null) {
-                $current = app(CurrentFinanceReader::class)->requireSnapshot($actorSnapshot);
-                abort_unless($current->id === $actor && $current->role === 'admin', 403);
-            }
+            $current = app(CurrentFinanceReader::class)->requireSnapshot($actorSnapshot);
+            abort_unless($current->id === $actor && $current->role === 'admin', 403);
             $dispute = DB::table('external_disputes')->where('id', $id)->lockForUpdate()->first();
             abort_unless($dispute, 404);
             $old = DB::table('external_dispute_evidence')->where('request_key', $requestKey)->first();
@@ -202,7 +201,8 @@ class ExternalDisputes
 
     public function retryEvidence(int $id, int $operationId, int $actor, ?User $actorSnapshot = null): object
     {
-        abort_unless(DB::table('users')->where('id', $actor)->where('role', 'admin')->exists(), 403);
+        abort_unless($actorSnapshot instanceof User && $actorSnapshot->id === $actor
+            && $actorSnapshot->role === 'admin', 403, 'A current Admin session is required for provider evidence.');
         $initial = DB::table('external_dispute_evidence')->where('id', $operationId)->where('dispute_id', $id)->first();
         abort_unless($initial, 404);
         if ($initial->status === 'confirmed') {
@@ -213,10 +213,8 @@ class ExternalDisputes
         $operation = DB::transaction(function () use ($id, $operationId, $actor, $actorSnapshot) {
             // Never claim or renew the retry lease on a cached Admin session.
             // Lock the current actor first, before the financial dispute rows.
-            if ($actorSnapshot !== null) {
-                $current = app(CurrentFinanceReader::class)->requireSnapshot($actorSnapshot);
-                abort_unless($current->id === $actor && $current->role === 'admin', 403);
-            }
+            $current = app(CurrentFinanceReader::class)->requireSnapshot($actorSnapshot);
+            abort_unless($current->id === $actor && $current->role === 'admin', 403);
             $dispute = DB::table('external_disputes')->where('id', $id)->lockForUpdate()->first();
             $operation = DB::table('external_dispute_evidence')->where('id', $operationId)->where('dispute_id', $id)->lockForUpdate()->first();
             abort_unless($dispute && $operation, 404);
