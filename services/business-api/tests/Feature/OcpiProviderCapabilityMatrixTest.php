@@ -78,7 +78,7 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
             ->assertDontSee('https://peer.example');
         $this->assertCount(4, $status->json('capability_matrix.modules'));
 
-        $owner->update(['account_status' => 'suspended']);
+        $owner->forceFill(['account_status' => 'suspended'])->save();
         $this->actingAs($admin)->getJson($path)->assertOk()
             ->assertJsonPath('capability_matrix.credentials_current', false)
             ->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', false)
