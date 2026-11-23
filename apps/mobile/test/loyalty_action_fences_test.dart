@@ -175,6 +175,8 @@ void main() {
     await openConsent(tester);
     await tester.pumpWidget(actionScreen(api, store, action: 'redeem', reward: 8));
     await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm').last);
+    await tester.pumpAndSettle();
     expect(api.posts, 0);
     expect(store.saved, isEmpty);
     expect(find.text('Server confirmed the operation. Review the authoritative account and reward-request history.'), findsNothing);
