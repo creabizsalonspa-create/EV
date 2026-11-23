@@ -1345,6 +1345,7 @@ class _VendorEarningsState extends State<VendorEarningsView>
 
   @override
   void dispose() {
+    sessionEvents?.cancel();
     generation++;
     report = null;
     csvPreview = null;
