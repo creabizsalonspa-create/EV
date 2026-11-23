@@ -32,6 +32,7 @@ const financialEn = {
       'Document preparation was not confirmed. Refresh the list. Any explicit resubmission uses the same source and language; it cannot create a payment.',
   'snapshot': 'State at generation',
   'current': 'Current source state',
+  'privateCleared': 'Private document source cleared. Refresh with the currently authorized account.',
   'en': 'English',
   'ar': 'Arabic',
 };
@@ -62,6 +63,7 @@ const financialAr = {
       'لم يتم تأكيد إعداد المستند. حدّث القائمة. تستخدم إعادة الإرسال الصريحة المصدر واللغة نفسيهما ولا تنشئ دفعة.',
   'snapshot': 'الحالة عند الإنشاء',
   'current': 'حالة المصدر الحالية',
+  'privateCleared': 'مُسحت المستندات المالية الخاصة. حدّث باستخدام الحساب المصرح به حالياً.',
   'en': 'الإنجليزية',
   'ar': 'العربية',
 };
@@ -129,11 +131,26 @@ class FinancialDocumentsView extends StatefulWidget {
   State<FinancialDocumentsView> createState() => _DocumentsState();
 }
 
-class _DocumentsState extends State<FinancialDocumentsView> {
+class _DocumentsState extends State<FinancialDocumentsView>
+    with WidgetsBindingObserver {
   ApiPage<FinancialDocumentRecord>? page;
   Object? error;
-  bool busy = false, uncertain = false;
+  bool busy = false, uncertain = false, foreground = true, hidden = false;
+  bool Function()? currentSession;
   int generation = 0, target = 1;
+
+  bool get current => foreground && (currentSession?.call() ?? false);
+  bool active(int epoch, bool Function() fence) =>
+      mounted && foreground && generation == epoch && fence();
+
+  void erasePrivate() {
+    generation++;
+    page = null;
+    error = null;
+    busy = false;
+    hidden = true;
+    consent = false;
+  }
   String kind = 'charging_invoice', language = 'en';
   final source = TextEditingController();
   final form = GlobalKey<FormState>();
@@ -142,14 +159,59 @@ class _DocumentsState extends State<FinancialDocumentsView> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     kind = widget.sourceKind ?? kind;
     source.text = widget.sourceId?.toString() ?? '';
-    load();
+    foreground = WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    hidden = !foreground;
+    if (foreground) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant FinancialDocumentsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api ||
+        oldWidget.sourceKind != widget.sourceKind ||
+        oldWidget.sourceId != widget.sourceId) {
+      erasePrivate();
+      currentSession = null;
+      uncertain = false;
+      kind = widget.sourceKind ?? 'charging_invoice';
+      source.text = widget.sourceId?.toString() ?? '';
+      language = 'en';
+      target = 1;
+      if (foreground) {
+        final api = widget.api, expectedKind = widget.sourceKind;
+        final id = widget.sourceId;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && identical(api, widget.api) &&
+              expectedKind == widget.sourceKind && id == widget.sourceId) {
+            load();
+          }
+        });
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) {
+        // Unknown POST outcome is preserved for this same screen. Never
+        // allow an unknown response to become a new document or auto-retry.
+        if (busy) uncertain = true;
+        erasePrivate();
+      }
+    });
   }
 
   @override
   void dispose() {
-    generation++;
+    erasePrivate();
+    WidgetsBinding.instance.removeObserver(this);
     source.dispose();
     super.dispose();
   }
@@ -161,30 +223,55 @@ class _DocumentsState extends State<FinancialDocumentsView> {
   }
 
   Future<void> load({int number = 1}) async {
-    final epoch = ++generation;
+    if (!foreground || number < 1 || number > 100000) return;
+    final epoch = ++generation, fence = widget.api.sessionFence();
+    currentSession = fence;
     target = number;
     setState(() {
       busy = true;
       error = null;
       page = null;
+      hidden = false;
     });
     try {
+      final raw = await widget.api.request(
+        'financial/documents',
+        query: {
+          'page': '$number',
+          if (widget.sourceKind != null) 'source_kind': widget.sourceKind!,
+          if (widget.sourceId != null) 'source_id': '${widget.sourceId}',
+        },
+      );
+      if (!active(epoch, fence)) return;
       final result = ApiPage.fromJson(
-        await widget.api.request(
-          'financial/documents',
-          query: {
-            'page': '$number',
-            if (widget.sourceKind != null) 'source_kind': widget.sourceKind!,
-            if (widget.sourceId != null) 'source_id': '${widget.sourceId}',
-          },
-        ),
+        raw,
         FinancialDocumentRecord.fromJson,
       );
-      if (mounted && epoch == generation) setState(() => page = result);
+      // The requested immutable source scope is independent of server
+      // access authorization; verify the native view cannot be pointed at
+      // another source by an old or malformed response.
+      if (widget.sourceKind != null &&
+          result.items.any((r) => r.kind != widget.sourceKind)) {
+        throw const FormatException('Foreign document kind.');
+      }
+      if (widget.sourceId != null &&
+          result.items.any((r) => r.sourceId != widget.sourceId)) {
+        throw const FormatException('Foreign document record.');
+      }
+      if (active(epoch, fence)) setState(() => page = result);
     } catch (e) {
-      if (mounted && epoch == generation) setState(() => failed(e));
+      if (active(epoch, fence)) setState(() => failed(e));
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && foreground && epoch == generation) {
+        setState(() {
+          busy = false;
+          if (!fence()) {
+            page = null;
+            error = null;
+            hidden = true;
+          }
+        });
+      }
     }
   }
 
