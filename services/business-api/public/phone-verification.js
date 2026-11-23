@@ -97,7 +97,14 @@ window.EvPhoneVerification = (() => {
             try { data = verifiedStatus(await request('account/phone')); }
             catch {
                 if (version === generation && visible()) {
-                    current = challenge = null;
+                    // The previous form was based on an unverified state.
+                    // A retained submit callback must not be usable after
+                    // the page closes, even if it is still referenced in JS.
+                    generation++; busy = false;
+                    current = challenge = intent = null;
+                    root.querySelectorAll('input').forEach(n => {
+                        n.value = ''; if (n.type === 'checkbox') n.checked = false;
+                    });
                     showClosed(true);
                 }
                 return;
