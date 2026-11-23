@@ -104,6 +104,7 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
                     'business_details' => ['name' => 'Synthetic CPO']]],
             ],
             'ocpi.connections.capability-test.party_role' => 'EMSP',
+            'ocpi.connections.capability-test.incoming_modules' => [],
             'ocpi.connections.capability-test.local_credential_profile' => 'catalog',
             'ocpi.connections.capability-test.cpo_catalog' => ['id' => 'cpo-fixture', 'sites' => [], 'tariffs' => []],
             'ocpi.cpo_push_enabled' => true,
