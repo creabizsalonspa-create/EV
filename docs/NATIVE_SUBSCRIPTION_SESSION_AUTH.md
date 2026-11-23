@@ -28,6 +28,12 @@ capture, regulated stored value, legal invoice or tax-policy claim**.
   account lookup, owner-summary validation, encrypted saved-operation restore,
   durable idempotency write, HTTP POST and receipt acknowledgement. It is
   invalidated by backgrounding or an API/plan/subscription/action swap.
+  The durable operation's `isCurrent` closure now also binds original
+  **foreground + screen generation**, not just the still-valid login: a
+  backgrounded completed HTTP response cannot mark its encrypted intent
+  as acknowledged after the view was invalidated. A dedicated paused-POST
+  widget test proves no second POST is sent on resume and the original key
+  remains persisted.
   An obsolete request cannot confirm a saved plan change or enroll another
   account. A new login must reopen and deliberately reauthorize its original
   action; no automatic retry or alternate idempotency key is issued.
