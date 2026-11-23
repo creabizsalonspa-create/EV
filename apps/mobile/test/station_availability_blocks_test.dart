@@ -6,9 +6,18 @@ import 'package:creabiz_ev/station_availability_blocks.dart';
 class BlockApi extends EvApi {
   BlockApi():super(Uri.parse('https://example.invalid'));
   final writes=<Map<String,dynamic>>[];
+  bool expired = false, invalidSource = false;
+  final reads = <int>[];
   @override
   Future<dynamic> request(String path,{String method='GET',Map<String,dynamic>? body,Map<String,String> query=const {}}) async {
-    if(method=='GET')return {'station_id':7,'data':<dynamic>[]};
+    if(method=='GET') {
+      final stationId = int.parse(path.split('/')[1]);
+      reads.add(stationId);
+      if (expired) throw const ApiException(401,'PRIVATE UPSTREAM TOKEN');
+      return {'station_id': stationId, 'data': invalidSource
+        ? <dynamic>[{'station_id': 999, 'id': 'unsafe', 'scope': 'REAL_HARDWARE'}]
+        : <dynamic>[]};
+    }
     writes.add({'path':path,...?body});
     if(writes.length==1)throw const ApiException(503,'Uncertain');
     return {'station_id':7,'id':'receipt'};
@@ -25,5 +34,50 @@ void main(){
   expect(tester.widget<TextField>(find.byKey(const Key('block-reason_en'))).enabled,isFalse);
   await tester.tap(find.text('Retry same block request'));await tester.pumpAndSettle();expect(api.writes,hasLength(2));expect(api.writes[0],api.writes[1]);
   await tester.tap(find.text('Refresh station blocks'));await tester.pumpAndSettle();expect(api.writes,hasLength(2));
+ }); 
+ testWidgets('invalid policy data never yields a cancel or trusted source claim', (tester) async {
+  final api=BlockApi()..invalidSource=true;
+  addTearDown(api.close);
+  await tester.pumpWidget(MaterialApp(home:StationAvailabilityBlocksView(api:api,stationId:7)));
+  await tester.pumpAndSettle();
+  expect(find.text('Cancel this block'),findsNothing);
+  expect(find.textContaining('Action not confirmed.'),findsOneWidget);
+  expect(find.textContaining('REAL_HARDWARE'),findsNothing);
+  expect(api.writes,isEmpty);
+ });
+ testWidgets('expired owner read clears policy and notifies caller without private error', (tester) async {
+  final api=BlockApi();
+  addTearDown(api.close);
+  int expirations=0;
+  await tester.pumpWidget(MaterialApp(home:StationAvailabilityBlocksView(
+    api:api,stationId:7,onExpired:()=>expirations++,
+  )));
+  await tester.pumpAndSettle();
+  api.expired=true;
+  await tester.tap(find.text('Refresh station blocks'));
+  await tester.pumpAndSettle();
+  expect(expirations,1);
+  expect(find.textContaining('PRIVATE UPSTREAM TOKEN'),findsNothing);
+  expect(find.text('Cancel this block'),findsNothing);
+  expect(api.writes,isEmpty);
+ });
+ testWidgets('reusing the editor for another station resets pending request identity', (tester) async {
+  tester.view.physicalSize=const Size(900,1600);
+  tester.view.devicePixelRatio=1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  final api=BlockApi();
+  addTearDown(api.close);
+  Widget view(int id)=>MaterialApp(home:StationAvailabilityBlocksView(
+    api:api,stationId:id,
+  ));
+  await tester.pumpWidget(view(7));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byKey(const Key('block-reason_en')),'PRIVATE OLD STATION');
+  await tester.pumpWidget(view(8));
+  await tester.pumpAndSettle();
+  expect(api.reads,containsAllInOrder([7,8]));
+  expect(tester.widget<TextField>(find.byKey(const Key('block-reason_en'))).controller!.text,isEmpty);
+  expect(api.writes,isEmpty);
  });
 }
