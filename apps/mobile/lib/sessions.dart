@@ -211,14 +211,17 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
             TextButton(
               onPressed: busy
                   ? null
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => ChargingOperationsView(
-                          api: widget.api,
-                          onExpired: widget.onExpired,
+                  : () {
+                      if (!stillCurrent()) return;
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => ChargingOperationsView(
+                            api: originalApi,
+                            onExpired: widget.onExpired,
+                          ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
               child: Text(opsText(context, 'title')),
             ),
 
@@ -227,20 +230,25 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
             style: Theme.of(context).textTheme.headlineLarge,
           ),
           Text(s.t('meterDisclaimer')),
-          TextButton(onPressed:busy ? null : () => load(page:data?.current ?? 1),child:Text(s.t('refresh'))),
+          TextButton(onPressed:busy ? null : () {
+            if (stillCurrent()) load(page:p?.current ?? 1);
+          },child:Text(s.t('refresh'))),
           if (['customer', 'vendor'].contains(widget.role))
             TextButton(
               onPressed: busy
                   ? null
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => ChargingReviewsView(
-                          api: widget.api,
-                          role: widget.role,
-                          onExpired: widget.onExpired,
+                  : () {
+                      if (!stillCurrent()) return;
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => ChargingReviewsView(
+                            api: originalApi,
+                            role: originalRole,
+                            onExpired: widget.onExpired,
+                          ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
               child: Text(
                 Localizations.localeOf(context).languageCode == 'ar'
                     ? 'ملاحظات الشحن'
@@ -252,7 +260,9 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
           if (error != null) ...[
             Text(s.t(errorKey(error!))),
             TextButton(
-              onPressed: busy ? null : () => load(page: p?.current ?? 1),
+              onPressed: busy ? null : () {
+                if (stillCurrent()) load(page: p?.current ?? 1);
+              },
               child: Text(s.t('retry')),
             ),
           ],
@@ -345,7 +355,9 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
                         TextButton(
                           onPressed: busy
                               ? null
-                              : () => reconcile(row['id'] as int),
+                              : () {
+                                if (stillCurrent()) reconcile(row['id'] as int);
+                              },
                           child: Text(s.t('reconcileEvidence')),
                         ),
                     ],
@@ -360,23 +372,28 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
                     if (widget.role == 'customer' &&
                         row['can_cancel_before_dispatch'] == true)
                       OutlinedButton(
-                        onPressed: busy ? null : () => cancelPending(row),
+                        onPressed: busy ? null : () {
+                          if (stillCurrent()) cancelPending(row);
+                        },
                         child: Text(s.t('cancelUndispatched')),
                       ),
                     if (row['status'] == 'stopped')
                       TextButton(
                         onPressed: busy
                             ? null
-                            : () => Navigator.push(
-                                context,
-                                MaterialPageRoute<void>(
-                                  builder: (_) => InvoicePage(
-                                    api: widget.api,
-                                    sessionId: row['id'] as int,
-                                    onExpired: widget.onExpired,
+                            : () {
+                                if (!stillCurrent()) return;
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => InvoicePage(
+                                      api: originalApi,
+                                      sessionId: row['id'] as int,
+                                      onExpired: widget.onExpired,
+                                    ),
                                   ),
-                                ),
-                              ),
+                                );
+                              },
                         child: Text(s.t('invoice')),
                       ),
                     if (row['status'] == 'charging')
@@ -386,16 +403,20 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
                           if (widget.role == 'vendor' &&
                               row['csms_linked'] != true)
                             FilledButton(
-                              onPressed: busy ? null : () => meter(row),
+                              onPressed: busy ? null : () {
+                                if (stillCurrent()) meter(row);
+                              },
                               child: Text(s.t('submitMeter')),
                             ),
                           OutlinedButton(
                             onPressed: busy
                                 ? null
-                                : () => stop(
-                                    row['id'] as int,
-                                    linked: row['csms_linked'] == true,
-                                  ),
+                                : () {
+                                    if (stillCurrent()) stop(
+                                      row['id'] as int,
+                                      linked: row['csms_linked'] == true,
+                                    );
+                                  },
                             child: Text(
                               s.t(
                                 row['csms_linked'] == true
@@ -424,13 +445,17 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
                 TextButton(
                   onPressed: busy || p.current <= 1
                       ? null
-                      : () => load(page: p.current - 1),
+                      : () {
+                          if (stillCurrent()) load(page: p.current - 1);
+                        },
                   child: Text(s.t('previous')),
                 ),
                 TextButton(
                   onPressed: busy || p.current >= p.last
                       ? null
-                      : () => load(page: p.current + 1),
+                      : () {
+                          if (stillCurrent()) load(page: p.current + 1);
+                        },
                   child: Text(s.t('next')),
                 ),
               ],
