@@ -178,7 +178,8 @@ void main() {
     final api = RevenueApi();
     await open(tester, api);
     expect(find.byKey(const Key('revenue-cohort-total-issued')), findsOneWidget);
-    expect(find.textContaining('Issued: AED 10.99'), findsOneWidget);
+    expect(find.textContaining('Issued: AED 10.99'), findsNWidgets(2));
+    expect(find.byKey(const Key('revenue-cohort-total-issued')), findsOneWidget);
     expect(api.queries.single['currency'], 'AED');
     expect(api.calls.where((c) => c.startsWith('POST ')), isEmpty);
     expect(find.textContaining('No bank or PSP verification'), findsOneWidget);
@@ -240,6 +241,9 @@ void main() {
     await tester.pump();
     expect(api.queries, isNotEmpty);
     final oldQuery = api.queries.single;
+    // Flutter's real state machine backgrounds through inactive and hidden.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
     api.stalled!.complete(cohort(
@@ -249,6 +253,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('revenue-cohort-total-issued')), findsNothing);
     expect(api.calls.where((c) => c.startsWith('POST ')), isEmpty);
+    // Resume through the legal foreground transitions; never bypass the
+    // lifecycle listener just to clear the test's paused state.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
   });
