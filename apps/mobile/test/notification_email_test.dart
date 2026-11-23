@@ -12,11 +12,13 @@ class NoticeApi extends FixtureApi {
       configured = true,
       malformedHistory = false,
       emptyHistory = false;
-  int writes = 0;
+  int writes = 0, reads = 0, authEpoch = 0;
   Map<String, dynamic>? lastBody;
   @override
-  bool Function() sessionFence() =>
-      () => active;
+  bool Function() sessionFence() {
+    final boundEpoch = authEpoch;
+    return () => active && authEpoch == boundEpoch;
+  }
   @override
   Future<dynamic> request(
     String path, {
@@ -24,6 +26,7 @@ class NoticeApi extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (method == 'GET') reads++;
     if (method == 'PUT') {
       writes++;
       lastBody = body;
@@ -67,6 +70,56 @@ Widget screen(NoticeApi api, {bool ar = false}) => MaterialApp(
   home: NotificationEmailView(api: api, onExpired: () {}),
 );
 void main() {
+
+  for (final ar in [false, true]) {
+    testWidgets('initially inactive email notice page makes no private reads ($ar)',
+        (tester) async {
+      final api = NoticeApi();
+      addTearDown(api.close);
+      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pumpWidget(screen(api, ar: ar));
+      await tester.pumpAndSettle();
+      expect(api.reads, 0);
+      expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsNothing);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(api.reads, 0, reason: 'Resume does not implicitly read private receipts');
+      final refresh = find.text(ar ? 'تحديث' : 'Refresh');
+      expect(refresh, findsOneWidget);
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(api.reads, 2);
+      expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsOneWidget);
+      expect(api.writes, 0);
+      expect(tester.takeException(), isNull);
+    });
+  }
+  testWidgets('same API instance new account discards previous notice data', (
+    tester,
+  ) async {
+    final api = NoticeApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(screen(api));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsOneWidget);
+    expect(api.reads, 2);
+    // A login transition can change the bound session while retaining EvApi.
+    api.authEpoch++;
+    api.emptyHistory = true;
+    await tester.pumpWidget(screen(api));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsNothing);
+    expect(api.reads, 2, reason: 'No automatic cross-account private read');
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(api.reads, 4);
+    expect(find.text('No email notice handoffs on this page.'), findsOneWidget);
+    expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsNothing);
+    expect(api.writes, 0);
+    expect(tester.takeException(), isNull);
+  });
   for (final ar in [false, true]) {
     testWidgets('explicit email consent preserves exact revision ($ar)', (
       tester,

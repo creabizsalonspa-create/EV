@@ -54,8 +54,12 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
   void initState() {
     super.initState();
     accountFence = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    // First mount may occur while the OS has already hidden the app. Never
+    // fetch private data-subject requests in that state or on silent resume.
+    background = lifecycle != null && lifecycle != AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    refresh();
+    if (!background) refresh();
   }
 
   @override
@@ -66,7 +70,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     // hold an operation key from a prior authentication context.
     clearPrivate();
     accountFence = widget.api.sessionFence();
-    refresh();
+    if (!background) refresh();
   }
 
   void clearPrivate() {

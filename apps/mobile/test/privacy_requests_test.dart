@@ -16,6 +16,7 @@ class _PrivacyApi extends EvApi {
   Completer<void>? holdGet;
   Completer<void>? holdPost;
   Completer<void>? holdWithdraw;
+  int privateReads = 0;
   bool failReadbackOnce = false;
   bool failPostAfterHold = false;
 
@@ -27,6 +28,7 @@ class _PrivacyApi extends EvApi {
     Map<String, String> query = const {},
   }) async {
     if (path == 'account/privacy-requests' && method == 'GET') {
+      privateReads++;
       if (holdGet != null) await holdGet!.future;
       if (rows.isNotEmpty && failReadbackOnce) {
         failReadbackOnce = false;
@@ -72,6 +74,44 @@ class _PrivacyApi extends EvApi {
 }
 
 void main() {
+
+  for (final language in ['en', 'ar']) {
+    testWidgets('first inactive privacy mount requires foreground refresh ($language)',
+        (tester) async {
+      final api = _PrivacyApi();
+      addTearDown(api.close);
+      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed));
+      api.rows.add({
+        'id': 19,
+        'kind': 'access',
+        'status': 'pending',
+        'details': 'PRIVATE INITIAL ACCOUNT REQUEST',
+      });
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: PrivacyRequestsView(api: api, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.privateReads, 0);
+      expect(find.text('PRIVATE INITIAL ACCOUNT REQUEST'), findsNothing);
+      expect(find.byKey(const Key('privacy-reason')), findsNothing);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(api.privateReads, 0, reason: 'Resume must not silently read account requests');
+      expect(find.byKey(const Key('privacy-reason')), findsOneWidget);
+      final refresh = find.byTooltip(language == 'ar' ? 'تحديث' : 'Refresh');
+      await tester.ensureVisible(refresh);
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(api.privateReads, 1);
+      expect(find.text('PRIVATE INITIAL ACCOUNT REQUEST'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('native privacy request submits and stays usable afterwards', (
     tester,
   ) async {

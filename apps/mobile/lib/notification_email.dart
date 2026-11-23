@@ -29,8 +29,12 @@ class _NotificationEmailState extends State<NotificationEmailView>
   void initState() {
     super.initState();
     authorized = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    // A newly mounted page can already be inactive before it observes events.
+    // No account-specific read is permitted until an explicit foreground refresh.
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    load();
+    if (foreground) load();
   }
 
   void clear() {
@@ -45,7 +49,9 @@ class _NotificationEmailState extends State<NotificationEmailView>
   @override
   void didUpdateWidget(covariant NotificationEmailView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.api != widget.api) {
+    if (oldWidget.api != widget.api || !authorized()) {
+      // The API instance may be retained across logout/new login. Never reuse
+      // a previous account's receipts, consent or session fence on rebuild.
       clear();
       authorized = widget.api.sessionFence();
     }
@@ -53,8 +59,13 @@ class _NotificationEmailState extends State<NotificationEmailView>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    foreground = state == AppLifecycleState.resumed;
-    if (mounted && !foreground) setState(clear);
+    if (!mounted) return;
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == foreground) return;
+    setState(() {
+      foreground = resumed;
+      if (!resumed) clear();
+    });
   }
 
   @override
@@ -195,7 +206,9 @@ class _NotificationEmailState extends State<NotificationEmailView>
       appBar: AppBar(
         title: Text(t('Email activity notices', 'إشعارات النشاط بالبريد')),
       ),
-      body: !authorized()
+      body: !foreground
+          ? const SizedBox.shrink()
+          : !authorized()
           ? Center(child: Text(t('Sign in again.', 'سجّل الدخول مجددًا.')))
           : ListView(
               padding: const EdgeInsets.all(16),
