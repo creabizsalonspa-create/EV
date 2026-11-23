@@ -204,7 +204,6 @@ class ExternalDisputesTest extends TestCase
         $this->assertTrue(app(FinanceService::class)->summary($this->invoice)['ledger_balanced']);
     }
 
-
     public function test_admin_revoked_during_provider_dispute_get_cannot_release_a_settlement_hold(): void
     {
         $id = $this->providerEvent('evt_InspectAdminEpoch')->assertOk()->json('dispute_id');
