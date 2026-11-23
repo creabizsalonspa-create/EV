@@ -422,19 +422,91 @@ class SubscriptionActionView extends StatefulWidget {
   State<SubscriptionActionView> createState() => _SubscriptionActionState();
 }
 
-class _SubscriptionActionState extends State<SubscriptionActionView> {
+class _SubscriptionActionState extends State<SubscriptionActionView>
+    with WidgetsBindingObserver {
   bool busy = true, consent = false, done = false, blocked = false;
+  bool foreground = true, hidden = false;
+  bool Function()? currentSession;
   Object? error;
-  int owner = 0;
+  int owner = 0, generation = 0;
   FinancialOperation? operation;
+  bool get current =>
+      foreground && !hidden && (currentSession?.call() ?? false);
+  bool active(int epoch, bool Function() fence) =>
+      mounted && foreground && epoch == generation && fence();
+
+  void clearPrivate() {
+    generation++;
+    owner = 0;
+    operation = null;
+    error = null;
+    consent = false;
+    done = false;
+    blocked = false;
+    busy = false;
+    hidden = true;
+  }
   String t(String k) => subscriptionText(context, k);
   @override
   void initState() {
     super.initState();
-    initialize();
+    WidgetsBinding.instance.addObserver(this);
+    foreground = WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    hidden = !foreground;
+    if (foreground) initialize();
+  }
+
+  @override
+  void didUpdateWidget(covariant SubscriptionActionView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api ||
+        oldWidget.action != widget.action ||
+        oldWidget.subscriptionId != widget.subscriptionId ||
+        oldWidget.plan?['id'] != widget.plan?['id']) {
+      clearPrivate();
+      currentSession = null;
+      if (foreground) {
+        final api = widget.api, action = widget.action;
+        final id = widget.subscriptionId, plan = widget.plan?['id'];
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && identical(api, widget.api) &&
+              action == widget.action && id == widget.subscriptionId &&
+              plan == widget.plan?['id']) initialize();
+        });
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) clearPrivate();
+    });
+  }
+
+  @override
+  void dispose() {
+    clearPrivate();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   Future<void> initialize() async {
+    if (!foreground) return;
+    final epoch = ++generation, fence = widget.api.sessionFence();
+    currentSession = fence;
+    setState(() {
+      busy = true;
+      error = null;
+      blocked = false;
+      consent = false;
+      done = false;
+      operation = null;
+      hidden = false;
+    });
     try {
       if (![
             'enroll',
@@ -449,10 +521,12 @@ class _SubscriptionActionState extends State<SubscriptionActionView> {
               widget.plan?['id'] is! int))
         throw const FormatException('Invalid operation.');
       final me = await widget.api.request('me');
-      if (!['customer', 'vendor'].contains(me['role']) || me['id'] is! int)
+      if (!active(epoch, fence)) return;
+      if (!['customer', 'vendor'].contains(me['role']) || me['id'] is! int ||
+          me['id'] < 1)
         throw const ApiException(403, 'Role required.');
       owner = me['id'] as int;
-      if (widget.subscriptionId != null)
+      if (widget.subscriptionId != null) {
         subscriptionSummary(
           await widget.api.request(
             'commercial/subscriptions/${widget.subscriptionId}',
@@ -460,13 +534,15 @@ class _SubscriptionActionState extends State<SubscriptionActionView> {
           owner,
           id: widget.subscriptionId,
         );
-      if (!mounted) return;
+      }
+      if (!active(epoch, fence)) return;
       operation = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${widget.api.base.origin}|$owner|subscription|${widget.subscriptionId ?? 0}|${widget.action}',
-        isCurrent: widget.api.sessionFence(),
+        isCurrent: fence,
       );
       await operation!.restore();
+      if (!active(epoch, fence)) return;
       final original = operation!.pending?['body'];
       if (original is Map &&
           original['plan_id'] != null &&
@@ -478,9 +554,9 @@ class _SubscriptionActionState extends State<SubscriptionActionView> {
         );
       }
     } catch (e) {
-      if (mounted) fail(e);
+      if (active(epoch, fence)) fail(e);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (active(epoch, fence)) setState(() => busy = false);
     }
   }
 
@@ -493,21 +569,23 @@ class _SubscriptionActionState extends State<SubscriptionActionView> {
   }
 
   Future<void> submit() async {
-    if (busy || !consent || operation == null || blocked) return;
+    if (busy || !consent || operation == null || blocked || !current) return;
+    final epoch = generation, fence = currentSession!;
+    final intent = operation!;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      final body = operation!.pending == null
+      final body = intent.pending == null
           ? <String, dynamic>{
               if (widget.action == 'enroll' || widget.action == 'change_plan')
                 'plan_id': widget.plan!['id'],
               if (widget.action != 'enroll') 'action': widget.action,
             }
-          : Map<String, dynamic>.from(operation!.pending!['body'] as Map);
-      final saved = await operation!.prepare(body);
-      if (!mounted) return;
+          : Map<String, dynamic>.from(intent.pending!['body'] as Map);
+      final saved = await intent.prepare(body);
+      if (!active(epoch, fence)) return;
       final raw = await widget.api.request(
         widget.action == 'enroll'
             ? 'commercial/subscriptions'
@@ -515,6 +593,7 @@ class _SubscriptionActionState extends State<SubscriptionActionView> {
         method: 'POST',
         body: saved,
       );
+      if (!active(epoch, fence)) return;
       final summary = subscriptionSummary(
         raw,
         owner,
@@ -523,21 +602,27 @@ class _SubscriptionActionState extends State<SubscriptionActionView> {
       if (widget.action == 'enroll' &&
           summary['subscription']['plan_id'] != saved['plan_id'])
         throw const FormatException('Wrong enrollment receipt.');
-      await operation!.confirmed();
-      if (mounted)
+      await intent.confirmed();
+      if (active(epoch, fence)) {
         setState(() {
           done = true;
           consent = false;
         });
+      }
     } catch (e) {
-      if (mounted) fail(e);
+      if (active(epoch, fence)) fail(e);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (active(epoch, fence)) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
+  Widget build(BuildContext c) => !current
+    ? Scaffold(
+        appBar: AppBar(title: Text(t(widget.action))),
+        body: Center(child: Text(t('privateCleared'))),
+      )
+    : Scaffold(
     appBar: AppBar(title: Text(t(widget.action))),
     body: ListView(
       padding: const EdgeInsets.all(16),
@@ -561,7 +646,7 @@ class _SubscriptionActionState extends State<SubscriptionActionView> {
           ),
         if (operation?.pending != null) ...[
           Text(t('pendingIntent')),
-          Text('${operation!.pending!['body']}'),
+          // Saved replay keys remain only inside encrypted operation state.
         ],
         if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
         if (done) Text(t('done')),
