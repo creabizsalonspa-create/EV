@@ -103,9 +103,11 @@ class LoyaltyView extends StatefulWidget {
   State<LoyaltyView> createState() => _LoyaltyState();
 }
 
-class _LoyaltyState extends State<LoyaltyView> {
+class _LoyaltyState extends State<LoyaltyView>
+    with WidgetsBindingObserver {
   String section = 'account';
-  bool busy = false;
+  bool busy = false, foreground = true;
+  late bool Function() authorized;
   Object? error;
   Map<String, dynamic>? account;
   ApiPage<Map<String, dynamic>>? page;
@@ -117,14 +119,65 @@ class _LoyaltyState extends State<LoyaltyView> {
   @override
   void initState() {
     super.initState();
-    load();
+    authorized = widget.api.sessionFence();
+    final state = WidgetsBinding.instance.lifecycleState;
+    foreground = state == null || state == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    if (foreground) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant LoyaltyView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        !identical(oldWidget.couponStore, widget.couponStore) ||
+        !authorized()) {
+      generation++;
+      authorized = widget.api.sessionFence();
+      account = null;
+      page = null;
+      error = null;
+      busy = false;
+      section = 'account';
+      target = 1;
+      final api = widget.api;
+      final current = authorized;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && foreground && identical(api, widget.api) &&
+            identical(current, authorized) && current()) load();
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == foreground) return;
+    foreground = resumed;
+    if (!resumed) {
+      generation++;
+      setState(() {
+        account = null;
+        page = null;
+        error = null;
+        busy = false;
+      });
+    } else {
+      // Private points require a fresh, explicit refresh.
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
+
+  bool scoped(EvApi api, bool Function() fence) =>
+      mounted && foreground && identical(api, widget.api) &&
+      identical(fence, authorized) && fence();
 
   int integer(Map<String, dynamic> row, String key, {bool negative = false}) {
     final value = row[key];
@@ -179,7 +232,13 @@ class _LoyaltyState extends State<LoyaltyView> {
   }
 
   Future<void> load({int number = 1}) async {
+    final api = widget.api;
+    final fence = authorized;
+    if (!scoped(api, fence)) return;
+    final selected = section;
     final epoch = ++generation;
+    bool current() => epoch == generation && scoped(api, fence) &&
+        section == selected;
     target = number;
     setState(() {
       busy = true;
@@ -188,12 +247,12 @@ class _LoyaltyState extends State<LoyaltyView> {
       page = null;
     });
     try {
-      final result = await widget.api.request(
-        'commercial/loyalty/$section',
-        query: section == 'account' ? const {} : {'page': '$number'},
+      final result = await api.request(
+        'commercial/loyalty/$selected',
+        query: selected == 'account' ? const {} : {'page': '$number'},
       );
-      if (!mounted || epoch != generation) return;
-      if (section == 'account') {
+      if (!current()) return;
+      if (selected == 'account') {
         final row = Map<String, dynamic>.from(result as Map);
         checkAccount(row);
         account = row;
@@ -205,7 +264,7 @@ class _LoyaltyState extends State<LoyaltyView> {
         page = parsed;
       }
     } catch (e) {
-      if (!mounted || epoch != generation) return;
+      if (!current()) return;
       error = e;
       account = null;
       page = null;
@@ -213,7 +272,7 @@ class _LoyaltyState extends State<LoyaltyView> {
         widget.onExpired();
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current()) setState(() => busy = false);
     }
   }
 
@@ -253,21 +312,26 @@ class _LoyaltyState extends State<LoyaltyView> {
     ),
   );
   Future<void> action(String kind, {int? reward}) async {
+    final api = widget.api;
+    final fence = authorized;
+    if (!scoped(api, fence)) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => LoyaltyActionView(
-          api: widget.api,
+          api: api,
           onExpired: widget.onExpired,
           action: kind,
           reward: reward,
         ),
       ),
     );
-    if (mounted) await load(number: target);
+    if (scoped(api, fence)) await load(number: target);
   }
 
   Widget record(Map<String, dynamic> row) {
     final ar = Localizations.localeOf(context).languageCode == 'ar';
+    final api = widget.api;
+    final fence = authorized;
     if (section == 'rewards')
       return Card(
         child: Padding(
@@ -283,7 +347,11 @@ class _LoyaltyState extends State<LoyaltyView> {
               OutlinedButton(
                 onPressed: busy
                     ? null
-                    : () => action('redeem', reward: row['id'] as int),
+                    : () {
+                        if (scoped(api, fence)) {
+                          action('redeem', reward: row['id'] as int);
+                        }
+                      },
                 child: Text(loyaltyActionText(context, 'redeem')),
               ),
               Text(
@@ -309,15 +377,18 @@ class _LoyaltyState extends State<LoyaltyView> {
         title: Text('#${n(row['id'] as int)} · ${status(row['status'])}'),
         subtitle: Text('${t('cost')}: ${n(row['points_cost'] as int)}'),
         trailing: const Icon(Icons.chevron_right),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => LoyaltyRequestView(
-              api: widget.api,
-              id: row['id'] as int,
-              onExpired: widget.onExpired,
+        onTap: () {
+          if (!scoped(api, fence)) return;
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => LoyaltyRequestView(
+                api: api,
+                id: row['id'] as int,
+                onExpired: widget.onExpired,
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
