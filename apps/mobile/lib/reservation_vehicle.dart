@@ -169,6 +169,11 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> wit
     final source = widget.api, connector = widget.connector;
     final fence = accountFence, epoch = generation;
     bool active() => scopedSelection(source, fence, connector, epoch);
+    bool mayRefreshHidden() => mounted && _backgroundHidden &&
+        identical(widget.api, source) &&
+        identical(accountFence, fence) &&
+        widget.connector == connector &&
+        generation == epoch && fence();
     return AlertDialog(
     title: Text(t('Choose your vehicle', 'اختر مركبتك')),
     content: SizedBox(
@@ -190,7 +195,7 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> wit
           if (_backgroundHidden && _sameSession)
             TextButton(
               onPressed: () {
-                if (_sameSession && !_backgroundHidden) load(1);
+                if (mayRefreshHidden()) load(1);
               },
               child: Text(t('Refresh garage', 'تحديث المرآب')),
             ),
