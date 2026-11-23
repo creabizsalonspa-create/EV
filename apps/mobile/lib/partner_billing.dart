@@ -272,6 +272,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
         MaterialPageRoute<void>(
           builder: (_) => VendorDocumentPreview(
             document: document,
+            revokedSessionEvents: widget.api.sessionEvents,
             title: t('Partner billing reconciliation', 'مطابقة فوترة الشريك'),
             notice: t(
               'Read-only TEST report. Credits reference original invoices; do not sum rows as revenue. Not a partner settlement or proof of bank payment.',
