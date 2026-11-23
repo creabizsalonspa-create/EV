@@ -4,6 +4,7 @@ import 'api.dart';
 import 'strings.dart';
 import 'financial_documents.dart';
 import 'financial_operation_store.dart';
+import 'vendor_revenue_cohorts.dart';
 
 const vendorFinanceEn = {
   'title': 'Vendor finance',
@@ -463,6 +464,23 @@ class _VendorFinanceState extends State<VendorFinanceView>
                         Text(
                           '${t(field)}: ${nativeFinancialAmount(c, row, field)}',
                         ),
+                      OutlinedButton(
+                        key: ValueKey('vendor-revenue-${row['currency']}'),
+                        onPressed: () => openForActor(
+                          MaterialPageRoute<void>(
+                            builder: (_) => VendorRevenueCohortView(
+                              api: widget.api,
+                              onExpired: widget.onExpired,
+                              currency: row['currency'] as String,
+                            ),
+                          ),
+                        ),
+                        child: Text(
+                          Localizations.localeOf(c).languageCode == 'ar'
+                              ? 'لوحة الإيرادات حسب تاريخ الفاتورة'
+                              : 'Revenue by invoice date',
+                        ),
+                      ),
                       OutlinedButton(
                         key: ValueKey('vendor-itemized-${row['currency']}'),
                         onPressed: () => openForActor(
