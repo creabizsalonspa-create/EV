@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\FinanceReconciliationAuditController;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
@@ -104,7 +105,6 @@ class FinanceReconciliationAuditTest extends TestCase
         $this->actingAs($foreignOwner)->getJson($this->url())->assertOk()->assertJsonPath('total', 1);
     }
 
-
     public function test_reconciliation_csv_is_spreadsheet_literal_and_exact_without_changing_immutable_invoices(): void
     {
         [$vendor, $customer, $invoice] = $this->fixture();
@@ -112,7 +112,7 @@ class FinanceReconciliationAuditTest extends TestCase
         // Issued invoice numbers are immutable, so the source must not be
         // overwritten simply to simulate an untrusted imported reference.
         $encode = new \ReflectionMethod(
-            \App\Http\Controllers\FinanceReconciliationAuditController::class,
+            FinanceReconciliationAuditController::class,
             'literalCsv'
         );
         foreach (['=HYPERLINK("https://unsafe.test","open")', '+SUM(3,5)',

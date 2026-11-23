@@ -178,6 +178,7 @@ final class VendorEarningsController extends Controller
                 // spreadsheet-leading formulas as literal cells on export.
                 $values = array_map(static function (string $field) use ($row) {
                     $value = $row[$field];
+
                     return $field === 'invoice_number'
                         ? self::csvInvoiceNumber((string) $value)
                         : $value;

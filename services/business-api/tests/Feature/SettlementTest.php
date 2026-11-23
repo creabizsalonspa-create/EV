@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\VendorEarningsController;
 use App\Models\ChargingSession;
 use App\Models\Finance\TariffVersion;
 use App\Models\Reservation;
@@ -460,7 +461,7 @@ class SettlementTest extends TestCase
         // Issued finance invoices are protected by SQLite/PostgreSQL
         // immutability triggers: do not bypass those safeguards in tests.
         // Exercise the exact primitive on malformed external aggregates instead.
-        $minor = new \ReflectionMethod(\App\Http\Controllers\VendorEarningsController::class, 'minor');
+        $minor = new \ReflectionMethod(VendorEarningsController::class, 'minor');
         foreach ([9007199254740992, -9007199254740992, 'not-a-number', 1.5] as $unsafe) {
             try {
                 $minor->invoke(null, $unsafe, true);
@@ -495,7 +496,7 @@ class SettlementTest extends TestCase
 
         // Test the CSV-only cell encoder without illegally changing a signed,
         // immutable finance invoice to a fabricated provider filename.
-        $cell = new \ReflectionMethod(\App\Http\Controllers\VendorEarningsController::class, 'csvInvoiceNumber');
+        $cell = new \ReflectionMethod(VendorEarningsController::class, 'csvInvoiceNumber');
         foreach (['=HYPERLINK("https://untrusted.test","open")', '+SUM(1,2)',
             '-cmd', '@danger', "\t=malicious"] as $formula) {
             $this->assertSame("'".$formula, $cell->invoke(null, $formula));
