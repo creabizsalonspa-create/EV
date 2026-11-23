@@ -102,6 +102,7 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
         $this->actingAs($admin)->getJson($path)->assertOk()
             ->assertJsonPath('state', 'active')
             ->assertJsonPath('capability_matrix.credentials_current', false)
+            ->assertJsonPath('available_actions', ['unregister'])
             ->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', false)
             ->assertJsonPath('capability_matrix.modules.0.local_receiver_configured', true)
             ->assertJsonPath('capability_matrix.modules.0.local_receiver_active', false)
@@ -116,6 +117,16 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
             ->assertJsonPath('capability_matrix.credentials_current', false)
             ->assertJsonPath('capability_matrix.modules.2.local_receiver_active', false)
             ->assertJsonPath('capability_matrix.live_roaming_verified', false);
+        $link->update(['remote_token_ciphertext' => Crypt::encryptString('SYNTHETIC-REMOTE-TOKEN'),
+            'local_token_ciphertext' => Crypt::encryptString('SYNTHETIC-ACTIVE-LOCAL-TOKEN')]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.credentials_current', true)
+            ->assertJsonPath('available_actions', ['rotate', 'unregister']);
+        $link->update(['remote_token_ciphertext' => 'not-laravel-ciphertext']);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.credentials_current', false)
+            ->assertJsonPath('available_actions', ['unregister'])
+            ->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', false);
         Http::assertNothingSent();
         $this->assertDatabaseCount('ocpi_credential_links', 1);
     }
