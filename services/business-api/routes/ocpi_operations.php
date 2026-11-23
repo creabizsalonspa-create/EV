@@ -33,8 +33,8 @@ Route::get('/providers/{provider}/catalog-observations', [OcpiCatalogObservation
 
 Route::get('/providers/{provider}/cpo-catalog', [OcpiCpoCatalogController::class, 'show'])->where('provider', '[0-9]{1,18}');
 Route::put('/providers/{provider}/cpo-catalog/{module}/{source}', [OcpiCpoCatalogController::class, 'change'])
-    ->whereIn('module', ['locations', 'tariffs'])->where('source', '[1-9][0-9]{0,17}');
+    ->whereIn('module', ['locations', 'tariffs', 'sessions', 'cdrs'])->where('source', '[1-9][0-9]{0,17}');
 Route::post('/providers/{provider}/cpo-catalog/{module}/{source}/push', [OcpiCpoCatalogController::class, 'push'])
-    ->whereIn('module', ['locations', 'tariffs'])->where('source', '[1-9][0-9]{0,17}');
+    ->whereIn('module', ['locations', 'tariffs', 'sessions', 'cdrs'])->where('source', '[1-9][0-9]{0,17}');
 Route::post('/providers/{provider}/cpo-catalog/{module}/{source}/reconcile', [OcpiCpoCatalogController::class, 'reconcile'])
-    ->whereIn('module', ['locations', 'tariffs'])->where('source', '[1-9][0-9]{0,17}');
+    ->whereIn('module', ['locations', 'tariffs', 'sessions', 'cdrs'])->where('source', '[1-9][0-9]{0,17}');
