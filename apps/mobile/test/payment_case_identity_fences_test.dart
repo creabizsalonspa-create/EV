@@ -33,7 +33,7 @@ class SessionCaseStore implements FinancialOperationStore {
 
 class FencedCaseApi extends FixtureApi {
   int identity = 0, posts = 0, reads = 0, downloads = 0, uploads = 0;
-  Completer<dynamic>? delayedInvoice, delayedEvidence, delayedPost;
+  Completer<dynamic>? delayedInvoice, delayedEvidence, delayedPost, delayedUpload;
   Completer<PrivateDocument>? delayedDocument;
   final bytes = Uint8List.fromList('%PDF-1.4\nFenced fixture'.codeUnits);
 
@@ -128,6 +128,9 @@ class FencedCaseApi extends FixtureApi {
     required String key,
   }) async {
     uploads++;
+    final pending = delayedUpload;
+    delayedUpload = null;
+    if (pending != null) return pending.future;
     return records['data']!.first;
   }
 }
@@ -331,6 +334,34 @@ void main() {
     await tester.tap(find.text('Refresh'));
     await tester.pumpAndSettle();
     expect(find.text('View verified private file'), findsOneWidget);
+  });
+
+  testWidgets('late uploaded evidence receipt cannot confirm or expose another identity', (
+    tester,
+  ) async {
+    final api = FencedCaseApi(), store = SessionCaseStore();
+    final waiting = Completer<dynamic>();
+    api.delayedUpload = waiting;
+    await tester.pumpWidget(evidenceScreen(
+      api, store,
+      picker: () async => VendorEvidence(api.bytes, 'application/pdf'),
+    ));
+    await tester.pumpAndSettle();
+    await tapVisible(tester, 'Choose PDF, PNG or JPEG up to4 MiB');
+    await tester.ensureVisible(find.byType(CheckboxListTile));
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pump();
+    await tapVisible(tester, 'Upload private evidence');
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(api.uploads, 1);
+    expect(store.writes, 1);
+    api.identity++;
+    waiting.complete(api.records['data']!.first);
+    await tester.pumpAndSettle();
+    expect(store.entries.length, 1,
+        reason: 'Old owner intent must not be acknowledged by the next account');
+    expect(find.text('Upload private evidence'), findsNothing);
+    expect(find.text('View verified private file'), findsNothing);
   });
 
 }
