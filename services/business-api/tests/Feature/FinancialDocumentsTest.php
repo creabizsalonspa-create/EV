@@ -76,6 +76,38 @@ class FinancialDocumentsTest extends TestCase
         $this->assertDatabaseHas('financial_document_sequences', ['next_number' => 2]);
     }
 
+    public function test_all_seven_immutable_test_document_sources_require_exact_integer_minor_units(): void
+    {
+        $method = new \ReflectionMethod(
+            \App\Services\Commercial\Documents\FinancialSources::class,
+            'exactMoney'
+        );
+        $this->assertSame(0, $method->invoke(null, '0'));
+        $this->assertSame(9_007_199_254_740_991,
+            $method->invoke(null, '9007199254740991'));
+        $this->assertSame(-9_007_199_254_740_991,
+            $method->invoke(null, '-9007199254740991', true));
+
+        foreach ([
+            ['9007199254740992', false],
+            ['-1', false],
+            ['-9007199254740992', true],
+            ['999999999999999999999', true],
+            ['0.01', false],
+            ['1e10', false],
+            ['not-invoice-money', false],
+        ] as [$value, $signed]) {
+            try {
+                $method->invoke(null, $value, $signed);
+                $this->fail('Document unexpectedly accepted inexact money: '.$value);
+            } catch (HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
+        }
+        $this->assertDatabaseCount('financial_documents', 0);
+        $this->assertDatabaseCount('financial_document_sequences', 0);
+    }
+
     public function test_revoked_customer_source_cannot_read_download_or_generate_private_invoice_documents(): void
     {
         $f = $this->documentFixture();
