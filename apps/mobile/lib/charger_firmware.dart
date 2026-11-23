@@ -153,6 +153,13 @@ class _FirmwareState extends State<ChargerFirmwareView>
         setState(() {
           operations = null;
           releases = null;
+          // A failed authoritative refresh revokes previously displayed
+          // maintenance capabilities; source state cannot be reused.
+          manager = false;
+          enabled = false;
+          selected = null;
+          sourceCompatibility = null;
+          compatibilityError = null;
         });
         fail(e);
       }
