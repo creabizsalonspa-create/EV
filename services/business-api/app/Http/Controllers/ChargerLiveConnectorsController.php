@@ -229,13 +229,20 @@ final class ChargerLiveConnectorsController extends Controller
         foreach ($local as $row) {
             $event = $latest[$row['target']] ?? null;
             $eventRecent = $event && $event['observed_at']->gte(now()->subMinutes(5));
-            $trusted = $stationRecent && $sourceTopologyMatches && $eventRecent;
+            // An OCPP1.6 Available status without an explicit NoError
+            // receipt cannot establish a healthy charger; stale/missing
+            // fault evidence remains unknown, not a green source status.
+            $missingFaultReceipt = $binding->protocol === '1.6' && $event
+                && $event['reported_status'] === 'Available'
+                && in_array($event['error_code'], [null, ''], true);
+            $trusted = $stationRecent && $sourceTopologyMatches && $eventRecent
+                && ! $missingFaultReceipt;
             $rows[] = [
                 'mapping_id' => $row['mapping_id'],
                 'source_evse_number' => $row['source_evse_number'],
                 'source_connector_number' => $row['source_connector_number'],
                 'operator_maintenance_blocked' => $row['operator_maintenance_blocked'],
-                'state' => $trusted ? 'recent' : ($event && $sourceTopologyMatches ? 'stale' : 'unknown'),
+                'state' => $trusted ? 'recent' : ($event && $sourceTopologyMatches && ! $missingFaultReceipt ? 'stale' : 'unknown'),
                 // An OCPP error accompanying an "Available" label must
                 // never be presented as a healthy connector report.
                 'reported_status' => $trusted
