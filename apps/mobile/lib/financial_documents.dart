@@ -138,6 +138,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
   ApiPage<FinancialDocumentRecord>? page;
   Object? error;
   bool busy = false, uncertain = false, foreground = true, hidden = false;
+  bool mutationInFlight = false;
   bool Function()? currentSession;
   int generation = 0, target = 1;
 
@@ -150,6 +151,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
     page = null;
     error = null;
     busy = false;
+    mutationInFlight = false;
     hidden = true;
     consent = false;
   }
@@ -204,7 +206,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
       if (!foreground) {
         // Unknown POST outcome is preserved for this same screen. Never
         // allow an unknown response to become a new document or auto-retry.
-        if (busy) uncertain = true;
+        if (mutationInFlight) uncertain = true;
         erasePrivate();
       }
     });
@@ -231,6 +233,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
     target = number;
     setState(() {
       busy = true;
+      mutationInFlight = false;
       error = null;
       page = null;
       hidden = false;
@@ -285,6 +288,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
     final selectedSource = decimalMinor(source.text, 0, maximum: 2000000000)!;
     setState(() {
       busy = true;
+      mutationInFlight = true;
       error = null;
     });
     try {
@@ -308,10 +312,12 @@ class _DocumentsState extends State<FinancialDocumentsView>
       }
       if (!active(epoch, fence)) return;
       uncertain = false;
+      mutationInFlight = false;
       await load();
     } catch (e) {
       if (active(epoch, fence)) {
         setState(() {
+          mutationInFlight = false;
           // After a possible provider/database commit, never silently
           // regenerate a numbered artifact. Require explicit list review.
           uncertain = true;
@@ -322,6 +328,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
       if (mounted && foreground && generation == epoch) {
         setState(() {
           busy = false;
+          mutationInFlight = false;
           if (!fence()) {
             erasePrivate();
             uncertain = true;
