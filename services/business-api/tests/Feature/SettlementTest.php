@@ -329,6 +329,75 @@ class SettlementTest extends TestCase
         $this->getJson('/settlement-test/commercial/vendors/'.$this->vendor->id.'/statement?currency=AED')->assertJsonPath('available_minor', 900);
     }
 
+    public function test_settlement_amounts_refuse_float_coercion_and_overflow_before_booking(): void
+    {
+        $minor = new \ReflectionMethod(SettlementService::class, 'exactMinor');
+        $add = new \ReflectionMethod(SettlementService::class, 'addMinor');
+        $max = 9_007_199_254_740_991;
+
+        $this->assertSame($max, $minor->invoke(null, (string) $max));
+        $this->assertSame(-$max, $minor->invoke(null, (string) -$max, true));
+        $this->assertSame($max, $add->invoke(null, $max - 5, 5));
+        $this->assertSame(-100, $add->invoke(null, -150, 50, true));
+
+        foreach ([100.0, -100.0, true, false, '3.1',
+            '1e3', '9007199254740992', -1] as $bad) {
+            try {
+                $minor->invoke(null, $bad);
+                $this->fail('Inexact settlement source amount was accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+        foreach ([
+            [$max, 1, false],
+            [-$max, -1, true],
+            [0, -1, false],
+        ] as [$left, $right, $signed]) {
+            try {
+                $add->invoke(null, $left, $right, $signed);
+                $this->fail('Unbounded settlement aggregation was accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+    }
+
+    public function test_checked_balance_rejects_cross_adjustment_overflow_before_any_payable_draft(): void
+    {
+        $this->configure();
+        $beforeJournals = DB::table('finance_journals')->count();
+        $reviewer = User::factory()->create(['role' => 'admin']);
+        // Source-integrity fixture only: two individually representable
+        // immutable signed adjustments whose aggregate exceeds JS precision.
+        // These are NOT credited as a real admin workflow or payout.
+        foreach (['first', 'second'] as $label) {
+            $id = DB::table('commercial_adjustments')->insertGetId([
+                'vendor_id' => $this->vendor->id,
+                'currency' => 'AED', 'minor_units' => 2,
+                'amount_minor' => 4_503_599_627_370_496,
+                'reason' => 'Synthetic overflow source '.$label,
+                'request_key' => hash('sha256', 'settlement-bound-'.$label),
+                'created_by' => $this->admin->id, 'created_at' => now(),
+            ]);
+            DB::table('commercial_adjustment_approvals')->insert([
+                'adjustment_id' => $id, 'approved_by' => $reviewer->id,
+                'created_at' => now(),
+            ]);
+        }
+
+        $base = '/settlement-test/commercial/vendors/'.$this->vendor->id;
+        $this->actingAs($this->vendor)
+            ->getJson($base.'/statement?currency=AED')->assertConflict();
+        $this->getJson($base.'/earnings?currency=AED')->assertConflict();
+        $this->postJson($base.'/settlements', [
+            'currency' => 'AED', 'idempotency_key' => 'overflow-protected-draft',
+        ])->assertConflict();
+        $this->assertDatabaseCount('commercial_settlements', 0);
+        $this->assertSame($beforeJournals, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_vendor_earnings_report_reuses_settlement_policy_and_refund_debt(): void
     {
         $invoice = $this->invoice();
