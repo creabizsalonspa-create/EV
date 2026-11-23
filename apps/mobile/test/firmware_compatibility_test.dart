@@ -47,6 +47,49 @@ void main() {
       },
     );
   }
+  for (final ar in [false, true]) {
+    testWidgets(
+      'operator reads the source-bound firmware matrix explicitly without dispatch ($ar)',
+      (tester) async {
+        final api = firmware.FirmwareApi()..policy = true;
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: Locale(ar ? 'ar' : 'en'),
+            supportedLocales: const [Locale('en'), Locale('ar')],
+            localizationsDelegates: GlobalMaterialLocalizations.delegates,
+            home: ChargerFirmwareView(
+              api: api,
+              companyId: 1,
+              chargerId: 2,
+              manufacturer: 'Synthetic',
+              model: 'Fixture',
+              onExpired: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(api.compatibilityReads, 0);
+        final label = ar
+            ? 'فحص توافق البرنامج الثابت مع المصدر المباشر'
+            : 'Check live source firmware compatibility';
+        final check = find.text(label);
+        await tester.ensureVisible(check);
+        await tester.tap(check);
+        await tester.pumpAndSettle();
+        expect(api.compatibilityReads, 1);
+        expect(
+          find.text(ar ? 'لقطة مصدر موثقة' : 'Authenticated source snapshot'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining(ar ? 'تطابق مصدر موقع' : 'Signed source match'),
+          findsOneWidget,
+        );
+        expect(api.attempts, isEmpty);
+      },
+    );
+  }
+
   testWidgets(
     'historical model-only releases are not labelled as signed upgrade paths',
     (tester) async {
@@ -90,7 +133,13 @@ void main() {
       );
       await tester.pumpAndSettle();
       final cancel = find.text('Cancel firmware before dispatch');
+      // This action is deliberately below the fold on compact phones. Scroll
+      // it into the actual test viewport before tapping; an off-screen tap
+      // cannot open the guarded review dialog or exercise cancellation.
+      await tester.drag(find.byType(ListView), const Offset(0, -300));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(cancel);
+      await tester.pumpAndSettle();
       await tester.tap(cancel);
       await tester.pumpAndSettle();
       await tester.enterText(
