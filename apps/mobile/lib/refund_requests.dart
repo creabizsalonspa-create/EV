@@ -106,6 +106,32 @@ List<Widget> _sourceCreditEvidence(BuildContext context, Map row) {
   ];
 }
 
+/// Validates the private canonical finance record before allowing review actions.
+/// A malformed server response must not silently create approval controls.
+Map<String, dynamic> nativeRefundHistoryRecord(Map<String, dynamic> row) {
+  final id = row['id'];
+  final invoice = row['invoice_id'];
+  final amount = row['amount_minor'];
+  final reason = row['reason'];
+  final status = row['status'];
+  final credit = row['ocpi_credit_record_id'];
+  if (id is! int ||
+      id < 1 ||
+      invoice is! int ||
+      invoice < 1 ||
+      amount is! int ||
+      amount < 1 ||
+      amount > 2000000000 ||
+      reason is! String ||
+      reason.trim().isEmpty ||
+      reason.length > 500 ||
+      !['pending', 'approved', 'rejected'].contains(status) ||
+      (credit != null && (credit is! int || credit < 1))) {
+    throw const FormatException('Invalid private refund history.');
+  }
+  return row;
+}
+
 class RefundRequestsView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
@@ -191,7 +217,7 @@ class _RefundListState extends State<RefundRequestsView>
           'finance/refund-requests',
           query: {'page': '$number'},
         ),
-        (r) => r,
+        nativeRefundHistoryRecord,
       );
       if (mounted && foreground && authorized() && generation == epoch) {
         setState(() => page = result);
