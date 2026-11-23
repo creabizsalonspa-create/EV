@@ -728,7 +728,11 @@ void main() {
       await tester.pumpWidget(MaterialApp(
         locale: Locale(language),
         supportedLocales: const [Locale('en'), Locale('ar')],
-        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
       ));
       await tester.pumpAndSettle();
@@ -740,7 +744,11 @@ void main() {
       await tester.pumpWidget(MaterialApp(
         locale: Locale(language),
         supportedLocales: const [Locale('en'), Locale('ar')],
-        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
       ));
       await tester.pumpAndSettle();
@@ -766,7 +774,11 @@ void main() {
       await tester.pumpWidget(MaterialApp(
         locale: Locale(language),
         supportedLocales: const [Locale('en'), Locale('ar')],
-        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: TicketPage(api: api, id: 1, onSessionExpired: () {}),
       ));
       await tester.pumpAndSettle();
@@ -777,7 +789,11 @@ void main() {
       await tester.pumpWidget(MaterialApp(
         locale: Locale(language),
         supportedLocales: const [Locale('en'), Locale('ar')],
-        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: TicketPage(api: api, id: 1, onSessionExpired: () {}),
       ));
       await tester.pumpAndSettle();

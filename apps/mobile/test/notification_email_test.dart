@@ -76,7 +76,11 @@ class NoticeApi extends FixtureApi {
 Widget screen(NoticeApi api, {bool ar = false}) => MaterialApp(
   locale: Locale(ar ? 'ar' : 'en'),
   supportedLocales: const [Locale('en'), Locale('ar')],
-  localizationsDelegates: GlobalMaterialLocalizations.delegates,
+  localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
   home: NotificationEmailView(api: api, onExpired: () {}),
 );
 void main() {

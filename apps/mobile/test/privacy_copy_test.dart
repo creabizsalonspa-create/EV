@@ -48,7 +48,11 @@ void main() {
       await tester.pumpWidget(MaterialApp(
         locale: Locale(language),
         supportedLocales: const [Locale('en'), Locale('ar')],
-        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: PrivacyCopyPage(api: api, requestId: 7, onExpired: () {}),
       ));
       await tester.pumpAndSettle();
