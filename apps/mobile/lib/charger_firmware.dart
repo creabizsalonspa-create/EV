@@ -389,7 +389,10 @@ class _FirmwareState extends State<ChargerFirmwareView>
                             if (row is Map)
                               Text(
                                 '${row['version']}: '
-                                '${row['matches_observed_source'] == true
+                                '${row['matches_observed_source'] == true &&
+                                        row['signed_compatibility_policy'] == true &&
+                                        row['signer_currently_trusted'] == true &&
+                                        row['revoked'] == false
                                     ? t('Signed source match', 'تطابق مصدر موقع')
                                     : t('Not verified for this source', 'غير معتمد لهذا المصدر')}',
                               ),
