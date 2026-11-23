@@ -63,3 +63,14 @@ malformed UTC dates and proves the original customer invoice payment,
 refund and ledger balance remain unchanged. No live payment or production
 provider acceptance is implied. The added test requires the full owned
 loopback fixture and exact-head hosted execution; it is not a production test.
+
+### Plain-browser issuance cohort export safety
+
+The canonical Laravel cohort CSV now handles invalid period/currency form GETs
+with an explicit HTTP 422 private/no-store JSON error instead of Laravel's
+default browser redirect. It retains the same authenticated owner/Admin scope,
+source-only issuance-date semantics, 93-day bound and stable row ordering
+as the native/web JSON report. UTF-8 CSV uses explicit RFC quote/escape
+controls and `X-Content-Type-Options: nosniff`. A new feature test
+covers malformed uppercase currency, invalid calendar dates, reversed or
+oversized UTC periods and confirms no invoice or journal change on rejection.
