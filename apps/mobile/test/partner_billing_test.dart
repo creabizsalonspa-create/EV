@@ -13,6 +13,8 @@ Map<String, dynamic> response({int provider = 7}) => {
   'payment_execution': false,
   'current_page': 1,
   'last_page': 2,
+  'per_page': 1,
+  'total': 2,
   'data': [
     {
       'external_id': 'CREDIT-1',
@@ -70,10 +72,13 @@ class BillingApi extends FixtureApi {
     queries.add(query);
     if (pending != null) return pending!.future;
     final page = int.parse(query['page'] ?? '1');
+    final empty = query['currency'] == 'USD';
     return {
       ...result,
       'current_page': wrongPage ? page + 1 : page,
-      'data': query['currency'] == 'USD' ? [] : result['data'],
+      'last_page': empty ? 1 : 2,
+      'total': empty ? 0 : 2,
+      'data': empty ? [] : result['data'],
     };
   }
 }
@@ -215,6 +220,22 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('SIM-PRIVATE'), findsNothing);
       expect(find.text('View filtered private PDF'), findsNothing);
+    },
+  );
+
+  testWidgets('mismatched total or page geometry cannot reclassify CDR revenue',
+    (tester) async {
+      final api = BillingApi()..result = {
+        ...response(),
+        'total': 300,
+      };
+      await tester.pumpWidget(MaterialApp(
+        home: PartnerBillingPage(api: api, providerId: 7, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('SIM-PRIVATE'), findsNothing);
+      expect(find.text('View filtered private PDF'), findsNothing);
+      expect(find.textContaining('Report unavailable'), findsOneWidget);
     },
   );
 
