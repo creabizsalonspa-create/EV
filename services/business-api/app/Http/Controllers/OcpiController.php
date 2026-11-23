@@ -49,13 +49,14 @@ class OcpiController extends Controller
 
     public function create(Request $r, PartnerClient $client)
     {
-        abort_unless($r->user()->role === 'admin', 403);
-        $v = $r->validate(['owner_id' => 'required|integer|exists:users,id', 'name' => 'required|string|max:150', 'connection_key' => 'required|string|alpha_dash|max:80|unique:ocpi_providers', 'authorized' => 'required|boolean']);
-        abort_unless(is_array(config('ocpi.connections.'.$v['connection_key'])), 422, 'Connection must first be provisioned in secure server configuration.');
+        abort_unless($r->user()?->role === 'admin', 403);
 
-        return DB::transaction(function () use ($r, $v, $client) {
-            // Admin identity precedes owner/provider locks and every write.
+        return DB::transaction(function () use ($r, $client) {
+            // Current Admin authority is required even to validate a private
+            // owner identity or expose configured connection availability.
             $this->currentAdminForMutation($r);
+            $v = $r->validate(['owner_id' => 'required|integer|exists:users,id', 'name' => 'required|string|max:150', 'connection_key' => 'required|string|alpha_dash|max:80|unique:ocpi_providers', 'authorized' => 'required|boolean']);
+            abort_unless(is_array(config('ocpi.connections.'.$v['connection_key'])), 422, 'Connection must first be provisioned in secure server configuration.');
             // Bind a new provider only to a currently eligible vendor owner.
             // Serialize with account suspension/role changes before reserving a connection key.
             $owner = User::whereKey($v['owner_id'])->lockForUpdate()->first();
@@ -76,11 +77,11 @@ class OcpiController extends Controller
 
     public function authorization(Request $r, OcpiProvider $provider, PartnerClient $client)
     {
-        abort_unless($r->user()->role === 'admin', 403);
-        $v = $r->validate(['authorized' => 'required|boolean']);
+        abort_unless($r->user()?->role === 'admin', 403);
 
-        return DB::transaction(function () use ($r, $provider, $v, $client) {
+        return DB::transaction(function () use ($r, $provider, $client) {
             $this->currentAdminForMutation($r);
+            $v = $r->validate(['authorized' => 'required|boolean']);
             // For activation, acquire owner before provider, as all OCPI
             // source reads do. A transferred provider must be reloaded and
             // re-reviewed, never authorized under the previous owner lock.
