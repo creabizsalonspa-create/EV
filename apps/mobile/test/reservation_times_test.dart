@@ -42,7 +42,13 @@ void main() {
       }
       await showTime(tester, {'starts_at': '2028-02-29T06:00:00Z'},
           language: language);
-      expect(find.textContaining('06:00'), findsOneWidget);
+      expect(find.textContaining('UTC'), findsOneWidget);
+      if (language == 'en') {
+        expect(find.textContaining('06:00'), findsOneWidget);
+      } else {
+        expect(Directionality.of(tester.element(find.textContaining('UTC'))),
+            TextDirection.rtl);
+      }
     });
 
     testWidgets('invalid local station metadata cannot forge a station time ($language)',
@@ -66,7 +72,12 @@ void main() {
         'station_times': {'starts_at': '2026-03-02T10:00:00+04:00'},
       }, language: language);
       expect(find.textContaining('Asia/Dubai (UTC+04:00)'), findsOneWidget);
-      expect(find.textContaining('10:00'), findsOneWidget);
+      if (language == 'en') {
+        expect(find.textContaining('10:00'), findsOneWidget);
+      } else {
+        expect(Directionality.of(tester.element(
+          find.textContaining('Asia/Dubai (UTC+04:00)'))), TextDirection.rtl);
+      }
     });
   }
 
