@@ -45,6 +45,7 @@ Map<String, dynamic> response({int provider = 7}) => {
 class BillingApi extends FixtureApi {
   Map<String, dynamic> result = response();
   Completer<dynamic>? pending;
+  bool wrongPage = false;
   final exportQueries = <Map<String, String>>[];
   Completer<PrivateDocument>? exportPending;
   @override
@@ -68,7 +69,13 @@ class BillingApi extends FixtureApi {
     expect(method, 'GET');
     expect(path, 'ocpi/providers/7/billing-reconciliation');
     queries.add(query);
-    return pending != null ? pending!.future : result;
+    if (pending != null) return pending!.future;
+    final page = int.parse(query['page'] ?? '1');
+    return {
+      ...result,
+      'current_page': wrongPage ? page + 1 : page,
+      'data': query['currency'] == 'USD' ? [] : result['data'],
+    };
   }
 }
 
@@ -85,6 +92,14 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextField, 'Currency'), 'USD');
       FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      // An unapplied filter must not leave another invoice's private
+      // amount or allow its prior PDF export.
+      expect(find.text('View filtered private PDF'), findsNothing);
+      expect(find.text('SIM-PRIVATE'), findsNothing);
+      await tester.tap(find.text('Refresh'));
+      await tester.pumpAndSettle();
+      expect(api.queries.last['currency'], 'USD');
       await tester.scrollUntilVisible(
         find.text('View filtered private PDF'),
         200,
@@ -92,7 +107,9 @@ void main() {
       );
       await tester.tap(find.text('View filtered private PDF'));
       await tester.pumpAndSettle();
-      expect(api.exportQueries.single, {'kind': 'all', 'locale': 'en'});
+      expect(api.exportQueries.single, {
+        'kind': 'all', 'currency': 'USD', 'locale': 'en',
+      });
       expect(find.textContaining('Export unavailable.'), findsOneWidget);
     },
   );
@@ -133,9 +150,6 @@ void main() {
           home: PartnerBillingPage(api: api, providerId: 7, onExpired: () {}),
         ),
       );
-      await tester.pumpAndSettle();
-      await tester.enterText(find.widgetWithText(TextField, 'Currency'), 'USD');
-      FocusManager.instance.primaryFocus?.unfocus();
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.text('SIM-PRIVATE'),
@@ -183,6 +197,28 @@ void main() {
       await tester.pump();
     },
   );
+  testWidgets('forged invoice amounts or page identity cannot expose private CDR money',
+    (tester) async {
+      final api = BillingApi();
+      final row = (api.result['data'] as List).first as Map<String, dynamic>;
+      (row['billing'] as Map<String, dynamic>)['paid_minor'] = 9007199254740992;
+      await tester.pumpWidget(MaterialApp(
+        home: PartnerBillingPage(api: api, providerId: 7, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('SIM-PRIVATE'), findsNothing);
+      expect(find.text('View filtered private PDF'), findsNothing);
+      expect(find.textContaining('Report unavailable'), findsOneWidget);
+
+      api.result = response();
+      api.wrongPage = true;
+      await tester.tap(find.text('Refresh'));
+      await tester.pumpAndSettle();
+      expect(find.text('SIM-PRIVATE'), findsNothing);
+      expect(find.text('View filtered private PDF'), findsNothing);
+    },
+  );
+
   testWidgets('changed account cannot receive outstanding report', (
     tester,
   ) async {
