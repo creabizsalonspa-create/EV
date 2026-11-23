@@ -10,6 +10,7 @@ use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerCapabilityMatrix;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -63,6 +64,15 @@ class OcpiCredentialsController extends Controller
             && preg_match('/^[a-f0-9]{64}$/D', $link->local_token_digest)
             && is_string($link->local_token_ciphertext) && $link->local_token_ciphertext !== ''
             && is_string($link->remote_token_ciphertext) && $link->remote_token_ciphertext !== '';
+        if ($tokenBound) {
+            try {
+                $localToken = Crypt::decryptString($link->local_token_ciphertext);
+                $tokenBound = preg_match('/^[\\x21-\\x7e]{1,64}$/D', $localToken)
+                    && hash_equals($link->local_token_digest, hash('sha256', $localToken));
+            } catch (Throwable) {
+                $tokenBound = false;
+            }
+        }
         $activeReceivers = $configured && $tokenBound && $provider->authorized
             ? ($ownerActive ? $receiverModules : array_values(array_intersect($receiverModules, ['sessions', 'cdrs']))) : [];
         $capabilities = app(PartnerCapabilityMatrix::class)->read(
