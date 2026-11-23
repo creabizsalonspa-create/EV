@@ -182,7 +182,9 @@ class _CasesState extends State<PaymentCasesView>
             !['MOCK_PROVIDER', 'STRIPE_TEST_CONTRACT'].contains(r['evidence']))
           throw const FormatException('Unsupported case evidence.');
       }
-      if (mounted && foreground && authorized() && epoch == generation) page = raw;
+      if (mounted && foreground && authorized() && epoch == generation) {
+        page = raw;
+      }
     } catch (e) {
       if (mounted && foreground && authorized() && epoch == generation) {
         error = e;
@@ -190,7 +192,9 @@ class _CasesState extends State<PaymentCasesView>
           widget.onExpired();
       }
     } finally {
-      if (mounted && foreground && authorized() && epoch == generation) setState(() => busy = false);
+      if (mounted && foreground && authorized() && epoch == generation) {
+        setState(() => busy = false);
+      }
     }
   }
 
@@ -209,13 +213,18 @@ class _CasesState extends State<PaymentCasesView>
         children: [
           Text(t('notice')),
           OutlinedButton(
-            onPressed: busy || !visible ? null : () {
-            if (identical(boundApi, widget.api) && boundFence()) load(number: target);
-          },
+            onPressed: busy || !visible
+                ? null
+                : () {
+                    if (identical(boundApi, widget.api) && boundFence()) {
+                      load(number: target);
+                    }
+                  },
             child: Text(t('refresh')),
           ),
           if (busy && visible) const Center(child: CircularProgressIndicator()),
-          if (currentError != null) Text(EvStrings.of(c).t(errorKey(currentError))),
+          if (currentError != null)
+            Text(EvStrings.of(c).t(errorKey(currentError))),
           if (currentPage != null) ...[
             if (currentPage!.items.isEmpty) Text(t('empty')),
             for (final r in currentPage!.items)
@@ -247,8 +256,13 @@ class _CasesState extends State<PaymentCasesView>
                                     ),
                                   ),
                                 );
-                                if (mounted && foreground && authorized() &&
-                                    boundFence() && identical(boundApi, widget.api)) load(number: target);
+                                if (mounted &&
+                                    foreground &&
+                                    authorized() &&
+                                    boundFence() &&
+                                    identical(boundApi, widget.api)) {
+                                  load(number: target);
+                                }
                               },
                         child: Text(t('evidence')),
                       ),
