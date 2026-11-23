@@ -29,6 +29,8 @@ final class CsmsPilotProbe
         abort_unless($binding->station_id === $station->id &&
             $site->company_id === $company->id &&
             $company->owner_id === $station->vendor_id &&
+            $company->country === $station->country &&
+            $site->country === $station->country &&
             $company->status === 'approved' &&
             $charger->company_id === $company->id &&
             $charger->source === 'simulator' &&
@@ -64,7 +66,7 @@ final class CsmsPilotProbe
         $recent = $lastSeen !== null && $lastSeen->gte(now()->subMinutes(5));
 
         $inventory = $source->graph(
-            'query($station:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},isActive:{_eq:true}},limit:2){id} Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1000){id connectorDatabaseId connectorStatus timestamp}}',
+            'query($station:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},isActive:{_eq:true}},limit:2){id} Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1001){id connectorDatabaseId connectorStatus errorCode timestamp}}',
             ['station' => $station['id']]
         );
         $active = $inventory['Transactions'] ?? null;
@@ -94,8 +96,8 @@ final class CsmsPilotProbe
                 $event['id'] > 0 && $event['id'] < $priorId &&
                 is_int($event['connectorDatabaseId'] ?? null) &&
                 isset($known[$event['connectorDatabaseId']]) &&
-                is_string($event['connectorStatus'] ?? null) &&
-                strlen($event['connectorStatus']) <= 40, 409,
+                in_array($event['connectorStatus'] ?? null, ConnectorFreshness::STATUSES, true) &&
+                (! isset($event['errorCode']) || (is_string($event['errorCode']) && strlen($event['errorCode']) <= 80)), 409,
                 'Contradictory or unknown source connector event.');
             $at = SourceStatusTime::parse($event['timestamp'] ?? null);
             abort_unless($priorTime === null || ! $at->gt($priorTime), 409,
@@ -104,17 +106,22 @@ final class CsmsPilotProbe
             $priorTime = $at;
             $connectorId = $event['connectorDatabaseId'];
             if (! isset($latest[$connectorId])) {
-                $latest[$connectorId] = ['status' => $event['connectorStatus'], 'observed_at' => $at];
+                $latest[$connectorId] = ['status' => $event['connectorStatus'], 'error_code' => $event['errorCode'] ?? null, 'observed_at' => $at];
             } elseif ($at->equalTo($latest[$connectorId]['observed_at'])) {
-                abort_unless($event['connectorStatus'] === $latest[$connectorId]['status'], 409,
+                abort_unless($event['connectorStatus'] === $latest[$connectorId]['status'] &&
+                    ($event['errorCode'] ?? null) === $latest[$connectorId]['error_code'], 409,
                     'Conflicting same-time connector evidence requires inspection.');
             }
         }
         $recentConnectorCount = 0;
+        $idleConnectorCount = 0;
         foreach (array_keys($known) as $connectorId) {
             $entry = $latest[$connectorId] ?? null;
             if ($entry && $entry['observed_at']->gte(now()->subMinutes(5))) {
                 $recentConnectorCount++;
+                if ($entry['status'] === 'Available' && in_array($entry['error_code'], [null, 'NoError'], true)) {
+                    $idleConnectorCount++;
+                }
             }
         }
         // The source may be disconnected or stale; that is a truthful blocked
@@ -124,7 +131,8 @@ final class CsmsPilotProbe
             'Charger source generation changed during observation.');
 
         $covered = $recentConnectorCount === count($known);
-        $observed = $station['isOnline'] && $recent && $covered;
+        $idle = $idleConnectorCount === count($known) && count($active) === 0;
+        $observed = $station['isOnline'] && $recent && $covered && $idle;
 
         return [
             'binding_id' => $bindingId,
@@ -136,6 +144,8 @@ final class CsmsPilotProbe
             'connector_count' => count($known),
             'connectors_with_recent_status' => $recentConnectorCount,
             'all_source_connectors_recent' => $covered,
+            'idle_connectors_with_recent_safe_status' => $idleConnectorCount,
+            'source_idle_candidate' => $idle,
             'active_source_transaction_count' => count($active),
             'software_source_observed' => (bool) $observed,
             'evidence' => 'SIMULATED_CSMS_READ_ONLY',
