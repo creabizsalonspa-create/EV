@@ -175,6 +175,9 @@ class ChargerLiveConnectorsTest extends TestCase
             if ($case === 'invalid_status') {
                 $events[1]['connectorStatus'] = 'DISPATCH_AUTHORIZED';
             }
+            if ($case === 'missing_ocpp16_error') {
+                $events[1]['errorCode'] = null;
+            }
             if ($case === 'fault_code') {
                 $events[1]['errorCode'] = 'GroundFailure';
             }
@@ -244,6 +247,22 @@ class ChargerLiveConnectorsTest extends TestCase
         Http::assertSentCount(3);
         Http::assertSent(fn ($request) => $request->url() === $endpoint
             && ($request->header('x-hasura-admin-secret')[0] ?? null) === str_repeat('x', 64));
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_ocpp16_available_without_noerror_is_unknown_not_recent_or_physical(): void
+    {
+        $f = $this->fixture('1.6');
+        $this->source($f, 'missing_ocpp16_error');
+        $this->actingAs($f['owner'])->getJson($f['url'])->assertOk()
+            ->assertJsonPath('source_topology_matches_local', true)
+            ->assertJsonPath('connectors.0.state', 'unknown')
+            ->assertJsonPath('connectors.0.reported_status', null)
+            ->assertJsonPath('connectors.0.physical_available', false)
+            ->assertJsonPath('remote_control_authorized', false)
+            ->assertJsonPath('commands_sent', false);
+        Http::assertSentCount(3);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
