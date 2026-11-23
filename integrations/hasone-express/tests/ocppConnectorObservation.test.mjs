@@ -50,6 +50,8 @@ test('OCPP1.6 inconsistent fault receipts fail closed instead of showing healthy
    assert.equal(presentConnectorObservation(source(),c,{now}),null,
      'A healthy status must not conceal an unverified or active fault');
  }
+ c.connectors['0_2']={...row(),status:'Available'};
+ assert.equal(presentConnectorObservation(source(),c,{now}),null);
  c.connectors['0_2']={...row(),status:'Available',errorCode:'NoError'};
  assert.equal(presentConnectorObservation(source(),c,{now}).status,'Available');
  c.connectors['0_2']={...row(),status:'Faulted',errorCode:'NoError'};
