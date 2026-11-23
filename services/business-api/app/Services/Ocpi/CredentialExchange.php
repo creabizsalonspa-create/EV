@@ -4,6 +4,7 @@ namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -142,10 +143,21 @@ class CredentialExchange
         }
     }
 
-    private function wire(OcpiProvider $p, string $url, string $encodedToken, string $method = 'GET', ?array $body = null): array
+    private function wire(OcpiProvider $p, string $url, string $encodedToken, string $method = 'GET', ?array $body = null, ?object $peerLink = null): array
     {
         $current = OcpiProvider::findOrFail($p->id);
         abort_unless($current->authorized && $current->owner_id === $p->owner_id && $current->connection_key === $p->connection_key && $current->authorization_revision === $p->authorization_revision, 409, 'Partner authority changed before transport.');
+        if ($peerLink) {
+            $currentLink = DB::table('ocpi_credential_links')->where('id', $peerLink->id)->first();
+            abort_unless(User::whereKey($p->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists()
+                && $currentLink && $currentLink->owner_id === $p->owner_id
+                && $currentLink->state === $peerLink->state && $currentLink->generation === $peerLink->generation
+                && $currentLink->local_token_digest === $peerLink->local_token_digest
+                && ($currentLink->state === 'active' || ($currentLink->state === 'awaiting_registration'
+                    && $currentLink->bootstrap_expires_at && CarbonImmutable::parse($currentLink->bootstrap_expires_at)->isFuture()))
+                && hash_equals($peerLink->configuration_hash, $currentLink->configuration_hash)
+                && hash_equals($peerLink->configuration_hash, $this->configurationHash($current)), 401);
+        }
         $url = app(PartnerClient::class)->guardedUrl($p, $url);
         try {
             $trace = ['X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()];
@@ -171,14 +183,14 @@ class CredentialExchange
         }
     }
 
-    public function endpoint(OcpiProvider $p, string $token): string
+    public function endpoint(OcpiProvider $p, string $token, ?object $peerLink = null): string
     {
         [$c] = $this->configuration($p);
-        $versions = $this->wire($p, $c['versions_path'] ?? '/ocpi/versions', $token)['data'];
+        $versions = $this->wire($p, $c['versions_path'] ?? '/ocpi/versions', $token, peerLink: $peerLink)['data'];
         abort_unless(is_array($versions) && array_is_list($versions) && count($versions) <= 20, 409, 'Invalid peer versions.');
         $v = array_values(array_filter($versions, fn ($x) => is_array($x) && ($x['version'] ?? null) === '2.2.1'));
         abort_unless(count($v) === 1 && is_string($v[0]['url'] ?? null), 409, 'A unique OCPI2.2.1 advertisement is required.');
-        $details = $this->wire($p, $v[0]['url'], $token)['data'];
+        $details = $this->wire($p, $v[0]['url'], $token, peerLink: $peerLink)['data'];
         abort_unless(is_array($details) && ($details['version'] ?? null) === '2.2.1' && is_array($details['endpoints'] ?? null) && count($details['endpoints']) <= 30, 409);
         $endpoints = array_values(array_filter($details['endpoints'], fn ($e) => is_array($e) && ($e['identifier'] ?? null) === 'credentials' && ($e['role'] ?? null) === 'RECEIVER'));
         abort_unless(count($endpoints) === 1 && is_string($endpoints[0]['url'] ?? null), 409, 'Unique peer credentials receiver is required.');

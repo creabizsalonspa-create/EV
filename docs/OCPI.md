@@ -89,3 +89,7 @@ The CPO sender can also publish final sessions and charge detail records in loca
 Sender reads require the assigned peer token. An opted-in sender can PUT the final session and POST its immutable CDR once to the negotiated sandbox receiver. CDR acknowledgement requires the traced HTTP 201 response and a receipt URL under the negotiated CDR endpoint. If the response is uncertain, an Admin can enter the peer-assigned receipt ID to compare the receiver object with the immutable publication using GET.
 
 This implementation complements eMSP imports and Receiver pushes for locations, tariffs, sessions and CDRs. Live session updates, source-backed live token consent and independent partner conformance require additional work. The contract tests use HTTP fakes and local databases.
+
+## Peer credential rotation
+
+An authenticated peer rotation verifies the newly offered token with read-only OCPI versions and credentials Receiver discovery on the approved HTTPS origin. Failed proof leaves the current credential generation and operation history intact. Each read rechecks the active vendor owner, provider authority and credential link. Activation verifies the same state again with the owner, provider and credential link locked. Incoming bootstrap enrollment applies the same checks and verifies the bootstrap expiry. A suspended vendor's existing peer credential can still be revoked without contacting the peer.
