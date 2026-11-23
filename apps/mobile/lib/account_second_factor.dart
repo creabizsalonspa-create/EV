@@ -20,7 +20,37 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
   String t(String en, String ar) => Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
   bool current(int ticket) => mounted && owner() && !background && ticket == generation;
   @override
-  void initState() { super.initState(); owner = widget.api.sessionFence(); WidgetsBinding.instance.addObserver(this); refresh(); }
+  void initState() {
+    super.initState();
+    owner = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    // The view can mount after the OS already obscured the application.
+    // Reading private recovery-code counts must require foreground context.
+    background = lifecycle != null && lifecycle != AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    if (!background) refresh();
+  }
+  void clearPrivate() {
+    generation++;
+    password.clear();
+    code.clear();
+    seed = null;
+    recovery = [];
+    status = null;
+    message = null;
+    busy = false;
+  }
+  @override
+  void didUpdateWidget(covariant AccountSecondFactorView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api || !owner()) {
+      // Retained EvApi instances can be reauthenticated without replacing the
+      // widget. Old setup secrets, one-time codes and status are never reused.
+      clearPrivate();
+      owner = widget.api.sessionFence();
+      // Do not read the replacement account without explicit foreground Refresh.
+    }
+  }
   Map<String, dynamic> valid(dynamic data) {
     if (data is! Map || data['enabled'] is! bool || data['pending'] is! bool) throw const ApiException(502, 'Invalid authenticator status');
     return Map<String, dynamic>.from(data);
@@ -32,7 +62,11 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
     try { await task(ticket); }
     catch (error) {
       if (!current(ticket)) return;
-      if (error is ApiException && [401, 419].contains(error.status)) { seed = null; recovery = []; password.clear(); code.clear(); widget.onExpired?.call(); }
+      if (error is ApiException && [401, 419].contains(error.status)) {
+        setState(clearPrivate);
+        widget.onExpired?.call();
+        return;
+      }
       if (mounted) setState(() => message = t('Action not confirmed. Refresh and use your current password plus a fresh authenticator or unused recovery code.',
         'لم يتأكد الإجراء. حدّث الحالة واستخدم كلمة مرورك الحالية ورمز تحقق جديداً أو رمز استرداد غير مستخدم.'));
     } finally { if (current(ticket)) setState(() => busy = false); }
@@ -47,6 +81,7 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
     }
     final body = <String, dynamic>{'password': password.text, if (action != 'prepare') 'code': vendorDigits(code.text.trim())};
     password.clear(); code.clear();
+    try {
     await act((ticket) async {
       final result = await widget.api.request('account/second-factor/$action', method: 'POST', body: body);
       if (!current(ticket)) return;
@@ -67,15 +102,20 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
       if (!current(ticket)) return;
       setState(() { status = data; seed = nextSeed; recovery = nextRecovery; });
     });
+    } finally {
+      body.clear();
+    }
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      if (background) { setState(() { background = false; busy = false; }); refresh(); }
-    } else {
-      generation++; password.clear(); code.clear(); seed = null; recovery = []; status = null;
-      if (mounted) setState(() { background = true; busy = false; });
-    }
+    if (!mounted) return;
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == !background) return;
+    setState(() {
+      background = !resumed;
+      if (!resumed) clearPrivate();
+      // Resume exposes Refresh, but never silently reads private MFA state.
+    });
   }
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -111,5 +151,13 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
     ]),
   );
   @override
-  void dispose() { generation++; WidgetsBinding.instance.removeObserver(this); password.dispose(); code.dispose(); super.dispose(); }
+  void dispose() {
+    generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    password.clear();
+    code.clear();
+    password.dispose();
+    code.dispose();
+    super.dispose();
+  }
 }
