@@ -11,7 +11,9 @@ class NoticeApi extends FixtureApi {
       loseReply = false,
       configured = true,
       malformedHistory = false,
+      malformedReceipt = false,
       emptyHistory = false;
+  int lastPage = 1;
   int writes = 0, reads = 0, authEpoch = 0;
   Map<String, dynamic>? lastBody;
   @override
@@ -40,17 +42,25 @@ class NoticeApi extends FixtureApi {
         'receipts': {
           'data': malformedHistory
               ? 'untrusted private rows'
-              : emptyHistory
-                  ? <Map<String, dynamic>>[]
-                  : [
+              : malformedReceipt
+                  ? <Map<String, dynamic>>[
+                      {
+                        'state': 'outcome_unknown',
+                        'created_at': '2026-11-14',
+                        'evidence': 'X' * 2001,
+                      },
+                    ]
+                  : emptyHistory
+                      ? <Map<String, dynamic>>[]
+                      : [
                   {
                     'state': 'outcome_unknown',
                     'created_at': '2026-11-14',
                     'evidence': 'SIMULATED_EMAIL_HANDOFF',
                   },
                 ],
-          'current_page': 1,
-          'last_page': 1,
+          'current_page': int.parse(query['page'] ?? '1'),
+          'last_page': lastPage,
         },
       };
     return {
@@ -70,6 +80,47 @@ Widget screen(NoticeApi api, {bool ar = false}) => MaterialApp(
   home: NotificationEmailView(api: api, onExpired: () {}),
 );
 void main() {
+
+  for (final ar in [false, true]) {
+    testWidgets('oversized private notice evidence rejects the whole history ($ar)',
+        (tester) async {
+      final api = NoticeApi()..malformedReceipt = true;
+      addTearDown(api.close);
+      await tester.pumpWidget(screen(api, ar: ar));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('X' * 2001), findsNothing);
+      expect(find.textContaining(ar ? 'النتيجة غير متاحة.' : 'Outcome unavailable.'),
+          findsOneWidget);
+      api.malformedReceipt = false;
+      await tester.tap(find.text(ar ? 'تحديث' : 'Refresh'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsOneWidget);
+      expect(api.writes, 0);
+    });
+  }
+  testWidgets('new account notice refresh resets a retained page-two cursor',
+      (tester) async {
+    final api = NoticeApi()..lastPage = 2;
+    addTearDown(api.close);
+    await tester.pumpWidget(screen(api));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(api.reads, 4);
+    api.authEpoch++;
+    api.lastPage = 1;
+    api.emptyHistory = true;
+    await tester.pumpWidget(screen(api));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('SIMULATED_EMAIL_HANDOFF'), findsNothing);
+    expect(api.reads, 4, reason: 'Reused page must not fetch new-account receipts');
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(api.reads, 6);
+    expect(find.text('No email notice handoffs on this page.'), findsOneWidget);
+    expect(find.textContaining('Outcome unavailable.'), findsNothing);
+    expect(api.writes, 0);
+  });
 
   for (final ar in [false, true]) {
     testWidgets('initially inactive email notice page makes no private reads ($ar)',

@@ -44,6 +44,7 @@ class _NotificationEmailState extends State<NotificationEmailView>
     consent = false;
     busy = false;
     error = null;
+    page = 1;
   }
 
   @override
@@ -91,6 +92,17 @@ class _NotificationEmailState extends State<NotificationEmailView>
 
   Future<void> load({int number = 1}) async {
     if (!foreground || !authorized() || busy) return;
+    if (number < 1 || number > 100000) {
+      setState(() {
+        preference = null;
+        history = null;
+        error = t(
+          'Invalid history page. Refresh from the beginning.',
+          'صفحة السجل غير صالحة. حدّث من البداية.',
+        );
+      });
+      return;
+    }
     final n = ++generation;
     setState(() {
       busy = true;
@@ -131,8 +143,12 @@ class _NotificationEmailState extends State<NotificationEmailView>
             (row) =>
                 row is! Map ||
                 row['state'] is! String ||
+                (row['state'] as String).length > 64 ||
                 row['created_at'] is! String ||
-                (row['evidence'] != null && row['evidence'] is! String),
+                (row['created_at'] as String).length > 80 ||
+                (row['evidence'] != null &&
+                    (row['evidence'] is! String ||
+                        (row['evidence'] as String).length > 2000)),
           ))
         throw const FormatException();
       setState(() {

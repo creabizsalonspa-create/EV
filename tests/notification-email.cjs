@@ -39,6 +39,7 @@ const assert = require('node:assert/strict');
                 window.active = true;
                 window.failNextHistory = false;
                 window.malformedHistory = false;
+                window.oversizedReceipt = false;
                 window.api = async (path, method = 'GET', body) => {
                     if (method === 'PUT') { window.writes.push(body); return {enabled:body.enabled}; }
                     if (path.includes('/history')) {
@@ -46,6 +47,7 @@ const assert = require('node:assert/strict');
                         window.requestedPages.push(requested);
                         if (window.failNextHistory) { window.failNextHistory = false; throw Error('PRIVATE HISTORY DIAGNOSTIC'); }
                         if (window.malformedHistory) return {delivery_confirmed:false,automatic_retry:false,receipts:{data:'not-an-array',current_page:requested,last_page:2}};
+                        if (window.oversizedReceipt) return {delivery_confirmed:false,automatic_retry:false,receipts:{data:[{state:'queued',created_at:'2026-11-23',evidence:'X'.repeat(2001)}],current_page:requested,last_page:2}};
                         return {delivery_confirmed:false,automatic_retry:false,receipts:{data:[],current_page:requested,last_page:2}};
                     }
                     return {enabled:true,consent_current:true,configured:true,verified_email_required:false,revision:'4'};
@@ -73,6 +75,15 @@ const assert = require('node:assert/strict');
             assert.equal(await disable.count(),0);
             assert.equal(await refresh.count(),1,'malformed history must remain explicitly retryable');
             await page.evaluate(()=>window.malformedHistory=false);
+            await refresh.click();
+            await disable.waitFor();
+            await page.evaluate(()=>window.oversizedReceipt=true);
+            await refresh.click();
+            await page.getByRole('alert').waitFor();
+            assert.equal(await disable.count(),0,
+                'oversized receipt must not preserve an old private consent action');
+            assert.equal(await page.getByText('X'.repeat(2001)).count(),0);
+            await page.evaluate(()=>window.oversizedReceipt=false);
             await refresh.click();
             await disable.waitFor();
             assert.equal(await page.getByRole('alert').count(),0);

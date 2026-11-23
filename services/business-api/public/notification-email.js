@@ -58,8 +58,9 @@ window.EvNotificationEmail = {
                 receipts.current_page !== page || receipts.last_page < page ||
                 receipts.last_page > 100000 ||
                 !receipts.data.every(row => row && typeof row === 'object' && !Array.isArray(row) &&
-                    typeof row.state === 'string' && typeof row.created_at === 'string' &&
-                    (row.evidence == null || typeof row.evidence === 'string')))
+                    typeof row.state === 'string' && row.state.length <= 64 &&
+                    typeof row.created_at === 'string' && row.created_at.length <= 80 &&
+                    (row.evidence == null || (typeof row.evidence === 'string' && row.evidence.length <= 2000))))
                 throw Error('Invalid response');
             root.replaceChildren();
             root.append(node('h3', t('Email activity notices', 'إشعارات النشاط بالبريد')), node('p', t('Optional generic notices to your verified account email. New unread activity only, at most once every 15 minutes. Message details stay in your account. Transport acceptance does not confirm delivery.', 'إشعارات عامة اختيارية إلى بريد حسابك الموثق للنشاط الجديد غير المقروء فقط، بحد أقصى مرة كل 15 دقيقة. تبقى التفاصيل في الحساب. قبول النقل لا يؤكد التسليم.')));
