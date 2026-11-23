@@ -428,11 +428,19 @@ void main() {
   test(
     'snapshot preserves immutable original evidence and signed availability without recomputing money',
     () {
+      final raw = snapshot();
       final report = VendorEarningsSnapshot.parse(
-        snapshot(),
+        raw,
         vendorId: 3,
         currency: 'KWD',
         page: 1,
+      );
+      (raw['data'] as List).first['paid_minor'] = 42;
+      expect(report.source['data'][0]['paid_minor'], 1005);
+      expect(report.rows.first['paid_minor'], 1005);
+      expect(
+        () => report.source['data'][0]['paid_minor'] = 42,
+        throwsUnsupportedError,
       );
       expect(report.source['overall_available_minor'], -5);
       expect(report.rows.single['evidence'], 'PARTNER_SANDBOX_SOURCE');
