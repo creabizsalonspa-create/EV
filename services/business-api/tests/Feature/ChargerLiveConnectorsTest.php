@@ -70,6 +70,7 @@ class ChargerLiveConnectorsTest extends TestCase
                 'station_id' => $station->id, 'evse_id' => $evse->id,
                 'connector_id' => $connector->id,
                 'source_connector_number' => $number,
+                'source_target_key' => hash('sha256', $binding.':'.($protocol === '1.6' ? 0 : 1).':'.$number),
             ]);
         }
 
