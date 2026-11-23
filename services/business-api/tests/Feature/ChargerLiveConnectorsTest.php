@@ -117,11 +117,10 @@ class ChargerLiveConnectorsTest extends TestCase
                     ->update(['model' => 'Unexpected changed model']);
             }
             if ($case === 'mapping_changed_during_read') {
-                DB::table('charging_connector_mappings')
-                    ->where('station_id', $fixture['station']->id)
-                    ->orderBy('id')->limit(1)->update([
-                        'source_target_key' => str_repeat('e', 64),
-                    ]);
+                $first = DB::table('charging_connector_mappings')
+                    ->where('station_id', $fixture['station']->id)->min('id');
+                DB::table('charging_connector_mappings')->where('id', $first)
+                    ->update(['source_target_key' => str_repeat('e', 64)]);
             }
             $events = [
                 [
