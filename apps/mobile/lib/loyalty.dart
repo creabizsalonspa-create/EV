@@ -111,7 +111,7 @@ class _LoyaltyState extends State<LoyaltyView>
   Object? error;
   Map<String, dynamic>? account;
   ApiPage<Map<String, dynamic>>? page;
-  int generation = 0, target = 1;
+  int generation = 0, target = 1, formEpoch = 0;
   String t(String key) => loyaltyText(context, key);
   String n(int value) => NumberFormat.decimalPattern(
     Localizations.localeOf(context).languageCode,
@@ -140,6 +140,7 @@ class _LoyaltyState extends State<LoyaltyView>
       busy = false;
       section = 'account';
       target = 1;
+      formEpoch++;
       final api = widget.api;
       final current = authorized;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -430,6 +431,7 @@ class _LoyaltyState extends State<LoyaltyView>
         Text(t('notice')),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
+          key: ValueKey('loyalty-section-$formEpoch'),
           initialValue: section,
           isExpanded: true,
           items: [
