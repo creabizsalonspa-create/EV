@@ -14,6 +14,19 @@ use Illuminate\Validation\Rule;
 
 class CommercialFinanceController extends Controller
 {
+    private const MAX_EXACT_MINOR = 9_007_199_254_740_991;
+
+    /** Never serialize >2^53-1 integers that native/browser reports round. */
+    private static function exactAggregate(mixed $value): int
+    {
+        $number = filter_var($value, FILTER_VALIDATE_INT);
+        abort_if($number === false || $number < 0 ||
+            $number > self::MAX_EXACT_MINOR,
+            409, 'Financial aggregate exceeds supported exact integer bounds; narrow the period.');
+
+        return $number;
+    }
+
     /** Never echo client replay keys or their future fingerprints in an API DTO. */
     private static function safeRefundRequest(object $row): object
     {
@@ -59,9 +72,7 @@ class CommercialFinanceController extends Controller
                 $fields = array_merge($fields, ['commission_minor', 'vendor_allocated_minor', 'commission_refunded_minor', 'vendor_refunded_minor', 'commission_credited_minor', 'vendor_credited_minor']);
             }
             foreach ($fields as $field) {
-                $amount = filter_var($row->$field, FILTER_VALIDATE_INT);
-                abort_if($amount === false || $amount < 0, 409, 'Report exceeds supported exact integer range; narrow the period.');
-                $result[$field] = $amount;
+                $result[$field] = self::exactAggregate($row->$field);
             }
             $result['net_collected_minor'] = $result['paid_minor'] - $result['refunded_minor'];
             if (isset($result['commission_minor'])) {
