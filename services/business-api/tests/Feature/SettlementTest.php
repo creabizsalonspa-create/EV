@@ -427,4 +427,66 @@ class SettlementTest extends TestCase
             ->assertOk()->assertJsonPath('data.0.invoice_id', $invoice->id);
         $this->assertDatabaseCount('finance_journals', 2);
     }
+
+    public function test_vendor_earnings_json_and_plain_csv_reject_unbounded_or_non_numeric_pages(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
+        $this->actingAs($this->vendor);
+        $before = DB::table('finance_journals')->count();
+
+        foreach (['page=0', 'page=-1', 'page=10001', 'page=not-a-number'] as $filter) {
+            $this->getJson($path.'?currency=AED&'.$filter)->assertUnprocessable();
+            $this->get($path.'/export?currency=AED&'.$filter)
+                ->assertUnprocessable()->assertHeader('Cache-Control', 'no-store, private');
+        }
+
+        $this->getJson($path.'?currency=AED&per_page=1&page=10000')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonCount(0, 'data');
+        $csv = $this->get($path.'/export?currency=AED&per_page=1&page=10000');
+        $csv->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertStringNotContainsString($invoice->number, $csv->streamedContent());
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
+    public function test_vendor_earnings_refuses_inexact_large_financial_source_amounts(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
+        $before = DB::table('finance_journals')->count();
+
+        DB::table('finance_invoices')->where('id', $invoice->id)
+            ->update(['subtotal_minor' => 9007199254740992]);
+        $this->actingAs($this->vendor)->getJson($path.'?currency=AED')
+            ->assertConflict();
+        $this->get($path.'/export?currency=AED')->assertConflict();
+
+        // The report never "repairs" or rewrites an original invoice,
+        // refund, settlement or journal to accommodate bad source data.
+        $this->assertDatabaseHas('finance_invoices', [
+            'id' => $invoice->id, 'subtotal_minor' => 9007199254740992,
+        ]);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
+    public function test_vendor_earnings_csv_quotes_provider_invoice_numbers_as_literals(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
+        $before = DB::table('finance_journals')->count();
+
+        DB::table('finance_invoices')->where('id', $invoice->id)->update([
+            'number' => '=HYPERLINK("https://untrusted.test","open")',
+        ]);
+        $this->actingAs($this->vendor)
+            ->getJson($path.'?currency=AED')->assertOk()
+            ->assertJsonPath('data.0.invoice_number', '=HYPERLINK("https://untrusted.test","open")');
+        $csv = $this->get($path.'/export?currency=AED');
+        $csv->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertStringContainsString("'=HYPERLINK", $csv->streamedContent());
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
 }
