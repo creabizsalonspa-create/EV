@@ -705,11 +705,19 @@ test("hidden browser tab wipes revealed private account copy and password inputs
   assert.equal(inputs.find(x=>x.type==="password").value,"");
   assert.equal(inputs.find(x=>x.autocomplete==="one-time-code").value,"");
   ui.show();
-  inputs.find(x=>x.type==="password").value="Entered after foreground";
-  inputs.find(x=>x.autocomplete==="one-time-code").value="654321";
+  // Private controls were detached and cannot be re-used after returning.
+  assert.equal(nodes(ui.mine,"pre").length,0);
+  const reload=nodes(ui.mine,"button").find(x=>
+    x.textContent.startsWith("Refresh requests"));
+  await reload.onclick();
+  await tick();
+  const freshInputs=nodes(ui.mine,"input");
+  freshInputs.find(x=>x.type==="password").value="Entered after foreground";
+  freshInputs.find(x=>x.autocomplete==="one-time-code").value="654321";
   ui.hide();
-  assert.equal(inputs.find(x=>x.type==="password").value,"");
-  assert.equal(inputs.find(x=>x.autocomplete==="one-time-code").value,"");
+  assert.equal(freshInputs.find(x=>x.type==="password").value,"");
+  assert.equal(freshInputs.find(x=>x.autocomplete==="one-time-code").value,"");
+  assert.equal(nodes(ui.mine,"pre").length,0);
 });
 test("private copy response stays sealed across a hidden-to-visible round trip", async () => {
   const ui = fixture();
@@ -738,10 +746,20 @@ test("private copy response stays sealed across a hidden-to-visible round trip",
     scope: "self_service_account_copy",
     profile: { email: "old-background-copy@example.test" } });
   await inFlight;
-  assert.equal(nodes(ui.mine, "pre")[0].textContent, "");
+  assert.equal(nodes(ui.mine, "pre").length, 0);
   assert(!ui.mine.textContent.includes("old-background-copy@example.test"));
-  // A new, intentional visible read remains available after the old one is rejected.
+  // Returning to the tab requires a *new* read and reauthentication,
+  // never replaying a detached pre-hide callback.
   await view.onclick();
+  assert.equal(reads, 1, "Old detached action cannot submit again");
+  const reload=nodes(ui.mine,"button").find(x=>
+    x.textContent.startsWith("Refresh requests"));
+  await reload.onclick();
+  await tick();
+  const freshView=nodes(ui.mine,"button").find(x=>
+    x.textContent.startsWith("View private account copy"));
+  assert.ok(freshView);
+  await freshView.onclick();
   assert.equal(reads, 2);
   assert.match(nodes(ui.mine, "pre")[0].textContent, /fresh-visible-copy@example.test/);
 });
@@ -768,7 +786,7 @@ test("BFCache pagehide clears credentials and invalidates a pending access copy"
     scope: "self_service_account_copy",
     profile: { email: "forbidden-bfcache-reveal@example.test" } });
   await pending;
-  assert.equal(nodes(ui.mine, "pre")[0].textContent, "");
+  assert.equal(nodes(ui.mine, "pre").length, 0);
   assert(!ui.mine.textContent.includes("forbidden-bfcache-reveal@example.test"));
 });
 
@@ -787,6 +805,6 @@ test("late private copy read cannot repopulate a hidden browser tab",async()=>{
   resolveCopy({schema_version:1,owner_id:3,request_id:22,
     scope:"self_service_account_copy",profile:{email:"not-visible@example.test"}});
   await pending;
-  assert.equal(nodes(ui.mine,"pre")[0].textContent,"");
+  assert.equal(nodes(ui.mine,"pre").length,0);
   assert(!ui.mine.textContent.includes("not-visible@example.test"));
 });
