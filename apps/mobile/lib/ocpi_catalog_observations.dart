@@ -483,13 +483,13 @@ class _CatalogObservationState extends State<OcpiCatalogObservationsView>
               'Stored hourly source quality only — not live availability or network coverage.',
               'جودة المصدر المخزنة بالساعة فقط؛ ليست توفراً حياً أو تغطية للشبكة.',
             )),
-            Text('${quality!['provider']['name']}'),
-            if ((quality!['samples'] as List).isEmpty)
+            Text('${quality['provider']['name']}'),
+            if ((quality['samples'] as List).isEmpty)
               Text(t(
                 'No changed location syncs recorded; no coverage conclusion.',
                 'لا توجد عمليات مزامنة مواقع متغيرة مسجلة؛ لا توجد نتيجة عن التغطية.',
               )),
-            for (final sample in quality!['samples'] as List)
+            for (final sample in quality['samples'] as List)
               Card(
                 key: ValueKey('catalog-quality-${sample['observed_hour']}'),
                 child: Padding(
