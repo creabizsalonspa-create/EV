@@ -507,8 +507,12 @@ class _RefundRequestState extends State<RefundRequestView> {
         ],
       ),
     );
-    if (consent != true || !mounted ||
-        !current() || !identical(api, widget.api)) return;
+    if (consent != true || !mounted) return;
+    if (identical(api, widget.api) && !current()) {
+      redactFormerIdentity();
+      return;
+    }
+    if (!identical(api, widget.api)) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -796,8 +800,12 @@ class _RefundDecisionState extends State<RefundDecisionView> {
         ],
       ),
     );
-    if (yes != true || !mounted ||
-        !current() || !identical(api, widget.api)) return;
+    if (yes != true || !mounted) return;
+    if (identical(api, widget.api) && !current()) {
+      redactFormerIdentity();
+      return;
+    }
+    if (!identical(api, widget.api)) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
