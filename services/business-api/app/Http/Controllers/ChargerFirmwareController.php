@@ -158,7 +158,19 @@ class ChargerFirmwareController extends Controller
             // identity. Badly modified evidence blocks the entire projection.
             $policy = $compatibility->approved($release);
             $active = $release->revoked_at === null;
-            $matching = $active && $policy !== null &&
+            // A previously approved signed policy is not a current
+            // recommendation when its signer was unpinned or its certificate
+            // expired after approval. Firmware dispatch separately checks
+            // private artifact bytes and transport authority.
+            $certificate = openssl_x509_parse($release->signing_certificate);
+            $fingerprint = openssl_x509_fingerprint($release->signing_certificate, 'sha256');
+            $pins = array_map('strtolower', config('csms.firmware_signer_pins', []));
+            $signerTrusted = is_array($certificate) && is_string($fingerprint) &&
+                hash_equals((string) $release->signer_fingerprint, $fingerprint) &&
+                in_array(strtolower($fingerprint), $pins, true) &&
+                ($certificate['validFrom_time_t'] ?? PHP_INT_MAX) <= time() &&
+                ($certificate['validTo_time_t'] ?? 0) > time();
+            $matching = $active && $signerTrusted && $policy !== null &&
                 in_array($binding->protocol, $policy['protocols'], true) &&
                 in_array($observed['firmwareVersion'], $policy['from_versions'], true);
             $matrix[] = [
@@ -167,6 +179,7 @@ class ChargerFirmwareController extends Controller
                 'sha256' => $release->sha256,
                 'revoked' => ! $active,
                 'signed_compatibility_policy' => $policy !== null,
+                'signer_currently_trusted' => $signerTrusted,
                 'protocols' => $policy['protocols'] ?? [],
                 'from_versions' => $policy['from_versions'] ?? [],
                 'matches_observed_source' => $matching,

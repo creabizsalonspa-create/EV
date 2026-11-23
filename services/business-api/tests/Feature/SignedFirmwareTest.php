@@ -575,6 +575,7 @@ class SignedFirmwareTest extends TestCase
                 ->assertJsonPath('firmware_dispatch_authorized', false)
                 ->assertJsonPath('releases.0.release_id', $release)
                 ->assertJsonPath('releases.0.signed_compatibility_policy', true)
+                ->assertJsonPath('releases.0.signer_currently_trusted', true)
                 ->assertJsonPath('releases.0.matches_observed_source', true)
                 ->assertJsonPath('releases.0.revoked', false);
             $this->assertSame(1, Http::recorded()->count(), 'Only a source identity read is allowed.');
@@ -631,6 +632,33 @@ class SignedFirmwareTest extends TestCase
         $this->actingAs($f['owner'])->getJson($path)->assertOk()
             ->assertJsonPath('releases.0.revoked', true)
             ->assertJsonPath('releases.0.matches_observed_source', false);
+    }
+
+    public function test_revoked_signer_pin_does_not_recommend_an_earlier_approved_release(): void
+    {
+        $f = $this->fixture('2.0.1', [
+            'protocols' => ['2.0.1'], 'from_versions' => ['sim-fw-v1'],
+        ]);
+        $this->source($f);
+        $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approve signed firmware before trust pin rotation',
+        ])->assertCreated();
+        $path = str_replace('/firmware-operations', '/firmware-compatibility', $f['path']);
+        $this->actingAs($f['owner'])->getJson($path)->assertOk()
+            ->assertJsonPath('releases.0.matches_observed_source', true)
+            ->assertJsonPath('releases.0.signer_currently_trusted', true);
+        config(['csms.firmware_signer_pins' => []]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('releases.0.signed_compatibility_policy', true)
+            ->assertJsonPath('releases.0.signer_currently_trusted', false)
+            ->assertJsonPath('releases.0.matches_observed_source', false)
+            ->assertJsonPath('firmware_dispatch_authorized', false);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/signedUpdateFirmware?')
+            || str_contains($request->url(), '/updateFirmware?'));
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_unsigned_legacy_firmware_has_no_inferred_source_compatibility(): void
