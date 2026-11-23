@@ -76,8 +76,15 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
         widget.onExpired?.call();
         return;
       }
-      if (mounted) setState(() => message = t('Action not confirmed. Refresh and use your current password plus a fresh authenticator or unused recovery code.',
-        'لم يتأكد الإجراء. حدّث الحالة واستخدم كلمة مرورك الحالية ورمز تحقق جديداً أو رمز استرداد غير مستخدم.'));
+      if (mounted) setState(() {
+        // A failed status GET or uncertain security mutation must not leave
+        // one-time recovery codes or old enabled/disabled controls actionable.
+        status = null;
+        seed = null;
+        recovery = [];
+        message = t('Action not confirmed. Refresh and use your current password plus a fresh authenticator or unused recovery code.',
+          'لم يتأكد الإجراء. حدّث الحالة واستخدم كلمة مرورك الحالية ورمز تحقق جديداً أو رمز استرداد غير مستخدم.');
+      });
     } finally { if (current(ticket)) setState(() => busy = false); }
   }
   Future<void> refresh() => act((ticket) async {

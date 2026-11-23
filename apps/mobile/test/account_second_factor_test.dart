@@ -7,7 +7,7 @@ import 'package:creabiz_ev/account_second_factor.dart';
 class FactorApi extends EvApi {
   FactorApi() : super(Uri.parse('https://example.invalid'));
   final writes = <Map<String, dynamic>>[];
-  bool enabled = false, pending = false;
+  bool enabled = false, pending = false, malformedCodes = false;
   int reads = 0, epoch = 0;
   @override
   bool Function() sessionFence() {
@@ -22,11 +22,50 @@ class FactorApi extends EvApi {
     }
     writes.add({'path': path, ...?body});
     if (path.endsWith('/prepare')) { pending = true; return {'secret': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'}; }
+    if (malformedCodes) {
+      return {
+        'enabled': true,
+        'reauthentication_required': false,
+        'recovery_codes': [List<String>.filled(101, 'X').join()],
+      };
+    }
     enabled = !path.endsWith('/disable'); pending = false;
     return {'enabled': enabled, 'recovery_codes': enabled ? ['ABCDEF-123456-ABCDEF-123456'] : <String>[], 'reauthentication_required': false};
   }
 }
 void main() {
+
+  for (final ar in [false, true]) {
+    testWidgets('oversized recovery codes fail closed and require verified refresh ($ar)', (tester) async {
+      final api = FactorApi()..enabled = true ..malformedCodes = true;
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(ar ? 'ar' : 'en'),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: AccountSecondFactorView(api: api),
+      ));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('factor-password')), 'CurrentPassword');
+      await tester.enterText(find.byKey(const Key('factor-code')), '123456');
+      await tester.tap(find.text(ar ? 'استبدال رموز الاسترداد' : 'Replace recovery codes'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('factor-recovery')), findsNothing);
+      expect(find.byKey(const Key('factor-password')), findsNothing);
+      expect(find.textContaining(List<String>.filled(101, 'X').join()), findsNothing);
+      expect(api.writes, hasLength(1));
+      api.malformedCodes = false;
+      await tester.tap(find.text(ar ? 'تحديث حالة تطبيق التحقق' : 'Refresh authenticator status'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('factor-password')), findsOneWidget);
+      expect(api.writes, hasLength(1), reason: 'Refresh must never retry a mutation');
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   for (final language in ['en', 'ar']) {
     testWidgets('first-inactive authenticator mount never reads on resume ($language)',
