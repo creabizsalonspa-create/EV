@@ -74,3 +74,27 @@ the exact upper bound, the first overflowing value, fractions,
 negative numbers and large out-of-range numeric strings. This is a
 source-accuracy safeguard, **not** independent provider settlement
 or confirmation of real collected funds.
+
+
+## Subscription credit Admin refund authority
+
+`SubscriptionCreditController::refund` used to validate private
+invoice, amount, reason and idempotency form fields **before** checking
+whether a persisted Admin account was still active and genuinely allowed
+to inspect the target subscription. Revoked Admin credentials could
+therefore receive 422 for an invalid private refund form instead of
+being denied, disclosing policy shape and potentially the distinction
+between a real and unknown subscription.
+
+The endpoint now checks the *current locked account* and Admin role
+and verifies the target subscription exists before validation, under a
+short database transaction; it then exits the transaction **before**
+calling the durable `SubscriptionCreditService::refund`. That service
+already performs independent account validation and provider-safe
+transaction boundaries, which are unchanged. Successful sandbox DTOs
+return private/no-store. The new feature regression tests valid Admin
+invalid-form 422, nonexistent subscription 404, revoked role/status/
+auth epoch/password 409 (even for malformed forms), unchanged
+subscription ledger and credit/request counts, and zero unexpected
+external HTTP. This is an **authorization and DTO** improvement, not
+real provider refund certification.
