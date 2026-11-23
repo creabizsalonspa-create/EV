@@ -112,6 +112,51 @@ class OcpiCatalogQualitySamplerTest extends TestCase
         $this->assertDatabaseCount('ocpi_catalog_quality_history', 0);
     }
 
+    public function test_idle_partner_quality_data_is_physically_purged_after_retention_without_network(): void
+    {
+        Http::preventStrayRequests();
+        $this->travelTo(Carbon::parse('2026-11-10T10:30:00Z'));
+        [$owner, $provider] = $this->fixture('idle-retention');
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 1);
+        $this->travelTo(Carbon::parse('2026-11-19T10:30:00Z'));
+
+        // Cleanup is independent of feature enablement and source traffic.
+        config(['ocpi.catalog_quality_sampling_enabled' => false]);
+        $this->assertSame(1, Artisan::call('ocpi:expire-source-quality-snapshots', ['--limit' => 0]));
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 1);
+        $this->assertSame(0, Artisan::call('ocpi:expire-source-quality-snapshots', ['--limit' => 1]));
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 0);
+        $this->assertSame(0, Artisan::call('ocpi:expire-source-quality-snapshots', ['--limit' => 1]));
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 0);
+        $this->assertDatabaseHas('ocpi_providers', [
+            'id' => $provider->id, 'owner_id' => $owner->id, 'authorized' => true,
+        ]);
+        $this->assertDatabaseCount('ocpi_records', 1);
+        Http::assertNothingSent();
+    }
+
+    public function test_bounded_history_cleanup_only_deletes_expired_ids_from_idle_providers(): void
+    {
+        Http::preventStrayRequests();
+        $this->travelTo(Carbon::parse('2026-11-10T10:30:00Z'));
+        $this->fixture('expired-one');
+        $this->fixture('expired-two');
+        $this->travelTo(Carbon::parse('2026-11-18T10:30:00Z'));
+        [, $current] = $this->fixture('current');
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 3);
+        $result = app(\App\Services\Ocpi\CatalogQualityHistory::class)->purgeExpired(1);
+        $this->assertSame(1, $result['deleted']);
+        $this->assertSame(1, $result['considered']);
+        $this->assertSame(0, $result['external_requests']);
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 2);
+        $this->assertDatabaseHas('ocpi_catalog_quality_history', ['provider_id' => $current->id]);
+        $this->assertSame(1, app(\App\Services\Ocpi\CatalogQualityHistory::class)->purgeExpired(1)['deleted']);
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 1);
+        $this->assertSame(0, app(\App\Services\Ocpi\CatalogQualityHistory::class)->purgeExpired(1)['deleted']);
+        $this->assertDatabaseCount('ocpi_records', 3);
+        Http::assertNothingSent();
+    }
+
     public function test_cli_command_uses_opt_in_and_bounded_offline_sampling_without_provider_fetch(): void
     {
         Http::preventStrayRequests();
