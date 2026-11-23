@@ -4,8 +4,11 @@ namespace Tests\Feature;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Http\Controllers\OcpiCredentialsController;
 use App\Services\Ocpi\CredentialExchange;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -92,6 +95,57 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
             ->assertJsonPath('capability_matrix.modules.2.local_receiver_active', false);
         Http::assertNothingSent();
         $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_status_denies_revoked_vendor_snapshot_and_reassigned_provider_without_exposing_credentials(): void
+    {
+        [$owner, $admin, $provider, $path] = $this->fixture();
+        $captured = Request::create($path, 'GET');
+        $captured->setUserResolver(static fn () => $owner);
+        $controller = app(OcpiCredentialsController::class);
+        $exchange = app(CredentialExchange::class);
+        $current = $controller->status($captured, $provider, $exchange)->getData(true);
+        $this->assertTrue($current['capability_matrix']['credentials_current']);
+        $this->assertFalse($current['capability_matrix']['live_roaming_verified']);
+
+        $initial = [
+            'role' => 'vendor', 'account_status' => 'active',
+            'auth_epoch' => $owner->auth_epoch, 'password' => $owner->password,
+        ];
+        foreach ([
+            [['account_status' => 'suspended'], 403],
+            [['role' => 'customer'], 403],
+            [['auth_epoch' => (int) $owner->auth_epoch + 1], 409],
+            [['password' => 'rotated-test-password-hash'], 409],
+        ] as [$change, $expected]) {
+            DB::table('users')->where('id', $owner->id)->update(array_replace($initial, $change));
+            try {
+                $controller->status($captured, $provider, $exchange);
+                $this->fail('An obsolete authenticated vendor read private OCPI credentials.');
+            } catch (HttpException $error) {
+                $this->assertSame($expected, $error->getStatusCode());
+            }
+        }
+        DB::table('users')->where('id', $owner->id)->update($initial);
+
+        $replacement = User::factory()->create(['role' => 'vendor', 'account_status' => 'active']);
+        DB::table('ocpi_providers')->where('id', $provider->id)->update([
+            'owner_id' => $replacement->id,
+        ]);
+        $adminRequest = Request::create($path, 'GET');
+        $adminRequest->setUserResolver(static fn () => $admin);
+        foreach ([$captured, $adminRequest] as $staleRequest) {
+            try {
+                $controller->status($staleRequest, $provider, $exchange);
+                $this->fail('Old ownership leaked private credentials or capability evidence.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+        $this->assertDatabaseCount('ocpi_credential_links', 1);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNothingSent();
     }
 
     public function test_incomplete_active_token_link_cannot_advertise_private_module_authority(): void
