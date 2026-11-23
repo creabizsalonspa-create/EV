@@ -195,7 +195,13 @@ void main() {
       expect(find.byKey(const Key('vendor-earnings-csv-preview')),
           findsOneWidget);
       expect(find.textContaining('bank payment'), findsNothing);
-      await t.ensureVisible(find.byKey(const Key('vendor-earnings-refresh')));
+      // Copyable CSV may grow a lazily built ListView: scroll its owner
+      // back to the top before looking up the refresh button.
+      await t.scrollUntilVisible(
+        find.byKey(const Key('vendor-earnings-refresh')),
+        -250,
+        scrollable: find.byType(Scrollable).first,
+      );
       await t.tap(find.byKey(const Key('vendor-earnings-refresh')));
       await t.pumpAndSettle();
       expect(find.byKey(const Key('vendor-earnings-csv-preview')),
