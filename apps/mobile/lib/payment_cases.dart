@@ -369,6 +369,21 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
     super.dispose();
   }
 
+  void redactFormerIdentity() {
+    // Do not preserve the prior owner's invoice information on this route.
+    amount.clear();
+    reason.clear();
+    operation = null;
+    owner = 0;
+    maximum = 0;
+    currency = '';
+    consent = false;
+    noFunds = false;
+    done = false;
+    error = null;
+    setState(() => busy = false);
+  }
+
   void fail(Object e) {
     error = e;
     if (e is ApiException && [401, 419].contains(e.status)) {
@@ -441,9 +456,13 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
       if (mounted && epoch == generation && current() &&
           identical(api, widget.api)) fail(e);
     } finally {
-      if (mounted && epoch == generation && current() &&
+      if (mounted && epoch == generation &&
           identical(api, widget.api)) {
-        setState(() => busy = false);
+        if (!current()) {
+          redactFormerIdentity();
+        } else {
+          setState(() => busy = false);
+        }
       }
     }
   }
@@ -504,9 +523,13 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
       if (mounted && epoch == generation && current() &&
           identical(api, widget.api)) fail(e);
     } finally {
-      if (mounted && epoch == generation && current() &&
+      if (mounted && epoch == generation &&
           identical(api, widget.api)) {
-        setState(() => busy = false);
+        if (!current()) {
+          redactFormerIdentity();
+        } else {
+          setState(() => busy = false);
+        }
       }
     }
   }
@@ -679,6 +702,19 @@ class _EvidenceState extends State<CaseEvidenceView>
       throw const FormatException('Unsupported private evidence.');
   }
 
+  void redactFormerIdentity() {
+    setState(() {
+      page = null;
+      file = null;
+      operation = null;
+      consent = false;
+      canUpload = false;
+      done = false;
+      error = null;
+      busy = false;
+    });
+  }
+
   void fail(Object e) {
     error = e;
     if (e is ApiException && [401, 419].contains(e.status)) {
@@ -735,8 +771,14 @@ class _EvidenceState extends State<CaseEvidenceView>
       if (mounted && foreground && epoch == generation && current() &&
           identical(api, widget.api)) fail(e);
     } finally {
-      if (mounted && foreground && epoch == generation && current() &&
-          identical(api, widget.api)) setState(() => busy = false);
+      if (mounted && epoch == generation &&
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else if (foreground) {
+          setState(() => busy = false);
+        }
+      }
     }
   }
 
@@ -777,8 +819,14 @@ class _EvidenceState extends State<CaseEvidenceView>
       if (mounted && foreground && epoch == generation && current() &&
           identical(api, widget.api)) fail(e);
     } finally {
-      if (mounted && foreground && epoch == generation && current() &&
-          identical(api, widget.api)) setState(() => busy = false);
+      if (mounted && epoch == generation &&
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else if (foreground) {
+          setState(() => busy = false);
+        }
+      }
     }
   }
 
@@ -834,8 +882,14 @@ class _EvidenceState extends State<CaseEvidenceView>
       if (mounted && foreground && epoch == generation && current() &&
           identical(api, widget.api)) fail(e);
     } finally {
-      if (mounted && foreground && epoch == generation && current() &&
-          identical(api, widget.api)) setState(() => busy = false);
+      if (mounted && epoch == generation &&
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else if (foreground) {
+          setState(() => busy = false);
+        }
+      }
     }
   }
 
@@ -872,8 +926,14 @@ class _EvidenceState extends State<CaseEvidenceView>
       if (mounted && foreground && epoch == generation && current() &&
           identical(api, widget.api)) fail(e);
     } finally {
-      if (mounted && foreground && epoch == generation && current() &&
-          identical(api, widget.api)) setState(() => busy = false);
+      if (mounted && epoch == generation &&
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else if (foreground) {
+          setState(() => busy = false);
+        }
+      }
     }
   }
 
