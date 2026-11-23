@@ -13,6 +13,7 @@ const caseEn = {
       'Internal invoice disputes and private review evidence. These records do not create a card-network chargeback, submit evidence to a payment provider or prove a refund. Only authorized reviewers resolve cases.',
   'new': 'Open invoice dispute',
   'amount': 'Disputed amount',
+  'amountMinor': 'Disputed amount (minor units)',
   'reason': 'Reason',
   'confirm': 'Confirm saved request',
   'consent':
@@ -54,6 +55,7 @@ const caseAr = {
       'نزاعات داخلية للفواتير وأدلة مراجعة خاصة. لا تنشئ هذه السجلات اعتراضاً لدى شبكة بطاقات ولا ترسل الأدلة لمزود الدفع ولا تثبت استرداداً. المراجعون المصرح لهم فقط يبتون في النزاعات.',
   'new': 'فتح نزاع على الفاتورة',
   'amount': 'المبلغ المتنازع عليه',
+  'amountMinor': 'المبلغ المتنازع عليه (وحدات نقدية صغرى)',
   'reason': 'السبب',
   'confirm': 'تأكيد الطلب المحفوظ',
   'consent':
@@ -182,6 +184,9 @@ class _CasesState extends State<PaymentCasesView>
             r['id'] < 1 ||
             r['invoice_id'] is! int ||
             r['invoice_id'] < 1 ||
+            r['amount_minor'] is! int ||
+            r['amount_minor'] < 1 ||
+            r['amount_minor'] > 2000000000 ||
             r['reason'] is! String ||
             (r['reason'] as String).trim().isEmpty ||
             (r['reason'] as String).length > 500 ||
@@ -245,6 +250,7 @@ class _CasesState extends State<PaymentCasesView>
                     children: [
                       Text('#${r['id']} · ${t('${r['status']}')}'),
                       Text('${t('invoice')}: #${r['invoice_id']}'),
+                      Text('${t('amountMinor')}: ${r['amount_minor']}'),
                       Text('${r['reason']}'),
                       if (r['resolution'] != null)
                         Text('${t('resolution')}: ${r['resolution']}'),
