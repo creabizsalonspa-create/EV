@@ -1,0 +1,163 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\OcpiProvider;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Tests\TestCase;
+
+class OcpiOwnerEligibilityTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Http::preventStrayRequests();
+        config(['ocpi.connections.owner-eligibility' => [
+            'origin' => 'https://partner.example',
+            'authorization_token' => base64_encode('synthetic-not-a-partner-token'),
+            'environment' => 'sandbox',
+        ]]);
+    }
+
+    private function admin(): User
+    {
+        return User::factory()->create(['role' => 'admin']);
+    }
+
+    private function vendor(): User
+    {
+        return User::factory()->create(['role' => 'vendor', 'account_status' => 'active']);
+    }
+
+    private function pending(User $owner): OcpiProvider
+    {
+        return OcpiProvider::create([
+            'owner_id' => $owner->id,
+            'name' => 'Synthetic pending operator',
+            'connection_key' => 'owner-eligibility',
+            'authorized' => false,
+        ]);
+    }
+
+    public function test_onboarding_selector_excludes_suspended_and_former_vendor_accounts(): void
+    {
+        $active = User::factory()->create(['role' => 'vendor', 'name' => 'Eligible Operator', 'account_status' => 'active']);
+        User::factory()->create(['role' => 'vendor', 'name' => 'Suspended Operator', 'account_status' => 'suspended']);
+        User::factory()->create(['role' => 'customer', 'name' => 'Customer Operator', 'account_status' => 'active']);
+
+        $this->actingAs($this->admin());
+        foreach (['/api/ocpi/owner-options', '/api/v1/ocpi/owner-options'] as $url) {
+            $page = $this->getJson($url.'?q=Operator')->assertOk()->assertJsonPath('total', 1)
+                ->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $active->id);
+            $this->assertSame(['id', 'name'], array_keys($page->json('data.0')));
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_admin_cannot_register_pending_or_authorized_provider_for_suspended_or_former_owner(): void
+    {
+        $suspended = User::factory()->create(['role' => 'vendor', 'account_status' => 'suspended']);
+        $former = User::factory()->create(['role' => 'customer', 'account_status' => 'active']);
+        $this->actingAs($this->admin());
+
+        foreach ([$suspended, $former] as $owner) {
+            foreach ([false, true] as $authorize) {
+                $this->postJson('/api/ocpi/providers', [
+                    'owner_id' => $owner->id,
+                    'name' => 'Ineligible owner',
+                    'connection_key' => 'owner-eligibility',
+                    'authorized' => $authorize,
+                ])->assertUnprocessable();
+            }
+        }
+        $this->assertDatabaseCount('ocpi_providers', 0);
+        $this->assertDatabaseMissing('audit_events', ['action' => 'ocpi.provider_created']);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_authorization_rechecks_current_vendor_eligibility_without_rewriting_revision_or_audit(): void
+    {
+        $owner = $this->vendor();
+        $provider = $this->pending($owner);
+        $this->actingAs($this->admin());
+
+        foreach ([
+            ['account_status' => 'suspended'],
+            ['account_status' => 'active', 'role' => 'customer'],
+        ] as $ineligible) {
+            DB::table('users')->where('id', $owner->id)->update(['role' => 'vendor', 'account_status' => 'active']);
+            DB::table('users')->where('id', $owner->id)->update($ineligible);
+            $this->patchJson('/api/ocpi/providers/'.$provider->id.'/authorization', ['authorized' => true])
+                ->assertUnprocessable();
+            $fresh = $provider->fresh();
+            $this->assertFalse($fresh->authorized);
+            $this->assertNull($fresh->version);
+            $this->assertNull($fresh->endpoints);
+            $this->assertSame(0, $fresh->authorization_revision);
+        }
+
+        $this->assertDatabaseMissing('audit_events', [
+            'action' => 'ocpi.provider_authorized', 'subject' => (string) $provider->id,
+        ]);
+        Http::assertNothingSent();
+    }
+
+    public function test_revocation_remains_possible_for_ineligible_owner_and_reactivation_requires_fresh_eligibility(): void
+    {
+        $owner = $this->vendor();
+        $provider = $this->pending($owner);
+        $provider->update([
+            'authorized' => true,
+            'version' => '2.2.1',
+            'endpoints' => ['locations' => 'https://partner.example/locations'],
+            'authorization_revision' => 4,
+        ]);
+
+        $this->actingAs($this->admin());
+        DB::table('users')->where('id', $owner->id)->update(['account_status' => 'suspended']);
+        $this->patchJson('/api/v1/ocpi/providers/'.$provider->id.'/authorization', ['authorized' => false])
+            ->assertOk()->assertJsonPath('authorized', false);
+        $this->assertSame(5, $provider->fresh()->authorization_revision);
+        $this->assertNull($provider->fresh()->endpoints);
+        $this->patchJson('/api/v1/ocpi/providers/'.$provider->id.'/authorization', ['authorized' => true])
+            ->assertUnprocessable();
+        $this->assertSame(5, $provider->fresh()->authorization_revision);
+
+        DB::table('users')->where('id', $owner->id)->update(['account_status' => 'active']);
+        $this->patchJson('/api/v1/ocpi/providers/'.$provider->id.'/authorization', ['authorized' => true])
+            ->assertOk()->assertJsonPath('authorized', true);
+        $this->assertSame(6, $provider->fresh()->authorization_revision);
+        $this->assertDatabaseHas('audit_events', [
+            'action' => 'ocpi.provider_authorized', 'subject' => (string) $provider->id,
+        ]);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_eligible_vendor_can_register_without_implicit_roaming_activation(): void
+    {
+        $owner = $this->vendor();
+        $this->actingAs($this->admin());
+        $created = $this->postJson('/api/ocpi/providers', [
+            'owner_id' => $owner->id,
+            'name' => 'Synthetic unapproved operator',
+            'connection_key' => 'owner-eligibility',
+            'authorized' => false,
+        ])->assertCreated()->assertJsonPath('authorized', false)
+            ->assertJsonMissingPath('connection_key')->assertJsonMissingPath('endpoints');
+        $this->assertDatabaseHas('ocpi_providers', [
+            'id' => $created->json('id'),
+            'owner_id' => $owner->id,
+            'authorized' => false,
+        ]);
+        Http::assertNothingSent();
+    }
+}
