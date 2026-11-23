@@ -126,10 +126,17 @@ class VendorRevenueCohortSnapshot {
       throw const FormatException('Unreconciled invoice cohort totals.');
     }
 
+    final immutableDays = List<Map<String, dynamic>>.unmodifiable(days);
+    final immutableTotals = Map<String, dynamic>.unmodifiable(total);
+    final immutableSource = Map<String, dynamic>.unmodifiable({
+      ...map,
+      'data': immutableDays,
+      'totals': immutableTotals,
+    });
     return VendorRevenueCohortSnapshot._(
-      Map<String, dynamic>.unmodifiable(map),
-      List<Map<String, dynamic>>.unmodifiable(days),
-      Map<String, dynamic>.unmodifiable(total),
+      immutableSource,
+      immutableDays,
+      immutableTotals,
     );
   }
 
@@ -380,7 +387,7 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
                       Semantics(
                         label: t('Daily invoice activity', 'نشاط الفواتير اليومي'),
                         child: LinearProgressIndicator(
-                          value: maxDaily == 0 ? 0 :
+                          value: maxDaily == 0 ? 0.0 :
                             (day['invoiced_minor'] as int) / maxDaily,
                         ),
                       ),
