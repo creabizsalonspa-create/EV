@@ -36,6 +36,7 @@ final class ChargerLiveConnectorsController extends Controller
             in_array(strtolower($parts['host']), [
                 'localhost', '127.0.0.1', '[::1]',
                 'citrine', 'hasura', 'citrine-hasura', 'ev-hasura',
+                'charging-graphql',
             ], true);
     }
 
