@@ -545,7 +545,7 @@ class _CouponView extends StatefulWidget {
 
 class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
   final code = TextEditingController();
-  late final bool Function() ownsSession;
+  late bool Function() ownsSession;
   FinancialOperation? operation;
   int? owner;
   Map<String, dynamic>? get pending => operation?.pending;
@@ -572,6 +572,32 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
     ownsSession = widget.api.sessionFence();
     WidgetsBinding.instance.addObserver(this);
     loadCapability();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CouponView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        !identical(oldWidget.store, widget.store) ||
+        !ownsSession()) {
+      generation++;
+      ownsSession = widget.api.sessionFence();
+      operation = null;
+      owner = null;
+      capability = null;
+      message = null;
+      code.clear();
+      clearRecords();
+      busy = false;
+      final api = widget.api;
+      final bound = ownsSession;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && identical(api, widget.api) &&
+            identical(bound, ownsSession) && bound()) {
+          loadCapability();
+        }
+      });
+    }
   }
 
   @override
