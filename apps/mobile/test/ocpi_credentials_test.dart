@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/ocpi_credentials.dart';
@@ -12,7 +13,7 @@ class CredentialsApi extends FixtureApi {
   @override
   bool Function() sessionFence() =>
       () => active;
-  bool lost = false, expired = false, incoming = false;
+  bool lost = false, expired = false, incoming = false, forgedCapability = false;
   Map<String, dynamic>? intent;
   @override
   Future<dynamic> request(
@@ -50,6 +51,27 @@ class CredentialsApi extends FixtureApi {
           : (incoming ? ['prepare_incoming'] : ['rotate', 'unregister']),
       'charging_commands_enabled': false,
       'billing_eligible': false,
+      'capability_matrix': {
+        'evidence': 'NEGOTIATED_AND_CONFIGURED_SOFTWARE_ONLY',
+        'peer_role': 'CPO',
+        'credentials_current': !lost && !incoming,
+        'live_roaming_verified': false,
+        'physical_availability_verified': false,
+        'partner_conformance_verified': false,
+        'payment_authority': false,
+        'modules': [
+          for (final module in ['locations', 'tariffs', 'sessions', 'cdrs'])
+            {
+              'module': module,
+              'partner_sender_negotiated': module == 'locations' && !lost,
+              'local_receiver_configured': module != 'tariffs',
+              'local_receiver_active': module != 'tariffs' && !lost,
+              'local_sender_configured': false,
+              'local_sender_active': forgedCapability && module == 'locations',
+              'sandbox_delivery_software_enabled': false,
+            },
+        ],
+      },
       'operations': {
         'current_page': 1,
         'last_page': 1,
@@ -70,6 +92,43 @@ class CredentialsApi extends FixtureApi {
 }
 
 void main() {
+  for (final ar in [false, true]) {
+    testWidgets('source-only OCPI capabilities are shown without charging claims ($ar)', (tester) async {
+      final api = CredentialsApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: Locale(ar ? 'ar' : 'en'),
+          supportedLocales: const [Locale('en'), Locale('ar')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: OcpiCredentialsView(api: api, providerId: 7, onExpired: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining(ar ? 'وحدات المصدر المهيأة' : 'Configured/negotiated source modules only'), findsOneWidget);
+      expect(find.textContaining(ar ? 'قراءة الشريك نعم' : 'Partner read yes'), findsOneWidget);
+      expect(find.textContaining('SYNTHETIC-PEER-BOOTSTRAP'), findsNothing);
+      expect(api.writes, 0);
+    });
+  }
+
+  testWidgets('forged module authority fails closed without retaining prior credential history', (tester) async {
+    final api = CredentialsApi();
+    await tester.pumpWidget(MaterialApp(home: OcpiCredentialsView(api: api, providerId: 7, onExpired: () {})));
+    await tester.pumpAndSettle();
+    expect(find.text('Credentials active'), findsOneWidget);
+    api.forgedCapability = true;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Partner credentials unavailable.'), findsOneWidget);
+    expect(find.text('Credentials active'), findsNothing);
+    expect(find.text('Rotate partner credentials'), findsNothing);
+    expect(api.writes, 0);
+  });
+
   testWidgets(
     'retained credential approval cannot dispatch under a different authenticated account',
     (tester) async {

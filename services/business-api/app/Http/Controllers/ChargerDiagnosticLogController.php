@@ -8,6 +8,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\ConfigurationProbe;
 use App\Services\Charging\DiagnosticLogSource;
 use App\Services\Charging\FaultMonitor;
+use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -210,15 +211,19 @@ class ChargerDiagnosticLogController extends Controller
         $station = $probe->station($b, false);
         $action = $b->protocol === '1.6' ? 'GetDiagnostics' : 'GetLog';
         $payload = json_decode(Crypt::decryptString($op->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
-        $requests = $probe->graph('query($station:Int!,$action:String!,$after:timestamptz!,$until:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"csms"},type:{_eq:2},action:{_eq:$action},createdAt:{_gte:$after,_lte:$until},payload:{_eq:$match}},limit:2){id createdAt}}', ['station' => $station, 'action' => $action, 'after' => CarbonImmutable::parse($op->attempted_at)->toISOString(), 'until' => CarbonImmutable::parse($op->attempted_at)->addSeconds(30)->toISOString(), 'match' => $payload])['OCPPMessages'];
+        $requests = $probe->messages($probe->graph('query($station:Int!,$action:String!,$after:timestamptz!,$until:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"csms"},type:{_eq:2},action:{_eq:$action},createdAt:{_gte:$after,_lte:$until},payload:{_eq:$match}},limit:2){id createdAt}}', ['station' => $station, 'action' => $action, 'after' => CarbonImmutable::parse($op->attempted_at)->toISOString(), 'until' => CarbonImmutable::parse($op->attempted_at)->addSeconds(30)->toISOString(), 'match' => $payload]), false);
         $updates = [];
         if (count($requests) === 1) {
             $request = $requests[0];
-            $replies = $probe->graph('query($station:Int!,$request:Int!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},requestMessageId:{_eq:$request},type:{_in:[3,4]}},limit:2){id type payload createdAt}}', ['station' => $station, 'request' => $request['id']])['OCPPMessages'];
+            $replies = $probe->messages($probe->graph('query($station:Int!,$request:Int!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},requestMessageId:{_eq:$request},type:{_in:[3,4]}},limit:2){id type payload createdAt}}', ['station' => $station, 'request' => $request['id']]), true);
             if (count($replies) === 1) {
                 $reply = $replies[0];
-                $at = CarbonImmutable::parse($reply['createdAt'])->utc();
-                abort_unless($at->gte(CarbonImmutable::parse($request['createdAt'])) && $at->lte(CarbonImmutable::parse($op->expires_at)), 409);
+                $at = SourceStatusTime::parse($reply['createdAt'], 300);
+                $sentAt = SourceStatusTime::parse($request['createdAt'], 300);
+                abort_unless($reply['id'] > $request['id'] && $sentAt->gte(CarbonImmutable::parse($op->attempted_at, 'UTC'))
+                    && $sentAt->lte(CarbonImmutable::parse($op->attempted_at, 'UTC')->addSeconds(30))
+                    && $at->gte($sentAt) && $at->lte(CarbonImmutable::parse($op->expires_at, 'UTC')), 409,
+                    'Diagnostic source request/reply chronology requires reconciliation.');
                 $digest = hash('sha256', json_encode($reply['payload'], JSON_THROW_ON_ERROR));
                 abort_if($op->source_reply_id !== null && ($op->source_reply_id !== $reply['id'] || ! $op->source_reply_digest || ! hash_equals($op->source_reply_digest, $digest)), 409, 'Changed diagnostic source reply requires review.');
                 $body = $reply['payload'];
@@ -232,9 +237,17 @@ class ChargerDiagnosticLogController extends Controller
                 if ($accepted && ! $op->source_status_at) {
                     $name = $b->protocol === '1.6' ? 'DiagnosticsStatusNotification' : 'LogStatusNotification';
                     $match = $b->protocol === '1.6' ? new \stdClass : ['requestId' => (int) $op->id];
-                    $events = $probe->graph('query($station:Int!,$action:String!,$after:timestamptz!,$until:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},action:{_eq:$action},createdAt:{_gte:$after,_lte:$until},payload:{_contains:$match}},order_by:{id:asc},limit:51){id payload createdAt}}', ['station' => $station, 'action' => $name, 'after' => $reply['createdAt'], 'until' => CarbonImmutable::parse($op->expires_at)->toISOString(), 'match' => $match])['OCPPMessages'];
-                    abort_if(count($events) > 50, 409, 'Diagnostic source history requires review.');
+                    $events = $probe->graph('query($station:Int!,$action:String!,$after:timestamptz!,$until:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},action:{_eq:$action},createdAt:{_gte:$after,_lte:$until},payload:{_contains:$match}},order_by:{id:asc},limit:51){id payload createdAt}}', ['station' => $station, 'action' => $name, 'after' => $reply['createdAt'], 'until' => CarbonImmutable::parse($op->expires_at)->toISOString(), 'match' => $match])['OCPPMessages'] ?? null;
+                    abort_unless(is_array($events) && array_is_list($events) && count($events) <= 50,
+                        503, 'Malformed or unbounded diagnostic source status history.');
                     foreach ($events as $event) {
+                        abort_unless(is_array($event) && is_int($event['id'] ?? null) && $event['id'] > $reply['id']
+                            && is_array($event['payload'] ?? null) && is_string($event['createdAt'] ?? null),
+                            503, 'Malformed diagnostic source status.');
+                        $statusAt = SourceStatusTime::parse($event['createdAt'], 300);
+                        abort_unless($statusAt->gte($at)
+                            && $statusAt->lte(CarbonImmutable::parse($op->expires_at, 'UTC')), 409,
+                            'Diagnostic status clock requires review.');
                         $state = $event['payload']['status'] ?? null;
                         if (! in_array($state, ['Uploading', 'Uploaded', 'UploadFailed', 'UploadFailure', 'BadMessage', 'NotSupportedOperation', 'PermissionDenied'], true)) {
                             continue;
@@ -250,7 +263,7 @@ class ChargerDiagnosticLogController extends Controller
                         if ($state !== 'Uploading') {
                             $updates['source_status_id'] = $event['id'];
                             $updates['source_status_digest'] = hash('sha256', json_encode($event['payload'], JSON_THROW_ON_ERROR));
-                            $updates['source_status_at'] = CarbonImmutable::parse($event['createdAt'])->utc()->format('Y-m-d H:i:s.u');
+                            $updates['source_status_at'] = $statusAt->format('Y-m-d H:i:s.u');
                             break;
                         }
                     }

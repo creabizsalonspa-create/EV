@@ -84,7 +84,15 @@
     ['SIMULATED','DISCOVERY_ONLY'].includes(row.station.evidence)&&
     ['CCS2','Type2','CHAdeMO'].includes(row.station.connector_type)&&
     Number.isSafeInteger(row.station.power_kw)&&
-    row.station.power_kw>=1&&row.station.power_kw<=1000;
+    row.station.power_kw>=1&&row.station.power_kw<=1000&&
+    (row.station.evidence!=='DISCOVERY_ONLY'||row.station.reservable!==true)&&
+    (row.station.distance_km===null||row.station.distance_km===undefined||
+      (typeof row.station.distance_km==='number'&&
+       Number.isFinite(row.station.distance_km)&&row.station.distance_km>=0))&&
+    (row.station.timezone===null||row.station.timezone===undefined||
+      (typeof row.station.timezone==='string'&&row.station.timezone.trim()!==''))&&
+    (row.station.reservation_policy===null||row.station.reservation_policy===undefined||
+      typeof row.station.reservation_policy==='string');
   async function load(target,remember=false){
    if(writing)return;
    const historySnapshot=remember?{q:query,scope,country,connector,recentStatus,maxSourceAge,savedOnly,advanced:{...advancedQuery}}:null;

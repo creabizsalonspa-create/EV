@@ -123,6 +123,7 @@
         ocmMarkers,
         picked;
     const valid = (s) =>
+        s && typeof s === "object" &&
         s.latitude !== null &&
         s.longitude !== null &&
         s.latitude !== undefined &&
@@ -807,7 +808,21 @@
     });
     window.addEventListener("unified-map-data", (event) => {
         const rows = Array.isArray(event.detail) && event.detail.length <= 25 ? event.detail : [];
-        records = rows.filter(row => row?.kind === 'catalog' && valid(row.station)).map(row => row.station);
+        // The event is a UI message, not a new source of server authority.
+        // A malformed or incomplete catalog record stays list-only; never
+        // place a forged live-status or a null payload on a trusted map.
+        records = rows.filter(row =>
+            row?.kind === "catalog" &&
+            Number.isSafeInteger(row.station?.id) &&
+            row.station.id > 0 &&
+            row.key === "catalog:" + row.station.id &&
+            typeof row.station.name === "string" &&
+            row.station.name.trim() !== "" &&
+            ["SIMULATED", "DISCOVERY_ONLY"].includes(row.station.evidence) &&
+            !(row.station.evidence === "DISCOVERY_ONLY" &&
+              row.station.reservable === true) &&
+            valid(row.station),
+        ).map(row => row.station);
         partnerRows = rows.filter(row => row?.kind === 'partner').map(row => ({...row,id:row.record_id})).filter(partnerSafe);
         ocmRows = [];
         planner?.update(records);

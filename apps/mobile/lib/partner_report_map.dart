@@ -72,7 +72,12 @@ class PartnerMapPoint {
 
   /// A platform pin retains its own provenance; it is never relabeled as a partner.
   static PartnerMapPoint? fromPublishedCatalog(Map<String,dynamic> row) {
-    if (row['name'] is! String || row['id'] is! int || (row['id'] as int) < 1 || !['SIMULATED','DISCOVERY_ONLY'].contains(row['evidence'])) return null;
+    if (row['name'] is! String || row['id'] is! int ||
+        (row['id'] as int) < 1 ||
+        !['SIMULATED', 'DISCOVERY_ONLY'].contains(row['evidence']) ||
+        // Discovery-only location evidence cannot assert booking rights.
+        (row['evidence'] == 'DISCOVERY_ONLY' &&
+         row['reservable'] == true)) return null;
     final point = fromPublishedLocation(row);
     if (point == null) return null;
     return PartnerMapPoint(latitude:point.latitude,longitude:point.longitude,name:point.name,platformCatalog:true,catalogEvidence:row['evidence'] as String);

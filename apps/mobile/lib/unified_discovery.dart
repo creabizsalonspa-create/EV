@@ -26,7 +26,20 @@ bool completePublishedStation(Map<String,dynamic> station) =>
   ['SIMULATED','DISCOVERY_ONLY'].contains(station['evidence']) &&
   ['CCS2','Type2','CHAdeMO'].contains(station['connector_type']) &&
   station['power_kw'] is int && (station['power_kw'] as int)>=1 &&
-  (station['power_kw'] as int)<=1000;
+  (station['power_kw'] as int)<=1000 &&
+  // A discovery-only record must never appear to authorize a reservation.
+  (station['evidence'] != 'DISCOVERY_ONLY' || station['reservable'] != true) &&
+  // Station.fromJson uses typed optional fields. An invalid optional server
+  // value must degrade to a read-only station card, never crash the widget.
+  (station['timezone'] == null ||
+      (station['timezone'] is String &&
+       (station['timezone'] as String).trim().isNotEmpty)) &&
+  (station['reservation_policy'] == null ||
+      station['reservation_policy'] is String) &&
+  (station['distance_km'] == null ||
+      (station['distance_km'] is num &&
+       (station['distance_km'] as num).toDouble().isFinite &&
+       (station['distance_km'] as num) >= 0));
 
 class UnifiedDiscoveryView extends StatefulWidget {
   final EvApi api;

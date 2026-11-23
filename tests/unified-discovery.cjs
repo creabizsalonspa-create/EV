@@ -213,6 +213,28 @@ test('failed catalog or map-only queries cannot enter recent search history',asy
 });
 
 
+for(const lang of ['en','ar'])test('untrusted catalog optionals and discovery-only reservation claims never enable booking '+lang,async()=>{
+  const samples=[
+    {name:'bad timezone',patch:{timezone:{unexpected:'timezone'}}},
+    {name:'text distance',patch:{distance_km:'5.25'}},
+    {name:'negative distance',patch:{distance_km:-9}},
+    {name:'discovery-only reservation',patch:{evidence:'DISCOVERY_ONLY',reservable:true}},
+  ];
+  for(const item of samples){
+    const f=fixture(lang,async()=>({...sample,data:[
+      {...sample.data[0],station:{...sample.data[0].station,...item.patch}},
+      sample.data[1],
+    ]}));
+    f.form.onsubmit({preventDefault(){}});await tick();
+    assert.equal(f.list.children.length,2,item.name);
+    assert.match(f.list.children[0].textContent,
+      lang==='ar'?/بيانات المحطة المنشورة غير مكتملة/:/Published station details incomplete/,
+      item.name);
+    assert.equal(f.list.children[0].children.some(n=>n.tag==='button'),false,item.name);
+    assert.deepEqual(f.chosen,[],item.name);
+    assert.match(f.list.children[1].textContent,/Synthetic|<img src=x>/,item.name);
+  }
+});
 for(const lang of ['en','ar'])test('incomplete catalog metadata stays readable but has no booking or favorite action '+lang,async()=>{
  const partial={...sample,data:[
   {...sample.data[0],station:{id:7,name:'<img src=x>',evidence:'SIMULATED',connector_type:'CCS2'}},
