@@ -84,11 +84,21 @@ def json_components(text, lock, composer):
         for instance, package in sorted(data['packages'].items()):
             if instance == '':
                 continue  # Root source project is not a third-party dependency.
-            if not isinstance(package, dict) or not isinstance(instance, str) or '\\' in instance or '..' in instance.split('/'):
-                raise InventoryError('Invalid npm package instance.')
+            # An npm package instance must be a concrete installed dependency,
+            # not a synthetic path or workspace record masquerading as one.
+            # Workspace links require separate audited source resolution; even
+            # a supplied version is not proof of a locked package's contents.
+            if (not isinstance(package, dict) or not isinstance(instance, str)
+                    or '\\' in instance or not instance.startswith('node_modules/')
+                    or any(part in ['', '.', '..'] for part in instance.split('/'))):
+                raise InventoryError('Invalid or unsupported npm package instance.')
+            if 'link' in package and type(package['link']) is not bool:
+                raise InventoryError('Malformed npm workspace link declaration.')
+            if package.get('link') is True:
+                raise InventoryError('Unresolved npm workspace link cannot be credited as a locked dependency.')
+            if 'dev' in package and type(package['dev']) is not bool:
+                raise InventoryError('Malformed npm development-only declaration.')
             name = package.get('name') or instance.rsplit('node_modules/', 1)[-1]
-            if package.get('link') is True and package.get('version') is None:
-                raise InventoryError('Unresolved npm workspace link requires an explicit version inventory.')
             result.append(component('npm', lock, instance, name, package.get('version'), package.get('license'), package.get('dev'), 'npm_lock'))
     return result
 
