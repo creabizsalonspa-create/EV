@@ -69,6 +69,7 @@ class CaseApi extends FixtureApi {
               {
                 'id': 7,
                 'invoice_id': 3,
+                'amount_minor': 125,
                 'reason': 'Literal <script> dispute',
                 'status': 'open',
                 'evidence': 'MOCK_PROVIDER',
@@ -351,6 +352,7 @@ void main() {
       await t.pumpWidget(app(PaymentCasesView(api: api, onExpired: () {})));
       await t.pumpAndSettle();
       expect(find.text('Literal <script> dispute'), findsOneWidget);
+      expect(find.text('Disputed amount (minor units): 125'), findsOneWidget);
       await click(t, 'Next');
       expect(api.calls.where((p) => p.startsWith('POST')), isEmpty);
       expect(api.posts, 0);
@@ -390,6 +392,18 @@ void main() {
       expect(find.text('عرض الملف الخاص المتحقق منه'), findsNothing);
     },
   );
+  testWidgets('Arabic dispute history shows the exact minor amount without claiming a refund', (
+    t,
+  ) async {
+    final api = CaseApi();
+    await t.pumpWidget(app(PaymentCasesView(api: api, onExpired: () {}), ar: true));
+    await t.pumpAndSettle();
+    expect(find.text('المبلغ المتنازع عليه (وحدات نقدية صغرى): 125'), findsOneWidget);
+    expect(find.text('Literal <script> dispute'), findsOneWidget);
+    expect(api.posts, 0);
+    expect(api.uploads, 0);
+  });
+
   test(
     'case interface translations have parity',
     () => expect(caseEn.keys.toSet(), caseAr.keys.toSet()),
