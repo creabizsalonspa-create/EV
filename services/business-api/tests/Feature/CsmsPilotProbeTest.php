@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\ChargerCommand;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
-use App\Models\ChargerCommand;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
