@@ -95,6 +95,9 @@ class FinancialDocumentsTest extends TestCase
             ['999999999999999999999', true],
             ['0.01', false],
             ['1e10', false],
+            [100.0, false],
+            [-100.0, true],
+            [true, false],
             ['not-invoice-money', false],
         ] as [$value, $signed]) {
             try {
