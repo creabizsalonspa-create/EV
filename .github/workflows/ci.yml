@@ -105,6 +105,8 @@ jobs:
       - name: Verify continuous source ingestion and restart
         run: EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs
       - run: npm run test:vendor
+      - name: Verify real vendor station policy and charger operations via Laravel
+        run: node tests/charger-operations.cjs
       - run: EV_ROAMING_VERIFY_RATE_LIMIT=1 npm run test:roaming
       - run: npm run test:ocpi-provisioning
       - name: Financial browser workflows
