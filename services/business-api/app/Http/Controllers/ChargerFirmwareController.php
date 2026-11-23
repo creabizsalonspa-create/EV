@@ -236,7 +236,7 @@ class ChargerFirmwareController extends Controller
             'manufacturer' => $charger->manufacturer,
             'model' => $charger->model,
             'observed_source_firmware' => $observed['firmwareVersion'],
-            'source_last_message_at' => $lastMessage->toISOString(),
+            'source_last_message_at' => $followupTime->toISOString(),
             'source_freshness_seconds' => 300,
             'source_snapshot_verified' => true,
             'physical_hardware_accepted' => false,
