@@ -3013,9 +3013,17 @@ window.EV_MESSAGES = {
         ar: "مسح النموذج المعلق بعد مراجعة سجل الإصلاح",
     },
     "Diagnostic files": { en: "Diagnostic files", ar: "ملفات التشخيص" },
+    "Registered diagnostic source": {
+        en: "Registered source diagnostics; physical device unverified.",
+        ar: "تشخيص مصدر مسجل؛ الجهاز الفعلي غير متحقق.",
+    },
+    "Simulated diagnostic source": {
+        en: "Simulator source diagnostics; no physical acceptance.",
+        ar: "تشخيص مصدر محاكي؛ لا اعتماد لجهاز فعلي.",
+    },
     "Diagnostic files privacy notice": {
-        en: "Private simulator logs. Uploads expire after 15 minutes; stored content after 24 hours. OCPP 1.6 upload-status notifications have no request ID and remain unattributed. Exported files remain under your device control.",
-        ar: "سجلات محاكي خاصة. تنتهي صلاحية الرفع بعد ١٥ دقيقة والمحتوى المخزن بعد ٢٤ ساعة. إشعارات رفع OCPP 1.6 بلا معرّف طلب وتبقى غير منسوبة. الملفات المصدرة تحت تحكم جهازك.",
+        en: "Private diagnostic logs. Physical device acceptance is unverified. Uploads expire after 15 minutes; stored content after 24 hours. OCPP 1.6 upload-status notifications have no request ID and remain unattributed. Exported files remain under your device control.",
+        ar: "سجلات تشخيص خاصة. اعتماد الجهاز الفعلي غير متحقق. تنتهي صلاحية الرفع بعد ١٥ دقيقة والمحتوى المخزن بعد ٢٤ ساعة. إشعارات رفع OCPP 1.6 بلا معرّف طلب وتبقى غير منسوبة. الملفات المصدرة تحت تحكم جهازك.",
     },
     "Refresh diagnostic history": {
         en: "Refresh diagnostic history",
