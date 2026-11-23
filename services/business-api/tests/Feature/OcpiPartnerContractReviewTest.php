@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Controllers\OcpiContractReviewController;
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -258,6 +259,32 @@ final class OcpiPartnerContractReviewTest extends TestCase
         Http::assertSentCount(2);
         $this->assertDatabaseCount('ocpi_partner_contract_reviews', 1);
         $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
+    public function test_expired_contract_denies_managed_credential_registration_before_peer_discovery(): void
+    {
+        config(['ocpi.contract_review_required' => true]);
+        [$owner, $admin, $provider] = $this->fixture();
+        // Existing authorized providers can predate the manual-review policy;
+        // they must not use that grandfathered flag to dispatch new exchange.
+        $provider->forceFill(['authorized' => true])->save();
+        $request = [
+            'action' => 'register',
+            'reason' => 'Synthetic approval attempt after an expired internal contract.',
+            'idempotency_key' => 'contract-exchange-00001',
+        ];
+        try {
+            app(CredentialExchange::class)->exchange(
+                $provider, $admin->id, $request, $admin
+            );
+            $this->fail('Stale contractual evidence permitted credential discovery.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        $this->assertDatabaseCount('ocpi_credential_links', 0);
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
