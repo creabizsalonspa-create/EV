@@ -112,8 +112,12 @@ Provider/issuer invoice numbers are left intact in canonical JSON and database
 records but prefixed as literal cells on CSV export if they could be
 interpreted as spreadsheet formulas. CSV escapes RFC quotes without treating
 backslashes as an escape operator; responses remain private/no-store and
-nosniff. Tests cover the original ledger, both invalid-page transports, large
-source rejection, and spreadsheet injection. No source or financial ledger
+nosniff. Tests cover the original ledger and both invalid-page transports.
+The inexact-amount and spreadsheet-injection primitives are exercised
+directly using reflection **without updating immutable issued invoices**:
+canonical invoice UPDATE/DELETE triggers remain enabled in SQLite and
+PostgreSQL. The same tests prove ordinary JSON/CSV work with those immutable
+originals and leave journals unchanged. No source or financial ledger
 mutation occurs, no bank settlement is verified, and original requirement
 `3.5.9` remains uncredited pending Agent 5 integration and full cross-platform
 acceptance.
