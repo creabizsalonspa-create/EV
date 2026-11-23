@@ -3,6 +3,17 @@
     const messages = {
         create: ["Registered", "مسجّل"],
         home: ["Workspace", "مساحة العمل"],
+        rewardReviews: ["Partner reward reviews", "مراجعات مكافآت الشريك"],
+        rewardId: ["Existing reward ID", "رقم المكافأة الحالية"],
+        proposeReward: ["Propose reward", "اقتراح مكافأة"],
+        rewardApprove: ["Approve reward proposal", "الموافقة على اقتراح المكافأة"],
+        rewardReject: ["Reject reward proposal", "رفض اقتراح المكافأة"],
+        rewardRevoke: ["Revoke reward approval", "إلغاء الموافقة على المكافأة"],
+        rewardRecorded: ["Recorded reward proposals", "اقتراحات المكافآت المسجلة"],
+        rewardReviewOnly: ["Approval records eligibility for review. Partner fulfillment is disabled.", "تسجّل الموافقة الأهلية للمراجعة. تسليم المكافآت عبر الشريك معطّل."],
+        rewardTermsStale: ["Partner terms have changed", "تغيّرت شروط الشريك"],
+        propose: ["Proposed", "مقترحة"],
+        rewardHistory: ["Reward decision history", "سجل قرارات المكافأة"],
         language: ["Language", "اللغة"],
         theme: ["Theme", "المظهر"],
         system: ["System", "النظام"],
@@ -300,9 +311,119 @@
                 box.append(button("newer", () => detail(id, eventPage - 1)));
             if (data.events.current_page < data.events.last_page)
                 box.append(button("older", () => detail(id, eventPage + 1)));
+            box.append(button("rewardReviews", () => {
+                box.querySelector("[data-reward-reviews]")?.remove();
+                const panel = node("section");
+                panel.dataset.rewardReviews = "true";
+                box.append(panel);
+                loadRewardReviews(p, panel);
+            }));
             status("ready");
         } catch (e) {
             if (ticket === generation) fail(e);
+        }
+    }
+    async function loadRewardReviews(partner, panel, page = 1) {
+        const ticket = generation;
+        const owner = actor;
+        const active = () => ticket === generation && owner === actor && selected === partner
+            && panel.isConnected && !document.hidden;
+        const endpoint = `/api/admin/retail-partners/${partner.id}/reward-reviews`;
+        panel.replaceChildren();
+        status("loading");
+        try {
+            const rows = await request(`${endpoint}?page=${page}`);
+            if (!active()) return;
+            panel.append(node("h3", t("rewardRecorded")), node("p", t("rewardReviewOnly")));
+            function input(parent, key, tag) {
+                const label = node("label", t(key));
+                const field = node(tag);
+                label.append(field);
+                parent.append(label);
+                return field;
+            }
+            function write(parent, key, path, data) {
+                let previous, requestKey;
+                parent.append(button(key, async () => {
+                    if (!active() || busy) return;
+                    const payload = data();
+                    if (!payload) {
+                        status("invalid");
+                        return;
+                    }
+                    const fingerprint = JSON.stringify(payload);
+                    if (fingerprint !== previous) {
+                        previous = fingerprint;
+                        requestKey = crypto.randomUUID();
+                    }
+                    busy = true;
+                    try {
+                        await request(endpoint + path, {
+                            method: "POST",
+                            body: JSON.stringify({ ...payload, idempotency_key: requestKey }),
+                        });
+                        if (active()) await loadRewardReviews(partner, panel, page);
+                    } catch (error) {
+                        if (active()) fail(error);
+                    } finally {
+                        busy = false;
+                    }
+                }));
+            }
+            if (partner.currently_effective) {
+                const reward = input(panel, "rewardId", "input");
+                reward.inputMode = "numeric";
+                const reason = input(panel, "reason", "textarea");
+                reason.maxLength = 500;
+                write(panel, "proposeReward", "", () => {
+                    const id = Number(reward.value);
+                    return /^[0-9]+$/.test(reward.value) && id > 0 && Number.isSafeInteger(id)
+                        && reason.value.trim().length >= 5
+                        ? { reward_id: id, expected_partner_revision: partner.revision, reason: reason.value.trim() }
+                        : null;
+                });
+            }
+            for (const row of rows.data) {
+                const card = node("article");
+                card.dataset.rewardReview = row.id;
+                card.append(node("p", `#${row.reward_id} · ${t(row.decision)}`), node("p", row.reason));
+                if (!row.terms_current) card.append(node("p", t("rewardTermsStale")));
+                const decisions = row.decision === "propose"
+                    ? [...(row.terms_current ? [["rewardApprove", "approve"]] : []), ["rewardReject", "reject"]]
+                    : row.decision === "approve" ? [["rewardRevoke", "revoke"]] : [];
+                if (decisions.length) {
+                    const reason = input(card, "reason", "textarea");
+                    reason.maxLength = 500;
+                    for (const [key, action] of decisions) {
+                        write(card, key, `/${row.id}/${action}`, () => reason.value.trim().length >= 5
+                            ? { expected_revision: row.revision, reason: reason.value.trim() }
+                            : null);
+                    }
+                }
+                const history = node("div");
+                async function readHistory(eventPage = 1) {
+                    history.replaceChildren();
+                    try {
+                        const data = await request(`${endpoint}/${row.id}?page=${eventPage}`);
+                        if (!active()) return;
+                        for (const event of data.events.data)
+                            history.append(node("p", `${event.revision} · ${t(event.decision)} · ${event.reason}`));
+                        if (data.events.current_page > 1)
+                            history.append(button("newer", () => readHistory(eventPage - 1)));
+                        if (data.events.current_page < data.events.last_page)
+                            history.append(button("older", () => readHistory(eventPage + 1)));
+                    } catch (error) {
+                        if (active()) fail(error);
+                    }
+                }
+                card.append(button("rewardHistory", () => readHistory()), history);
+                panel.append(card);
+            }
+            if (page > 1) panel.append(button("newer", () => loadRewardReviews(partner, panel, page - 1)));
+            if (page < rows.last_page) panel.append(button("older", () => loadRewardReviews(partner, panel, page + 1)));
+            status("ready");
+        } catch (error) {
+            if (active()) fail(error);
         }
     }
     function edit(p) {
