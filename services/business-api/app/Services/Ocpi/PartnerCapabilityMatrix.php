@@ -40,12 +40,13 @@ final class PartnerCapabilityMatrix
         $cpoModules = [];
         if ($configured) {
             try {
-                // The CPO catalog contract validates approved sites/tariffs.
-                // It does not expose a "modules" method: only an approved,
-                // non-null contract enables the two supported Sender modules.
-                if (app(CpoCatalogContract::class)->approved($provider) !== null) {
-                    $cpoModules = CpoCatalogContract::MODULES;
-                }
+                $contract = app(CpoCatalogContract::class);
+                // The later, independently reviewed CPO session/CDR branch
+                // introduces modules() behind explicit sandbox exports.
+                // Preserve parity in either dependency merge order.
+                $cpoModules = method_exists($contract, 'modules')
+                    ? $contract->modules($provider)
+                    : ($contract->approved($provider) === null ? [] : CpoCatalogContract::MODULES);
             } catch (Throwable) {
                 // An invalid/missing CPO contract never advertises senders.
             }
