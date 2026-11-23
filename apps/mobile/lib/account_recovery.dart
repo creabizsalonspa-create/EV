@@ -63,7 +63,29 @@ class _AccountRecoveryViewState extends State<AccountRecoveryView>
     super.initState();
     email.text = widget.initialEmail;
     owner = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    // This view handles pasted reset tokens; never expose its secret inputs
+    // if first mounted while the operating system considers it inactive.
+    hidden = lifecycle != null && lifecycle != AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didUpdateWidget(covariant AccountRecoveryView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api ||
+        oldWidget.initialEmail != widget.initialEmail || !owner()) {
+      // The same EvApi may be reused after reauthentication. A reset link,
+      // password and previous acknowledgement belong to one actor only.
+      generation++;
+      clearSecrets();
+      email
+        ..clear()
+        ..text = widget.initialEmail;
+      owner = widget.api.sessionFence();
+      sent = complete = busy = false;
+      error = null;
+    }
   }
 
   void clearSecrets() {
@@ -85,14 +107,14 @@ class _AccountRecoveryViewState extends State<AccountRecoveryView>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
     generation++;
     clearSecrets();
-    if (mounted)
-      setState(() {
-        hidden = state != AppLifecycleState.resumed;
-        busy = false;
-        error = null;
-      });
+    setState(() {
+      hidden = state != AppLifecycleState.resumed;
+      busy = false;
+      error = null;
+    });
   }
 
   Future<void> submit(bool reset) async {
