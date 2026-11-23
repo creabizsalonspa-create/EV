@@ -224,7 +224,7 @@ class _FirmwareState extends State<ChargerFirmwareView>
   }
 
   Future<void> deploy() async {
-    if (!foreground || !authorized() || busy || !manager || !enabled) return;
+    if (!foreground || !authorized() || busy || checkingCompatibility || !manager || !enabled) return;
     final epoch = ++generation;
     final target = path;
     final api = widget.api;
@@ -233,6 +233,10 @@ class _FirmwareState extends State<ChargerFirmwareView>
     setState(() {
       busy = true;
       error = null;
+      // A pre-command compatibility snapshot must not be presented as
+      // current evidence after any maintenance operation is attempted.
+      sourceCompatibility = null;
+      compatibilityError = null;
     });
     try {
       if (pending == null) {
@@ -264,13 +268,15 @@ class _FirmwareState extends State<ChargerFirmwareView>
   }
 
   Future<void> review(int id, {bool cancel = false}) async {
-    if (!foreground || !authorized() || busy || !manager || !enabled) return;
+    if (!foreground || !authorized() || busy || checkingCompatibility || !manager || !enabled) return;
     final epoch = ++generation;
     final target = path;
     final api = widget.api;
     setState(() {
       busy = true;
       error = null;
+      sourceCompatibility = null;
+      compatibilityError = null;
     });
     try {
       final value = await note(
@@ -476,7 +482,7 @@ class _FirmwareState extends State<ChargerFirmwareView>
                   ),
                 if (selected != null || pending != null)
                   FilledButton(
-                    onPressed: busy ? null : deploy,
+                    onPressed: busy || checkingCompatibility ? null : deploy,
                     child: Text(
                       pending == null
                           ? t('Request signed firmware', 'طلب برنامج ثابت موقع')
@@ -500,7 +506,7 @@ class _FirmwareState extends State<ChargerFirmwareView>
                         Text('${op['created_at']}'),
                         if (op['reviewed_at'] == null && manager && enabled)
                           TextButton(
-                            onPressed: busy
+                            onPressed: busy || checkingCompatibility
                                 ? null
                                 : () => review(
                                     op['id'] as int,
