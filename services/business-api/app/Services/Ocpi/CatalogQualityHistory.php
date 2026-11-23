@@ -82,14 +82,23 @@ final class CatalogQualityHistory
                 ]);
             $samples = [];
             foreach ($rows as $row) {
+                $hour = CarbonImmutable::parse($row->observed_hour, 'UTC');
+                $sampled = CarbonImmutable::parse($row->sampled_at, 'UTC');
+                abort_unless($hour->equalTo($hour->startOfHour())
+                    && $sampled->greaterThanOrEqualTo($hour)
+                    && $sampled->lessThan($hour->addHour()), 409,
+                    'Stored quality observation clock requires reconciliation.');
                 $numbers = array_map(static fn ($key) => $row->{$key}, self::COUNTS);
                 $hasCounts = in_array($row->state, ['within_policy', 'attention', 'empty'], true);
                 if ($hasCounts) {
                     abort_unless($row->max_age_seconds >= 60 && $row->max_age_seconds <= 604800
                         && count(array_filter($numbers, static fn ($value) => $value === null)) === 0
-                        && array_reduce($numbers, static fn ($ok, $v) => $ok && is_numeric($v) && (int) $v >= 0, true)
+                        && array_reduce($numbers, static fn ($ok, $v) => $ok && is_numeric($v)
+                            && (int) $v >= 0 && (int) $v <= 1000000, true)
                         && (int) $row->within_policy_count + (int) $row->stale_count + (int) $row->unknown_age_count === (int) $row->published_count
-                        && (int) $row->future_clock_count <= (int) $row->unknown_age_count,
+                        && (int) $row->future_clock_count <= (int) $row->unknown_age_count
+                        && $row->state === ((int) $row->published_count === 0 ? 'empty'
+                            : (((int) $row->stale_count + (int) $row->unknown_age_count) > 0 ? 'attention' : 'within_policy')),
                         409, 'Stored quality observation requires reconciliation.');
                 } else {
                     abort_unless(in_array($row->state, ['unavailable', 'policy_unavailable'], true)
@@ -98,8 +107,8 @@ final class CatalogQualityHistory
                 }
 
                 $sample = [
-                    'observed_hour' => CarbonImmutable::parse($row->observed_hour, 'UTC')->toISOString(),
-                    'sampled_at' => CarbonImmutable::parse($row->sampled_at, 'UTC')->toISOString(),
+                    'observed_hour' => $hour->toISOString(),
+                    'sampled_at' => $sampled->toISOString(),
                     'state' => $row->state,
                     'max_age_seconds' => $row->max_age_seconds === null ? null : (int) $row->max_age_seconds,
                 ];
