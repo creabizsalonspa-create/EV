@@ -82,6 +82,7 @@ class ExternalDisputesController extends Controller
             $values = $r->validate([
                 'window_hours' => 'sometimes|integer|between:0,168',
                 'per_page' => 'sometimes|integer|between:1,25',
+                'page' => 'sometimes|integer|between:1,10000',
             ]);
             $window = (int) ($values['window_hours'] ?? 48);
             $cutoff = now()->addHours($window);
@@ -104,7 +105,8 @@ class ExternalDisputesController extends Controller
                 ->orderByRaw("CASE WHEN d.status IN ('needs_response', 'warning_needs_response') AND d.evidence_due_at IS NOT NULL THEN 0 WHEN d.status = 'lost' THEN 1 ELSE 2 END")
                 ->orderByRaw('CASE WHEN d.evidence_due_at IS NULL THEN 1 ELSE 0 END')
                 ->orderBy('d.evidence_due_at')->orderBy('d.id')
-                ->paginate((int) ($values['per_page'] ?? 20));
+                ->paginate((int) ($values['per_page'] ?? 20),
+                    ['*'], 'page', (int) ($values['page'] ?? 1));
             $rows = $page->getCollection()->map(function ($row) {
                 $unresolved = DB::table('external_dispute_evidence')
                     ->where('dispute_id', $row->id)
