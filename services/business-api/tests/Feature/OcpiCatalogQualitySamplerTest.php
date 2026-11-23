@@ -8,9 +8,9 @@ use App\Services\Ocpi\CatalogQualitySampler;
 use App\Services\Ocpi\RecordSynchronizer;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Artisan;
 use Tests\TestCase;
 
 class OcpiCatalogQualitySamplerTest extends TestCase
@@ -111,6 +111,7 @@ class OcpiCatalogQualitySamplerTest extends TestCase
         app(CatalogQualitySampler::class)->run(51);
         $this->assertDatabaseCount('ocpi_catalog_quality_history', 0);
     }
+
     public function test_cli_command_uses_opt_in_and_bounded_offline_sampling_without_provider_fetch(): void
     {
         Http::preventStrayRequests();
@@ -133,5 +134,4 @@ class OcpiCatalogQualitySamplerTest extends TestCase
         $this->assertDatabaseCount('ocpi_catalog_quality_history', 2);
         Http::assertNothingSent();
     }
-
 }
