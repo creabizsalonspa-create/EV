@@ -67,11 +67,18 @@ class OcpiCredentialsController extends Controller
         if ($tokenBound) {
             try {
                 $localToken = Crypt::decryptString($link->local_token_ciphertext);
+                $remoteToken = Crypt::decryptString($link->remote_token_ciphertext);
                 $tokenBound = preg_match('/^[\x21-\x7e]{1,64}$/D', $localToken)
+                    && preg_match('/^[\x21-\x7e]{1,64}$/D', $remoteToken)
                     && hash_equals($link->local_token_digest, hash('sha256', $localToken));
             } catch (Throwable) {
                 $tokenBound = false;
             }
+        }
+        if ($configured && $state === 'active' && ! $tokenBound) {
+            // An incomplete or corrupted active link is not safe to rotate.
+            // Keep explicit de-registration available to a current admin.
+            $actions = $r->user()->role === 'admin' ? ['unregister'] : [];
         }
         $activeReceivers = $configured && $tokenBound && $provider->authorized
             ? ($ownerActive ? $receiverModules : array_values(array_intersect($receiverModules, ['sessions', 'cdrs']))) : [];
