@@ -6,6 +6,7 @@ use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Ocpi\CdrReconciler;
+use App\Services\Ocpi\ContractReviewGate;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerBillingExport;
 use App\Services\Ocpi\PartnerBillingReconciliation;
@@ -37,17 +38,7 @@ class OcpiController extends Controller
      */
     private function requireInternalContractReview(OcpiProvider $provider, User $owner): void
     {
-        if (config('ocpi.contract_review_required') !== true) {
-            return;
-        }
-        $review = DB::table('ocpi_partner_contract_reviews')
-            ->where('provider_id', $provider->id)
-            ->orderByDesc('revision')->first();
-        abort_unless($review && (int) $review->owner_id === (int) $owner->id
-            && $review->decision === 'review' && $owner->role === 'vendor'
-            && $owner->account_status === 'active'
-            && is_string($review->valid_until)
-            && $review->valid_until >= now('UTC')->toDateString(),
+        abort_unless(app(ContractReviewGate::class)->current($provider, $owner),
             409, 'Current provider owner requires an unexpired internal contract evidence review.');
     }
 
