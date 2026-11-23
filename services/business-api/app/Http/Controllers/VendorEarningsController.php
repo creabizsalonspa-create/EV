@@ -32,6 +32,13 @@ final class VendorEarningsController extends Controller
         return $number;
     }
 
+    /** Only CSV gets the spreadsheet-literal prefix; source JSON remains exact. */
+    private static function csvInvoiceNumber(string $number): string
+    {
+        return preg_match('/^[\\s\\x00-\\x1f]*[=+@-]/u', $number)
+            ? "'".$number : $number;
+    }
+
     private function page(Request $request, int $vendor, SettlementService $service): array
     {
         // Caller holds the account lock until the scoped earnings snapshot
@@ -171,12 +178,9 @@ final class VendorEarningsController extends Controller
                 // spreadsheet-leading formulas as literal cells on export.
                 $values = array_map(static function (string $field) use ($row) {
                     $value = $row[$field];
-                    if ($field === 'invoice_number' && is_string($value)
-                        && preg_match('/^[\\s\\x00-\\x1f]*[=+@-]/u', $value)) {
-                        return "'".$value;
-                    }
-
-                    return $value;
+                    return $field === 'invoice_number'
+                        ? self::csvInvoiceNumber((string) $value)
+                        : $value;
                 }, $fields);
                 fputcsv($output, $values, ',', '"', '');
             }
