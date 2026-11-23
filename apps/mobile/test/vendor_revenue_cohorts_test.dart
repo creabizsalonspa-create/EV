@@ -169,7 +169,7 @@ void main() {
     final api = RevenueApi();
     await open(tester, api);
     expect(find.byKey(const Key('revenue-cohort-total-issued')), findsOneWidget);
-    expect(find.text('AED 10.99', findRichText: true), findsNothing);
+    expect(find.textContaining('Issued: AED 10.99'), findsOneWidget);
     expect(api.queries.single['currency'], 'AED');
     expect(api.calls.where((c) => c.startsWith('POST ')), isEmpty);
     expect(find.textContaining('No bank or PSP verification'), findsOneWidget);
