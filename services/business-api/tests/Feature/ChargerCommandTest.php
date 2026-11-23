@@ -345,6 +345,31 @@ class ChargerCommandTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_legacy_station_wide_stop_cannot_cross_a_current_operator_transfer(): void
+    {
+        config(['csms.simulator_enabled' => true]);
+        Http::preventStrayRequests();
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($vendor);
+        DB::table('csms_bindings')->insert([
+            'station_id' => $station->id, 'identifier' => 'ev-test-legacy-stop-transfer',
+            'protocol' => '1.6', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $stop = ChargerCommand::create([
+            'actor_id' => $vendor->id, 'station_id' => $station->id,
+            'action' => 'stop', 'idempotency_key' => 'before-transfer',
+            'payload_hash' => str_repeat('c', 64),
+            'payload' => ['transaction_id' => '123'],
+        ]);
+        $station->update(['vendor_id' => User::factory()->create(['role' => 'vendor'])->id]);
+        Http::fake();
+        $result = app(CsmsDispatcher::class)->dispatch($stop->id);
+        $this->assertSame('pending', $result->status);
+        $this->assertSame('pre_dispatch_source_lineage_changed', $result->failure_code);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_repointing_a_pending_owned_charger_source_blocks_dispatch_to_another_operator(): void
     {
         config(['csms.simulator_enabled' => true]);
