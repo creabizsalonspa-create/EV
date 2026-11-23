@@ -450,43 +450,64 @@ class SettlementTest extends TestCase
         $this->assertSame($before, DB::table('finance_journals')->count());
     }
 
-    public function test_vendor_earnings_refuses_inexact_large_financial_source_amounts(): void
+    public function test_vendor_earnings_rejects_unsafe_financial_numbers_without_mutating_immutable_invoices(): void
     {
         $invoice = $this->invoice();
         $this->configure();
         $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
         $before = DB::table('finance_journals')->count();
 
-        DB::table('finance_invoices')->where('id', $invoice->id)
-            ->update(['subtotal_minor' => 9007199254740992]);
-        $this->actingAs($this->vendor)->getJson($path.'?currency=AED')
-            ->assertConflict();
-        $this->get($path.'/export?currency=AED')->assertConflict();
+        // Issued finance invoices are protected by SQLite/PostgreSQL
+        // immutability triggers: do not bypass those safeguards in tests.
+        // Exercise the exact primitive on malformed external aggregates instead.
+        $minor = new \ReflectionMethod(\App\Http\Controllers\VendorEarningsController::class, 'minor');
+        foreach ([9007199254740992, -9007199254740992, 'not-a-number', 1.5] as $unsafe) {
+            try {
+                $minor->invoke(null, $unsafe, true);
+                $this->fail('Inexact source value reached financial output.');
+            } catch (HttpException $e) {
+                $this->assertSame(409, $e->getStatusCode());
+            }
+        }
+        $this->assertSame(-450, $minor->invoke(null, -450, true));
+        try {
+            $minor->invoke(null, -1, false);
+            $this->fail('Negative unsigned amount accepted.');
+        } catch (HttpException $e) {
+            $this->assertSame(409, $e->getStatusCode());
+        }
 
-        // The report never "repairs" or rewrites an original invoice,
-        // refund, settlement or journal to accommodate bad source data.
+        $this->actingAs($this->vendor)->getJson($path.'?currency=AED')
+            ->assertOk()->assertJsonPath('total', 1);
+        $this->get($path.'/export?currency=AED')->assertOk();
         $this->assertDatabaseHas('finance_invoices', [
-            'id' => $invoice->id, 'subtotal_minor' => 9007199254740992,
+            'id' => $invoice->id, 'subtotal_minor' => 1000,
         ]);
         $this->assertSame($before, DB::table('finance_journals')->count());
     }
 
-    public function test_vendor_earnings_csv_quotes_provider_invoice_numbers_as_literals(): void
+    public function test_vendor_earnings_csv_encodes_unsafe_numbers_as_spreadsheet_literals_only(): void
     {
         $invoice = $this->invoice();
         $this->configure();
         $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
         $before = DB::table('finance_journals')->count();
 
-        DB::table('finance_invoices')->where('id', $invoice->id)->update([
-            'number' => '=HYPERLINK("https://untrusted.test","open")',
-        ]);
+        // Test the CSV-only cell encoder without illegally changing a signed,
+        // immutable finance invoice to a fabricated provider filename.
+        $cell = new \ReflectionMethod(\App\Http\Controllers\VendorEarningsController::class, 'csvInvoiceNumber');
+        foreach (['=HYPERLINK("https://untrusted.test","open")', '+SUM(1,2)',
+            '-cmd', '@danger', "\t=malicious"] as $formula) {
+            $this->assertSame("'".$formula, $cell->invoke(null, $formula));
+        }
+        $this->assertSame('INV-2026-AE-0001', $cell->invoke(null, 'INV-2026-AE-0001'));
+
         $this->actingAs($this->vendor)
             ->getJson($path.'?currency=AED')->assertOk()
-            ->assertJsonPath('data.0.invoice_number', '=HYPERLINK("https://untrusted.test","open")');
+            ->assertJsonPath('data.0.invoice_number', $invoice->number);
         $csv = $this->get($path.'/export?currency=AED');
         $csv->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
-        $this->assertStringContainsString("'=HYPERLINK", $csv->streamedContent());
+        $this->assertStringContainsString($invoice->number, $csv->streamedContent());
         $this->assertSame($before, DB::table('finance_journals')->count());
     }
 }
