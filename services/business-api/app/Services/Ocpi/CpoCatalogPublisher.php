@@ -38,6 +38,26 @@ final class CpoCatalogPublisher
             403, 'Admin authorization changed. Sign in again.');
     }
 
+    /**
+     * All CPO reads and writes lock Admin (when present), owner, then provider.
+     * This is the same order as current provider authorization and catalog
+     * ingestion, preventing a suspended/transferred vendor from racing a
+     * stale publication into another tenant's external source view.
+     */
+    private function currentProvider(OcpiProvider $snapshot, ?User $actor = null): OcpiProvider
+    {
+        if ($actor !== null) {
+            $this->admin($actor);
+        }
+        $owner = User::whereKey($snapshot->owner_id)->lockForUpdate()->first();
+        abort_unless($owner, 409, 'Partner owner no longer exists.');
+        $current = OcpiProvider::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
+        abort_unless((int) $current->owner_id === (int) $owner->id,
+            409, 'Partner ownership changed. Reload the current provider before publication.');
+
+        return $current;
+    }
+
     private function authority(OcpiProvider $provider): array
     {
         $contract = $this->contracts->approved($provider);
@@ -61,8 +81,7 @@ final class CpoCatalogPublisher
     public function show(User $actor, OcpiProvider $provider): array
     {
         return DB::transaction(function () use ($actor, $provider) {
-            $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            $this->admin($actor);
+            $provider = $this->currentProvider($provider, $actor);
             if (! $this->contracts->approved($provider)) {
                 return ['configured' => false];
             }
@@ -149,8 +168,7 @@ final class CpoCatalogPublisher
     public function change(User $actor, OcpiProvider $provider, string $module, int $source, string $operation, ?string $expected): array
     {
         return DB::transaction(function () use ($actor, $provider, $module, $source, $operation, $expected) {
-            $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            $this->admin($actor);
+            $provider = $this->currentProvider($provider, $actor);
             [$contract, $link] = $this->authority($provider);
             $key = ['provider_id' => $provider->id, 'module' => $module, 'source_id' => $source];
             $previous = DB::table(self::TABLE)->where($key)->first();
@@ -208,7 +226,7 @@ final class CpoCatalogPublisher
     public function read(OcpiProvider $provider, object $authenticatedLink, string $module, array $window, ?int $source): array
     {
         return DB::transaction(function () use ($provider, $authenticatedLink, $module, $window, $source) {
-            $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            $current = $this->currentProvider($provider);
             [, $link] = $this->authority($current);
             abort_unless($current->authorization_revision === $provider->authorization_revision && $link->generation === $authenticatedLink->generation
                 && hash_equals($link->local_token_digest, $authenticatedLink->local_token_digest), 401);
@@ -254,8 +272,7 @@ final class CpoCatalogPublisher
     public function push(User $actor, OcpiProvider $provider, string $module, int $source, string $publishedAt, string $key): array
     {
         [$provider, $row, $payload, $existing] = DB::transaction(function () use ($actor, $provider, $module, $source, $publishedAt, $key) {
-            $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            $this->admin($actor);
+            $current = $this->currentProvider($provider, $actor);
             [$contract, $link] = $this->authority($current);
             abort_unless($this->pushEnabled($current) && is_string($current->endpoints[$module.'_receiver'] ?? null), 409, 'Approved sandbox receiver is unavailable.');
             $row = $this->bound($current, $link)->where(['module' => $module, 'source_id' => $source, 'published_at' => $publishedAt])->first();
@@ -284,14 +301,22 @@ final class CpoCatalogPublisher
         // The claim is committed before I/O. Hold the authority locks across the
         // one attempt, and never retry this transaction after transport.
         $state = DB::transaction(function () use ($actor, $provider, $row, $module, $source, $payload, $publishedAt, $key) {
-            $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            try {
+                $current = $this->currentProvider($provider, $actor);
+            } catch (HttpExceptionInterface) {
+                // The external request has not been sent. Remove only this
+                // unresolved claim, never replay or mark it acknowledged.
+                DB::table(self::OPERATIONS)->where('operation_key', $key)
+                    ->where('state', 'dispatching')->delete();
+
+                return null;
+            }
             $claim = DB::table(self::OPERATIONS)->where('operation_key', $key);
             $currentState = (clone $claim)->lockForUpdate()->value('state');
             if ($currentState !== 'dispatching') {
                 return $currentState;
             }
             try {
-                $this->admin($actor);
                 [$contract, $link] = $this->authority($current);
                 abort_unless($this->pushEnabled($current) && is_string($current->endpoints[$module.'_receiver'] ?? null)
                     && $this->bound($current, $link)->where(['id' => $row->id, 'published_at' => $publishedAt])->exists(), 409);
@@ -324,8 +349,7 @@ final class CpoCatalogPublisher
     public function reconcile(User $actor, OcpiProvider $provider, string $module, int $source, string $publishedAt): array
     {
         [$current, $row, $operation] = DB::transaction(function () use ($actor, $provider, $module, $source, $publishedAt) {
-            $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            $this->admin($actor);
+            $current = $this->currentProvider($provider, $actor);
             [, $link] = $this->authority($current);
             abort_unless($this->pushEnabled($current) && is_string($current->endpoints[$module.'_receiver'] ?? null), 409);
             $row = $this->bound($current, $link)->where(['module' => $module, 'source_id' => $source, 'published_at' => $publishedAt])->first();
@@ -352,8 +376,7 @@ final class CpoCatalogPublisher
         }
 
         return DB::transaction(function () use ($actor, $current, $row, $operation, $verified, $publishedAt) {
-            $provider = OcpiProvider::whereKey($current->id)->lockForUpdate()->firstOrFail();
-            $this->admin($actor);
+            $provider = $this->currentProvider($current, $actor);
             [, $link] = $this->authority($provider);
             abort_unless($this->bound($provider, $link)->where(['id' => $row->id, 'published_at' => $publishedAt])->exists(), 409);
             $updated = DB::table(self::OPERATIONS)->where('id', $operation->id)->whereIn('state', ['dispatching', 'unknown'])
