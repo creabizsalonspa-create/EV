@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerClient;
+use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -244,6 +245,13 @@ final class OcpiPartnerContractReviewTest extends TestCase
             $this->assertStringContainsString('internal contract review', $error->getMessage());
         }
         Http::assertSentCount(2);
+        try {
+            app(RecordSynchronizer::class)->ingest($provider->fresh(), 'locations', []);
+            $this->fail('Expired contract review committed a private partner source synchronization.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('contract review expired', $error->getMessage());
+        }
+        $this->assertDatabaseCount('ocpi_records', 0);
 
         // An existing digest cannot authorize a newly assigned owner, even
         // if an earlier integration erroneously left authorized=true.
