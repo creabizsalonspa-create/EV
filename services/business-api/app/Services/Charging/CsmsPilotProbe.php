@@ -3,6 +3,7 @@
 namespace App\Services\Charging;
 
 use App\Models\Station;
+use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
@@ -35,7 +36,11 @@ final class CsmsPilotProbe
             $charger->company_id === $company->id &&
             $charger->source === 'simulator' &&
             $station->source === 'simulator' &&
-            $charger->ocpp_protocol === $binding->protocol, 409,
+            $charger->ocpp_protocol === $binding->protocol &&
+            User::whereKey($company->owner_id)->where('role', 'vendor')
+                ->where('account_status', 'active')->exists() &&
+            DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->count() === 1 &&
+            DB::table('csms_bindings')->where('identifier', $binding->identifier)->count() === 1, 409,
             'Canonical charging ownership requires operator review.');
 
         return $binding;
@@ -49,16 +54,23 @@ final class CsmsPilotProbe
             app(CsmsPreflight::class)->report()['software_configuration_ready'], 503,
             'Verified local simulator source configuration is required.');
         $binding = $this->binding($bindingId);
+        $charger = VendorCharger::findOrFail($binding->vendor_charger_id);
+        $manufacturer = $charger->manufacturer;
+        $model = $charger->model;
         $source = app(RemoteSessionAuthorization::class);
         $stations = $source->graph(
-            'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol latestOcppMessageTimestamp}}',
+            'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}',
             ['name' => $binding->identifier]
         )['ChargingStations'] ?? null;
         abort_unless(is_array($stations) && array_is_list($stations) &&
             count($stations) === 1 && is_array($stations[0]) &&
             is_int($stations[0]['id'] ?? null) && $stations[0]['id'] > 0 &&
             is_bool($stations[0]['isOnline'] ?? null) &&
-            in_array($stations[0]['protocol'] ?? null, [$binding->protocol, 'ocpp'.$binding->protocol], true), 409,
+            in_array($stations[0]['protocol'] ?? null, [$binding->protocol, 'ocpp'.$binding->protocol], true) &&
+            ($stations[0]['chargePointVendor'] ?? null) === $manufacturer &&
+            ($stations[0]['chargePointModel'] ?? null) === $model &&
+            is_string($stations[0]['firmwareVersion'] ?? null) &&
+            preg_match('/^[A-Za-z0-9][A-Za-z0-9._+:-]{0,79}$/D', $stations[0]['firmwareVersion']), 409,
             'A unique typed CSMS station identity is required.');
         $station = $stations[0];
         $last = $station['latestOcppMessageTimestamp'] ?? null;
@@ -127,7 +139,10 @@ final class CsmsPilotProbe
         // The source may be disconnected or stale; that is a truthful blocked
         // probe result, never an authorization to reset, start or deliver energy.
         $current = $this->binding($bindingId);
-        abort_unless(hash_equals(FaultMonitor::generation($binding), FaultMonitor::generation($current)), 409,
+        $currentCharger = VendorCharger::findOrFail($binding->vendor_charger_id);
+        abort_unless($currentCharger->manufacturer === $manufacturer &&
+            $currentCharger->model === $model &&
+            hash_equals(FaultMonitor::generation($binding), FaultMonitor::generation($current)), 409,
             'Charger source generation changed during observation.');
 
         $covered = $recentConnectorCount === count($known);
@@ -137,6 +152,7 @@ final class CsmsPilotProbe
         return [
             'binding_id' => $bindingId,
             'protocol' => $binding->protocol,
+            'observed_source_firmware' => $station['firmwareVersion'],
             'status' => $observed ? 'simulated_source_observed' : 'requires_source_review',
             'source_online' => $station['isOnline'],
             'latest_message_at' => $lastSeen?->toISOString(),
