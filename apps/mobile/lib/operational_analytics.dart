@@ -373,8 +373,8 @@ class _OperationalState extends State<OperationalAnalyticsView>
           child: Text(tr('Apply and refresh', 'تطبيق وتحديث')),
         ),
         if (report != null && foreground) ...[
-          Text('${report!['from']} — ${report!['to']} UTC'),
-          Text('${report!['as_of']}'),
+          Text('${report['from']} — ${report['to']} UTC'),
+          Text('${report['as_of']}'),
           Text(tr(
             'Demand sums floored accepted meter interval averages wholly inside the window. Overlapping sessions on the same EVSE are excluded. Coverage is partial; this is not grid peak or instantaneous power.',
             'الطلب يجمع متوسطات فترات العدادات المقبولة داخل الفترة، بعد التقريب لأسفل. تُستبعد فترات تداخل الجلسات على EVSE نفسها. التغطية جزئية ولا تمثل ذروة الشبكة أو قياساً لحظياً.',
@@ -383,7 +383,7 @@ class _OperationalState extends State<OperationalAnalyticsView>
             onPressed: busy ? null : pdf,
             child: Text(tr('View private report PDF', 'عرض التقرير الخاص PDF')),
           ),
-          for (final row in report!['sites'])
+          for (final row in report['sites'])
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(12),
@@ -399,7 +399,7 @@ class _OperationalState extends State<OperationalAnalyticsView>
                 ),
               ),
             ),
-          if (report!['feedback_groups'] != null) ...[
+          if (report['feedback_groups'] != null) ...[
             Text(tr('Moderated charging feedback', 'ملاحظات الشحن المعتمدة')),
             Text(
               tr(
@@ -407,14 +407,14 @@ class _OperationalState extends State<OperationalAnalyticsView>
                 'الملاحظات المنشورة حالياً فقط، حسب تاريخ إنشاء النسخة الحالية ضمن الفترة بالتوقيت العالمي. لا يُستنتج تحقق من الشحن الفعلي. لا تتضمن هوية أو نصوصاً خاصة.',
               ),
             ),
-            if ((report!['feedback_groups'] as List).isEmpty)
+            if ((report['feedback_groups'] as List).isEmpty)
               Text(
                 tr(
                   'No approved feedback in report window',
                   'لا توجد ملاحظات معتمدة ضمن فترة التقرير',
                 ),
               ),
-            for (final group in report!['feedback_groups']) ...[
+            for (final group in report['feedback_groups']) ...[
               Text(
                 group['evidence'] == 'SIMULATED_SOURCE_OBSERVED'
                     ? tr(
@@ -431,14 +431,14 @@ class _OperationalState extends State<OperationalAnalyticsView>
               ),
             ],
           ],
-          if (report!['financial_visible'] == true)
+          if (report['financial_visible'] == true)
             Text(
               tr(
                 'Invoice references, not cash or settlements',
                 'فواتير مرجعية وليست مقبوضات أو تسويات',
               ),
             ),
-          for (final row in report!['invoice_facts'])
+          for (final row in report['invoice_facts'])
             Text(
               "${tr('Invoiced', 'المفوتر')}: ${row['currency']} ${minorDecimal(row['invoiced_minor'] as int, row['minor_units'] as int)} · ${row['evidence']}\n${tr('Vendor allocated', 'تخصيص المورد')}: ${row['currency']} ${minorDecimal(row['vendor_allocated_minor'] as int, row['minor_units'] as int)}",
             ),
