@@ -64,3 +64,17 @@ signed delivery or package-spend mutations.
 content compliance review, or feature completion is claimed.** Exact
 Laravel/PostgreSQL, browser/native, integration CI and Agent 5 merge
 remain mandatory; Agent 4 should verify the discovery placements UI.
+
+
+A third integration-style Laravel test creates **26 actual authorized vendor
+campaigns in one paid package** through the canonical
+`CampaignService::create` / `action` workflow (subject to 30 paid
+campaign slots and 50 prepaid units). It records one **HMAC-signed real
+server delivery** against the oldest approved campaign, exhausting its
+one-unit budget, and then verifies the default `per_page=25`
+discovery response contains exactly the *other 25 still eligible
+campaigns* in ascending ID order, with `last_page=1` and
+`total=25`, without spending further units or modifying finance
+journals. This is specifically the old post-pagination hole across a
+complete default-size page; no test-only SQL alteration to protected
+source campaigns is necessary.
