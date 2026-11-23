@@ -21,11 +21,18 @@ final class OcpiPartnerContractReviewTest extends TestCase
     {
         parent::setUp();
         Http::preventStrayRequests();
-        config(['ocpi.connections.contract-test' => [
-            'origin' => 'https://partner.example',
-            'authorization_token' => base64_encode('synthetic-private-bootstrap'),
-            'environment' => 'sandbox',
-        ]]);
+        config([
+            'ocpi.connections.contract-test' => [
+                'origin' => 'https://partner.example',
+                'authorization_token' => base64_encode('synthetic-private-bootstrap'),
+                'environment' => 'sandbox',
+            ],
+            'ocpi.connections.contract-test-unassigned' => [
+                'origin' => 'https://partner.example',
+                'authorization_token' => base64_encode('synthetic-private-bootstrap'),
+                'environment' => 'sandbox',
+            ],
+        ]);
     }
 
     private function fixture(): array
@@ -59,8 +66,9 @@ final class OcpiPartnerContractReviewTest extends TestCase
         [$owner, $admin, $provider, $path] = $this->fixture();
         $this->actingAs($admin)->postJson('/api/ocpi/providers', [
             'owner_id' => $owner->id, 'name' => 'Cannot skip internal review',
-            'connection_key' => 'contract-test', 'authorized' => true,
-        ])->assertUnprocessable(); // Already assigned connection key.
+            'connection_key' => 'contract-test-unassigned', 'authorized' => true,
+        ])->assertConflict(); // Review is mandatory for a new active partner.
+        $this->assertDatabaseCount('ocpi_providers', 1);
         $this->patchJson('/api/ocpi/providers/'.$provider->id.'/authorization',
             ['authorized' => true])->assertConflict();
         $this->getJson($path)->assertOk()
