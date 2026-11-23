@@ -89,7 +89,10 @@ final class ChargerLiveConnectorsController extends Controller
             ($rows[0]['chargePointVendor'] ?? null) === $charger->manufacturer &&
             ($rows[0]['chargePointModel'] ?? null) === $charger->model &&
             is_string($rows[0]['latestOcppMessageTimestamp'] ?? null) &&
-            (array_key_exists('firmwareVersion', $rows[0]) && ($rows[0]['firmwareVersion'] === null || is_string($rows[0]['firmwareVersion']))), 409,
+            (array_key_exists('firmwareVersion', $rows[0]) &&
+                ($rows[0]['firmwareVersion'] === null ||
+                    (is_string($rows[0]['firmwareVersion']) &&
+                        strlen($rows[0]['firmwareVersion']) <= 100))), 409,
             'Current unique typed charger source is required.');
 
         $row = $rows[0];
