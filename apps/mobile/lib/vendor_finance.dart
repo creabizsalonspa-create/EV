@@ -1316,6 +1316,21 @@ class _VendorEarningsState extends State<VendorEarningsView>
     super.dispose();
   }
 
+  // A revoked/rotated session can finish an in-flight read without another
+  // Flutter frame. Force a privacy redraw for that exact obsolete operation,
+  // but never mutate newer-generation or backgrounded state.
+  void redactRevokedSession(int epoch, bool Function() authorized) {
+    if (!mounted || generation != epoch || authorized()) return;
+    setState(() {
+      report = null;
+      csvPreview = null;
+      error = null;
+      busy = false;
+      hidden = true;
+      session = null;
+    });
+  }
+
   Future<void> load({int page = 1}) async {
     if (!foreground) return;
     final epoch = ++generation, current = widget.api.sessionFence();
@@ -1355,7 +1370,11 @@ class _VendorEarningsState extends State<VendorEarningsView>
       if (e is ApiException && [401, 419].contains(e.status))
         widget.onExpired();
     } finally {
-      if (active()) setState(() => busy = false);
+      if (active()) {
+        setState(() => busy = false);
+      } else {
+        redactRevokedSession(epoch, current);
+      }
     }
   }
 
@@ -1401,7 +1420,11 @@ class _VendorEarningsState extends State<VendorEarningsView>
         widget.onExpired();
       }
     } finally {
-      if (active()) setState(() => busy = false);
+      if (active()) {
+        setState(() => busy = false);
+      } else {
+        redactRevokedSession(epoch, current);
+      }
     }
   }
 
