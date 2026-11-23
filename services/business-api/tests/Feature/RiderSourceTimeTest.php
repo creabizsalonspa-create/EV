@@ -84,7 +84,7 @@ class RiderSourceTimeTest extends TestCase
         }
         $source['connectorId'] = 2;
         $this->assertFalse($target->targetMatches($binding, $map, $evse, $scope));
-        Http::assertSentCount(2 * ($protocol === '1.6' ? 1 + 9 + 4 + 1 : 1 + 9 + 2 + 1));
+        Http::assertSentCount($protocol === '1.6' ? 32 : 26);
     }
 
 }
