@@ -1189,7 +1189,10 @@ window.createVendorWorkspace = ({
                             {
                                 version: String(release.version),
                                 status: {
-                                    translate: release.matches_observed_source === true
+                                    translate: release.matches_observed_source === true &&
+                                        release.signed_compatibility_policy === true &&
+                                        release.signer_currently_trusted === true &&
+                                        release.revoked === false
                                         ? "Signed source match"
                                         : "Not verified for this source",
                                 },
