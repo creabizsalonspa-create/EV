@@ -113,9 +113,6 @@ class CommercialCampaignTest extends TestCase
         $third = $this->fixture();
         $validSecond = $this->approved($third);
         $beforeDeliveries = DB::table('commercial_campaign_deliveries')->count();
-        $beforeLedgers = DB::table('commercial_subscription_ledger')->count();
-        $beforeJournals = DB::table('finance_journals')->count();
-
         // Approval alone is not delivery eligibility: the first
         // subscription now has a refund credit against its paid invoice.
         app(SubscriptionCreditService::class)->refund(
@@ -125,6 +122,8 @@ class CommercialCampaignTest extends TestCase
         $this->assertDatabaseHas('commercial_campaigns', [
             'id' => $stale['id'], 'status' => 'approved',
         ]);
+        $beforeLedgers = DB::table('commercial_subscription_ledger')->count();
+        $beforeJournals = DB::table('finance_journals')->count();
 
         $url = '/campaign-test/commercial/campaign-placements?country=AE&placement=discovery_banner&per_page=1';
         $this->actingAs($first['customer'])->getJson($url.'&page=1')
@@ -145,8 +144,8 @@ class CommercialCampaignTest extends TestCase
             ->assertJsonPath('current_page', 3)->assertJsonPath('last_page', 2);
 
         $this->getJson($url.'&page=0')->assertUnprocessable();
-        $this->getJson($url.'&per_page=0')->assertUnprocessable();
-        $this->getJson($url.'&per_page=26')->assertUnprocessable();
+        $this->getJson(str_replace('&per_page=1', '&per_page=0', $url))->assertUnprocessable();
+        $this->getJson(str_replace('&per_page=1', '&per_page=26', $url))->assertUnprocessable();
         $this->assertDatabaseCount('commercial_campaign_deliveries', $beforeDeliveries);
         // The query itself cannot reserve or spend package delivery units.
         $this->assertSame($beforeLedgers, DB::table('commercial_subscription_ledger')->count());
