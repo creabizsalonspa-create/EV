@@ -96,6 +96,28 @@ withCredentialsFixture(async (f) => {
         "SYNTHETIC-PEER-ROTATED",
       ),
     );
+    // A malformed API capability cannot leave the old Admin lifecycle forms
+    // or a forged charging-authority badge on screen.
+    const credentialPattern = `**/api/ocpi/providers/${f.provider_id}/credentials*`;
+    const forgeCapability = async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.capability_matrix.modules[0].local_sender_active = true;
+      body.capability_matrix.physical_availability_verified = true;
+      await route.fulfill({ response, json: body });
+    };
+    await page.route(credentialPattern, forgeCapability);
+    await detail.getByRole("button", { name: "Refresh", exact: true }).click();
+    await detail
+      .getByText("Partner capability evidence is inconsistent", { exact: false })
+      .waitFor();
+    assert.equal(await detail.locator("form").count(), 0);
+    assert(!(await detail.textContent()).includes(newToken));
+    await page.unroute(credentialPattern, forgeCapability);
+    await detail.getByRole("button", { name: "Refresh", exact: true }).click();
+    await detail
+      .getByText("Peer rotated credentials", { exact: false })
+      .waitFor();
     await page.locator("#language").click();
     await page.waitForFunction(() => document.documentElement.dir === "rtl");
     await page
