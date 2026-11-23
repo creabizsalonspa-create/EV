@@ -103,9 +103,13 @@ class OcpiController extends Controller
     public function sync(Request $r, OcpiProvider $provider, string $module, PartnerClient $client, RecordSynchronizer $sync)
     {
         $this->owner($r, $provider);
-        abort_unless(User::whereKey($provider->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(),
-            409, 'Partner owner is not active.');
         abort_unless(in_array($module, PartnerClient::MODULES, true), 404);
+        // Suspended operators cannot refresh a public catalog. Administrators
+        // must retain the ability to reconcile already-owned session/CDR debt.
+        $activeOwner = User::whereKey($provider->owner_id)->where('role', 'vendor')
+            ->where('account_status', 'active')->exists();
+        abort_unless($activeOwner || ($r->user()->role === 'admin' && in_array($module, ['sessions', 'cdrs'], true)),
+            409, 'Partner owner is not active for catalog synchronization.');
         try {
             $records = $client->pull($provider, $module);
             $counts = $sync->ingest($provider, $module, $records);
