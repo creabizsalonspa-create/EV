@@ -571,6 +571,13 @@ class ExternalDisputesTest extends TestCase
         $this->getJson($path.'?window_hours=169')->assertUnprocessable();
         $this->getJson($path.'?window_hours=-1')->assertUnprocessable();
         $this->getJson($path.'?window_hours=72&per_page=26')->assertUnprocessable();
+        foreach (['page=0', 'page=-1', 'page=10001', 'page=not-a-number'] as $filter) {
+            $this->getJson($path.'?window_hours=72&'.$filter)
+                ->assertUnprocessable();
+        }
+        $this->getJson($path.'?window_hours=72&per_page=1&page=10000')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonCount(0, 'data');
         $this->assertDatabaseCount('finance_refunds', 0);
         $this->assertDatabaseCount('external_dispute_events', 1);
         $this->assertDatabaseCount('external_dispute_evidence', 0);
