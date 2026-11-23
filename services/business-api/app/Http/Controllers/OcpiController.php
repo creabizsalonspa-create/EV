@@ -16,6 +16,20 @@ use Illuminate\Support\Facades\DB;
 
 class OcpiController extends Controller
 {
+    /** Admin mutations must not trust a request whose original authority was revoked. */
+    private function currentAdminForMutation(Request $request): User
+    {
+        $snapshot = $request->user();
+        abort_unless($snapshot instanceof User && $snapshot->role === 'admin', 403);
+        $actor = User::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
+        abort_unless($actor->role === 'admin' && $actor->account_status === 'active', 403);
+        abort_unless((int) $actor->auth_epoch === (int) $snapshot->auth_epoch
+            && hash_equals((string) $actor->password, (string) $snapshot->password),
+            409, 'Account credentials changed. Sign in again.');
+
+        return $actor;
+    }
+
     private function owner(Request $r, OcpiProvider $provider): void
     {
         abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $provider->owner_id === $r->user()->id), 404);
@@ -40,6 +54,8 @@ class OcpiController extends Controller
         abort_unless(is_array(config('ocpi.connections.'.$v['connection_key'])), 422, 'Connection must first be provisioned in secure server configuration.');
 
         return DB::transaction(function () use ($r, $v, $client) {
+            // Admin identity precedes owner/provider locks and every write.
+            $this->currentAdminForMutation($r);
             // Bind a new provider only to a currently eligible vendor owner.
             // Serialize with account suspension/role changes before reserving a connection key.
             $owner = User::whereKey($v['owner_id'])->lockForUpdate()->first();
@@ -64,6 +80,7 @@ class OcpiController extends Controller
         $v = $r->validate(['authorized' => 'required|boolean']);
 
         return DB::transaction(function () use ($r, $provider, $v, $client) {
+            $this->currentAdminForMutation($r);
             // For activation, acquire owner before provider, as all OCPI
             // source reads do. A transferred provider must be reloaded and
             // re-reviewed, never authorized under the previous owner lock.
