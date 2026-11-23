@@ -30,6 +30,27 @@ class OcpiController extends Controller
         return $actor;
     }
 
+    /**
+     * Opt-in onboarding policy: a manual internal evidence review is a
+     * prerequisite for creating an active OCPI operator, never proof of a
+     * legally signed agreement or permission to process real charge/payment.
+     */
+    private function requireInternalContractReview(OcpiProvider $provider, User $owner): void
+    {
+        if (config('ocpi.contract_review_required') !== true) {
+            return;
+        }
+        $review = DB::table('ocpi_partner_contract_reviews')
+            ->where('provider_id', $provider->id)
+            ->orderByDesc('revision')->first();
+        abort_unless($review && (int) $review->owner_id === (int) $owner->id
+            && $review->decision === 'review' && $owner->role === 'vendor'
+            && $owner->account_status === 'active'
+            && is_string($review->valid_until)
+            && $review->valid_until >= now('UTC')->toDateString(),
+            409, 'Current provider owner requires an unexpired internal contract evidence review.');
+    }
+
     private function owner(Request $r, OcpiProvider $provider): void
     {
         $snapshot = $r->user();
@@ -96,6 +117,10 @@ class OcpiController extends Controller
             $owner = User::whereKey($v['owner_id'])->lockForUpdate()->first();
             abort_unless($owner && $owner->role === 'vendor' && $owner->account_status === 'active',
                 422, 'Provider owner must be an active vendor.');
+            // Under an enabled review policy, onboarding begins pending.
+            // No review can be recorded for a provider that does not yet exist.
+            abort_if($v['authorized'] && config('ocpi.contract_review_required') === true,
+                409, 'Register the provider pending; review contract evidence before authorization.');
             $provider = OcpiProvider::create($v);
             if ($provider->authorized) {
                 try {
@@ -129,6 +154,7 @@ class OcpiController extends Controller
             if ($v['authorized']) {
                 abort_unless((int) $provider->owner_id === (int) $owner->id, 409,
                     'Provider ownership changed; review the current owner before authorizing.');
+                $this->requireInternalContractReview($provider, $owner);
             }
             $exhausted = $provider->authorization_revision >= PHP_INT_MAX;
             // Revocation must remain available at the terminal generation.
