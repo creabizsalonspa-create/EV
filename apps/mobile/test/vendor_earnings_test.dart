@@ -136,6 +136,24 @@ Widget app(EarningsApi api, {bool ar = false, VoidCallback? expired}) =>
     );
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets('already displayed owner income and CSV controls vanish on explicit account invalidation',
+      (tester) async {
+    final api = EarningsApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('vendor-earnings-overall')), findsOneWidget);
+    expect(find.byKey(const Key('vendor-earnings-export')), findsOneWidget);
+    final before = api.calls.length;
+    await api.forgetSession();
+    await tester.pump();
+    expect(find.byKey(const Key('vendor-earnings-overall')), findsNothing);
+    expect(find.byKey(const Key('vendor-earnings-export')), findsNothing);
+    expect(find.byKey(const Key('vendor-earnings-csv-preview')), findsNothing);
+    expect(find.textContaining('Private records cleared'), findsOneWidget);
+    expect(api.calls.length, before);
+  });
+
   for (final ar in [false, true]) {
     testWidgets(
       'itemized source keeps signed precision, distinct global scope and pagination ${ar ? 'AR' : 'EN'}',
