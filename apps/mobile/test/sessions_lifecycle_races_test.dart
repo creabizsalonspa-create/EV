@@ -117,7 +117,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.posts, 0);
     expect(find.text('Stop simulation'), findsNothing);
-    expect(find.text('Invoice'), findsOneWidget);
+    expect(find.text('Simulated invoice'), findsOneWidget);
     expect(api.requests, oldRead + 1);
     expect(tester.takeException(), isNull);
   });
