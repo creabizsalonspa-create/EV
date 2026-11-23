@@ -45,7 +45,7 @@ async function businessAccount(role) {
   }
   return client.request.bind(client);
 }
-async function protocol(version, profile) {
+async function protocol(version, profile, actors) {
   const station =
     "ev-test-" + version.replaceAll(".", "") + "-" + randomUUID().slice(0, 8);
   const ws = new WebSocket("ws://127.0.0.1:8081/" + station, version);
@@ -274,8 +274,7 @@ async function protocol(version, profile) {
         clearTimeout(timer);
       }
     }
-    const vendor = await businessAccount("vendor"),
-      admin = await businessAccount("admin");
+    const { vendor, admin } = actors;
     const location = await vendor("stations", "POST", {
       name: "Protocol adapter " + station,
       country: "AE",
@@ -334,7 +333,13 @@ async function protocol(version, profile) {
     {vendor: "Synthetic Labs", model: "Protocol Edge", firmware: "sim-fw-v2"},
   ];
   for (const version of ["ocpp1.6", "ocpp2.0.1"]) {
-    for (const profile of profiles) await protocol(version, profile);
+    // Two authenticated actors per protocol, reused only within this local
+    // test family. Do not double the shared sign-in budget for model samples.
+    const actors = {
+      vendor: await businessAccount("vendor"),
+      admin: await businessAccount("admin"),
+    };
+    for (const profile of profiles) await protocol(version, profile, actors);
   }
 })().catch((e) => {
   console.error(e.message);
