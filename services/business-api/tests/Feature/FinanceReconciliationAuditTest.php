@@ -8,10 +8,12 @@ use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
 use App\Services\Finance\FinanceService;
+use App\Services\Finance\InvoiceReconciliationAudit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class FinanceReconciliationAuditTest extends TestCase
@@ -55,7 +57,7 @@ class FinanceReconciliationAuditTest extends TestCase
     public function test_invoice_reconciliation_fails_closed_for_rounded_or_inexact_money_sources(): void
     {
         $exact = new \ReflectionMethod(
-            \App\Services\Finance\InvoiceReconciliationAudit::class,
+            InvoiceReconciliationAudit::class,
             'exactMinor'
         );
         $this->assertSame(0, $exact->invoke(null, 0));
@@ -72,7 +74,7 @@ class FinanceReconciliationAuditTest extends TestCase
             try {
                 $exact->invoke(null, $invalid);
                 $this->fail('An unsafe financial amount passed: '.var_export($invalid, true));
-            } catch (\Symfony\Component\HttpKernel\Exception\HttpException $exception) {
+            } catch (HttpException $exception) {
                 $this->assertSame(409, $exception->getStatusCode());
             }
         }
