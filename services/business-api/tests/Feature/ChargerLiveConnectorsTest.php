@@ -115,6 +115,13 @@ class ChargerLiveConnectorsTest extends TestCase
                 DB::table('vendor_chargers')->where('id', $fixture['charger']->id)
                     ->update(['model' => 'Unexpected changed model']);
             }
+            if ($case === 'mapping_changed_during_read') {
+                DB::table('charging_connector_mappings')
+                    ->where('station_id', $fixture['charger']->site->station_id)
+                    ->orderBy('id')->limit(1)->update([
+                        'source_target_key' => str_repeat('e', 64),
+                    ]);
+            }
             $events = [
                 [
                     'id' => 12, 'connectorDatabaseId' => 8,
@@ -239,7 +246,8 @@ class ChargerLiveConnectorsTest extends TestCase
     {
         foreach (['unknown_connector', 'duplicate_target', 'clock_regressed',
             'invalid_status', 'firmware_changed', 'revoke_during_read',
-            'model_changed_during_read', 'contradictory_same_timestamp'] as $state) {
+            'model_changed_during_read', 'contradictory_same_timestamp',
+            'mapping_changed_during_read'] as $state) {
             $f = $this->fixture();
             $this->source($f, $state);
             $response = $this->actingAs($f['owner'])->getJson($f['url']);
@@ -248,6 +256,17 @@ class ChargerLiveConnectorsTest extends TestCase
             $this->assertDatabaseCount('charger_commands', 0);
             $this->assertDatabaseCount('finance_invoices', 0);
         }
+    }
+
+    public function test_missing_canonical_target_digest_prevents_any_source_request(): void
+    {
+        $f = $this->fixture();
+        $this->source($f);
+        DB::table('charging_connector_mappings')->where('station_id', $f['charger']->site->station_id)
+            ->update(['source_target_key' => null]);
+        $this->actingAs($f['owner'])->getJson($f['url'])->assertConflict();
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
     }
 
     public function test_rejects_privileged_source_secrets_over_external_plaintext_urls(): void
