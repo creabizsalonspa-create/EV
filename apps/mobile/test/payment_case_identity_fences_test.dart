@@ -273,4 +273,28 @@ void main() {
     expect(api.reads, 2);
     expect(find.text('View verified private file'), findsOneWidget);
   });
+  testWidgets('system document picker temporarily inactivates without losing verified selection', (
+    tester,
+  ) async {
+    final api = FencedCaseApi(), store = SessionCaseStore();
+    final waiting = Completer<VendorEvidence?>();
+    addTearDown(() => tester.binding
+        .handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    await tester.pumpWidget(evidenceScreen(api, store, picker: () => waiting.future));
+    await tester.pumpAndSettle();
+    expect(api.reads, 1);
+    await tester.tap(find.text('Choose PDF, PNG or JPEG up to4 MiB'));
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    expect(find.text('View verified private file'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    waiting.complete(VendorEvidence(api.bytes, 'application/pdf'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('application/pdf ·'), findsOneWidget);
+    expect(api.reads, 1);
+    expect(store.writes, 0);
+  });
+
 }
