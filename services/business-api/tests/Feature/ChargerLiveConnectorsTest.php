@@ -110,6 +110,10 @@ class ChargerLiveConnectorsTest extends TestCase
             if ($case === 'revoke_during_read') {
                 DB::table('users')->where('id', $fixture['owner']->id)->increment('auth_epoch');
             }
+            if ($case === 'model_changed_during_read') {
+                DB::table('vendor_chargers')->where('id', $fixture['charger']->id)
+                    ->update(['model' => 'Unexpected changed model']);
+            }
             $events = [
                 [
                     'id' => 12, 'connectorDatabaseId' => 8,
@@ -140,6 +144,15 @@ class ChargerLiveConnectorsTest extends TestCase
                     'connectorId' => 1, 'connectorStatus' => 'Available',
                     'errorCode' => 'NoError',
                     'timestamp' => now()->subSeconds(10)->toISOString(),
+                ];
+            }
+            if ($case === 'contradictory_same_timestamp') {
+                $events[] = [
+                    'id' => 10, 'connectorDatabaseId' => 7,
+                    'evseId' => $fixture['protocol'] === '1.6' ? 0 : 1,
+                    'connectorId' => 1, 'connectorStatus' => 'Faulted',
+                    'errorCode' => 'GroundFailure',
+                    'timestamp' => $events[1]['timestamp'],
                 ];
             }
             if ($case === 'invalid_status') {
@@ -224,7 +237,8 @@ class ChargerLiveConnectorsTest extends TestCase
     public function test_tampered_id_event_order_status_or_station_identity_fail_closed_without_leaking_source(): void
     {
         foreach (['unknown_connector', 'duplicate_target', 'clock_regressed',
-            'invalid_status', 'firmware_changed', 'revoke_during_read'] as $state) {
+            'invalid_status', 'firmware_changed', 'revoke_during_read',
+            'model_changed_during_read', 'contradictory_same_timestamp'] as $state) {
             $f = $this->fixture();
             $this->source($f, $state);
             $response = $this->actingAs($f['owner'])->getJson($f['url']);
