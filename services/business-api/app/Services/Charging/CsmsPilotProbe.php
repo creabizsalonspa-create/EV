@@ -60,10 +60,10 @@ final class CsmsPilotProbe
         $manufacturer = $charger->manufacturer;
         $model = $charger->model;
         $source = app(RemoteSessionAuthorization::class);
-        $stations = $source->graph(
-            'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}',
-            ['name' => $binding->identifier]
-        )['ChargingStations'] ?? null;
+        $stationQuery = 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}';
+        $stations = $source->graph($stationQuery, [
+            'name' => $binding->identifier,
+        ])['ChargingStations'] ?? null;
         abort_unless(is_array($stations) && array_is_list($stations) &&
             count($stations) === 1 && is_array($stations[0]) &&
             is_int($stations[0]['id'] ?? null) && $stations[0]['id'] > 0 &&
@@ -154,6 +154,29 @@ final class CsmsPilotProbe
                 }
             }
         }
+        // A CSMS station may disconnect or change firmware while a bounded
+        // connector inventory query is in flight. Re-read the exact station,
+        // then re-check current local ownership; neither read alone is a
+        // durable physical proof or permission to issue device commands.
+        $afterRows = $source->graph($stationQuery, [
+            'name' => $binding->identifier,
+        ])['ChargingStations'] ?? null;
+        abort_unless(is_array($afterRows) && array_is_list($afterRows) &&
+            count($afterRows) === 1 && is_array($afterRows[0]) &&
+            ($afterRows[0]['id'] ?? null) === $station['id'] &&
+            is_bool($afterRows[0]['isOnline'] ?? null) &&
+            ($afterRows[0]['protocol'] ?? null) === $station['protocol'] &&
+            ($afterRows[0]['chargePointVendor'] ?? null) === $manufacturer &&
+            ($afterRows[0]['chargePointModel'] ?? null) === $model &&
+            ($afterRows[0]['firmwareVersion'] ?? null) === $station['firmwareVersion'] &&
+            is_string($afterRows[0]['latestOcppMessageTimestamp'] ?? null), 409,
+            'CSMS station identity changed while reading source evidence.');
+        $afterSeen = SourceStatusTime::parse($afterRows[0]['latestOcppMessageTimestamp']);
+        abort_unless($lastSeen === null || ! $afterSeen->lt($lastSeen), 409,
+            'CSMS station source message clock regressed.');
+        $stationOnline = $station['isOnline'] && $afterRows[0]['isOnline'];
+        $recent = $recent && $afterSeen->gte(now()->subMinutes(5));
+
         // The source may be disconnected or stale; that is a truthful blocked
         // probe result, never an authorization to reset, start or deliver energy.
         $current = $this->binding($bindingId);
@@ -220,7 +243,7 @@ final class CsmsPilotProbe
                 ->where('starts_at', '>', now()->subMinutes(30))->exists();
         $covered = $recentConnectorCount === count($known);
         $idle = $idleConnectorCount === count($known) && count($active) === 0;
-        $observed = $station['isOnline'] && $recent && $covered && $idle &&
+        $observed = $stationOnline && $recent && $covered && $idle &&
             $sourceConnectorTargetsMatchLocal && ! $localHold;
 
         return [
@@ -228,8 +251,9 @@ final class CsmsPilotProbe
             'protocol' => $binding->protocol,
             'observed_source_firmware' => $station['firmwareVersion'],
             'status' => $observed ? 'simulated_source_observed' : 'requires_source_review',
-            'source_online' => $station['isOnline'],
-            'latest_message_at' => $lastSeen?->toISOString(),
+            'source_online' => $stationOnline,
+            'source_identity_rechecked_after_inventory' => true,
+            'latest_message_at' => $afterSeen->toISOString(),
             'recent_message' => $recent,
             'connector_count' => count($known),
             'connectors_with_recent_status' => $recentConnectorCount,
