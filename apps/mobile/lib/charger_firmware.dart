@@ -113,6 +113,7 @@ class _FirmwareState extends State<ChargerFirmwareView>
       // list refresh, model change, account switch or a new request.
       sourceCompatibility = null;
       compatibilityError = null;
+      checkingCompatibility = false;
     });
     try {
       final values = await Future.wait([
