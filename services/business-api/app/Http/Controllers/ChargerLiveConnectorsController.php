@@ -148,8 +148,13 @@ final class ChargerLiveConnectorsController extends Controller
         $sourceTargets = [];
         $sourceConnectorTargets = [];
         $lastEvent = PHP_INT_MAX;
-        $statusValues = ['Available', 'Occupied', 'Preparing', 'Charging', 'SuspendedEV',
-            'SuspendedEVSE', 'Finishing', 'Reserved', 'Unavailable', 'Faulted'];
+        // OCPP 1.6 StatusNotification and OCPP 2.0.1 StatusNotification
+        // have different connector state vocabularies. A status belonging
+        // only to the other protocol is not source health evidence.
+        $statusValues = $binding->protocol === '1.6'
+            ? ['Available', 'Preparing', 'Charging', 'SuspendedEV', 'SuspendedEVSE',
+                'Finishing', 'Reserved', 'Unavailable', 'Faulted']
+            : ['Available', 'Occupied', 'Reserved', 'Unavailable', 'Faulted'];
         foreach ($events as $event) {
             abort_unless(is_array($event) && is_int($event['id'] ?? null) &&
                 $event['id'] > 0 && $event['id'] < $lastEvent &&
