@@ -1,0 +1,29 @@
+# Agent 2 — OCPI internal contract-evidence review (23 November 2026)
+
+## Status and original scope
+
+This is an **implemented software candidate** for original requirement **6.4.8 (contractual onboarding software)**, not a whole-atom completion or production-acceptance claim. It adds an optional internal review gate for new authorizations and an auditable, private operator-document review workflow. A human-entered reference and SHA-256 digest are **not proof of a legal signature, executed agreement, real partner acceptance, regulatory clearance, remote-command permission, or payment authority**.
+
+Agent 5 retains exclusive integration control. Do not merge until all mandatory exact-head Platform/PostgreSQL/CSMS/Native/Staging CI passes on the source and resulting integration SHA. No real network mutation or live charging/payment was authorized by this work.
+
+## API and software surfaces
+
+- `GET /api/ocpi/providers/{id}/contract-review` (also under authenticated `/api/v1/ocpi`): current Admin or owning active vendor, private/no-store. Reports `missing`, `internally_reviewed`, or `revoked`, current revision, owner-validity, review expiry and deliberately false external acceptance/signed-contract/live-roaming/payment flags.
+- `POST /api/ocpi/providers/{id}/contract-review`: current active Admin only (native personal access tokens cannot become Admin). Require explicit `decision=review|revoke`, 15–1000 character reason, `expected_revision` optimistic revision, and secure `idempotency_key`. A review additionally requires a sanitized internal case reference, 64-character lowercase SHA-256 digest, and a date no more than three years forward. Never accept a raw document URL, file or credential in this API.
+- Append-only `ocpi_partner_contract_reviews` table: provider/owner/reviewer identities, monotonic unique revision, deduplicated idempotency identity, digest and reference, encrypted human note, UTC submission clock. Failed/revoked/stale operations commit no record or audit.
+- Web `roaming.js`: bilingual English/Arabic provider review status and explicit Admin forms, manual-only submission with fresh cryptographic idempotency identity, no automatic retry on an uncertain response, conservative false-claim rejection, old-account content clearing and text-only rendering.
+- Backend optional config `OCPI_CONTRACT_REVIEW_REQUIRED=true`: newly created providers start **pending** and must have a current owner-bound unexpired internal review before Admin can set `authorized=true`. A currently authorized provider must be separately deauthorized before an enforced internal review can be revoked. Default remains `false` until migration, operational policy, real legal approvals and integration verification are ready; the default does not imply contractual conformance.
+
+## Boundaries and gaps
+
+This is internal **software governance**, not a signed contract workflow with document-storage signature verification or a verified OCPI network relationship. Existing authorized providers and already-running source integrations are **not automatically reclassified** when the optional gate is enabled; additional external review and lifecycle checks are required before any live onboarding rollout. Review expiry is not itself a remote stop or a physical charger command.
+
+The partner catalog, availability and settlement evidence continue to be explicitly synthetic or source-reported; no customer charging or financial permissions are granted.
+
+## QA artifacts and required integration steps
+
+- `services/business-api/tests/Feature/OcpiPartnerContractReviewTest.php`: pending creation, authorize gate, current owner, encrypted note, internal review/revoke, old-account and owner-transfer denial, stale revision, reused key and owner suspension; no partner network effects.
+- `tests/ocpi-contract-review.cjs`: EN/AR Chromium interaction, Admin-only review, vendor read-only, forged live authority hidden and identity-switch clearing. Wired into the existing mandatory `npm run test:ocpi-provisioning` workflow.
+- `services/business-api/tests/Feature/OcpiCpoAdminAuthorityTest.php`: CPO source release/current Admin authority tests; coverage expanded for owner lock ordering and stale provider reads.
+- Cross-agent integration: PR #232 modifies owner/public catalog visibility, PR #233 modifies role-capability views, PR #244 modifies CPO source price binding, PR #251 quality history and PR #252 partner finance source. Reconcile unique hunks, **never overwrite** one stream with another, and rerun combined exact-head automated gates.
+- Production acceptance additionally requires legal/contract owner approvals, signed evidence chain, configured per-provider secret/key custody, partner conformance certification, tests with an authorized contracted peer, actual hardware/app-store/PSP approvals where applicable, and explicit release authorization.
