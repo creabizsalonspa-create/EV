@@ -120,6 +120,9 @@ class OcpiCatalogQualityHistoryTest extends TestCase
         DB::table('ocpi_catalog_quality_history')->where('provider_id', $provider->id)
             ->update(['within_policy_count' => 900]);
         $this->actingAs($owner)->getJson($url)->assertConflict()->assertJsonMissingPath('samples');
+        DB::table('ocpi_catalog_quality_history')->where('provider_id', $provider->id)
+            ->update(['within_policy_count' => 1, 'state' => 'attention']);
+        $this->getJson($url)->assertConflict()->assertJsonMissingPath('samples');
         Http::assertNothingSent();
     }
     public function test_quality_history_expires_after_seven_days_even_if_provider_never_syncs_again(): void
