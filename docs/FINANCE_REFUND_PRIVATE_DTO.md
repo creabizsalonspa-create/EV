@@ -98,3 +98,49 @@ auth epoch/password 409 (even for malformed forms), unchanged
 subscription ledger and credit/request counts, and zero unexpected
 external HTTP. This is an **authorization and DTO** improvement, not
 real provider refund certification.
+
+
+## Admin pending finance reviews — grouped exact source across all pages
+
+The existing read-only private Admin `GET /finance/approval-queue`
+now includes a source-generated `summary` in addition to its
+unchanged 1–25 item details page. The original queue's three
+independent sources remain the only authorities: pending customer
+refund requests, pending vendor settlement batches, and unapproved
+adjustments. Each bucket is separated by **kind, currency and minor
+units** and has a full-filter `review_count` plus a signed integer
+`signed_amount_minor`. It is never called a balance, bank deposit,
+payout obligation, or approval authorization; no currencies or
+precision groups are summed together, and a negative adjustment can
+never be silently netted against a pending customer refund.
+
+Summary scope is `ALL_CURRENT_FILTERED_PENDING_RECORDS_NOT_PAGE`
+and explicitly marked `not_a_payment_or_payout_authority=true`.
+All counts and amounts must fit exact 2^53−1 bounds for browser
+serialization. More than 200 distinct filtered review scopes fails
+with a request to narrow filters rather than silently truncating
+amounts. Admin's current persisted role/status/auth-epoch/password
+lock remains held throughout the read. The one-page CSV remains
+exactly one detail page; it does not invent a payout file.
+
+The web Admin `commercial.js` financial review section now shows
+an English/Arabic read-only grouped source card before individual
+items. It verifies full source schema, full filtered count against
+the sum of distinct review groups, numeric exactness, precision,
+kind and currency and rejects duplicate group identities. A
+customer note, replay secret, PSP token or signed provider
+credential is never included in either API or displayed text.
+The app computes no settlement eligibility and does not add a
+mutation button.
+
+`FinanceApprovalQueueTest` checks the live synthetic pending
+refund 25 AED minor, vendor settlement 60 AED minor, adjustment
+−10 AED minor as three separate exact groups even on page 2
+with one row, kind/currency/vendor filtering, unchanged immutable
+finance journals and zero approval/refund/payout writes.
+`tests/commercial-workspace.cjs` now performs a **real Chromium
+browser + Laravel** Admin review after a customer submits a
+synthetic pending refund, confirms the displayed category/currency
+totals are exactly the server-source groups, and confirms the
+private customer reason is not displayed. No real bank or PSP
+reconciliation is implied.
