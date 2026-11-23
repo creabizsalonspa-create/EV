@@ -22,7 +22,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
-use ReflectionMethod;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -182,7 +181,7 @@ class CorporateBillingTest extends TestCase
 
     public function test_corporate_statement_export_refuses_rounded_source_money_and_hidden_formulas(): void
     {
-        $exact = new ReflectionMethod(
+        $exact = new \ReflectionMethod(
             CorporateBillingController::class,
             'exactMinor'
         );
@@ -199,7 +198,7 @@ class CorporateBillingTest extends TestCase
             }
         }
 
-        $literal = new ReflectionMethod(
+        $literal = new \ReflectionMethod(
             CorporateBillingController::class,
             'safeCsvCell'
         );
