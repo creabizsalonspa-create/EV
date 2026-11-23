@@ -1142,6 +1142,48 @@ window.createRoamingWorkspace = ({
         if (result.valid_until && /^\d{4}-\d{2}-\d{2}$/.test(result.valid_until))
             host.append(raw('p', t('Review valid until: ', 'المراجعة سارية حتى: ') + result.valid_until));
         button(host, t('Refresh contract review', 'تحديث مراجعة العقد'), () => contractReview(provider, host));
+        button(host, t('Read contract review history', 'قراءة سجل مراجعة العقد'), async () => {
+            let audit;
+            try {
+                audit = await api(path + '/history', 'GET', undefined, privateRequest?.signal);
+            } catch (error) {
+                if (current()) host.append(raw('p', t('Private contract review history unavailable.', 'سجل مراجعة العقد الخاص غير متاح.')));
+                return;
+            }
+            if (!current()) return;
+            const valid = audit && audit.scope === 'private_ocpi_contract_review_history' &&
+                audit.external_partner_acceptance_verified === false &&
+                audit.contract_legally_executed_verified === false &&
+                audit.live_roaming_enabled === false && audit.payment_authority === false &&
+                audit.history && Array.isArray(audit.history.data) &&
+                audit.history.data.length <= 25 &&
+                Number.isSafeInteger(audit.history.total) && audit.history.total >= audit.history.data.length &&
+                Number.isSafeInteger(audit.current_revision) && audit.current_revision >= 0 &&
+                audit.history.data.every(row => Number.isSafeInteger(row.revision) && row.revision >= 1 &&
+                    ['review', 'revoke'].includes(row.decision) &&
+                    typeof row.recorded_at === 'string');
+            if (!valid) {
+                host.append(raw('p', t('Contract audit data require reconciliation; no partial history shown.', 'تتطلب بيانات تدقيق العقد المطابقة؛ لن يُعرض سجل جزئي.')));
+                return;
+            }
+            host.querySelector('[data-contract-review-history]')?.remove();
+            const section = document.createElement('section');
+            section.dataset.contractReviewHistory = '';
+            section.append(raw('h4', t('Stored internal review decisions', 'قرارات المراجعة الداخلية المخزنة')));
+            if (!audit.history.data.length)
+                section.append(raw('p', t('No reviews for this owner.', 'لا توجد مراجعات لهذا المالك.')));
+            for (const row of audit.history.data) {
+                const item = document.createElement('article');
+                item.append(raw('p', '#' + row.revision + ' · ' + row.decision + ' · ' + row.recorded_at));
+                if (viewer?.role === 'admin') {
+                    if (typeof row.reference_id === 'string') item.append(raw('p', row.reference_id));
+                    if (typeof row.reason === 'string') item.append(raw('p', row.reason));
+                    if (typeof row.evidence_sha256 === 'string') item.append(raw('p', row.evidence_sha256));
+                }
+                section.append(item);
+            }
+            host.append(section);
+        });
         if (viewer?.role !== 'admin') return;
 
         function reviewForm(decision) {
