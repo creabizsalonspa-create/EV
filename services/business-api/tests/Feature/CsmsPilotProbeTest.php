@@ -91,10 +91,12 @@ class CsmsPilotProbeTest extends TestCase
     {
         Http::swap(new Factory);
         Http::preventStrayRequests();
-        Http::fake(function ($request) use ($fixture, $state) {
+        $stationReads = 0;
+        Http::fake(function ($request) use ($fixture, $state, &$stationReads) {
             $this->assertSame('http://127.0.0.1:8095/v1/graphql', $request->url());
             $this->assertSame(str_repeat('a', 64), $request->header('x-hasura-admin-secret')[0] ?? null);
             if (str_contains($request['query'], 'ChargingStations')) {
+                $stationReads++;
                 $row = [
                     'id' => 91, 'isOnline' => true, 'protocol' => $fixture['protocol'],
                     'chargePointVendor' => $state === 'wrong_vendor' ? 'Other' : 'Synthetic',
@@ -103,6 +105,20 @@ class CsmsPilotProbeTest extends TestCase
                     'latestOcppMessageTimestamp' => $state === 'relative_clock' ? 'now'
                         : ($state === 'stale' ? now()->subMinutes(10)->toISOString() : now()->toISOString()),
                 ];
+                if ($stationReads === 2) {
+                    if ($state === 'station_offline_after_inventory') {
+                        $row['isOnline'] = false;
+                    }
+                    if ($state === 'station_firmware_changed') {
+                        $row['firmwareVersion'] = 'sim-fw-v2';
+                    }
+                    if ($state === 'station_clock_regressed') {
+                        $row['latestOcppMessageTimestamp'] = now()->subSeconds(20)->toISOString();
+                    }
+                    if ($state === 'station_identity_replaced') {
+                        $row['id'] = 92;
+                    }
+                }
 
                 return Http::response(['data' => ['ChargingStations' =>
                     $state === 'ambiguous' ? [$row, $row]
@@ -198,6 +214,7 @@ class CsmsPilotProbeTest extends TestCase
             $this->assertSame(2, $report['connector_count']);
             $this->assertSame(2, $report['connectors_with_recent_status']);
             $this->assertTrue($report['software_source_observed']);
+            $this->assertTrue($report['source_identity_rechecked_after_inventory']);
             $this->assertTrue($report['source_idle_candidate']);
             $this->assertTrue($report['source_connector_count_matches_local_topology']);
             $this->assertTrue($report['source_connector_targets_match_local_topology']);
@@ -210,7 +227,7 @@ class CsmsPilotProbeTest extends TestCase
             }
             $this->assertStringNotContainsString(str_repeat('a', 64), Artisan::output());
             $this->assertStringNotContainsString('ev-test-pilot', Artisan::output());
-            Http::assertSentCount(2);
+            Http::assertSentCount(3);
             Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
                 || str_contains($request->url(), '/ocpp/')
                 || str_contains($request->url(), '/configuration/'));
@@ -218,6 +235,20 @@ class CsmsPilotProbeTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_station_offline_during_inventory_never_promotes_source_read_to_success(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $this->source($f, 'station_offline_after_inventory');
+            $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+            $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+            $this->assertFalse($report['source_online']);
+            $this->assertFalse($report['software_source_observed']);
+            $this->assertFalse($report['physical_hardware_accepted']);
+            Http::assertSentCount(3);
+        }
     }
 
     public function test_stale_source_requires_review_without_creating_hardware_authority(): void
@@ -229,7 +260,7 @@ class CsmsPilotProbeTest extends TestCase
         $this->assertSame('requires_source_review', $report['status']);
         $this->assertFalse($report['software_source_observed']);
         $this->assertFalse($report['production_accepted']);
-        Http::assertSentCount(2);
+        Http::assertSentCount(3);
     }
 
     public function test_active_transactions_and_nonidle_or_faulted_connectors_prevent_source_pilot_success(): void
@@ -341,7 +372,7 @@ class CsmsPilotProbeTest extends TestCase
 
     public function test_invalid_source_identity_clocks_and_connector_events_fail_closed(): void
     {
-        foreach (['ambiguous', 'object_station', 'wrong_vendor', 'wrong_model', 'no_firmware', 'relative_clock', 'unknown_connector', 'unknown_status', 'source_target_duplicate', 'source_target_changed', 'source_target_string', 'source_evse_wrong', 'overflow', 'reversed_clock', 'duplicate_event', 'reassigned', 'suspended_owner', 'model_changed', 'maintenance'] as $case) {
+        foreach (['ambiguous', 'object_station', 'wrong_vendor', 'wrong_model', 'no_firmware', 'relative_clock', 'unknown_connector', 'unknown_status', 'source_target_duplicate', 'source_target_changed', 'source_target_string', 'source_evse_wrong', 'overflow', 'reversed_clock', 'duplicate_event', 'reassigned', 'suspended_owner', 'model_changed', 'maintenance', 'station_firmware_changed', 'station_clock_regressed', 'station_identity_replaced'] as $case) {
             $f = $this->fixture();
             $this->source($f, $case);
             $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
