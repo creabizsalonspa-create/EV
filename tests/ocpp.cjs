@@ -129,7 +129,8 @@ async function protocol(version, profile) {
             },
           },
     );
-    assert(["Accepted", "Pending"].includes(boot.status), JSON.stringify(boot));
+    assert.equal(boot.status, "Accepted",
+      "Only an accepted local simulator Boot can prove the full status/model test matrix: " + JSON.stringify(boot));
     assert(Number.isInteger(boot.interval));
     assert(Number.isFinite(Date.parse(boot.currentTime)));
     if (boot.status === "Accepted") {
