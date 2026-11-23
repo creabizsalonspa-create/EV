@@ -127,9 +127,15 @@ class CsmsPilotProbeTest extends TestCase
                     }
                 }
 
-                return Http::response(['data' => ['ChargingStations' =>
-                    $state === 'ambiguous' ? [$row, $row]
-                        : ($state === 'object_station' ? ['station' => $row] : [$row])]]);
+                if ($state === 'ambiguous') {
+                    $stationRows = [$row, $row];
+                } elseif ($state === 'object_station') {
+                    $stationRows = ['station' => $row];
+                } else {
+                    $stationRows = [$row];
+                }
+
+                return Http::response(['data' => ['ChargingStations' => $stationRows]]);
             }
             if ($state === 'removed_mapping') {
                 $mappingId = DB::table('charging_connector_mappings')
