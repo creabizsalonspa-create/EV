@@ -131,3 +131,19 @@ apply this nonsecret signal **once** and keep the distinct
 domain listeners. Exact Native macOS/Ubuntu and Laravel/OCPI
 combined CI are still required; this is not a live partner
 settlement or a proof of PSP/bank remittance.
+
+
+### Already-open partner CDR reconciliation private PDF route
+
+An already-pushed private PDF must not continue rendering after logout
+when its parent financial report clears. This branch now carries the
+**byte-identical optional** `VendorDocumentPreview.revokedSessionEvents`
+implementation from Agent 3 PR #272. The native report passes the
+current `EvApi.sessionEvents` to its viewer. A token-free account
+invalidation immediately hides the PDF/image renderer, evicts any
+preview image cache and closes the route on the next frame. The
+shared component's already-open-route widget regression lives in
+PR #272; Agent 5 should deduplicate this identical implementation
+once during integration. Existing private report amount/source
+tests and full Native/Platform CI must pass on this branch's exact
+HEAD. This does not certify bank, PSP, grid, charger or roaming data.
