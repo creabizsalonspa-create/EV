@@ -67,6 +67,53 @@ for(const ar of [false,true]){
   assert.ok(button(ui,ar?'تحديث حالة تطبيق التحقق':'Refresh authenticator status'));
  });
 }
+
+for(const ar of [false,true]){
+ test('unverified MFA status refresh clears prior recovery codes and actions ('+(ar?'ar':'en')+')',async()=>{
+  const ui=fixture(ar);let broken=false,reads=0;
+  await ui.setActor({role:'customer'},async (path,method)=>{
+   if(method) return {recovery_codes:['PRIVATE-ABCD-1234-XYZ'],reauthentication_required:false};
+   reads++;if(broken) throw Error('PRIVATE STATUS SERVER FAILURE');
+   return {...status,enabled:true,recovery_remaining:8};
+  });
+  const form=find(ui.root,n=>n.tag==='form')[0];
+  input(form,'password').value='private admin password';
+  input(form,'code').value='123456';
+  submit(form);await tick();
+  assert.match(ui.root.textContent,/PRIVATE-ABCD-1234-XYZ/);
+  broken=true;
+  await button(ui,ar?'تحديث حالة تطبيق التحقق':'Refresh authenticator status').onclick();
+  await tick();
+  assert.doesNotMatch(ui.root.textContent,/PRIVATE-ABCD-1234-XYZ/);
+  assert.equal(find(ui.root,n=>n.tag==='form').length,0);
+  assert.doesNotMatch(ui.root.textContent,/PRIVATE STATUS SERVER FAILURE/);
+  broken=false;
+  await button(ui,ar?'تحديث حالة تطبيق التحقق':'Refresh authenticator status').onclick();
+  await tick();
+  assert.match(ui.root.textContent,ar?/تطبيق التحقق مفعّل/:/Authenticator is enabled/);
+  assert.equal(find(ui.root,n=>n.tag==='form').length,2);
+  assert.equal(reads,4);
+ });
+ test('token MFA rotation shows one-time recovery codes without stale action forms ('+(ar?'ar':'en')+')',async()=>{
+  const ui=fixture(ar);let reads=0,writes=0;
+  await ui.setActor({role:'vendor'},async (path,method)=>{
+   if(method){writes++;return {enabled:true,reauthentication_required:true,
+     recovery_codes:['PRIVATE-NEW-RECOVERY-1234']};}
+   reads++;return {...status,enabled:true,recovery_remaining:8};
+  });
+  const form=find(ui.root,n=>n.tag==='form')[0];
+  input(form,'password').value='private password';
+  input(form,'code').value='123456';
+  submit(form);await tick();
+  assert.match(ui.root.textContent,/PRIVATE-NEW-RECOVERY-1234/);
+  assert.match(ui.root.textContent,ar?/سجّل الدخول مجدداً/:/sign in again/);
+  assert.equal(find(ui.root,n=>n.tag==='form').length,0);
+  assert.equal(writes,1);
+  assert.equal(reads,1,'must not issue a private GET after auth epoch rotation');
+  ui.window.pagehide();
+  assert.doesNotMatch(ui.root.textContent,/PRIVATE-NEW-RECOVERY-1234/);
+ });
+}
 test('setup is explicit and secrets are cleared on refresh',async()=>{
  const ui=fixture(),calls=[];let pending=false;
  await ui.setActor({role:'customer'},async(path,method,body)=>{calls.push({path,method,body});if(method){pending=true;return {secret:'A'.repeat(32)}}return {...status,pending}});
