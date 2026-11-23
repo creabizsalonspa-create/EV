@@ -37,3 +37,26 @@ A bounded GET-only worker is available as `commercial:reconcile-disputes --provi
 The actual-Laravel `tests/external-disputes.cjs` browser uses a strictly local/testing SQLite synthetic fixture. Provider responses are faked only during CLI ingestion, never through a server bypass. It checks customer/vendor/admin history, foreign404, masked identities, evidence-control authorization, EN/AR RTL, eight light/dark390/768/1440 screenshots and logout cleanup. `tests/external-disputes-ui.cjs` separately simulates APIs to check literal evidence text, error handling, stable same-key retry across inspection, lazy reads and private draft cleanup. These browser component contracts are not provider acceptance.
 
 Remaining: external alert delivery; full subscription-payment dispute coverage (this adapter currently binds charging checkouts only); file evidence uploads; canonical chargeback/fee/reversal economic allocation and operational resolution; provider merchant sandbox/callback delivery and commercial/legal acceptance. Never mark these complete because contract fakes pass.
+
+
+## Revocation fence before durable evidence submission (Agent 3, 23 November 2026)
+
+For authenticated Admin evidence and stored retry requests, the controller passes
+the *same* current Admin credential snapshot into the canonical dispute service.
+The authoritative Stripe TEST GET deliberately runs outside database transactions.
+Immediately after that provider inspection, and before an evidence-operation row or
+retry lease is created under the dispute lock, the service locks and rechecks the
+persisted account role, active status, authentication epoch, and password hash.
+An Admin revoked during provider I/O receives HTTP 409 and the operation does not
+dispatch a new evidence POST. Account locking precedes dispute locking to preserve
+a consistent lock order. The existing exact-payload/lease/idempotency policy,
+immutable payment ledger, and non-production payment isolation remain unchanged.
+
+Two targeted Laravel regressions simulate Admin epoch and role changes during
+provider inspection for a new submission and an uncertain stored retry. They
+assert no new external POST, no unauthorized evidence reservation/lease change,
+and no finance refund. This protects the pre-dispatch authorization boundary;
+it does not claim physical concurrency acceptance, or imply revocation can undo
+a provider request already lawfully dispatched before the credential changed.
+The full original external-dispute/document/PSP requirements remain unfinished;
+do not award atom credit from this isolated hardening alone.
