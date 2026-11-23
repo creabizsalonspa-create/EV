@@ -10,6 +10,9 @@ use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Models\VendorOps\VendorCharger;
+use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\ChargingActorConsent;
 use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\OcppTransactionId;
@@ -23,6 +26,64 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class CsmsDispatcher
 {
+    /** Check the current canonical target before any pending device command is claimed. */
+    private function sourceLineage(ChargerCommand $command): bool
+    {
+        $station = Station::find($command->station_id);
+        if (! $station || $station->source !== 'simulator') {
+            return false;
+        }
+        $sessionId = $command->payload['session_id'] ?? null;
+        $link = $sessionId === null ? null : SessionLink::where('charging_session_id', $sessionId)->first();
+        if ($sessionId !== null && (! $link || $link->closed_without_dispatch_at !== null
+            || ($command->action === 'start' ? $link->start_command_id : $link->stop_command_id) !== $command->id)) {
+            return false;
+        }
+        if ($link) {
+            $binding = DB::table('csms_bindings')->where('id', $link->binding_id)->first();
+            if (! $binding || $binding->station_id !== $station->id
+                || $binding->identifier !== $link->identifier || $binding->protocol !== $link->protocol) {
+                return false;
+            }
+        } else {
+            $bindings = DB::table('csms_bindings')->where('station_id', $station->id)->limit(2)->get();
+            if ($bindings->count() !== 1 || ConnectorMapping::where('station_id', $station->id)->exists()) {
+                return false;
+            }
+            $binding = $bindings->first();
+        }
+        if (! in_array($binding->protocol, ['1.6', '2.0.1'], true)
+            || ! preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/D', $binding->identifier)) {
+            return false;
+        }
+        if ($binding->vendor_charger_id === null) {
+            // Legacy single-binding simulator only. A canonical mapped
+            // session must always be tied to one owned physical inventory row.
+            return ! $link?->connector_mapping_id
+                && ! ConnectorMapping::where('station_id', $station->id)->exists();
+        }
+        $charger = VendorCharger::find($binding->vendor_charger_id);
+        $site = $charger ? VendorSite::find($charger->site_id) : null;
+        $company = $charger ? VendorCompany::find($charger->company_id) : null;
+        if (! $charger || ! $site || ! $company
+            || $charger->source !== 'simulator' || $charger->ocpp_protocol !== $binding->protocol
+            || $site->station_id !== $station->id || $site->company_id !== $company->id
+            || $company->owner_id !== $station->vendor_id
+            || $company->country !== $station->country || $site->country !== $station->country) {
+            return false;
+        }
+        if ($link?->connector_mapping_id) {
+            $map = ConnectorMapping::find($link->connector_mapping_id);
+            $evse = $map ? Evse::find($map->evse_id) : null;
+            if (! $map || ! $evse || $map->station_id !== $station->id
+                || $evse->binding_id !== $binding->id || $evse->charger_id !== $charger->id) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public function dispatch(int $id): ChargerCommand
     {
         abort_unless(config('csms.simulator_enabled') && ! app()->environment('production'), 503, 'Simulator dispatch is disabled.');
@@ -47,6 +108,15 @@ class CsmsDispatcher
                 return null;
             }
             if ($c->status === 'pending') {
+                // Repointed canonical inventory or source identity must not
+                // redirect an existing pending command to a different owner
+                // or device. Keep the outbox pending, provably unsent.
+                if (! $this->sourceLineage($c)) {
+                    $c->failure_code = 'pre_dispatch_source_lineage_changed';
+                    $c->save();
+
+                    return null;
+                }
                 if (isset($c->payload['session_id'])) {
                     $linked = SessionLink::where('charging_session_id', $c->payload['session_id'])->first();
                     if ($linked && ($linked->closed_without_dispatch_at !== null || ($c->action === 'start' ? $linked->started_at !== null : $linked->ended_at !== null))) {
