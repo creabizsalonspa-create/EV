@@ -307,4 +307,30 @@ void main() {
     expect(store.writes, 0);
   });
 
+  testWidgets('system picker is discarded on true background transition', (
+    tester,
+  ) async {
+    final api = FencedCaseApi(), store = SessionCaseStore();
+    final waiting = Completer<VendorEvidence?>();
+    addTearDown(() => tester.binding
+        .handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    await tester.pumpWidget(evidenceScreen(api, store, picker: () => waiting.future));
+    await tester.pumpAndSettle();
+    await tapVisible(tester, 'Choose PDF, PNG or JPEG up to4 MiB');
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    waiting.complete(VendorEvidence(api.bytes, 'application/pdf'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('application/pdf ·'), findsNothing);
+    expect(find.text('View verified private file'), findsNothing);
+    expect(api.uploads, 0);
+    expect(store.writes, 0);
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('View verified private file'), findsOneWidget);
+  });
+
 }
