@@ -78,7 +78,6 @@ class PartnerBillingReconciliationTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
-
     public function test_partner_cdr_finance_json_csv_and_pdf_deny_revoked_vendor_and_admin_snapshots(): void
     {
         [$owner, , , $invoice, , , , $provider] = $this->scenario();
