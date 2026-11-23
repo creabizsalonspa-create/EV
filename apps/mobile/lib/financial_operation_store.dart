@@ -126,9 +126,17 @@ class FinancialOperation {
   }
 
   Future<void> confirmed() => serial(() async {
+    // A server receipt observed for account A must not acknowledge or erase
+    // account A's durable replay identity after sign-out/account B sign-in.
+    // Recheck both sides of the secure-storage await: this is the final
+    // independently asynchronous boundary after HTTP response validation.
+    checkCurrent();
     final current = await store.read(scope);
-    if (current != null && pending != null && current['key'] == pending!['key'])
+    checkCurrent();
+    if (current != null && pending != null && current['key'] == pending!['key']) {
       await store.remove(scope);
+      checkCurrent();
+    }
     pending = null;
   });
 }
