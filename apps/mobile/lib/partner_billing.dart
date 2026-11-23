@@ -135,9 +135,28 @@ class _PartnerBillingState extends State<PartnerBillingPage>
           result['last_page'] is! int ||
           result['last_page'] < page ||
           result['last_page'] > 100000 ||
+          result['per_page'] is! int ||
+          result['per_page'] < 1 ||
+          result['per_page'] > 25 ||
+          result['total'] is! int ||
+          result['total'] < 0 ||
+          result['total'] > 9007199254740991 ||
           result['data'] is! List ||
           (result['data'] as List).length > 25) {
         throw const FormatException('Unverified report');
+      }
+      final total = result['total'] as int;
+      final perPage = result['per_page'] as int;
+      final lastPage = total == 0 ? 1 : (total + perPage - 1) ~/ perPage;
+      final remaining = total - (page - 1) * perPage;
+      final expected = remaining < 0
+          ? 0
+          : remaining > perPage
+              ? perPage
+              : remaining;
+      if (result['last_page'] != lastPage ||
+          (result['data'] as List).length != expected) {
+        throw const FormatException('Inconsistent source pagination');
       }
       bool amount(dynamic value) =>
           value is int && value >= 0 && value <= 9007199254740991;
