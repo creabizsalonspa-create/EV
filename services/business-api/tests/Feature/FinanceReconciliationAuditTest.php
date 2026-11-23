@@ -152,7 +152,8 @@ class FinanceReconciliationAuditTest extends TestCase
             'literalCsv'
         );
         foreach (['=HYPERLINK("https://unsafe.test","open")', '+SUM(3,5)',
-            '-CMD', '@DDE', "\t=source"] as $formula) {
+            '-CMD', '@DDE', "\t=source", "\u{200B}=hidden",
+            "\u{202E}@bidi", "\u{FEFF}+bom", "\u{00A0}=nbsp"] as $formula) {
             $this->assertSame("'".$formula, $encode->invoke(null, $formula));
         }
         $this->assertSame($invoice->number,
