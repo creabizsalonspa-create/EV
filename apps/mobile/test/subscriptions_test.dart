@@ -214,6 +214,40 @@ void main() {
     expect(store.values.length, 1);
   });
 
+  testWidgets('backgrounded subscription receipt must retain its exact durable request for review',
+    (t) async {
+      final api = SubscriptionApi()..postWait = Completer<dynamic>();
+      final store = VendorOperationStore();
+      addTearDown(api.close);
+      await t.pumpWidget(host(SubscriptionActionView(
+        api: api, onExpired: () {}, action: 'enroll',
+        plan: api.plan, store: store,
+      )));
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.byType(CheckboxListTile));
+      await t.tap(find.byType(CheckboxListTile));
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.byType(FilledButton));
+      await t.tap(find.byType(FilledButton));
+      await t.pump();
+      expect(api.writes, 1);
+      expect(store.values.length, 1);
+      final exact = Map<String, dynamic>.from(api.bodies.single);
+
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await t.pump();
+      api.postWait!.complete(api.summary);
+      await t.pumpAndSettle();
+      expect(store.values.length, 1);
+      expect(find.text(subscriptionEn['done']!), findsNothing);
+      expect(find.textContaining('idempotency_key'), findsNothing);
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await t.pumpAndSettle();
+      expect(api.writes, 1);
+      expect(api.bodies.single, exact);
+    },
+  );
+
   testWidgets(
     'account change during secure persistence blocks enrollment even before the route disposes',
     (t) async {
