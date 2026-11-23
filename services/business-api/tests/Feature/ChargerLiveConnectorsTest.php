@@ -82,13 +82,13 @@ class ChargerLiveConnectorsTest extends TestCase
         ];
     }
 
-    private function source(array $fixture, string $case = 'healthy'): void
+    private function source(array $fixture, string $case = 'healthy', string $endpoint = 'https://source.test/graphql'): void
     {
         Http::swap(new Factory);
         Http::preventStrayRequests();
         $stationReads = 0;
-        Http::fake(function ($request) use ($fixture, $case, &$stationReads) {
-            $this->assertSame('https://source.test/graphql', $request->url());
+        Http::fake(function ($request) use ($fixture, $case, $endpoint, &$stationReads) {
+            $this->assertSame($endpoint, $request->url());
             $this->assertSame(str_repeat('x', 64), $request->header('x-hasura-admin-secret')[0] ?? null);
             if (str_contains($request['query'], 'ChargingStations')) {
                 $stationReads++;
@@ -226,6 +226,26 @@ class ChargerLiveConnectorsTest extends TestCase
             $this->assertDatabaseCount('finance_invoices', 0);
             $this->assertDatabaseCount('charging_status_observations', 0);
         }
+    }
+
+    public function test_known_local_charging_graphql_compose_host_allows_authenticated_read_only_source(): void
+    {
+        $f = $this->fixture('2.0.1');
+        $endpoint = 'http://charging-graphql:8080/v1/graphql';
+        config(['csms.graphql_url' => $endpoint]);
+        $this->source($f, endpoint: $endpoint);
+        $this->actingAs($f['owner'])->getJson($f['url'])->assertOk()
+            ->assertJsonPath('source_topology_matches_local', true)
+            ->assertJsonPath('connectors.0.state', 'recent')
+            ->assertJsonPath('connectors.0.reported_status', 'Available')
+            ->assertJsonPath('connectors.0.physical_available', false)
+            ->assertJsonPath('remote_control_authorized', false)
+            ->assertJsonPath('commands_sent', false);
+        Http::assertSentCount(3);
+        Http::assertSent(fn ($request) => $request->url() === $endpoint
+            && ($request->header('x-hasura-admin-secret')[0] ?? null) === str_repeat('x', 64));
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_operator_maintenance_block_never_reinterprets_a_recent_source_as_physical_availability(): void
