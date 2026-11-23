@@ -145,6 +145,9 @@ class ChargerLiveConnectorsTest extends TestCase
             if ($case === 'invalid_status') {
                 $events[1]['connectorStatus'] = 'DISPATCH_AUTHORIZED';
             }
+            if ($case === 'fault_code') {
+                $events[1]['errorCode'] = 'GroundFailure';
+            }
             if ($case === 'source_stale_event') {
                 $events[0]['timestamp'] = now()->subMinutes(12)->toISOString();
                 $events[1]['timestamp'] = now()->subMinutes(13)->toISOString();
@@ -180,6 +183,21 @@ class ChargerLiveConnectorsTest extends TestCase
             $this->assertDatabaseCount('charger_commands', 0);
             $this->assertDatabaseCount('finance_invoices', 0);
             $this->assertDatabaseCount('charging_status_observations', 0);
+        }
+    }
+
+    public function test_fault_code_overrides_healthy_report_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $this->source($f, 'fault_code');
+            $this->actingAs($f['owner'])->getJson($f['url'])->assertOk()
+                ->assertJsonPath('connectors.0.state', 'recent')
+                ->assertJsonPath('connectors.0.reported_status', 'Faulted')
+                ->assertJsonPath('connectors.0.error_code', 'GroundFailure')
+                ->assertJsonPath('connectors.0.physical_available', false)
+                ->assertJsonPath('commands_sent', false);
+            $this->assertDatabaseCount('charger_commands', 0);
         }
     }
 
