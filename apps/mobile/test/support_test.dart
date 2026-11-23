@@ -719,7 +719,92 @@ class MalformedInboxFixture extends SupportFixture {
   }
 }
 
+
+class MalformedSupportPageFixture extends SupportFixture {
+  bool wrongPage = false, duplicates = false;
+  bool wrongThreadPage = false;
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    final result = await super.request(path,
+        method: method, body: body, query: query);
+    if (method == 'GET' && path == 'support' && (wrongPage || duplicates)) {
+      final data = Map<String,dynamic>.from(result as Map);
+      if (wrongPage) return {...data, 'current_page': 2, 'last_page': 2};
+      final original = List<Map<String,dynamic>>.from(data['data'] as List);
+      return {...data, 'data': [...original, ...original]};
+    }
+    if (method == 'GET' && path == 'support/1' && wrongThreadPage) {
+      final data = Map<String,dynamic>.from(result as Map);
+      final messages = Map<String,dynamic>.from(data['messages'] as Map);
+      return {...data, 'messages': {...messages,
+        'current_page': 2, 'last_page': 2}};
+    }
+    return result;
+  }
+}
+
 void main() {
+
+  for (final language in ['en', 'ar']) {
+    for (final mode in ['wrong-page', 'duplicates']) {
+      testWidgets('malformed support history cannot authorize ticket actions ($language, $mode)', (tester) async {
+        final api = MalformedSupportPageFixture()
+          ..wrongPage = mode == 'wrong-page'
+          ..duplicates = mode == 'duplicates';
+        addTearDown(api.close);
+        await tester.pumpWidget(MaterialApp(
+          locale: Locale(language),
+          supportedLocales: const [Locale('en'), Locale('ar')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+        ));
+        await tester.pumpAndSettle();
+        expect(find.text('Synthetic support thread'), findsNothing);
+        final open = find.byKey(const Key('support-new-ticket'));
+        expect(open, findsOneWidget);
+        expect(tester.widget<OutlinedButton>(open).onPressed, isNull);
+        api.wrongPage = api.duplicates = false;
+        await tester.tap(find.byKey(const Key('support-manual-refresh')));
+        await tester.pumpAndSettle();
+        expect(find.text('Synthetic support thread'), findsOneWidget);
+        expect(tester.widget<OutlinedButton>(open).onPressed, isNotNull);
+        expect(tester.takeException(), isNull);
+      });
+    }
+    testWidgets('malformed private ticket thread page cannot expose reply controls ($language)', (tester) async {
+      final api = MalformedSupportPageFixture()..wrongThreadPage = true;
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: TicketPage(api: api, id: 1, onSessionExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Original public message'), findsNothing);
+      expect(find.byKey(const Key('ticket-reply')), findsNothing);
+      api.wrongThreadPage = false;
+      await tester.tap(find.text(EvStrings(Locale(language)).t('retry')));
+      await tester.pumpAndSettle();
+      expect(find.text('Original public message'), findsOneWidget);
+      expect(find.byKey(const Key('ticket-reply')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
 
   for (final language in ['en', 'ar']) {
     testWidgets('reused support API session changes rebind with no old-account read ($language)', (tester) async {

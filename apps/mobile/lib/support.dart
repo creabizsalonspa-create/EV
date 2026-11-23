@@ -492,6 +492,17 @@ class SupportViewState extends State<SupportView>
       );
       if (!current(request, session)) return;
       final result = ApiPage.fromJson(response, (row) => row);
+      // The server paginates both private ticket and notification inboxes
+      // in groups of 25. A wrong-page, duplicate or overlarge payload
+      // must never authorize a stale ticket/navigation/mark-read action.
+      final seenIds = <int>{};
+      if (result.current != page || result.last < page ||
+          result.last > 100000 || result.total < 0 ||
+          result.items.length > 25 ||
+          result.items.any((row) =>
+              row['id'] is! int || !seenIds.add(row['id'] as int))) {
+        throw const FormatException('Unverified private inbox page');
+      }
       // Never render private action targets from an ambiguous or corrupted
       // inbox projection. A malformed row requires a fresh authoritative GET.
       if (result.items.any((row) {
@@ -1449,9 +1460,15 @@ class _TicketPageState extends State<TicketPage>
         throw const FormatException('Unverified ticket');
       }
       final list = ApiPage.fromJson(response['messages'], (row) => row);
-      if (list.items.any((row) =>
-          row['body'] is! String ||
-          !knownMessageVisibility(row['internal']))) {
+      // Reply actions must never use an unverified thread page. The
+      // authenticated Laravel message index is bounded to 50 per page.
+      if (list.current != page || list.last < page ||
+          list.last > 100000 || list.total < 0 ||
+          list.items.length > 50 ||
+          list.items.any((row) =>
+              row['body'] is! String ||
+              (row['body'] as String).length > 5000 ||
+              !knownMessageVisibility(row['internal']))) {
         throw const FormatException('Unverified ticket messages');
       }
       if (current(n, session)) {
