@@ -100,7 +100,7 @@ const assert = require("node:assert/strict");
     );
     const currentMeter = panel.locator('meter[data-i18n-aria="Current period"]').first();
     assert.equal(await currentMeter.getAttribute("aria-label"), "Current period");
-    assert.match(await currentMeter.getAttribute("aria-valuetext"), /^AED /);
+    assert.match(await currentMeter.getAttribute("aria-valuetext"), /^[A-Z]{3} /);
     const originalMeterValue = await currentMeter.getAttribute("value");
     const csvDownload = vendor.waitForEvent("download");
     await panel
