@@ -39,6 +39,7 @@ class RiderSourceTimeTest extends TestCase
         $statusTime = now()->addMinute()->toISOString();
         $this->assertFalse($guard->targetMatches($binding, $map, $evse, ['connectorId' => 7]));
     }
+
     #[DataProvider('protocols')]
     public function test_rider_authorization_rejects_non_available_and_contradictory_fault_source_receipts(string $protocol): void
     {
