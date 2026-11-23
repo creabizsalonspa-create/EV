@@ -106,6 +106,15 @@ class ChargerLiveConnectorsTest extends TestCase
                 if ($stationReads === 2 && $case === 'disconnected') {
                     $row['isOnline'] = false;
                 }
+                if ($case === 'ambiguous_source') {
+                    return Http::response(['data' => ['ChargingStations' => [$row, $row]]]);
+                }
+                if ($stationReads === 2 && $case === 'source_identity_disappeared') {
+                    return Http::response(['data' => ['ChargingStations' => []]]);
+                }
+                if ($case === 'malformed_source_id') {
+                    $row['id'] = '42';
+                }
 
                 return Http::response(['data' => ['ChargingStations' => [$row]]]);
             }
@@ -172,6 +181,18 @@ class ChargerLiveConnectorsTest extends TestCase
             if ($case === 'source_stale_event') {
                 $events[0]['timestamp'] = now()->subMinutes(12)->toISOString();
                 $events[1]['timestamp'] = now()->subMinutes(13)->toISOString();
+            }
+            if ($case === 'future_status') {
+                $events[1]['timestamp'] = now()->addMinutes(10)->toISOString();
+            }
+            if ($case === 'relative_status') {
+                $events[1]['timestamp'] = 'now';
+            }
+            if ($case === 'source_error') {
+                return Http::response(['errors' => [['message' => 'PRIVATE_SOURCE_ERROR']]]);
+            }
+            if ($case === 'events_unavailable') {
+                return Http::response(['data' => ['Connectors' => [], 'StatusNotifications' => null]]);
             }
 
             return Http::response(['data' => [
@@ -247,12 +268,16 @@ class ChargerLiveConnectorsTest extends TestCase
         foreach (['unknown_connector', 'duplicate_target', 'clock_regressed',
             'invalid_status', 'firmware_changed', 'revoke_during_read',
             'model_changed_during_read', 'contradictory_same_timestamp',
-            'mapping_changed_during_read'] as $state) {
+            'mapping_changed_during_read', 'ambiguous_source',
+            'source_identity_disappeared', 'malformed_source_id',
+            'future_status', 'relative_status', 'source_error',
+            'events_unavailable'] as $state) {
             $f = $this->fixture();
             $this->source($f, $state);
             $response = $this->actingAs($f['owner'])->getJson($f['url']);
             $this->assertContains($response->status(), [403, 409, 503]);
             $response->assertDontSee(str_repeat('x', 64));
+            $response->assertDontSee('PRIVATE_SOURCE_ERROR');
             $this->assertDatabaseCount('charger_commands', 0);
             $this->assertDatabaseCount('finance_invoices', 0);
         }
