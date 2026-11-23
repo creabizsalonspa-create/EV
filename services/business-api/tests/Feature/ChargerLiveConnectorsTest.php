@@ -249,6 +249,25 @@ class ChargerLiveConnectorsTest extends TestCase
         }
     }
 
+    public function test_rejects_privileged_source_secrets_over_external_plaintext_urls(): void
+    {
+        $f = $this->fixture();
+        $this->source($f);
+        foreach ([
+            'http://source.test/graphql',
+            'http://user:secret@source.test/graphql',
+            'https://user:secret@source.test/graphql',
+            'https://source.test/graphql?secret=unsafe',
+            'file:///private/secret',
+        ] as $url) {
+            config(['csms.graphql_url' => $url]);
+            $this->actingAs($f['owner'])->getJson($f['url'])->assertServiceUnavailable()
+                ->assertDontSee('secret');
+            Http::assertNothingSent();
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_unrelated_vendor_and_production_environment_have_no_live_source_access(): void
     {
         $f = $this->fixture();
