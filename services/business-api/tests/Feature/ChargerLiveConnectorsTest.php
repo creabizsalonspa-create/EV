@@ -76,6 +76,7 @@ class ChargerLiveConnectorsTest extends TestCase
 
         return [
             'owner' => $owner, 'company' => $company, 'charger' => $charger,
+            'station' => $station,
             'url' => '/api/vendor-ops/companies/'.$company->id.'/chargers/'.$charger->id.'/live-connectors',
             'protocol' => $protocol,
         ];
@@ -117,7 +118,7 @@ class ChargerLiveConnectorsTest extends TestCase
             }
             if ($case === 'mapping_changed_during_read') {
                 DB::table('charging_connector_mappings')
-                    ->where('station_id', $fixture['charger']->site->station_id)
+                    ->where('station_id', $fixture['station']->id)
                     ->orderBy('id')->limit(1)->update([
                         'source_target_key' => str_repeat('e', 64),
                     ]);
@@ -262,7 +263,7 @@ class ChargerLiveConnectorsTest extends TestCase
     {
         $f = $this->fixture();
         $this->source($f);
-        DB::table('charging_connector_mappings')->where('station_id', $f['charger']->site->station_id)
+        DB::table('charging_connector_mappings')->where('station_id', $f['station']->id)
             ->update(['source_target_key' => null]);
         $this->actingAs($f['owner'])->getJson($f['url'])->assertConflict();
         Http::assertNothingSent();
