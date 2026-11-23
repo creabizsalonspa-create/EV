@@ -54,7 +54,7 @@ final class ConnectorFreshness
         // OCPP 1.6 explicitly transmits a fault code on every connector
         // status. An absent code cannot clear a fault or advertise Available.
         // OCPP 2.0.1 has no equivalent mandatory errorCode field.
-        if ($binding->protocol === '1.6' && $status === 'Available' && $latest->error_code !== 'NoError') {
+        if ($binding->protocol === '1.6' && $status === 'Available' && $latest->error_code === null) {
             return $result;
         }
 
