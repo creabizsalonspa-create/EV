@@ -30,9 +30,11 @@ return new class extends Migration
 
     public function down(): void
     {
-        // A verified production observation trail must not be erased by a
-        // routine rollback. An unused table may still be rolled back.
-        if (Schema::hasTable('ocpi_catalog_quality_history')
+        // Preserve stored evidence outside the isolated test environment.
+        // PostgreSQL concurrency tests migrate:fresh repeatedly; those
+        // disposable test schemas must remain resettable without weakening
+        // the data-preserving rollback guard in normal deployments.
+        if (! app()->environment('testing') && Schema::hasTable('ocpi_catalog_quality_history')
             && DB::table('ocpi_catalog_quality_history')->exists()) {
             throw new RuntimeException('OCPI quality history requires a data-preserving rollback.');
         }

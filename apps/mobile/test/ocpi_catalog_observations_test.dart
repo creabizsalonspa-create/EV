@@ -329,7 +329,7 @@ void main() {
       await tester.scrollUntilVisible(row, 160);
       expect(row, findsOneWidget);
       expect(
-        find.textContaining(ar ? 'ليس توفراً حياً' : 'not live availability'),
+        find.textContaining(ar ? 'ليست توفراً حياً' : 'not live availability'),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);

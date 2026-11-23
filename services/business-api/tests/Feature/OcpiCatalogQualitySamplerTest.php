@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\CatalogQualityHistory;
 use App\Services\Ocpi\CatalogQualitySampler;
 use App\Services\Ocpi\RecordSynchronizer;
 use Carbon\Carbon;
@@ -144,15 +145,15 @@ class OcpiCatalogQualitySamplerTest extends TestCase
         $this->travelTo(Carbon::parse('2026-11-18T10:30:00Z'));
         [, $current] = $this->fixture('current');
         $this->assertDatabaseCount('ocpi_catalog_quality_history', 3);
-        $result = app(\App\Services\Ocpi\CatalogQualityHistory::class)->purgeExpired(1);
+        $result = app(CatalogQualityHistory::class)->purgeExpired(1);
         $this->assertSame(1, $result['deleted']);
         $this->assertSame(1, $result['considered']);
         $this->assertSame(0, $result['external_requests']);
         $this->assertDatabaseCount('ocpi_catalog_quality_history', 2);
         $this->assertDatabaseHas('ocpi_catalog_quality_history', ['provider_id' => $current->id]);
-        $this->assertSame(1, app(\App\Services\Ocpi\CatalogQualityHistory::class)->purgeExpired(1)['deleted']);
+        $this->assertSame(1, app(CatalogQualityHistory::class)->purgeExpired(1)['deleted']);
         $this->assertDatabaseCount('ocpi_catalog_quality_history', 1);
-        $this->assertSame(0, app(\App\Services\Ocpi\CatalogQualityHistory::class)->purgeExpired(1)['deleted']);
+        $this->assertSame(0, app(CatalogQualityHistory::class)->purgeExpired(1)['deleted']);
         $this->assertDatabaseCount('ocpi_records', 3);
         Http::assertNothingSent();
     }

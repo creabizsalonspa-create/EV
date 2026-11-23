@@ -276,7 +276,6 @@ Artisan::command('notifications:handoff-email {--max=100}', function () {
 })->purpose('Bounded, opt-in generic email digests; transport handoff does not prove delivery');
 Schedule::command('notifications:handoff-email')->everyMinute()->withoutOverlapping();
 
-
 // Opt-in, read-only UTC-hour freshness observation over already stored OCPI
 // locations. Bounded and idempotent; never contacts a partner or charger.
 Artisan::command('ocpi:sample-source-quality {--limit=25}', function () {
