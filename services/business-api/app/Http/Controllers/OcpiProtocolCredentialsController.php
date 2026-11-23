@@ -69,7 +69,7 @@ class OcpiProtocolCredentialsController extends Controller
                     $sandbox[] = ['identifier' => 'tokens', 'role' => 'SENDER', 'url' => $base.'2.2.1/tokens'];
                 }
                 $senders = app(CpoCatalogContract::class)->approved($p)
-                    ? array_map(fn ($module) => ['identifier' => $module, 'role' => 'SENDER', 'url' => $base.'2.2.1/cpo/'.$module], CpoCatalogContract::MODULES)
+                    ? array_map(fn ($module) => ['identifier' => $module, 'role' => 'SENDER', 'url' => $base.'2.2.1/cpo/'.$module], app(CpoCatalogContract::class)->modules($p))
                     : [];
                 $data = match ($resource) {
                     'versions' => [['version' => '2.2.1', 'url' => $base.'2.2.1']],
