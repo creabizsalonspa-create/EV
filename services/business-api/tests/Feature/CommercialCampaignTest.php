@@ -231,6 +231,29 @@ class CommercialCampaignTest extends TestCase
         $this->assertSame($journals, DB::table('finance_journals')->count());
     }
 
+    public function test_disabled_sponsorship_returns_bounded_empty_page_without_consuming_package_or_queries(): void
+    {
+        $f = $this->fixture();
+        $approved = $this->approved($f);
+        $this->assertDatabaseHas('commercial_campaigns', [
+            'id' => $approved['id'], 'status' => 'approved',
+        ]);
+        $beforeUnits = DB::table('commercial_campaign_deliveries')->count();
+        $beforeJournals = DB::table('finance_journals')->count();
+        config(['campaigns.enabled' => false]);
+        $this->actingAs($f['customer'])
+            ->getJson('/api/commercial/campaign-placements?country=AE'
+                .'&placement=discovery_banner&page=2&per_page=1')
+            ->assertOk()->assertJsonCount(0, 'placements')
+            ->assertJsonPath('current_page', 2)
+            ->assertJsonPath('per_page', 1)
+            ->assertJsonPath('last_page', 1)
+            ->assertJsonPath('total', 0)
+            ->assertJsonPath('client_telemetry_billable', false);
+        $this->assertSame($beforeUnits, DB::table('commercial_campaign_deliveries')->count());
+        $this->assertSame($beforeJournals, DB::table('finance_journals')->count());
+    }
+
     public function test_unpaid_or_non_entitled_package_and_foreign_station_cannot_create_campaign(): void
     {
         $f = $this->fixture(paid: false);
