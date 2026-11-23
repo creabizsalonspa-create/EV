@@ -272,7 +272,10 @@ class SignedFirmwareTest extends TestCase
                     $reportedVersion = $drift && $isCompatibility && ++$compatibilityReads > 1 ? 'changed-source-version' : $firmwareVersion;
                     $row = ['id' => 9, 'protocol' => $f['protocol'], 'isOnline' => true,
                         'firmwareVersion' => $reportedVersion, 'chargePointVendor' => 'Synthetic',
-                        'chargePointModel' => 'Fixture'];
+                        'chargePointModel' => 'Fixture',
+                        'latestOcppMessageTimestamp' => $malformedSource === 'stale_heartbeat'
+                            ? now()->subMinutes(10)->toISOString()
+                            : ($malformedSource === 'relative_heartbeat' ? 'now' : now()->toISOString())];
                     if (! $isCompatibility && $malformedReview === 'bad_review_station_list') {
                         return Http::response(['data' => ['ChargingStations' => ['station' => $row]]]);
                     }
@@ -566,6 +569,7 @@ class SignedFirmwareTest extends TestCase
             $this->actingAs($f['owner'])->getJson($path)->assertOk()
                 ->assertJsonPath('protocol', $protocol)
                 ->assertJsonPath('observed_source_firmware', 'sim-fw-v1')
+                ->assertJsonPath('source_freshness_seconds', 300)
                 ->assertJsonPath('source_snapshot_verified', true)
                 ->assertJsonPath('physical_hardware_accepted', false)
                 ->assertJsonPath('firmware_dispatch_authorized', false)
@@ -607,6 +611,14 @@ class SignedFirmwareTest extends TestCase
         Http::swap(new Factory);
         $this->source($f, malformedSource: 'wrong_manufacturer');
         $this->getJson($path)->assertConflict();
+
+        Http::swap(new Factory);
+        $this->source($f, malformedSource: 'stale_heartbeat');
+        $this->getJson($path)->assertConflict();
+
+        Http::swap(new Factory);
+        $this->source($f, malformedSource: 'relative_heartbeat');
+        $this->getJson($path)->assertServiceUnavailable();
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
             || str_contains($request->url(), '/signedUpdateFirmware?')
             || str_contains($request->url(), '/updateFirmware?'));
@@ -664,6 +676,7 @@ class SignedFirmwareTest extends TestCase
                 'chargePointVendor' => 'Synthetic',
                 'chargePointModel' => 'Fixture',
                 'firmwareVersion' => 'sim-fw-v1',
+                'latestOcppMessageTimestamp' => now()->toISOString(),
             ]]]]);
         });
         $path = str_replace('/firmware-operations', '/firmware-compatibility', $f['path']);
