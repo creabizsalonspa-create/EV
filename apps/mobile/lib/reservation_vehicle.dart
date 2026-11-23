@@ -170,6 +170,7 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> wit
     final fence = accountFence, epoch = generation;
     bool active() => scopedSelection(source, fence, connector, epoch);
     bool mayRefreshHidden() => mounted && _backgroundHidden &&
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
         identical(widget.api, source) &&
         identical(accountFence, fence) &&
         widget.connector == connector &&
