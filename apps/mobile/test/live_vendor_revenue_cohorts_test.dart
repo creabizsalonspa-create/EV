@@ -42,9 +42,22 @@ void main() {
     expect(actual.totals['paid_minor'], greaterThanOrEqualTo(1050));
     expect(actual.source['real_money_movement'], false);
     expect(actual.source['external_psp_or_bank_verified'], false);
-    final csv = await api.request(path, query: {...query, 'currency': 'USD'});
-    expect(csv['currency'], 'USD');
-    expect(csv['totals']['invoice_count'], 0);
+    final empty = VendorRevenueCohortSnapshot.parse(
+      await api.request(path, query: {
+        ...query,
+        'from': today.subtract(const Duration(days: 10))
+            .toIso8601String().substring(0, 10),
+        'to': today.subtract(const Duration(days: 9))
+            .toIso8601String().substring(0, 10),
+      }),
+      vendorId: owner,
+      currency: 'AED',
+      from: today.subtract(const Duration(days: 10))
+          .toIso8601String().substring(0, 10),
+      to: today.subtract(const Duration(days: 9))
+          .toIso8601String().substring(0, 10),
+    );
+    expect(empty.totals['invoice_count'], 0);
     await expectLater(api.request(path, query: {...query, 'from': '2026-02-30'}),
       throwsA(isA<ApiException>().having((e) => e.status, 'invalid date', 422)));
     await api.signOut();
