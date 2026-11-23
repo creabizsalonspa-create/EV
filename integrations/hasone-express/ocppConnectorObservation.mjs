@@ -22,8 +22,10 @@ export function presentConnectorObservation(source,charger,{now=new Date()}={}){
  // OCPP 1.6 fault codes are protocol enums, not arbitrary gateway prose.
  // A non-Faulted status carrying an active device fault cannot become a
  // healthy-looking customer observation; classify the receipt as unknown.
- // Older source rows without errorCode retain their original status-only
- // presentation, never availability or command authority.
+ // Legacy receipts without errorCode remain fault/unknown observations;
+ // they must never advertise OCPP 1.6 Available as verified source health.
+ if(scope.protocol==='ocpp1.6' && row.status==='Available' &&
+    row.errorCode!=='NoError')return null;
  if(scope.protocol==='ocpp1.6' && row.errorCode!=null){
    const errors=new Set(['NoError','ConnectorLockFailure','EVCommunicationError',
      'GroundFailure','HighTemperature','InternalError','LocalListConflict',
