@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
+use App\Models\ChargerCommand;
+use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
@@ -13,6 +15,7 @@ use App\Models\VendorOps\VendorSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -231,7 +234,8 @@ class CsmsPilotProbeTest extends TestCase
         DB::table('charger_reset_operations')->insert([
             'binding_id' => $f['binding'], 'actor_id' => $f['owner']->id,
             'idempotency_key' => 'synthetic-held-reset',
-            'payload_hash' => str_repeat('a', 64), 'reason' => 'REDACTED',
+            'payload_hash' => str_repeat('a', 64),
+            'reason' => Crypt::encryptString('synthetic operator hold'),
             'reset_type' => 'Soft', 'status' => 'outcome_unknown',
             'created_at' => now(), 'updated_at' => now(),
         ]);
@@ -243,6 +247,44 @@ class CsmsPilotProbeTest extends TestCase
         $this->assertFalse($report['device_commands_sent']);
         $this->assertDatabaseCount('charger_reset_operations', 1);
         $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_imminent_reservation_holds_software_source_even_without_an_active_transaction(): void
+    {
+        $f = $this->fixture();
+        $this->source($f);
+        Reservation::create([
+            'user_id' => User::factory()->create(['role' => 'customer'])->id,
+            'station_id' => $f['station']->id,
+            'starts_at' => now()->addMinutes(4)->format('Y-m-d H:i:s'),
+            'idempotency_key' => 'prepilot-booking',
+        ]);
+        $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+        $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+        $this->assertTrue($report['pending_local_charging_or_maintenance_review']);
+        $this->assertFalse($report['software_source_observed']);
+        $this->assertFalse($report['device_commands_sent']);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_uncertain_start_command_blocks_read_only_source_success(): void
+    {
+        $f = $this->fixture();
+        $this->source($f);
+        ChargerCommand::create([
+            'actor_id' => User::factory()->create(['role' => 'customer'])->id,
+            'station_id' => $f['station']->id, 'action' => 'start',
+            'payload' => [], 'payload_hash' => str_repeat('b', 64),
+            'consent_auth_epoch' => 0, 'idempotency_key' => 'pilot-outcome-unknown',
+            'status' => 'outcome_unknown',
+        ]);
+        $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+        $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+        $this->assertSame('requires_source_review', $report['status']);
+        $this->assertTrue($report['pending_local_charging_or_maintenance_review']);
+        $this->assertFalse($report['software_source_observed']);
+        $this->assertFalse($report['device_commands_sent']);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
