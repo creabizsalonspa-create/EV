@@ -228,6 +228,23 @@ class ChargerLiveConnectorsTest extends TestCase
         }
     }
 
+    public function test_operator_maintenance_block_never_reinterprets_a_recent_source_as_physical_availability(): void
+    {
+        $f = $this->fixture('2.0.1');
+        DB::table('vendor_connectors')->where('charger_id', $f['charger']->id)
+            ->where('connector_number', 1)->update(['maintenance_blocked' => true]);
+        $this->source($f);
+        $this->actingAs($f['owner'])->getJson($f['url'])->assertOk()
+            ->assertJsonPath('source_topology_matches_local', true)
+            ->assertJsonPath('connectors.0.state', 'recent')
+            ->assertJsonPath('connectors.0.reported_status', 'Available')
+            ->assertJsonPath('connectors.0.operator_maintenance_blocked', true)
+            ->assertJsonPath('connectors.0.physical_available', false)
+            ->assertJsonPath('connectors.0.remote_control_authorized', false)
+            ->assertJsonPath('commands_sent', false);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_fault_code_overrides_healthy_report_for_both_protocols(): void
     {
         foreach (['1.6', '2.0.1'] as $protocol) {
