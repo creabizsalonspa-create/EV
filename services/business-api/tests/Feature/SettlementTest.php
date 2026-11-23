@@ -147,6 +147,76 @@ class SettlementTest extends TestCase
         $this->assertDatabaseCount('commercial_adjustments', 0);
     }
 
+    public function test_private_settlement_and_adjustment_receipts_never_expose_replay_keys(): void
+    {
+        $this->invoice();
+        $this->configure();
+        $draft = $this->draft('private-finance-retry');
+        $this->assertArrayNotHasKey('request_key', $draft);
+        $this->assertArrayNotHasKey('fingerprint', $draft);
+        $base = '/settlement-test/commercial';
+        $this->actingAs($this->vendor)
+            ->getJson($base.'/settlements')->assertOk()
+            ->assertJsonPath('data.0.id', $draft['id'])
+            ->assertJsonMissingPath('data.0.request_key');
+        $this->getJson($base.'/settlements/'.$draft['id'])->assertOk()
+            ->assertJsonPath('reconciled', true)
+            ->assertJsonMissingPath('settlement.request_key');
+        $this->postJson($base.'/vendors/'.$this->vendor->id.'/settlements', [
+            'currency' => 'AED', 'idempotency_key' => 'private-finance-retry',
+        ])->assertCreated()->assertJsonPath('id', $draft['id'])
+            ->assertJsonMissingPath('request_key');
+
+        $body = [
+            'currency' => 'AED', 'amount_minor' => -20,
+            'reason' => 'Synthetic source correction',
+            'idempotency_key' => 'private-adjustment-retry',
+        ];
+        $url = $base.'/vendors/'.$this->vendor->id.'/adjustments';
+        $adjustment = $this->actingAs($this->admin)
+            ->postJson($url, $body)->assertCreated()
+            ->assertJsonMissingPath('request_key')->json();
+        $this->postJson($url, $body)->assertCreated()
+            ->assertJsonPath('id', $adjustment['id'])
+            ->assertJsonMissingPath('request_key');
+        $this->assertSame(64, strlen(DB::table('commercial_settlements')
+            ->where('id', $draft['id'])->value('request_key')));
+        $this->assertSame(64, strlen(DB::table('commercial_adjustments')
+            ->where('id', $adjustment['id'])->value('request_key')));
+        $this->assertDatabaseCount('commercial_settlements', 1);
+        $this->assertDatabaseCount('commercial_adjustments', 1);
+        $this->assertDatabaseCount('finance_payments', 1);
+        $this->assertDatabaseCount('finance_journals', 2);
+    }
+
+    public function test_settlement_detail_reconciliation_refuses_lossy_sums(): void
+    {
+        $service = app(SettlementService::class);
+        $statement = (object) ['amount_minor' => 100];
+        $this->assertTrue($service->reconciles($statement, [
+            (object) ['amount_minor' => 150],
+            (object) ['amount_minor' => -50],
+        ]));
+        $this->assertFalse($service->reconciles($statement, [
+            (object) ['amount_minor' => 99],
+        ]));
+        foreach ([
+            [(object) ['amount_minor' => 100.0], []],
+            [$statement, [(object) ['amount_minor' => 100.0]]],
+            [$statement, [
+                (object) ['amount_minor' => 4_503_599_627_370_496],
+                (object) ['amount_minor' => 4_503_599_627_370_496],
+            ]],
+        ] as [$source, $lines]) {
+            try {
+                $service->reconciles($source, $lines);
+                $this->fail('Inexact settlement detail was reported reconciled.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+    }
+
     public function test_unpaid_partial_and_unmatured_invoices_are_not_payable(): void
     {
         $invoice = $this->invoice(false);
