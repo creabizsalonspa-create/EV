@@ -600,41 +600,100 @@ class SubscriptionDetailView extends StatefulWidget {
   State<SubscriptionDetailView> createState() => _SubscriptionDetailState();
 }
 
-class _SubscriptionDetailState extends State<SubscriptionDetailView> {
+class _SubscriptionDetailState extends State<SubscriptionDetailView>
+    with WidgetsBindingObserver {
   Map<String, dynamic>? summary;
   ApiPage<Map<String, dynamic>>? events;
+  bool Function()? currentSession;
   int generation = 0, page = 1;
-  bool busy = false;
+  bool busy = false, foreground = true, hidden = false;
+  bool get current => foreground && (currentSession?.call() ?? false);
   Object? error;
   String t(String k) => subscriptionText(context, k);
   @override
   void initState() {
     super.initState();
-    load();
+    WidgetsBinding.instance.addObserver(this);
+    foreground = WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    hidden = !foreground;
+    if (foreground) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant SubscriptionDetailView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api || oldWidget.id != widget.id) {
+      generation++;
+      summary = null;
+      events = null;
+      error = null;
+      currentSession = null;
+      hidden = true;
+      busy = false;
+      if (foreground) {
+        final api = widget.api, id = widget.id;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && identical(api, widget.api) &&
+              id == widget.id) load();
+        });
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) {
+        generation++;
+        summary = null;
+        events = null;
+        error = null;
+        busy = false;
+        hidden = true;
+      }
+    });
   }
 
   @override
   void dispose() {
     generation++;
+    summary = null;
+    events = null;
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   Future<void> load({int number = 1}) async {
+    if (!foreground || number < 1 || number > 100000) return;
     final epoch = ++generation;
+    final session = widget.api.sessionFence();
+    currentSession = session;
+    bool active() => mounted && foreground &&
+        epoch == generation && session();
     setState(() {
       busy = true;
       summary = null;
       events = null;
       error = null;
       page = number;
+      hidden = false;
     });
     try {
       final me = await widget.api.request('me');
+      if (!active()) return;
+      if (me is! Map || !['customer', 'vendor'].contains(me['role']) ||
+          me['id'] is! int || me['id'] < 1) {
+        throw const FormatException('Untrusted subscription account.');
+      }
       final data = subscriptionSummary(
         await widget.api.request('commercial/subscriptions/${widget.id}'),
         me['id'] as int,
         id: widget.id,
       );
+      if (!active()) return;
       final history = ApiPage.fromJson(
         await widget.api.request(
           'commercial/subscriptions/${widget.id}/events',
@@ -642,7 +701,7 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView> {
         ),
         (r) => r,
       );
-      if (!mounted || epoch != generation) return;
+      if (!active()) return;
       for (final i in data['invoices'] as List) {
         nativeFinancialAmount(
           context,
@@ -653,17 +712,18 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView> {
       summary = data;
       events = history;
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (active()) {
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (active()) setState(() => busy = false);
     }
   }
 
   Future<void> push(Widget view) async {
+    if (!current || busy) return;
     await Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => view));
@@ -682,8 +742,10 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView> {
           child: Text(t('refresh')),
         ),
         if (busy) const Center(child: CircularProgressIndicator()),
-        if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
-        if (summary != null) ...[
+        if (error != null && current)
+          Text(EvStrings.of(c).t(errorKey(error!))),
+        if (hidden || !current) Text(t('privateCleared')),
+        if (summary != null && current) ...[
           Text(
             '${summary!['plan']['name']} · ${t('${summary!['subscription']['status']}')}',
           ),
