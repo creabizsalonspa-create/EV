@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\ChargingSession;
 use App\Http\Controllers\FinanceApprovalQueueController;
+use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
