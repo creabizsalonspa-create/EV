@@ -14,6 +14,7 @@ class FirmwareApi extends FixtureApi {
   final attempts = <Map<String, dynamic>>[];
   bool active = true;
   bool failCompatibility = false;
+  bool invalidCompatibility = false;
   int compatibilityReads = 0;
   @override
   bool Function() sessionFence() =>
@@ -39,11 +40,13 @@ class FirmwareApi extends FixtureApi {
       }
       return {
         'charger_id': 2,
+        'manufacturer': 'Synthetic',
+        'model': 'Fixture',
         'protocol': '1.6',
         'observed_source_firmware': 'sim-fw-v1',
         'source_last_message_at': '2026-11-23T02:00:00Z',
         'source_freshness_seconds': 300,
-        'source_snapshot_verified': true,
+        'source_snapshot_verified': !invalidCompatibility,
         'physical_hardware_accepted': false,
         'firmware_dispatch_authorized': false,
         'releases': [
@@ -189,6 +192,15 @@ void main() {
     expect(find.text('Authenticated source snapshot'), findsNothing);
     expect(find.textContaining('could not be verified'), findsOneWidget);
     expect(find.textContaining('PRIVATE SOURCE SECRET'), findsNothing);
+    expect(api.attempts, isEmpty);
+
+    api.failCompatibility = false;
+    api.invalidCompatibility = true;
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.text('Authenticated source snapshot'), findsNothing);
+    expect(find.textContaining('could not be verified'), findsOneWidget);
     expect(api.attempts, isEmpty);
   });
 
