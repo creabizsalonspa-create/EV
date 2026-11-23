@@ -9,8 +9,22 @@ const fs = require("node:fs"),
     fs.readFileSync("services/business-api/public/locale-data.js", "utf8"),
     scope,
   );
-  for (const [key, value] of Object.entries(scope.window.EV_MESSAGES)) {
+  const labels = scope.window.EV_MESSAGES;
+  const neutralTemplates = new Set([
+    "English",
+    "#{id} · {subject} · {status}",
+    "{subject} · {status}",
+    "{name} · {role}",
+    "{evidence} · {status}",
+    "Settings reading",
+  ]);
+  assert(Object.keys(labels).length >= 980, "Web translation registry lost substantial workflow coverage");
+  for (const [key, value] of Object.entries(labels)) {
     assert(value.en && value.ar, key);
+    if (!neutralTemplates.has(key)) {
+      assert.match(value.ar, /[ء-ي]/, key + ": Arabic resource was replaced by an English fallback");
+      assert.notEqual(value.ar, value.en, key + ": Arabic resource equals English");
+    }
     const variables = (s) =>
       [...s.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]).sort();
     assert.deepEqual(variables(value.en), variables(value.ar), key);
