@@ -249,6 +249,9 @@ class CsmsPilotProbeTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('csms_inbox_events', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('audit_events', 0);
     }
 
     public function test_station_offline_during_inventory_never_promotes_source_read_to_success(): void
