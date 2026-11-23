@@ -6,6 +6,7 @@ use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Ocpi\OcpiException;
+use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -164,6 +165,40 @@ class OcpiPublicOwnerVisibilityTest extends TestCase
         $this->getJson('/api/roaming/locations')->assertJsonPath('total', 0);
         $this->assertDatabaseCount('ocpi_records', 1);
         Http::assertSentCount(2);
+    }
+
+    public function test_catalog_pagination_stops_partner_egress_when_owner_suspended_between_pages(): void
+    {
+        $f = $this->fixture();
+        config(['ocpi.connections.visibility-fixture' => [
+            'origin' => 'https://peer.example',
+            'authorization_token' => base64_encode('offline-only-catalog'),
+        ]]);
+        $f['provider']->update(['endpoints' => ['locations' => 'https://peer.example/locations']]);
+        Http::fake(function () use ($f) {
+            $f['owner']->forceFill(['account_status' => 'suspended'])->save();
+
+            return Http::response(
+                ['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => []],
+                200, ['Link' => '<https://peer.example/locations?page=2>; rel="next"']
+            );
+        });
+        try {
+            app(PartnerClient::class)->pull($f['provider']->fresh(), 'locations');
+            $this->fail('A second catalog page was requested after owner suspension.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('Inactive operator owner', $error->getMessage());
+        }
+        Http::assertSentCount(1);
+        try {
+            app(PartnerClient::class)->pull($f['provider']->fresh(), 'locations');
+            $this->fail('A suspended provider sent another catalog request.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('Inactive operator owner', $error->getMessage());
+        }
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 1);
+        $this->getJson('/api/roaming/locations')->assertJsonPath('total', 0);
     }
 
     public function test_late_partner_catalog_batch_cannot_mutate_records_after_owner_suspension(): void
