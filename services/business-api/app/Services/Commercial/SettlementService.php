@@ -107,6 +107,21 @@ class SettlementService
         return ['vendor_id' => $vendor, 'currency' => $currency, 'minor_units' => $this->currencyPrecision($vendor, $currency), 'gross_invoiced_minor' => $gross, 'commission_invoiced_minor' => $commission, 'tax_invoiced_minor' => $tax, 'refunded_minor' => $refunded, 'available_minor' => $totalAvailable, 'lines' => $lines, 'evidence' => 'SIMULATED', 'real_payout_enabled' => false];
     }
 
+    /**
+     * One authoritative exact-money check for the settlement detail DTO.
+     * Mixed signed refund-debt lines may reconcile to a positive payable;
+     * neither oversized SQL sums nor float-origin amounts may pass as green.
+     */
+    public function reconciles(object $settlement, iterable $lines): bool
+    {
+        $total = 0;
+        foreach ($lines as $line) {
+            $total = self::addMinor($total, self::exactMinor($line->amount_minor, true), true);
+        }
+
+        return $total === self::exactMinor($settlement->amount_minor);
+    }
+
     private function held(int $invoice): bool
     {
         return CorporateHostedCollection::settlementHeld($invoice) || DB::table('finance_refund_requests')->where('invoice_id', $invoice)->where('status', 'pending')->exists()
