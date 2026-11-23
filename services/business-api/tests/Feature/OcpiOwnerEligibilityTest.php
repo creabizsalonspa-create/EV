@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\OcpiController;
+use App\Http\Controllers\OcpiProvisioningController;
 use App\Models\OcpiProvider;
 use App\Models\User;
 use App\Services\Ocpi\PartnerClient;
@@ -61,6 +62,50 @@ class OcpiOwnerEligibilityTest extends TestCase
             $this->assertSame(['id', 'name'], array_keys($page->json('data.0')));
         }
         Http::assertNothingSent();
+    }
+
+    public function test_private_admin_onboarding_reads_recheck_current_role_epoch_and_password(): void
+    {
+        $admin = $this->admin();
+        $this->vendor();
+        $controller = app(OcpiProvisioningController::class);
+        $snapshot = Request::create('/api/ocpi/owner-options', 'GET', ['q' => 'Agent']);
+        $snapshot->setUserResolver(static fn () => $admin);
+        $initial = [
+            'role' => 'admin',
+            'account_status' => 'active',
+            'auth_epoch' => $admin->auth_epoch,
+            'password' => $admin->password,
+        ];
+
+        foreach ([
+            [['account_status' => 'suspended'], 403],
+            [['role' => 'customer'], 403],
+            [['auth_epoch' => (int) $admin->auth_epoch + 1], 409],
+            [['password' => 'new-synthetic-hash'], 409],
+        ] as [$change, $status]) {
+            DB::table('users')->where('id', $admin->id)->update(array_replace($initial, $change));
+            foreach ([
+                static fn () => $controller->owners($snapshot),
+                static fn () => $controller->connections($snapshot, app(PartnerClient::class)),
+            ] as $read) {
+                try {
+                    $read();
+                    $this->fail('Captured Admin identity accessed private OCPI onboarding after revocation.');
+                } catch (HttpException $error) {
+                    $this->assertSame($status, $error->getStatusCode());
+                }
+            }
+        }
+        DB::table('users')->where('id', $admin->id)->update($initial);
+        $this->actingAs($admin);
+        $this->getJson('/api/ocpi/owner-options')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->getJson('/api/ocpi/connection-options')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private');
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_admin_cannot_register_pending_or_authorized_provider_for_suspended_or_former_owner(): void
