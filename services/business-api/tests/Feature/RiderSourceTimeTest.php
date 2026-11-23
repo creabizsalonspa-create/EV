@@ -41,6 +41,46 @@ class RiderSourceTimeTest extends TestCase
     }
 
     #[DataProvider('protocols')]
+    public function test_multi_connector_station_reads_only_requested_source_connector_identity(string $protocol): void
+    {
+        config(['csms.graphql_secret' => str_repeat('s', 64),
+            'csms.graphql_url' => 'https://source.test/graph']);
+        Http::preventStrayRequests();
+        $binding = (object) [
+            'identifier' => 'ev-test-multi-source-connector', 'protocol' => $protocol,
+        ];
+        $map = new ConnectorMapping(['source_connector_number' => 2]);
+        $evseNumber = $protocol === '1.6' ? 0 : 1;
+        $evse = new Evse(['source_evse_number' => $evseNumber]);
+        Http::fake(function ($request) use ($protocol, $evseNumber) {
+            if (str_contains($request['query'], 'ChargingStations')) {
+                return Http::response(['data' => ['ChargingStations' => [[
+                    'id' => 42, 'protocol' => $protocol, 'isOnline' => true,
+                ]]]]);
+            }
+            // A charger with two database connectors must not make
+            // authorization ambiguous: the GraphQL source request is scoped
+            // to the selected database ID before checking its latest status.
+            $selected = str_contains($request['query'], 'id:{_eq:$connector}')
+                && ($request['variables']['connector'] ?? null) === 8;
+            return Http::response(['data' => [
+                'Connectors' => $selected ? [['id' => 8]] : [['id' => 7], ['id' => 8]],
+                'StatusNotifications' => [[
+                    'evseId' => $evseNumber, 'connectorId' => 2,
+                    'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+                    'timestamp' => now()->subSecond()->toISOString(),
+                ]],
+            ]]);
+        });
+        $source = app(RiderSourceController::class);
+        $this->assertTrue($source->targetMatches($binding, $map, $evse,
+            ['connectorId' => 8, 'evseId' => $evseNumber]));
+        $this->assertFalse($source->targetMatches($binding, $map, $evse,
+            ['connectorId' => 7, 'evseId' => $evseNumber]));
+        Http::assertSentCount(4);
+    }
+
+    #[DataProvider('protocols')]
     public function test_rider_authorization_rejects_non_available_and_contradictory_fault_source_receipts(string $protocol): void
     {
         config(['csms.graphql_secret' => str_repeat('s', 64), 'csms.graphql_url' => 'https://source.test/graph']);
