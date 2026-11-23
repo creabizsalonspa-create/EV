@@ -4,7 +4,7 @@ This is a scoped **software implementation toward original PRD atom 6.2.4**, not
 
 ## What changed
 
-Each successful **changed, normalized locations source batch** now records a canonical provider-scoped quality observation within the same database transaction as OCPI ingestion. It samples only the existing stored timestamp-age policy via `PartnerCatalogHealth`; it performs no external provider request, GPS collection, charger control, reservation, payment or settlement. An identical replay produces no sample. A conflicting batch rolls back both source and quality history. The underlying owner/provider scope remains protected by Agent 2's parent provider-revocation PR.
+Each successful **changed, normalized locations source batch** and each optional **read-only hourly observation** now records a canonical provider-scoped quality observation within the same database transaction as OCPI ingestion. It samples only the existing stored timestamp-age policy via `PartnerCatalogHealth`; it performs no external provider request, GPS collection, charger control, reservation, payment or settlement. An identical replay produces no sample. A conflicting batch rolls back both source and quality history. The underlying owner/provider scope remains protected by Agent 2's parent provider-revocation PR.
 
 Observations record only the UTC hour and last sample time, configured freshness-policy age, published-record count, within-policy count, stale count, unknown clock/receipt count and future-source-clock count. No coordinates, addresses, payment tokens, user identities, raw OCPI data, request bodies, or individual charger records enter the quality-history table.
 

@@ -58,7 +58,7 @@ class OcpiCatalogQualityHistoryTest extends TestCase
         $this->actingAs($owner)->getJson($url)->assertOk()
             ->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonPath('scope', 'stored_partner_catalog_quality_history')
-            ->assertJsonPath('sample_completeness', 'SUCCESSFUL_CHANGED_LOCATION_SYNCS_ONLY')
+            ->assertJsonPath('sample_completeness', 'STORED_SYNC_AND_OPTIONAL_PERIODIC_SNAPSHOTS')
             ->assertJsonPath('count', 1)
             ->assertJsonPath('samples.0.published_count', 1)
             ->assertJsonPath('samples.0.within_policy_count', 1)

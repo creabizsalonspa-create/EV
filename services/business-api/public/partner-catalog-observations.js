@@ -28,7 +28,7 @@ window.EvPartnerCatalogObservations=(()=>{
  }
  const qualityCount=n=>Number.isSafeInteger(n)&&n>=0&&n<=1000000;
  function validQuality(d,id){
-  if(d?.scope!=='stored_partner_catalog_quality_history'||d.provider?.id!==id||typeof d.provider.name!=='string'||typeof d.provider.authorized!=='boolean'||d.period!=='hour_utc'||d.sample_limit!==30||d.retention_hours!==168||d.evidence!=='STORED_PARTNER_CATALOG_TIMESTAMPS_ONLY'||d.sample_completeness!=='SUCCESSFUL_CHANGED_LOCATION_SYNCS_ONLY'||!['source_covers_whole_network','live_availability_verified','physical_charging_verified','remote_control','billing_authority'].every(k=>d[k]===false)||!Array.isArray(d.samples)||d.samples.length>30||d.count!==d.samples.length)return false;
+  if(d?.scope!=='stored_partner_catalog_quality_history'||d.provider?.id!==id||typeof d.provider.name!=='string'||typeof d.provider.authorized!=='boolean'||d.period!=='hour_utc'||d.sample_limit!==30||d.retention_hours!==168||d.evidence!=='STORED_PARTNER_CATALOG_TIMESTAMPS_ONLY'||d.sample_completeness!=='STORED_SYNC_AND_OPTIONAL_PERIODIC_SNAPSHOTS'||!['source_covers_whole_network','live_availability_verified','physical_charging_verified','remote_control','billing_authority'].every(k=>d[k]===false)||!Array.isArray(d.samples)||d.samples.length>30||d.count!==d.samples.length)return false;
   let previous=null;
   const metrics=['published_count','within_policy_count','stale_count','unknown_age_count','future_clock_count'];
   const timestamp=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;

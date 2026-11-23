@@ -10,6 +10,7 @@ use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Artisan;
 use Tests\TestCase;
 
 class OcpiCatalogQualitySamplerTest extends TestCase
@@ -110,4 +111,27 @@ class OcpiCatalogQualitySamplerTest extends TestCase
         app(CatalogQualitySampler::class)->run(51);
         $this->assertDatabaseCount('ocpi_catalog_quality_history', 0);
     }
+    public function test_cli_command_uses_opt_in_and_bounded_offline_sampling_without_provider_fetch(): void
+    {
+        Http::preventStrayRequests();
+        $this->travelTo(Carbon::parse('2026-11-23T10:30:00Z'));
+        config(['partner_catalog.max_age_seconds' => 3600]);
+        [, $provider] = $this->fixture('cli');
+        $this->travelTo(Carbon::parse('2026-11-23T11:30:00Z'));
+        $this->assertSame(1, Artisan::call('ocpi:sample-source-quality', ['--limit' => 0]));
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 1);
+        $this->assertSame(0, Artisan::call('ocpi:sample-source-quality', ['--limit' => 1]));
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 1);
+        config(['ocpi.catalog_quality_sampling_enabled' => true]);
+        $this->assertSame(0, Artisan::call('ocpi:sample-source-quality', ['--limit' => 1]));
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 2);
+        $this->assertDatabaseHas('ocpi_catalog_quality_history', [
+            'provider_id' => $provider->id, 'observed_hour' => '2026-11-23 11:00:00.000000',
+        ]);
+        $this->assertSame(0, Artisan::call('ocpi:sample-source-quality', ['--limit' => 1]));
+        $this->assertSame(1, Artisan::call('ocpi:sample-source-quality', ['--limit' => 51]));
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 2);
+        Http::assertNothingSent();
+    }
+
 }

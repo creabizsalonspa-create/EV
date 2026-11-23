@@ -128,7 +128,7 @@ final class CatalogQualityHistory
                 'count' => count($samples),
                 'samples' => $samples,
                 'evidence' => 'STORED_PARTNER_CATALOG_TIMESTAMPS_ONLY',
-                'sample_completeness' => 'SUCCESSFUL_CHANGED_LOCATION_SYNCS_ONLY',
+                'sample_completeness' => 'STORED_SYNC_AND_OPTIONAL_PERIODIC_SNAPSHOTS',
                 'source_covers_whole_network' => false,
                 'live_availability_verified' => false,
                 'physical_charging_verified' => false,
