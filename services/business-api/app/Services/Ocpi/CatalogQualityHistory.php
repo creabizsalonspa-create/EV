@@ -58,6 +58,36 @@ final class CatalogQualityHistory
             ->whereNotIn('id', $keep)->delete();
     }
 
+    /**
+     * A history endpoint can hide records after seven days, but the stored
+     * timestamps must also be deleted when a provider never syncs again.
+     * Clean up only a bounded oldest-first batch: no provider, charger,
+     * driver, account, external transport or source payload is touched.
+     */
+    public function purgeExpired(int $limit = 500): array
+    {
+        if ($limit < 1 || $limit > 1000) {
+            throw new \InvalidArgumentException('Quality-history cleanup limit must be 1..1000.');
+        }
+
+        $before = CarbonImmutable::now('UTC')->subHours(self::RETAIN_HOURS)
+            ->format('Y-m-d H:i:s.u');
+        $ids = DB::table(self::TABLE)->where('observed_hour', '<', $before)
+            ->orderBy('observed_hour')->orderBy('id')->limit($limit)->pluck('id');
+        $deleted = $ids->isEmpty() ? 0 : DB::table(self::TABLE)->whereIn('id', $ids)
+            ->where('observed_hour', '<', $before)->delete();
+
+        return [
+            'deleted' => $deleted,
+            'considered' => $ids->count(),
+            'limit' => $limit,
+            'retention_hours' => self::RETAIN_HOURS,
+            'evidence' => 'STORED_PARTNER_CATALOG_TIMESTAMPS_ONLY',
+            'external_requests' => 0,
+            'live_availability_verified' => false,
+        ];
+    }
+
     public function read(User $snapshot, OcpiProvider $provider): array
     {
         return DB::transaction(function () use ($snapshot, $provider) {
