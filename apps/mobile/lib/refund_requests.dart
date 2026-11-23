@@ -390,22 +390,27 @@ class _RefundRequestState extends State<RefundRequestView> {
 
   Future<void> restore() async {
     final epoch = ++generation;
+    final api = widget.api;
+    final current = api.sessionFence();
     try {
       if (widget.digits < 0 ||
           widget.digits > 3 ||
           !RegExp(r'^[A-Z]{3}$').hasMatch(widget.currency))
         throw const FormatException('Unsupported precision.');
-      final me = await widget.api.request('me');
+      final me = await api.request('me');
+      if (!mounted || generation != epoch ||
+          !current() || !identical(api, widget.api)) return;
       final owner = me['id'];
       if (owner is! int || owner < 1 || me['role'] != 'customer')
         throw const ApiException(403, 'Customer invoice ownership required.');
       final pending = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${widget.api.base.origin}:$owner:refund:${widget.invoiceId}',
-        isCurrent: widget.api.sessionFence(),
+        isCurrent: current,
       );
       await pending.restore();
-      if (!mounted || generation != epoch) return;
+      if (!mounted || generation != epoch ||
+          !current() || !identical(api, widget.api)) return;
       operation = pending;
       if (pending.pending != null) {
         final body = pending.pending!['body'] as Map;
@@ -415,17 +420,23 @@ class _RefundRequestState extends State<RefundRequestView> {
         uncertain = true;
       }
     } catch (e) {
-      if (mounted && generation == epoch) {
+      if (mounted && generation == epoch &&
+          current() && identical(api, widget.api)) {
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (mounted && generation == epoch &&
+          current() && identical(api, widget.api)) {
+        setState(() => busy = false);
+      }
     }
   }
 
   Future<void> submit() async {
+    final api = widget.api;
+    final current = api.sessionFence();
     final creditId = int.tryParse(credit.text.trim());
     final minor = decimalMinor(amount.text, widget.digits, maximum: 2000000000);
     if ((credit.text.trim().isNotEmpty &&
@@ -456,7 +467,8 @@ class _RefundRequestState extends State<RefundRequestView> {
         ],
       ),
     );
-    if (consent != true || !mounted) return;
+    if (consent != true || !mounted ||
+        !current() || !identical(api, widget.api)) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -468,13 +480,15 @@ class _RefundRequestState extends State<RefundRequestView> {
         'reason': reason.text.trim(),
         if (credit.text.trim().isNotEmpty) 'ocpi_credit_record_id': creditId,
       });
-      if (!mounted || generation != epoch) return;
-      final result = await widget.api.request(
+      if (!mounted || generation != epoch ||
+          !current() || !identical(api, widget.api)) return;
+      final result = await api.request(
         'finance/invoices/${widget.invoiceId}/refund-requests',
         method: 'POST',
         body: body,
       );
-      if (!mounted || generation != epoch) return;
+      if (!mounted || generation != epoch ||
+          !current() || !identical(api, widget.api)) return;
       if (result is! Map ||
           result['invoice_id'] != widget.invoiceId ||
           result['amount_minor'] != minor ||
@@ -487,14 +501,18 @@ class _RefundRequestState extends State<RefundRequestView> {
       await operation!.confirmed();
       uncertain = false;
     } catch (e) {
-      if (mounted && generation == epoch) {
+      if (mounted && generation == epoch &&
+          current() && identical(api, widget.api)) {
         uncertain = operation?.pending != null;
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (mounted && generation == epoch &&
+          current() && identical(api, widget.api)) {
+        setState(() => busy = false);
+      }
     }
   }
 
@@ -627,17 +645,22 @@ class _RefundDecisionState extends State<RefundDecisionView> {
 
   Future<void> restore() async {
     final epoch = ++generation;
+    final api = widget.api;
+    final current = api.sessionFence();
     try {
-      final me = await widget.api.request('me');
+      final me = await api.request('me');
+      if (!mounted || generation != epoch ||
+          !current() || !identical(api, widget.api)) return;
       if (me['id'] is! int || me['role'] != 'vendor')
         throw const ApiException(403, 'Vendor ownership required.');
       final op = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${widget.api.base.origin}:${me['id']}:refund-review:${widget.requestId}',
-        isCurrent: widget.api.sessionFence(),
+        isCurrent: current,
       );
       await op.restore();
-      if (!mounted || epoch != generation) return;
+      if (!mounted || generation != epoch ||
+          !current() || !identical(api, widget.api)) return;
       operation = op;
       if (op.pending != null) {
         final body = op.pending!['body'] as Map;
@@ -646,17 +669,23 @@ class _RefundDecisionState extends State<RefundDecisionView> {
         uncertain = true;
       }
     } catch (e) {
-      if (mounted && generation == epoch) {
+      if (mounted && generation == epoch &&
+          current() && identical(api, widget.api)) {
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (mounted && generation == epoch &&
+          current() && identical(api, widget.api)) {
+        setState(() => busy = false);
+      }
     }
   }
 
   Future<void> submit() async {
+    final api = widget.api;
+    final current = api.sessionFence();
     if (note.text.trim().isEmpty || note.text.length > 500) return;
     final t = (String k) => refundText(context, k);
     final yes = await showDialog<bool>(
@@ -676,7 +705,8 @@ class _RefundDecisionState extends State<RefundDecisionView> {
         ],
       ),
     );
-    if (yes != true || !mounted) return;
+    if (yes != true || !mounted ||
+        !current() || !identical(api, widget.api)) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -687,13 +717,15 @@ class _RefundDecisionState extends State<RefundDecisionView> {
         'decision': decision,
         'note': note.text.trim(),
       });
-      if (!mounted || generation != epoch) return;
-      final result = await widget.api.request(
+      if (!mounted || generation != epoch ||
+          !current() || !identical(api, widget.api)) return;
+      final result = await api.request(
         'finance/refund-requests/${widget.requestId}/review',
         method: 'POST',
         body: body,
       );
-      if (!mounted || generation != epoch) return;
+      if (!mounted || generation != epoch ||
+          !current() || !identical(api, widget.api)) return;
       if (result is! Map ||
           result['id'] != widget.requestId ||
           result['decision_note'] != body['note'] ||
@@ -703,14 +735,18 @@ class _RefundDecisionState extends State<RefundDecisionView> {
       await operation!.confirmed();
       uncertain = false;
     } catch (e) {
-      if (mounted && generation == epoch) {
+      if (mounted && generation == epoch &&
+          current() && identical(api, widget.api)) {
         error = e;
         uncertain = operation?.pending != null;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (mounted && generation == epoch &&
+          current() && identical(api, widget.api)) {
+        setState(() => busy = false);
+      }
     }
   }
 
