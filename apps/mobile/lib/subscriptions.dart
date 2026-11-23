@@ -564,7 +564,10 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
       operation = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${widget.api.base.origin}|$owner|subscription|${widget.subscriptionId ?? 0}|${widget.action}',
-        isCurrent: fence,
+        // A key persisted for this screen must not be removed by an old
+        // acknowledgement after the app backgrounds or this form becomes
+        // another owner/plan/action, even if the same API login survives.
+        isCurrent: () => active(epoch, fence),
       );
       await operation!.restore();
       if (!active(epoch, fence)) return;
