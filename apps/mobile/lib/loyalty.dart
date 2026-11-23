@@ -704,7 +704,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
   int page = 1;
   int last = 1;
   int generation = 0;
-  bool busy = false;
+  bool busy = false, foreground = true;
   NoncashCapabilities? capability;
   String? message;
 
@@ -715,8 +715,10 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     ownsSession = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    loadCapability();
+    if (foreground) loadCapability();
   }
 
   @override
@@ -737,7 +739,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
       final api = widget.api;
       final bound = ownsSession;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && identical(api, widget.api) &&
+        if (mounted && foreground && identical(api, widget.api) &&
             identical(bound, ownsSession) && bound()) {
           loadCapability();
         }
@@ -747,8 +749,11 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      loadCapability();
+    final resumed = state == AppLifecycleState.resumed;
+    if (foreground == resumed) return;
+    foreground = resumed;
+    if (resumed) {
+      if (ownsSession()) loadCapability();
       return;
     }
     setState(() {
@@ -771,7 +776,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
   }
 
   bool scoped(EvApi api, bool Function() fence) =>
-      mounted && identical(widget.api, api) &&
+      mounted && foreground && identical(widget.api, api) &&
       identical(ownsSession, fence) && fence();
 
   Future<void> loadCapability() async {
@@ -1027,7 +1032,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    if (!ownsSession()) return const Scaffold();
+    if (!foreground || !ownsSession()) return const Scaffold();
     final api = widget.api;
     final fence = ownsSession;
     bool same() => scoped(api, fence);
