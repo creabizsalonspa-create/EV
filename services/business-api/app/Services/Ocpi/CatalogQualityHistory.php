@@ -31,6 +31,7 @@ final class CatalogQualityHistory
         $sampledAt = CarbonImmutable::now('UTC');
         $row = [
             'provider_id' => $provider->id,
+            'owner_id' => $provider->owner_id,
             'observed_hour' => $sampledAt->startOfHour()->format('Y-m-d H:i:s.u'),
             'sampled_at' => $sampledAt->format('Y-m-d H:i:s.u'),
             'state' => $health['state'],
@@ -40,20 +41,20 @@ final class CatalogQualityHistory
             $row[$field] = $health[$field];
         }
         DB::table(self::TABLE)->upsert(
-            [$row], ['provider_id', 'observed_hour'],
+            [$row], ['provider_id', 'owner_id', 'observed_hour'],
             ['sampled_at', 'state', 'max_age_seconds', ...self::COUNTS]
         );
 
         // Strict rolling seven-day clock horizon, independent of source
         // sync frequency; an idle provider cannot expose months-old samples.
-        DB::table(self::TABLE)->where('provider_id', $provider->id)
+        DB::table(self::TABLE)->where('provider_id', $provider->id)->where('owner_id', $provider->owner_id)
             ->where('observed_hour', '<', $sampledAt->subHours(self::RETAIN_HOURS)->format('Y-m-d H:i:s.u'))
             ->delete();
         // Retention is scoped to this provider and serialized by its ingest lock.
-        $keep = DB::table(self::TABLE)->where('provider_id', $provider->id)
+        $keep = DB::table(self::TABLE)->where('provider_id', $provider->id)->where('owner_id', $provider->owner_id)
             ->orderByDesc('observed_hour')->orderByDesc('id')
             ->limit(self::RETAIN_HOURS)->pluck('id');
-        DB::table(self::TABLE)->where('provider_id', $provider->id)
+        DB::table(self::TABLE)->where('provider_id', $provider->id)->where('owner_id', $provider->owner_id)
             ->whereNotIn('id', $keep)->delete();
     }
 
@@ -71,6 +72,7 @@ final class CatalogQualityHistory
             abort_unless($actor->role === 'admin' || $current->owner_id === $actor->id, 404);
 
             $rows = DB::table(self::TABLE)->where('provider_id', $current->id)
+                ->where('owner_id', $current->owner_id)
                 ->where('observed_hour', '>=', CarbonImmutable::now('UTC')
                     ->subHours(self::RETAIN_HOURS)->format('Y-m-d H:i:s.u'))
                 ->orderByDesc('observed_hour')->orderByDesc('id')
