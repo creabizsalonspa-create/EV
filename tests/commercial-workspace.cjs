@@ -302,6 +302,37 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const disputeReview = rootAdmin.locator(".finance-row").filter({
       has: admin.getByText("Browser dispute " + run, { exact: true }),
     });
+    // A corrupted HTTP read must not create an Admin money decision control.
+    // Only the browser response changes; no ledger or provider data is touched.
+    const disputePath = "**/api/commercial/cases*";
+    await admin.route(disputePath, async (route) => {
+      const response = await route.fetch();
+      const json = await response.json();
+      if (Array.isArray(json.data)) {
+        json.data = json.data.map((item) =>
+          item.reason === "Browser dispute " + run
+            ? { ...item, amount_minor: "fabricated-money" }
+            : item,
+        );
+      }
+      await route.fulfill({ response, json });
+    });
+    await rootAdmin
+      .getByRole("button", { name: "Refresh finance", exact: true })
+      .click();
+    await disputeReview
+      .getByText("Dispute amount unverified; refresh before review.", { exact: true })
+      .waitFor();
+    assert.equal(
+      await disputeReview.getByRole("button", { name: "Resolve dispute", exact: true }).count(),
+      0,
+      "Malformed minor amounts cannot authorize a dispute resolution UI",
+    );
+    await admin.unroute(disputePath);
+    await rootAdmin
+      .getByRole("button", { name: "Refresh finance", exact: true })
+      .click();
+    await disputeReview.getByRole("button", { name: "Resolve dispute", exact: true }).waitFor();
     assert.equal(
       await disputeReview.locator("bdi[data-case-minor-amount]").textContent(),
       "50",
