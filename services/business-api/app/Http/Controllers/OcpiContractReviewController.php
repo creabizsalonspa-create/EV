@@ -103,7 +103,7 @@ final class OcpiContractReviewController extends Controller
             $v = $request->validate([
                 'decision' => 'required|in:review,revoke',
                 'reference_id' => ['required_if:decision,review', 'prohibited_unless:decision,review',
-                    'string', 'regex:/^[A-Za-z0-9][A-Za-z0-9_.\\/-]{5,119}$/D'],
+                    'string', 'regex:/^[A-Za-z0-9][A-Za-z0-9_.-]{5,119}$/D'],
                 'evidence_sha256' => ['required_if:decision,review', 'prohibited_unless:decision,review',
                     'string', 'regex:/^[a-f0-9]{64}$/D'],
                 'valid_until' => 'required_if:decision,review|prohibited_unless:decision,review|date_format:Y-m-d',
