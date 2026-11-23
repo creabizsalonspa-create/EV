@@ -8,6 +8,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\FaultMonitor;
 use App\Services\VendorOps\VendorAccess;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -63,6 +64,8 @@ class ChargingRepairController extends Controller
             && (int) $latest->id === (int) $latestByTime->id
             && (int) $latest->source_event_id >= (int) $recovery->source_event_id
             && $latest->occurred_at >= $recovery->occurred_at
+            && CarbonImmutable::parse($latest->occurred_at, 'UTC')->lte(now())
+            && CarbonImmutable::parse($latest->occurred_at, 'UTC')->gt(now()->subMinutes(5))
             && $latest->status === 'Available'
             && ($binding->protocol === '1.6'
                 ? $latest->error_code === 'NoError'
