@@ -4,6 +4,7 @@ namespace App\Services\Retail;
 
 use App\Models\User;
 use App\Security\AdminTransactionAuthority;
+use App\Services\Commercial\Loyalty\NoncashActivation;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -102,6 +103,56 @@ final class PartnerRewardGovernance
     private function forPartner(int $partner, int $review): object
     {
         return DB::table('partner_reward_reviews')->where('partner_id', $partner)->where('id', $review)->firstOrFail();
+    }
+
+    public function sandboxOffers()
+    {
+        abort_unless(app(NoncashActivation::class)->legacyPointsEnabled(), 503, 'Synthetic partner rewards are disabled.');
+        $now = now()->utc();
+
+        return DB::table('partner_reward_reviews as pr')
+            ->join('partner_reward_review_events as decision', 'decision.review_id', '=', 'pr.id')
+            ->join('retail_partner_events as terms', 'terms.partner_id', '=', 'pr.partner_id')
+            ->join('retail_partner_versions as version', 'version.id', '=', 'pr.partner_version_id')
+            ->join('loyalty_rewards as reward', 'reward.id', '=', 'pr.reward_id')
+            ->join('regions', 'regions.country', '=', 'version.country')
+            ->where('decision.decision', 'approve')
+            ->whereIn('terms.action', ['approve', 'reinstate'])
+            ->whereColumn('terms.revision', 'pr.partner_revision')
+            ->whereColumn('terms.version_id', 'pr.partner_version_id')
+            ->whereColumn('reward.currency', 'regions.currency')
+            ->where('version.effective_from', '<=', $now)->where('version.expires_at', '>', $now)
+            ->where('reward.starts_at', '<=', $now)->where('reward.ends_at', '>', $now)
+            ->whereNotExists(fn ($query) => $query->from('partner_reward_review_events as later')
+                ->whereColumn('later.review_id', 'decision.review_id')->whereColumn('later.revision', '>', 'decision.revision'))
+            ->whereNotExists(fn ($query) => $query->from('retail_partner_events as later')
+                ->whereColumn('later.partner_id', 'terms.partner_id')->whereColumn('later.revision', '>', 'terms.revision'))
+            ->orderByDesc('pr.id')->paginate(25, [
+                'pr.id as review_id', 'version.display_name as partner_name', 'version.display_name_ar as partner_name_ar',
+                'reward.name', 'reward.name_ar', 'reward.description', 'reward.description_ar', 'reward.currency',
+                'reward.starts_at', 'reward.ends_at',
+            ])->through(fn ($row) => (array) $row + $this->sandboxEvidence());
+    }
+
+    public function lockEligibleSandboxReview(int $review, ?int $approvalEvent = null): array
+    {
+        abort_unless(app(NoncashActivation::class)->legacyPointsEnabled(), 503, 'Synthetic partner rewards are disabled.');
+        $row = DB::table('partner_reward_reviews')->where('id', $review)->firstOrFail();
+        // Registry decisions and reward review decisions hold the same partner row.
+        DB::table('retail_partners')->where('id', $row->partner_id)->lockForUpdate()->firstOrFail();
+        $terms = $this->registry->read($row->partner_id);
+        $event = $this->latest($review);
+        abort_unless($this->termsCurrent($row, $terms) && $event->decision === 'approve'
+            && ($approvalEvent === null || (int) $event->id === $approvalEvent), 409, 'Current partner reward approval is required.');
+        $this->validateRewardTerms(DB::table('loyalty_rewards')->find($row->reward_id), $terms);
+
+        return [$row, $event];
+    }
+
+    public function sandboxEvidence(): array
+    {
+        return ['source' => 'RETAIL_PARTNER_REWARD', 'evidence' => 'SANDBOX_MANUAL_NONCASH',
+            'external_fulfillment_verified' => false, 'cash_value' => false, 'points_cost' => 0];
     }
 
     private function latest(int $review): object
