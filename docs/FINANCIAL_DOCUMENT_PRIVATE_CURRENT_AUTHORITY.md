@@ -124,3 +124,27 @@ until the exact source workflow completes. The backend's current
 account authorization remains the server security boundary;
 native source/session checks prevent obsolete private data from
 being displayed and are not independent payment or tax authority.
+
+
+### Immutable source amount precision
+
+`FinancialSources::read`, which builds the actual encrypted
+signed-source snapshot before a PDF or CSV is minted, now rejects
+non-integral `amount_minor` and source totals beyond the exact
+2^53−1 representation bound used by browser/native financial
+reporting. PostgreSQL numeric values are validated **before** a
+numeric-string-to-PHP-integer cast; this applies across charging
+invoice/credit/unpaid credit, subscription invoice/credit, vendor
+settlement statement, and consolidated corporate statement sources.
+Signed settlement/adjustment lines retain their sign. Line totals
+must still exactly match the canonical source parent; underflow,
+over-range values and overflowed rollups cannot create immutable
+numbered artifacts. The original database is not modified or
+silently rounded.
+
+New `FinancialDocumentsTest` pure-source bounds regression verifies
+zero, exact 2^53−1 positive/negative, first out-of-range value,
+fractional strings, exponent strings, negative unsigned amounts and
+invalid overlarge numeric strings. Existing genuine immutable
+document fixtures must still produce byte-identical original
+amounts and pass hash/ledger checks at the candidate source.
