@@ -398,6 +398,14 @@ void main() {
       final api = FinancialApi();
       final doc = FinancialDocumentRecord.fromJson(api.document);
       doc.verify(PrivateDocument(api.bytes, 'application/pdf'));
+      // A generic TEST token is never a valid immutable issuer sequence.
+      expect(
+        () => FinancialDocumentRecord.fromJson({
+          ...api.document,
+          'number': 'TEST-PRIVATE-9',
+        }),
+        throwsFormatException,
+      );
       expect(
         () => doc.verify(
           PrivateDocument(Uint8List.fromList([1, 2]), 'application/pdf'),
