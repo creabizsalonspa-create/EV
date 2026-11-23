@@ -65,7 +65,7 @@ final class ChargerLiveConnectorsController extends Controller
             ($rows[0]['chargePointVendor'] ?? null) === $charger->manufacturer &&
             ($rows[0]['chargePointModel'] ?? null) === $charger->model &&
             is_string($rows[0]['latestOcppMessageTimestamp'] ?? null) &&
-            (($rows[0]['firmwareVersion'] ?? null) === null || is_string($rows[0]['firmwareVersion'])), 409,
+            (array_key_exists('firmwareVersion', $rows[0]) && ($rows[0]['firmwareVersion'] === null || is_string($rows[0]['firmwareVersion']))), 409,
             'Current unique typed charger source is required.');
 
         $row = $rows[0];
@@ -150,6 +150,13 @@ final class ChargerLiveConnectorsController extends Controller
             } else {
                 abort_unless(! $at->gt($latest[$target]['observed_at']), 409,
                     'Source connector observation clock regressed.');
+                // Equal timestamps with contradictory states cannot establish
+                // an unambiguous latest report, regardless of event ID.
+                if ($at->eq($latest[$target]['observed_at'])) {
+                    abort_unless($event['connectorStatus'] === $latest[$target]['reported_status'] &&
+                        ($event['errorCode'] ?? null) === $latest[$target]['error_code'], 409,
+                        'Contradictory source states at the same instant.');
+                }
             }
         }
 
@@ -162,9 +169,13 @@ final class ChargerLiveConnectorsController extends Controller
             $after['firmwareVersion'] === $station['firmwareVersion'] &&
             ! $after['heartbeat']->lt($station['heartbeat']), 409,
             'Source identity or clock changed during connector inspection.');
+        $freshCharger = VendorCharger::findOrFail($charger->id);
         $fresh = $guard->scope($r, VendorCompany::findOrFail($company->id),
-            VendorCharger::findOrFail($charger->id));
-        abort_unless($fresh->id === $binding->id &&
+            $freshCharger);
+        abort_unless($freshCharger->manufacturer === $charger->manufacturer &&
+            $freshCharger->model === $charger->model &&
+            $freshCharger->site_id === $charger->site_id &&
+            $fresh->id === $binding->id &&
             $fresh->identifier === $binding->identifier &&
             $fresh->protocol === $binding->protocol &&
             $this->inventory($fresh, VendorCharger::findOrFail($charger->id)) === $local,
