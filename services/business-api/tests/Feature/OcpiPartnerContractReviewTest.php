@@ -94,12 +94,27 @@ final class OcpiPartnerContractReviewTest extends TestCase
             ->assertJsonPath('revision', 1);
         $this->assertDatabaseCount('ocpi_partner_contract_reviews', 1);
         $this->assertSame(1, DB::table('audit_events')->where('action', 'ocpi.contract_review')->count());
+        $this->getJson($path.'/history')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('scope', 'private_ocpi_contract_review_history')
+            ->assertJsonPath('current_revision', 1)
+            ->assertJsonPath('history.total', 1)
+            ->assertJsonPath('history.data.0.reason', $this->review()['reason'])
+            ->assertJsonPath('history.data.0.reference_id', 'LEGAL-SYNTHETIC-CASE-001')
+            ->assertJsonPath('history.data.0.evidence_sha256', str_repeat('a', 64))
+            ->assertJsonPath('payment_authority', false);
+        $this->getJson($path.'/history?page=0')->assertUnprocessable();
 
         $this->patchJson('/api/ocpi/providers/'.$provider->id.'/authorization',
             ['authorized' => true])->assertOk()->assertJsonPath('authorized', true);
         $this->actingAs($owner)->getJson($path)->assertOk()
             ->assertJsonPath('review_valid_for_current_owner', true)
             ->assertJsonPath('contract_legally_executed_verified', false);
+        $this->getJson($path.'/history')->assertOk()
+            ->assertJsonPath('history.total', 1)
+            ->assertJsonMissingPath('history.data.0.reason')
+            ->assertJsonMissingPath('history.data.0.reference_id')
+            ->assertJsonMissingPath('history.data.0.evidence_sha256');
         $this->postJson($path, $this->review(1, 'vendor-cannot-review-001'))->assertForbidden();
         $this->actingAs($admin);
         $revoke = [
@@ -170,6 +185,8 @@ final class OcpiPartnerContractReviewTest extends TestCase
             ->assertJsonPath('state', 'missing')
             ->assertJsonPath('review_valid_for_current_owner', false)
             ->assertJsonPath('revision', 1);
+        $this->getJson($path.'/history')->assertOk()->assertJsonPath('history.total', 0)
+            ->assertJsonPath('history.data', []);
         $this->actingAs($owner)->getJson($path)->assertNotFound();
         $this->assertDatabaseCount('ocpi_partner_contract_reviews', 1);
         Http::assertNothingSent();
