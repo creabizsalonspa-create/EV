@@ -38,9 +38,18 @@ class OcpiController extends Controller
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['owner_id' => 'required|integer|exists:users,id', 'name' => 'required|string|max:150', 'connection_key' => 'required|string|alpha_dash|max:80|unique:ocpi_providers', 'authorized' => 'required|boolean']);
         abort_unless(User::whereKey($v['owner_id'])->where('role', 'vendor')->exists(), 422, 'Provider owner must be a vendor.');
+        abort_if($v['authorized'] && ! User::whereKey($v['owner_id'])->where('account_status', 'active')->exists(),
+            409, 'Suspended partner owners cannot receive new provider authorization.');
         abort_unless(is_array(config('ocpi.connections.'.$v['connection_key'])), 422, 'Connection must first be provisioned in secure server configuration.');
 
         return DB::transaction(function () use ($r, $v, $client) {
+            // Recheck after request validation and lock the owner before
+            // creating an authorized provider. A suspended/transferred owner
+            // cannot race an administrative create into a public catalog.
+            $owner = User::whereKey($v['owner_id'])->lockForUpdate()->firstOrFail();
+            abort_unless($owner->role === 'vendor', 422, 'Provider owner must be a vendor.');
+            abort_if($v['authorized'] && $owner->account_status !== 'active', 409,
+                'Suspended partner owners cannot receive new provider authorization.');
             $provider = OcpiProvider::create($v);
             if ($provider->authorized) {
                 try {
@@ -61,6 +70,8 @@ class OcpiController extends Controller
 
         return DB::transaction(function () use ($r, $provider, $v, $client) {
             $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            abort_if($v['authorized'] && ! User::whereKey($provider->owner_id)->where('role', 'vendor')
+                ->where('account_status', 'active')->exists(), 409, 'Partner owner is not active.');
             $exhausted = $provider->authorization_revision >= PHP_INT_MAX;
             // Revocation must remain available at the terminal generation.
             // Reauthorization is permanently blocked, so that generation cannot recur.
@@ -85,6 +96,8 @@ class OcpiController extends Controller
     public function negotiate(Request $r, OcpiProvider $provider, PartnerClient $client)
     {
         $this->owner($r, $provider);
+        abort_unless(User::whereKey($provider->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(),
+            409, 'Partner owner is not active.');
         try {
             $endpoints = $client->negotiate($provider);
         } catch (OcpiException $e) {
@@ -98,6 +111,12 @@ class OcpiController extends Controller
     {
         $this->owner($r, $provider);
         abort_unless(in_array($module, PartnerClient::MODULES, true), 404);
+        // Suspended operators cannot refresh a public catalog. Administrators
+        // must retain the ability to reconcile already-owned session/CDR debt.
+        $activeOwner = User::whereKey($provider->owner_id)->where('role', 'vendor')
+            ->where('account_status', 'active')->exists();
+        abort_unless($activeOwner || ($r->user()->role === 'admin' && in_array($module, ['sessions', 'cdrs'], true)),
+            409, 'Partner owner is not active for catalog synchronization.');
         try {
             $records = $client->pull($provider, $module);
             $counts = $sync->ingest($provider, $module, $records);
@@ -186,7 +205,7 @@ class OcpiController extends Controller
         $v = $request->validate(['q' => 'nullable|string|max:80', 'country' => 'nullable|string|regex:/^[A-Z]{3}$/D', 'connector_standard' => 'nullable|string|max:64']);
         $text = trim($v['q'] ?? '');
 
-        return OcpiRecord::where('module', 'locations')->where('normalized->publish', true)->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'))
+        return OcpiRecord::where('module', 'locations')->where('normalized->publish', true)->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->select('id'))
             ->when($text !== '', fn ($q) => $q->where(fn ($q) => $q->whereLike('normalized->name', '%'.$text.'%')->orWhereLike('normalized->city', '%'.$text.'%')->orWhereLike('normalized->address', '%'.$text.'%')))
             ->when(! empty($v['country']), fn ($q) => $q->where('normalized->country', $v['country']))
             ->when(! empty($v['connector_standard']), fn ($q) => $q->whereJsonContains('normalized->connector_standards', $v['connector_standard']))
