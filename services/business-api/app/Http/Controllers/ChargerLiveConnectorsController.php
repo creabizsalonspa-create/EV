@@ -188,7 +188,12 @@ final class ChargerLiveConnectorsController extends Controller
                 'source_connector_number' => $row['source_connector_number'],
                 'operator_maintenance_blocked' => $row['operator_maintenance_blocked'],
                 'state' => $trusted ? 'recent' : ($event && $sourceTopologyMatches ? 'stale' : 'unknown'),
-                'reported_status' => $trusted ? $event['reported_status'] : null,
+                // An OCPP error accompanying an "Available" label must
+                // never be presented as a healthy connector report.
+                'reported_status' => $trusted
+                    ? (in_array($event['error_code'], [null, '', 'NoError'], true)
+                        ? $event['reported_status'] : 'Faulted')
+                    : null,
                 'error_code' => $trusted ? $event['error_code'] : null,
                 'source_event_at' => $event ? $event['observed_at']->toISOString() : null,
                 // Even "Available" is source testimony only, never a
