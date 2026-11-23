@@ -175,13 +175,13 @@ class ExternalDisputesController extends Controller
 
     public function reconcile(Request $r, int $dispute, ExternalDisputes $service)
     {
-        $this->currentAdmin($r);
+        $actor = $this->currentAdmin($r);
         DB::transaction(function () use ($r, $dispute) {
             abort_unless($this->scoped($r)->where('d.id', $dispute)->exists(), 404);
         }, 3);
         // The service owns the provider read/uncertainty transaction. No
         // controller transaction may span a remote test-provider request.
-        $service->reconcile($dispute);
+        $service->reconcile($dispute, $actor);
 
         return $this->show($r, $dispute);
     }
