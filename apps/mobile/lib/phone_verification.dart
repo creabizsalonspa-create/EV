@@ -23,8 +23,27 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
   void initState() {
     super.initState();
     ownerFence = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    background = lifecycle != null && lifecycle != AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    load();
+    // A first-inactive screen may not issue private phone-status GETs.
+    if (!background) load();
+  }
+  void clearPrivate() {
+    generation++;
+    scrub();
+    status = challenge = null;
+    message = null;
+    busy = false;
+  }
+  @override
+  void didUpdateWidget(covariant PhoneVerificationView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api || !ownerFence()) {
+      // Login may change in a retained EvApi without widget replacement.
+      clearPrivate();
+      ownerFence = widget.api.sessionFence();
+    }
   }
   bool current(int version) => mounted && !background && ownerFence() && generation == version;
   void scrub() { phone.clear(); password.clear(); code.clear(); consent = false; intentKey = intentPhone = null; }
@@ -53,8 +72,8 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
   }
   Future<void> load() => act(read);
   Future<void> start() async {
+    if (busy || background || !ownerFence()) return;
     final value = vendorDigits(phone.text.trim());
-    if (busy) return;
     if (!consent || !RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(value) || password.text.isEmpty) {
       setState(() => message = t('Enter an international phone number, your current password and SMS consent.', 'أدخل رقماً دولياً وكلمة مرورك الحالية ووافق على طلب الرسالة.')); return;
     }
@@ -62,7 +81,11 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
       setState(() => message = t('Reopen this screen before changing an uncertain request.', 'أعد فتح الشاشة قبل تغيير طلب غير مؤكد.')); return;
     }
     intentPhone = value;
-    intentKey ??= List.generate(24, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+    if (intentKey == null) {
+      final random = Random.secure();
+      intentKey = List.generate(24,
+          (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+    }
     final credential = password.text; password.clear();
     await act((version) async {
       final data = await widget.api.request('account/phone/challenges', method: 'POST', body: {
@@ -75,8 +98,9 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
     });
   }
   Future<void> confirm() async {
+    if (busy || background || !ownerFence()) return;
     final value = vendorDigits(code.text.trim()), id = challenge?['id'];
-    if (busy || id is! String) return;
+    if (id is! String) return;
     if (!RegExp(r'^[0-9]{4,10}$').hasMatch(value)) {
       setState(() => message = t('Enter the 4–10 digit verification code.', 'أدخل رمز التحقق المكون من ٤ إلى ١٠ أرقام.')); return;
     }
@@ -91,7 +115,7 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
     });
   }
   Future<void> remove() async {
-    if (busy) return;
+    if (busy || background || !ownerFence()) return;
     if (password.text.isEmpty) { setState(() => message = t('Enter your current password.', 'أدخل كلمة المرور الحالية.')); return; }
     final credential = password.text; password.clear();
     await act((version) async { await widget.api.request('account/phone', method: 'DELETE', body: {'password': credential});
@@ -100,13 +124,14 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      if (!background) return;
-      setState(() { background = false; busy = false; }); load();
-    } else {
-      generation++; scrub(); status = challenge = null;
-      if (mounted) setState(() { background = true; busy = false; });
-    }
+    if (!mounted) return;
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == !background) return;
+    setState(() {
+      background = !resumed;
+      if (!resumed) clearPrivate();
+      // Resume permits user-triggered Refresh only, never silent re-reads.
+    });
   }
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -138,5 +163,13 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
     ]),
   );
   @override
-  void dispose() { generation++; WidgetsBinding.instance.removeObserver(this); phone.dispose(); password.dispose(); code.dispose(); super.dispose(); }
+  void dispose() {
+    generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    scrub();
+    phone.dispose();
+    password.dispose();
+    code.dispose();
+    super.dispose();
+  }
 }
