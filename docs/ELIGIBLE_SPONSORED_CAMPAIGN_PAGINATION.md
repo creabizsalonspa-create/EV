@@ -78,3 +78,15 @@ campaigns* in ascending ID order, with `last_page=1` and
 journals. This is specifically the old post-pagination hole across a
 complete default-size page; no test-only SQL alteration to protected
 source campaigns is necessary.
+
+
+## Disabled adapter behavior
+
+When `campaigns.enabled=false`, an authenticated placement request
+returns an honest empty report (`total=0`, `last_page=1`,
+`per_page` equal to the requested validated size), even when previously
+approved campaigns and paid packages remain in immutable source tables.
+The disabled response does not query invoice entitlement, register
+server deliveries, or override station discovery availability. A
+feature test confirms no sponsored placement or financial journal
+changes occur while the adapter is disabled.
