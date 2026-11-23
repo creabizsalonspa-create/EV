@@ -2,10 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Models\Charging\ConnectorMapping;
+use App\Models\Charging\Evse;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
@@ -61,6 +64,23 @@ class CsmsPilotProbeTest extends TestCase
             'created_at' => now(), 'updated_at' => now(),
         ]);
 
+        $evse = Evse::create([
+            'charger_id' => $charger->id, 'number' => 1, 'mode' => 'csms',
+            'binding_id' => $binding,
+            'source_evse_number' => $protocol === '1.6' ? 0 : 1,
+        ]);
+        foreach ([1, 2] as $number) {
+            $connector = VendorConnector::create([
+                'charger_id' => $charger->id, 'connector_number' => $number,
+                'connector_type' => 'CCS2', 'max_power_kw' => 50,
+            ]);
+            ConnectorMapping::create([
+                'station_id' => $station->id, 'evse_id' => $evse->id,
+                'connector_id' => $connector->id,
+                'source_connector_number' => $number,
+            ]);
+        }
+
         return compact('owner', 'station', 'company', 'charger', 'binding', 'protocol');
     }
 
@@ -84,6 +104,15 @@ class CsmsPilotProbeTest extends TestCase
                 return Http::response(['data' => ['ChargingStations' =>
                     $state === 'ambiguous' ? [$row, $row]
                         : ($state === 'object_station' ? ['station' => $row] : [$row])]]);
+            }
+            if ($state === 'removed_mapping') {
+                $mappingId = DB::table('charging_connector_mappings')
+                    ->where('station_id', $fixture['station']->id)->value('id');
+                DB::table('charging_connector_mappings')->where('id', $mappingId)->delete();
+            }
+            if ($state === 'maintenance') {
+                DB::table('vendor_connectors')->where('charger_id', $fixture['charger']->id)
+                    ->update(['maintenance_blocked' => true]);
             }
             if ($state === 'suspended_owner') {
                 DB::table('users')->where('id', $fixture['owner']->id)
@@ -145,6 +174,9 @@ class CsmsPilotProbeTest extends TestCase
             $this->assertSame(2, $report['connectors_with_recent_status']);
             $this->assertTrue($report['software_source_observed']);
             $this->assertTrue($report['source_idle_candidate']);
+            $this->assertTrue($report['source_connector_count_matches_local_topology']);
+            $this->assertFalse($report['pending_local_charging_or_maintenance_review']);
+            $this->assertFalse($report['physical_topology_verified']);
             $this->assertSame(2, $report['idle_connectors_with_recent_safe_status']);
             foreach (['device_commands_sent', 'database_mutations', 'hardware_pilot_approved',
                 'physical_hardware_accepted', 'production_accepted'] as $field) {
@@ -192,9 +224,42 @@ class CsmsPilotProbeTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_unresolved_local_maintenance_operation_quarantines_an_otherwise_idle_source(): void
+    {
+        $f = $this->fixture();
+        $this->source($f);
+        DB::table('charger_reset_operations')->insert([
+            'binding_id' => $f['binding'], 'actor_id' => $f['owner']->id,
+            'idempotency_key' => 'synthetic-held-reset',
+            'payload_hash' => str_repeat('a', 64), 'reason' => 'REDACTED',
+            'reset_type' => 'Soft', 'status' => 'outcome_unknown',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+        $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+        $this->assertSame('requires_source_review', $report['status']);
+        $this->assertTrue($report['pending_local_charging_or_maintenance_review']);
+        $this->assertFalse($report['software_source_observed']);
+        $this->assertFalse($report['device_commands_sent']);
+        $this->assertDatabaseCount('charger_reset_operations', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_removed_canonical_mapping_never_counts_as_source_ready(): void
+    {
+        $f = $this->fixture();
+        $this->source($f, 'removed_mapping');
+        $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+        $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+        $this->assertFalse($report['source_connector_count_matches_local_topology']);
+        $this->assertFalse($report['software_source_observed']);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_invalid_source_identity_clocks_and_connector_events_fail_closed(): void
     {
-        foreach (['ambiguous', 'object_station', 'wrong_vendor', 'wrong_model', 'no_firmware', 'relative_clock', 'unknown_connector', 'unknown_status', 'overflow', 'reversed_clock', 'duplicate_event', 'reassigned', 'suspended_owner', 'model_changed'] as $case) {
+        foreach (['ambiguous', 'object_station', 'wrong_vendor', 'wrong_model', 'no_firmware', 'relative_clock', 'unknown_connector', 'unknown_status', 'overflow', 'reversed_clock', 'duplicate_event', 'reassigned', 'suspended_owner', 'model_changed', 'maintenance' as $case) {
             $f = $this->fixture();
             $this->source($f, $case);
             $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
