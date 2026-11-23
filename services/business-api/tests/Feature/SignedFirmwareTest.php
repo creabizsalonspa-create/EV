@@ -636,4 +636,42 @@ class SignedFirmwareTest extends TestCase
         $this->assertDatabaseCount('charger_firmware_operations', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
+
+    public function test_source_compatibility_read_rechecks_suspended_owner_before_private_response(): void
+    {
+        $f = $this->fixture('1.6', [
+            'protocols' => ['1.6'],
+            'from_versions' => ['sim-fw-v1'],
+        ]);
+        $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approve a synthetic signed release before account suspension',
+        ])->assertCreated();
+
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($f) {
+            $this->assertSame('http://source.test/graph', $request->url());
+            // Simulate account security changing while the authenticated
+            // external CSMS read is in flight, after the first scope check.
+            DB::table('users')->where('id', $f['owner']->id)->update(['account_status' => 'suspended']);
+
+            return Http::response(['data' => ['ChargingStations' => [[
+                'id' => 9,
+                'isOnline' => true,
+                'protocol' => '1.6',
+                'chargePointVendor' => 'Synthetic',
+                'chargePointModel' => 'Fixture',
+                'firmwareVersion' => 'sim-fw-v1',
+            ]]]]);
+        });
+        $path = str_replace('/firmware-operations', '/firmware-compatibility', $f['path']);
+        $this->actingAs($f['owner'])->getJson($path)->assertForbidden();
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/signedUpdateFirmware?')
+            || str_contains($request->url(), '/updateFirmware?'));
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
 }
