@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'subscription_preview.dart';
 import 'hosted_checkout.dart';
 import 'package:flutter/material.dart';
@@ -195,7 +196,23 @@ class _SubscriptionsState extends State<SubscriptionsView>
     with WidgetsBindingObserver {
   bool plans = true, busy = false, foreground = true, hidden = false;
   bool Function()? currentSession;
+  StreamSubscription<int>? sessionEvents;
   int generation = 0, number = 1;
+
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        generation++;
+        page = null;
+        error = null;
+        currentSession = null;
+        busy = false;
+        hidden = true;
+      });
+    });
+  }
   bool get current => foreground && (currentSession?.call() ?? false);
   Object? error;
   ApiPage<Map<String, dynamic>>? page;
@@ -204,6 +221,7 @@ class _SubscriptionsState extends State<SubscriptionsView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    observe(widget.api);
     foreground = WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     hidden = !foreground;
@@ -215,6 +233,7 @@ class _SubscriptionsState extends State<SubscriptionsView>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.api != widget.api ||
         oldWidget.changeSubscription != widget.changeSubscription) {
+      if (oldWidget.api != widget.api) observe(widget.api);
       generation++;
       page = null;
       error = null;
@@ -248,6 +267,7 @@ class _SubscriptionsState extends State<SubscriptionsView>
 
   @override
   void dispose() {
+    sessionEvents?.cancel();
     generation++;
     page = null;
     WidgetsBinding.instance.removeObserver(this);
@@ -464,6 +484,19 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
   bool busy = true, consent = false, done = false, blocked = false;
   bool foreground = true, hidden = false;
   bool Function()? currentSession;
+  StreamSubscription<int>? sessionEvents;
+
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        clearPrivate();
+        currentSession = null;
+      });
+    });
+  }
+
   Object? error;
   int owner = 0, generation = 0;
   FinancialOperation? operation;
@@ -488,6 +521,7 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    observe(widget.api);
     foreground = WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     hidden = !foreground;
@@ -501,6 +535,7 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
         oldWidget.action != widget.action ||
         oldWidget.subscriptionId != widget.subscriptionId ||
         oldWidget.plan?['id'] != widget.plan?['id']) {
+      if (oldWidget.api != widget.api) observe(widget.api);
       clearPrivate();
       currentSession = null;
       if (foreground) {
@@ -526,6 +561,7 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
 
   @override
   void dispose() {
+    sessionEvents?.cancel();
     clearPrivate();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -760,7 +796,24 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
   Map<String, dynamic>? summary;
   ApiPage<Map<String, dynamic>>? events;
   bool Function()? currentSession;
+  StreamSubscription<int>? sessionEvents;
   int generation = 0, page = 1;
+
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        generation++;
+        summary = null;
+        events = null;
+        error = null;
+        currentSession = null;
+        busy = false;
+        hidden = true;
+      });
+    });
+  }
   bool busy = false, foreground = true, hidden = false;
   bool get current => foreground && (currentSession?.call() ?? false);
   Object? error;
@@ -769,6 +822,7 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    observe(widget.api);
     foreground = WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     hidden = !foreground;
@@ -779,6 +833,7 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
   void didUpdateWidget(covariant SubscriptionDetailView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.api != widget.api || oldWidget.id != widget.id) {
+      if (oldWidget.api != widget.api) observe(widget.api);
       generation++;
       summary = null;
       events = null;
@@ -814,6 +869,7 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
 
   @override
   void dispose() {
+    sessionEvents?.cancel();
     generation++;
     summary = null;
     events = null;
