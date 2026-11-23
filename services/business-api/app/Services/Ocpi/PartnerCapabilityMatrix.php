@@ -26,8 +26,16 @@ final class PartnerCapabilityMatrix
         $authorized = $provider->authorized && $ownerActive;
         $negotiated = $authorized && $provider->version === '2.2.1';
         $managed = ($connection['managed_credentials'] ?? false) === true;
-        $credentialed = $managed ? $credentialsCurrent : $authorized;
-        $outbound = $negotiated && $credentialed;
+        $connectionCurrent = false;
+        if ($negotiated && (! $managed || $credentialsCurrent)) {
+            try {
+                app(PartnerClient::class)->connection($provider);
+                $connectionCurrent = true;
+            } catch (Throwable) {
+                // A stale, revoked, or unprovisioned peer is not an active reader.
+            }
+        }
+        $outbound = $connectionCurrent;
 
         $cpoModules = [];
         if ($configured) {
