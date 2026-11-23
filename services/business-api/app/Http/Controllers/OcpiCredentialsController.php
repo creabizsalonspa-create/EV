@@ -67,7 +67,7 @@ class OcpiCredentialsController extends Controller
         if ($tokenBound) {
             try {
                 $localToken = Crypt::decryptString($link->local_token_ciphertext);
-                $tokenBound = preg_match('/^[\\x21-\\x7e]{1,64}$/D', $localToken)
+                $tokenBound = preg_match('/^[\x21-\x7e]{1,64}$/D', $localToken)
                     && hash_equals($link->local_token_digest, hash('sha256', $localToken));
             } catch (Throwable) {
                 $tokenBound = false;
