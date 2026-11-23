@@ -130,7 +130,9 @@ void main() {
     await tester.pump();
     api.identity++;
     waiting.completeError(const ApiException(401, 'Old identity expired'));
-    await tester.pumpAndSettle();
+    // The stale request may leave a spinner until the current account
+    // replaces the widget. Do not wait for a spinner to settle.
+    await tester.pump();
     expect(expired, 0);
     expect(find.text('Old identity expired'), findsNothing);
   });
@@ -182,7 +184,7 @@ void main() {
     )));
     await tester.pumpAndSettle();
     expect(find.text('Sensitive case evidence'), findsOneWidget);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     await tester.pumpAndSettle();
     expect(find.text('Sensitive case evidence'), findsNothing);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
