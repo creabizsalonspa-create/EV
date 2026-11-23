@@ -133,7 +133,13 @@ void main() {
       );
       await tester.pumpAndSettle();
       final cancel = find.text('Cancel firmware before dispatch');
+      // The source-compatibility inspection adds a disclosure above the
+      // operations. Scroll the list before tapping the lower review action:
+      // otherwise Flutter's 600px test viewport can miss the button.
+      await tester.drag(find.byType(ListView), const Offset(0, -240));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(cancel);
+      await tester.pumpAndSettle();
       await tester.tap(cancel);
       await tester.pumpAndSettle();
       await tester.enterText(
