@@ -163,6 +163,67 @@ class OcpiOwnerEligibilityTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_stale_admin_mutations_cannot_create_or_authorize_ocpi_providers(): void
+    {
+        $owner = $this->vendor();
+        $provider = $this->pending($owner);
+        $admin = $this->admin();
+        config(['ocpi.connections.other-unassigned' => [
+            'origin' => 'https://partner.example',
+            'authorization_token' => base64_encode('other-synthetic-secret'),
+            'environment' => 'sandbox',
+        ]]);
+        $createRequest = Request::create('/api/ocpi/providers', 'POST', [
+            'owner_id' => $owner->id,
+            'name' => 'Must not materialize',
+            'connection_key' => 'other-unassigned',
+            'authorized' => true,
+        ]);
+        $createRequest->setUserResolver(static fn () => $admin);
+        $authorizationRequest = Request::create(
+            '/api/ocpi/providers/'.$provider->id.'/authorization', 'PATCH', ['authorized' => true]
+        );
+        $authorizationRequest->setUserResolver(static fn () => $admin);
+        $controller = app(OcpiController::class);
+        $initial = [
+            'role' => 'admin',
+            'account_status' => 'active',
+            'auth_epoch' => $admin->auth_epoch,
+            'password' => $admin->password,
+        ];
+        foreach ([
+            [['account_status' => 'suspended'], 403],
+            [['role' => 'customer'], 403],
+            [['auth_epoch' => (int) $admin->auth_epoch + 1], 409],
+            [['password' => 'other-synthetic-password-hash'], 409],
+        ] as [$change, $expectedStatus]) {
+            DB::table('users')->where('id', $admin->id)->update(array_replace($initial, $change));
+            foreach ([
+                static fn () => $controller->create($createRequest, app(PartnerClient::class)),
+                static fn () => $controller->authorization($authorizationRequest, $provider, app(PartnerClient::class)),
+            ] as $mutation) {
+                try {
+                    $mutation();
+                    $this->fail('A revoked Admin request modified OCPI provider authority.');
+                } catch (HttpException $error) {
+                    $this->assertSame($expectedStatus, $error->getStatusCode());
+                }
+            }
+        }
+        $this->assertDatabaseCount('ocpi_providers', 1);
+        $this->assertFalse($provider->fresh()->authorized);
+        $this->assertSame(0, $provider->fresh()->authorization_revision);
+        $this->assertDatabaseMissing('audit_events', [
+            'action' => 'ocpi.provider_authorized', 'subject' => (string) $provider->id,
+        ]);
+        $this->assertDatabaseMissing('audit_events', [
+            'action' => 'ocpi.provider_created',
+        ]);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_stale_route_bound_provider_cannot_authorize_after_owner_transfer(): void
     {
         $original = $this->vendor();
