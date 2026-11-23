@@ -37,7 +37,7 @@ final class VendorEarningsController extends Controller
     }
 
     /** Only CSV gets the spreadsheet-literal prefix; source JSON remains exact. */
-    private static function csvInvoiceNumber(string $number): string
+    private static function csvLiteral(string $number): string
     {
         return preg_match('/^[\\p{Z}\\p{Cc}\\p{Cf}]*[=+@-]/u', $number)
             ? "'".$number : $number;
@@ -183,8 +183,8 @@ final class VendorEarningsController extends Controller
                 $values = array_map(static function (string $field) use ($row) {
                     $value = $row[$field];
 
-                    return $field === 'invoice_number'
-                        ? self::csvInvoiceNumber((string) $value)
+                    return in_array($field, ['invoice_number', 'evidence'], true)
+                        ? self::csvLiteral((string) $value)
                         : $value;
                 }, $fields);
                 fputcsv($output, $values, ',', '"', '');
