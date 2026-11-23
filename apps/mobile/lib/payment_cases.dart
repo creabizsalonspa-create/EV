@@ -617,6 +617,7 @@ class _EvidenceState extends State<CaseEvidenceView>
   VendorEvidence? file;
   String kind = 'service_record';
   bool busy = false, consent = false, done = false, canUpload = false;
+  bool choosingFile = false;
   Object? error;
   int generation = 0, target = 1;
   bool foreground = true;
@@ -648,6 +649,7 @@ class _EvidenceState extends State<CaseEvidenceView>
       consent = false;
       done = false;
       canUpload = false;
+      choosingFile = false;
       error = null;
       target = 1;
     }
@@ -659,6 +661,13 @@ class _EvidenceState extends State<CaseEvidenceView>
     if (foreground == resumed) return;
     foreground = resumed;
     if (!resumed) {
+      if (choosingFile) {
+        // System document pickers temporarily inactivate the app. The
+        // foreground guard hides the page without invalidating the picker.
+        // The original account fence still gates the returned file.
+        setState(() {});
+        return;
+      }
       generation++;
       setState(() {
         operation = null;
@@ -709,6 +718,7 @@ class _EvidenceState extends State<CaseEvidenceView>
       operation = null;
       consent = false;
       canUpload = false;
+      choosingFile = false;
       done = false;
       error = null;
       busy = false;
@@ -789,6 +799,7 @@ class _EvidenceState extends State<CaseEvidenceView>
     final current = authorized;
     setState(() {
       busy = true;
+      choosingFile = true;
       error = null;
     });
     try {
@@ -824,7 +835,23 @@ class _EvidenceState extends State<CaseEvidenceView>
         if (!current()) {
           redactFormerIdentity();
         } else if (foreground) {
-          setState(() => busy = false);
+          setState(() {
+            choosingFile = false;
+            busy = false;
+          });
+        } else {
+          // A picker that completes before the app resumes cannot safely
+          // retain former foreground authority or its private selection.
+          generation++;
+          setState(() {
+            choosingFile = false;
+            page = null;
+            file = null;
+            operation = null;
+            consent = false;
+            canUpload = false;
+            busy = false;
+          });
         }
       }
     }
