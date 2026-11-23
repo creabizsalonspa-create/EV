@@ -73,3 +73,30 @@ the original UTF-8 business identifier unchanged in JSON and append-only
 corporate claim/statement records. A feature test deliberately creates a
 synthetic cost center beginning with a spreadsheet formula, proves the
 text-only CSV neutralization, and confirms no finance journal mutation.
+
+
+## Immutable corporate statement CSV integrity (Agent 3 follow-up)
+
+The existing owner/Admin-scoped corporate statement export now validates
+each archived source line's subtotal, tax and total as **exact, nonnegative
+minor-unit integers** within the web/native-safe 2^53−1 range before
+serializing CSV. Values already coerced to PHP float/boolean, malformed
+decimal strings and over-range values fail with 409; the serializer must
+not round an invoice silently or regenerate source documents. The
+report continues reading the original corporate statement lines and
+does not create receipts, charge a PSP, update finance journals or
+change agreements/claim authorizations.
+
+Spreadsheet-literal CSV source identifiers now recognize Unicode
+separators, format characters and controls (including nonbreaking
+space, zero-width and right-to-left markers) preceding a formula
+initiator. Only exported identifiers are escaped; original
+statement/invoice/cost-center source values and JSON are not changed.
+`CorporateBillingTest` adds exact source and Unicode formula
+regressions, retains the actual authenticated corporate CSV/ledger
+journey, and verifies no new receipt or journal mutation on read.
+
+This is partial integrity software toward original 4.4.3 / 7.1.7 /
+8.1.6, not an authorized corporate credit facility or live money
+collection. Exact-head Finance/Platform validation, Agent 5 merge
+and comprehensive integrated acceptance remain required.
