@@ -6,6 +6,7 @@ use App\Models\ChargerCommand;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Station;
 use App\Models\VendorOps\VendorCharger;
+use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\ChargingActorConsent;
 use App\Services\Charging\OcppTransactionId;
@@ -22,7 +23,10 @@ class ChargerCommandController extends Controller
         if (! empty($v['vendor_charger_id'])) {
             $charger = VendorCharger::findOrFail($v['vendor_charger_id']);
             $site = VendorSite::findOrFail($charger->site_id);
-            abort_unless($site->station_id === $station->id && $charger->source === 'simulator' && $charger->ocpp_protocol === $v['protocol'], 409, 'Charger binding mismatch.');
+            $company = VendorCompany::findOrFail($charger->company_id);
+            abort_unless($site->station_id === $station->id && $site->company_id === $charger->company_id
+                && $company->owner_id === $station->vendor_id && $charger->source === 'simulator'
+                && $charger->ocpp_protocol === $v['protocol'], 409, 'Charger binding mismatch.');
             abort_if(DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->exists(), 409, 'Charger is already provisioned.');
         } else {
             abort_if(DB::table('csms_bindings')->where('station_id', $station->id)->exists(), 409, 'Binding is already provisioned.');
@@ -33,6 +37,17 @@ class ChargerCommandController extends Controller
             abort_unless($actor->role === 'admin', 403);
             $station = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
             abort_unless($station->source === 'simulator', 409, 'Only simulator inventory may be bound.');
+            // The route-bound station and initial asset check are snapshots.
+            // Re-read and pin the exact owned topology under the same transaction
+            // before creating an immutable charger/source binding.
+            if (! empty($v['vendor_charger_id'])) {
+                $charger = VendorCharger::whereKey($v['vendor_charger_id'])->lockForUpdate()->firstOrFail();
+                $site = VendorSite::whereKey($charger->site_id)->lockForUpdate()->firstOrFail();
+                $company = VendorCompany::whereKey($charger->company_id)->lockForUpdate()->firstOrFail();
+                abort_unless($site->station_id === $station->id && $site->company_id === $charger->company_id
+                    && $company->owner_id === $station->vendor_id && $charger->source === 'simulator'
+                    && $charger->ocpp_protocol === $v['protocol'], 409, 'Charger binding mismatch.');
+            }
             abort_if(DB::table('csms_bindings')->when(! empty($v['vendor_charger_id']), fn ($q) => $q->where('vendor_charger_id', $v['vendor_charger_id']), fn ($q) => $q->where('station_id', $station->id))->exists(), 409, 'Binding is already provisioned.');
             $id = DB::table('csms_bindings')->insertGetId($v + ['station_id' => $station->id, 'created_at' => now(), 'updated_at' => now()]);
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'csms.simulator_bound', 'subject' => (string) $station->id, 'created_at' => now()]);
