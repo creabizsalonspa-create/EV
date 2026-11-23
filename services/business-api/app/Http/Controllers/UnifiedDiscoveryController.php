@@ -148,7 +148,7 @@ final class UnifiedDiscoveryController extends Controller
         $partners = OcpiRecord::whereIn('id', $rows->where('kind', 'partner')->pluck('id'))->where('module', 'locations')->where('normalized->publish', true)
             ->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->select('id'))
             ->get(['id', 'ocpi_provider_id', 'normalized', 'source_updated_at', 'received_at'])->keyBy('id');
-        $labels = OcpiProvider::whereIn('id', $partners->pluck('ocpi_provider_id'))->where('authorized', true)->pluck('name', 'id');
+        $labels = OcpiProvider::publiclyDiscoverable()->whereIn('id', $partners->pluck('ocpi_provider_id'))->pluck('name', 'id');
         $savedPartners = $customer === null ? collect() : DB::table('partner_location_favorites')->where('user_id', $customer)->whereIn('record_id', $partners->keys())->pluck('record_id')->flip();
         $this->currentActor($request);
         $checkedAt = now();
