@@ -112,6 +112,49 @@ class FinancialDocumentsTest extends TestCase
         $this->assertDatabaseCount('financial_document_sequences', 0);
     }
 
+    public function test_document_consolidation_refuses_float_origin_and_oversized_source_line_sums(): void
+    {
+        $sum = new \ReflectionMethod(FinancialSources::class, 'sumExact');
+        $this->assertSame(100, $sum->invoke(null, [
+            ['amount_minor' => '70'],
+            ['amount_minor' => 30],
+        ], 'amount_minor'));
+        $this->assertSame(100, $sum->invoke(null, [
+            ['amount_minor' => 150],
+            ['amount_minor' => -50],
+        ], 'amount_minor', true));
+
+        foreach ([
+            [['amount_minor' => 4_503_599_627_370_496],
+                ['amount_minor' => 4_503_599_627_370_496]],
+            [['amount_minor' => '9007199254740991'],
+                ['amount_minor' => 1]],
+            [['amount_minor' => 100.0]],
+            [['amount_minor' => true]],
+        ] as $unsafeLines) {
+            try {
+                $sum->invoke(null, $unsafeLines, 'amount_minor');
+                $this->fail('Unsafe corporate invoice line sum was accepted.');
+            } catch (HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
+        }
+
+        try {
+            $sum->invoke(null, [
+                ['amount_minor' => -9_007_199_254_740_991],
+                ['amount_minor' => -1],
+            ], 'amount_minor', true);
+            $this->fail('Unsafe signed settlement debt sum was accepted.');
+        } catch (HttpException $exception) {
+            $this->assertSame(409, $exception->getStatusCode());
+        }
+
+        $this->assertDatabaseCount('financial_documents', 0);
+        $this->assertDatabaseCount('financial_document_sequences', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_revoked_customer_source_cannot_read_download_or_generate_private_invoice_documents(): void
     {
         $f = $this->documentFixture();
