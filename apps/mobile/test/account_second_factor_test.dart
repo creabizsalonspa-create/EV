@@ -37,7 +37,9 @@ void main() {
 
   for (final ar in [false, true]) {
     testWidgets('oversized recovery codes fail closed and require verified refresh ($ar)', (tester) async {
-      final api = FactorApi()..enabled = true ..malformedCodes = true;
+      final api = FactorApi()
+        ..enabled = true
+        ..malformedCodes = true;
       addTearDown(api.close);
       await tester.pumpWidget(MaterialApp(
         locale: Locale(ar ? 'ar' : 'en'),
