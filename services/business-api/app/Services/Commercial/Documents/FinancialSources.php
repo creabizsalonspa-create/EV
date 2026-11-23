@@ -18,6 +18,10 @@ class FinancialSources
      */
     private static function exactMoney(mixed $value, bool $signed = false): int
     {
+        // FILTER_VALIDATE_INT also accepts whole-valued PHP floats and true.
+        // Those types can already have lost precision before we see them:
+        // immutable invoice sources must be integers or decimal DB strings.
+        abort_unless(is_int($value) || is_string($value), 409, 'Document source amount exceeds exact integer bounds.');
         $number = filter_var($value, FILTER_VALIDATE_INT);
         abort_unless($number !== false
             && $number <= self::MAX_EXACT_MINOR
