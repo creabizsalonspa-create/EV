@@ -176,10 +176,18 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
             entry['operator_maintenance_blocked'] is! bool ||
             !['recent', 'stale', 'unknown'].contains(entry['state']) ||
             (entry['state'] == 'recent'
-                ? !statuses.contains(entry['reported_status'])
+                ? (!statuses.contains(entry['reported_status']) ||
+                    reply['source_online'] != true ||
+                    reply['source_topology_matches_local'] != true ||
+                    entry['source_event_at'] is! String)
                 : entry['reported_status'] != null) ||
-            entry['source_event_at'] != null &&
-                entry['source_event_at'] is! String ||
+            (entry['error_code'] != null &&
+                (entry['error_code'] is! String ||
+                    (entry['error_code'] as String).length > 80 ||
+                    (!['', 'NoError'].contains(entry['error_code']) &&
+                        entry['reported_status'] != 'Faulted'))) ||
+            (entry['source_event_at'] != null &&
+                entry['source_event_at'] is! String) ||
             entry['physical_available'] != false ||
             entry['remote_control_authorized'] != false) {
           throw const FormatException('Untrusted connector source row');
