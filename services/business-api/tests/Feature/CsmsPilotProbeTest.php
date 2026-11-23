@@ -74,6 +74,9 @@ class CsmsPilotProbeTest extends TestCase
             if (str_contains($request['query'], 'ChargingStations')) {
                 $row = [
                     'id' => 91, 'isOnline' => true, 'protocol' => $fixture['protocol'],
+                    'chargePointVendor' => $state === 'wrong_vendor' ? 'Other' : 'Synthetic',
+                    'chargePointModel' => $state === 'wrong_model' ? 'Other' : 'Fixture',
+                    'firmwareVersion' => $state === 'no_firmware' ? null : 'sim-fw-v1',
                     'latestOcppMessageTimestamp' => $state === 'relative_clock' ? 'now'
                         : ($state === 'stale' ? now()->subMinutes(10)->toISOString() : now()->toISOString()),
                 ];
@@ -81,6 +84,14 @@ class CsmsPilotProbeTest extends TestCase
                 return Http::response(['data' => ['ChargingStations' =>
                     $state === 'ambiguous' ? [$row, $row]
                         : ($state === 'object_station' ? ['station' => $row] : [$row])]]);
+            }
+            if ($state === 'suspended_owner') {
+                DB::table('users')->where('id', $fixture['owner']->id)
+                    ->update(['account_status' => 'suspended']);
+            }
+            if ($state === 'model_changed') {
+                DB::table('vendor_chargers')->where('id', $fixture['charger']->id)
+                    ->update(['model' => 'Changed']);
             }
             if ($state === 'reassigned') {
                 DB::table('stations')->where('id', $fixture['station']->id)
@@ -129,6 +140,7 @@ class CsmsPilotProbeTest extends TestCase
             $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
             $this->assertSame('simulated_source_observed', $report['status']);
             $this->assertSame($protocol, $report['protocol']);
+            $this->assertSame('sim-fw-v1', $report['observed_source_firmware']);
             $this->assertSame(2, $report['connector_count']);
             $this->assertSame(2, $report['connectors_with_recent_status']);
             $this->assertTrue($report['software_source_observed']);
@@ -182,7 +194,7 @@ class CsmsPilotProbeTest extends TestCase
 
     public function test_invalid_source_identity_clocks_and_connector_events_fail_closed(): void
     {
-        foreach (['ambiguous', 'object_station', 'relative_clock', 'unknown_connector', 'unknown_status', 'overflow', 'reversed_clock', 'duplicate_event', 'reassigned'] as $case) {
+        foreach (['ambiguous', 'object_station', 'wrong_vendor', 'wrong_model', 'no_firmware', 'relative_clock', 'unknown_connector', 'unknown_status', 'overflow', 'reversed_clock', 'duplicate_event', 'reassigned', 'suspended_owner', 'model_changed'] as $case) {
             $f = $this->fixture();
             $this->source($f, $case);
             $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
