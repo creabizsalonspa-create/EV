@@ -739,7 +739,8 @@ void main() {
       expect(find.text('Synthetic support thread'), findsOneWidget);
       expect(api.supportReads, 1);
       final staleOpen = tester.widget<TextButton>(
-        find.widgetWithText(TextButton, 'Ticket #1')).onPressed;
+        find.widgetWithText(TextButton,
+          EvStrings(Locale(language)).t('ticket', {'id': 1}))).onPressed;
       api.actorEpoch++;
       await tester.pumpWidget(MaterialApp(
         locale: Locale(language),
