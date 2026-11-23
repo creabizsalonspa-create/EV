@@ -405,18 +405,26 @@ class SupportViewState extends State<SupportView>
   @override
   void didUpdateWidget(covariant SupportView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.api != widget.api ||
-        oldWidget.accountId != widget.accountId) {
+    final identityChanged =
+        oldWidget.api != widget.api || oldWidget.accountId != widget.accountId;
+    if (identityChanged || !authorized()) {
+      // EvApi can retain object identity while its authenticated session
+      // changes. The old closure has been revoked: discard every private
+      // inbox row, notification preference and pending ticket key first.
       clearPrivate();
       authorized = widget.api.sessionFence();
-      final nextApi = widget.api;
-      final nextId = widget.accountId;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && foreground && authorized() &&
-            identical(widget.api, nextApi) && widget.accountId == nextId) {
-          load();
-        }
-      });
+      if (identityChanged) {
+        final nextApi = widget.api;
+        final nextId = widget.accountId;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && authorized() &&
+              identical(widget.api, nextApi) && widget.accountId == nextId) {
+            load();
+          }
+        });
+      }
+      // A same-object session rotation must NEVER auto-read private history:
+      // the next account chooses explicit Refresh after the secure reset.
     }
   }
 
@@ -985,7 +993,7 @@ class SupportViewState extends State<SupportView>
               child: Text(s.t('markCurrentNotificationsRead')),
             ),
           if (loading) const LinearProgressIndicator(),
-          if (!loading && !freshRead && foreground)
+          if (!loading && !freshRead && foreground) ...[
             Semantics(
               liveRegion: true,
               child: Text(
@@ -994,6 +1002,13 @@ class SupportViewState extends State<SupportView>
                     : 'Refresh this account history before taking another action.',
               ),
             ),
+            TextButton.icon(
+              key: const Key('support-manual-refresh'),
+              onPressed: refresh,
+              icon: const Icon(Icons.refresh),
+              label: Text(s.t('refresh')),
+            ),
+          ],
           if (error != null)
             Column(
               children: [
@@ -1339,17 +1354,24 @@ class _TicketPageState extends State<TicketPage>
   @override
   void didUpdateWidget(covariant TicketPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.api != widget.api || oldWidget.id != widget.id) {
+    final identityChanged =
+        oldWidget.api != widget.api || oldWidget.id != widget.id;
+    if (identityChanged || !authorized()) {
+      // A retained client can silently rotate credentials while this widget
+      // stays mounted. Clear old messages and unsent/retry reply material.
       clearPrivate();
       authorized = widget.api.sessionFence();
-      final nextApi = widget.api;
-      final nextId = widget.id;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && foreground && authorized() &&
-            identical(widget.api, nextApi) && widget.id == nextId) {
-          load();
-        }
-      });
+      if (identityChanged) {
+        final nextApi = widget.api;
+        final nextId = widget.id;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && authorized() &&
+              identical(widget.api, nextApi) && widget.id == nextId) {
+            load();
+          }
+        });
+      }
+      // Same-object session rotation only re-arms explicit foreground Refresh.
     }
   }
 

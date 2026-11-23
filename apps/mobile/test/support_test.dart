@@ -719,6 +719,79 @@ class MalformedInboxFixture extends SupportFixture {
 }
 
 void main() {
+
+  for (final language in ['en', 'ar']) {
+    testWidgets('reused support API session changes rebind with no old-account read ($language)', (tester) async {
+      final api = ActorScopedSupportFixture();
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Synthetic support thread'), findsOneWidget);
+      expect(api.supportReads, 1);
+      final staleOpen = tester.widget<TextButton>(
+        find.widgetWithText(TextButton, 'Synthetic support thread')).onPressed;
+      api.actorEpoch++;
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.supportReads, 1, reason: 'Session change must not silently fetch inbox');
+      expect(find.text('Synthetic support thread'), findsNothing);
+      expect(find.byKey(const Key('support-manual-refresh')), findsOneWidget);
+      expect(find.textContaining('PRIVATE OLD ACCOUNT'), findsNothing);
+      // An old retained callback cannot navigate into the replacement actor.
+      staleOpen?.call();
+      await tester.pump();
+      expect(api.supportReads, 1);
+      await tester.tap(find.byKey(const Key('support-manual-refresh')));
+      await tester.pumpAndSettle();
+      expect(api.supportReads, 2);
+      expect(find.text('Synthetic support thread'), findsOneWidget);
+      expect(find.byKey(const Key('support-manual-refresh')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('reused ticket API session rebinds without replaying private thread ($language)', (tester) async {
+      final api = ActorScopedTicketFixture();
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: TicketPage(api: api, id: 1, onSessionExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Original public message'), findsOneWidget);
+      expect(api.detailReads, 1);
+      await tester.enterText(find.byKey(const Key('ticket-reply')), 'PRIVATE OLD ACCOUNT DRAFT');
+      api.actorEpoch++;
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: TicketPage(api: api, id: 1, onSessionExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.detailReads, 1, reason: 'Reusing EvApi must not read on account switch');
+      expect(find.text('Original public message'), findsNothing);
+      expect(find.text('PRIVATE OLD ACCOUNT DRAFT'), findsNothing);
+      expect(find.byKey(const Key('ticket-reply')), findsNothing);
+      await tester.tap(find.text(EvStrings(Locale(language)).t('refresh')));
+      await tester.pumpAndSettle();
+      expect(api.detailReads, 2);
+      expect(find.text('Original public message'), findsOneWidget);
+      expect(find.byKey(const Key('ticket-reply')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('retained notification discovery tap is fenced to the rendered account and read', (
     tester,
   ) async {
