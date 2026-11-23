@@ -49,3 +49,28 @@ This work is bundled in Agent 3's existing **PR #248 private finance DTO**
 rather than creating a separate small PR. Agent 5 alone integrates
 after exact-head Laravel/PostgreSQL/finance/browser/native gates;
 do not credit an original requirement without full evidence.
+
+
+## Finance report numeric source integrity
+
+The existing multi-currency `GET /api/finance/report` and
+`GET /api/v1/finance/report` share
+`CommercialFinanceController::currentReport`. PostgreSQL can return
+aggregate `SUM()` as numeric strings, and PHP 64-bit integers can
+hold values above the exact 2^53−1 limit of clients using JavaScript
+number semantics. Previously the report accepted these values, so
+customer, vendor or Admin reports could display **rounded financial
+amounts despite an intact database**.
+
+Every server-returned nonnegative invoice count/amount aggregate is
+now parsed and capped at `9,007,199,254,740,991` before JSON
+serialization. Negative values, fractional/invalid numeric strings
+and over-range totals produce HTTP 409 with a request to narrow the
+period; signed net values are differences of exact bounded operands.
+The existing currency + precision group isolation, canonical invoice
+and payment/refund allocations and customer-vendor-Admin field
+permissions remain unchanged. A dedicated pure regression tests zero,
+the exact upper bound, the first overflowing value, fractions,
+negative numbers and large out-of-range numeric strings. This is a
+source-accuracy safeguard, **not** independent provider settlement
+or confirmation of real collected funds.
