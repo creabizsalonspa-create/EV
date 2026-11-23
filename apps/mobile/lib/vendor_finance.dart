@@ -1355,7 +1355,20 @@ class _VendorEarningsState extends State<VendorEarningsView>
       if (e is ApiException && [401, 419].contains(e.status))
         widget.onExpired();
     } finally {
-      if (active()) setState(() => busy = false);
+      if (mounted && foreground && generation == epoch) {
+        // An account switch can make the old fence false without causing
+        // a widget rebuild. Clear its old spinner, invoices and CSV preview;
+        // never deliver the stale report or expire the newer session.
+        setState(() {
+          busy = false;
+          if (!current()) {
+            report = null;
+            csvPreview = null;
+            error = null;
+            hidden = true;
+          }
+        });
+      }
     }
   }
 
@@ -1401,7 +1414,20 @@ class _VendorEarningsState extends State<VendorEarningsView>
         widget.onExpired();
       }
     } finally {
-      if (active()) setState(() => busy = false);
+      if (mounted && foreground && generation == epoch) {
+        // An account switch can make the old fence false without causing
+        // a widget rebuild. Clear its old spinner, invoices and CSV preview;
+        // never deliver the stale report or expire the newer session.
+        setState(() {
+          busy = false;
+          if (!current()) {
+            report = null;
+            csvPreview = null;
+            error = null;
+            hidden = true;
+          }
+        });
+      }
     }
   }
 
