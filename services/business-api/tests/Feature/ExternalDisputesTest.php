@@ -236,6 +236,23 @@ class ExternalDisputesTest extends TestCase
         Http::assertSent(fn ($r) => $r->method() === 'POST' && $r->hasHeader('Idempotency-Key') && $r['submit'] === 'false');
     }
 
+    public function test_provider_evidence_service_cannot_be_invoked_without_request_bound_admin_authority(): void
+    {
+        $id = $this->providerEvent('evt_UnboundServiceCall')->assertOk()->json('dispute_id');
+        $this->fakeProvider();
+        try {
+            app(ExternalDisputes::class)->evidence(
+                $id, $this->admin->id, ['product_description' => 'Must remain private'],
+                false, 'without-admin-credential-snapshot'
+            );
+            $this->fail('Evidence dispatch accepted without an Admin credential snapshot.');
+        } catch (HttpException $error) {
+            $this->assertSame(403, $error->getStatusCode());
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('external_dispute_evidence', 0);
+    }
+
     public function test_evidence_does_not_dispatch_after_admin_epoch_revocation_during_provider_inspection(): void
     {
         $id = $this->providerEvent('evt_EvidenceRevokedDuringGet')->assertOk()->json('dispute_id');
