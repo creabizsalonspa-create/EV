@@ -118,7 +118,7 @@ class ChargerFirmwareController extends Controller
     {
         $this->enabled();
         $binding = $guard->scope($r, $company, $charger);
-        $data = $source->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion}}', ['name' => $binding->identifier]);
+        $data = $source->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}', ['name' => $binding->identifier]);
         $stations = $data['ChargingStations'] ?? null;
         abort_unless(is_array($stations) && array_is_list($stations) && count($stations) === 1 &&
             is_array($stations[0]) && is_int($stations[0]['id'] ?? null) && $stations[0]['id'] > 0 &&
@@ -128,8 +128,14 @@ class ChargerFirmwareController extends Controller
             is_string($stations[0]['chargePointModel'] ?? null) &&
             is_string($stations[0]['firmwareVersion'] ?? null) &&
             strlen($stations[0]['firmwareVersion']) > 0 &&
-            strlen($stations[0]['firmwareVersion']) <= 80, 409, 'A current typed source firmware identity is required.');
+            strlen($stations[0]['firmwareVersion']) <= 80 &&
+            is_string($stations[0]['latestOcppMessageTimestamp'] ?? null), 409, 'A current typed source firmware identity is required.');
         $observed = $stations[0];
+        // GraphQL's online flag can survive a silent disconnect; firmware
+        // eligibility must be based on a strictly parsed recent heartbeat.
+        $lastMessage = SourceStatusTime::parse($observed['latestOcppMessageTimestamp']);
+        abort_unless($lastMessage->gte(now()->subMinutes(5)), 409,
+            'Source firmware identity is stale; refresh before planning maintenance.');
         abort_unless(in_array($observed['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true) &&
             $observed['chargePointVendor'] === $charger->manufacturer &&
             $observed['chargePointModel'] === $charger->model, 409, 'Source charger identity differs from the owned inventory.');
@@ -172,6 +178,8 @@ class ChargerFirmwareController extends Controller
             'manufacturer' => $charger->manufacturer,
             'model' => $charger->model,
             'observed_source_firmware' => $observed['firmwareVersion'],
+            'source_last_message_at' => $lastMessage->toISOString(),
+            'source_freshness_seconds' => 300,
             'source_snapshot_verified' => true,
             'physical_hardware_accepted' => false,
             'firmware_dispatch_authorized' => false,
