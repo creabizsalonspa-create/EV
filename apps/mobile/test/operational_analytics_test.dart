@@ -194,6 +194,10 @@ void main() {
       await tester.pumpWidget(app(api, () {}));
       await tester.pumpAndSettle();
       expect(api.applied.length, 1);
+      await tester.scrollUntilVisible(
+        find.text('View private report PDF'), 200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('View private report PDF'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.text('From (UTC)'), -220,
@@ -211,6 +215,10 @@ void main() {
       final api = OpsApi();
       await tester.pumpWidget(app(api, () {}));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('View private report PDF'), 200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('View private report PDF'), findsOneWidget);
       await api.forgetSession();
       await tester.pump();
