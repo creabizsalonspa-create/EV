@@ -163,6 +163,58 @@ class OcpiOwnerEligibilityTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_provider_list_uses_current_tenant_and_rejects_stale_or_repurposed_vendor_identity(): void
+    {
+        $owner = $this->vendor();
+        $peer = $this->vendor();
+        $ownProvider = $this->pending($owner);
+        $otherProvider = OcpiProvider::create([
+            'owner_id' => $peer->id,
+            'name' => 'Other private operator',
+            'connection_key' => 'isolated-other-connection',
+            'authorized' => false,
+        ]);
+
+        $request = Request::create('/api/ocpi/providers', 'GET');
+        $request->setUserResolver(static fn () => $owner);
+        $controller = app(OcpiController::class);
+        $page = $controller->providers($request)->getData(true);
+        $this->assertSame(1, $page['total']);
+        $this->assertSame($ownProvider->id, $page['data'][0]['id']);
+        $this->assertStringNotContainsString('Other private operator',
+            json_encode($page, JSON_THROW_ON_ERROR));
+        $this->assertNotSame($ownProvider->id, $otherProvider->id);
+
+        $initial = [
+            'role' => 'vendor',
+            'account_status' => 'active',
+            'auth_epoch' => $owner->auth_epoch,
+            'password' => $owner->password,
+        ];
+        foreach ([
+            [['account_status' => 'suspended'], 403],
+            [['role' => 'customer'], 403],
+            [['auth_epoch' => (int) $owner->auth_epoch + 1], 409],
+            [['password' => 'rotated-synthetic-hash'], 409],
+        ] as [$change, $expectedStatus]) {
+            DB::table('users')->where('id', $owner->id)->update(array_replace($initial, $change));
+            try {
+                $controller->providers($request);
+                $this->fail('Stale vendor identity disclosed private partner accounts.');
+            } catch (HttpException $error) {
+                $this->assertSame($expectedStatus, $error->getStatusCode());
+            }
+        }
+        DB::table('users')->where('id', $owner->id)->update($initial);
+        $this->actingAs($owner)->getJson('/api/ocpi/providers')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('total', 1);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_providers', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_stale_admin_mutations_cannot_create_or_authorize_ocpi_providers(): void
     {
         $owner = $this->vendor();
