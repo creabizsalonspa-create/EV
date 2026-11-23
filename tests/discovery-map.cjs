@@ -323,6 +323,47 @@ const assert = require("node:assert/strict");
       ),
       false,
     );
+    // A malformed mixed-source UI event is not a source authorization. The
+    // map must drop null station DTOs, forged live evidence, false discovery
+    // booking capabilities and partner claims without a page exception.
+    const requestCountBeforeMalformedMap = viewportRequests.length;
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent(
+      "unified-map-data",
+      { detail: [
+        { key: "catalog:3", kind: "catalog", station: null },
+        {
+          key: "catalog:4", kind: "catalog",
+          station: { id: 4, name: "Forged live status", evidence: "LIVE_VERIFIED",
+            latitude: 25.2, longitude: 55.3, reservable: true },
+        },
+        {
+          key: "catalog:5", kind: "catalog",
+          station: { id: 5, name: "Forged booking source", evidence: "DISCOVERY_ONLY",
+            latitude: 25.2, longitude: 55.3, reservable: true },
+        },
+        {
+          key: "partner:6", kind: "partner", record_id: 6,
+          evidence: "PARTNER_REPORTED_UNVERIFIED",
+          availability: "available", reservable: true, remote_control: false,
+          location: { name: "Forged partner", latitude: 25.2, longitude: 55.3 },
+        },
+      ] },
+    )));
+    assert.equal(await page.locator(".station-map-pin").count(), 0);
+    assert.equal(viewportRequests.length, requestCountBeforeMalformedMap,
+      "Map source validation must never request a new partner or catalog lookup");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent(
+      "unified-map-data",
+      { detail: [{
+        key: "catalog:7", kind: "catalog",
+        station: { id: 7, name: "Source-validated platform station",
+          evidence: "SIMULATED", latitude: 25.2, longitude: 55.3,
+          connector_type: "CCS2", power_kw: 50, reservable: false },
+      }] },
+    )));
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1,
+      "Valid published source remains visible after a rejected map payload");
+    assert.equal(viewportRequests.length, requestCountBeforeMalformedMap);
     assert.deepEqual(errors, []);
     console.log(
       "PASS: consented mixed map, disable/re-enable privacy and map refit, unverified partner capability checks, revocation, GPS opt-in, safe popups, Arabic and mobile layout. Synthetic only.",
