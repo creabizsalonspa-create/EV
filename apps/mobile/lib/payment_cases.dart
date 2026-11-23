@@ -105,24 +105,61 @@ class PaymentCasesView extends StatefulWidget {
   State<PaymentCasesView> createState() => _CasesState();
 }
 
-class _CasesState extends State<PaymentCasesView> {
+class _CasesState extends State<PaymentCasesView>
+    with WidgetsBindingObserver {
   ApiPage<Map<String, dynamic>>? page;
   Object? error;
-  bool busy = false;
+  bool busy = false, foreground = true;
+  late bool Function() authorized;
   int generation = 0, target = 1;
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
     load();
+  }
+
+  @override
+  void didUpdateWidget(covariant PaymentCasesView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api) {
+      generation++;
+      authorized = widget.api.sessionFence();
+      page = null;
+      error = null;
+      busy = false;
+      target = 1;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (foreground == resumed) return;
+    foreground = resumed;
+    if (!resumed) {
+      generation++;
+      setState(() {
+        page = null;
+        error = null;
+        busy = false;
+      });
+    } else {
+      // Explicit refresh is required after returning to private case history.
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   Future<void> load({int number = 1}) async {
+    if (!foreground || !authorized()) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -145,21 +182,26 @@ class _CasesState extends State<PaymentCasesView> {
             !['MOCK_PROVIDER', 'STRIPE_TEST_CONTRACT'].contains(r['evidence']))
           throw const FormatException('Unsupported case evidence.');
       }
-      if (mounted && epoch == generation) page = raw;
+      if (mounted && foreground && authorized() && epoch == generation) page = raw;
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (mounted && foreground && authorized() && epoch == generation) {
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && foreground && authorized() && epoch == generation) setState(() => busy = false);
     }
   }
 
   @override
   Widget build(BuildContext c) {
     String t(String k) => caseText(c, k);
+    final visible = foreground && authorized();
+    final currentPage = visible ? page : null;
+    final currentError = visible ? error : null;
+    final boundApi = widget.api;
+    final boundFence = boundApi.sessionFence();
     return Scaffold(
       appBar: AppBar(title: Text(t('title'))),
       body: ListView(
@@ -167,14 +209,16 @@ class _CasesState extends State<PaymentCasesView> {
         children: [
           Text(t('notice')),
           OutlinedButton(
-            onPressed: busy ? null : () => load(number: target),
+            onPressed: busy || !visible ? null : () {
+            if (identical(boundApi, widget.api) && boundFence()) load(number: target);
+          },
             child: Text(t('refresh')),
           ),
-          if (busy) const Center(child: CircularProgressIndicator()),
-          if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
-          if (page != null) ...[
-            if (page!.items.isEmpty) Text(t('empty')),
-            for (final r in page!.items)
+          if (busy && visible) const Center(child: CircularProgressIndicator()),
+          if (currentError != null) Text(EvStrings.of(c).t(errorKey(currentError))),
+          if (currentPage != null) ...[
+            if (currentPage!.items.isEmpty) Text(t('empty')),
+            for (final r in currentPage!.items)
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -187,19 +231,24 @@ class _CasesState extends State<PaymentCasesView> {
                       if (r['resolution'] != null)
                         Text('${t('resolution')}: ${r['resolution']}'),
                       OutlinedButton(
-                        onPressed: busy
+                        onPressed: busy || !visible
                             ? null
                             : () async {
+                                if (!foreground ||
+                                    !authorized() ||
+                                    !boundFence() ||
+                                    !identical(boundApi, widget.api)) return;
                                 await Navigator.of(c).push(
                                   MaterialPageRoute<void>(
                                     builder: (_) => CaseEvidenceView(
-                                      api: widget.api,
+                                      api: boundApi,
                                       onExpired: widget.onExpired,
                                       caseId: r['id'] as int,
                                     ),
                                   ),
                                 );
-                                if (mounted) load(number: target);
+                                if (mounted && foreground && authorized() &&
+                                    boundFence() && identical(boundApi, widget.api)) load(number: target);
                               },
                         child: Text(t('evidence')),
                       ),
@@ -211,14 +260,14 @@ class _CasesState extends State<PaymentCasesView> {
               spacing: 8,
               children: [
                 OutlinedButton(
-                  onPressed: busy || target <= 1
+                  onPressed: busy || !visible || target <= 1
                       ? null
                       : () => load(number: target - 1),
                   child: Text(t('previous')),
                 ),
-                Text('$target / ${page!.last}'),
+                Text('$target / ${currentPage!.last}'),
                 OutlinedButton(
-                  onPressed: busy || target >= page!.last
+                  onPressed: busy || !visible || target >= currentPage!.last
                       ? null
                       : () => load(number: target + 1),
                   child: Text(t('next')),
