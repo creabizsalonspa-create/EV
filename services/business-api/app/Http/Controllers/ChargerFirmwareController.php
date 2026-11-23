@@ -133,6 +133,12 @@ class ChargerFirmwareController extends Controller
         abort_unless(in_array($observed['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true) &&
             $observed['chargePointVendor'] === $charger->manufacturer &&
             $observed['chargePointModel'] === $charger->model, 409, 'Source charger identity differs from the owned inventory.');
+        // HTTP source inspection must not preserve a revoked staff grant,
+        // changed login or replaced charger binding in a private response.
+        $fresh = $guard->scope($r, $company, $charger);
+        abort_unless((int) $fresh->id === (int) $binding->id &&
+            $fresh->identifier === $binding->identifier && $fresh->protocol === $binding->protocol,
+            409, 'Charger source binding changed during inspection.');
 
         $matrix = [];
         $releases = DB::table('charger_firmware_releases')
