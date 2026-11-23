@@ -42,9 +42,25 @@ class OcpiController extends Controller
 
     public function providers(Request $r)
     {
-        abort_unless(in_array($r->user()->role, ['vendor', 'admin']), 403);
+        // A stale authenticated request must not enumerate private partner
+        // accounts after a role, password, epoch or status change.
+        return DB::transaction(function () use ($r) {
+            $snapshot = $r->user();
+            abort_unless($snapshot instanceof User, 401);
+            $actor = User::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
+            abort_unless($actor->account_status === 'active'
+                && in_array($actor->role, ['vendor', 'admin'], true), 403);
+            abort_unless($snapshot->role === $actor->role
+                && (int) $snapshot->auth_epoch === (int) $actor->auth_epoch
+                && hash_equals((string) $snapshot->password, (string) $actor->password),
+                409, 'Account credentials changed. Sign in again.');
 
-        return OcpiProvider::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id))->orderByDesc('id')->paginate(25);
+            $page = OcpiProvider::when($actor->role !== 'admin',
+                fn ($q) => $q->where('owner_id', $actor->id))
+                ->orderByDesc('id')->paginate(25);
+
+            return response()->json($page)->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function create(Request $r, PartnerClient $client)
