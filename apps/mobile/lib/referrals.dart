@@ -355,6 +355,11 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   });
 
   Future<void> forgetDraft() async {
+    final api = widget.api;
+    final fence = ownsSession;
+    final initialGeneration = generation;
+    final original = operation;
+    if (!scoped(api, fence) || busy || original == null) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -377,10 +382,13 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
         ],
       ),
     );
-    if (confirmed != true || !mounted || busy || !ownsSession()) return;
+    if (confirmed != true || busy ||
+        generation != initialGeneration ||
+        !identical(original, operation) ||
+        !scoped(api, fence)) return;
     await run((epoch) async {
-      await operation?.confirmed();
-      if (current(epoch)) setState(clearFields);
+      await original.confirmed();
+      if (current(epoch) && scoped(api, fence)) setState(clearFields);
     });
   }
 
