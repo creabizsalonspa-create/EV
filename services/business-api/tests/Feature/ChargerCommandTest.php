@@ -345,6 +345,75 @@ class ChargerCommandTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_repointing_a_pending_owned_charger_source_blocks_dispatch_to_another_operator(): void
+    {
+        config(['csms.simulator_enabled' => true]);
+        Http::preventStrayRequests();
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($vendor);
+        $company = VendorCompany::create([
+            'owner_id' => $vendor->id, 'legal_name' => 'Source-bound operator',
+            'country' => 'AE', 'trade_license_number' => 'SYNTHETIC',
+            'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved',
+        ]);
+        $site = VendorSite::create([
+            'company_id' => $company->id, 'station_id' => $station->id,
+            'name' => 'Bound site', 'country' => 'AE', 'timezone' => 'Asia/Dubai',
+            'address' => 'Synthetic', 'latitude' => 25, 'longitude' => 55,
+        ]);
+        $charger = VendorCharger::create([
+            'company_id' => $company->id, 'site_id' => $site->id,
+            'asset_reference' => 'SOURCE-BOUND', 'manufacturer' => 'Synthetic',
+            'model' => 'Bound', 'source' => 'simulator', 'ocpp_protocol' => '1.6',
+        ]);
+        $binding = DB::table('csms_bindings')->insertGetId([
+            'station_id' => $station->id, 'vendor_charger_id' => $charger->id,
+            'identifier' => 'ev-test-lineage-control', 'protocol' => '1.6',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        Http::fake([
+            '*/dev/token' => Http::response(['accessToken' => 'synthetic-token']),
+            '*/ocpp/*' => Http::response([['success' => true]]),
+        ]);
+        $safe = ChargerCommand::create([
+            'actor_id' => $vendor->id, 'station_id' => $station->id,
+            'action' => 'stop', 'idempotency_key' => 'lineage-safe',
+            'payload_hash' => str_repeat('a', 64), 'payload' => ['transaction_id' => '123'],
+        ]);
+        $this->assertSame('submitted', app(CsmsDispatcher::class)->dispatch($safe->id)->status);
+        Http::assertSentCount(2);
+
+        $foreign = User::factory()->create(['role' => 'vendor']);
+        $otherCompany = VendorCompany::create([
+            'owner_id' => $foreign->id, 'legal_name' => 'Unrelated source operator',
+            'country' => 'AE', 'trade_license_number' => 'SYNTHETIC-OTHER',
+            'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved',
+        ]);
+        $otherSite = VendorSite::create([
+            'company_id' => $otherCompany->id, 'name' => 'Unrelated site',
+            'country' => 'AE', 'timezone' => 'Asia/Dubai',
+            'address' => 'Synthetic', 'latitude' => 25, 'longitude' => 55,
+        ]);
+        $otherCharger = VendorCharger::create([
+            'company_id' => $otherCompany->id, 'site_id' => $otherSite->id,
+            'asset_reference' => 'FOREIGN-SOURCE', 'manufacturer' => 'Synthetic',
+            'model' => 'Bound', 'source' => 'simulator', 'ocpp_protocol' => '1.6',
+        ]);
+        DB::table('csms_bindings')->where('id', $binding)
+            ->update(['vendor_charger_id' => $otherCharger->id]);
+        $blocked = ChargerCommand::create([
+            'actor_id' => $vendor->id, 'station_id' => $station->id,
+            'action' => 'stop', 'idempotency_key' => 'lineage-repointed',
+            'payload_hash' => str_repeat('b', 64), 'payload' => ['transaction_id' => '123'],
+        ]);
+        $result = app(CsmsDispatcher::class)->dispatch($blocked->id);
+        $this->assertSame('pending', $result->status);
+        $this->assertSame('pre_dispatch_source_lineage_changed', $result->failure_code);
+        app(CsmsDispatcher::class)->dispatch($blocked->id);
+        Http::assertSentCount(2);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_http_submission_does_not_claim_charger_acceptance_and_is_not_replayed(): void
     {
         config(['csms.simulator_enabled' => true]);
