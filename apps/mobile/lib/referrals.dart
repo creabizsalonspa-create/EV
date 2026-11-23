@@ -61,7 +61,8 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   void didUpdateWidget(covariant ReferralView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.api, widget.api) ||
-        !identical(oldWidget.store, widget.store)) {
+        !identical(oldWidget.store, widget.store) ||
+        !ownsSession()) {
       // The State may be reused after a customer login without a new route.
       // Never let an old account's referral draft or secure intent migrate.
       generation++;
