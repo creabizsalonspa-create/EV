@@ -48,3 +48,18 @@ This is a **functional native dashboard candidate toward 3.6.2**, but no
 verified live PSP revenue, legally recognized revenue, bank reconciliation, or
 production acceptance is claimed. Keep the original atom uncredited until
 all required software evidence is integrated and audited.
+
+
+### Real-Laravel native source contract
+
+The existing owned local finance fixture runner `tests/native-financial-analytics.cjs`
+now executes `live_vendor_revenue_cohorts_test.dart` sequentially after the
+existing native financial analytics contract, using the same ephemeral
+synthetic vendor/customer/foreign accounts. It reads real Laravel HTTP
+responses through `EvApi`, rejects customer/foreign vendor access,
+confirms the vendor's immutable issued-and-collected cohort evidence,
+parses an empty older period without inventing revenue, rejects
+malformed UTC dates and proves the original customer invoice payment,
+refund and ledger balance remain unchanged. No live payment or production
+provider acceptance is implied. The added test requires the full owned
+loopback fixture and exact-head hosted execution; it is not a production test.
