@@ -53,3 +53,31 @@ fault exposure above known source coverage, impossible busy periods or
 client-visible claims of verified physical availability. A widget
 regression tests the distinct source denominator. No real hardware
 verification is claimed.
+
+
+### Immediate native logout erasure — actual macOS CI regression fix
+
+Native macOS validation for preceding head
+`4c14db37bfadb03adc8bc06b8f0afa9bbc33df11`
+failed the case *revoked API generation cannot expose cached native finance
+or energy*: changing `EvApi` auth generation correctly invalidated its
+session fence, but the visible report still had its old PDF action
+until an unrelated rebuild. This was a real confidentiality bug,
+not an incorrect test expectation.
+
+The shared native `EvApi` now publishes a synchronous token-free
+broadcast `sessionEvents` stream whenever an authenticated
+generation is invalidated by `forgetSession` or `close`. Only a
+non-secret integer generation is transmitted, never credentials,
+person identifiers or invoice details. Existing HTTP/logout behavior
+is unchanged. `OperationalAnalyticsView` listens for current API
+invalidation to immediately erase its old finance/energy sources,
+PDF affordance and spinner; listeners are removed when the API
+changes or the view disposes. Pending older HTTP responses cannot
+restore the report because the view generation increments.
+
+An additional API unit test verifies exactly one synchronous
+invalidation on logout and close and immediate invalidation of the
+old `sessionFence`. The original failing widget test remains
+unchanged and must pass on the latest native macOS/Ubuntu CI. No
+hardware uptime/demand verification or production revenue claim.
