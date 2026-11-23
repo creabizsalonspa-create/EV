@@ -401,7 +401,9 @@ class _CatalogObservationState extends State<OcpiCatalogObservationsView>
 
   @override
   Widget build(BuildContext context) {
-    final report = foreground && authorized() ? data : null;
+    final permitted = foreground && authorized();
+    final report = permitted ? data : null;
+    final quality = permitted ? history : null;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -459,18 +461,18 @@ class _CatalogObservationState extends State<OcpiCatalogObservationsView>
           ),
           if (busy) const LinearProgressIndicator(),
           if (error != null) Text(error!),
-          if (history != null) ...[
+          if (quality != null) ...[
             Text(t(
               'Stored hourly source quality only — not live availability or network coverage.',
               'جودة المصدر المخزنة بالساعة فقط؛ ليست توفراً حياً أو تغطية للشبكة.',
             )),
-            Text('${history!['provider']['name']}'),
-            if ((history!['samples'] as List).isEmpty)
+            Text('${quality!['provider']['name']}'),
+            if ((quality!['samples'] as List).isEmpty)
               Text(t(
                 'No changed location syncs recorded; no coverage conclusion.',
                 'لا توجد عمليات مزامنة مواقع متغيرة مسجلة؛ لا توجد نتيجة عن التغطية.',
               )),
-            for (final sample in history!['samples'] as List)
+            for (final sample in quality!['samples'] as List)
               Card(
                 key: ValueKey('catalog-quality-${sample['observed_hour']}'),
                 child: Padding(
