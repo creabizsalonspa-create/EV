@@ -52,7 +52,16 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
     }
   }
   Map<String, dynamic> valid(dynamic data) {
-    if (data is! Map || data['enabled'] is! bool || data['pending'] is! bool) throw const ApiException(502, 'Invalid authenticator status');
+    if (data is! Map ||
+        data['enabled'] is! bool ||
+        data['pending'] is! bool ||
+        (data['recovery_remaining'] != null &&
+          (data['recovery_remaining'] is! int ||
+           data['recovery_remaining'] < 0 || data['recovery_remaining'] > 100)) ||
+        (data['recovery_rotation_recommended'] != null &&
+          data['recovery_rotation_recommended'] is! bool)) {
+      throw const ApiException(502, 'Unverified authenticator status');
+    }
     return Map<String, dynamic>.from(data);
   }
   Future<void> act(Future<void> Function(int) task) async {
@@ -91,7 +100,16 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
         if (result is! Map || result['secret'] is! String || !RegExp(r'^[A-Z2-7]{32}$').hasMatch(result['secret'] as String)) throw const ApiException(502, 'Invalid setup');
         nextSeed = result['secret'] as String;
       } else {
-        if (result is! Map || result['recovery_codes'] is! List) throw const ApiException(502, 'Invalid recovery response');
+        if (result is! Map ||
+            result['enabled'] is! bool ||
+            result['recovery_codes'] is! List ||
+            (result['recovery_codes'] as List).length > 20 ||
+            (result['recovery_codes'] as List).any((code) =>
+                code is! String || code.length < 8 || code.length > 100) ||
+            (result['reauthentication_required'] != null &&
+                result['reauthentication_required'] is! bool)) {
+          throw const ApiException(502, 'Invalid recovery response');
+        }
         nextRecovery = List<String>.from(result['recovery_codes'] as List);
       }
       if (result['reauthentication_required'] == true) {
