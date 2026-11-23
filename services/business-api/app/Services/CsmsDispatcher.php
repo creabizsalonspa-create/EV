@@ -39,6 +39,14 @@ class CsmsDispatcher
             || ($command->action === 'start' ? $link->start_command_id : $link->stop_command_id) !== $command->id)) {
             return false;
         }
+        if (! $link && $command->action === 'stop'
+            && ! User::whereKey($command->actor_id)->where('role', 'vendor')
+                ->where('account_status', 'active')->whereKey($station->vendor_id)->exists()) {
+            // The legacy station-wide stop has no reservation owner/target
+            // lineage. After station transfer or vendor suspension, never
+            // send it into another operator's charge point.
+            return false;
+        }
         if ($link) {
             $binding = DB::table('csms_bindings')->where('id', $link->binding_id)->first();
             if (! $binding || $binding->station_id !== $station->id
