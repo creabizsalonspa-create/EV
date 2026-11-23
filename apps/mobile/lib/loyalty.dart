@@ -516,25 +516,79 @@ class LoyaltyRequestView extends StatefulWidget {
   State<LoyaltyRequestView> createState() => _LoyaltyRequestState();
 }
 
-class _LoyaltyRequestState extends State<LoyaltyRequestView> {
+class _LoyaltyRequestState extends State<LoyaltyRequestView>
+    with WidgetsBindingObserver {
   Map<String, dynamic>? value;
   Object? error;
-  bool busy = false;
+  bool busy = false, foreground = true;
+  late bool Function() authorized;
   int generation = 0;
   @override
   void initState() {
     super.initState();
-    load();
+    authorized = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    if (foreground) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant LoyaltyRequestView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        oldWidget.id != widget.id || !authorized()) {
+      generation++;
+      authorized = widget.api.sessionFence();
+      value = null;
+      error = null;
+      busy = false;
+      final api = widget.api;
+      final fence = authorized;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && foreground && identical(api, widget.api) &&
+            identical(fence, authorized) && fence()) load();
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == foreground) return;
+    foreground = resumed;
+    if (!resumed) {
+      generation++;
+      setState(() {
+        value = null;
+        error = null;
+        busy = false;
+      });
+    } else {
+      // No implicit reuse of a previously downloaded private reward receipt.
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
+  bool scoped(EvApi api, bool Function() fence) =>
+      mounted && foreground && identical(widget.api, api) &&
+      identical(authorized, fence) && fence();
+
   Future<void> load() async {
+    final api = widget.api;
+    final fence = authorized;
+    if (!scoped(api, fence)) return;
+    final id = widget.id;
     final epoch = ++generation;
+    bool current() => generation == epoch && scoped(api, fence) &&
+        widget.id == id;
     setState(() {
       busy = true;
       value = null;
@@ -542,38 +596,43 @@ class _LoyaltyRequestState extends State<LoyaltyRequestView> {
     });
     try {
       final result = Map<String, dynamic>.from(
-        await widget.api.request('commercial/loyalty/redemptions/${widget.id}')
-            as Map,
+        await api.request('commercial/loyalty/redemptions/$id') as Map,
       );
+      if (!current()) return;
       final redemption = result['redemption'];
       final reward = result['reward'];
       final events = result['events'];
       if (redemption is! Map ||
-          redemption['id'] != widget.id ||
+          redemption['id'] != id ||
           redemption['points_cost'] is! int ||
           reward is! Map ||
           events is! List ||
           events.any(
             (e) =>
                 e is! Map || e['action'] is! String || e['reason'] is! String,
-          ))
+          )) {
         throw const FormatException('Invalid reward history.');
-      if (mounted && epoch == generation) setState(() => value = result);
+      }
+      if (current()) setState(() => value = result);
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (current()) {
         setState(() => error = e);
-        if (e is ApiException && [401, 419].contains(e.status))
+        if (e is ApiException && [401, 419].contains(e.status)) {
           widget.onExpired();
+        }
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current()) setState(() => busy = false);
     }
   }
 
   @override
   Widget build(BuildContext c) {
+    if (!foreground || !authorized()) return const Scaffold();
     final t = (String key) => loyaltyText(c, key);
     final ar = Localizations.localeOf(c).languageCode == 'ar';
+    final api = widget.api;
+    final fence = authorized;
     return Scaffold(
       appBar: AppBar(title: Text(t('detail'))),
       body: ListView(
@@ -581,7 +640,9 @@ class _LoyaltyRequestState extends State<LoyaltyRequestView> {
         children: [
           Text(t('notice')),
           OutlinedButton(
-            onPressed: busy ? null : load,
+            onPressed: busy ? null : () {
+              if (scoped(api, fence)) load();
+            },
             child: Text(t('refresh')),
           ),
           if (busy) const Center(child: CircularProgressIndicator()),
