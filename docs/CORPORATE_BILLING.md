@@ -61,3 +61,15 @@ remain unchanged and valid. This is an additive privacy/control slice
 toward corporate billing and contract governance (4.4.3, 7.1.7, 8.1.6,
 8.1.7); the original requirements remain uncredited until complete
 cross-platform provider/legal acceptance and Agent 5 integration.
+
+
+### Literal corporate statement exports
+
+The already authenticated private corporate CSV also marks any
+spreadsheet-leading statement, invoice or snapshotted cost-center identifier
+as a literal cell, rather than permitting a formula to execute when opened
+in a spreadsheet. It sets `X-Content-Type-Options: nosniff` and preserves
+the original UTF-8 business identifier unchanged in JSON and append-only
+corporate claim/statement records. A feature test deliberately creates a
+synthetic cost center beginning with a spreadsheet formula, proves the
+text-only CSV neutralization, and confirms no finance journal mutation.
