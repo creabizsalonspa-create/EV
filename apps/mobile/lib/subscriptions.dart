@@ -279,6 +279,12 @@ class _SubscriptionsState extends State<SubscriptionsView>
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
+      } else if (mounted && foreground && epoch == generation &&
+          e is ApiException && e.endsCurrentSession) {
+        // The native API may already have erased its current credentials
+        // before raising 401. Expire only that original request, never a
+        // stale failure from a later account or background lifecycle.
+        widget.onExpired();
       }
     } finally {
       if (active()) setState(() => busy = false);
@@ -554,7 +560,12 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
         );
       }
     } catch (e) {
-      if (active(epoch, fence)) fail(e);
+      if (active(epoch, fence)) {
+        fail(e);
+      } else if (mounted && foreground && epoch == generation &&
+          e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+      }
     } finally {
       if (active(epoch, fence)) setState(() => busy = false);
     }
@@ -610,7 +621,12 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
         });
       }
     } catch (e) {
-      if (active(epoch, fence)) fail(e);
+      if (active(epoch, fence)) {
+        fail(e);
+      } else if (mounted && foreground && epoch == generation &&
+          e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+      }
     } finally {
       if (active(epoch, fence)) setState(() => busy = false);
     }
@@ -801,6 +817,12 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
+      } else if (mounted && foreground && epoch == generation &&
+          e is ApiException && e.endsCurrentSession) {
+        // The native API may already have erased its current credentials
+        // before raising 401. Expire only that original request, never a
+        // stale failure from a later account or background lifecycle.
+        widget.onExpired();
       }
     } finally {
       if (active()) setState(() => busy = false);
