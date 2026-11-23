@@ -18,6 +18,7 @@ class _PrivacyApi extends EvApi {
   Completer<void>? holdWithdraw;
   int privateReads = 0;
   bool failRead = false;
+  bool malformedRow = false;
   bool failReadbackOnce = false;
   bool failPostAfterHold = false;
 
@@ -39,7 +40,12 @@ class _PrivacyApi extends EvApi {
         throw const ApiException(503, 'readback unavailable');
       }
       return {
-        'data': rows,
+        'data': malformedRow
+            ? <Map<String, dynamic>>[
+                {'id': 'not-an-integer', 'kind': 'access',
+                  'status': 'pending', 'details': 'PRIVATE MALFORMED ITEM'},
+              ]
+            : rows,
         'current_page': 1,
         'last_page': 1,
         'total': rows.length,
@@ -78,6 +84,65 @@ class _PrivacyApi extends EvApi {
 }
 
 void main() {
+
+  for (final language in ['en', 'ar']) {
+    testWidgets('a failed private history refresh removes old actions and safely recovers ($language)',
+        (tester) async {
+      final api = _PrivacyApi();
+      addTearDown(api.close);
+      api.rows.add({
+        'id': 66, 'kind': 'access', 'status': 'pending',
+        'details': 'PRIVATE RETAINED REQUEST REASON',
+      });
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: PrivacyRequestsView(api: api, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('PRIVATE RETAINED REQUEST REASON'), findsOneWidget);
+      final withdraw = find.text(language == 'ar' ? 'سحب الطلب' : 'Withdraw request');
+      expect(withdraw, findsOneWidget);
+      api.failRead = true;
+      final refresh = find.byTooltip(language == 'ar' ? 'تحديث' : 'Refresh');
+      await tester.ensureVisible(refresh);
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(find.text('PRIVATE RETAINED REQUEST REASON'), findsNothing);
+      expect(withdraw, findsNothing);
+      expect(find.byKey(const Key('privacy-error')), findsOneWidget);
+      api.failRead = false;
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(find.text('PRIVATE RETAINED REQUEST REASON'), findsOneWidget);
+      expect(withdraw, findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+    testWidgets('malformed customer request rows cannot create a withdrawal action ($language)',
+        (tester) async {
+      final api = _PrivacyApi()..malformedRow = true;
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: PrivacyRequestsView(api: api, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('PRIVATE MALFORMED ITEM'), findsNothing);
+      expect(find.text(language == 'ar' ? 'سحب الطلب' : 'Withdraw request'), findsNothing);
+      expect(find.byKey(const Key('privacy-error')), findsOneWidget);
+      api.malformedRow = false;
+      final refresh = find.byTooltip(language == 'ar' ? 'تحديث' : 'Refresh');
+      await tester.ensureVisible(refresh);
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('privacy-error')), findsNothing);
+      expect(api.privateReads, 2);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   for (final language in ['en', 'ar']) {
     testWidgets('private request failures never expose transport diagnostics ($language)',
