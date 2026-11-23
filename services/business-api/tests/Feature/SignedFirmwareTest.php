@@ -549,6 +549,7 @@ class SignedFirmwareTest extends TestCase
         $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Reviewed owned terminal source evidence'])->assertOk();
         $this->assertDatabaseHas('charger_firmware_operations', ['id' => $id, 'status' => 'source_installed']);
     }
+
     public function test_read_only_signed_firmware_matrix_matches_verified_source_without_authorizing_dispatch(): void
     {
         foreach (['1.6', '2.0.1'] as $protocol) {
