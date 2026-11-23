@@ -601,7 +601,17 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
         widget.onExpired();
       }
     } finally {
-      if (active(epoch, fence)) setState(() => busy = false);
+      if (mounted && foreground && epoch == generation) {
+        setState(() {
+          if (!fence()) {
+            // A revoked request must not leave its old spinner or saved
+            // nonce visible; the original durable storage entry survives.
+            clearPrivate();
+          } else {
+            busy = false;
+          }
+        });
+      }
     }
   }
 
@@ -662,7 +672,17 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
         widget.onExpired();
       }
     } finally {
-      if (active(epoch, fence)) setState(() => busy = false);
+      if (mounted && foreground && epoch == generation) {
+        setState(() {
+          if (!fence()) {
+            // A revoked request must not leave its old spinner or saved
+            // nonce visible; the original durable storage entry survives.
+            clearPrivate();
+          } else {
+            busy = false;
+          }
+        });
+      }
     }
   }
 
