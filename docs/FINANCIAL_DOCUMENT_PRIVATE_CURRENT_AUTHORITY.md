@@ -174,3 +174,30 @@ Agent 5 should reconcile it **once**, not duplicate the interface
 while merging the two reviewed branches. All behavior remains
 independent of the security role source; persisted account authority
 is checked by Laravel on every private operation.
+
+
+### Already-open private PDF viewer revocation
+
+Clearing the parent invoice page on logout is not sufficient if
+the user has already opened a `VendorDocumentPreview` route.
+A PDF can remain on the route even when the parent does not
+rebuild, preserving its sensitive document content after account
+logout. The shared native viewer now supports an **optional**
+`revokedSessionEvents: Stream<int>` parameter. On an authenticated
+generation event it synchronously removes the PDF/image renderer,
+evicts cached image data, displays no source bytes and schedules
+navigation back from the private viewer. The listener is detached
+on widget update/disposal; other non-account-bound image previews
+retain their original API and behavior.
+
+`FinancialDocumentsView` now passes its current `EvApi.sessionEvents`
+to the private invoice/credit/settlement PDF route. A new real Flutter
+widget regression opens an already-rendered private document route
+and confirms `forgetSession` hides/closes the viewer without
+backgrounding the application. This is UI confidentiality, not
+cryptographic secure erase from all process memory, and is distinct
+from Laravel's private-disk, hash and authorization controls.
+
+Agent 5 should preserve the optional viewer revocation parameter
+and propagate it to other relevant TEST partner/analytics financial
+PDF routes when integrating Agent 3 PRs #243 and #252.
