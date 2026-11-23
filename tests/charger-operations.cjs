@@ -286,7 +286,7 @@ const { chromium } = require("playwright"),
 
     assert.deepEqual(errors, []);
     console.log(
-      "PASS real Laravel EN/AR390px charger identity preparation, one-time secret/hide/revoke, no browser credential storage, unknown-command case/source absence/audit; no resend, forced capacity release or physical acceptance.",
+      "PASS real Laravel EN/AR390px charger identity, credential hide/revoke, unknown-command recovery, negative unbooted CSMS and positive authenticated 2.0.1 typed connector source status; no device commands, forced capacity release or physical acceptance.",
     );
   } finally {
     await simulator?.close();
