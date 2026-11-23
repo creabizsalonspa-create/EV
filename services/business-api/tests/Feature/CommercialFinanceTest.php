@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Finance\FinanceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class CommercialFinanceTest extends TestCase
@@ -137,6 +138,29 @@ class CommercialFinanceTest extends TestCase
             'id' => $id, 'status' => 'pending',
         ]);
         $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
+    public function test_aggregate_reporting_refuses_browser_inexact_minor_unit_integer_before_json_serialization(): void
+    {
+        $method = new \ReflectionMethod(
+            \App\Http\Controllers\CommercialFinanceController::class,
+            'exactAggregate'
+        );
+        $this->assertSame(0, $method->invoke(null, '0'));
+        $this->assertSame(9_007_199_254_740_991,
+            $method->invoke(null, '9007199254740991'));
+
+        foreach ([
+            '-1', '9007199254740992', '99999999999999999999999',
+            '1.5', 1.5, 'garbled',
+        ] as $unsafe) {
+            try {
+                $method->invoke(null, $unsafe);
+                $this->fail('Unsafe aggregate passed integer validation: '.json_encode($unsafe));
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
     }
 
     public function test_rejection_releases_reserved_amount_and_validation(): void
