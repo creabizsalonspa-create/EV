@@ -276,8 +276,11 @@ class _DocumentsState extends State<FinancialDocumentsView>
   }
 
   Future<void> generate() async {
-    if (!consent || !form.currentState!.validate()) return;
-    final epoch = ++generation;
+    if (!current || busy || uncertain || !consent ||
+        !form.currentState!.validate()) return;
+    final epoch = ++generation, fence = currentSession!;
+    final selectedKind = kind, selectedLanguage = language;
+    final selectedSource = decimalMinor(source.text, 0, maximum: 2000000000)!;
     setState(() {
       busy = true;
       error = null;
@@ -287,30 +290,51 @@ class _DocumentsState extends State<FinancialDocumentsView>
         'financial/documents',
         method: 'POST',
         body: {
-          'source_kind': kind,
-          'source_id': decimalMinor(source.text, 0, maximum: 2000000000)!,
-          'locale': language,
+          'source_kind': selectedKind,
+          'source_id': selectedSource,
+          'locale': selectedLanguage,
         },
       );
-      FinancialDocumentRecord.fromJson(
+      if (!active(epoch, fence)) return;
+      final record = FinancialDocumentRecord.fromJson(
         Map<String, dynamic>.from(result as Map),
       );
-      if (!mounted || epoch != generation) return;
+      if (record.kind != selectedKind ||
+          record.sourceId != selectedSource ||
+          record.locale != selectedLanguage) {
+        throw const FormatException('Foreign document response.');
+      }
+      if (!active(epoch, fence)) return;
       uncertain = false;
       await load();
     } catch (e) {
-      if (mounted && epoch == generation)
+      if (active(epoch, fence)) {
         setState(() {
+          // After a possible provider/database commit, never silently
+          // regenerate a numbered artifact. Require explicit list review.
           uncertain = true;
           failed(e);
         });
+      }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && foreground && generation == epoch) {
+        setState(() {
+          busy = false;
+          if (!fence()) {
+            erasePrivate();
+            uncertain = true;
+          }
+        });
+      }
     }
   }
 
   Future<void> open(FinancialDocumentRecord row) async {
-    final epoch = ++generation;
+    if (!current || busy || page == null ||
+        !page!.items.any((record) => record.id == row.id &&
+            record.kind == row.kind && record.sourceId == row.sourceId &&
+            record.pdfHash == row.pdfHash)) return;
+    final epoch = ++generation, fence = currentSession!;
     setState(() {
       busy = true;
       error = null;
@@ -319,8 +343,11 @@ class _DocumentsState extends State<FinancialDocumentsView>
       final bytes = await widget.api.downloadDocument(
         'financial/documents/${row.id}/download/pdf',
       );
+      if (!active(epoch, fence)) return;
+      // Server encrypted-file SHA and the originally displayed document
+      // metadata must agree before any bytes are handed to a PDF viewer.
       row.verify(bytes);
-      if (!mounted || epoch != generation) return;
+      if (!active(epoch, fence)) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => VendorDocumentPreview(
@@ -331,14 +358,26 @@ class _DocumentsState extends State<FinancialDocumentsView>
         ),
       );
     } catch (e) {
-      if (mounted && epoch == generation) setState(() => failed(e));
+      if (active(epoch, fence)) setState(() => failed(e));
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && foreground && generation == epoch) {
+        setState(() {
+          busy = false;
+          if (!fence()) {
+            erasePrivate();
+          }
+        });
+      }
     }
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
+  Widget build(BuildContext c) => !current
+      ? Scaffold(
+          appBar: AppBar(title: Text(t('title'))),
+          body: Center(child: Text(t('privateCleared'))),
+        )
+      : Scaffold(
     appBar: AppBar(title: Text(t('title'))),
     body: ListView(
       padding: const EdgeInsets.all(16),
@@ -359,13 +398,15 @@ class _DocumentsState extends State<FinancialDocumentsView>
                       for (final k in financialKinds)
                         DropdownMenuItem(value: k, child: Text(t(k))),
                     ],
-                    onChanged: busy || uncertain || widget.sourceKind != null
+                    onChanged: busy || uncertain || !foreground ||
+                        widget.sourceKind != null
                         ? null
                         : (v) => setState(() => kind = v!),
                   ),
                   TextFormField(
                     controller: source,
-                    readOnly: busy || uncertain || widget.sourceId != null,
+                    readOnly: busy || uncertain || !foreground ||
+                        widget.sourceId != null,
                     decoration: InputDecoration(labelText: t('id')),
                     keyboardType: TextInputType.number,
                     validator: (v) =>
@@ -379,19 +420,20 @@ class _DocumentsState extends State<FinancialDocumentsView>
                       for (final l in ['en', 'ar'])
                         DropdownMenuItem(value: l, child: Text(t(l))),
                     ],
-                    onChanged: busy || uncertain
+                    onChanged: busy || uncertain || !foreground
                         ? null
                         : (v) => setState(() => language = v!),
                   ),
                   CheckboxListTile(
                     value: consent,
-                    onChanged: busy
+                    onChanged: busy || !foreground || uncertain
                         ? null
                         : (v) => setState(() => consent = v!),
                     title: Text(t('consent')),
                   ),
                   FilledButton(
-                    onPressed: busy || !consent ? null : generate,
+                    onPressed: busy || !consent || uncertain || !foreground
+                        ? null : generate,
                     child: Text(t('generate')),
                   ),
                 ],
@@ -405,9 +447,12 @@ class _DocumentsState extends State<FinancialDocumentsView>
           child: Text(t('refresh')),
         ),
         if (busy) const Center(child: CircularProgressIndicator()),
-        if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
-        if (page != null && page!.items.isEmpty) Text(t('empty')),
-        if (page != null) ...[
+        if (error != null && current)
+          Text(EvStrings.of(c).t(errorKey(error!))),
+        if (hidden) Text(t('privateCleared')),
+        if (page != null && current && page!.items.isEmpty)
+          Text(t('empty')),
+        if (page != null && current) ...[
           for (final row in page!.items)
             Card(
               child: Padding(
