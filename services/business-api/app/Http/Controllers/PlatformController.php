@@ -23,6 +23,7 @@ use App\Services\Discovery\SourceReportFilter;
 use App\Services\Discovery\StationCatalog;
 use App\Services\Identity\AccountSecondFactor;
 use Carbon\CarbonImmutable;
+use DateTimeZone;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -214,7 +215,24 @@ class PlatformController extends Controller
                 $data['vehicle_label'] = $names->get($reservation->vehicle_id);
             }
 
-            return $data + ['station_timezone' => $zones->get($reservation->station_id), 'csms_bound' => $csms, 'can_check_in' => app(ReservationLifecycle::class)->eligible($reservation), 'physical_presence_verified' => false];
+            $timezone = $zones->get($reservation->station_id);
+            $localTimes = null;
+            if (is_string($timezone)) {
+                try {
+                    $zone = new DateTimeZone($timezone);
+                } catch (\Exception) {
+                    $zone = null;
+                }
+                if ($zone !== null) {
+                    $localTimes = [
+                        'starts_at' => CarbonImmutable::parse($reservation->starts_at, 'UTC')->setTimezone($zone)->toIso8601String(),
+                        'checked_in_at' => $reservation->checked_in_at?->setTimezone($zone)->toIso8601String(),
+                    ];
+                }
+            }
+
+            return $data + ['station_timezone' => $timezone, 'station_times' => $localTimes,
+                'csms_bound' => $csms, 'can_check_in' => app(ReservationLifecycle::class)->eligible($reservation), 'physical_presence_verified' => false];
         }))->header('Cache-Control', 'private, no-store');
     }
 
