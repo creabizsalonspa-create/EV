@@ -145,9 +145,50 @@ final class CsmsPilotProbe
             hash_equals(FaultMonitor::generation($binding), FaultMonitor::generation($current)), 409,
             'Charger source generation changed during observation.');
 
+        // A source connector count is not a physical topology proof, but
+        // accepting a different number of locally mapped plugs could present
+        // another charger's source state as if it belonged to this owner.
+        $maps = DB::table('charging_connector_mappings as mapping')
+            ->join('charging_evses as evse', 'evse.id', '=', 'mapping.evse_id')
+            ->join('vendor_connectors as connector', 'connector.id', '=', 'mapping.connector_id')
+            ->where('mapping.station_id', $binding->station_id)
+            ->where('evse.binding_id', $binding->id)
+            ->where('evse.mode', 'csms')
+            ->where('evse.charger_id', $charger->id)
+            ->where('connector.charger_id', $charger->id)
+            ->get([
+                'evse.source_evse_number',
+                'mapping.source_connector_number',
+                'connector.maintenance_blocked',
+            ]);
+        $ownedCount = $maps->count();
+        $totalLocalMappings = DB::table('charging_connector_mappings')
+            ->where('station_id', $binding->station_id)->count();
+        $seenTargets = [];
+        foreach ($maps as $map) {
+            abort_unless(is_int($map->source_evse_number) &&
+                ($binding->protocol === '1.6' ? $map->source_evse_number === 0 : $map->source_evse_number > 0) &&
+                is_int($map->source_connector_number) && $map->source_connector_number > 0 &&
+                ! (bool) $map->maintenance_blocked, 409,
+                'Owned connector mapping or maintenance state requires review.');
+            $target = $map->source_evse_number.':'.$map->source_connector_number;
+            abort_unless(! isset($seenTargets[$target]), 409,
+                'Duplicate OCPP connector target requires review.');
+            $seenTargets[$target] = true;
+        }
+        $localTopologyMatchesSourceCount = $ownedCount === count($known) &&
+            $totalLocalMappings === count($known);
+        // A source-only snapshot cannot override durable local uncertainty.
+        $localHold = DB::table('csms_session_links')->where('binding_id', $bindingId)
+            ->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists() ||
+            DB::table('charger_reset_operations')->where('binding_id', $bindingId)
+                ->whereNull('reviewed_at')->exists() ||
+            DB::table('charger_firmware_operations')->where('binding_id', $bindingId)
+                ->whereNull('reviewed_at')->exists();
         $covered = $recentConnectorCount === count($known);
         $idle = $idleConnectorCount === count($known) && count($active) === 0;
-        $observed = $station['isOnline'] && $recent && $covered && $idle;
+        $observed = $station['isOnline'] && $recent && $covered && $idle &&
+            $localTopologyMatchesSourceCount && ! $localHold;
 
         return [
             'binding_id' => $bindingId,
@@ -162,6 +203,9 @@ final class CsmsPilotProbe
             'all_source_connectors_recent' => $covered,
             'idle_connectors_with_recent_safe_status' => $idleConnectorCount,
             'source_idle_candidate' => $idle,
+            'source_connector_count_matches_local_topology' => $localTopologyMatchesSourceCount,
+            'pending_local_charging_or_maintenance_review' => (bool) $localHold,
+            'physical_topology_verified' => false,
             'active_source_transaction_count' => count($active),
             'software_source_observed' => (bool) $observed,
             'evidence' => 'SIMULATED_CSMS_READ_ONLY',
