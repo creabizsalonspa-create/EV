@@ -181,6 +181,10 @@ final class OcpiPartnerContractReviewTest extends TestCase
         } catch (HttpException $error) {
             $this->assertSame(409, $error->getStatusCode());
         }
+        // The original owner's operation key cannot be replayed as a
+        // successful approval for a different vendor after reassignment.
+        $this->actingAs($admin)->postJson($path, $this->review())
+            ->assertConflict();
         $this->actingAs($replacement)->getJson($path)->assertOk()
             ->assertJsonPath('state', 'missing')
             ->assertJsonPath('review_valid_for_current_owner', false)
