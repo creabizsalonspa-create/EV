@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'money_input.dart';
@@ -173,6 +174,19 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
   final to = TextEditingController();
   VendorRevenueCohortSnapshot? report;
   bool Function()? currentAuthority;
+  StreamSubscription<int>? sessionEvents;
+
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        invalidate();
+        currentAuthority = null;
+      });
+    });
+  }
+
   Object? error;
   bool busy = false;
   bool foreground = true;
@@ -186,6 +200,7 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    observe(widget.api);
     foreground = WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     final today = DateTime.now().toUtc();
@@ -201,6 +216,7 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.api != widget.api ||
         oldWidget.currency != widget.currency) {
+      if (oldWidget.api != widget.api) observe(widget.api);
       invalidate();
       currentAuthority = null;
       if (foreground) {
@@ -230,6 +246,7 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
 
   @override
   void dispose() {
+    sessionEvents?.cancel();
     invalidate();
     from.dispose();
     to.dispose();
