@@ -153,4 +153,24 @@ class OcpiCatalogQualityHistoryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_partner_reassignment_never_exposes_previous_owners_quality_history(): void
+    {
+        [$formerOwner, $provider, $url] = $this->fixture();
+        app(RecordSynchronizer::class)->ingest($provider, 'locations', [$this->location('former-owner')]);
+        $this->actingAs($formerOwner)->getJson($url)->assertOk()->assertJsonPath('count', 1);
+
+        $newOwner = User::factory()->create(['role' => 'vendor', 'account_status' => 'active']);
+        $provider->update(['owner_id' => $newOwner->id]);
+        $this->actingAs($formerOwner)->getJson($url)->assertNotFound();
+        $this->actingAs($newOwner)->getJson($url)->assertOk()
+            ->assertJsonPath('count', 0)->assertJsonPath('samples', []);
+        $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson($url)->assertOk()
+            ->assertJsonPath('count', 0);
+        $this->assertDatabaseHas('ocpi_catalog_quality_history', [
+            'provider_id' => $provider->id, 'owner_id' => $formerOwner->id,
+        ]);
+        $this->assertDatabaseCount('ocpi_catalog_quality_history', 1);
+        Http::assertNothingSent();
+    }
+
 }
