@@ -76,8 +76,8 @@ class BillingApi extends FixtureApi {
     return {
       ...result,
       'current_page': wrongPage ? page + 1 : page,
-      'last_page': empty ? 1 : 2,
-      'total': empty ? 0 : 2,
+      'last_page': empty ? 1 : result['last_page'],
+      'total': empty ? 0 : result['total'],
       'data': empty ? [] : result['data'],
     };
   }
