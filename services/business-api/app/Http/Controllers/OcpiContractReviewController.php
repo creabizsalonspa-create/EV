@@ -140,6 +140,8 @@ final class OcpiContractReviewController extends Controller
                 abort_unless($last && $last->owner_id === $owner->id
                     && $last->decision === 'review', 409,
                     'Only a current internal review can be revoked.');
+                abort_if($current->authorized && config('ocpi.contract_review_required') === true,
+                    409, 'Revoke provider authorization before removing an enforced internal contract review.');
             }
 
             $revision = (int) ($last->revision ?? 0) + 1;
