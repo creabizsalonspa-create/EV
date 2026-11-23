@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use App\Services\VendorOps\VendorAccess;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -33,6 +34,7 @@ final class CsmsPilotProbe
             $company->country === $station->country &&
             $site->country === $station->country &&
             $company->status === 'approved' &&
+            app(VendorAccess::class)->licenseValid($company) &&
             $charger->company_id === $company->id &&
             $charger->source === 'simulator' &&
             $station->source === 'simulator' &&
