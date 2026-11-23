@@ -116,6 +116,20 @@ Future<void> open(
 }
 
 void main() {
+  testWidgets('already painted vendor cohort income is instantly cleared on account logout',
+      (tester) async {
+    final api = RevenueApi();
+    addTearDown(api.close);
+    await open(tester, api);
+    expect(find.byKey(const Key('revenue-cohort-total-issued')), findsOneWidget);
+    final before = api.calls.length;
+    await api.forgetSession();
+    await tester.pump();
+    expect(find.byKey(const Key('revenue-cohort-total-issued')), findsNothing);
+    expect(find.textContaining('Issued: AED 10.99'), findsNothing);
+    expect(api.calls.length, before);
+  });
+
   test('valid issuance source is immutable and retains non-cashflow semantics', () {
     final raw = cohort();
     final c = VendorRevenueCohortSnapshot.parse(raw,
