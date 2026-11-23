@@ -149,9 +149,12 @@ class _DocumentsState extends State<FinancialDocumentsView>
     sessionEvents = api.sessionEvents.listen((_) {
       if (!mounted) return;
       setState(() {
+        // A revoked account must not silently "resolve" an in-flight
+        // immutable document creation or invite an automatic resubmission.
+        final possibleWrite = mutationInFlight || uncertain;
         erasePrivate();
         currentSession = null;
-        uncertain = false;
+        uncertain = possibleWrite;
       });
     });
   }
