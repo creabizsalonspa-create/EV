@@ -1,4 +1,11 @@
 (() => {
+    function stationTimeError(en, ar) {
+        const language = window.EvLocale?.language ||
+            (typeof document !== "undefined" ? document.documentElement?.lang : "en");
+        // Do not combine two languages in one alert. Errors use the language
+        // selected at the instant of rejection, including after a locale toggle.
+        return new Error(language === "ar" ? ar : en);
+    }
     // datetime-local has no timezone. Resolve a station wall clock to one real UTC instant.
     // Reject gaps and repeated DST minutes rather than guessing the wrong slot.
     function validZone(value) {
@@ -11,20 +18,20 @@
     function wall(value) {
         const match = typeof value === "string"
             ? /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value) : null;
-        if (!match) throw new Error("Choose a complete date and time. / اختر التاريخ والوقت بالكامل.");
+        if (!match) throw stationTimeError("Choose a complete date and time.", "اختر التاريخ والوقت بالكامل.");
         const [, y, m, d, h, minute] = match.map(Number);
         const epoch = Date.UTC(y, m - 1, d, h, minute);
         const date = new Date(epoch);
         if (date.getUTCFullYear() !== y || date.getUTCMonth() + 1 !== m ||
             date.getUTCDate() !== d || date.getUTCHours() !== h ||
             date.getUTCMinutes() !== minute)
-            throw new Error("Choose a valid calendar date. / اختر تاريخاً صحيحاً.");
+            throw stationTimeError("Choose a valid calendar date.", "اختر تاريخاً صحيحاً.");
         return epoch;
     }
     function toUtc(value, timezone) {
         const desired = wall(value);
         const zone = validZone(timezone);
-        if (!zone) throw new Error("The station timezone is unavailable. Select UTC. / توقيت المحطة غير متاح، اختر UTC.");
+        if (!zone) throw stationTimeError("The station timezone is unavailable. Select UTC.", "توقيت المحطة غير متاح، اختر UTC.");
         let candidates;
         if (zone === "UTC") candidates = [desired];
         else {
@@ -50,9 +57,9 @@
                 .filter((instant) => localMillis(instant) === desired);
         }
         candidates = [...new Set(candidates)];
-        if (!candidates.length) throw new Error("This station-local time does not exist because clocks changed. Select another time or UTC. / هذا الوقت المحلي غير موجود؛ اختر وقتاً آخر أو UTC.");
-        if (candidates.length > 1) throw new Error("This station-local time occurs twice because clocks changed. Select UTC to choose the exact slot. / هذا الوقت المحلي يتكرر؛ اختر UTC لتحديد الموعد.");
-        if (new Date(candidates[0]).getUTCMinutes() % 30 !== 0) throw new Error("Choose a 30-minute UTC slot using UTC time. / اختر وقت UTC بفاصل 30 دقيقة.");
+        if (!candidates.length) throw stationTimeError("This station-local time does not exist because clocks changed. Select another time or UTC.", "هذا الوقت المحلي غير موجود؛ اختر وقتاً آخر أو UTC.");
+        if (candidates.length > 1) throw stationTimeError("This station-local time occurs twice because clocks changed. Select UTC to choose the exact slot.", "هذا الوقت المحلي يتكرر؛ اختر UTC لتحديد الموعد.");
+        if (new Date(candidates[0]).getUTCMinutes() % 30 !== 0) throw stationTimeError("Choose a 30-minute UTC slot using UTC time.", "اختر وقت UTC بفاصل 30 دقيقة.");
         return new Date(candidates[0]).toISOString().replace(".000Z", "Z");
     }
     function displayStationTime(value, timezone, language = "en") {
