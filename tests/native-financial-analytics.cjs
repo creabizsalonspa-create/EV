@@ -43,6 +43,17 @@ try {
       env: { ...process.env, EV_NATIVE_ANALYTICS_FIXTURE: input },
     },
   );
+  // Execute the source-matched daily invoice-cohort native acceptance
+  // sequentially, retaining the same owned Laravel financial fixture.
+  execFileSync(
+    "flutter",
+    ["test", "test/live_vendor_revenue_cohorts_test.dart", "--reporter", "expanded"],
+    {
+      cwd: "apps/mobile",
+      stdio: "inherit",
+      env: { ...process.env, EV_NATIVE_ANALYTICS_FIXTURE: input },
+    },
+  );
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }
