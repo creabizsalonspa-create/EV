@@ -607,6 +607,8 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     if (!ownsSession()) return const Scaffold();
+    final api = widget.api;
+    final fence = ownsSession;
     final pending = draft;
     return Scaffold(
       appBar: AppBar(title: Text(referralTitle(context))),
@@ -632,19 +634,27 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
             FilledButton(
               onPressed: busy
                   ? null
-                  : () => mutate(Map<String, dynamic>.from(pending)),
+                  : () {
+                      if (scoped(api, fence) && identical(draft, pending)) {
+                        mutate(Map<String, dynamic>.from(pending));
+                      }
+                    },
               child: Text(
                 t('Retry saved request', 'إعادة محاولة الطلب المحفوظ'),
               ),
             ),
             TextButton(
-              onPressed: busy ? null : forgetDraft,
+              onPressed: busy ? null : () {
+                if (scoped(api, fence)) forgetDraft();
+              },
               child: Text(t('Clear saved request', 'مسح الطلب المحفوظ')),
             ),
           ],
           if (programmes == null && !busy)
             TextButton(
-              onPressed: load,
+              onPressed: () {
+                if (scoped(api, fence)) load();
+              },
               child: Text(t('Retry programmes', 'إعادة تحميل البرامج')),
             ),
           if (programmes case final list?) ...[
@@ -652,13 +662,19 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
               Text(t('No referral programmes.', 'لا توجد برامج إحالة.')),
             for (final row in list.items)
               OutlinedButton(
-                onPressed: busy ? null : () => openProgramme(row),
+                onPressed: busy ? null : () {
+                  if (scoped(api, fence)) openProgramme(row);
+                },
                 child: Text(t(row['name'] as String, row['name_ar'] as String)),
               ),
             pageButtons(
               list.current,
               list.last,
-              (number) => run((epoch) => listProgrammes(epoch, number)),
+              (number) {
+                if (scoped(api, fence)) {
+                  run((epoch) => listProgrammes(epoch, number));
+                }
+              },
             ),
           ],
           if (selected case final currentProgram?)
@@ -667,20 +683,26 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
             Text(t('My referral status', 'حالة الإحالة الخاصة بي')),
             Text(referralStatus(existing['status'])),
             TextButton(
-              onPressed: busy ? null : () => run(readOwnerReferral),
+              onPressed: busy ? null : () {
+                if (scoped(api, fence)) run(readOwnerReferral);
+              },
               child: Text(t('Refresh referral status', 'تحديث حالة الإحالة')),
             ),
           ],
           const Divider(),
           TextButton(
-            onPressed: busy ? null : () => readRewards(1),
+            onPressed: busy ? null : () {
+              if (scoped(api, fence)) readRewards(1);
+            },
             child: Text(t('My referral rewards', 'مكافآت الإحالة الخاصة بي')),
           ),
           if (rewards case final history?) ...[
             if (history.items.isEmpty)
               Text(t('No referral rewards.', 'لا توجد مكافآت إحالة.')),
             for (final row in history.items) rewardRow(row),
-            pageButtons(history.current, history.last, readRewards),
+            pageButtons(history.current, history.last, (number) {
+              if (scoped(api, fence)) readRewards(number);
+            }),
           ],
         ],
       ),
