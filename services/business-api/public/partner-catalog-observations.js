@@ -38,7 +38,7 @@ window.EvPartnerCatalogObservations=(()=>{
    if(!Number.isFinite(hour)||!Number.isFinite(at)||!row.observed_hour.endsWith(':00:00.000000Z')||at<hour||at>=hour+3600000||(previous!==null&&hour>=previous))return false;
    previous=hour;
    if(['within_policy','attention','empty'].includes(row.state)){
-    if(!Number.isSafeInteger(row.max_age_seconds)||row.max_age_seconds<60||row.max_age_seconds>604800||!metrics.every(k=>qualityCount(row[k]))||row.within_policy_count+row.stale_count+row.unknown_age_count!==row.published_count||row.future_clock_count>row.unknown_age_count)return false;
+    if(!Number.isSafeInteger(row.max_age_seconds)||row.max_age_seconds<60||row.max_age_seconds>604800||!metrics.every(k=>qualityCount(row[k]))||row.within_policy_count+row.stale_count+row.unknown_age_count!==row.published_count||row.future_clock_count>row.unknown_age_count||row.state!==(row.published_count===0?'empty':(row.stale_count+row.unknown_age_count>0?'attention':'within_policy')))return false;
    }else if(!['unavailable','policy_unavailable'].includes(row.state)||!metrics.every(k=>row[k]===null))return false;
   }
   return true;
