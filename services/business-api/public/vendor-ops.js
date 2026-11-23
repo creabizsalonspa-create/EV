@@ -1147,6 +1147,11 @@ window.createVendorWorkspace = ({
         button(pane, "Refresh", refresh);
         if (result.adapter_enabled) {
             button(pane, "Check live source firmware compatibility", async () => {
+                // Capture this authenticated viewer. An in-flight private
+                // source read must never populate a replacement login, even
+                // if the workspace has not yet been torn down.
+                const sourceViewer = actor();
+                if (!sourceViewer || !valid(epoch)) return;
                 pane.querySelector("[data-firmware-compatibility]")?.remove();
                 const preview = document.createElement("section");
                 preview.dataset.firmwareCompatibility = "";
@@ -1158,7 +1163,8 @@ window.createVendorWorkspace = ({
                         undefined,
                         controller?.signal,
                     );
-                    if (!valid(epoch) || !preview.isConnected) return;
+                    if (!valid(epoch) || actor() !== sourceViewer ||
+                        !preview.isConnected) return;
                     if (!matrix || matrix.source_snapshot_verified !== true ||
                         matrix.charger_id !== charger.id ||
                         matrix.manufacturer !== charger.manufacturer ||
@@ -1191,7 +1197,8 @@ window.createVendorWorkspace = ({
                         ));
                     }
                 } catch (_) {
-                    if (valid(epoch) && preview.isConnected) {
+                    if (valid(epoch) && actor() === sourceViewer &&
+                        preview.isConnected) {
                         preview.replaceChildren(ui(
                             "p",
                             "Source compatibility unavailable; no release recommended.",
