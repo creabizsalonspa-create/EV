@@ -8,13 +8,14 @@ use App\Services\Commercial\CorporateBilling;
 use App\Services\Commercial\Documents\DocumentRenderer;
 use App\Services\Commercial\Documents\FinancialDocuments;
 use App\Services\Commercial\Documents\FinancialProfiles;
+use App\Services\Commercial\Documents\FinancialSources;
 use App\Services\Commercial\SettlementService;
 use App\Services\Finance\FinanceService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\Support\FinancialDocumentFixtures;
@@ -79,7 +80,7 @@ class FinancialDocumentsTest extends TestCase
     public function test_all_seven_immutable_test_document_sources_require_exact_integer_minor_units(): void
     {
         $method = new \ReflectionMethod(
-            \App\Services\Commercial\Documents\FinancialSources::class,
+            FinancialSources::class,
             'exactMoney'
         );
         $this->assertSame(0, $method->invoke(null, '0'));
