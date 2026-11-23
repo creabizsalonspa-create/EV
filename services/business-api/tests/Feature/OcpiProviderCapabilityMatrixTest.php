@@ -106,7 +106,11 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
             ->assertJsonPath('capability_matrix.modules.0.local_receiver_configured', true)
             ->assertJsonPath('capability_matrix.modules.0.local_receiver_active', false)
             ->assertJsonPath('active_receiver_modules', []);
-        $link->update(['local_token_ciphertext' => Crypt::encryptString('SYNTHETIC-RESTORED'),
+        $link->update(['local_token_ciphertext' => Crypt::encryptString('SYNTHETIC-RESTORED')]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.credentials_current', false)
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_active', false);
+        $link->update(['local_token_ciphertext' => Crypt::encryptString('SYNTHETIC-ACTIVE-LOCAL-TOKEN'),
             'remote_token_ciphertext' => null]);
         $this->getJson($path)->assertOk()
             ->assertJsonPath('capability_matrix.credentials_current', false)
