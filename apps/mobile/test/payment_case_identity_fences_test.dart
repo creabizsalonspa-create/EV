@@ -150,6 +150,18 @@ Widget evidenceScreen(FencedCaseApi api, SessionCaseStore store, {
   picker: picker,
 ));
 
+Future<void> tapVisible(WidgetTester tester, String label) async {
+  await tester.scrollUntilVisible(
+    find.text(label),
+    180,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.ensureVisible(find.text(label));
+  await tester.pump();
+  await tester.tap(find.text(label));
+  await tester.pump();
+}
+
 void main() {
   testWidgets('stale invoice cannot initialize a new identity payment case', (
     tester,
@@ -183,11 +195,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '1.25');
     await tester.enterText(find.byType(TextField).last, 'Disputed captured amount');
+    await tester.ensureVisible(find.byType(CheckboxListTile));
+    await tester.pump();
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Confirm saved request'));
-    await tester.tap(find.text('Confirm saved request'));
-    await tester.pump();
+    await tapVisible(tester, 'Confirm saved request');
     expect(api.posts, 1);
     expect(store.writes, 1);
     api.identity++;
@@ -224,8 +237,7 @@ void main() {
     final waiting = Completer<VendorEvidence?>();
     await tester.pumpWidget(evidenceScreen(api, store, picker: () => waiting.future));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Choose PDF, PNG or JPEG up to4 MiB'));
-    await tester.pump();
+    await tapVisible(tester, 'Choose PDF, PNG or JPEG up to4 MiB');
     api.identity++;
     waiting.complete(VendorEvidence(api.bytes, 'application/pdf'));
     await tester.pumpAndSettle();
@@ -242,8 +254,7 @@ void main() {
     api.delayedDocument = waiting;
     await tester.pumpWidget(evidenceScreen(api, store));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('View verified private file'));
-    await tester.pump();
+    await tapVisible(tester, 'View verified private file');
     expect(api.downloads, 1);
     api.identity++;
     waiting.complete(PrivateDocument(api.bytes, 'application/pdf'));
@@ -283,8 +294,7 @@ void main() {
     await tester.pumpWidget(evidenceScreen(api, store, picker: () => waiting.future));
     await tester.pumpAndSettle();
     expect(api.reads, 1);
-    await tester.tap(find.text('Choose PDF, PNG or JPEG up to4 MiB'));
-    await tester.pump();
+    await tapVisible(tester, 'Choose PDF, PNG or JPEG up to4 MiB');
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     await tester.pumpAndSettle();
     expect(find.text('View verified private file'), findsNothing);
