@@ -2625,8 +2625,16 @@ window.createVendorWorkspace = ({
                         typeof row.operator_maintenance_blocked !== "boolean" ||
                         !["recent", "stale", "unknown"].includes(row.state) ||
                         (row.state === "recent"
-                            ? !statuses.includes(row.reported_status)
+                            ? (!statuses.includes(row.reported_status) ||
+                                result.source_topology_matches_local !== true ||
+                                result.source_online !== true ||
+                                typeof row.source_event_at !== "string")
                             : row.reported_status !== null) ||
+                        (row.error_code !== null &&
+                            (typeof row.error_code !== "string" ||
+                                row.error_code.length > 80 ||
+                                (!["", "NoError"].includes(row.error_code) &&
+                                    row.reported_status !== "Faulted"))) ||
                         row.physical_available !== false ||
                         row.remote_control_authorized !== false) {
                         throw Error("Unexpected source connector shape.");
