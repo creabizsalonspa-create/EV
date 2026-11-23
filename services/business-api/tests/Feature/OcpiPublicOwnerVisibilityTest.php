@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
+use App\Services\Ocpi\OcpiException;
+use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -133,6 +135,59 @@ class OcpiPublicOwnerVisibilityTest extends TestCase
         $this->assertDatabaseCount('ocpi_records', 1);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_operator_suspended_during_remote_negotiation_cannot_commit_capabilities(): void
+    {
+        $f = $this->fixture();
+        config(['ocpi.connections.visibility-fixture' => [
+            'origin' => 'https://peer.example',
+            'authorization_token' => base64_encode('offline-only-negotiation'),
+        ]]);
+        $f['provider']->update(['version' => null, 'endpoints' => null]);
+        Http::fake(function ($request) use ($f) {
+            if (str_ends_with($request->url(), '/ocpi/versions')) {
+                return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(),
+                    'data' => [['version' => '2.2.1', 'url' => 'https://peer.example/ocpi/2.2.1']]]);
+            }
+            $f['owner']->forceFill(['account_status' => 'suspended'])->save();
+
+            return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(),
+                'data' => ['version' => '2.2.1', 'endpoints' => [
+                    ['identifier' => 'locations', 'role' => 'SENDER', 'url' => 'https://peer.example/locations'],
+                ]]]);
+        });
+        $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->postJson('/api/ocpi/providers/'.$f['provider']->id.'/negotiate')->assertConflict();
+        $this->assertNull($f['provider']->fresh()->version);
+        $this->assertNull($f['provider']->fresh()->endpoints);
+        $this->getJson('/api/roaming/locations')->assertJsonPath('total', 0);
+        $this->assertDatabaseCount('ocpi_records', 1);
+        Http::assertSentCount(2);
+    }
+
+    public function test_late_partner_catalog_batch_cannot_mutate_records_after_owner_suspension(): void
+    {
+        $f = $this->fixture();
+        $incoming = [
+            'country_code' => 'AE', 'party_id' => 'TST', 'id' => 'late-catalog',
+            'publish' => true, 'name' => 'Late reported catalog',
+            'address' => 'Synthetic Road', 'city' => 'Dubai', 'country' => 'ARE',
+            'coordinates' => ['latitude' => '25.2', 'longitude' => '55.3'],
+            'evses' => [['uid' => 'one', 'status' => 'UNKNOWN', 'connectors' => [
+                ['id' => '1', 'standard' => 'IEC_62196_T2_COMBO'],
+            ]]], 'last_updated' => now()->subMinute()->toISOString(),
+        ];
+        $f['owner']->forceFill(['account_status' => 'suspended'])->save();
+        try {
+            app(RecordSynchronizer::class)->ingest($f['provider'], 'locations', [$incoming]);
+            $this->fail('A late source batch was ingested after provider-owner suspension.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('Inactive operator owner', $error->getMessage());
+        }
+        $this->assertDatabaseCount('ocpi_records', 1);
+        $this->assertDatabaseMissing('ocpi_records', ['external_id' => 'late-catalog']);
+        Http::assertNothingSent();
     }
 
     public function test_changed_owner_role_is_not_public_approval_and_reactivation_restores_read_only_catalog(): void
