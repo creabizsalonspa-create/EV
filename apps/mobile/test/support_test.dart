@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/support.dart';
@@ -734,7 +735,7 @@ void main() {
       expect(find.text('Synthetic support thread'), findsOneWidget);
       expect(api.supportReads, 1);
       final staleOpen = tester.widget<TextButton>(
-        find.widgetWithText(TextButton, 'Synthetic support thread')).onPressed;
+        find.widgetWithText(TextButton, 'Ticket #1')).onPressed;
       api.actorEpoch++;
       await tester.pumpWidget(MaterialApp(
         locale: Locale(language),

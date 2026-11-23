@@ -850,6 +850,10 @@ class SupportViewState extends State<SupportView>
         notifications && freshRead && !loading && foreground &&
         identical(widget.api, navigationApi) &&
         current(navigationGeneration, navigationSession);
+    bool canOpenTicket() =>
+        !notifications && freshRead && !loading && foreground &&
+        identical(widget.api, navigationApi) &&
+        current(navigationGeneration, navigationSession);
     if (!authorized()) {
       return Center(child: Text(s.t('expired')));
     }
@@ -1247,7 +1251,16 @@ class SupportViewState extends State<SupportView>
                       TextButton(
                         onPressed: loading
                             ? null
-                            : () => open(row['id'] as int),
+                            : () {
+                                // Even if a callback was retained before a
+                                // same-EvApi session rotation, the old ticket
+                                // ID cannot navigate in the new account.
+                                if (!canOpenTicket()) {
+                                  ensureActor();
+                                  return;
+                                }
+                                open(row['id'] as int);
+                              },
                         child: Text(s.t('ticket', {'id': row['id']})),
                       ),
                     ],
