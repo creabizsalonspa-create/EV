@@ -50,6 +50,9 @@ class OpsApi extends FixtureApi {
         {
           'name': 'Synthetic site',
           'site_id': 1,
+          // The canonical backend emits connector coverage separately
+          // from the EVSE window. The fake must carry both dimensions.
+          'possible_connector_seconds': 0,
           for (final key in operationalLabels.keys)
             key: key == 'maximum_observed_site_interval_average_w' && unknownDemand
                 ? null
