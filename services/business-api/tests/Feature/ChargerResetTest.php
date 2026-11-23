@@ -164,6 +164,86 @@ class ChargerResetTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_unknown_source_connector_status_never_authorizes_a_reset(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['Available', 'Faulted'] as $unregisteredStatus) {
+                $f = $this->fixture($protocol);
+                Http::swap(new Factory);
+                Http::preventStrayRequests();
+                Http::fake(function ($request) use ($f, $unregisteredStatus) {
+                    $this->assertSame('http://source.test/graphql', $request->url());
+                    if (str_contains($request['query'], 'ChargingStations')) {
+                        return Http::response(['data' => ['ChargingStations' => [
+                            ['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']],
+                        ]]]);
+                    }
+
+                    return Http::response(['data' => [
+                        'Transactions' => [],
+                        'Connectors' => [['id' => 7]],
+                        // This newer source row was omitted from the current
+                        // connector inventory; even Available is not idle proof.
+                        'StatusNotifications' => [
+                            ['connectorDatabaseId' => 8, 'connectorStatus' => $unregisteredStatus, 'timestamp' => now()->toISOString()],
+                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => now()->subSecond()->toISOString()],
+                        ],
+                    ]]);
+                });
+                $this->actingAs($f['owner'])->postJson($f['path'], [
+                    'reason' => 'Unrecognized source connector requires safety review',
+                    'idempotency_key' => 'unknown-'.$unregisteredStatus.'-'.$protocol,
+                ])->assertConflict();
+                $this->assertSame(0, DB::table('charger_reset_operations')
+                    ->where('binding_id', $f['binding'])->count());
+                Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+                    || str_contains($request->url(), '/configuration/reset'));
+                $this->assertDatabaseCount('charger_commands', 0);
+                $this->assertDatabaseCount('finance_invoices', 0);
+            }
+        }
+    }
+
+    public function test_complete_two_connector_source_inventory_can_submit_one_safe_reset(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            Http::swap(new Factory);
+            Http::preventStrayRequests();
+            Http::fake(function ($request) use ($f) {
+                if ($request->url() === 'http://source.test/graphql') {
+                    if (str_contains($request['query'], 'ChargingStations')) {
+                        return Http::response(['data' => ['ChargingStations' => [
+                            ['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']],
+                        ]]]);
+                    }
+
+                    return Http::response(['data' => [
+                        'Transactions' => [],
+                        'Connectors' => [['id' => 7], ['id' => 8]],
+                        'StatusNotifications' => [
+                            ['connectorDatabaseId' => 8, 'connectorStatus' => 'Available', 'timestamp' => now()->toISOString()],
+                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => now()->subSecond()->toISOString()],
+                        ],
+                    ]]);
+                }
+                if (str_ends_with($request->url(), '/dev/token')) {
+                    return Http::response(['accessToken' => 'synthetic-source-token']);
+                }
+
+                return Http::response([['success' => true]]);
+            });
+            $this->actingAs($f['owner'])->postJson($f['path'], [
+                'reason' => 'Both source connectors are confirmed safely idle',
+                'idempotency_key' => 'both-connectors-'.$protocol,
+            ])->assertCreated()->assertJsonPath('status', 'transport_submitted')
+                ->assertJsonPath('capacity_released', false);
+            Http::assertSentCount(6); // Two typed source preflights, token and exactly one reset.
+            Http::assertSent(fn ($request) => str_contains($request->url(), '/configuration/reset?')
+                && $request['type'] === ($protocol === '1.6' ? 'Soft' : 'OnIdle'));
+        }
+    }
+
     public function test_conflicting_source_status_clocks_cannot_authorize_a_reset(): void
     {
         foreach (['1.6', '2.0.1'] as $protocol) {

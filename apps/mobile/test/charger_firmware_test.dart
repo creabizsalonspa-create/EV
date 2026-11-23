@@ -13,6 +13,9 @@ class FirmwareApi extends FixtureApi {
   final cancellations = <Map<String, dynamic>>[];
   final attempts = <Map<String, dynamic>>[];
   bool active = true;
+  bool failCompatibility = false;
+  bool invalidCompatibility = false;
+  int compatibilityReads = 0;
   @override
   bool Function() sessionFence() =>
       () => active;
@@ -28,6 +31,34 @@ class FirmwareApi extends FixtureApi {
       cancellations.add(Map<String, dynamic>.from(body!));
       blocked = false;
       return {'cancelled': true, 'source_command_sent': false};
+    }
+    if (path.endsWith('/firmware-compatibility')) {
+      expect(method, 'GET');
+      compatibilityReads++;
+      if (failCompatibility) {
+        throw const ApiException(503, 'PRIVATE SOURCE SECRET');
+      }
+      return {
+        'charger_id': 2,
+        'manufacturer': 'Synthetic',
+        'model': 'Fixture',
+        'protocol': '1.6',
+        'observed_source_firmware': 'sim-fw-v1',
+        'source_last_message_at': '2026-11-23T02:00:00Z',
+        'source_freshness_seconds': 300,
+        'source_snapshot_verified': !invalidCompatibility,
+        'physical_hardware_accepted': false,
+        'firmware_dispatch_authorized': false,
+        'releases': [
+          {
+            'release_id': 1,
+            'version': 'sim-v1',
+            'signed_compatibility_policy': true,
+            'revoked': false,
+            'matches_observed_source': true,
+          },
+        ],
+      };
     }
     if (path.endsWith('/firmware-releases')) {
       expect(query['manufacturer'], 'Synthetic');
@@ -129,6 +160,50 @@ void main() {
       expect(api.attempts[0]['release_id'], 1);
     },
   );
+  testWidgets('explicit source firmware matrix read is private and never sends commands', (tester) async {
+    final api = FirmwareApi()..policy = true;
+    await tester.pumpWidget(MaterialApp(
+      home: ChargerFirmwareView(
+        api: api,
+        companyId: 1,
+        chargerId: 2,
+        manufacturer: 'Synthetic',
+        model: 'Fixture',
+        onExpired: () {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(api.compatibilityReads, 0, reason: 'Source reads require explicit action.');
+    final button = find.text('Check live source firmware compatibility');
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(api.compatibilityReads, 1);
+    expect(find.text('Authenticated source snapshot'), findsOneWidget);
+    expect(find.textContaining('sim-fw-v1'), findsWidgets);
+    expect(find.textContaining('Signed source match'), findsOneWidget);
+    expect(find.textContaining('physical installation'), findsWidgets);
+    expect(api.attempts, isEmpty);
+
+    api.failCompatibility = true;
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.text('Authenticated source snapshot'), findsNothing);
+    expect(find.textContaining('could not be verified'), findsOneWidget);
+    expect(find.textContaining('PRIVATE SOURCE SECRET'), findsNothing);
+    expect(api.attempts, isEmpty);
+
+    api.failCompatibility = false;
+    api.invalidCompatibility = true;
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.text('Authenticated source snapshot'), findsNothing);
+    expect(find.textContaining('could not be verified'), findsOneWidget);
+    expect(api.attempts, isEmpty);
+  });
+
   testWidgets('read-only inventory has no firmware deployment action', (
     tester,
   ) async {

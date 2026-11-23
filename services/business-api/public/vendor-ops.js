@@ -1149,6 +1149,61 @@ window.createVendorWorkspace = ({
                 releasePage,
             );
         button(pane, "Refresh", refresh);
+        if (result.adapter_enabled) {
+            button(pane, "Check live source firmware compatibility", async () => {
+                pane.querySelector("[data-firmware-compatibility]")?.remove();
+                const preview = document.createElement("section");
+                preview.dataset.firmwareCompatibility = "";
+                pane.append(preview);
+                try {
+                    const matrix = await api(
+                        path.replace(/firmware-operations$/, "firmware-compatibility"),
+                        "GET",
+                        undefined,
+                        controller?.signal,
+                    );
+                    if (!valid(epoch) || !preview.isConnected) return;
+                    if (!matrix || matrix.source_snapshot_verified !== true ||
+                        matrix.charger_id !== charger.id ||
+                        matrix.manufacturer !== charger.manufacturer ||
+                        matrix.model !== charger.model ||
+                        matrix.protocol !== charger.ocpp_protocol ||
+                        matrix.physical_hardware_accepted !== false ||
+                        matrix.firmware_dispatch_authorized !== false ||
+                        !Array.isArray(matrix.releases)) {
+                        throw new Error("Source compatibility shape requires review");
+                    }
+                    preview.append(
+                        ui("h4", "Authenticated source snapshot"),
+                        ui("p", "Source firmware: {version}", {version: matrix.observed_source_firmware}),
+                        ui("p", "Last source heartbeat: {at}", {at: matrix.source_last_message_at}),
+                        ui("p", "Source evidence does not prove physical installation or authorize firmware dispatch."),
+                    );
+                    for (const release of matrix.releases) {
+                        if (!release || typeof release !== "object") continue;
+                        preview.append(ui(
+                            "p",
+                            "{version}: {status}",
+                            {
+                                version: String(release.version),
+                                status: {
+                                    translate: release.matches_observed_source === true
+                                        ? "Signed source match"
+                                        : "Not verified for this source",
+                                },
+                            },
+                        ));
+                    }
+                } catch (_) {
+                    if (valid(epoch) && preview.isConnected) {
+                        preview.replaceChildren(ui(
+                            "p",
+                            "Source compatibility unavailable; no release recommended.",
+                        ));
+                    }
+                }
+            });
+        }
         if (result.can_manage && result.adapter_enabled) {
             const releases = await api(
                 base +
