@@ -90,7 +90,21 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
           : null;
     });
   }
-  Future<void> load() => act(read);
+  Future<void> load() async {
+    if (busy || background || !ownerFence()) return;
+    // An unverified/failed GET must not leave a previous phone, challenge or
+    // OTP action visible. Preserve only the same-account uncertain POST key,
+    // not password, OTP, phone field contents or old consent.
+    setState(() {
+      status = challenge = null;
+      message = null;
+      phone.clear();
+      password.clear();
+      code.clear();
+      consent = false;
+    });
+    await act(read);
+  }
   Future<void> start() async {
     if (busy || background || !ownerFence()) return;
     final value = vendorDigits(phone.text.trim());

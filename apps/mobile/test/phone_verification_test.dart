@@ -6,7 +6,7 @@ import 'package:creabiz_ev/phone_verification.dart';
 
 class PhoneApi extends EvApi {
   PhoneApi() : super(Uri.parse('https://example.invalid'));
-  bool available = true, lost = false,
+  bool available = true, lost = false, failRead = false,
       malformedChallenge = false, malformedAcknowledgment = false;
   int privateReads = 0, authEpoch = 0;
   @override
@@ -20,6 +20,7 @@ class PhoneApi extends EvApi {
   Future<dynamic> request(String path, {String method = 'GET', Map<String, dynamic>? body, Map<String, String> query = const {}}) async {
     if (method == 'GET') {
       privateReads++;
+      if (failRead) throw const ApiException(503, 'PRIVATE_PHONE_TRANSPORT_DIAGNOSTIC');
       return {
         'available': available,
         'verified': false,
@@ -50,6 +51,38 @@ Widget screen(PhoneApi api, {bool arabic = false}) => MaterialApp(locale: Locale
   ],
   home: PhoneVerificationView(api: api));
 void main() {
+
+  for (final ar in [false, true]) {
+    testWidgets('unverified refresh removes old phone and OTP actions ($ar)',
+        (tester) async {
+      final api = PhoneApi()
+        ..challenge = {'id': 'owned-challenge', 'status': 'pending'};
+      addTearDown(api.close);
+      await tester.pumpWidget(screen(api, arabic: ar));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('phone-code')), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('phone-number')), '+971501234567');
+      await tester.enterText(find.byKey(const Key('phone-password')), 'PRIVATE_PHONE_PASSWORD');
+      api.failRead = true;
+      await tester.tap(find.text(
+          ar ? 'تحديث حالة التحقق' : 'Refresh verification status'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('phone-code')), findsNothing);
+      expect(find.byKey(const Key('phone-number')), findsNothing);
+      expect(find.byKey(const Key('phone-password')), findsNothing);
+      expect(find.textContaining('PRIVATE_PHONE_TRANSPORT_DIAGNOSTIC'), findsNothing);
+      api.failRead = false;
+      await tester.tap(find.text(
+          ar ? 'تحديث حالة التحقق' : 'Refresh verification status'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('phone-code')), findsOneWidget);
+      expect(find.byKey(const Key('phone-password')), findsOneWidget);
+      expect(tester.widget<TextField>(
+          find.byKey(const Key('phone-password'))).controller!.text, isEmpty);
+      expect(api.writes, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   for (final ar in [false, true]) {
     testWidgets('malformed SMS start receipt cannot authorize foreign challenge ($ar)',
