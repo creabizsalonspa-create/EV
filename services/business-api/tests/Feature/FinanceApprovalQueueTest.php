@@ -108,6 +108,39 @@ class FinanceApprovalQueueTest extends TestCase
         return [$invoice, $refund, $settlement, $adjustment];
     }
 
+    public function test_financial_review_source_exact_minor_contract_rejects_hidden_type_coercion(): void
+    {
+        $exact = new \ReflectionMethod(
+            \App\Http\Controllers\FinanceApprovalQueueController::class,
+            'exactMinor'
+        );
+        $this->assertSame(-9_007_199_254_740_991,
+            $exact->invoke(null, '-9007199254740991'));
+        $this->assertSame(9_007_199_254_740_991,
+            $exact->invoke(null, '9007199254740991'));
+        $this->assertSame(0, $exact->invoke(null, 0));
+        foreach ([
+            100.0, -100.0, true, false, 0.1, '1.0', '1e2',
+            '9007199254740992', '-9007199254740992', 'invalid',
+        ] as $unsafe) {
+            try {
+                $exact->invoke(null, $unsafe);
+                $this->fail('Unsafe Admin finance source became an exact-looking amount.');
+            } catch (\Symfony\Component\HttpKernel\Exception\HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+
+        $this->seedApprovals();
+        $before = DB::table('finance_journals')->count();
+        $this->actingAs($this->admin)
+            ->getJson($this->base().'?per_page=1&page=2')->assertOk()
+            ->assertJsonCount(3, 'summary.groups')
+            ->assertJsonPath('summary.not_a_payment_or_payout_authority', true);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_admin_only_review_unifies_pending_sources_without_financial_mutation(): void
     {
         [$invoice, $refund, $settlement, $adjustment] = $this->seedApprovals();
