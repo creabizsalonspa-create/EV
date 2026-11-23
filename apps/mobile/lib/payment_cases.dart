@@ -228,8 +228,8 @@ class _CasesState extends State<PaymentCasesView>
           if (currentError != null)
             Text(EvStrings.of(c).t(errorKey(currentError))),
           if (currentPage != null) ...[
-            if (currentPage!.items.isEmpty) Text(t('empty')),
-            for (final r in currentPage!.items)
+            if (currentPage.items.isEmpty) Text(t('empty')),
+            for (final r in currentPage.items)
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -281,9 +281,9 @@ class _CasesState extends State<PaymentCasesView>
                       : () => load(number: target - 1),
                   child: Text(t('previous')),
                 ),
-                Text('$target / ${currentPage!.last}'),
+                Text('$target / ${currentPage.last}'),
                 OutlinedButton(
-                  onPressed: busy || !visible || target >= currentPage!.last
+                  onPressed: busy || !visible || target >= currentPage.last
                       ? null
                       : () => load(number: target + 1),
                   child: Text(t('next')),
