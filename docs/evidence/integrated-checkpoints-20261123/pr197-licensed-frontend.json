@@ -1,0 +1,63 @@
+{
+  "pr": 197,
+  "source_sha": "b5483d7b79ba35f42c40c8d528c433d6f3b9f3d9",
+  "integrated_sha": "f7af52ac9c8d10b79d0627f4d1fc5242b13f18bb",
+  "scope": "Provider-specific Open Charge Map frontend integration for web and authenticated customer/vendor Flutter, using the licensed backend, consent controls and shared contract fixture.",
+  "verified_source_paths": [
+    "apps/mobile",
+    "docs/AGENT2_LICENSED_NATIVE_ACCEPTANCE.md",
+    "tests/Fixtures/native-licensed-discovery.json",
+    "services/business-api/tests/Feature/OpenChargeMapDiscoveryTest.php"
+  ],
+  "required_checks": [
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44992814719/job/137117386019"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44992814719/job/137117386136"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44992814719/job/137117386151"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44992814719/job/137117386153"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44992814719/job/137117386175"
+    },
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44992814719/job/137133799556"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44992814668/job/137117385850"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/44992814668/job/137117386013"
+    }
+  ],
+  "production_accepted": false
+}
