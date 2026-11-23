@@ -208,6 +208,28 @@ void main() {
   );
 
   testWidgets(
+    'backgrounded source request cannot repopulate a private connector snapshot',
+    (tester) async {
+      final api = LiveDiagnosticsApi()..deferred = Completer<dynamic>();
+      await tester.pumpWidget(MaterialApp(home: ChargerDiagnosticsView(
+        api: api, companyId: 1, chargerId: 2, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Read live connector source'));
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      api.deferred!.complete({'connectors': ['PRIVATE LATE SOURCE']});
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('PRIVATE LATE SOURCE'), findsNothing);
+      expect(find.textContaining('Recent CSMS report'), findsNothing);
+      expect(api.writes, 0);
+    },
+  );
+
+  testWidgets(
     'expired source access clears private data and invokes the session-expiry callback',
     (tester) async {
       final api = LiveDiagnosticsApi();
