@@ -107,7 +107,9 @@ void main() {
     await tester.pump();
     api.generation++;
     wait.complete({'id': 1, 'role': 'vendor'});
-    await tester.pump();
+    // Allow the asynchronous authorization rejection and privacy rebuild to
+    // finish before checking the denied vendor review controls.
+    await tester.pumpAndSettle();
     expect(api.posts, 0);
     expect(store.writes, 0);
     expect(find.widgetWithText(FilledButton, 'Confirm'), findsNothing);
