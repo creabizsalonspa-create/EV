@@ -80,7 +80,7 @@ final class CsmsPilotProbe
         $recent = $lastSeen !== null && $lastSeen->gte(now()->subMinutes(5));
 
         $inventory = $source->graph(
-            'query($station:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},isActive:{_eq:true}},limit:2){id} Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1001){id connectorDatabaseId connectorStatus errorCode timestamp}}',
+            'query($station:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},isActive:{_eq:true}},limit:2){id} Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1001){id connectorDatabaseId evseId connectorId connectorStatus errorCode timestamp}}',
             ['station' => $station['id']]
         );
         $active = $inventory['Transactions'] ?? null;
@@ -110,6 +110,10 @@ final class CsmsPilotProbe
                 $event['id'] > 0 && $event['id'] < $priorId &&
                 is_int($event['connectorDatabaseId'] ?? null) &&
                 isset($known[$event['connectorDatabaseId']]) &&
+                is_int($event['evseId'] ?? null) &&
+                ($binding->protocol === '1.6' ? $event['evseId'] === 0 : $event['evseId'] > 0) &&
+                is_int($event['connectorId'] ?? null) &&
+                $event['connectorId'] > 0 &&
                 in_array($event['connectorStatus'] ?? null, ConnectorFreshness::STATUSES, true) &&
                 (! isset($event['errorCode']) || (is_string($event['errorCode']) && strlen($event['errorCode']) <= 80)), 409,
                 'Contradictory or unknown source connector event.');
@@ -119,12 +123,24 @@ final class CsmsPilotProbe
             $priorId = $event['id'];
             $priorTime = $at;
             $connectorId = $event['connectorDatabaseId'];
+            $sourceTarget = $event['evseId'].':'.$event['connectorId'];
             if (! isset($latest[$connectorId])) {
-                $latest[$connectorId] = ['status' => $event['connectorStatus'], 'error_code' => $event['errorCode'] ?? null, 'observed_at' => $at];
-            } elseif ($at->equalTo($latest[$connectorId]['observed_at'])) {
-                abort_unless($event['connectorStatus'] === $latest[$connectorId]['status'] &&
-                    ($event['errorCode'] ?? null) === $latest[$connectorId]['error_code'], 409,
-                    'Conflicting same-time connector evidence requires inspection.');
+                $latest[$connectorId] = [
+                    'status' => $event['connectorStatus'],
+                    'error_code' => $event['errorCode'] ?? null,
+                    'observed_at' => $at,
+                    'target' => $sourceTarget,
+                ];
+            } else {
+                // The same durable connector ID must not change its OCPP
+                // EVSE/connector target across the bounded source history.
+                abort_unless($latest[$connectorId]['target'] === $sourceTarget, 409,
+                    'Source connector target changed; review lineage.');
+                if ($at->equalTo($latest[$connectorId]['observed_at'])) {
+                    abort_unless($event['connectorStatus'] === $latest[$connectorId]['status'] &&
+                        ($event['errorCode'] ?? null) === $latest[$connectorId]['error_code'], 409,
+                        'Conflicting same-time connector evidence requires inspection.');
+                }
             }
         }
         $recentConnectorCount = 0;
@@ -180,6 +196,15 @@ final class CsmsPilotProbe
         }
         $localTopologyMatchesSourceCount = $ownedCount === count($known) &&
             $totalLocalMappings === count($known);
+        $observedTargets = [];
+        foreach ($latest as $entry) {
+            abort_unless(! isset($observedTargets[$entry['target']]), 409,
+                'Multiple source connectors claim the same OCPP target.');
+            $observedTargets[$entry['target']] = true;
+        }
+        $sourceConnectorTargetsMatchLocal = $localTopologyMatchesSourceCount &&
+            count($observedTargets) === count($seenTargets) &&
+            array_diff_key($seenTargets, $observedTargets) === [];
         // A source-only snapshot cannot override durable local uncertainty.
         $localHold = DB::table('csms_session_links')->where('binding_id', $bindingId)
             ->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists() ||
@@ -196,7 +221,7 @@ final class CsmsPilotProbe
         $covered = $recentConnectorCount === count($known);
         $idle = $idleConnectorCount === count($known) && count($active) === 0;
         $observed = $station['isOnline'] && $recent && $covered && $idle &&
-            $localTopologyMatchesSourceCount && ! $localHold;
+            $sourceConnectorTargetsMatchLocal && ! $localHold;
 
         return [
             'binding_id' => $bindingId,
@@ -212,6 +237,7 @@ final class CsmsPilotProbe
             'idle_connectors_with_recent_safe_status' => $idleConnectorCount,
             'source_idle_candidate' => $idle,
             'source_connector_count_matches_local_topology' => $localTopologyMatchesSourceCount,
+            'source_connector_targets_match_local_topology' => $sourceConnectorTargetsMatchLocal,
             'pending_local_charging_or_maintenance_review' => (bool) $localHold,
             'physical_topology_verified' => false,
             'active_source_transaction_count' => count($active),
