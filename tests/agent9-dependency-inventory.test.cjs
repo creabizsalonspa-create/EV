@@ -61,3 +61,32 @@ test('changed checkout locks stay distinct from the recorded source commit',t=>{
 test('oversized source locks fail before parsing and never return a partial inventory',t=>{
  const root=fixture(t),file=path.join(root,'package-lock.json');fs.writeFileSync(file,'');fs.truncateSync(file,21*1024*1024);const result=run(root);assert.equal(result.status,2);assert.equal(result.stdout,'');assert.doesNotMatch(result.stderr,/Traceback/);
 });
+
+test('npm lock inventory rejects invented package paths, versioned links and malformed scope flags',t=>{
+ const root=fixture(t);
+ const bad=[
+  ['apps/private-package',{version:'1.2.3'}],
+  ['/node_modules/private-package',{version:'1.2.3'}],
+  ['node_modules//private-package',{version:'1.2.3'}],
+  ['node_modules/private-package/',{version:'1.2.3'}],
+  ['node_modules/./private-package',{version:'1.2.3'}],
+  ['node_modules/private-package',{version:'1.2.3',link:true,resolved:'apps/private'}],
+  ['node_modules/private-package',{version:'1.2.3',link:'false'}],
+  ['node_modules/private-package',{version:'1.2.3',dev:'false'}],
+ ];
+ for(const [instance,entry] of bad){
+  write(root,'package-lock.json',{lockfileVersion:3,packages:{'':{name:'fixture'},[instance]:entry}});
+  const result=run(root);
+  assert.equal(result.status,2,'Unsafe npm instance unexpectedly credited: '+instance+' '+JSON.stringify(entry));
+  assert.equal(result.stdout,'');
+  assert.doesNotMatch(result.stderr,/Traceback|apps\\/private|https:/);
+ }
+ write(root,'package-lock.json',{lockfileVersion:3,packages:{
+  '':{name:'fixture'},
+  'node_modules/@scope/demo':{version:'1.2.3',dev:false},
+  'node_modules/@scope/demo/node_modules/deep':{version:'2.0.0',dev:true},
+ }});
+ const accepted=run(root);
+ assert.equal(accepted.status,0,accepted.stderr);
+ assert.equal(JSON.parse(accepted.stdout).component_count,2);
+});
