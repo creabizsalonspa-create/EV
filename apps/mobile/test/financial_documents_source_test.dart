@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:creabiz_ev/api.dart';
@@ -87,6 +88,35 @@ Widget app(DocumentApi api, {String? kind, int? source}) => MaterialApp(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets('already open private document viewer is hidden and popped on logout',
+      (tester) async {
+    final api = DocumentApi();
+    addTearDown(api.close);
+    final png = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/K1EAAAAASUVORK5CYII='
+    );
+    await tester.pumpWidget(MaterialApp(home: Builder(
+      builder: (context) => Scaffold(
+        body: Center(child: ElevatedButton(
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+            builder: (_) => VendorDocumentPreview(
+              document: PrivateDocument(png, 'image/png'),
+              revokedSessionEvents: api.sessionEvents,
+            ),
+          )),
+          child: const Text('Open private document'),
+        )),
+      ),
+    )));
+    await tester.tap(find.text('Open private document'));
+    await tester.pumpAndSettle();
+    expect(find.byType(VendorDocumentPreview), findsOneWidget);
+    await api.forgetSession();
+    await tester.pumpAndSettle();
+    expect(find.byType(VendorDocumentPreview), findsNothing);
+    expect(find.text('Open private document'), findsOneWidget);
+  });
+
   test('private PDF record validates TEST evidence and literal original checksum', () {
     final record = FinancialDocumentRecord.fromJson(financialRecord());
     record.verify(PrivateDocument(testPdf, 'application/pdf'));
