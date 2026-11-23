@@ -188,7 +188,10 @@ async function protocol(version, profile, actors) {
         if (!Array.isArray(rows.StatusNotifications)) return null;
         const latest = rows.StatusNotifications.filter(
           (entry) => entry.connectorId === 1 &&
-            entry.evseId === (version === "ocpp1.6" ? 0 : 1),
+            // OCPP 1.6 identifies the physical connector directly and does
+            // not transmit an EVSE ID. A CSMS may normalize its EVSE field
+            // differently; do not infer a charger-side EVSE identity from it.
+            (version === "ocpp1.6" || entry.evseId === 1),
         ).slice(0, states.length);
         if (latest.map((e) => e.connectorStatus).join(",") !==
             states.map((row) => row[0]).reverse().join(",")) return null;
