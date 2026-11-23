@@ -9,12 +9,16 @@ window.EvAccountSecondFactor = (() => {
         node.textContent = document.documentElement.lang === 'ar' ? ar : en; return node;
     };
     function clear() { generation++; request = state = seed = null; codes = []; busy = false; root.replaceChildren(); root.hidden = true; }
-    function showClosed() {
+    function showClosed(unavailable = false) {
         if (!request) return;
         root.hidden = false;
         root.replaceChildren(label('p',
-            'Private authenticator settings closed. Return to this tab and refresh explicitly.',
-            'أُغلقت إعدادات المصادقة الخاصة. ارجع إلى الصفحة وحدّث الحالة بنفسك.'));
+            unavailable
+                ? 'Authenticator status is unavailable. Refresh before another security action.'
+                : 'Private authenticator settings closed. Return to this tab and refresh explicitly.',
+            unavailable
+                ? 'حالة تطبيق التحقق غير متاحة. حدّث قبل إجراء أمني جديد.'
+                : 'أُغلقت إعدادات المصادقة الخاصة. ارجع إلى الصفحة وحدّث الحالة بنفسك.'));
         const refresh = label('button', 'Refresh authenticator status', 'تحديث حالة تطبيق التحقق');
         refresh.type = 'button';
         const version = generation;
@@ -27,7 +31,7 @@ window.EvAccountSecondFactor = (() => {
                 state = data; seed = null; codes = [];
                 render();
             } catch {
-                if (version === generation && visible()) showClosed();
+                if (version === generation && visible()) showClosed(true);
             } finally {
                 if (version === generation) { busy = false; refresh.disabled = false; }
             }
@@ -65,7 +69,19 @@ window.EvAccountSecondFactor = (() => {
             finally { if (version === generation) { busy = false; root.querySelectorAll('button').forEach(n => n.disabled = false); } }
         }
         const refresh = label('button', 'Refresh authenticator status', 'تحديث حالة تطبيق التحقق'); refresh.type = 'button';
-        refresh.onclick = () => act(async () => { const data = valid(await request('account/second-factor')); if (version !== generation) return; state = data; seed = null; codes = []; render(); }); root.append(refresh);
+        refresh.onclick = () => act(async () => {
+            let data;
+            try { data = valid(await request('account/second-factor')); }
+            catch {
+                if (version === generation && visible()) {
+                    generation++; busy = false; state = seed = null; codes = [];
+                    showClosed(true);
+                }
+                return;
+            }
+            if (version !== generation || !visible()) return;
+            state = data; seed = null; codes = []; render();
+        }); root.append(refresh);
         function form(action, en, ar, needsCode) {
             const form = document.createElement('form'), password = input(form, 'password', 'Current password', 'كلمة المرور الحالية');
             const code = needsCode ? input(form, 'code', action === 'enable' ? 'Fresh authenticator code' : 'Fresh authenticator or unused recovery code', action === 'enable' ? 'رمز تحقق جديد' : 'رمز تحقق جديد أو رمز استرداد غير مستخدم') : null;
@@ -77,8 +93,30 @@ window.EvAccountSecondFactor = (() => {
                     const reply = await request('account/second-factor/' + action, 'POST', body);
                     if (version !== generation) return;
                     if (action === 'prepare') { if (typeof reply.secret !== 'string' || !/^[A-Z2-7]{32}$/.test(reply.secret)) throw Error('Invalid seed'); seed = reply.secret; codes = []; }
-                    else { if (!Array.isArray(reply.recovery_codes)) throw Error('Invalid recovery codes'); seed = null; codes = reply.recovery_codes; }
-                    const updated = valid(await request('account/second-factor')); if (version !== generation) return;
+                    else {
+                        if (!Array.isArray(reply.recovery_codes) ||
+                            reply.recovery_codes.length > 20 ||
+                            !reply.recovery_codes.every(value =>
+                                typeof value === 'string' && value.length >= 8 && value.length <= 100))
+                            throw Error('Invalid recovery codes');
+                        seed = null; codes = reply.recovery_codes;
+                    }
+                    if (reply.reauthentication_required === true) {
+                        // Token clients must sign in again after auth epoch
+                        // rotation. Show one-time codes only, no stale controls.
+                        generation++; busy = false;
+                        root.replaceChildren(label('p',
+                            'Save your recovery codes, then sign in again before another security action.',
+                            'احفظ رموز الاسترداد ثم سجّل الدخول مجدداً قبل إجراء أمني آخر.'));
+                        if (codes.length) {
+                            const oneTime = document.createElement('pre');
+                            oneTime.textContent = codes.join('\n');
+                            root.append(oneTime);
+                        }
+                        return;
+                    }
+                    const updated = valid(await request('account/second-factor'));
+                    if (version !== generation || !visible()) return;
                     state = updated; render();
                 });
             };
@@ -100,7 +138,7 @@ window.EvAccountSecondFactor = (() => {
             if (version !== generation || !visible()) return;
             state = data; root.hidden = false; render();
         } catch {
-            if (version === generation && visible()) showClosed();
+            if (version === generation && visible()) showClosed(true);
         }
     }
     function obscure() {
