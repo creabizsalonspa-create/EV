@@ -15,6 +15,7 @@ class FirmwareApi extends FixtureApi {
   bool active = true;
   bool failCompatibility = false;
   bool invalidCompatibility = false;
+  bool listUnavailable = false;
   int compatibilityReads = 0;
   @override
   bool Function() sessionFence() =>
@@ -86,6 +87,9 @@ class FirmwareApi extends FixtureApi {
       };
     }
     expect(path, 'vendor-ops/companies/1/chargers/2/firmware-operations');
+    if (method == 'GET' && listUnavailable) {
+      throw const ApiException(503, 'PRIVATE OLD ACCOUNT SOURCE');
+    }
     if (method == 'POST') {
       attempts.add(Map<String, dynamic>.from(body!));
       if (fail) throw const ApiException(503, 'PRIVATE SOURCE URL');
@@ -201,6 +205,36 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Authenticated source snapshot'), findsNothing);
     expect(find.textContaining('could not be verified'), findsOneWidget);
+    expect(api.attempts, isEmpty);
+  });
+
+  testWidgets('failed firmware list refresh clears old operation grants and never leaks the source', (tester) async {
+    final api = FirmwareApi();
+    await tester.pumpWidget(MaterialApp(
+      home: ChargerFirmwareView(
+        api: api,
+        companyId: 1,
+        chargerId: 2,
+        manufacturer: 'Synthetic',
+        model: 'Fixture',
+        onExpired: () {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Request signed firmware'), findsOneWidget);
+    expect(find.text('Check live source firmware compatibility'), findsOneWidget);
+    api.listUnavailable = true;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Request signed firmware'), findsNothing);
+    expect(find.text('Check live source firmware compatibility'), findsNothing);
+    expect(find.textContaining('PRIVATE OLD ACCOUNT SOURCE'), findsNothing);
+    expect(api.attempts, isEmpty);
+    api.listUnavailable = false;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Request signed firmware'), findsOneWidget);
+    expect(find.text('Check live source firmware compatibility'), findsOneWidget);
     expect(api.attempts, isEmpty);
   });
 
