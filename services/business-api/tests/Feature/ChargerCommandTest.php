@@ -5,6 +5,9 @@ namespace Tests\Feature;
 use App\Http\Controllers\ChargerCommandController;
 use App\Models\ChargerCommand;
 use App\Models\Station;
+use App\Models\VendorOps\VendorCharger;
+use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorSite;
 use App\Models\User;
 use App\Services\CsmsDispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -19,6 +22,51 @@ use Tests\TestCase;
 class ChargerCommandTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_simulator_charger_binding_rejects_cross_company_and_foreign_owner_topology(): void
+    {
+        Http::preventStrayRequests();
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $foreign = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $station = $this->station($owner);
+        $company = VendorCompany::create([
+            'owner_id' => $foreign->id, 'legal_name' => 'Synthetic foreign operator',
+            'country' => 'AE', 'trade_license_number' => 'TEST-SIMULATOR-ONLY',
+            'license_expires_on' => now()->addYear()->toDateString(),
+            'status' => 'approved',
+        ]);
+        $site = VendorSite::create([
+            'company_id' => $company->id, 'station_id' => $station->id,
+            'name' => 'Synthetic linked site', 'country' => 'AE', 'timezone' => 'Asia/Dubai',
+            'address' => 'Local fixture', 'latitude' => 25, 'longitude' => 55,
+        ]);
+        $charger = VendorCharger::create([
+            'company_id' => $company->id, 'site_id' => $site->id,
+            'asset_reference' => 'cross-owner-source', 'manufacturer' => 'Simulator',
+            'model' => 'No physical charger', 'ocpp_protocol' => '1.6',
+            'source' => 'simulator',
+        ]);
+        $input = ['identifier' => 'ev-test-cross-owner-lineage',
+            'protocol' => '1.6', 'vendor_charger_id' => $charger->id];
+        $this->actingAs($admin)->postJson('/api/stations/'.$station->id.'/csms-binding', $input)
+            ->assertConflict();
+        $this->assertDatabaseCount('csms_bindings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNothingSent();
+
+        // Changing only the account owner must not permit a charger from a
+        // different company/site lineage to bind to this station.
+        $company->update(['owner_id' => $owner->id]);
+        $this->postJson('/api/stations/'.$station->id.'/csms-binding', $input)
+            ->assertCreated();
+        $this->assertDatabaseHas('csms_bindings', [
+            'station_id' => $station->id, 'vendor_charger_id' => $charger->id,
+            'identifier' => 'ev-test-cross-owner-lineage',
+        ]);
+        $this->assertDatabaseCount('csms_bindings', 1);
+        Http::assertNothingSent();
+    }
 
     private function station(User $vendor): Station
     {
