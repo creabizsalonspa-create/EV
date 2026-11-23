@@ -37,10 +37,14 @@ class OcpiController extends Controller
     {
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['owner_id' => 'required|integer|exists:users,id', 'name' => 'required|string|max:150', 'connection_key' => 'required|string|alpha_dash|max:80|unique:ocpi_providers', 'authorized' => 'required|boolean']);
-        abort_unless(User::whereKey($v['owner_id'])->where('role', 'vendor')->exists(), 422, 'Provider owner must be a vendor.');
         abort_unless(is_array(config('ocpi.connections.'.$v['connection_key'])), 422, 'Connection must first be provisioned in secure server configuration.');
 
         return DB::transaction(function () use ($r, $v, $client) {
+            // Bind a new provider only to a currently eligible vendor owner.
+            // Serialize with account suspension/role changes before reserving a connection key.
+            $owner = User::whereKey($v['owner_id'])->lockForUpdate()->first();
+            abort_unless($owner && $owner->role === 'vendor' && $owner->account_status === 'active',
+                422, 'Provider owner must be an active vendor.');
             $provider = OcpiProvider::create($v);
             if ($provider->authorized) {
                 try {
@@ -65,6 +69,13 @@ class OcpiController extends Controller
             // Revocation must remain available at the terminal generation.
             // Reauthorization is permanently blocked, so that generation cannot recur.
             abort_if($v['authorized'] && $exhausted, 409, 'Operator authorization revision is exhausted.');
+            if ($v['authorized']) {
+                // A suspended or reassigned owner cannot gain fresh OCPI authority.
+                // Revocation remains possible even when that owner is ineligible.
+                $owner = User::whereKey($provider->owner_id)->lockForUpdate()->first();
+                abort_unless($owner && $owner->role === 'vendor' && $owner->account_status === 'active',
+                    422, 'Provider owner must be an active vendor.');
+            }
             $provider->authorized = $v['authorized'];
             if ($provider->authorized) {
                 try {
