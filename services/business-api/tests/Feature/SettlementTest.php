@@ -462,7 +462,7 @@ class SettlementTest extends TestCase
         // immutability triggers: do not bypass those safeguards in tests.
         // Exercise the exact primitive on malformed external aggregates instead.
         $minor = new \ReflectionMethod(VendorEarningsController::class, 'minor');
-        foreach ([9007199254740992, -9007199254740992, 'not-a-number', 1.5] as $unsafe) {
+        foreach ([9007199254740992, -9007199254740992, 'not-a-number', 1.5, 100.0, -100.0, true, false] as $unsafe) {
             try {
                 $minor->invoke(null, $unsafe, true);
                 $this->fail('Inexact source value reached financial output.');
@@ -498,7 +498,8 @@ class SettlementTest extends TestCase
         // immutable finance invoice to a fabricated provider filename.
         $cell = new \ReflectionMethod(VendorEarningsController::class, 'csvInvoiceNumber');
         foreach (['=HYPERLINK("https://untrusted.test","open")', '+SUM(1,2)',
-            '-cmd', '@danger', "\t=malicious"] as $formula) {
+            '-cmd', '@danger', "\t=malicious", "\u{200B}=hidden",
+            "\u{202E}@bidi", "\u{FEFF}+bom", "\u{00A0}=nbsp"] as $formula) {
             $this->assertSame("'".$formula, $cell->invoke(null, $formula));
         }
         $this->assertSame('INV-2026-AE-0001', $cell->invoke(null, 'INV-2026-AE-0001'));
