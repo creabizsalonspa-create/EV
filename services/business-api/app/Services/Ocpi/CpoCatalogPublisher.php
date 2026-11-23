@@ -25,8 +25,17 @@ final class CpoCatalogPublisher
 
     private function admin(User $actor): void
     {
+        // An existing admin epoch is not sufficient after a credential
+        // rotation or an account role change. CPO source snapshots and
+        // dispatch claims must remain tied to the original authenticated
+        // principal, not merely an existing user ID.
+        abort_unless($actor->role === 'admin', 403);
         $current = User::whereKey($actor->id)->lockForUpdate()->first();
-        abort_unless($current && $current->role === 'admin' && $current->account_status === 'active' && $current->auth_epoch === $actor->auth_epoch, 403);
+        abort_unless($current && $current->role === 'admin'
+            && $current->account_status === 'active'
+            && (int) $current->auth_epoch === (int) $actor->auth_epoch
+            && hash_equals((string) $current->password, (string) $actor->password),
+            403, 'Admin authorization changed. Sign in again.');
     }
 
     private function authority(OcpiProvider $provider): array
