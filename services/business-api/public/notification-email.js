@@ -90,17 +90,21 @@ window.EvNotificationEmail = {
                 failed(n, page);
             }
         }
+        function obscure() {
+            // BFCache can navigate away without a visibilitychange event.
+            generation++;
+            busy = false;
+            showClosed();
+        }
         const hide = () => {
-            if (document.hidden || !current()) {
-                // Invalidate pending GET or PUT callbacks and remove the whole
-                // private receipt/consent DOM; resume is never an implicit GET.
-                generation++;
-                busy = false;
-                showClosed();
+            if (document.hidden || !current()) obscure();
+            if (!root.isConnected) {
+                document.removeEventListener('visibilitychange', hide);
+                window.removeEventListener('pagehide', obscure);
             }
-            if (!root.isConnected) document.removeEventListener('visibilitychange', hide);
         };
         document.addEventListener('visibilitychange', hide);
+        window.addEventListener('pagehide', obscure);
         try { await load(); } catch { failed(generation); }
     },
 };

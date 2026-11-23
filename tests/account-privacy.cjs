@@ -676,6 +676,51 @@ test("failed privacy refresh revokes stale access-copy controls and clears busy 
   const list=ui.mine.children.find(x=>x.tag==="div");
   assert.equal(list.attributes["aria-busy"],undefined);
 });
+
+test("untrusted customer history cannot render withdrawal or export controls",async()=>{
+  const corrupt=[
+    {...record,id:"22/withdraw",kind:"access",copy:{status:"available",expires_at:"2026-11-30"}},
+    {...record,id:0},
+    {...record,kind:"untrusted"},
+    {...record,status:"untrusted"},
+    {...record,kind:"access",copy:{status:"available"}},
+    {...record,kind:"access",copy:{status:"untrusted"}},
+    {...record,created_at:123},
+    {...record,details:"X".repeat(2001)},
+    null,
+  ];
+  for(const value of corrupt){
+    const ui=fixture(),calls=[];
+    let broken=true;
+    ui.setSelfActor({id:3,role:"customer"},async(path,method="GET")=>{
+      calls.push({path,method});return page(broken?[value]:[record]);
+    });
+    await tick();
+    assert.match(ui.mine.textContent,/Could not load your request history/);
+    assert(!nodes(ui.mine,"button").some(b=>
+      b.textContent.startsWith("Withdraw request") ||
+      b.textContent.startsWith("View private account copy")));
+    broken=false;
+    await nodes(ui.mine,"button").find(b=>b.textContent.startsWith("Refresh requests")).onclick();
+    await tick();
+    assert.match(ui.mine.textContent,/Request #22/);
+    assert(nodes(ui.mine,"button").some(b=>b.textContent.startsWith("Withdraw request")));
+    assert(calls.every(c=>c.method==="GET"));
+  }
+  for(const invalid of [
+    {data:[record],current_page:2,last_page:2,total:26},
+    {data:[record],current_page:1,last_page:1,total:0},
+    {data:[record],current_page:1,last_page:1,total:26},
+    {data:[record,record],current_page:1,last_page:1,total:1},
+    {data:[record,record],current_page:1,last_page:1,total:2},
+  ]){
+    const ui=fixture();
+    ui.setSelfActor({id:3,role:"customer"},async()=>invalid);
+    await tick();
+    assert.match(ui.mine.textContent,/Could not load your request history/);
+    assert(!nodes(ui.mine,"button").some(b=>b.textContent.startsWith("Withdraw request")));
+  }
+});
 test("malformed private history fails closed rather than showing false empty results",async()=>{
   const ui=fixture();
   ui.setSelfActor({id:3,role:"customer"},async()=>({data:"corrupt",current_page:1,last_page:1}));

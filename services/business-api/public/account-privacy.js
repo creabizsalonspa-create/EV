@@ -165,9 +165,41 @@ window.EvPrivacyRequests = (() => {
                 if (!Array.isArray(page?.data) ||
                     !Number.isSafeInteger(page.current_page) ||
                     !Number.isSafeInteger(page.last_page) ||
+                    !Number.isSafeInteger(page.total) ||
+                    page.current_page !== target ||
                     page.current_page < 1 || page.last_page < 1 ||
-                    page.current_page > page.last_page)
+                    page.last_page > 100000 ||
+                    page.current_page > page.last_page ||
+                    page.total < (target - 1) * 25 + page.data.length ||
+                    page.data.length > 25 ||
+                    page.last_page !== Math.max(1, Math.ceil(page.total / 25)))
                     throw Error("Unreadable private request page");
+                const seen = new Set();
+                for (const row of page.data) {
+                    if (!row || typeof row !== "object" ||
+                        Array.isArray(row) ||
+                        !Number.isSafeInteger(row.id) || row.id < 1 ||
+                        seen.has(row.id) ||
+                        !["access", "correction", "erasure"].includes(row.kind) ||
+                        !["pending", "reviewing", "blocked_external",
+                          "closed_review", "withdrawn"].includes(row.status) ||
+                        typeof row.created_at !== "string" ||
+                        row.created_at.length > 80 ||
+                        (row.details != null &&
+                          (typeof row.details !== "string" ||
+                           row.details.length > 2000)) ||
+                        (row.copy != null &&
+                          (typeof row.copy !== "object" ||
+                           Array.isArray(row.copy) ||
+                           !["available", "expired", "revoked"]
+                               .includes(row.copy.status) ||
+                           (row.copy.status === "available" &&
+                             (typeof row.copy.expires_at !== "string" ||
+                              row.copy.expires_at.length > 80))))) {
+                        throw Error("Unverified private request record");
+                    }
+                    seen.add(row.id);
+                }
                 results.replaceChildren();
                 message.textContent = "";
                 for (const row of page.data) {
