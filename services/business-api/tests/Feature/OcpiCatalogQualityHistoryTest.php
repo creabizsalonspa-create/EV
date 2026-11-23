@@ -125,6 +125,7 @@ class OcpiCatalogQualityHistoryTest extends TestCase
         $this->getJson($url)->assertConflict()->assertJsonMissingPath('samples');
         Http::assertNothingSent();
     }
+
     public function test_quality_history_expires_after_seven_days_even_if_provider_never_syncs_again(): void
     {
         $this->travelTo(Carbon::parse('2026-11-10T10:30:00Z'));
@@ -175,5 +176,4 @@ class OcpiCatalogQualityHistoryTest extends TestCase
         $this->assertDatabaseCount('ocpi_catalog_quality_history', 1);
         Http::assertNothingSent();
     }
-
 }
