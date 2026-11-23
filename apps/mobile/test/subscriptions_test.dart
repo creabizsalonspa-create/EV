@@ -103,6 +103,24 @@ Future<void> confirm(WidgetTester t) async {
 }
 
 void main() {
+  testWidgets('initially inactive native plans require a foreground user refresh',
+    (t) async {
+      final api = SubscriptionApi();
+      addTearDown(api.close);
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await t.pumpWidget(host(SubscriptionsView(api: api, onExpired: () {})));
+      await t.pumpAndSettle();
+      expect(api.calls, isEmpty);
+      expect(find.text(subscriptionEn['privateCleared']!), findsOneWidget);
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await t.pumpAndSettle();
+      expect(api.calls, isEmpty);
+      await t.tap(find.text('Refresh'));
+      await t.pumpAndSettle();
+      expect(api.calls, ['GET me', 'GET commercial/plans']);
+    },
+  );
+
   testWidgets('old identity cannot fetch plans after logout during me', (t) async {
     final api = SubscriptionApi()..meWait = Completer<dynamic>();
     addTearDown(api.close);
