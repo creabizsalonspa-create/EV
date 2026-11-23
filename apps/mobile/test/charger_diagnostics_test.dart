@@ -41,7 +41,7 @@ class DiagnosticsApi extends FixtureApi {
 }
 
 class LiveDiagnosticsApi extends DiagnosticsApi {
-  bool malformed = false, failing = false, expired = false, active = true;
+  bool malformed = false, forgedTopology = false, failing = false, expired = false, active = true;
   int sourceReads = 0, writes = 0;
   Completer<dynamic>? deferred;
   @override
@@ -62,7 +62,7 @@ class LiveDiagnosticsApi extends DiagnosticsApi {
       return {
         'company_id': 1, 'charger_id': 2, 'protocol': '2.0.1',
         'source_online': true,
-        'source_topology_matches_local': true,
+        'source_topology_matches_local': !forgedTopology,
         'source_identity_rechecked': true,
         'source_firmware_version': 'sim-fw-v1',
         'source_last_message_at': '2026-11-23T06:00:00Z',
@@ -198,6 +198,11 @@ void main() {
       await tester.tap(find.text('Read live connector source'));
       await tester.pumpAndSettle();
       expect(find.textContaining('Recent CSMS report: Charging'), findsOneWidget);
+      api.forgedTopology = true;
+      await tester.tap(find.text('Read live connector source'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Recent CSMS report'), findsNothing);
+      api.forgedTopology = false;
       api.failing = true;
       await tester.tap(find.text('Read live connector source'));
       await tester.pumpAndSettle();
