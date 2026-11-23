@@ -208,7 +208,18 @@ class _PartnerBillingState extends State<PartnerBillingPage>
       if (error is ApiException && [401, 419].contains(error.status))
         widget.onExpired();
     } finally {
-      if (active(epoch)) setState(() => busy = false);
+      if (mounted && foreground && epoch == generation) {
+        // API logout may turn the original auth fence false while the
+        // response is still pending. Stop the former account's spinner,
+        // erase its confidential invoice, and never expire a newer login.
+        setState(() {
+          busy = false;
+          if (!current()) {
+            report = null;
+            message = '';
+          }
+        });
+      }
     }
   }
 
@@ -259,7 +270,18 @@ class _PartnerBillingState extends State<PartnerBillingPage>
       if (error is ApiException && [401, 419].contains(error.status))
         widget.onExpired();
     } finally {
-      if (active(epoch)) setState(() => busy = false);
+      if (mounted && foreground && epoch == generation) {
+        // API logout may turn the original auth fence false while the
+        // response is still pending. Stop the former account's spinner,
+        // erase its confidential invoice, and never expire a newer login.
+        setState(() {
+          busy = false;
+          if (!current()) {
+            report = null;
+            message = '';
+          }
+        });
+      }
     }
   }
 
