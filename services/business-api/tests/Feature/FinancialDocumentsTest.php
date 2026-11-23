@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\Support\FinancialDocumentFixtures;
 use Tests\TestCase;
 
@@ -107,6 +108,20 @@ class FinancialDocumentsTest extends TestCase
             $this->get($detail.'/download/pdf')->assertConflict();
             $this->get($detail.'/download/csv')->assertConflict();
             $this->generate($f['invoice']->id)->assertConflict();
+            try {
+                app(FinancialDocuments::class)->generate(
+                    $customer, 'charging_invoice', $f['invoice']->id, 'en'
+                );
+                $this->fail('Revoked service-level document generation was accepted.');
+            } catch (HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
+            try {
+                app(FinancialDocuments::class)->access($customer, $docId);
+                $this->fail('Revoked service-level document read was accepted.');
+            } catch (HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
             DB::table('users')->where('id', $customer->id)->update($restore);
         }
 
@@ -149,6 +164,14 @@ class FinancialDocumentsTest extends TestCase
             $this->postJson('/document-test/financial/documents', [
                 'source_kind' => 'invalid-source',
             ])->assertConflict();
+            try {
+                app(FinancialProfiles::class)->publish(
+                    $admin, $this->profileValues($f['vendor']->id)
+                );
+                $this->fail('Revoked service-level issuer publish was accepted.');
+            } catch (HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
             DB::table('users')->where('id', $admin->id)->update($restore);
         }
         $this->assertSame($profileCount,
