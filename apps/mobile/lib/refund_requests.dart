@@ -372,11 +372,46 @@ class _RefundRequestState extends State<RefundRequestView> {
   Object? error;
   bool busy = true, uncertain = false, confirmed = false;
   int generation = 0;
+  late bool Function() authorized;
   String t(String k) => refundText(context, k);
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
     restore();
+  }
+
+  @override
+  void didUpdateWidget(covariant RefundRequestView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        oldWidget.invoiceId != widget.invoiceId ||
+        oldWidget.digits != widget.digits ||
+        oldWidget.currency != widget.currency ||
+        !identical(oldWidget.store, widget.store)) {
+      generation++;
+      authorized = widget.api.sessionFence();
+      amount.clear();
+      reason.clear();
+      credit.clear();
+      operation = null;
+      error = null;
+      busy = true;
+      uncertain = false;
+      confirmed = false;
+      restore();
+    }
+  }
+
+  void redactFormerIdentity() {
+    amount.clear();
+    reason.clear();
+    credit.clear();
+    operation = null;
+    error = null;
+    uncertain = false;
+    confirmed = false;
+    setState(() => busy = false);
   }
 
   @override
@@ -391,7 +426,7 @@ class _RefundRequestState extends State<RefundRequestView> {
   Future<void> restore() async {
     final epoch = ++generation;
     final api = widget.api;
-    final current = api.sessionFence();
+    final current = authorized;
     try {
       if (widget.digits < 0 ||
           widget.digits > 3 ||
@@ -428,15 +463,20 @@ class _RefundRequestState extends State<RefundRequestView> {
       }
     } finally {
       if (mounted && generation == epoch &&
-          current() && identical(api, widget.api)) {
-        setState(() => busy = false);
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else {
+          setState(() => busy = false);
+        }
       }
     }
   }
 
   Future<void> submit() async {
     final api = widget.api;
-    final current = api.sessionFence();
+    final current = authorized;
+    if (!mounted || !current() || operation == null || busy || confirmed) return;
     final creditId = int.tryParse(credit.text.trim());
     final minor = decimalMinor(amount.text, widget.digits, maximum: 2000000000);
     if ((credit.text.trim().isNotEmpty &&
@@ -510,14 +550,28 @@ class _RefundRequestState extends State<RefundRequestView> {
       }
     } finally {
       if (mounted && generation == epoch &&
-          current() && identical(api, widget.api)) {
-        setState(() => busy = false);
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else {
+          setState(() => busy = false);
+        }
       }
     }
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
+  Widget build(BuildContext c) {
+    if (!authorized()) {
+      return Scaffold(
+        appBar: AppBar(title: Text(t('new'))),
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(t('notice')),
+        ),
+      );
+    }
+    return Scaffold(
     appBar: AppBar(title: Text(t('new'))),
     body: ListView(
       padding: const EdgeInsets.all(16),
@@ -605,6 +659,7 @@ class _RefundRequestState extends State<RefundRequestView> {
       ],
     ),
   );
+  }
 }
 
 class RefundDecisionView extends StatefulWidget {
@@ -629,11 +684,42 @@ class _RefundDecisionState extends State<RefundDecisionView> {
   bool busy = true, uncertain = false, confirmed = false;
   Object? error;
   int generation = 0;
+  late bool Function() authorized;
   FinancialOperation? operation;
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
     restore();
+  }
+
+  @override
+  void didUpdateWidget(covariant RefundDecisionView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        oldWidget.requestId != widget.requestId ||
+        !identical(oldWidget.store, widget.store)) {
+      generation++;
+      authorized = widget.api.sessionFence();
+      note.clear();
+      decision = 'reject';
+      operation = null;
+      error = null;
+      busy = true;
+      uncertain = false;
+      confirmed = false;
+      restore();
+    }
+  }
+
+  void redactFormerIdentity() {
+    note.clear();
+    decision = 'reject';
+    operation = null;
+    error = null;
+    uncertain = false;
+    confirmed = false;
+    setState(() => busy = false);
   }
 
   @override
@@ -646,7 +732,7 @@ class _RefundDecisionState extends State<RefundDecisionView> {
   Future<void> restore() async {
     final epoch = ++generation;
     final api = widget.api;
-    final current = api.sessionFence();
+    final current = authorized;
     try {
       final me = await api.request('me');
       if (!mounted || generation != epoch ||
@@ -677,15 +763,20 @@ class _RefundDecisionState extends State<RefundDecisionView> {
       }
     } finally {
       if (mounted && generation == epoch &&
-          current() && identical(api, widget.api)) {
-        setState(() => busy = false);
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else {
+          setState(() => busy = false);
+        }
       }
     }
   }
 
   Future<void> submit() async {
     final api = widget.api;
-    final current = api.sessionFence();
+    final current = authorized;
+    if (!mounted || !current() || operation == null || busy || confirmed) return;
     if (note.text.trim().isEmpty || note.text.length > 500) return;
     final t = (String k) => refundText(context, k);
     final yes = await showDialog<bool>(
@@ -744,8 +835,12 @@ class _RefundDecisionState extends State<RefundDecisionView> {
       }
     } finally {
       if (mounted && generation == epoch &&
-          current() && identical(api, widget.api)) {
-        setState(() => busy = false);
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else {
+          setState(() => busy = false);
+        }
       }
     }
   }
@@ -753,6 +848,15 @@ class _RefundDecisionState extends State<RefundDecisionView> {
   @override
   Widget build(BuildContext c) {
     final t = (String k) => refundText(c, k);
+    if (!authorized()) {
+      return Scaffold(
+        appBar: AppBar(title: Text(t('review'))),
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(t('notice')),
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(title: Text(t('review'))),
       body: ListView(
