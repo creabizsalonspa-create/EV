@@ -96,6 +96,40 @@ class IncompleteMetadataApi extends UnifiedApi {
     return raw;
   }
 }
+class ForgedPublishedApi extends UnifiedApi {
+  final Map<String, dynamic> stationPatch;
+  ForgedPublishedApi(this.stationPatch);
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    final response = Map<String, dynamic>.from(
+      await super.request(path, method: method, body: body, query: query) as Map,
+    );
+    final records = [
+      for (final raw in response['data'] as List)
+        Map<String, dynamic>.from(raw as Map),
+    ];
+    if (records.isNotEmpty && records.first['kind'] == 'catalog') {
+      records[0] = {
+        ...records.first,
+        'station': {
+          ...Map<String, dynamic>.from(records.first['station'] as Map),
+          'latitude': 25.2,
+          'longitude': 55.3,
+          ...stationPatch,
+        },
+      };
+    }
+    response['data'] = records;
+    return response;
+  }
+}
+
 void roomy(WidgetTester tester){tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);}
 void main(){
  testWidgets('same API object changing account epoch hides all previous native search data and private drafts',(tester)async{
