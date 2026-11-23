@@ -32,7 +32,25 @@ class OcpiController extends Controller
 
     private function owner(Request $r, OcpiProvider $provider): void
     {
-        abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $provider->owner_id === $r->user()->id), 404);
+        $snapshot = $r->user();
+        // Keep unprivileged roles and other vendors non-enumerating.
+        abort_unless($snapshot instanceof User
+            && in_array($snapshot->role, ['vendor', 'admin'], true), 404);
+        $actor = User::whereKey($snapshot->id)->firstOrFail();
+        abort_unless($actor->account_status === 'active'
+            && in_array($actor->role, ['vendor', 'admin'], true), 403);
+        abort_unless($actor->role === $snapshot->role
+            && (int) $actor->auth_epoch === (int) $snapshot->auth_epoch
+            && hash_equals((string) $actor->password, (string) $snapshot->password),
+            409, 'Account credentials changed. Sign in again.');
+
+        // The route model may predate a provider transfer or revocation.
+        // The mutating sync/negotiation and private finance transactions make
+        // their own final serialized authority checks after this preflight.
+        $current = OcpiProvider::whereKey($provider->id)->firstOrFail();
+        abort_unless((int) $current->owner_id === (int) $provider->owner_id, 409,
+            'Provider ownership changed. Reload this provider.');
+        abort_unless($actor->role === 'admin' || (int) $current->owner_id === (int) $actor->id, 404);
     }
 
     private function audit(Request $r, string $action, int $id): void
