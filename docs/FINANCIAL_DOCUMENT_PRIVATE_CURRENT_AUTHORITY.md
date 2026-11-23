@@ -148,3 +148,29 @@ fractional strings, exponent strings, negative unsigned amounts and
 invalid overlarge numeric strings. Existing genuine immutable
 document fixtures must still produce byte-identical original
 amounts and pass hash/ledger checks at the candidate source.
+
+
+### Immediate logout of an already rendered native invoice
+
+A source record that finished loading *before* logout must also
+disappear at once. Merely checking `sessionFence()` inside a widget's
+next `build()` is insufficient: an external logout may not itself
+schedule any repaint, leaving a previously rendered private PDF
+control on screen. The shared `EvApi` now emits a non-secret,
+synchronous `sessionEvents` generation signal on `forgetSession`
+and `close`; `FinancialDocumentsView` listens and immediately
+clears its private invoice list, PDF affordance and pending source.
+It detaches its observer on API change or disposal. A possible
+in-flight generation POST remains marked uncertain rather than
+being falsely acknowledged or automatically retried by the new
+account. A new Flutter widget regression signs out **after**
+the original invoice was already painted, without creating another
+HTTP response or synthetic rebuild, and asserts the invoice and
+PDF action disappear before returning.
+
+This identical additive `EvApi` event implementation is also
+contained in Agent 3's PR #243 for native operations reports.
+Agent 5 should reconcile it **once**, not duplicate the interface
+while merging the two reviewed branches. All behavior remains
+independent of the security role source; persisted account authority
+is checked by Laravel on every private operation.
