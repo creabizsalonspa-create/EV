@@ -164,7 +164,8 @@ final class OcpiContractReviewController extends Controller
                 ->where('idempotency_key', $v['idempotency_key'])->first();
             $last = self::last($current);
             if ($prior) {
-                abort_unless((int) $prior->reviewer_id === (int) $actor->id
+                abort_unless((int) $prior->owner_id === (int) $owner->id
+                    && (int) $prior->reviewer_id === (int) $actor->id
                     && hash_equals($prior->payload_hash, $hash), 409,
                     'Contract review idempotency identity is already bound.');
                 return [self::status($last, $owner) + ['idempotent_replay' => true], false];
