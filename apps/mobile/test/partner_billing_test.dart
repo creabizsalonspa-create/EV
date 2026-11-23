@@ -20,7 +20,6 @@ Map<String, dynamic> response({int provider = 7}) => {
       'party_id': 'TST',
       'credit': true,
       'source': {'status': 'requires_review'},
-      'payload': {'token': 'DO NOT DISPLAY'},
       'billing': {
         'status': 'test_invoice_linked',
         'state': 'credited',
@@ -216,6 +215,22 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('SIM-PRIVATE'), findsNothing);
       expect(find.text('View filtered private PDF'), findsNothing);
+    },
+  );
+
+  testWidgets('raw private provider payload is refused rather than stored in finance UI',
+    (tester) async {
+      final api = BillingApi();
+      final row = (api.result['data'] as List).first as Map<String, dynamic>;
+      row['payload'] = {'token': 'DO NOT DISPLAY'};
+      await tester.pumpWidget(MaterialApp(
+        home: PartnerBillingPage(api: api, providerId: 7, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('SIM-PRIVATE'), findsNothing);
+      expect(find.text('View filtered private PDF'), findsNothing);
+      expect(find.textContaining('DO NOT DISPLAY'), findsNothing);
+      expect(find.textContaining('Report unavailable'), findsOneWidget);
     },
   );
 
