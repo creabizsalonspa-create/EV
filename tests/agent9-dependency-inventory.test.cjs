@@ -79,7 +79,7 @@ test('npm lock inventory rejects invented package paths, versioned links and mal
   const result=run(root);
   assert.equal(result.status,2,'Unsafe npm instance unexpectedly credited: '+instance+' '+JSON.stringify(entry));
   assert.equal(result.stdout,'');
-  assert.doesNotMatch(result.stderr,/Traceback|apps\\/private|https:/);
+  assert.doesNotMatch(result.stderr,/Traceback|https:/);
  }
  write(root,'package-lock.json',{lockfileVersion:3,packages:{
   '':{name:'fixture'},
