@@ -60,7 +60,7 @@ class OcpiPublicOwnerVisibilityTest extends TestCase
         $this->putJson($favoriteUrl)->assertOk();
         $this->getJson('/api/roaming/favorites')->assertJsonPath('data.0.location_available', true);
 
-        $f['owner']->update(['account_status' => 'suspended']);
+        $f['owner']->forceFill(['account_status' => 'suspended'])->save();
         $this->publicPages(0);
         $this->getJson('/api/roaming/favorites')->assertOk()
             ->assertJsonPath('data.0.location_available', false)
@@ -82,11 +82,11 @@ class OcpiPublicOwnerVisibilityTest extends TestCase
         $f = $this->fixture();
         $this->actingAs($f['customer']);
         $this->publicPages(1);
-        $f['owner']->update(['role' => 'admin']);
+        $f['owner']->forceFill(['role' => 'admin'])->save();
         $this->publicPages(0);
         $this->putJson('/api/roaming/favorites/'.$f['location']->id)->assertNotFound();
 
-        $f['owner']->update(['role' => 'vendor', 'account_status' => 'active']);
+        $f['owner']->forceFill(['role' => 'vendor', 'account_status' => 'active'])->save();
         $this->publicPages(1);
         $this->putJson('/api/roaming/favorites/'.$f['location']->id)->assertOk();
         $this->assertDatabaseCount('ocpi_records', 1);
