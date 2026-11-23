@@ -30,12 +30,16 @@ window.EvPhoneVerification = (() => {
         generation++; request = current = challenge = intent = null; busy = false;
         root.replaceChildren(); root.hidden = true;
     }
-    function showClosed() {
+    function showClosed(unavailable = false) {
         if (!request) return;
         root.hidden = false;
         root.replaceChildren(text('p',
-            'Private phone verification is closed. Return to this tab and refresh before continuing.',
-            'أُغلق التحقق الخاص بالهاتف. ارجع إلى الصفحة وحدّث الحالة قبل المتابعة.'));
+            unavailable
+                ? 'Phone verification status is unavailable. Refresh before another request.'
+                : 'Private phone verification is closed. Return to this tab and refresh before continuing.',
+            unavailable
+                ? 'حالة التحقق من الهاتف غير متاحة. حدّث قبل أي طلب جديد.'
+                : 'أُغلق التحقق الخاص بالهاتف. ارجع إلى الصفحة وحدّث الحالة قبل المتابعة.'));
         const refresh = text('button', 'Refresh verification status', 'تحديث حالة التحقق');
         refresh.type = 'button';
         const version = generation;
@@ -48,7 +52,7 @@ window.EvPhoneVerification = (() => {
                 current = data; challenge = data.challenge ?? null;
                 render();
             } catch {
-                if (version === generation && visible()) showClosed();
+                if (version === generation && visible()) showClosed(true);
             } finally {
                 if (version === generation) { busy = false; refresh.disabled = false; }
             }
@@ -94,7 +98,7 @@ window.EvPhoneVerification = (() => {
             catch {
                 if (version === generation && visible()) {
                     current = challenge = null;
-                    showClosed();
+                    showClosed(true);
                 }
                 return;
             }
@@ -162,7 +166,7 @@ window.EvPhoneVerification = (() => {
             current = data; challenge = data.challenge ?? null;
             root.hidden = false; render();
         } catch {
-            if (version === generation && visible()) showClosed();
+            if (version === generation && visible()) showClosed(true);
         }
     }
     function obscure() {
