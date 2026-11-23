@@ -208,6 +208,7 @@ class CsmsDispatcher
 
             return ChargerCommand::findOrFail($id);
         }
+        $wireAttempted = false;
         try {
             $link = isset($command->payload['session_id']) ? SessionLink::where('charging_session_id', $command->payload['session_id'])->first() : null;
             if ($link) {
@@ -251,6 +252,14 @@ class CsmsDispatcher
                 $action = $command->action === 'start' ? 'requestStartTransaction' : 'requestStopTransaction';
                 $payload = $command->action === 'start' ? ['idToken' => ['idToken' => $command->payload['id_token'] ?? 'EV-SIMULATOR', 'type' => 'Central'], 'remoteStartId' => $command->id, 'evseId' => $sourceEvse] : ['transactionId' => $command->payload['transaction_id']];
             }
+            // Source lineage can be repointed after the claim transaction
+            // but before the slow, authenticated token fetch completes.
+            // This second check prevents a proved-unsent remote command
+            // from being delivered under the wrong station identity.
+            if (! $this->sourceLineage($command)) {
+                throw new \RuntimeException('Pre-dispatch source lineage changed');
+            }
+            $wireAttempted = true;
             $response = Http::withToken($token)->timeout(25)->withoutRedirecting()->post($base.'/ocpp/'.$b->protocol.'/evdriver/'.$action.'?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), $payload)->throw();
             $confirmation = $response->json();
             $submitted = is_array($confirmation) && count($confirmation) === 1 && ($confirmation[0]['success'] ?? null) === true;
@@ -269,8 +278,15 @@ class CsmsDispatcher
                 $current->save();
             }, 3);
         } catch (\Throwable $e) {
-            // A timeout can occur after delivery. Never replay an uncertain start automatically.
-            ChargerCommand::whereKey($command->id)->where('status', 'dispatching')->update(['status' => 'outcome_unknown', 'failure_code' => 'dispatch_requires_reconciliation']);
+            // A failed source/credential preflight cannot have delivered a
+            // charger command. Keep it cancellable and report that known
+            // fact; only after the wire attempt begins can a timeout mean
+            // the remote command may have reached a device.
+            ChargerCommand::whereKey($command->id)->where('status', 'dispatching')->update(
+                $wireAttempted
+                    ? ['status' => 'outcome_unknown', 'failure_code' => 'dispatch_requires_reconciliation']
+                    : ['status' => 'pending', 'failure_code' => 'pre_dispatch_transport_setup_failed'],
+            );
         }
 
         return $command->fresh();
