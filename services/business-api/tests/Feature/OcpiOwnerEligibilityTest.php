@@ -55,12 +55,17 @@ class OcpiOwnerEligibilityTest extends TestCase
         User::factory()->create(['role' => 'vendor', 'name' => 'Suspended Operator', 'account_status' => 'suspended']);
         User::factory()->create(['role' => 'customer', 'name' => 'Customer Operator', 'account_status' => 'active']);
 
-        $this->actingAs($this->admin());
-        foreach (['/api/ocpi/owner-options', '/api/v1/ocpi/owner-options'] as $url) {
-            $page = $this->getJson($url.'?q=Operator')->assertOk()->assertJsonPath('total', 1)
-                ->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $active->id);
-            $this->assertSame(['id', 'name'], array_keys($page->json('data.0')));
-        }
+        $admin = $this->admin();
+        $this->actingAs($admin);
+        $page = $this->getJson('/api/ocpi/owner-options?q=Operator')->assertOk()
+            ->assertJsonPath('total', 1)->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $active->id);
+        $this->assertSame(['id', 'name'], array_keys($page->json('data.0')));
+        // Admin's personal access tokens cannot access native OCPI routes.
+        // Only the private browser-authenticated Admin mount can provision.
+        $token = $admin->createToken('synthetic-admin-denied')->plainTextToken;
+        $this->app['auth']->forgetGuards();
+        $this->withToken($token)->getJson('/api/v1/ocpi/owner-options?q=Operator')->assertForbidden();
         Http::assertNothingSent();
     }
 
@@ -198,16 +203,16 @@ class OcpiOwnerEligibilityTest extends TestCase
 
         $this->actingAs($this->admin());
         DB::table('users')->where('id', $owner->id)->update(['account_status' => 'suspended']);
-        $this->patchJson('/api/v1/ocpi/providers/'.$provider->id.'/authorization', ['authorized' => false])
+        $this->patchJson('/api/ocpi/providers/'.$provider->id.'/authorization', ['authorized' => false])
             ->assertOk()->assertJsonPath('authorized', false);
         $this->assertSame(5, $provider->fresh()->authorization_revision);
         $this->assertNull($provider->fresh()->endpoints);
-        $this->patchJson('/api/v1/ocpi/providers/'.$provider->id.'/authorization', ['authorized' => true])
+        $this->patchJson('/api/ocpi/providers/'.$provider->id.'/authorization', ['authorized' => true])
             ->assertUnprocessable();
         $this->assertSame(5, $provider->fresh()->authorization_revision);
 
         DB::table('users')->where('id', $owner->id)->update(['account_status' => 'active']);
-        $this->patchJson('/api/v1/ocpi/providers/'.$provider->id.'/authorization', ['authorized' => true])
+        $this->patchJson('/api/ocpi/providers/'.$provider->id.'/authorization', ['authorized' => true])
             ->assertOk()->assertJsonPath('authorized', true);
         $this->assertSame(6, $provider->fresh()->authorization_revision);
         $this->assertDatabaseHas('audit_events', [
