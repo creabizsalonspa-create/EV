@@ -314,6 +314,21 @@ class CsmsPilotProbeTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_expired_vendor_license_never_causes_source_reads_or_claims_source_ready(): void
+    {
+        $f = $this->fixture();
+        $f['company']->update([
+            'license_expires_on' => now()->subDay()->toDateString(),
+        ]);
+        $this->source($f);
+        $this->assertSame(1, Artisan::call('csms:pilot-probe', [
+            'binding' => $f['binding'],
+        ]));
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_production_and_bad_input_refuse_source_access(): void
     {
         $f = $this->fixture();
