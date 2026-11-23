@@ -40,8 +40,9 @@ class CsmsDispatcher
             return false;
         }
         if (! $link && $command->action === 'stop'
-            && ! User::whereKey($command->actor_id)->where('role', 'vendor')
-                ->where('account_status', 'active')->whereKey($station->vendor_id)->exists()) {
+            && ((int) $command->actor_id !== (int) $station->vendor_id
+                || ! User::whereKey($command->actor_id)->where('role', 'vendor')
+                    ->where('account_status', 'active')->exists())) {
             // The legacy station-wide stop has no reservation owner/target
             // lineage. After station transfer or vendor suspension, never
             // send it into another operator's charge point.
