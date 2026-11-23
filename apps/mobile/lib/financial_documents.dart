@@ -383,6 +383,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
             document: bytes,
             title: t('title'),
             notice: t('notice'),
+            revokedSessionEvents: widget.api.sessionEvents,
           ),
         ),
       );
