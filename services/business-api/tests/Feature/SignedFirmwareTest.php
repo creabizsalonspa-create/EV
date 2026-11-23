@@ -272,7 +272,10 @@ class SignedFirmwareTest extends TestCase
                     $reportedVersion = $drift && $isCompatibility && ++$compatibilityReads > 1 ? 'changed-source-version' : $firmwareVersion;
                     $row = ['id' => 9, 'protocol' => $f['protocol'], 'isOnline' => true,
                         'firmwareVersion' => $reportedVersion, 'chargePointVendor' => 'Synthetic',
-                        'chargePointModel' => 'Fixture'];
+                        'chargePointModel' => 'Fixture',
+                        'latestOcppMessageTimestamp' => $malformedSource === 'stale_heartbeat'
+                            ? now()->subMinutes(10)->toISOString()
+                            : ($malformedSource === 'relative_heartbeat' ? 'now' : now()->toISOString())];
                     if (! $isCompatibility && $malformedReview === 'bad_review_station_list') {
                         return Http::response(['data' => ['ChargingStations' => ['station' => $row]]]);
                     }
@@ -548,5 +551,169 @@ class SignedFirmwareTest extends TestCase
         DB::table('charger_firmware_operations')->where('id', $id)->update(['status' => 'dispatching', 'attempted_at' => now()->subSeconds(61)]);
         $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Reviewed owned terminal source evidence'])->assertOk();
         $this->assertDatabaseHas('charger_firmware_operations', ['id' => $id, 'status' => 'source_installed']);
+    }
+
+    public function test_read_only_signed_firmware_matrix_matches_verified_source_without_authorizing_dispatch(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol, [
+                'protocols' => ['1.6', '2.0.1'],
+                'from_versions' => ['sim-fw-v1'],
+            ]);
+            $this->source($f);
+            $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+                'catalog_key' => 'synthetic-v1',
+                'note' => 'Approve signed source compatibility matrix fixture',
+            ])->assertCreated()->json('id');
+            $path = str_replace('/firmware-operations', '/firmware-compatibility', $f['path']);
+            $this->actingAs($f['owner'])->getJson($path)->assertOk()
+                ->assertJsonPath('protocol', $protocol)
+                ->assertJsonPath('observed_source_firmware', 'sim-fw-v1')
+                ->assertJsonPath('source_freshness_seconds', 300)
+                ->assertJsonPath('source_snapshot_verified', true)
+                ->assertJsonPath('physical_hardware_accepted', false)
+                ->assertJsonPath('firmware_dispatch_authorized', false)
+                ->assertJsonPath('releases.0.release_id', $release)
+                ->assertJsonPath('releases.0.signed_compatibility_policy', true)
+                ->assertJsonPath('releases.0.signer_currently_trusted', true)
+                ->assertJsonPath('releases.0.matches_observed_source', true)
+                ->assertJsonPath('releases.0.revoked', false);
+            $this->assertSame(1, Http::recorded()->count(), 'Only a source identity read is allowed.');
+            Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+                || str_contains($request->url(), '/signedUpdateFirmware?')
+                || str_contains($request->url(), '/updateFirmware?'));
+            $this->actingAs(User::factory()->create(['role' => 'vendor']))
+                ->getJson($path)->assertNotFound();
+            $this->assertSame(1, Http::recorded()->count(), 'Foreign operators cannot read the source.');
+        }
+    }
+
+    public function test_firmware_matrix_denies_wrong_source_and_does_not_recommend_changed_or_revoked_release(): void
+    {
+        $f = $this->fixture('1.6', [
+            'protocols' => ['1.6'],
+            'from_versions' => ['sim-fw-v1'],
+        ]);
+        $this->source($f);
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approve source-specific signed compatibility policy',
+        ])->assertCreated()->json('id');
+        $path = str_replace('/firmware-operations', '/firmware-compatibility', $f['path']);
+        $this->actingAs($f['owner']);
+
+        Http::swap(new Factory);
+        $this->source($f, firmwareVersion: 'unapproved-version');
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('releases.0.signed_compatibility_policy', true)
+            ->assertJsonPath('releases.0.matches_observed_source', false)
+            ->assertJsonPath('firmware_dispatch_authorized', false);
+
+        Http::swap(new Factory);
+        $this->source($f, malformedSource: 'wrong_manufacturer');
+        $this->getJson($path)->assertConflict();
+
+        Http::swap(new Factory);
+        $this->source($f, malformedSource: 'stale_heartbeat');
+        $this->getJson($path)->assertConflict();
+
+        Http::swap(new Factory);
+        $this->source($f, malformedSource: 'relative_heartbeat');
+        $this->getJson($path)->assertServiceUnavailable();
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/signedUpdateFirmware?')
+            || str_contains($request->url(), '/updateFirmware?'));
+
+        $this->actingAs($f['admin'])->deleteJson($f['releases'].'/'.$release, [
+            'note' => 'Revoke signed synthetic compatibility after operator review',
+        ])->assertOk();
+        Http::swap(new Factory);
+        $this->source($f);
+        $this->actingAs($f['owner'])->getJson($path)->assertOk()
+            ->assertJsonPath('releases.0.revoked', true)
+            ->assertJsonPath('releases.0.matches_observed_source', false);
+    }
+
+    public function test_revoked_signer_pin_does_not_recommend_an_earlier_approved_release(): void
+    {
+        $f = $this->fixture('2.0.1', [
+            'protocols' => ['2.0.1'], 'from_versions' => ['sim-fw-v1'],
+        ]);
+        $this->source($f);
+        $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approve signed firmware before trust pin rotation',
+        ])->assertCreated();
+        $path = str_replace('/firmware-operations', '/firmware-compatibility', $f['path']);
+        $this->actingAs($f['owner'])->getJson($path)->assertOk()
+            ->assertJsonPath('releases.0.matches_observed_source', true)
+            ->assertJsonPath('releases.0.signer_currently_trusted', true);
+        config(['csms.firmware_signer_pins' => []]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('releases.0.signed_compatibility_policy', true)
+            ->assertJsonPath('releases.0.signer_currently_trusted', false)
+            ->assertJsonPath('releases.0.matches_observed_source', false)
+            ->assertJsonPath('firmware_dispatch_authorized', false);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/signedUpdateFirmware?')
+            || str_contains($request->url(), '/updateFirmware?'));
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_unsigned_legacy_firmware_has_no_inferred_source_compatibility(): void
+    {
+        $f = $this->fixture();
+        $this->source($f);
+        $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approve synthetic release without declared compatibility',
+        ])->assertCreated();
+        $path = str_replace('/firmware-operations', '/firmware-compatibility', $f['path']);
+        $this->actingAs($f['owner'])->getJson($path)->assertOk()
+            ->assertJsonPath('releases.0.signed_compatibility_policy', false)
+            ->assertJsonPath('releases.0.matches_observed_source', false)
+            ->assertJsonPath('physical_hardware_accepted', false);
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_source_compatibility_read_rechecks_suspended_owner_before_private_response(): void
+    {
+        $f = $this->fixture('1.6', [
+            'protocols' => ['1.6'],
+            'from_versions' => ['sim-fw-v1'],
+        ]);
+        $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approve a synthetic signed release before account suspension',
+        ])->assertCreated();
+
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($f) {
+            $this->assertSame('http://source.test/graph', $request->url());
+            // Simulate account security changing while the authenticated
+            // external CSMS read is in flight, after the first scope check.
+            DB::table('users')->where('id', $f['owner']->id)->update(['account_status' => 'suspended']);
+
+            return Http::response(['data' => ['ChargingStations' => [[
+                'id' => 9,
+                'isOnline' => true,
+                'protocol' => '1.6',
+                'chargePointVendor' => 'Synthetic',
+                'chargePointModel' => 'Fixture',
+                'firmwareVersion' => 'sim-fw-v1',
+                'latestOcppMessageTimestamp' => now()->toISOString(),
+            ]]]]);
+        });
+        $path = str_replace('/firmware-operations', '/firmware-compatibility', $f['path']);
+        $this->actingAs($f['owner'])->getJson($path)->assertForbidden();
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/signedUpdateFirmware?')
+            || str_contains($request->url(), '/updateFirmware?'));
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 }
