@@ -204,6 +204,86 @@ class ExternalDisputesTest extends TestCase
         $this->assertTrue(app(FinanceService::class)->summary($this->invoice)['ledger_balanced']);
     }
 
+
+    public function test_admin_revoked_during_provider_dispute_get_cannot_release_a_settlement_hold(): void
+    {
+        $id = $this->providerEvent('evt_InspectAdminEpoch')->assertOk()->json('dispute_id');
+        $this->body['status'] = 'won';
+        $eventCount = DB::table('external_dispute_events')->count();
+        $notificationCount = DB::table('inbox_notifications')->count();
+        $revoked = false;
+
+        $this->fakeProvider(function ($request) use (&$revoked) {
+            if (str_contains($request->url(), '/charges/')) {
+                return Http::response([
+                    'id' => 'ch_Dispute', 'livemode' => false,
+                    'payment_intent' => 'pi_Dispute', 'paid' => true,
+                    'captured' => true, 'amount_captured' => 1000,
+                    'currency' => 'aed',
+                ]);
+            }
+            if (! $revoked && str_contains($request->url(), '/disputes/')) {
+                $revoked = true;
+                DB::table('users')->where('id', $this->admin->id)->update([
+                    'auth_epoch' => (int) $this->admin->auth_epoch + 1,
+                ]);
+            }
+
+            return Http::response($this->body);
+        });
+
+        $this->actingAs($this->admin)
+            ->postJson('/dispute-test/commercial/external-disputes/'.$id.'/reconcile')
+            ->assertConflict();
+
+        $this->assertTrue($revoked);
+        $this->assertDatabaseHas('external_disputes', [
+            'id' => $id, 'status' => 'needs_response', 'settlement_hold' => 1,
+        ]);
+        $this->assertDatabaseHas('gateway_cases', ['status' => 'open']);
+        $this->assertSame($eventCount, DB::table('external_dispute_events')->count());
+        $this->assertSame($notificationCount, DB::table('inbox_notifications')->count());
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
+    public function test_admin_role_revoked_during_provider_charge_get_cannot_mutate_dispute_case(): void
+    {
+        $id = $this->providerEvent('evt_InspectAdminRole')->assertOk()->json('dispute_id');
+        $this->body['status'] = 'won';
+        $eventCount = DB::table('external_dispute_events')->count();
+        $revoked = false;
+
+        $this->fakeProvider(function ($request) use (&$revoked) {
+            if (str_contains($request->url(), '/charges/')) {
+                if (! $revoked) {
+                    $revoked = true;
+                    DB::table('users')->where('id', $this->admin->id)
+                        ->update(['role' => 'customer']);
+                }
+
+                return Http::response([
+                    'id' => 'ch_Dispute', 'livemode' => false,
+                    'payment_intent' => 'pi_Dispute', 'paid' => true,
+                    'captured' => true, 'amount_captured' => 1000,
+                    'currency' => 'aed',
+                ]);
+            }
+
+            return Http::response($this->body);
+        });
+
+        $this->actingAs($this->admin)
+            ->postJson('/dispute-test/commercial/external-disputes/'.$id.'/reconcile')
+            ->assertConflict();
+        $this->assertTrue($revoked);
+        $this->assertDatabaseHas('external_disputes', [
+            'id' => $id, 'status' => 'needs_response', 'settlement_hold' => 1,
+        ]);
+        $this->assertDatabaseHas('gateway_cases', ['status' => 'open']);
+        $this->assertSame($eventCount, DB::table('external_dispute_events')->count());
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_provider_case_cannot_be_manually_rejected_to_release_hold(): void
     {
         $id = $this->providerEvent()->assertOk()->json('dispute_id');
