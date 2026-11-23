@@ -132,8 +132,10 @@ class _RefundListState extends State<RefundRequestsView>
   void initState() {
     super.initState();
     authorized = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    load();
+    if (foreground) load();
   }
 
   @override
