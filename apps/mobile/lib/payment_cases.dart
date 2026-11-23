@@ -179,7 +179,14 @@ class _CasesState extends State<PaymentCasesView>
       );
       for (final r in raw.items) {
         if (r['id'] is! int ||
+            r['id'] < 1 ||
             r['invoice_id'] is! int ||
+            r['invoice_id'] < 1 ||
+            r['reason'] is! String ||
+            (r['reason'] as String).trim().isEmpty ||
+            (r['reason'] as String).length > 500 ||
+            r['status'] is! String ||
+            !['open', 'approved', 'rejected'].contains(r['status']) ||
             r['real_money_moved'] != false ||
             !['MOCK_PROVIDER', 'STRIPE_TEST_CONTRACT'].contains(r['evidence']))
           throw const FormatException('Unsupported case evidence.');
