@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\Ocpi\PartnerClient;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 class OcpiProvider extends Model
@@ -10,6 +11,14 @@ class OcpiProvider extends Model
     protected $guarded = ['id'];
 
     protected $appends = ['readable_modules', 'commands_enabled', 'billing_eligible'];
+
+    /** Published OCPI records lose public visibility when their vendor is disabled. */
+    public function scopePubliclyDiscoverable(Builder $query): Builder
+    {
+        return $query->where('authorized', true)
+            ->whereIn('owner_id', User::query()->where('role', 'vendor')
+                ->where('account_status', 'active')->select('id'));
+    }
 
     public function getReadableModulesAttribute(): array
     {
