@@ -52,6 +52,42 @@ class FinanceReconciliationAuditTest extends TestCase
         return '/audit-test/finance/reconciliation-audit';
     }
 
+    public function test_invoice_reconciliation_fails_closed_for_rounded_or_inexact_money_sources(): void
+    {
+        $exact = new \ReflectionMethod(
+            \App\Services\Finance\InvoiceReconciliationAudit::class,
+            'exactMinor'
+        );
+        $this->assertSame(0, $exact->invoke(null, 0));
+        $this->assertSame(-9_007_199_254_740_991,
+            $exact->invoke(null, '-9007199254740991'));
+        $this->assertSame(9_007_199_254_740_991,
+            $exact->invoke(null, '9007199254740991'));
+
+        foreach ([
+            100.0, -100.0, true, false, 0.1, '1.0', '1e2',
+            '9007199254740992', '-9007199254740992',
+            'not-a-minor-unit',
+        ] as $invalid) {
+            try {
+                $exact->invoke(null, $invalid);
+                $this->fail('An unsafe financial amount passed: '.var_export($invalid, true));
+            } catch (\Symfony\Component\HttpKernel\Exception\HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
+        }
+
+        [$vendor, $customer, $invoice] = $this->fixture();
+        $before = DB::table('finance_journals')->count();
+        $this->actingAs($vendor)->getJson($this->url())
+            ->assertOk()->assertJsonPath('data.0.invoice_id', $invoice->id)
+            ->assertJsonPath('data.0.status', 'reconciled')
+            ->assertJsonPath('external_psp_or_bank_verified', false);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_balanced_invoice_capture_refund_and_read_only_audit(): void
     {
         [$vendor, $customer, $invoice] = $this->fixture();
