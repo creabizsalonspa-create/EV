@@ -3,6 +3,8 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 return new class extends Migration
 {
@@ -31,8 +33,8 @@ return new class extends Migration
         // A verified production observation trail must not be erased by a
         // routine rollback. An unused table may still be rolled back.
         if (Schema::hasTable('ocpi_catalog_quality_history')
-            && \Illuminate\Support\Facades\DB::table('ocpi_catalog_quality_history')->exists()) {
-            throw new \RuntimeException('OCPI quality history requires a data-preserving rollback.');
+            && DB::table('ocpi_catalog_quality_history')->exists()) {
+            throw new RuntimeException('OCPI quality history requires a data-preserving rollback.');
         }
 
         Schema::dropIfExists('ocpi_catalog_quality_history');
