@@ -384,6 +384,13 @@ const { chromium } = require("playwright"),
       })
       .click();
     assert.equal((await vendorCapture).status(), 200);
+    const activity = vendorPanel.locator("[data-checkout-activity]");
+    await vendorPanel.getByRole("button", { name: "View checkout activity", exact: true }).click();
+    await activity.getByText("Test capture recorded", { exact: true }).waitFor();
+    await vendor.locator("#language").click();
+    await activity.getByText("تم تسجيل تحصيل اختباري", { exact: true }).waitFor();
+    await vendor.locator("#language").click();
+
     assert.equal(
       (await api(vendor, `commercial/subscriptions/${f.vendor_subscription}`))
         .data.entitlements_active,
@@ -412,6 +419,10 @@ const { chromium } = require("playwright"),
     const foreign = await login("foreign", false);
     assert.equal(
       (await api(foreign, `commercial/hosted-checkouts/${h.id}`)).status,
+      404,
+    );
+    assert.equal(
+      (await api(foreign, `commercial/hosted-checkouts/${h.id}/events?page=1`)).status,
       404,
     );
     assert.equal(

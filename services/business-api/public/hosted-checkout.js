@@ -14,12 +14,13 @@ export function mountHostedCheckout({
         : "commercial/hosted-checkouts";
     let sourceContext = null;
     const owner = actor()?.id,
+        role = actor()?.role,
         abort = new AbortController();
     let busy = false,
         epoch = 0,
         selected = null,
         page = 1;
-    const alive = () => container.isConnected && actor()?.id === owner;
+    const alive = () => container.isConnected && actor()?.id === owner && actor()?.role === role;
     const n = (tag, value) => {
         const e = document.createElement(tag);
         e.textContent = String(value ?? "");
@@ -200,6 +201,80 @@ export function mountHostedCheckout({
             throw Error("Unsupported hosted payment evidence.");
         return row;
     }
+    const eventLabels = {
+        prepared: ["Checkout prepared", "تم تجهيز عملية الدفع"],
+        provider_creation_dispatched: ["Provider setup requested", "تم طلب الإعداد لدى المزود"],
+        provider_session_observed: ["Provider session observed", "تم رصد جلسة المزود"],
+        provider_creation_uncertain: ["Provider setup outcome uncertain", "نتيجة الإعداد لدى المزود غير مؤكدة"],
+        provider_no_session_observed: ["Provider session unavailable", "جلسة المزود غير متاحة"],
+        provider_cancellation_observed: ["Provider cancellation observed", "تم رصد الإلغاء لدى المزود"],
+        provider_inspected: ["Provider status inspected", "تم فحص حالة المزود"],
+        capture_observed: ["Test capture recorded", "تم تسجيل تحصيل اختباري"],
+        cancellation_observed: ["Cancellation recorded", "تم تسجيل الإلغاء"],
+        mock_opened: ["Test checkout opened", "تم فتح عملية دفع اختبارية"],
+        mock_authorized: ["Test authorization recorded", "تم تسجيل تفويض اختباري"],
+        mock_declined: ["Test authorization declined", "تم رفض التفويض الاختباري"],
+        mock_abandoned: ["Test checkout abandoned", "تم ترك عملية الدفع الاختبارية"],
+        mock_cancelled: ["Test checkout cancelled", "تم إلغاء عملية الدفع الاختبارية"],
+        canonical_allocation_observed: ["Test allocation recorded", "تم تسجيل تخصيص اختباري"],
+        reconciliation_requires_review: ["Reconciliation requires review", "تتطلب المطابقة المراجعة"],
+        provider_case_requires_review: ["Provider case requires review", "تتطلب حالة المزود المراجعة"],
+    };
+    async function loadEvents(area, id, number) {
+        const issued = epoch;
+        const current = () => alive() && !document.hidden && area.isConnected
+            && selected === id && issued === epoch;
+        area.replaceChildren();
+        const refresh = () => button(
+            area, "Refresh activity", "تحديث النشاط", () => loadEvents(area, id, number),
+        );
+        try {
+            const response = await api(
+                `${endpoint}/${id}/events?page=${number}`, "GET", undefined, abort.signal,
+            );
+            if (!current()) return;
+            if (!response || !Array.isArray(response.data) ||
+                response.current_page !== number ||
+                !Number.isInteger(response.last_page) || response.last_page < 1) {
+                throw Error("Invalid checkout event page.");
+            }
+            const rows = response.data.map((row) => {
+                const key = corporate ? "checkout_id" : "hosted_checkout_id";
+                if (row?.[key] !== id || !Number.isSafeInteger(row.id) || row.id < 1 ||
+                    typeof row.kind !== "string" || typeof row.created_at !== "string" ||
+                    !/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$/.test(row.created_at)) {
+                    throw Error("Invalid checkout event.");
+                }
+                const utc = new Date(row.created_at.replace(" ", "T").replace(/Z?$/, "Z"));
+                if (!Number.isFinite(utc.getTime())) throw Error("Invalid checkout event time.");
+                const name = Object.hasOwn(eventLabels, row.kind)
+                    ? eventLabels[row.kind]
+                    : ["Checkout event recorded", "تم تسجيل حدث لعملية الدفع"];
+                const item = n("li", "");
+                const time = n("time", utc.toISOString().slice(0, 16).replace("T", " ") + " UTC");
+                time.dateTime = utc.toISOString();
+                item.append(t("span", ...name), document.createTextNode(" · "), time);
+                return item;
+            });
+            area.append(t("h5", "Checkout activity", "نشاط عملية الدفع"));
+            refresh();
+            if (rows.length) {
+                const list = n("ul", "");
+                list.append(...rows);
+                area.append(list);
+            } else {
+                area.append(t("p", "No checkout activity recorded.", "لا يوجد نشاط مسجل لعملية الدفع."));
+            }
+            if (number > 1) button(area, "Previous activity", "النشاط السابق", () => loadEvents(area, id, number - 1));
+            if (number < response.last_page) button(area, "Next activity", "النشاط التالي", () => loadEvents(area, id, number + 1));
+        } catch (error) {
+            if (!current() || ["AbortError", "SessionChangedError"].includes(error.name)) return;
+            const feedback = t("p", "Could not load checkout activity.", "تعذر تحميل نشاط عملية الدفع.");
+            feedback.setAttribute("role", "status");
+            area.replaceChildren(feedback);
+            refresh();
+        }
+    }
     function draw(row) {
         if (!alive()) return;
         selected = row.id;
@@ -216,6 +291,10 @@ export function mountHostedCheckout({
             ),
             n("p", `${row.evidence} · ${row.expires_at || "—"}`),
         );
+        const activity = n("section", "");
+        activity.dataset.checkoutActivity = "";
+        button(card, "View checkout activity", "عرض نشاط عملية الدفع", () => loadEvents(activity, row.id, 1));
+        card.append(activity);
         if (row.hosted_url) {
             const url = new URL(row.hosted_url);
             if (
