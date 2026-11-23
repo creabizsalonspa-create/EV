@@ -91,6 +91,51 @@ final class OcpiContractReviewController extends Controller
         return response()->json($payload)->header('Cache-Control', 'private, no-store');
     }
 
+    /** Scoped, bounded review history; encrypted notes stay Admin-only. */
+    public function history(Request $request, OcpiProvider $provider)
+    {
+        $payload = DB::transaction(function () use ($request, $provider) {
+            $actor = $this->actor($request);
+            [$owner, $current] = $this->provider($provider, $actor);
+            $request->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+            $rows = DB::table(self::TABLE)->where('provider_id', $current->id)
+                ->where('owner_id', $owner->id)->orderByDesc('revision')->paginate(25, [
+                    'revision', 'decision', 'reference_id', 'evidence_sha256',
+                    'valid_until', 'reason_ciphertext', 'created_at',
+                ]);
+            $rows->through(function (object $row) use ($actor) {
+                $result = [
+                    'revision' => (int) $row->revision,
+                    'decision' => $row->decision,
+                    'valid_until' => $row->decision === 'review' ? $row->valid_until : null,
+                    'recorded_at' => $row->created_at,
+                ];
+                if ($actor->role === 'admin') {
+                    try {
+                        $result['reason'] = Crypt::decryptString($row->reason_ciphertext);
+                    } catch (\\Throwable) {
+                        abort(409, 'Contract review audit note requires recovery.');
+                    }
+                    $result['reference_id'] = $row->reference_id;
+                    $result['evidence_sha256'] = $row->evidence_sha256;
+                }
+                return $result;
+            });
+
+            return [
+                'scope' => 'private_ocpi_contract_review_history',
+                'current_revision' => (int) (self::last($current)->revision ?? 0),
+                'history' => $rows,
+                'external_partner_acceptance_verified' => false,
+                'contract_legally_executed_verified' => false,
+                'live_roaming_enabled' => false,
+                'payment_authority' => false,
+            ];
+        }, 3);
+
+        return response()->json($payload)->header('Cache-Control', 'private, no-store');
+    }
+
     public function decide(Request $request, OcpiProvider $provider)
     {
         abort_unless($request->user()?->role === 'admin', 403);
