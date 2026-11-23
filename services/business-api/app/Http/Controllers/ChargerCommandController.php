@@ -25,7 +25,9 @@ class ChargerCommandController extends Controller
             $site = VendorSite::findOrFail($charger->site_id);
             $company = VendorCompany::findOrFail($charger->company_id);
             abort_unless($site->station_id === $station->id && $site->company_id === $charger->company_id
-                && $company->owner_id === $station->vendor_id && $charger->source === 'simulator'
+                && $company->owner_id === $station->vendor_id
+                && $site->country === $station->country && $company->country === $station->country
+                && $charger->source === 'simulator'
                 && $charger->ocpp_protocol === $v['protocol'], 409, 'Charger binding mismatch.');
             abort_if(DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->exists(), 409, 'Charger is already provisioned.');
         } else {
@@ -45,7 +47,9 @@ class ChargerCommandController extends Controller
                 $site = VendorSite::whereKey($charger->site_id)->lockForUpdate()->firstOrFail();
                 $company = VendorCompany::whereKey($charger->company_id)->lockForUpdate()->firstOrFail();
                 abort_unless($site->station_id === $station->id && $site->company_id === $charger->company_id
-                    && $company->owner_id === $station->vendor_id && $charger->source === 'simulator'
+                    && $company->owner_id === $station->vendor_id
+                && $site->country === $station->country && $company->country === $station->country
+                && $charger->source === 'simulator'
                     && $charger->ocpp_protocol === $v['protocol'], 409, 'Charger binding mismatch.');
             }
             abort_if(DB::table('csms_bindings')->when(! empty($v['vendor_charger_id']), fn ($q) => $q->where('vendor_charger_id', $v['vendor_charger_id']), fn ($q) => $q->where('station_id', $station->id))->exists(), 409, 'Binding is already provisioned.');
