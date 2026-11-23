@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\ChargingSession;
+use App\Http\Controllers\FinanceApprovalQueueController;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class FinanceApprovalQueueTest extends TestCase
@@ -111,7 +113,7 @@ class FinanceApprovalQueueTest extends TestCase
     public function test_financial_review_source_exact_minor_contract_rejects_hidden_type_coercion(): void
     {
         $exact = new \ReflectionMethod(
-            \App\Http\Controllers\FinanceApprovalQueueController::class,
+            FinanceApprovalQueueController::class,
             'exactMinor'
         );
         $this->assertSame(-9_007_199_254_740_991,
@@ -126,7 +128,7 @@ class FinanceApprovalQueueTest extends TestCase
             try {
                 $exact->invoke(null, $unsafe);
                 $this->fail('Unsafe Admin finance source became an exact-looking amount.');
-            } catch (\Symfony\Component\HttpKernel\Exception\HttpException $error) {
+            } catch (HttpException $error) {
                 $this->assertSame(409, $error->getStatusCode());
             }
         }
