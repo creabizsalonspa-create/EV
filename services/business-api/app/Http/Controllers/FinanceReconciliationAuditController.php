@@ -15,7 +15,7 @@ final class FinanceReconciliationAuditController extends Controller
     /** CSV output only: prevent invoice references opening as spreadsheet formulas. */
     private static function literalCsv(string $value): string
     {
-        return preg_match('/^[\\s\\p{C}]*[=+\\-@]/u', $value)
+        return preg_match('/^[\\p{Z}\\p{Cc}\\p{Cf}]*[=+\\-@]/u', $value)
             ? "'".$value : $value;
     }
 
