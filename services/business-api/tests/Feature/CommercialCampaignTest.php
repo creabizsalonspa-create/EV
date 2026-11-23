@@ -102,7 +102,6 @@ class CommercialCampaignTest extends TestCase
         $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
     }
 
-
     public function test_sponsored_pages_count_only_current_paid_entitled_placements_not_stale_approved_rows(): void
     {
         $this->freezeTime();
