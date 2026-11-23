@@ -41,7 +41,7 @@ class OcpiProtocolCredentialsController extends Controller
         // An expired internal review stops reads, protocol negotiation,
         // registration and rotation. Explicit peer DELETE remains available
         // for safe credential decommissioning without a new agreement.
-        abort_unless($r->isMethod('DELETE')
+        abort_unless(($r->isMethod('DELETE') && $resource === 'credentials')
             || app(ContractReviewGate::class)->current($p), 401);
 
         return [$p, $link];
