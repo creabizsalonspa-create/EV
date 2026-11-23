@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\FleetReportController;
+use App\Http\Controllers\CorporateBillingController;
 use App\Models\ChargingSession;
 use App\Models\Finance\TariffVersion;
 use App\Models\Fleet;
@@ -181,7 +182,7 @@ class CorporateBillingTest extends TestCase
     public function test_corporate_statement_export_refuses_rounded_source_money_and_hidden_formulas(): void
     {
         $exact = new \ReflectionMethod(
-            \App\Http\Controllers\CorporateBillingController::class,
+            CorporateBillingController::class,
             'exactMinor'
         );
         $this->assertSame(9_007_199_254_740_991,
