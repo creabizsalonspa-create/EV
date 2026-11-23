@@ -99,63 +99,6 @@ const { chromium } = require("playwright"),
       0,
     );
 
-    // Supply only a generated local 2.0.1 simulator. A fully authenticated
-    // typed Boot/Heartbeat plus persisted matching status event must permit
-    // a *recent source report*, but never physical availability or command.
-    simulator = new SimulatedCharger("2.0.1", f.identity);
-    await simulator.connect();
-    const boot = await simulator.call("BootNotification", {
-      reason: "PowerUp",
-      chargingStation: {
-        vendorName: "Synthetic",
-        model: "Fixture",
-        firmwareVersion: "sim-fw-v1",
-      },
-    });
-    assert.equal(boot.status, "Accepted");
-    await simulator.call("Heartbeat", {});
-    await simulator.status("Available", 7, 5);
-    await poll(async () => {
-      const stations = await graph(
-        "query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel latestOcppMessageTimestamp}}",
-        { name: f.identity },
-      );
-      if (stations.ChargingStations.length !== 1 ||
-          stations.ChargingStations[0].isOnline !== true) return false;
-      const sourceId = stations.ChargingStations[0].id;
-      const states = await graph(
-        "query($station:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:5){connectorDatabaseId evseId connectorId connectorStatus}}",
-        { station: sourceId },
-      );
-      return states.Connectors.length === 1 &&
-          states.StatusNotifications[0]?.connectorStatus === "Available" &&
-          states.StatusNotifications[0]?.evseId === 5 &&
-          states.StatusNotifications[0]?.connectorId === 7;
-    }, "Bounded matching synthetic CSMS connector source");
-
-    const liveResponse = page.waitForResponse((r) =>
-      new URL(r.url()).pathname ===
-        `/api/vendor-ops/companies/${f.company_id}/chargers/${f.charger_id}/live-connectors` &&
-      r.request().method() === "GET",
-    );
-    await liveSource.getByRole("button", {
-      name: "Read live connector source", exact: true,
-    }).click();
-    const verified = await liveResponse;
-    assert.equal(verified.status(), 200);
-    const observation = await verified.json();
-    assert.equal(observation.evidence, "SIMULATED_CSMS_SOURCE");
-    assert.equal(observation.source_topology_matches_local, true);
-    assert.equal(observation.physical_availability_verified, false);
-    assert.equal(observation.remote_control_authorized, false);
-    assert.equal(observation.commands_sent, false);
-    assert.equal(observation.connectors.length, 1);
-    assert.equal(observation.connectors[0].state, "recent");
-    assert.equal(observation.connectors[0].reported_status, "Available");
-    assert.equal(observation.connectors[0].physical_available, false);
-    await liveSource.getByText("Recent source status: Available", { exact: true }).waitFor();
-    assert.equal(simulator.commands.length, 0);
-
     await ops
       .getByRole("button", { name: "Secure charger admission", exact: true })
       .click();
@@ -278,6 +221,63 @@ const { chromium } = require("playwright"),
       ),
       false,
     );
+    // Supply only a generated local 2.0.1 simulator. A fully authenticated
+    // typed Boot/Heartbeat plus persisted matching status event must permit
+    // a *recent source report*, but never physical availability or command.
+    simulator = new SimulatedCharger("2.0.1", f.identity);
+    await simulator.connect();
+    const boot = await simulator.call("BootNotification", {
+      reason: "PowerUp",
+      chargingStation: {
+        vendorName: "Synthetic",
+        model: "Fixture",
+        firmwareVersion: "sim-fw-v1",
+      },
+    });
+    assert.equal(boot.status, "Accepted");
+    await simulator.call("Heartbeat", {});
+    await simulator.status("Available", 7, 5);
+    await poll(async () => {
+      const stations = await graph(
+        "query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel latestOcppMessageTimestamp}}",
+        { name: f.identity },
+      );
+      if (stations.ChargingStations.length !== 1 ||
+          stations.ChargingStations[0].isOnline !== true) return false;
+      const sourceId = stations.ChargingStations[0].id;
+      const states = await graph(
+        "query($station:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:5){connectorDatabaseId evseId connectorId connectorStatus}}",
+        { station: sourceId },
+      );
+      return states.Connectors.length === 1 &&
+          states.StatusNotifications[0]?.connectorStatus === "Available" &&
+          states.StatusNotifications[0]?.evseId === 5 &&
+          states.StatusNotifications[0]?.connectorId === 7;
+    }, "Bounded matching synthetic CSMS connector source");
+
+    const liveResponse = page.waitForResponse((r) =>
+      new URL(r.url()).pathname ===
+        `/api/vendor-ops/companies/${f.company_id}/chargers/${f.charger_id}/live-connectors` &&
+      r.request().method() === "GET",
+    );
+    await liveSource.getByRole("button", {
+      name: "Read live connector source", exact: true,
+    }).click();
+    const verified = await liveResponse;
+    assert.equal(verified.status(), 200);
+    const observation = await verified.json();
+    assert.equal(observation.evidence, "SIMULATED_CSMS_SOURCE");
+    assert.equal(observation.source_topology_matches_local, true);
+    assert.equal(observation.physical_availability_verified, false);
+    assert.equal(observation.remote_control_authorized, false);
+    assert.equal(observation.commands_sent, false);
+    assert.equal(observation.connectors.length, 1);
+    assert.equal(observation.connectors[0].state, "recent");
+    assert.equal(observation.connectors[0].reported_status, "Available");
+    assert.equal(observation.connectors[0].physical_available, false);
+    await liveSource.getByText("Recent source status: Available", { exact: true }).waitFor();
+    assert.equal(simulator.commands.length, 0);
+
     assert.deepEqual(errors, []);
     console.log(
       "PASS real Laravel EN/AR390px charger identity preparation, one-time secret/hide/revoke, no browser credential storage, unknown-command case/source absence/audit; no resend, forced capacity release or physical acceptance.",
