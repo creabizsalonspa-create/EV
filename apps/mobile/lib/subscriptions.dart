@@ -50,6 +50,7 @@ const subscriptionEn = {
   'unknown': 'Unknown state',
   'paid': 'Receipt confirmed',
   'unpaid': 'No receipt',
+  'privateCleared': 'Private subscription source cleared. Refresh after signing in again.',
   'end': 'Current period end (UTC)',
   'scheduled': 'Next plan ID',
   'cancelling': 'Cancellation scheduled at period end',
@@ -98,6 +99,7 @@ const subscriptionAr = {
   'unknown': 'حالة غير معروفة',
   'paid': 'إيصال مؤكد',
   'unpaid': 'لا يوجد إيصال',
+  'privateCleared': 'مُسحت بيانات الاشتراك الخاصة. حدّث بعد تسجيل الدخول مجدداً.',
   'end': 'نهاية الفترة الحالية (UTC)',
   'scheduled': 'معرف الخطة التالية',
   'cancelling': 'الإلغاء مجدول عند نهاية الفترة',
@@ -170,41 +172,93 @@ class SubscriptionsView extends StatefulWidget {
   State<SubscriptionsView> createState() => _SubscriptionsState();
 }
 
-class _SubscriptionsState extends State<SubscriptionsView> {
-  bool plans = true, busy = false;
+class _SubscriptionsState extends State<SubscriptionsView>
+    with WidgetsBindingObserver {
+  bool plans = true, busy = false, foreground = true, hidden = false;
+  bool Function()? currentSession;
   int generation = 0, number = 1;
+  bool get current => foreground && (currentSession?.call() ?? false);
   Object? error;
   ApiPage<Map<String, dynamic>>? page;
   String t(String k) => subscriptionText(context, k);
   @override
   void initState() {
     super.initState();
-    load();
+    WidgetsBinding.instance.addObserver(this);
+    foreground = WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    hidden = !foreground;
+    if (foreground) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant SubscriptionsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api ||
+        oldWidget.changeSubscription != widget.changeSubscription) {
+      generation++;
+      page = null;
+      error = null;
+      currentSession = null;
+      busy = false;
+      hidden = true;
+      if (foreground) {
+        final api = widget.api, target = widget.changeSubscription;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && identical(api, widget.api) &&
+              target == widget.changeSubscription) load();
+        });
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) {
+        generation++;
+        page = null;
+        error = null;
+        busy = false;
+        hidden = true;
+      }
+    });
   }
 
   @override
   void dispose() {
     generation++;
+    page = null;
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   Future<void> load({int target = 1}) async {
+    if (!foreground || target < 1 || target > 100000) return;
     final epoch = ++generation;
+    final session = widget.api.sessionFence();
+    currentSession = session;
+    bool active() => mounted && foreground &&
+        epoch == generation && session();
     setState(() {
       busy = true;
       error = null;
       page = null;
       number = target;
+      hidden = false;
     });
     try {
       final me = await widget.api.request('me');
+      if (!active()) return;
       if (!['customer', 'vendor'].contains(me['role']))
         throw const ApiException(403, 'Role required.');
       final raw = await widget.api.request(
         'commercial/${plans ? 'plans' : 'subscriptions'}',
         query: {'page': '$target'},
       );
-      if (!mounted || epoch != generation) return;
+      if (!active()) return;
       final parsed = ApiPage.fromJson(raw, (r) => r);
       for (final r in parsed.items) {
         if (r['id'] is! int || r['id'] < 1)
@@ -221,17 +275,18 @@ class _SubscriptionsState extends State<SubscriptionsView> {
       }
       page = parsed;
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (active()) {
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (active()) setState(() => busy = false);
     }
   }
 
   Future<void> open(Map<String, dynamic> row) async {
+    if (!current || busy) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => plans
@@ -283,8 +338,10 @@ class _SubscriptionsState extends State<SubscriptionsView> {
           child: Text(t('refresh')),
         ),
         if (busy) const Center(child: CircularProgressIndicator()),
-        if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
-        if (page != null) ...[
+        if (error != null && current)
+          Text(EvStrings.of(c).t(errorKey(error!))),
+        if (hidden || !current) Text(t('privateCleared')),
+        if (page != null && current) ...[
           if (page!.items.isEmpty) Text(t('empty')),
           for (final r in page!.items)
             Card(
