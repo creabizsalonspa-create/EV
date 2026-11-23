@@ -3,7 +3,9 @@
 namespace Tests\Postgres;
 
 use App\Models\User;
+use App\Services\Commercial\Loyalty\LoyaltyService;
 use App\Services\Retail\PartnerRegistry;
+use App\Services\Retail\PartnerRewardGovernance;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -127,5 +129,37 @@ class RetailPartnerConcurrencyTest extends TestCase
         $final = app(PartnerRegistry::class)->read($partner['id']);
         $this->assertSame(2, $final['revision']);
         $this->assertContains($final['status'], ['active', 'rejected']);
+    }
+
+    public function test_competing_reward_decisions_record_one_review_event_without_fulfillment(): void
+    {
+        config(['loyalty.enabled' => true]);
+        $maker = User::factory()->create(['role' => 'admin']);
+        $approver = User::factory()->create(['role' => 'admin']);
+        $reviewer = User::factory()->create(['role' => 'admin']);
+        $registry = app(PartnerRegistry::class);
+        $partner = $registry->mutate($maker, null, 'create', $this->terms())['id'];
+        $decision = ['reason' => 'Independent synthetic review', 'expected_revision' => 1, 'idempotency_key' => (string) Str::uuid()];
+        $registry->mutate($approver, $partner, 'approve', $decision);
+        $reward = app(LoyaltyService::class)->publish('loyalty_rewards', $maker, [
+            'name' => 'Synthetic partner reward', 'name_ar' => 'مكافأة شريك تجريبية',
+            'description' => 'Review only', 'description_ar' => 'للمراجعة فقط',
+            'currency' => 'AED', 'points_cost' => 1, 'stock' => 2, 'per_user_limit' => 1,
+            'starts_at' => now()->utc()->toDateTimeString(), 'ends_at' => now()->utc()->addDay()->toDateTimeString(),
+        ], 'retail-review-race');
+        $proposal = app(PartnerRewardGovernance::class)->record($maker, $partner, null, 'propose', [
+            'reason' => 'Synthetic reward review proposal', 'expected_partner_revision' => 2,
+            'reward_id' => $reward->id, 'idempotency_key' => (string) Str::uuid(),
+        ]);
+        $decision['review'] = $proposal['id'];
+
+        $this->assertSame(['200', '409'], $this->race([
+            [$approver->id, $partner, 'reward:approve', $decision],
+            [$reviewer->id, $partner, 'reward:reject', $decision],
+        ]));
+        $this->assertDatabaseCount('partner_reward_review_events', 2);
+        $this->assertDatabaseCount('loyalty_redemptions', 0);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
     }
 }

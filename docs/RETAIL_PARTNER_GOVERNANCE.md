@@ -36,3 +36,11 @@ Errors preserve normal401/403 authentication/authority,404 unknown resource,409 
 - `tests/operational-connected.cjs` runs the real browser suite in its own unchanged authentication window. The existing finance PostgreSQL matrix includes the feature test and all process tests; no prior filter/suite was removed.
 
 A registry entry is not evidence that an external merchant signed a contract or fulfilled a reward. Operational onboarding, approved legal terms, real retail fulfillment, production activation and customer partner-reward integration remain separate. No live transactions or activation were performed.
+
+## Partner reward reviews
+
+The internal review workflow for requirement 2.9.7 associates a canonical noncash reward with the exact effective retail partner version and revision. The reward must use the configured currency for the partner country and fit entirely within the contractual window. Another administrator must approve or reject it. An administrator may revoke approval. Suspension, reinstatement, or any subsequent partner revision invalidates the prior terms match and requires a fresh review.
+
+At `/api/admin/retail-partners/{partner}/reward-reviews`, GET lists 25 reviews per page, and POST submits `{reward_id,expected_partner_revision,reason,idempotency_key}`. GET `/{review}` retrieves paginated immutable decision evidence. POST `/{review}/{approve,reject,revoke}` requires `{expected_revision,reason,idempotency_key}`. Each request uses the registry's current Admin authority. Exact retries keep one event, and changed content or revisions conflict. Review records, including reasons, are available only to administrators.
+
+A review records internal approval of the association. It does not change the reward catalog, enable or execute fulfillment by the partner, or create a financial or loyalty entry. The API reports `fulfillment_enabled=false`. Administrators can propose an existing reward, open its paginated decision history, approve or reject a proposal, and revoke approval from the bilingual retail partner workspace. Live partner action, external evidence, and customer fulfillment remain separate work.
