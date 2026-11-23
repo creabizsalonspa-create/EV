@@ -38,3 +38,25 @@ funds, legally enforceable CDR settlement, or production acceptance.
 Agent 2 should review the shared OCPI controller; Agent 5 alone integrates
 after the exact-source backend, PostgreSQL, security, and combined gates.
 No new completion credit should be assigned before validation.
+
+## Vendor Flutter private-read parity
+
+`PartnerBillingPage` uses the existing authenticated API and bilingual
+English/Arabic invoice/payout explanation. It now clears the previous
+private provider invoice and removes its PDF action as soon as a currency,
+country, party or CDR kind filter is edited. It uses the new applied
+filters only after an explicit refresh. A response must carry the exact
+provider and requested page identity, a bounded page with no more than
+25 rows, the existing read-only/no-money source flags, valid CDR identity
+fields and exact JavaScript-safe integer minor-unit fields for any
+linked canonical invoice. A review-only CDR cannot attach a made-up
+invoice to a `not_invoiced` or `source_requires_review` status.
+
+The native view also retains its current account-generation fence and
+now refuses to initiate a new read while the app is inactive. It clears
+existing source data on backgrounding or API/provider replacement and
+drops any late JSON/PDF result from an old generation. Widget tests cover
+draft filter invalidation, applied PDF filters, impossible 2^53 financial
+amounts, forged pagination, lifecycle cancellation, cross-provider
+mismatch and logout. This is no claim of verified CDR cash collection,
+live PSP or partner settlement.
