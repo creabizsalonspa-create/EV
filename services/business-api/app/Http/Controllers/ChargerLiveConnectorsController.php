@@ -65,7 +65,7 @@ final class ChargerLiveConnectorsController extends Controller
             ($rows[0]['chargePointVendor'] ?? null) === $charger->manufacturer &&
             ($rows[0]['chargePointModel'] ?? null) === $charger->model &&
             is_string($rows[0]['latestOcppMessageTimestamp'] ?? null) &&
-            ($rows[0]['firmwareVersion'] === null || is_string($rows[0]['firmwareVersion'] ?? null)), 409,
+            (($rows[0]['firmwareVersion'] ?? null) === null || is_string($rows[0]['firmwareVersion'])), 409,
             'Current unique typed charger source is required.');
 
         $row = $rows[0];
@@ -187,10 +187,10 @@ final class ChargerLiveConnectorsController extends Controller
                 'source_evse_number' => $row['source_evse_number'],
                 'source_connector_number' => $row['source_connector_number'],
                 'operator_maintenance_blocked' => $row['operator_maintenance_blocked'],
-                'state' => $trusted ? 'recent' : ($event ? 'stale' : 'unknown'),
+                'state' => $trusted ? 'recent' : ($event && $sourceTopologyMatches ? 'stale' : 'unknown'),
                 'reported_status' => $trusted ? $event['reported_status'] : null,
                 'error_code' => $trusted ? $event['error_code'] : null,
-                'source_event_at' => $event?['observed_at']?->toISOString(),
+                'source_event_at' => $event ? $event['observed_at']->toISOString() : null,
                 // Even "Available" is source testimony only, never a
                 // booking, relay-closure or start authorization.
                 'physical_available' => false,
