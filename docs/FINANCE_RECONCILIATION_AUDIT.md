@@ -121,3 +121,16 @@ originals and leave journals unchanged. No source or financial ledger
 mutation occurs, no bank settlement is verified, and original requirement
 `3.5.9` remains uncredited pending Agent 5 integration and full cross-platform
 acceptance.
+
+### Immutable-source reconciliation CSV safety
+
+The separate `finance/reconciliation-audit/export` one-page CSV now marks
+formula-leading invoice references as literal spreadsheet cells while
+retaining their exact immutable original in source JSON/DB. CSV encoding uses
+explicit RFC quote and empty escape parameters; `nosniff` and
+`private, no-store` remain enforced. This prevents attacker-controlled
+imported invoice references from becoming formulas on an auditor's desktop
+without rewriting immutable finance tables. The feature regression checks
+unsafe leading `=,+,-,@` (including control-prefixes), validates the real
+CSV response and unchanged canonical journals. This remains a read-only
+diagnostic, not verified PSP/bank reconciliation or an approval authority.
