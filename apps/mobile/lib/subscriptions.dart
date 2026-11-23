@@ -306,7 +306,19 @@ class _SubscriptionsState extends State<SubscriptionsView>
         widget.onExpired();
       }
     } finally {
-      if (active()) setState(() => busy = false);
+      if (mounted && foreground && epoch == generation) {
+        // Session rotation may invalidate the old fence without scheduling a
+        // repaint. Stop that old spinner and erase private source instead
+        // of waiting forever for a response belonging to a former account.
+        setState(() {
+          busy = false;
+          if (!session()) {
+            page = null;
+            error = null;
+            hidden = true;
+          }
+        });
+      }
     }
   }
 
@@ -847,7 +859,20 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
         widget.onExpired();
       }
     } finally {
-      if (active()) setState(() => busy = false);
+      if (mounted && foreground && epoch == generation) {
+        // Session rotation may invalidate the old fence without scheduling a
+        // repaint. Stop that old spinner and erase private source instead
+        // of waiting forever for a response belonging to a former account.
+        setState(() {
+          busy = false;
+          if (!session()) {
+            summary = null;
+            events = null;
+            error = null;
+            hidden = true;
+          }
+        });
+      }
     }
   }
 
