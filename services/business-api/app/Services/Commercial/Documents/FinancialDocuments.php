@@ -3,6 +3,7 @@
 namespace App\Services\Commercial\Documents;
 
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\CorporateBilling;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -44,6 +45,10 @@ class FinancialDocuments
         $files = [];
         try {
             return DB::transaction(function () use ($actor, $kind, $id, $locale, &$files) {
+                // The source's original actor must be current for the
+                // entire immutable snapshot and encrypted artifact write,
+                // including natural replay of a pre-existing document.
+                $actor = app(CurrentFinanceReader::class)->requireSnapshot($actor);
                 $source = $this->sources->read($actor, $kind, $id, true);
                 $template = self::TEMPLATE.(in_array($kind, ['vendor_settlement', 'corporate_statement'], true) ? ':'.$source['state_at_generation'] : '');
                 if ($old = DB::table('financial_documents')->where('source_kind', $kind)->where('source_id', $id)->where('locale', $locale)->where('template_version', $template)->first()) {
