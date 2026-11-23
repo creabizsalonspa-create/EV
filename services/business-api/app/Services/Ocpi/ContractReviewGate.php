@@ -32,16 +32,16 @@ final class ContractReviewGate
         }
 
         return $providers->whereExists(function ($evidence) {
-                $evidence->selectRaw('1')->from('ocpi_partner_contract_reviews as review')
-                    ->whereColumn('review.provider_id', 'ocpi_providers.id')
-                    ->whereColumn('review.owner_id', 'ocpi_providers.owner_id')
-                    ->where('review.decision', 'review')
-                    ->where('review.valid_until', '>=', now('UTC')->toDateString())
-                    ->whereNotExists(function ($later) {
-                        $later->selectRaw('1')->from('ocpi_partner_contract_reviews as newer')
-                            ->whereColumn('newer.provider_id', 'review.provider_id')
-                            ->whereColumn('newer.revision', '>', 'review.revision');
-                    });
+            $evidence->selectRaw('1')->from('ocpi_partner_contract_reviews as review')
+                ->whereColumn('review.provider_id', 'ocpi_providers.id')
+                ->whereColumn('review.owner_id', 'ocpi_providers.owner_id')
+                ->where('review.decision', 'review')
+                ->where('review.valid_until', '>=', now('UTC')->toDateString())
+                ->whereNotExists(function ($later) {
+                    $later->selectRaw('1')->from('ocpi_partner_contract_reviews as newer')
+                        ->whereColumn('newer.provider_id', 'review.provider_id')
+                        ->whereColumn('newer.revision', '>', 'review.revision');
+                });
             });
     }
 

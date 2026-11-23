@@ -375,7 +375,8 @@ class PartnerClient
             $url = $this->guardedUrl($provider, $url);
             if (isset($seen[$url])) {
                 throw new OcpiException('Operator pagination loop detected.');
-            }$seen[$url] = true;
+            }
+            $seen[$url] = true;
             $result = $this->get($provider, $url);
             if (! is_array($result['data']) || ! array_is_list($result['data'])) {
                 throw new OcpiException('Module response must contain a record list.');

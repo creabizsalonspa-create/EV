@@ -119,7 +119,8 @@ class OcpiController extends Controller
                 } catch (OcpiException $e) {
                     abort(422, $e->getMessage());
                 }
-            }$this->audit($r, 'ocpi.provider_created', $provider->id);
+            }
+            $this->audit($r, 'ocpi.provider_created', $provider->id);
 
             return response()->json($provider, 201);
         });
@@ -178,7 +179,8 @@ class OcpiController extends Controller
             $endpoints = $client->negotiate($provider);
         } catch (OcpiException $e) {
             abort(409, $e->getMessage());
-        }$this->audit($r, 'ocpi.version_negotiated', $provider->id);
+        }
+        $this->audit($r, 'ocpi.version_negotiated', $provider->id);
 
         return response()->json(['version' => '2.2.1', 'readable_modules' => array_values(array_intersect(PartnerClient::MODULES, array_keys($endpoints))), 'commands_enabled' => false, 'evidence' => 'CONTRACT_UNVERIFIED']);
     }

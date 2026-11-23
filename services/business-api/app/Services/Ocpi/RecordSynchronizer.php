@@ -24,7 +24,8 @@ class RecordSynchronizer
         foreach ($records as $record) {
             if (! is_array($record)) {
                 throw new OcpiException('Malformed OCPI record.');
-            }$validated[] = [$record, $this->normalizer->normalize($module, $record), $this->normalizer->hash($record)];
+            }
+            $validated[] = [$record, $this->normalizer->normalize($module, $record), $this->normalizer->hash($record)];
         }
 
         return DB::transaction(function () use ($provider, $module, $validated) {
