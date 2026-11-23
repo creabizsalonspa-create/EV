@@ -190,7 +190,7 @@ class ExternalDisputesController extends Controller
     {
         $actor = $this->currentAdmin($r);
         $v = $r->validate(['idempotency_key' => 'required|string|max:100', 'submit' => 'required|boolean', 'evidence' => 'required|array:product_description,service_date,refund_policy_disclosure,refund_refusal_explanation,access_activity_log,uncategorized_text', 'evidence.*' => 'required|string|max:5000']);
-        $service->evidence($dispute, $actor->id, $v['evidence'], $v['submit'], $v['idempotency_key']);
+        $service->evidence($dispute, $actor->id, $v['evidence'], $v['submit'], $v['idempotency_key'], $actor);
 
         return $this->show($r, $dispute);
     }
@@ -201,7 +201,7 @@ class ExternalDisputesController extends Controller
         // Retry is server-owned: changing evidence or selecting a new provider
         // identity is impossible through this endpoint.
         $r->validate(['evidence' => 'prohibited', 'idempotency_key' => 'prohibited', 'submit' => 'prohibited']);
-        $service->retryEvidence($dispute, $operation, $actor->id);
+        $service->retryEvidence($dispute, $operation, $actor->id, $actor);
 
         return $this->show($r, $dispute);
     }
