@@ -47,9 +47,11 @@ final class ChargerLiveConnectorsController extends Controller
             ->where('mapping.station_id', $binding->station_id)
             ->where('evse.binding_id', $binding->id)
             ->where('evse.charger_id', $charger->id)
+            ->where('evse.mode', 'csms')
             ->where('connector.charger_id', $charger->id)
             ->orderBy('mapping.id')->limit(101)
-            ->get(['mapping.id', 'mapping.source_connector_number', 'evse.source_evse_number',
+            ->get(['mapping.id', 'mapping.source_connector_number',
+                'mapping.source_target_key', 'evse.source_evse_number',
                 'connector.maintenance_blocked']);
         abort_unless($rows->isNotEmpty() && $rows->count() <= 100, 409, 'No complete local connector topology.');
 
@@ -62,6 +64,10 @@ final class ChargerLiveConnectorsController extends Controller
                 ($binding->protocol === '1.6' ? $evse === 0 : $evse > 0), 409,
                 'Local connector mapping requires review.');
             $target = $evse.':'.$number;
+            $signedTargetKey = hash('sha256', $binding->id.':'.$target);
+            abort_unless(is_string($row->source_target_key) &&
+                hash_equals($signedTargetKey, $row->source_target_key), 409,
+                'Local connector source binding requires review.');
             abort_unless(! isset($targets[$target]), 409, 'Duplicated local connector mapping.');
             $targets[$target] = true;
             $projection[] = [
