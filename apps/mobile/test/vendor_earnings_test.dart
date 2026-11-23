@@ -185,7 +185,9 @@ void main() {
       await t.pumpWidget(app(api));
       await t.pumpAndSettle();
       final button = find.byKey(const Key('vendor-earnings-export'));
-      await t.ensureVisible(button);
+      // The export action may be lazily built below a compact viewport.
+      // Scroll the actual ListView until its keyed button is mounted.
+      await t.scrollUntilVisible(button, 250);
       await t.tap(button);
       await t.pumpAndSettle();
       expect(api.csvQueries.single, {
@@ -209,7 +211,9 @@ void main() {
       await t.pumpWidget(app(api));
       await t.pumpAndSettle();
       final button = find.byKey(const Key('vendor-earnings-export'));
-      await t.ensureVisible(button);
+      // The export action may be lazily built below a compact viewport.
+      // Scroll the actual ListView until its keyed button is mounted.
+      await t.scrollUntilVisible(button, 250);
       await t.tap(button);
       await t.pumpAndSettle();
       expect(find.byKey(const Key('vendor-earnings-csv-preview')),
@@ -226,7 +230,9 @@ void main() {
       await t.pumpWidget(app(api));
       await t.pumpAndSettle();
       final button = find.byKey(const Key('vendor-earnings-export'));
-      await t.ensureVisible(button);
+      // The export action may be lazily built below a compact viewport.
+      // Scroll the actual ListView until its keyed button is mounted.
+      await t.scrollUntilVisible(button, 250);
       await t.tap(button);
       await t.pump();
       expect(api.csvQueries.single['vendor_id'], 3);
@@ -248,7 +254,9 @@ void main() {
       await t.pumpWidget(app(api));
       await t.pumpAndSettle();
       final button = find.byKey(const Key('vendor-earnings-export'));
-      await t.ensureVisible(button);
+      // The export action may be lazily built below a compact viewport.
+      // Scroll the actual ListView until its keyed button is mounted.
+      await t.scrollUntilVisible(button, 250);
       await t.tap(button);
       await t.pump();
       final calls = api.calls.length;
