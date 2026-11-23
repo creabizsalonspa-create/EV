@@ -403,6 +403,13 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   Widget details(Map<String, dynamic> program) {
     final enabled = !busy && draft == null && operation != null;
     final id = program['id'] as int;
+    final api = widget.api;
+    final fence = ownsSession;
+    bool sameProgramme() => scoped(api, fence) &&
+        selected?['id'] == id && !busy;
+    void act(Map<String, dynamic> intent) {
+      if (sameProgramme()) mutate(intent);
+    }
     final existing = referral;
     final ownCode = account?['own_code']?['code'] as String?;
     final accepted = existing?['status'] == 'accepted';
@@ -436,7 +443,11 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
             TextButton(
               onPressed: busy
                   ? null
-                  : () => Clipboard.setData(ClipboardData(text: ownCode)),
+                  : () {
+                      if (sameProgramme()) {
+                        Clipboard.setData(ClipboardData(text: ownCode));
+                      }
+                    },
               child: Text(
                 t('Copy my referral code', 'نسخ رمز الإحالة الخاص بي'),
               ),
@@ -444,7 +455,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
           ] else if (active && emailVerified)
             OutlinedButton(
               onPressed: enabled
-                  ? () => mutate({'action': 'codes', 'program_id': id})
+                  ? () => act({'action': 'codes', 'program_id': id})
                   : null,
               child: Text(
                 t('Create my referral code', 'إنشاء رمز الإحالة الخاص بي'),
@@ -479,7 +490,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
                   enabled &&
                       consent &&
                       validCode.hasMatch(code.text.trim().toUpperCase())
-                  ? () => mutate({
+                  ? () => act({
                       'action': 'accept',
                       'program_id': id,
                       'code': code.text.trim().toUpperCase(),
@@ -507,7 +518,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
               ),
               FilledButton(
                 onPressed: enabled && active && invoiceId != null
-                    ? () => mutate({
+                    ? () => act({
                         'action': 'qualify',
                         'program_id': id,
                         'invoice_id': invoiceId,
@@ -528,7 +539,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
               ),
               OutlinedButton(
                 onPressed: enabled && reason.text.trim().length >= 5
-                    ? () => mutate({
+                    ? () => act({
                         'action': 'withdraw',
                         'program_id': id,
                         'reason': reason.text.trim(),
@@ -542,7 +553,9 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
           ],
         ],
         TextButton(
-          onPressed: busy ? null : () => run((epoch) => readAccount(epoch, id)),
+          onPressed: busy ? null : () {
+            if (sameProgramme()) run((epoch) => readAccount(epoch, id));
+          },
           child: Text(t('Refresh referral status', 'تحديث حالة الإحالة')),
         ),
       ],
