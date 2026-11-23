@@ -188,6 +188,42 @@ class ChargingRepairTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_old_healthy_source_receipt_cannot_close_repair_without_new_fresh_evidence(): void
+    {
+        [$owner, , , $url, $alert, $binding] = $this->repairFixture();
+        $this->actingAs($owner);
+        $this->postJson($url, $this->intent($alert, 0, 'open'))->assertOk();
+        $this->postJson($url, $this->intent($alert, 1, 'in_progress'))->assertOk();
+        $this->postJson($url, $this->intent($alert, 2, 'review'))->assertOk();
+        $generation = FaultMonitor::generation($binding);
+        app(FaultMonitor::class)->ingest($binding, [
+            'source_generation' => $generation,
+            'events' => [[
+                'id' => 11, 'evseId' => 1, 'connectorId' => 1,
+                'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+                'timestamp' => now()->subMinutes(7)->toISOString(),
+            ]],
+        ]);
+        $this->assertNotNull(DB::table('charging_fault_alerts')->where('id', $alert)->value('recovery_observation_id'));
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertConflict();
+        $this->assertDatabaseHas('charging_repair_orders', [
+            'alert_id' => $alert, 'state' => 'review', 'version' => 3,
+        ]);
+        app(FaultMonitor::class)->ingest($binding, [
+            'source_generation' => $generation,
+            'events' => [[
+                'id' => 12, 'evseId' => 1, 'connectorId' => 1,
+                'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+                'timestamp' => now()->toISOString(),
+            ]],
+        ]);
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertOk()
+            ->assertJsonPath('capacity_changed', false)
+            ->assertJsonPath('commands_sent', false);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_private_scopes_read_only_staff_and_rebinding_fences(): void
     {
         [$owner, $company, $charger, $url, $alert, $binding] = $this->repairFixture();
