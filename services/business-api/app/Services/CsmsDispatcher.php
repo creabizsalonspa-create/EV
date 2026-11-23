@@ -256,7 +256,12 @@ class CsmsDispatcher
             // but before the slow, authenticated token fetch completes.
             // This second check prevents a proved-unsent remote command
             // from being delivered under the wrong station identity.
-            if (! $this->sourceLineage($command)) {
+            $freshBinding = DB::table('csms_bindings')->where('id', $b->id)->first();
+            if (! $freshBinding || $freshBinding->identifier !== $b->identifier
+                || $freshBinding->protocol !== $b->protocol
+                || $freshBinding->station_id !== $b->station_id
+                || ($freshBinding->vendor_charger_id ?? null) !== ($b->vendor_charger_id ?? null)
+                || ! $this->sourceLineage($command)) {
                 throw new \RuntimeException('Pre-dispatch source lineage changed');
             }
             $wireAttempted = true;
