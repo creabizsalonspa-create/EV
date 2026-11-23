@@ -22,7 +22,19 @@ window.EvNotificationEmail = {
                 try { await action(); } catch { failed(n); } finally { busy = false; if (b.isConnected) b.disabled = false; }
             }; return b;
         }
+        function showClosed() {
+            if (!root.isConnected) return;
+            root.replaceChildren(node('p', t(
+                'Private email notice history is closed. Return to this tab and refresh to verify the current state.',
+                'أُغلق سجل إشعارات البريد الخاص. ارجع إلى هذه الصفحة وحدّث للتحقق من الحالة.'
+            )));
+            button(t('Refresh', 'تحديث'), () => load());
+        }
         async function load(page = 1) {
+            // A first mount may already be backgrounded before visibility
+            // events are subscribed. Do not send either private request.
+            if (!root.isConnected) return;
+            if (document.hidden || !current()) { showClosed(); return; }
             if (!Number.isSafeInteger(page) || page < 1 || page > 100000) return failed(generation);
             const n = ++generation;
             const loading = node('p', t('Loading email notice preferences and handoff history…', 'جارٍ تحميل إعدادات إشعارات البريد وسجل النقل…'));
@@ -78,7 +90,16 @@ window.EvNotificationEmail = {
                 failed(n, page);
             }
         }
-        const hide = () => { if (document.hidden || !current()) { generation++; busy = false; root.replaceChildren(); } if (!root.isConnected) document.removeEventListener('visibilitychange', hide); };
+        const hide = () => {
+            if (document.hidden || !current()) {
+                // Invalidate pending GET or PUT callbacks and remove the whole
+                // private receipt/consent DOM; resume is never an implicit GET.
+                generation++;
+                busy = false;
+                showClosed();
+            }
+            if (!root.isConnected) document.removeEventListener('visibilitychange', hide);
+        };
         document.addEventListener('visibilitychange', hide);
         try { await load(); } catch { failed(generation); }
     },

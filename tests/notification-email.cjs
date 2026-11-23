@@ -86,6 +86,65 @@ const assert = require('node:assert/strict');
             assert.deepEqual(await page.evaluate(()=>window.requestedPages.slice(-2)),[2,2], 'retry must retain the failed page');
             await page.close();
         }
+
+        for (const ar of [false, true]) {
+            const page = await browser.newPage();
+            await page.setContent(`<html lang="${ar ? 'ar' : 'en'}"><body><main id="host"></main></body></html>`);
+            await page.addScriptTag({path:'services/business-api/public/notification-email.js'});
+            await page.evaluate(async () => {
+                window.syntheticHidden = true;
+                Object.defineProperty(document, 'hidden', {
+                    configurable: true,
+                    get: () => window.syntheticHidden,
+                });
+                window.privateReads = 0;
+                window.noticeApi = async (path) => {
+                    window.privateReads++;
+                    if (path.includes('/history')) return {
+                        delivery_confirmed: false, automatic_retry: false,
+                        receipts: { data: [
+                            {state:'queued', created_at:'2026-11-23',
+                             evidence:'PRIVATE_SYNTHETIC_HANDOFF'}
+                        ], current_page: 1, last_page: 1 }
+                    };
+                    return {enabled:true, consent_current:true, configured:true,
+                        verified_email_required:false, revision:'2'};
+                };
+                await window.EvNotificationEmail.open({
+                    host:document.querySelector('#host'),
+                    api:window.noticeApi,
+                    current:()=>true,
+                });
+            });
+            assert.equal(await page.evaluate(()=>window.privateReads),0,
+                'first-hidden mount must not fetch email history or consent');
+            assert.equal(await page.getByText('PRIVATE_SYNTHETIC_HANDOFF').count(),0);
+            await page.evaluate(() => {
+                window.syntheticHidden = false;
+                document.dispatchEvent(new Event('visibilitychange'));
+            });
+            assert.equal(await page.evaluate(()=>window.privateReads),0,
+                'foreground resume requires deliberate refresh');
+            const refresh = page.getByRole('button',{name:ar?'تحديث':'Refresh',exact:true});
+            await refresh.click();
+            await page.getByText(/PRIVATE_SYNTHETIC_HANDOFF/).waitFor();
+            assert.equal(await page.evaluate(()=>window.privateReads),2);
+            await page.evaluate(() => {
+                window.syntheticHidden = true;
+                document.dispatchEvent(new Event('visibilitychange'));
+            });
+            assert.equal(await page.getByText('PRIVATE_SYNTHETIC_HANDOFF').count(),0,
+                'backgrounding must remove all private handoff rows');
+            await page.evaluate(() => {
+                window.syntheticHidden = false;
+                document.dispatchEvent(new Event('visibilitychange'));
+            });
+            assert.equal(await page.evaluate(()=>window.privateReads),2);
+            await refresh.click();
+            await page.getByText(/PRIVATE_SYNTHETIC_HANDOFF/).waitFor();
+            assert.equal(await page.evaluate(()=>window.privateReads),4);
+            await page.close();
+        }
         console.log('PASS email notice refresh failure and malformed-history recovery with EN/AR retry and stale-action fence');
         console.log('PASS email notice EN/AR consent, exact revision, unknown response recovery, safe rendering and account fence');
     } finally { await browser.close(); }
