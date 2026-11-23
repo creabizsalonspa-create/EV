@@ -63,8 +63,11 @@ final class CpoCatalogPublisher
         $contract = $this->contracts->approved($provider);
         $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->lockForUpdate()->first();
         $owner = User::whereKey($provider->owner_id)->lockForUpdate()->first();
-        abort_unless($contract && $provider->authorized && $provider->version === '2.2.1' && $owner?->role === 'vendor' && $owner->account_status === 'active'
-            && $link?->state === 'active' && $link->owner_id === $provider->owner_id && hash_equals($link->configuration_hash, $this->credentials->configurationHash($provider)), 403);
+        abort_unless($contract && $provider->authorized && $provider->version === '2.2.1'
+            && $owner?->role === 'vendor' && $owner->account_status === 'active'
+            && app(ContractReviewGate::class)->current($provider, $owner)
+            && $link?->state === 'active' && $link->owner_id === $provider->owner_id
+            && hash_equals($link->configuration_hash, $this->credentials->configurationHash($provider)), 403);
 
         return [$contract, $link];
     }
