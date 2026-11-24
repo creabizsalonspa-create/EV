@@ -466,7 +466,7 @@ manufacturer, model, protocol and exact firmware version**, still-online
 status, and a monotonic absolute heartbeat no older than five minutes.
 Current authorization, owner, charger manufacturer/model/site and canonical
 source binding are independently rechecked around and after these reads.
-The returned last heartbeat is from the final verified observation. Approved release rows are limited to the company's matching
+The returned last heartbeat is from the final verified observation. Both reads must retain the original configured GraphQL endpoint and admin key, with firmware and bridge adapters enabled throughout. Any mid-inspection authority drift fails closed without forwarding credentials to a replacement endpoint. The response rejects catalogs exceeding 100 matching releases rather than silently reporting an incomplete matrix. Approved release rows are limited to the company's matching
 manufacturer/model and each exposes `signed_compatibility_policy`,
 `signer_currently_trusted`, `protocols`, `from_versions`,
 `revoked` and `matches_observed_source`. Only an unrevoked manifest with
