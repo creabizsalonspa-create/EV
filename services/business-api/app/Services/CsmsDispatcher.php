@@ -150,6 +150,11 @@ class CsmsDispatcher
             $station = Station::whereKey($stationId)->lockForUpdate()->firstOrFail();
             $c = ChargerCommand::whereKey($id)->lockForUpdate()->firstOrFail();
             abort_unless($c->station_id === $stationId && $c->actor_id === $actorId, 409, 'Command station changed.');
+            // Never overwrite a retained authority/lineage fence with a
+            // transient station-source failure that could later be cleared.
+            if ($c->status === 'pending' && in_array($c->failure_code, ['pre_dispatch_authority_changed', 'pre_dispatch_source_lineage_changed'], true)) {
+                return null;
+            }
             // An accepted simulator command is never transportable after
             // its canonical station changes source (including stop commands).
             // Do not re-target a queued outbox row or attempt external I/O.
@@ -162,11 +167,6 @@ class CsmsDispatcher
                 return null;
             }
             if ($c->status === 'pending') {
-                // A detected in-flight authority change is a permanent fence for
-                // this queued intent. An operator must resolve it, not retarget it.
-                if (in_array($c->failure_code, ['pre_dispatch_authority_changed', 'pre_dispatch_source_lineage_changed'], true)) {
-                    return null;
-                }
                 // Repointed canonical inventory or source identity must not
                 // redirect an existing pending command to a different owner
                 // or device. Keep the outbox pending, provably unsent.
