@@ -85,10 +85,15 @@ bool refundRequestAcknowledged(
 }) {
   if (receipt is! Map ||
       !_refundId(receipt['id']) ||
+      !_refundId(receipt['user_id']) ||
+      !_refundId(receipt['invoice_id']) ||
       receipt['user_id'] != owner ||
       receipt['invoice_id'] != invoice ||
+      receipt['amount_minor'] is! int ||
       receipt['amount_minor'] != body['amount_minor'] ||
       receipt['reason'] != body['reason'] ||
+      (receipt['ocpi_credit_record_id'] != null &&
+          !_refundId(receipt['ocpi_credit_record_id'])) ||
       receipt['ocpi_credit_record_id'] != body['ocpi_credit_record_id'] ||
       !['pending', 'approved', 'rejected'].contains(receipt['status']) ||
       receipt.containsKey('request_key') ||
@@ -153,25 +158,68 @@ class RefundRequestsView extends StatefulWidget {
   State<RefundRequestsView> createState() => _RefundListState();
 }
 
-class _RefundListState extends State<RefundRequestsView> {
+class _RefundListState extends State<RefundRequestsView>
+    with WidgetsBindingObserver {
   ApiPage<Map<String, dynamic>>? page;
   Object? error;
   bool busy = false;
   int generation = 0, target = 1;
+  bool foreground = true, revoked = false;
+  late final bool Function() ownsSession;
+  StreamSubscription<int>? session;
+  bool get visible => foreground && !revoked && ownsSession();
+  bool current(int epoch) => mounted && visible && epoch == generation;
   String t(String k) => refundText(context, k);
   @override
   void initState() {
     super.initState();
+    ownsSession = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
+    session = widget.api.sessionEvents.listen((_) {
+      if (mounted) setState(() {
+        revoked = true;
+        clearPrivate();
+      });
+    });
     load();
+  }
+
+  void clearPrivate() {
+    generation++;
+    page = null;
+    error = null;
+    busy = false;
+    target = 1;
+  }
+
+  @override
+  void didUpdateWidget(covariant RefundRequestsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) || oldWidget.role != widget.role) {
+      revoked = true;
+      clearPrivate();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) clearPrivate();
+    });
   }
 
   @override
   void dispose() {
     generation++;
+    session?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   Future<void> load({int number = 1}) async {
+    if (!visible || number < 1 || number > 100000) return;
     final epoch = ++generation;
     target = number;
     setState(() {
@@ -187,15 +235,15 @@ class _RefundListState extends State<RefundRequestsView> {
         ),
         (r) => r,
       );
-      if (mounted && generation == epoch) setState(() => page = result);
+      if (current(epoch)) setState(() => page = result);
     } catch (e) {
-      if (mounted && generation == epoch) {
+      if (current(epoch)) {
         setState(() => error = e);
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
@@ -206,6 +254,7 @@ class _RefundListState extends State<RefundRequestsView> {
       padding: const EdgeInsets.all(16),
       children: [
         Text(t('notice')),
+        if (visible) ...[
         OutlinedButton(
           onPressed: busy ? null : () => load(number: target),
           child: Text(t('refresh')),
@@ -249,7 +298,7 @@ class _RefundListState extends State<RefundRequestsView> {
                                     ),
                                   ),
                                 );
-                                if (mounted) load(number: target);
+                                if (mounted && visible) load(number: target);
                               },
                         child: Text(t('review')),
                       ),
@@ -275,6 +324,7 @@ class _RefundListState extends State<RefundRequestsView> {
               ),
             ],
           ),
+        ],
         ],
       ],
     ),
@@ -309,7 +359,7 @@ class _RefundRequestState extends State<RefundRequestView>
   FinancialOperation? operation;
   Object? error;
   bool busy = true, uncertain = false, confirmed = false;
-  int generation = 0;
+  int generation = 0, privateEpoch = 0;
   int? ownerId;
   bool foreground = true, revoked = false;
   late final bool Function() ownsSession;
@@ -330,6 +380,7 @@ class _RefundRequestState extends State<RefundRequestView>
 
   void clearPrivate() {
     generation++;
+    privateEpoch++;
     operation = null;
     ownerId = null;
     error = null;
@@ -387,10 +438,11 @@ class _RefundRequestState extends State<RefundRequestView>
       final owner = me['id'];
       if (!_refundId(owner) || me['role'] != 'customer')
         throw const ApiException(403, 'Customer invoice ownership required.');
+      final sourceEpoch = privateEpoch;
       final pending = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${widget.api.base.origin}:$owner:refund:${widget.invoiceId}',
-        isCurrent: () => mounted && visible,
+        isCurrent: () => mounted && visible && sourceEpoch == privateEpoch,
       );
       await pending.restore();
       if (!current(epoch)) return;
