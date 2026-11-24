@@ -139,9 +139,11 @@ dynamic _immutableSubscriptionValue(dynamic value) {
 Map<String, dynamic> subscriptionSummary(dynamic value, int owner, {int? id}) {
   final data = Map<String, dynamic>.from(value as Map);
   final sub = data['subscription'];
+  // Native/browser JSON must never round a persisted financial identity.
+  bool sourceId(dynamic id) =>
+      id is int && id >= 1 && id <= 9007199254740991;
   if (sub is! Map ||
-      sub['id'] is! int ||
-      sub['id'] < 1 ||
+      !sourceId(owner) || !sourceId(sub['id']) ||
       sub['user_id'] != owner ||
       (id != null && sub['id'] != id) ||
       data['real_payment_processed'] != false ||
@@ -154,7 +156,7 @@ Map<String, dynamic> subscriptionSummary(dynamic value, int owner, {int? id}) {
   }
   for (final raw in data['invoices'] as List) {
     if (raw is! Map ||
-        raw['id'] is! int ||
+        !sourceId(raw['id']) ||
         raw['subscription_id'] != sub['id'] ||
         raw['paid'] is! bool) {
       throw const FormatException('Unsupported invoice evidence.');
@@ -602,14 +604,18 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
             'resume',
           ].contains(widget.action) ||
           (widget.action != 'enroll' &&
-              (widget.subscriptionId == null || widget.subscriptionId! < 1)) ||
+              (widget.subscriptionId == null || widget.subscriptionId! < 1 ||
+                  widget.subscriptionId! > 9007199254740991)) ||
           (['enroll', 'change_plan'].contains(widget.action) &&
-              widget.plan?['id'] is! int))
+              (widget.plan?['id'] is! int || widget.plan!['id'] < 1 ||
+                  widget.plan!['id'] > 9007199254740991)))
         throw const FormatException('Invalid operation.');
       final me = await widget.api.request('me');
       if (!active(epoch, fence)) return;
-      if (!['customer', 'vendor'].contains(me['role']) || me['id'] is! int ||
-          me['id'] < 1)
+      if (me is! Map ||
+          !['customer', 'vendor'].contains(me['role']) ||
+          me['id'] is! int || me['id'] < 1 ||
+          me['id'] > 9007199254740991)
         throw const ApiException(403, 'Role required.');
       owner = me['id'] as int;
       if (widget.subscriptionId != null) {
