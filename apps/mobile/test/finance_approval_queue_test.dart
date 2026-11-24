@@ -137,13 +137,25 @@ void main() {
     });
     await t.scrollUntilVisible(find.byKey(const Key('finance-review-next')), 500,
       scrollable: find.byType(Scrollable).first, maxScrolls: 50);
-    await t.tap(find.byKey(const Key('finance-review-next')));
+    final next = find.byKey(const Key('finance-review-next'));
+    // scrollUntilVisible may stop as soon as a lazily built button exists,
+    // even if its center is still beyond the viewport. Settle and expose
+    // the actual hit target before dispatching pagination.
+    await t.pumpAndSettle();
+    await t.ensureVisible(next);
+    await t.pumpAndSettle();
+    expect(next.hitTestable(), findsOneWidget);
+    expect(t.widget<OutlinedButton>(next).onPressed, isNotNull);
+    await t.tap(next);
     await t.pumpAndSettle();
     expect(api.queries.last, {
       'kind': 'all', 'page': '2', 'per_page': '20',
       'currency': 'KWD', 'vendor_id': '9',
     });
-    expect(find.text('Adjustment #21'), findsOneWidget);
+    await t.scrollUntilVisible(find.text('Adjustment #21'), 150,
+      scrollable: find.byType(Scrollable).first);
+    expect(find.text('Adjustment #21').hitTestable(), findsOneWidget);
+    expect(api.queries.length, 3);
   });
   testWidgets('non-Admin cannot dispatch review queue read', (t) async {
     final api = ReviewApi(role: 'vendor');
