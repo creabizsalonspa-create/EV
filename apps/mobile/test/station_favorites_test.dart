@@ -123,12 +123,18 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const Key('favorite-1')));
+      // The expanded catalog search card can put result rows outside the
+      // lazily built viewport. Scroll until the actual control is mounted.
+      await tester.scrollUntilVisible(find.byKey(const Key('favorite-1')), 250,
+        scrollable: find.byType(Scrollable).first);
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('favorite-1')).hitTestable(), findsOneWidget);
       await tester.tap(find.byKey(const Key('favorite-1')));
       await tester.pumpAndSettle();
       expect(writes, 1);
+      await tester.scrollUntilVisible(find.byKey(const Key('favorite-1')), 250,
+        scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
       expect(find.text('Save station'), findsOneWidget);
       expect(
         find.textContaining('Preference could not be confirmed.'),
@@ -144,6 +150,9 @@ void main() {
       expect(writes, 1);
       failRead = false;
       await key.currentState!.refresh();
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.byKey(const Key('favorite-1')), 250,
+        scrollable: find.byType(Scrollable).first);
       await tester.pumpAndSettle();
       expect(find.text('Remove saved station'), findsOneWidget);
       expect(writes, 1);
