@@ -9,6 +9,11 @@ use App\Services\Charging\ConfigurationProbe;
 use App\Services\Charging\ContinuousFaultObserver;
 use App\Services\Charging\CsmsGraphqlTransport;
 use App\Services\Charging\RemoteSessionAuthorization;
+use App\Services\Charging\RiderSourceProvisioner;
+use App\Services\Charging\SourceConsumer;
+use App\Services\Charging\ChargerSourceRegistration;
+use ReflectionMethod;
+use RuntimeException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -111,6 +116,34 @@ class CsmsGraphqlTransportTest extends TestCase
             $this->assertSame(503, $e->getStatusCode());
         }
         Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_source_provisioner_billing_consumer_and_direct_registration_never_send_admin_key_to_untrusted_http(): void
+    {
+        config(['csms.graphql_url' => 'http://unreviewed-source.test/v1/graphql']);
+        // Verify the direct private transport entry points. Public callers
+        // have additional per-user, per-tenant, epoch and consent gates.
+        $query = 'query{ChargingStations(limit:1){id}}';
+        foreach ([RiderSourceProvisioner::class, ChargerSourceRegistration::class] as $class) {
+            try {
+                (new ReflectionMethod($class, 'graph'))->invoke(app($class), $query, []);
+                $this->fail('Privileged CSMS writer accepted an untrusted HTTP endpoint.');
+            } catch (HttpException $e) {
+                $this->assertSame(503, $e->getStatusCode());
+            }
+        }
+        try {
+            (new ReflectionMethod(SourceConsumer::class, 'graph'))
+                ->invoke(app(SourceConsumer::class), $query, []);
+            $this->fail('Billing meter source reader accepted an untrusted HTTP endpoint.');
+        } catch (RuntimeException $e) {
+            $this->assertSame('Authenticated CSMS source transport is not approved.', $e->getMessage());
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('csms_inbox_events', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
