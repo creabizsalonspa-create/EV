@@ -174,6 +174,13 @@ class PayoutService
     /** Caller must lock the vendor and settlement first. No external I/O occurs here. */
     private function eligible(object $settlement): void
     {
+        // All new claims, approvals, replacement attempts and dispatch
+        // preflights hold this vendor row. Recovery/cancellation intentionally
+        // do not use this gate: a provider fact must still be reconciled.
+        $vendor = User::whereKey($settlement->vendor_id)->lockForUpdate()->first();
+        abort_unless($vendor && $vendor->role === 'vendor'
+            && $vendor->account_status === 'active', 409,
+            'Payout is held until the current vendor account is reviewed.');
         abort_unless($settlement->state === 'approved', 409, 'Only an approved unexecuted settlement can initiate a payout.');
         $schedule = DB::table('commercial_settlement_schedules')->where('vendor_id', $settlement->vendor_id)->where('currency', $settlement->currency)->first();
         abort_unless($schedule && $schedule->enabled, 409, 'Settlement schedule is disabled.');
@@ -181,9 +188,14 @@ class PayoutService
         $balance = $service->balances((int) $settlement->vendor_id, $settlement->currency, (int) $schedule->hold_days, true);
         abort_unless($balance['minor_units'] === (int) $settlement->minor_units && $balance['available_minor'] >= 0, 409, 'Payable debt, precision or adjustment requires reconciliation.');
         $lines = DB::table('commercial_settlement_lines')->where('settlement_id', $settlement->id)->get();
-        abort_unless((int) $lines->sum('amount_minor') === (int) $settlement->amount_minor, 409, 'Settlement lines do not reconcile.');
+        abort_unless($lines->isNotEmpty() && $service->reconciles($settlement, $lines)
+            && $settlement->amount_minor > 0, 409, 'Settlement lines do not reconcile.');
         foreach ($lines->where('amount_minor', '>', 0)->whereNotNull('invoice_id') as $line) {
             $invoice = DB::table('finance_invoices')->where('id', $line->invoice_id)->first();
+            abort_unless($invoice && (int) $invoice->vendor_id === (int) $settlement->vendor_id
+                && $invoice->currency === $settlement->currency
+                && (int) $invoice->minor_units === (int) $settlement->minor_units,
+                409, 'Payout invoice source does not belong to the approved settlement.');
             abort_unless(Carbon::parse($invoice->created_at)->addDays((int) $schedule->hold_days)->lte(now()), 409, 'Invoice holding period has not elapsed.');
             abort_if(CorporateHostedCollection::settlementHeld((int) $line->invoice_id) || DB::table('finance_refund_requests')->where('invoice_id', $line->invoice_id)->where('status', 'pending')->exists() || DB::table('gateway_cases')->where('invoice_id', $line->invoice_id)->where('status', 'open')->exists() || DB::table('payment_recovery_intents as p')->join('gateway_checkouts as c', 'c.id', '=', 'p.checkout_id')->where('p.scope', 'charging')->where('c.invoice_id', $line->invoice_id)->whereIn('p.status', ['executing', 'uncertain', 'needs_review'])->exists(), 409, 'Unresolved refund, dispute or payment evidence holds the payout.');
         }
