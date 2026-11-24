@@ -49,6 +49,11 @@ window.EvPrechargePricing = (() => {
             : `Simulated charging estimate: ${e.energy_wh} Wh\nRate per kWh: ${money(e.rate_minor_per_kwh)}\nEnergy: ${money(e.subtotal_minor)}\nTax: ${money(e.tax_minor)}\nEstimated total: ${money(e.total_minor)}\nSimulator session/idle fees: 0. External parking/access fees are excluded. Final cost depends on the session meter; this is not a spending cap and does not automatically stop charging. No real payment occurs.\nConfirmation expires: ${e.expires_at}\nAccept this price?`;
     }
     async function review({api, reservationId, current, ar = false}) {
+        if (!Number.isSafeInteger(reservationId) || reservationId < 1)
+            throw new Error('Invalid reservation for price review');
+        // An OS-hidden tab or a retired actor must not display prompts or
+        // send a private estimate POST before checking consent to review.
+        if (!current() || document.visibilityState !== 'visible') return false;
         const energy = window.prompt(ar ? 'الطاقة المتوقعة بالواط ساعة (1 إلى 1000000)' : 'Estimated energy in Wh (1 to 1000000)', '10000');
         if (energy === null || !current()) return false;
         const amount = window.EvMoney.parse(energy,0,1000000);

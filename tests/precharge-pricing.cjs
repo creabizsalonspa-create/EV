@@ -44,7 +44,11 @@ test('acceptance posts the exact reviewed opaque token only after explicit confi
  assert.match(f.confirmation(),/not a spending cap/);assert.match(f.confirmation(),/External parking\/access fees are excluded/);
 });
 test('decline, background and changed account never approve a price or issue a start',async()=>{
- for(const options of [{allow:false},{visible:false}]){const f=fixture(options);assert.equal(await f.p.review({api:f.api,reservationId:7,current:f.current}),false);assert.equal(f.calls.length,1);}
+ for(const options of [{allow:false},{visible:false}]){
+  const f=fixture(options);
+  assert.equal(await f.p.review({api:f.api,reservationId:7,current:f.current}),false);
+  assert.equal(f.calls.length,options.visible===false?0:1);
+ }
  const f=fixture();const api=async(...args)=>{const reply=await f.api(...args);f.revoke();return reply;};assert.equal(await f.p.review({api,reservationId:7,current:f.current}),false);assert.equal(f.calls.length,1);
 });
 test('already recorded starts and inconsistent prices cannot produce new acceptance',async()=>{
@@ -91,4 +95,20 @@ test('acknowledgment of replayed price consent can use the backend UTC SQL times
  };
  assert.equal(await f.p.review({api:wrapped,reservationId:7,current:f.current}),true);
  assert.equal(f.calls.length,2);
+});
+
+
+test('hidden first mount, retired account and malformed reservation never request a price',async()=>{
+ const hidden=fixture({visible:false});
+ assert.equal(await hidden.p.review({api:hidden.api,reservationId:7,current:hidden.current}),false);
+ assert.equal(hidden.calls.length,0);
+ assert.equal(hidden.confirmation(),undefined);
+ const replaced=fixture();replaced.revoke();
+ assert.equal(await replaced.p.review({api:replaced.api,reservationId:7,current:replaced.current}),false);
+ assert.equal(replaced.calls.length,0);
+ for(const id of ['7','../8',0,-1,NaN,1.5,Number.MAX_SAFE_INTEGER+1]){
+   const fixtureCase=fixture();
+   await assert.rejects(fixtureCase.p.review({api:fixtureCase.api,reservationId:id,current:fixtureCase.current}),/Invalid reservation/);
+   assert.equal(fixtureCase.calls.length,0);
+ }
 });
