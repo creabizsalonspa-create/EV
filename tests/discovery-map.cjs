@@ -421,6 +421,31 @@ const assert = require("node:assert/strict");
       "Old unified catalog pin revoked while newer independent partner survives");
     assert.equal(await page.locator("#station-map").isVisible(), true);
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("catalog-map-clear")));
+    // A retained old UI instance may emit a late clear after a different
+    // mounted instance has published its own results. The publication
+    // identity, not just the source label, must fence this revocation.
+    await page.evaluate(() => {
+      const owner = {};
+      window.__ownedUnifiedPublication = owner;
+      const published = new CustomEvent("unified-map-data", { detail: [{
+        key: "catalog:7", kind: "catalog",
+        station: { id: 7, name: "Current customer station",
+          latitude: 25.2, longitude: 55.3, evidence: "SIMULATED",
+          connector_type: "CCS2", power_kw: 50 },
+      }] });
+      published.evUnifiedPublication = owner;
+      window.dispatchEvent(published);
+      window.dispatchEvent(new CustomEvent("unified-map-clear", {
+        detail: { stale: "retired previous customer" },
+      }));
+    });
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1,
+      "Previous UI instance cannot revoke current actor's map publication");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent(
+      "unified-map-clear", {detail:window.__ownedUnifiedPublication},
+    )));
+    assert.equal(await page.locator(".station-map-pin").count(), 0);
+    assert.equal(await page.locator("#station-map").isHidden(), true);
     assert.equal(viewportRequests.length, requestCountBeforeMalformedMap);
     assert.deepEqual(errors, []);
     console.log(
