@@ -1825,16 +1825,16 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         currency.maxLength = 3;
         currency.autocomplete = "off";
         currency.dataset.financeReviewCurrency = "true";
-        const currencyLabel = translated("label", "Review currency (optional)", "عملة المراجعة (اختياري)");
-        currencyLabel.append(currency);
+        const currencyLabel = document.createElement("label");
+        currencyLabel.append(translated("span", "Review currency (optional)", "عملة المراجعة (اختياري)"), currency);
         const vendor = document.createElement("input");
         vendor.type = "text";
         vendor.inputMode = "numeric";
         vendor.maxLength = 16;
         vendor.autocomplete = "off";
         vendor.dataset.financeReviewVendor = "true";
-        const vendorLabel = translated("label", "Review vendor ID (optional)", "معرف مورد المراجعة (اختياري)");
-        vendorLabel.append(vendor);
+        const vendorLabel = document.createElement("label");
+        vendorLabel.append(translated("span", "Review vendor ID (optional)", "معرف مورد المراجعة (اختياري)"), vendor);
         parent.append(
             translated(
                 "p",
