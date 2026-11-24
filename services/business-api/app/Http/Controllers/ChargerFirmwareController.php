@@ -117,9 +117,18 @@ class ChargerFirmwareController extends Controller
     public function compatibility(Request $r, VendorCompany $company, VendorCharger $charger, ChargerResetController $guard, RemoteSessionAuthorization $source, FirmwareCompatibility $compatibility)
     {
         $this->enabled();
+        $sourceAuthority = [(string) config('csms.graphql_url'), (string) config('csms.graphql_secret')];
+        $requireAuthority = function () use ($sourceAuthority): void {
+            $this->enabled();
+            abort_unless(config('csms.graphql_url') === $sourceAuthority[0]
+                && hash_equals($sourceAuthority[1], (string) config('csms.graphql_secret')), 503,
+                'Firmware source authority changed during inspection.');
+        };
         $binding = $guard->scope($r, $company, $charger);
         $identityQuery = 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}';
+        $requireAuthority();
         $data = $source->graph($identityQuery, ['name' => $binding->identifier]);
+        $requireAuthority();
         $stations = $data['ChargingStations'] ?? null;
         abort_unless(is_array($stations) && array_is_list($stations) && count($stations) === 1 &&
             is_array($stations[0]) && is_int($stations[0]['id'] ?? null) && $stations[0]['id'] > 0 &&
@@ -162,9 +171,11 @@ class ChargerFirmwareController extends Controller
         // independent authenticated observation must preserve its exact
         // identity and monotonically recent heartbeat; a previous online
         // flag is not proof of continuing firmware eligibility.
+        $requireAuthority();
         $reviewRows = $source->graph($identityQuery, [
             'name' => $binding->identifier,
         ])['ChargingStations'] ?? null;
+        $requireAuthority();
         abort_unless(is_array($reviewRows) && array_is_list($reviewRows) &&
             count($reviewRows) === 1 && is_array($reviewRows[0]) &&
             is_int($reviewRows[0]['id'] ?? null) &&
@@ -196,7 +207,9 @@ class ChargerFirmwareController extends Controller
             ->where('company_id', $company->id)
             ->where('manufacturer', $charger->manufacturer)
             ->where('model', $charger->model)
-            ->orderByDesc('id')->limit(100)->get();
+            ->orderByDesc('id')->limit(101)->get();
+        // Never label a truncated catalog as a complete compatibility matrix.
+        abort_if($releases->count() > 100, 409, 'Firmware matrix exceeds the bounded inspection limit; narrow the approved catalog before reviewing.');
         foreach ($releases as $release) {
             // Validate each stored manifest signature against its approved
             // identity. Badly modified evidence blocks the entire projection.
@@ -230,6 +243,7 @@ class ChargerFirmwareController extends Controller
             ];
         }
 
+        $requireAuthority();
         return response()->json([
             'charger_id' => $charger->id,
             'protocol' => $binding->protocol,
