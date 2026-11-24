@@ -119,6 +119,28 @@ class CorporateHostedCollection
         return hash('sha256', json_encode($parts, JSON_THROW_ON_ERROR));
     }
 
+    /** Check the original persisted collection contract before any new TEST provider operation. */
+    private function validateCollectionSource(object $statement, iterable $lines, array $invoices, object $checkout): void
+    {
+        abort_unless(hash_equals($checkout->line_fingerprint,
+            $this->lineFingerprint($statement, $lines, $invoices))
+            && CorporateBilling::exactMinor($checkout->amount_minor) === CorporateBilling::exactMinor($statement->total_minor)
+            && $checkout->currency === $statement->currency
+            && (int) $checkout->minor_units === (int) $statement->minor_units,
+            409, 'Corporate checkout no longer matches its immutable statement.');
+        $held = DB::table('corporate_hosted_lines')
+            ->where('checkout_id', $checkout->id)->get()->keyBy('statement_line_id');
+        $count = 0;
+        foreach ($lines as $line) {
+            $source = $held->get($line->id);
+            abort_unless($source && (int) $source->invoice_id === (int) $line->invoice_id
+                && CorporateBilling::exactMinor($source->amount_minor) === CorporateBilling::exactMinor($line->total_minor),
+                409, 'Corporate checkout held invoice source does not reconcile.');
+            $count++;
+        }
+        abort_unless($count === $held->count(), 409, 'Unexpected corporate checkout held source.');
+    }
+
     private function unpaid(iterable $lines): void
     {
         foreach ($lines as $l) {
@@ -246,7 +268,8 @@ class CorporateHostedCollection
         $this->assertConfiguration($hint);
         $lease = Str::random(48);
         $h = DB::transaction(function () use ($hint, $actor, $lease) {
-            [,,$invoices,$h] = $this->roots((int) $hint->statement_id, $actor->id, (int) $hint->id);
+            [$s,$lines,$invoices,$h] = $this->roots((int) $hint->statement_id, $actor->id, (int) $hint->id);
+            $this->validateCollectionSource($s, $lines, $invoices, $h);
             abort_unless(! $h->provider_session && in_array($h->status, ['preparing', 'uncertain', 'needs_review'], true) && now()->lt($h->expires_at) && (! $h->lease_until || now()->gte($h->lease_until)), 409, 'Inspect the original preparation before retrying.');
             DB::table('corporate_hosted_checkouts')->where('id', $h->id)->update(['status' => 'preparing', 'lease' => $lease, 'lease_until' => now()->addMinutes(3), 'updated_at' => now()]);
 
@@ -387,8 +410,12 @@ class CorporateHostedCollection
         $this->assertConfiguration($hint);
 
         return DB::transaction(function () use ($hint, $actor, $kind) {
-            [, , ,$h] = $this->roots((int) $hint->statement_id, $actor->id, (int) $hint->id);
+            [$s,$lines,$invoices,$h] = $this->roots((int) $hint->statement_id, $actor->id, (int) $hint->id);
             $this->assertConfiguration($h);
+            if ($kind === 'capture') {
+                $this->validateCollectionSource($s, $lines, $invoices, $h);
+                $this->unpaid($lines);
+            }
             abort_unless($h->status === ($kind === 'expire' ? 'open' : 'authorized'), 409, 'Inspect the original authorization first.');
             $old = DB::table('corporate_hosted_operations')->where('checkout_id', $h->id)->where('kind', $kind)->lockForUpdate()->first();
             abort_if(DB::table('corporate_hosted_operations')->where('checkout_id', $h->id)->where('kind', '!=', $kind)->where('status', '!=', 'completed')->exists(), 409, 'Resolve the original corporate provider operation first.');
