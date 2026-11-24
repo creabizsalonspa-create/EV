@@ -31,8 +31,10 @@ bool confirmedPrechargeReceipt(dynamic receipt, Map<String,dynamic> estimate) {
      (receipt['accepted_at'] as String).length>64 ||
      receipt['valid_until'] is! String) return false;
   final value=receipt['valid_until'] as String;
-  final normalized=RegExp(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$').hasMatch(value)
-      ? '${value.replaceFirst(' ', 'T')}.000000Z' : value;
+  final sql=RegExp(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?$')
+      .firstMatch(value);
+  final normalized=sql==null ? value :
+      '${sql.group(1)!.replaceFirst(' ', 'T')}.${(sql.group(2) ?? '').padRight(6,'0')}Z';
   return validQuoteExpiry(normalized) &&
       DateTime.parse(normalized).toUtc() ==
           DateTime.parse(estimate['expires_at'] as String).toUtc();
