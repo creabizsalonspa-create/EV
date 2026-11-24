@@ -333,6 +333,43 @@ class SandboxRoamingTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 0);
     }
 
+    #[TestWith(['STOP_SESSION'])]
+    #[TestWith(['TOKEN_REVOKE'])]
+    public function test_later_roaming_commands_never_erase_a_durable_attempt_or_resend(string $action): void
+    {
+        [, $driver, , $provider, $location] = $this->fixture();
+        [$id] = $this->start($driver, $location);
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        $url = '/api/roaming/sandbox-orders/'.$id;
+        if ($action === 'STOP_SESSION') {
+            $this->withHeaders($this->peer())->putJson('/api/roaming-protocol/2.2.1/sessions/NL/ABC/S1', $this->sourceSessionFixture($provider, $order, $this->writes[0]['body']))->assertCreated();
+            $this->withHeaders(['Authorization' => ''])->postJson($url.'/reconcile')->assertOk()->assertJsonPath('state', 'source_active');
+        }
+        $injected = false;
+        DB::listen(function ($query) use ($action, &$injected) {
+            if (! $injected && str_starts_with($query->sql, 'insert into "ocpi_roaming_commands"')) {
+                $injected = true;
+                DB::table('ocpi_roaming_commands')->where('action', $action)->update(['attempted_at' => now()]);
+            }
+        });
+        if ($action === 'STOP_SESSION') {
+            $key = (string) Str::uuid();
+            $this->postJson($url.'/stop', ['request_key' => $key])->assertOk()->assertJsonPath('can_stop', false);
+            $this->postJson($url.'/stop', ['request_key' => $key])->assertOk();
+            $this->postJson($url.'/stop', ['request_key' => (string) Str::uuid()])->assertConflict();
+        } else {
+            $this->deleteJson($url.'/authority')->assertOk()->assertJsonPath('token_state', 'local_revoked')->assertJsonPath('can_complete_source_revocation', false);
+            $this->deleteJson($url.'/authority')->assertOk()->assertJsonPath('can_complete_source_revocation', false);
+        }
+        $this->assertTrue($injected);
+        $claim = DB::table('ocpi_roaming_commands')->where('order_id', $id)->where('action', $action)->first();
+        $this->assertNotNull($claim->attempted_at);
+        $this->assertSame('outcome_unknown', $claim->state);
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
     public function test_stale_authenticated_actor_cannot_create_new_roaming_consent_but_fresh_actor_can(): void
     {
         [, $driver, , , $location] = $this->fixture();

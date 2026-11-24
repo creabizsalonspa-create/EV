@@ -27,22 +27,47 @@ class RoamingDispatch
         return DB::table('ocpi_roaming_commands')->find($id);
     }
 
-    /** Match the durable command to the immutable bytes approved before token registration. */
-    private function preparedStartClaim(object $order, object $command, bool $lock = false): void
+    /** Match the durable command to the exact approved bytes and identity. */
+    private function sameClaim(object $order, object $command, object $claim, string $action): bool
     {
-        $query = DB::table('ocpi_roaming_commands')->where('id', $command->id);
-        $claim = ($lock ? $query->lockForUpdate() : $query)->first();
-        abort_unless($claim && (int) $claim->order_id === (int) $order->id
+        return (int) $claim->order_id === (int) $order->id
             && (int) $claim->actor_id === (int) $order->user_id
-            && $claim->action === 'START_SESSION'
+            && $claim->action === $action
             && $claim->request_key === $command->request_key
             && $claim->callback_key === $command->callback_key
             && hash_equals($command->intent_hash, $claim->intent_hash)
-            && hash_equals($command->payload_ciphertext, $claim->payload_ciphertext)
+            && hash_equals($command->payload_ciphertext, $claim->payload_ciphertext);
+    }
+
+    private function preparedClaim(object $order, object $command, string $action, bool $lock = false): void
+    {
+        $query = DB::table('ocpi_roaming_commands')->where('id', $command->id);
+        $claim = ($lock ? $query->lockForUpdate() : $query)->first();
+        abort_unless($claim && $this->sameClaim($order, $command, $claim, $action)
             && $claim->state === 'prepared' && $claim->attempted_at === null
             && $claim->transport_result === null && $claim->callback_hash === null
             && $claim->callback_result === null && $claim->callback_at === null,
-            409, 'Start claim changed; source reconciliation is required.');
+            409, 'Command claim changed; source reconciliation is required.');
+    }
+
+    private function preserveDispatchFailure(object $order, object $command, string $action, bool $wireAttempted): void
+    {
+        DB::transaction(function () use ($order, $command, $action, $wireAttempted) {
+            OcpiProvider::whereKey($order->provider_id)->lockForUpdate()->firstOrFail();
+            $row = DB::table('ocpi_roaming_orders')->where('id', $order->id)->lockForUpdate()->firstOrFail();
+            $claim = DB::table('ocpi_roaming_commands')->where('id', $command->id)->lockForUpdate()->first();
+            if (! $claim || (int) $claim->order_id !== (int) $row->id || $claim->action !== $action
+                || $claim->transport_result !== null || $claim->callback_hash !== null
+                || $claim->callback_result !== null || $claim->callback_at !== null
+                || ! in_array($claim->state, ['prepared', 'dispatching'], true)) {
+                return;
+            }
+            $uncertain = $wireAttempted || $claim->attempted_at !== null
+                || $claim->state !== 'prepared' || ! $this->sameClaim($row, $command, $claim, $action);
+            DB::table('ocpi_roaming_commands')->where('id', $claim->id)->update([
+                'state' => $uncertain ? 'outcome_unknown' : 'not_dispatched', 'updated_at' => now(),
+            ]);
+        }, 3);
     }
 
     public function start(object $order): void
@@ -72,7 +97,7 @@ class RoamingDispatch
         try {
             $current = DB::table('ocpi_roaming_orders')->find($order->id);
             [$provider] = $service->current($current, true);
-            $this->preparedStartClaim($current, $command);
+            $this->preparedClaim($current, $command, 'START_SESSION');
             $payload = json_decode(Crypt::decryptString($command->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
             abort_unless(is_array($payload) && hash_equals($command->intent_hash,
                 hash('sha256', json_encode([$current->id, 'START_SESSION', $payload], JSON_THROW_ON_ERROR))), 409);
@@ -91,7 +116,7 @@ class RoamingDispatch
                 $row = DB::table('ocpi_roaming_orders')->where('id', $current->id)->lockForUpdate()->firstOrFail();
                 [$provider] = $service->current($row, true);
                 abort_unless($row->state === 'registering_token' && $row->token_state === 'registered' && $row->token_revoked_at === null, 409);
-                $this->preparedStartClaim($row, $command, true);
+                $this->preparedClaim($row, $command, 'START_SESSION', true);
                 DB::table('ocpi_roaming_orders')->where('id', $row->id)->update(['state' => 'start_dispatching', 'updated_at' => now()]);
                 DB::table('ocpi_roaming_commands')->where('id', $command->id)->update(['state' => 'dispatching', 'attempted_at' => now(), 'updated_at' => now()]);
 
@@ -131,6 +156,7 @@ class RoamingDispatch
             OcpiProvider::whereKey($order->provider_id)->lockForUpdate()->firstOrFail();
             $row = DB::table('ocpi_roaming_orders')->where('id', $order->id)->lockForUpdate()->firstOrFail();
             $cmd = DB::table('ocpi_roaming_commands')->where('id', $command->id)->lockForUpdate()->firstOrFail();
+            abort_unless($this->sameClaim($row, $command, $cmd, $command->action) && $cmd->attempted_at !== null, 409);
             if ($cmd->transport_result !== null) {
                 abort_unless($cmd->transport_result === $result, 409);
 
@@ -140,10 +166,10 @@ class RoamingDispatch
             // before a synchronous rejection. Preserve both facts and capacity
             // until source reconciliation; rejection alone no longer proves no start.
             $start = $command->action === 'START_SESSION';
-            $conflicting = $start && $result !== 'ACCEPTED' && (
+            $conflicting = $result !== 'ACCEPTED' && (
                 $cmd->callback_hash !== null || $cmd->callback_result !== null
-                || $cmd->callback_at !== null || $row->authorized_at !== null
-                || in_array($row->state, ['source_active', 'source_completed'], true)
+                || $cmd->callback_at !== null || ($start && ($row->authorized_at !== null
+                    || in_array($row->state, ['source_active', 'source_completed'], true)))
             );
             $state = $conflicting ? 'outcome_unknown' : ($result === 'ACCEPTED' ? 'transport_accepted' : 'partner_rejected');
             DB::table('ocpi_roaming_commands')->where('id', $cmd->id)->update(['transport_result' => $result, 'state' => $state, 'updated_at' => now()]);
@@ -192,9 +218,9 @@ class RoamingDispatch
                 abort_unless($row->user_id === $actor->id && $row->state === 'source_active' && $row->source_session_record_id !== null, 409);
                 $session = OcpiRecord::findOrFail($row->source_session_record_id);
                 abort_unless(($session->normalized['status'] ?? null) === 'ACTIVE' && $session->external_id === $payload['session_id'] && $service->ownsSourceSession($row, $session), 409);
-                [$provider] = $service->current($row);
-                $claim = DB::table('ocpi_roaming_commands')->where('id', $command->id)->lockForUpdate()->firstOrFail();
-                abort_unless($claim->order_id === $row->id && $claim->state === 'prepared' && $claim->attempted_at === null && $claim->transport_result === null && $claim->callback_hash === null && $claim->callback_result === null && $claim->callback_at === null, 409);
+                [$provider, , $local] = $service->current($row);
+                abort_unless(($payload['response_url'] ?? null) === $this->callback($local, $command->callback_key), 409);
+                $this->preparedClaim($row, $command, 'STOP_SESSION', true);
                 DB::table('ocpi_roaming_commands')->where('id', $command->id)->update(['state' => 'dispatching', 'attempted_at' => now(), 'updated_at' => now()]);
 
                 return $provider;
@@ -203,11 +229,7 @@ class RoamingDispatch
             $response = app(PartnerClient::class)->write($provider, 'commands_receiver', 'POST', ['STOP_SESSION'], $payload);
             $this->receipt($order, $command, $response);
         } catch (Throwable) {
-            $values = ['state' => $wireAttempted ? 'outcome_unknown' : 'not_dispatched', 'updated_at' => now()];
-            if (! $wireAttempted) {
-                $values['attempted_at'] = null;
-            }
-            DB::table('ocpi_roaming_commands')->where('id', $command->id)->whereNull('transport_result')->whereNull('callback_hash')->whereNull('callback_result')->whereNull('callback_at')->update($values);
+            $this->preserveDispatchFailure($order, $command, 'STOP_SESSION', $wireAttempted);
         }
     }
 
@@ -240,31 +262,41 @@ class RoamingDispatch
             if (! $command) {
                 return;
             }
-            $p = DB::transaction(function () use ($order, $actor, $command, $service) {
+            $token = json_decode(Crypt::decryptString($command->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
+            abort_unless(is_array($token) && ($token['valid'] ?? null) === false && hash_equals($command->intent_hash, hash('sha256', json_encode([$order->id, 'TOKEN_REVOKE', $token], JSON_THROW_ON_ERROR))), 409);
+            $p = DB::transaction(function () use ($order, $actor, $command, $service, $token) {
                 app(ChargingActorConsent::class)->capture($actor);
                 OcpiProvider::whereKey($order->provider_id)->lockForUpdate()->firstOrFail();
                 $row = DB::table('ocpi_roaming_orders')->where('id', $order->id)->lockForUpdate()->firstOrFail();
                 abort_unless($row->user_id === $actor->id && $row->token_revoked_at !== null, 409);
                 [$provider] = $service->current($row);
-                $claim = DB::table('ocpi_roaming_commands')->where('id', $command->id)->lockForUpdate()->firstOrFail();
-                abort_unless($claim->order_id === $row->id && $claim->state === 'prepared' && $claim->attempted_at === null && $claim->transport_result === null && $claim->callback_hash === null && $claim->callback_result === null && $claim->callback_at === null, 409);
+                $expected = $service->token($row, false);
+                // A proven-unsent retry retains its original source timestamp.
+                unset($expected['last_updated']);
+                $actual = $token;
+                unset($actual['last_updated']);
+                abort_unless($expected === $actual, 409);
+                $this->preparedClaim($row, $command, 'TOKEN_REVOKE', true);
                 DB::table('ocpi_roaming_commands')->where('id', $command->id)->update(['state' => 'dispatching', 'attempted_at' => now(), 'updated_at' => now()]);
 
                 return $provider;
             }, 3);
-            $token = json_decode(Crypt::decryptString($command->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
-            abort_unless(($token['valid'] ?? null) === false && hash_equals($command->intent_hash, hash('sha256', json_encode([$order->id, 'TOKEN_REVOKE', $token], JSON_THROW_ON_ERROR))), 409);
             $wireAttempted = true;
             app(PartnerClient::class)->write($p, 'tokens_receiver', 'PUT', [$token['country_code'], $token['party_id'], $token['uid']], $token);
-            DB::table('ocpi_roaming_commands')->where('id', $command->id)->update(['state' => 'transport_accepted', 'transport_result' => 'ACCEPTED', 'updated_at' => now()]);
-            DB::table('ocpi_roaming_orders')->where('id', $order->id)->update(['token_state' => 'partner_revoked', 'updated_at' => now()]);
+            DB::transaction(function () use ($order, $command) {
+                OcpiProvider::whereKey($order->provider_id)->lockForUpdate()->firstOrFail();
+                $row = DB::table('ocpi_roaming_orders')->where('id', $order->id)->lockForUpdate()->firstOrFail();
+                $claim = DB::table('ocpi_roaming_commands')->where('id', $command->id)->lockForUpdate()->firstOrFail();
+                abort_unless($this->sameClaim($row, $command, $claim, 'TOKEN_REVOKE') && $claim->attempted_at !== null
+                    && $claim->state === 'dispatching' && $claim->transport_result === null
+                    && $claim->callback_hash === null && $claim->callback_result === null && $claim->callback_at === null
+                    && $row->token_revoked_at !== null, 409);
+                DB::table('ocpi_roaming_commands')->where('id', $claim->id)->update(['state' => 'transport_accepted', 'transport_result' => 'ACCEPTED', 'updated_at' => now()]);
+                DB::table('ocpi_roaming_orders')->where('id', $row->id)->update(['token_state' => 'partner_revoked', 'updated_at' => now()]);
+            }, 3);
         } catch (Throwable) {
             if (isset($command) && $command) {
-                $values = ['state' => $wireAttempted ? 'outcome_unknown' : 'not_dispatched', 'updated_at' => now()];
-                if (! $wireAttempted) {
-                    $values['attempted_at'] = null;
-                }
-                DB::table('ocpi_roaming_commands')->where('id', $command->id)->whereNull('transport_result')->whereNull('callback_hash')->whereNull('callback_result')->whereNull('callback_at')->update($values);
+                $this->preserveDispatchFailure($order, $command, 'TOKEN_REVOKE', $wireAttempted);
             }
         }
     }
