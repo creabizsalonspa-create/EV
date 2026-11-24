@@ -33,14 +33,14 @@ class SubscriptionTest extends TestCase
     private function subscribe(array $p, ?User $u = null): array
     {
         $u ??= User::factory()->create(['role' => $p['audience']]);
-        $d = $this->actingAs($u)->postJson('/subscription-test/commercial/subscriptions', ['plan_id' => $p['id'], 'idempotency_key' => 'enroll'])->assertCreated()->json();
+        $d = $this->actingAs($u)->postJson('/subscription-test/commercial/subscriptions', ['plan_id' => $p['id'], 'idempotency_key' => 'enroll'])->assertCreated()->assertHeader('Cache-Control', 'private, no-store')->json();
 
         return [$u, $d, '/subscription-test/commercial/subscriptions/'.$d['subscription']['id']];
     }
 
     private function pay(array $f, string $key = 'pay', string $outcome = 'succeeded'): array
     {
-        return $this->actingAs($f[0])->postJson($f[2].'/mock-payment', ['invoice_id' => end($f[1]['invoices'])['id'], 'outcome' => $outcome, 'idempotency_key' => $key])->assertOk()->json();
+        return $this->actingAs($f[0])->postJson($f[2].'/mock-payment', ['invoice_id' => end($f[1]['invoices'])['id'], 'outcome' => $outcome, 'idempotency_key' => $key])->assertOk()->assertHeader('Cache-Control', 'private, no-store')->json();
     }
 
     public function test_paginated_plan_subscription_and_private_event_reads_enforce_exact_pages_after_authority(): void
@@ -57,8 +57,10 @@ class SubscriptionTest extends TestCase
             $base.'/subscriptions/'.$id.'/events',
         ] as $url) {
             $this->getJson($url.'?page=1')->assertOk()
+                ->assertHeader('Cache-Control', 'private, no-store')
                 ->assertJsonPath('current_page', 1);
             $this->getJson($url.'?page=10000')->assertOk()
+                ->assertHeader('Cache-Control', 'private, no-store')
                 ->assertJsonPath('current_page', 10000)
                 ->assertJsonCount(0, 'data');
             foreach (['0', '-1', 'abc', '100001', '1e5'] as $bad) {
@@ -117,7 +119,8 @@ class SubscriptionTest extends TestCase
 
         $f = $this->subscribe($this->plan());
         $before = DB::table('commercial_subscription_ledger')->count();
-        $response = $this->actingAs($f[0])->getJson($f[2])->assertOk();
+        $response = $this->actingAs($f[0])->getJson($f[2])->assertOk()
+            ->assertHeader('Cache-Control', 'private, no-store');
         $response->assertJsonPath('ledger_balanced', true)
             ->assertJsonPath('refunded_minor', 0)
             ->assertJsonPath('net_collected_minor', 0)
