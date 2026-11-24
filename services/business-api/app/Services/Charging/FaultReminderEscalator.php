@@ -147,7 +147,7 @@ class FaultReminderEscalator
                     return false;
                 }
                 $occurredAt = self::sourceTimestamp($observation->occurred_at);
-                if ($occurredAt === null) {
+                if ($occurredAt === null || $occurredAt->greaterThan(now())) {
                     return false;
                 }
                 // An on-call escalation is a historical incident record.
@@ -176,12 +176,22 @@ class FaultReminderEscalator
                             $recovered->evse_number === $observation->evse_number &&
                             $recovered->connector_number === $observation->connector_number &&
                             $recovered->status === 'Available' &&
-                            in_array($recovered->error_code, [null, 'NoError'], true)) {
+                            ($binding->protocol === '1.6'
+                                ? $recovered->error_code === 'NoError'
+                                : in_array($recovered->error_code, [null, 'NoError'], true))) {
                             $resolution = 'source_recovered';
                         }
                     }
                     if ($resolution === null && $alert->acknowledged_at !== null) {
-                        $resolution = 'operator_acknowledged';
+                        $acknowledgedAt = self::sourceTimestamp($alert->acknowledged_at);
+                        // An acknowledgement is a historical operator receipt,
+                        // not a source recovery. Never close on an orphaned,
+                        // future or pre-fault acknowledgement.
+                        if ($alert->acknowledged_by !== null && $acknowledgedAt !== null
+                            && $acknowledgedAt->greaterThanOrEqualTo($occurredAt)
+                            && $acknowledgedAt->lessThanOrEqualTo(now())) {
+                            $resolution = 'operator_acknowledged';
+                        }
                     }
                     if ($resolution === null) {
                         return false;
