@@ -80,12 +80,18 @@ void main() {
       ));
       await tester.pumpAndSettle();
       final panel=find.byKey(const Key('journey-energy-review'));
-      await tester.scrollUntilVisible(panel,300);
+      // EditableText inputs also create Scrollables; target the outer
+      // itinerary ListView rather than selecting an ambiguous generic type.
+      final itinerary = find.descendant(
+        of: find.byType(ListView),
+        matching: find.byType(Scrollable),
+      ).first;
+      await tester.scrollUntilVisible(panel,300,scrollable:itinerary);
       await tester.tap(panel);
       await tester.pumpAndSettle();
       for(final e in raw.entries) {
         final field=find.byKey(Key('energy-${e.key}'));
-        await tester.scrollUntilVisible(field,150,scrollable:find.byType(Scrollable).first);
+        await tester.scrollUntilVisible(field,150,scrollable:itinerary);
         await tester.enterText(field,e.value);
         await tester.pumpAndSettle();
       }
@@ -93,7 +99,7 @@ void main() {
       await tester.pumpAndSettle();
       final warning=find.text(ar?'أول توقف يتجاوز المدى المفترض حتى بخط مستقيم.':
         'First stop exceeds the assumed range even in a straight line.');
-      await tester.scrollUntilVisible(warning,200,scrollable:find.byType(Scrollable).first);
+      await tester.scrollUntilVisible(warning,200,scrollable:itinerary);
       expect(warning,findsOneWidget);
       expect(calls,1);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);

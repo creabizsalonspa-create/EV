@@ -9,15 +9,104 @@ class Element {
  querySelectorAll(tag){return find(this,n=>n.tag===tag);}
 }
 function find(root,match){return [...(match(root)?[root]:[]),...root.children.flatMap(n=>find(n,match))];}
-function fixture(ar=false){const root=new Element('section'),window={},document={documentElement:{lang:ar?'ar':'en'},getElementById:()=>root,createElement:tag=>new Element(tag)};
+function fixture(ar=false){const root=new Element('section'),window={addEventListener(name,fn){this[name]=fn}},document={visibilityState:'visible',addEventListener:(name,fn)=>{window[name]=fn},documentElement:{lang:ar?'ar':'en'},getElementById:()=>root,createElement:tag=>new Element(tag)};
  vm.runInNewContext(fs.readFileSync('services/business-api/public/phone-verification.js','utf8'),{window,document,crypto:{randomUUID:()=> 'unique-request-identity'}});
- return {root,...window.EvPhoneVerification};}
+ return {root,document,window,...window.EvPhoneVerification};}
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const submit=form=>form.onsubmit({preventDefault(){}});
 function input(form,name){return find(form,n=>n.name===name)[0];}
 function button(ui,label){return find(ui.root,n=>n.tag==='button'&&n.textContent===label)[0];}
 const status={available:true,verified:false,phone_mask:null,challenge:null};
 
+
+for(const ar of [false,true]){
+ test('first-hidden phone status makes zero private GETs until explicit Refresh ('+(ar?'ar':'en')+')',async()=>{
+  const ui=fixture(ar),calls=[];
+  ui.document.visibilityState='hidden';
+  await ui.setActor({role:'customer'},async path=>{calls.push(path);return status});
+  assert.equal(calls.length,0);
+  assert.equal(find(ui.root,n=>n.tag==='form').length,0);
+  ui.document.visibilityState='visible';
+  await tick();
+  assert.equal(calls.length,0,'resume cannot silently query phone status');
+  await button(ui,ar?'تحديث حالة التحقق':'Refresh verification status').onclick();
+  await tick();
+  assert.deepEqual(calls,['account/phone']);
+  assert.ok(find(ui.root,n=>n.tag==='form').length>0);
+ });
+ test('browser hide clears private OTP, password, masked phone and consent ('+(ar?'ar':'en')+')',async()=>{
+  const ui=fixture(ar),calls=[];
+  await ui.setActor({role:'vendor'},async path=>{calls.push(path);return {...status,verified:true,phone_mask:'••••3456',challenge:{id:'owned-challenge',status:'pending'}}});
+  assert.match(ui.root.textContent,/3456/);
+  const inputs=find(ui.root,n=>n.tag==='input');
+  const secret=inputs.find(n=>n.type==='password');
+  secret.value='PRIVATE_PASSWORD';
+  const consent=inputs.find(n=>n.type==='checkbox');
+  consent.checked=true;
+  ui.document.visibilityState='hidden';ui.window.visibilitychange();
+  assert.doesNotMatch(ui.root.textContent,/3456|PRIVATE_PASSWORD/);
+  assert.ok(inputs.every(n=>n.value===''));
+  assert.equal(consent.checked,false);
+  assert.equal(find(ui.root,n=>n.tag==='form').length,0);
+  ui.document.visibilityState='visible';await tick();
+  assert.equal(calls.length,1,'resumed tab cannot read without deliberate consent');
+  await button(ui,ar?'تحديث حالة التحقق':'Refresh verification status').onclick();
+  await tick();
+  assert.equal(calls.length,2);
+  assert.match(ui.root.textContent,/3456/);
+ });
+ test('pagehide aborts a pending private phone GET across BFCache restore ('+(ar?'ar':'en')+')',async()=>{
+  const ui=fixture(ar);let resolve,reads=0;
+  const pending=new Promise(r=>{resolve=r});
+  const opening=ui.setActor({role:'customer'},async()=>{reads++;return pending});
+  assert.equal(reads,1);
+  ui.window.pagehide();
+  resolve({...status,verified:true,phone_mask:'PRIVATE_OLD_PHONE'});
+  await opening;
+  assert.doesNotMatch(ui.root.textContent,/PRIVATE_OLD_PHONE/);
+  assert.equal(reads,1);
+  assert.equal(find(ui.root,n=>n.tag==='form').length,0);
+ });
+ test('malformed foreign phone challenge fails closed then recovers ('+(ar?'ar':'en')+')',async()=>{
+  const ui=fixture(ar);let invalid=true,reads=0;
+  await ui.setActor({role:'customer'},async()=>{
+   reads++;
+   return {...status,challenge:invalid?{id:'../other-account',status:'pending'}:null};
+  });
+  assert.equal(find(ui.root,n=>n.tag==='form').length,0);
+  assert.doesNotMatch(ui.root.textContent,/other-account/);
+  invalid=false;
+  await button(ui,ar?'تحديث حالة التحقق':'Refresh verification status').onclick();
+  await tick();
+  assert.equal(reads,2);
+  assert.ok(find(ui.root,n=>n.tag==='form').length>0);
+ });
+}
+
+test('stale detached SMS form cannot reuse old consent after a malformed status refresh',async()=>{
+ const ui=fixture();let malformed=false;const writes=[];
+ await ui.setActor({role:'customer'},async (path,method,body)=>{
+  if(method){writes.push(body);return {id:'owned',status:'pending'};}
+  return malformed?{...status,challenge:{id:'../malicious',status:'pending'}}:status;
+ });
+ const oldForm=find(ui.root,n=>n.tag==='form')[0];
+ const consent=find(oldForm,n=>n.type==='checkbox')[0];
+ consent.checked=true;
+ input(oldForm,'phone').value='+971501234567';
+ input(oldForm,'password').value='PRIVATE_REAUTH_CREDENTIAL';
+ malformed=true;
+ await button(ui,'Refresh verification status').onclick();await tick();
+ assert.equal(find(ui.root,n=>n.tag==='form').length,0);
+ assert.equal(input(oldForm,'password').value,'');
+ assert.equal(input(oldForm,'phone').value,'');
+ assert.equal(consent.checked,false);
+ consent.checked=true;
+ input(oldForm,'phone').value='+971501234567';
+ input(oldForm,'password').value='EXPLICIT_STALE_REENTRY';
+ submit(oldForm);await tick();
+ assert.equal(writes.length,0,'detached prior-generation action cannot request SMS');
+ assert.doesNotMatch(ui.root.textContent,/PRIVATE_REAUTH_CREDENTIAL|malicious/);
+});
 test('disabled delivery and unsupported actors never expose a fake verification form',async()=>{
  const ui=fixture(true),calls=[];
  await ui.setActor({role:'admin'},async path=>calls.push(path));assert.equal(calls.length,0);

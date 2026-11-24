@@ -129,6 +129,40 @@ class SubscriptionCreditTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_invalid_test_provider_refund_form_cannot_probe_a_revoked_admin_or_unknown_subscription(): void
+    {
+        $f = $this->fixture();
+        $current = $f[0];
+        $path = $f[5];
+        $bad = ['amount_minor' => 0, 'reason' => '', 'invoice_id' => 0];
+        $priorCredits = DB::table('subscription_credits')->count();
+        $priorRequests = DB::table('subscription_credit_requests')->count();
+        $priorLedger = DB::table('commercial_subscription_ledger')->count();
+
+        $this->postJson($path, $bad)->assertUnprocessable();
+        $this->postJson('/subscription-credit-test/commercial/subscriptions/999999/credits', $bad)
+            ->assertNotFound();
+
+        $saved = DB::table('users')->where('id', $current->id)
+            ->first(['account_status', 'role', 'auth_epoch', 'password']);
+        foreach ([
+            ['account_status' => 'suspended'],
+            ['role' => 'vendor'],
+            ['auth_epoch' => (int) $saved->auth_epoch + 1],
+            ['password' => Hash::make('rotated-approval-identity')],
+        ] as $change) {
+            DB::table('users')->where('id', $current->id)->update($change);
+            $this->postJson($path, $bad)->assertConflict();
+            $this->postJson('/subscription-credit-test/commercial/subscriptions/999999/credits', $bad)
+                ->assertConflict();
+            DB::table('users')->where('id', $current->id)->update((array) $saved);
+        }
+        $this->assertSame($priorCredits, DB::table('subscription_credits')->count());
+        $this->assertSame($priorRequests, DB::table('subscription_credit_requests')->count());
+        $this->assertSame($priorLedger, DB::table('commercial_subscription_ledger')->count());
+        Http::assertNothingSent();
+    }
+
     public function test_overrefund_conflicting_key_and_unpaid_invoice_fail_without_financial_posting(): void
     {
         $f = $this->fixture();
