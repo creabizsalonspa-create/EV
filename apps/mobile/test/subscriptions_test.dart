@@ -10,7 +10,7 @@ import 'vendor_finance_test.dart' show VendorOperationStore, PausedVendorStore;
 class SubscriptionApi extends FixtureApi {
   bool lost = false, wrongOwner = false;
   int? forgedPlanId, forgedCurrentPage, forgedTotal;
-  Map<String, dynamic>? historyOverride;
+  Map<String, dynamic>? historyOverride, writeReceiptOverride;
   int writes = 0;
   Completer<dynamic>? meWait, detailWait, eventsWait, postWait;
   final bodies = <Map<String, dynamic>>[];
@@ -69,7 +69,7 @@ class SubscriptionApi extends FixtureApi {
       writes++;
       bodies.add({...body!});
       if (lost) throw const ApiException(0, 'private-subscription-diagnostic');
-      return postWait?.future ?? summary;
+      return postWait?.future ?? writeReceiptOverride ?? summary;
     }
     if (path == 'commercial/plans')
       return {
@@ -204,6 +204,10 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('Published <literal> plan'), findsOneWidget);
     expect(find.textContaining('1.250 KWD'), findsOneWidget);
+    api.writeReceiptOverride = {
+      ...api.summary,
+      'plan': Map<String, dynamic>.from(api.plan),
+    };
 
     // A caller can retain the original transport Map and mutate it after
     // a user sees its price. Never silently switch the selected plan ID.
@@ -221,6 +225,27 @@ void main() {
     expect(api.bodies.single['plan_id'], 7);
     expect(store.values, isEmpty);
     expect(api.writes, 1);
+  });
+
+  testWidgets('wrong source plan receipt never acknowledges a durable native enrollment',
+      (t) async {
+    final api = SubscriptionApi();
+    final store = VendorOperationStore();
+    api.writeReceiptOverride = {
+      ...api.summary,
+      'plan': {...api.plan, 'id': 8},
+    };
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionActionView(
+      api: api, onExpired: () {}, action: 'enroll',
+      plan: api.plan, store: store,
+    )));
+    await t.pumpAndSettle();
+    await confirm(t);
+    expect(api.writes, 1);
+    expect(api.bodies.single['plan_id'], 7);
+    expect(store.values.length, 1);
+    expect(find.text(subscriptionEn['done']!), findsNothing);
   });
 
   testWidgets('open subscription billing action clears consent and replay UI on logout',
@@ -785,6 +810,16 @@ void main() {
     expect(t.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
     expect(api.writes, 0);
     expect(api.calls.where((x) => x.endsWith('/change')), isEmpty);
+  });
+
+  test('subscription summary refuses mismatched immutable plan source', () {
+    final api = SubscriptionApi();
+    final wrong = {
+      ...api.summary,
+      'plan': {...api.plan, 'id': 8},
+    };
+    expect(() => subscriptionSummary(wrong, 1, id: 4),
+      throwsFormatException);
   });
 
   test('accepted private subscription invoice source is deep immutable', () {
