@@ -235,6 +235,13 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
             ->assertJsonPath('capability_matrix.modules.3.local_receiver_request_ready', true)
             ->assertJsonPath('capability_matrix.live_roaming_verified', false)
             ->assertJsonPath('capability_matrix.payment_authority', false);
+        $owner->forceFill(['role' => 'customer'])->save();
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('active_receiver_modules', [])
+            ->assertJsonPath('capability_matrix.modules.2.local_receiver_active', false)
+            ->assertJsonPath('capability_matrix.modules.2.local_receiver_request_ready', false)
+            ->assertJsonPath('capability_matrix.modules.3.local_receiver_request_ready', false);
+        $owner->forceFill(['role' => 'vendor'])->save();
         $provider->update(['authorized' => false]);
         $this->getJson($path)->assertOk()
             ->assertJsonPath('capability_matrix.modules.2.local_receiver_request_ready', false)
