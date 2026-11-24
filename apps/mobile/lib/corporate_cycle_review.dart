@@ -246,11 +246,15 @@ class _CycleState extends State<CorporateCycleReviewView>
         currency: widget.currency, precision: widget.precision);
       setState(() => review = result);
     } catch (error) {
+      // A genuine expiry invalidates the request's session fence before
+      // EvApi throws. Only the current API generation may request sign-in.
+      if (mounted && identical(api, widget.api) &&
+          error is ApiException && error.endsCurrentSession) {
+        widget.onExpired();
+        return;
+      }
       if (!current()) return;
       setState(() { review = null; failed = true; });
-      if (error is ApiException && [401, 419].contains(error.status)) {
-        widget.onExpired();
-      }
     } finally {
       if (current()) setState(() => busy = false);
     }
@@ -289,11 +293,13 @@ class _CycleState extends State<CorporateCycleReviewView>
       final id = data.verifyIssueReceipt(response);
       setState(() { issuedId = id; review = null; });
     } catch (error) {
+      if (mounted && identical(api, widget.api) &&
+          error is ApiException && error.endsCurrentSession) {
+        widget.onExpired();
+        return;
+      }
       if (!current()) return;
       setState(() => issueFailed = true);
-      if (error is ApiException && [401, 419].contains(error.status)) {
-        widget.onExpired();
-      }
     } finally {
       if (current()) setState(() => busy = false);
     }
