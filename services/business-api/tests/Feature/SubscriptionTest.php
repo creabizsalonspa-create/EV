@@ -76,6 +76,57 @@ class SubscriptionTest extends TestCase
         $this->assertDatabaseCount('commercial_subscription_receipts', 0);
     }
 
+    public function test_subscription_financial_sources_are_exact_before_summary_and_mobile_display(): void
+    {
+        $minor = new \ReflectionMethod(SubscriptionService::class, 'exactMinor');
+        $sum = new \ReflectionMethod(SubscriptionService::class, 'checkedSum');
+        $add = new \ReflectionMethod(SubscriptionService::class, 'checkedAdd');
+        $max = 9_007_199_254_740_991;
+
+        $this->assertSame($max, $minor->invoke(null, (string) $max));
+        $this->assertSame(0, $minor->invoke(null, '0'));
+        $this->assertSame($max, $add->invoke(null, $max - 5, 5));
+        $this->assertSame(0, $add->invoke(null, $max, -$max, true));
+        $this->assertSame($max, $sum->invoke(null, [
+            (object) ['amount_minor' => '4503599627370495'],
+            (object) ['amount_minor' => 4_503_599_627_370_496],
+        ], 'amount_minor'));
+
+        foreach ([true, false, 100.0, -100.0, '-1', '1.5', '1e3',
+            '9007199254740992', 'non-money'] as $bad) {
+            try {
+                $minor->invoke(null, $bad);
+                $this->fail('Unsafe subscription source was rounded into minor units.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+        foreach ([
+            [(object) ['amount_minor' => 4_503_599_627_370_496],
+                (object) ['amount_minor' => 4_503_599_627_370_496]],
+            [(object) ['amount_minor' => true]],
+            [(object) ['amount_minor' => -1]],
+        ] as $unsafe) {
+            try {
+                $sum->invoke(null, $unsafe, 'amount_minor');
+                $this->fail('Unsafe subscription aggregate was accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+
+        $f = $this->subscribe($this->plan());
+        $before = DB::table('commercial_subscription_ledger')->count();
+        $response = $this->actingAs($f[0])->getJson($f[2])->assertOk();
+        $response->assertJsonPath('ledger_balanced', true)
+            ->assertJsonPath('refunded_minor', 0)
+            ->assertJsonPath('net_collected_minor', 0)
+            ->assertJsonPath('invoices.0.total_minor', 1049);
+        $this->assertSame($before, DB::table('commercial_subscription_ledger')->count());
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+        $this->assertDatabaseCount('subscription_credits', 0);
+    }
+
     public function test_enrollment_payment_entitlements_and_replays_are_connected(): void
     {
         $p = $this->plan();
