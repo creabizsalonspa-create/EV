@@ -131,6 +131,12 @@ class CorporateHostedCollection
 
     public function statementContract(object $s, iterable $lines, int $actor): array
     {
+        // roots() has always ordered the persisted checkout contract by
+        // invoice identity. Statement display order follows claim identity
+        // instead, which can differ when drivers submit older invoices late.
+        // Canonicalize only the input to the existing fingerprint encoding;
+        // never change an already persisted checkout's fingerprint.
+        $lines = collect($lines)->sortBy(fn ($line) => (int) $line->invoice_id)->values();
         $invoices = [];
         foreach ($lines as $l) {
             $invoices[$l->invoice_id] = Invoice::findOrFail($l->invoice_id);
