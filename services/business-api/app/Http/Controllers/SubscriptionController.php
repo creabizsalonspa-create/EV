@@ -33,6 +33,7 @@ class SubscriptionController extends Controller
     {
         return DB::transaction(function () use ($r) {
             $current = $this->currentActor($r);
+            $v = $r->validate(['page' => 'sometimes|integer|between:1,100000']);
             $q = DB::table('commercial_plan_versions as p')
                 ->join('commercial_plan_availability as a', 'a.plan_id', '=', 'p.id')
                 ->select('p.*', 'a.available');
@@ -40,7 +41,9 @@ class SubscriptionController extends Controller
                 $q->where('p.audience', $current->role)->where('a.available', true);
             }
 
-            return $q->orderByDesc('p.id')->paginate(25)->through(function ($p) {
+            return $q->orderByDesc('p.id')
+                ->paginate(25, ['*'], 'page', (int) ($v['page'] ?? 1))
+                ->through(function ($p) {
                 $p->available = (bool) $p->available;
                 $p->entitlements = json_decode($p->entitlements, true, 512, JSON_THROW_ON_ERROR);
 
@@ -94,10 +97,13 @@ class SubscriptionController extends Controller
     {
         return DB::transaction(function () use ($r) {
             $current = $this->currentActor($r);
+            $v = $r->validate(['page' => 'sometimes|integer|between:1,100000']);
 
             return DB::table('commercial_subscriptions')
                 ->when($current->role !== 'admin', fn ($q) => $q->where('user_id', $current->id))
-                ->orderByDesc('id')->paginate(25)->through(function ($s) {
+                ->orderByDesc('id')
+                ->paginate(25, ['*'], 'page', (int) ($v['page'] ?? 1))
+                ->through(function ($s) {
                     $s->cancel_at_period_end = (bool) $s->cancel_at_period_end;
 
                     return $s;
@@ -187,11 +193,14 @@ class SubscriptionController extends Controller
         return DB::transaction(function () use ($r, $subscription, $s) {
             $current = $this->currentActor($r);
             $s->access($current, $subscription);
+            $v = $r->validate(['page' => 'sometimes|integer|between:1,100000']);
 
             return DB::table('commercial_subscription_events')
                 ->where('subscription_id', $subscription)
                 ->select(['id', 'kind', 'data', 'created_at'])
-                ->orderByDesc('id')->paginate(25)->through(function ($e) {
+                ->orderByDesc('id')
+                ->paginate(25, ['*'], 'page', (int) ($v['page'] ?? 1))
+                ->through(function ($e) {
                     $e->data = json_decode($e->data, true, 512, JSON_THROW_ON_ERROR);
 
                     return $e;
