@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Charging\AdmissionProfile;
+use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\AdmissionIdentity;
@@ -51,10 +52,11 @@ class ChargerAdmissionController extends Controller
         abort_unless(in_array($charger->ocpp_protocol, ['1.6', '2.0.1'], true), 409, 'Set an OCPP protocol before provisioning.');
         try {
             return DB::transaction(function () use ($r, $company, $charger, $v) {
-                VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+                $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+                $charger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
                 $this->scope($r, $company, $charger, true);
-                app(VendorAccess::class)->operational($company->fresh());
-                VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
+                app(VendorAccess::class)->operational($company);
+                $this->requireActiveOwner($company);
                 abort_unless(app(AdmissionIdentity::class)->compatible($company, $charger, $v['identity'], $charger->ocpp_protocol, app()->environment('production')), 409, 'Charger identity requires canonical ownership review.');
                 $old = AdmissionProfile::where('charger_id', $charger->id)->first();
                 if ($old) {
@@ -79,9 +81,11 @@ class ChargerAdmissionController extends Controller
         $v = $r->validate(['expected_version' => 'required|integer|min:0', 'days' => 'required|integer|between:1,90']);
 
         return DB::transaction(function () use ($r, $company, $charger, $v) {
-            VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $charger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
             $this->scope($r, $company, $charger, true);
-            app(VendorAccess::class)->operational($company->fresh());
+            app(VendorAccess::class)->operational($company);
+            $this->requireActiveOwner($company);
             $p = AdmissionProfile::where('charger_id', $charger->id)->lockForUpdate()->firstOrFail();
             abort_unless(app(AdmissionIdentity::class)->compatible($company, $charger, $p->identity, $p->protocol, app()->environment('production')), 409, 'Charger identity requires canonical ownership review.');
             abort_unless($p->credential_version === (int) $v['expected_version'], 409, 'Credential changed; refresh before another explicit rotation.');
@@ -103,7 +107,8 @@ class ChargerAdmissionController extends Controller
         $this->scope($r, $company, $charger, true);
 
         return DB::transaction(function () use ($r, $company, $charger) {
-            VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $charger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
             $this->scope($r, $company, $charger, true);
             $p = AdmissionProfile::where('charger_id', $charger->id)->lockForUpdate()->firstOrFail();
             if ($p->enabled || $p->revoked_at === null) {
@@ -113,6 +118,11 @@ class ChargerAdmissionController extends Controller
 
             return response()->json($p)->header('Cache-Control', 'no-store');
         }, 3);
+    }
+
+    private function requireActiveOwner(VendorCompany $company): void
+    {
+        abort_unless(User::whereKey($company->owner_id)->where('role', 'vendor')->where('account_status', 'active')->lockForUpdate()->first(), 409, 'A current active vendor owner is required for charger credentials.');
     }
 
     private function event(AdmissionProfile $p, int $actor, string $action): void
