@@ -5,7 +5,7 @@ window.EvSessionCost = (() => {
     function utcInstant(value) {
         if (typeof value !== 'string') return false;
         const m=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.\d{6}Z$/.exec(value);
-        if (!m) return false;
+        if (!m || m[0].length !== value.length) return false;
         const [year,month,day,hour,minute,second]=m.slice(1).map(Number);
         const leap=year%4===0 && (year%100!==0 || year%400===0);
         const days=[31,leap?29:28,31,30,31,30,31,31,30,31,30,31];
