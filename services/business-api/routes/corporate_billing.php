@@ -17,3 +17,4 @@ Route::get('/commercial/corporate/statements/{statement}/export', [C::class, 'cs
 Route::post('/commercial/corporate/statements/{statement}/simulate-payment', [C::class, 'pay'])->where('statement', '[0-9]{1,18}');
 
 Route::get('/commercial/corporate/agreements/{agreement}/cycle-review', [CorporateCycleReviewController::class, 'show'])->where('agreement', '[0-9]{1,18}');
+Route::post('/commercial/corporate/agreements/{agreement}/cycle-review/issue', [CorporateCycleReviewController::class, 'issue'])->where('agreement', '[0-9]{1,18}');
