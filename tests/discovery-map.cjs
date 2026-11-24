@@ -342,6 +342,17 @@ const assert = require("node:assert/strict");
             latitude: 25.2, longitude: 55.3, reservable: true },
         },
         {
+          key: "catalog:8", kind: "catalog",
+          station: { id: 8, name: "Missing connector metadata", evidence: "SIMULATED",
+            latitude: 25.2, longitude: 55.3, power_kw: 50, reservable: false },
+        },
+        {
+          key: "catalog:9", kind: "catalog",
+          station: { id: 9, name: "Malformed advertised power", evidence: "SIMULATED",
+            latitude: 25.2, longitude: 55.3, connector_type: "CCS2",
+            power_kw: "50", reservable: false },
+        },
+        {
           key: "partner:6", kind: "partner", record_id: 6,
           evidence: "PARTNER_REPORTED_UNVERIFIED",
           availability: "available", reservable: true, remote_control: false,
