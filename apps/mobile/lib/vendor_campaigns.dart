@@ -100,6 +100,20 @@ DateTime campaignUtc(String input) {
   return time;
 }
 
+DateTime campaignReceiptUtc(dynamic raw) {
+  final value = raw as String;
+  // Only the documented database UTC and explicit ISO UTC forms.
+  final db = RegExp(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$').firstMatch(value);
+  if (db != null && db.end == value.length) {
+    return campaignUtc('${value.replaceFirst(' ', 'T')}Z');
+  }
+  final iso = RegExp(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.0{1,6})?Z$').firstMatch(value);
+  if (iso == null || iso.end != value.length) {
+    throw const FormatException('Invalid source UTC receipt.');
+  }
+  return campaignUtc('${iso.group(1)}Z');
+}
+
 bool campaignMatchesIntent(
   Map<String, dynamic> row,
   Map<String, dynamic> body,
@@ -119,23 +133,36 @@ bool campaignMatchesIntent(
     if (row[field] != body[field]) return false;
   }
   try {
-    DateTime receiptTime(dynamic raw) {
-      final value = raw as String;
-      // Only the documented database UTC and explicit ISO UTC forms.
-      final db = RegExp(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$').firstMatch(value);
-      if (db != null && db.end == value.length) {
-        return campaignUtc('${value.replaceFirst(' ', 'T')}Z');
-      }
-      final iso = RegExp(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.0{1,6})?Z$').firstMatch(value);
-      if (iso == null || iso.end != value.length) {
-        throw const FormatException('Invalid source UTC receipt.');
-      }
-      return campaignUtc('${iso.group(1)}Z');
-    }
-
-    return receiptTime(row['starts_at']) ==
+    return campaignReceiptUtc(row['starts_at']) ==
             campaignUtc(body['starts_at'] as String) &&
-        receiptTime(row['ends_at']) == campaignUtc(body['ends_at'] as String);
+        campaignReceiptUtc(row['ends_at']) == campaignUtc(body['ends_at'] as String);
+  } catch (_) {
+    return false;
+  }
+}
+
+/// The control revision is the global event ID, not a per-campaign
+/// counter. Other campaigns may consume IDs between decisions.
+bool campaignConfirmsDecision(Map<String,dynamic> previous,
+    Map<String,dynamic> receipt,String action) {
+  final target = {
+    'submit':'submitted','pause':'paused','resume':'approved','cancel':'cancelled',
+  }[action];
+  final before = previous['control_revision'], after = receipt['control_revision'];
+  if (target == null || previous['status'] == target ||
+      receipt['status'] != target ||
+      before is! int || after is! int || after <= before ||
+      previous['id'] != receipt['id'] ||
+      previous['vendor_id'] != receipt['vendor_id']) return false;
+  try {
+    final intent = nativeCampaignIntent({
+      for (final key in ['invoice_id','station_id','title','title_ar',
+        'description','description_ar','country','region','placement','budget_units'])
+        key:previous[key],
+      'starts_at':campaignReceiptUtc(previous['starts_at']).toIso8601String().replaceFirst('.000Z','Z'),
+      'ends_at':campaignReceiptUtc(previous['ends_at']).toIso8601String().replaceFirst('.000Z','Z'),
+    });
+    return campaignMatchesIntent(receipt,intent);
   } catch (_) {
     return false;
   }
@@ -633,7 +660,13 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               )
               as Map;
       if (!current(request)) return;
-      nativeCampaign(raw['campaign'], owner!, role, id: row['id'] as int);
+      final receipt = nativeCampaign(raw['campaign'], owner!, role, id: row['id'] as int);
+      if (!campaignConfirmsDecision(row,receipt,action)) {
+        // Do not let a malformed acknowledgement authorize another
+        // transition using a stale revision. Require fresh source history.
+        setState(() { detail = null; records = null; events = []; enabled = false; });
+        throw const FormatException('Unconfirmed campaign decision.');
+      }
       await load(id: row['id'] as int);
     } catch (e) {
       failure(e, request);
