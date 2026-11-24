@@ -221,14 +221,29 @@ class SignedFirmwareTest extends TestCase
         return compact('owner', 'admin', 'station', 'company', 'charger', 'binding', 'releases', 'path', 'entry', 'bytes', 'pin', 'protocol');
     }
 
-    private function source(array $f, bool $unknown = false, bool $loss = false, ?string $statusTime = null, ?string $firmwareVersion = 'sim-fw-v1', bool $drift = false, ?string $malformedSource = null, ?string $malformedReview = null): void
+    private function source(array $f, bool $unknown = false, bool $loss = false, ?string $statusTime = null, ?string $firmwareVersion = 'sim-fw-v1', bool $drift = false, ?string $malformedSource = null, ?string $malformedReview = null, ?string $capabilityFailure = null): void
     {
         $compatibilityReads = 0;
-        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime, $firmwareVersion, $drift, $malformedSource, $malformedReview, &$compatibilityReads) {
+        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime, $firmwareVersion, $drift, $malformedSource, $malformedReview, $capabilityFailure, &$compatibilityReads) {
             if (str_contains($r->url(), '/capabilities')) {
                 parse_str(parse_url($r->url(), PHP_URL_QUERY), $query);
 
-                return Http::response(['ready' => true, 'tenant_id' => 1, 'signed_firmware_protocols' => ['1.6', '2.0.1'], 'proof' => hash_hmac('sha256', "creabiz-rider-v1\n".$query['nonce'], str_repeat('s', 64))]);
+                match ($capabilityFailure) {
+                    'endpoint' => config(['csms.rider_source_api_url' => 'https://alternate.example.test']),
+                    'key' => config(['csms.rider_client_secret' => str_repeat('t', 64)]),
+                    'graphql' => config(['csms.graphql_url' => 'https://alternate.example.test/graph']),
+                    'graphql_key' => config(['csms.graphql_secret' => str_repeat('t', 64)]),
+                    'disabled' => config(['csms.firmware_enabled' => false]),
+                    default => null,
+                };
+                $protocols = match ($capabilityFailure) {
+                    'object' => ['supported' => $f['protocol']],
+                    'duplicate' => [$f['protocol'], $f['protocol']],
+                    'unknown' => [$f['protocol'], 'unrecognized'],
+                    default => ['1.6', '2.0.1'],
+                };
+
+                return Http::response(['ready' => true, 'tenant_id' => 1, 'signed_firmware_protocols' => $protocols, 'proof' => hash_hmac('sha256', "creabiz-rider-v1\n".$query['nonce'], str_repeat('s', 64))]);
             }
 
             if (str_ends_with($r->url(), '/graph')) {
@@ -630,6 +645,40 @@ class SignedFirmwareTest extends TestCase
         $this->assertSame(4, Http::recorded()->count());
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
             || str_contains($request->url(), '/ocpp/'));
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public static function firmwareCapabilityFailures(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['endpoint', 'key', 'graphql', 'graphql_key', 'disabled', 'object', 'duplicate', 'unknown'] as $kind) {
+                $cases[] = [$protocol, $kind];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('firmwareCapabilityFailures')]
+    public function test_firmware_capability_requires_original_authority_and_typed_protocols(string $protocol, string $kind): void
+    {
+        $f = $this->fixture($protocol, ['protocols' => [$protocol], 'from_versions' => ['sim-fw-v1']]);
+        $this->source($f, capabilityFailure: $kind);
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approve signed release before capability inspection',
+        ])->assertCreated()->json('id');
+        $this->actingAs($f['owner'])->postJson($f['path'], [
+            'release_id' => $release,
+            'reason' => 'Inspect original signed source capability',
+            'idempotency_key' => 'capability-failure',
+        ])->assertServiceUnavailable();
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/capabilities'));
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/ocpp/') || str_contains($request->url(), 'alternate.example.test'));
         $this->assertDatabaseCount('charger_firmware_operations', 0);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
