@@ -468,7 +468,7 @@ class ChargerCommandTest extends TestCase
         });
         $blocked = app(CsmsDispatcher::class)->dispatch($command->id);
         $this->assertSame('pending', $blocked->status);
-        $this->assertSame('pre_dispatch_transport_setup_failed', $blocked->failure_code);
+        $this->assertSame('pre_dispatch_source_lineage_changed', $blocked->failure_code);
         $this->assertSame('pending', $command->fresh()->status);
         Http::assertSentCount(1);
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/ocpp/'));
