@@ -134,3 +134,7 @@ without rewriting immutable finance tables. The feature regression checks
 unsafe leading `=,+,-,@` (including control-prefixes), validates the real
 CSV response and unchanged canonical journals. This remains a read-only
 diagnostic, not verified PSP/bank reconciliation or an approval authority.
+
+## Native internal reconciliation workspace
+
+Vendor finance now links each currency to a bilingual read-only internal invoice audit, using the existing bounded tenant-scoped API. The native view supports optional ISO date filters, exact paging, immutable money and finding validation, read-only diagnostic labels, and current-account/foreground clearing. It never creates a financial operation. Native CSV parity, physical bank/PSP verification and complete requirement 3.5.9 / 7.3.8 acceptance remain outside this batch. Added parser and widget tests; exact-head hosted CI required.
