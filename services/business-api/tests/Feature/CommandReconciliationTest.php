@@ -25,7 +25,7 @@ class CommandReconciliationTest extends TestCase
     private function fixture(): array
     {
         Http::preventStrayRequests();
-        config(['csms.session_bridge_enabled' => true, 'csms.simulator_enabled' => true, 'csms.base_url' => 'http://csms.test']);
+        config(['csms.session_bridge_enabled' => true, 'csms.simulator_enabled' => true, 'csms.base_url' => 'https://csms.test']);
         $this->travelTo(now()->startOfSecond());
         $vendor = User::factory()->create(['role' => 'vendor']);
         $customer = User::factory()->create();
