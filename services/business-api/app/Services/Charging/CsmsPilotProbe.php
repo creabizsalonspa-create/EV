@@ -114,7 +114,11 @@ final class CsmsPilotProbe
                 ($binding->protocol === '1.6' ? $event['evseId'] === 0 : $event['evseId'] > 0) &&
                 is_int($event['connectorId'] ?? null) &&
                 $event['connectorId'] > 0 &&
-                in_array($event['connectorStatus'] ?? null, ConnectorFreshness::STATUSES, true) &&
+                in_array($event['connectorStatus'] ?? null,
+                    $binding->protocol === '1.6'
+                        ? ['Available', 'Preparing', 'Charging', 'SuspendedEVSE',
+                            'SuspendedEV', 'Finishing', 'Reserved', 'Unavailable', 'Faulted']
+                        : ['Available', 'Occupied', 'Reserved', 'Unavailable', 'Faulted'], true) &&
                 (! isset($event['errorCode']) || (is_string($event['errorCode']) && strlen($event['errorCode']) <= 80)), 409,
                 'Contradictory or unknown source connector event.');
             $at = SourceStatusTime::parse($event['timestamp'] ?? null);
@@ -149,7 +153,13 @@ final class CsmsPilotProbe
             $entry = $latest[$connectorId] ?? null;
             if ($entry && $entry['observed_at']->gte(now()->subMinutes(5))) {
                 $recentConnectorCount++;
-                if ($entry['status'] === 'Available' && in_array($entry['error_code'], [null, 'NoError'], true)) {
+                // OCPP 1.6 StatusNotification requires an explicit
+                // NoError receipt. Missing errorCode cannot certify idle,
+                // even if the source labels the connector Available.
+                $noFault = $binding->protocol === '1.6'
+                    ? $entry['error_code'] === 'NoError'
+                    : in_array($entry['error_code'], [null, 'NoError'], true);
+                if ($entry['status'] === 'Available' && $noFault) {
                     $idleConnectorCount++;
                 }
             }
