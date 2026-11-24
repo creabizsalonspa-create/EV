@@ -93,7 +93,9 @@ class OcpiPublicOwnerVisibilityTest extends TestCase
         // Revocation must remain possible, but reauthorization must require
         // an active vendor owner, even for an authenticated administrator.
         $this->patchJson($providerPath.'/authorization', ['authorized' => false])->assertOk();
-        $this->patchJson($providerPath.'/authorization', ['authorized' => true])->assertConflict();
+        // A deactivated owner is an ineligible activation target (422),
+        // consistent with onboarding and the current owner-eligibility suite.
+        $this->patchJson($providerPath.'/authorization', ['authorized' => true])->assertUnprocessable();
 
         config(['ocpi.connections.suspended-fixture' => [
             'origin' => 'https://peer.example',
