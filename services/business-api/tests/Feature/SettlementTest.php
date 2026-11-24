@@ -79,7 +79,7 @@ class SettlementTest extends TestCase
         $this->postJson($base.'/approve')->assertForbidden();
         $this->actingAs($this->admin)->postJson($base.'/simulate-payout')->assertConflict();
         $this->postJson($base.'/approve')->assertOk()
-            ->assertHeader('Cache-Control', 'private, no-store')
+            ->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonPath('state', 'approved')
             ->assertJsonMissingPath('request_key');
         $this->postJson($base.'/approve')->assertOk();
@@ -216,7 +216,7 @@ class SettlementTest extends TestCase
         ]);
         $this->assertDatabaseCount('commercial_settlement_events', 0);
         $this->postJson($base.'/reject')->assertOk()
-            ->assertHeader('Cache-Control', 'private, no-store')
+            ->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonPath('state', 'rejected')
             ->assertJsonMissingPath('request_key')
             ->assertJsonMissingPath('fingerprint');
