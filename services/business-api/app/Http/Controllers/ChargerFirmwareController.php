@@ -234,7 +234,7 @@ class ChargerFirmwareController extends Controller
                 'release_id' => $release->id,
                 'version' => $release->version,
                 'sha256' => $release->sha256,
-                'revoked' => ! $active,
+                'revoked' => $release->revoked_at !== null,
                 'signed_compatibility_policy' => $policy !== null,
                 'signer_currently_trusted' => $signerTrusted,
                 'protocols' => $policy['protocols'] ?? [],
@@ -244,6 +244,7 @@ class ChargerFirmwareController extends Controller
         }
 
         $requireAuthority();
+
         return response()->json([
             'charger_id' => $charger->id,
             'protocol' => $binding->protocol,
