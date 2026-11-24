@@ -8,6 +8,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\ConfigurationProbe;
 use App\Services\Charging\DiagnosticLogSource;
 use App\Services\Charging\FaultMonitor;
+use App\Services\Charging\OperationsCredentials;
 use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
@@ -109,7 +110,9 @@ class ChargerDiagnosticLogController extends Controller
             $state = 'not_dispatched';
             try {
                 $probe->station($b);
-                $token = $probe->serviceToken();
+                $operationsBase = rtrim((string) config('csms.operations_base_url'), '/');
+                $token = app(OperationsCredentials::class)->token($operationsBase);
+                abort_unless(rtrim((string) config('csms.operations_base_url'), '/') === $operationsBase, 409);
                 $current = $this->scope($r, $company, $charger, true);
                 app(VendorAccess::class)->operational($company->fresh());
                 $source->enabled();
