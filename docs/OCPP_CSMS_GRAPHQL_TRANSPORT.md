@@ -37,3 +37,7 @@ php artisan test --filter=CsmsGraphqlTransportTest
 The exact pull-request head must also pass the full GitHub business-platform, connector PostgreSQL and applicable client/recovery checks. Combine the rider-source transport guard with the separately developed exact-connector and OCPP-status verification in PR #282; neither security gate is optional. The full pilot protocol readout and physical site acceptance remain separate blockers.
 
 **Evidence provenance:** software source code and mocked local/HTTPS requests only. No real Hasura deployment, physical charger command, energy meter, external notification delivery, or production acceptance has been demonstrated by this guard.
+
+## Maintenance interlock (5.2.10 / 5.2.11)
+
+Reset and signed-firmware workflows share `ChargerResetController::idle()` before dispatch and before reviewing an existing operation hold. Its authenticated status query now includes `errorCode`. A latest `Available` receipt is insufficient for OCPP 1.6 without explicit `NoError`; OCPP 2.0.1 accepts null or `NoError` only. Invalid fault-code types and contradictory same-instant status/error receipts fail closed. A fault blocks new operation admission and leaves an existing reset/firmware hold unreviewed. The signed-firmware test double uses an approved HTTPS GraphQL origin; no plaintext exception is introduced. These are simulator-only source tests and require full exact-head hosted verification.
