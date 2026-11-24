@@ -30,11 +30,10 @@ final class StationAvailabilityBlockController extends Controller
     private function owned(Request $request, Station $station): Station
     {
         abort_unless($request->user()->role === 'vendor', 404);
-        // Preserve the established station → user lock order. Rechecking
-        // the login after locking the station prevents stale captured tokens
-        // from publishing or cancelling policy inside either transaction.
-        $current = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
+        // Match command admission's actor → station order while pinning
+        // the original authenticated credentials through the policy commit.
         app(MaintenanceActor::class)->check($request->user());
+        $current = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
         abort_unless((int) $current->vendor_id === (int) $request->user()->id, 404);
 
         return $current;
