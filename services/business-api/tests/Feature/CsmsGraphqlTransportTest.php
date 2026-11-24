@@ -125,13 +125,15 @@ class CsmsGraphqlTransportTest extends TestCase
 
     public function test_source_provisioner_billing_consumer_and_direct_registration_never_send_admin_key_to_untrusted_http(): void
     {
-        config(['csms.graphql_url' => 'http://unreviewed-source.test/v1/graphql']);
+        config(['csms.graphql_url' => 'http://unreviewed-source.test/v1/graphql', 'csms.upstream_registration_enabled' => true]);
         // Verify the direct private transport entry points. Public callers
         // have additional per-user, per-tenant, epoch and consent gates.
         $query = 'query{ChargingStations(limit:1){id}}';
         foreach ([RiderSourceProvisioner::class, ChargerSourceRegistration::class] as $class) {
             try {
-                (new ReflectionMethod($class, 'graph'))->invoke(app($class), $query, []);
+                $method = new ReflectionMethod($class, 'graph');
+                $args = $class === ChargerSourceRegistration::class ? [$query, [], str_repeat('a', 64)] : [$query, []];
+                $method->invoke(app($class), ...$args);
                 $this->fail('Privileged CSMS writer accepted an untrusted HTTP endpoint.');
             } catch (HttpException $e) {
                 $this->assertSame(503, $e->getStatusCode());
