@@ -115,8 +115,8 @@ final class ChargerSourceRegistration
     {
         // Prevent direct metadata-registration reads and writes from ever
         // leaking the privileged Hasura key to an unreviewed HTTP target.
-        app(CsmsGraphqlTransport::class)->requireApproved();
-        $response = Http::connectTimeout(3)->timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), compact('query', 'variables'));
+        $url = app(CsmsGraphqlTransport::class)->requireApproved();
+        $response = Http::connectTimeout(3)->timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, compact('query', 'variables'));
         abort_unless($response->successful() && strlen($response->body()) <= 32768 && ! $response->json('errors') && is_array($response->json('data')), 503, 'Authenticated source registration requires inspection.');
 
         return $response->json('data');
