@@ -593,6 +593,48 @@ class SignedFirmwareTest extends TestCase
         }
     }
 
+    #[DataProvider('protocols')]
+    public function test_oversized_owned_firmware_catalog_is_not_silently_truncated(string $protocol): void
+    {
+        $f = $this->fixture($protocol, ['protocols' => [$protocol], 'from_versions' => ['sim-fw-v1']]);
+        $this->source($f);
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approve signed compatibility before bounded catalog inspection',
+        ])->assertCreated()->json('id');
+        $original = (array) DB::table('charger_firmware_releases')->find($release);
+        unset($original['id']);
+        $overflow = [];
+        // Deliberately synthetic database-only rows. The bounded catalog
+        // check must reject the entire projection before evaluating their
+        // intentionally nonmatching signed metadata or suggesting a release.
+        for ($i = 1; $i <= 100; $i++) {
+            $overflow[] = array_replace($original, [
+                'catalog_key' => 'overflow-'.$i,
+                'version' => 'overflow-'.$i,
+                'sha256' => hash('sha256', 'overflow-'.$i),
+            ]);
+        }
+        DB::table('charger_firmware_releases')->insert($overflow);
+        $path = str_replace('/firmware-operations', '/firmware-compatibility', $f['path']);
+        $response = $this->actingAs($f['owner'])->getJson($path)->assertConflict();
+        $response->assertJsonMissingPath('releases')->assertJsonMissingPath('firmware_dispatch_authorized');
+        $this->assertSame(2, Http::recorded()->count());
+        DB::table('charger_firmware_releases')->where('company_id', $original['company_id'])
+            ->where('id', '!=', $release)->delete();
+        $this->getJson($path)->assertOk()
+            ->assertJsonCount(1, 'releases')
+            ->assertJsonPath('releases.0.release_id', $release)
+            ->assertJsonPath('releases.0.matches_observed_source', true)
+            ->assertJsonPath('firmware_dispatch_authorized', false);
+        $this->assertSame(4, Http::recorded()->count());
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dev/token')
+            || str_contains($request->url(), '/ocpp/'));
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public static function matrixAuthorityChanges(): array
     {
         $cases = [];
