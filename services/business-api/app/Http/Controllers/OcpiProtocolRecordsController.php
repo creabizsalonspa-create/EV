@@ -63,11 +63,11 @@ class OcpiProtocolRecordsController extends Controller
             }
             $identity = ['ocpi_provider_id' => $provider->id, 'module' => $module, 'country_code' => $country, 'party_id' => $party];
             if ($r->isMethod('GET')) {
-                $data = DB::transaction(function () use ($provider, $link, $r, $exchange, $identity, $external, $evse, $connector, $resource) {
+                $data = DB::transaction(function () use ($provider, $link, $r, $exchange, $identity, $external, $evse, $connector, $resource, $module) {
                     OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
                     DB::table('ocpi_credential_links')->where('id', $link->id)->lockForUpdate()->firstOrFail();
                     [$current, $active] = app(OcpiProtocolCredentialsController::class)->authenticate($r, $exchange, $resource);
-                    abort_unless($active->generation === $link->generation && $current->authorization_revision === $provider->authorization_revision, 401);
+                    $this->assertCurrentReceiver($provider, $link, $current, $active, $exchange, $module, $identity);
                     $record = OcpiRecord::where($identity)->where('external_id', $external)->first();
                     abort_unless($record, 404);
                     abort_if(DB::table('ocpi_catalog_retirements')->where('record_id', $record->id)->where('content_hash', $record->content_hash)->exists(), 404);
@@ -84,7 +84,7 @@ class OcpiProtocolRecordsController extends Controller
                     OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
                     DB::table('ocpi_credential_links')->where('id', $link->id)->lockForUpdate()->firstOrFail();
                     [$current, $active] = app(OcpiProtocolCredentialsController::class)->authenticate($r, $exchange, $resource);
-                    abort_unless($active->generation === $link->generation && $current->authorization_revision === $provider->authorization_revision && $current->version === '2.2.1' && is_string($current->endpoints['tariffs'] ?? null), 401);
+                    $this->assertCurrentReceiver($provider, $link, $current, $active, $exchange, 'tariffs', $identity);
                     $record = OcpiRecord::where($identity)->where('external_id', $external)->first();
                     abort_unless($record, 404);
                     abort_unless(app(StoredSourceIntegrity::class)->consistent($record), 409);
@@ -118,8 +118,7 @@ class OcpiProtocolRecordsController extends Controller
                 OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
                 DB::table('ocpi_credential_links')->where('id', $link->id)->lockForUpdate()->firstOrFail();
                 [$current, $active] = app(OcpiProtocolCredentialsController::class)->authenticate($r, $exchange, $resource);
-                abort_unless($active->generation === $link->generation && $current->authorization_revision === $provider->authorization_revision && $active->local_token_digest === $link->local_token_digest, 401);
-                abort_unless($current->version === '2.2.1' && is_string($current->endpoints[$module] ?? null), 403);
+                $this->assertCurrentReceiver($provider, $link, $current, $active, $exchange, $module, $identity);
                 $record = $body;
                 if ($r->isMethod('PATCH') || $evse !== null) {
                     $old = OcpiRecord::where($identity)->where('external_id', $id)->first();
@@ -157,6 +156,25 @@ class OcpiProtocolRecordsController extends Controller
 
             return $this->reply(null, $http === 401 || $http === 403 ? 2000 : 2001, $http);
         }
+    }
+
+    /** Keep the same negotiated receiver authority across the request and locked read/write. */
+    private function assertCurrentReceiver(OcpiProvider $provider, object $link, OcpiProvider $current, object $active, CredentialExchange $exchange, string $module, array $identity): void
+    {
+        abort_unless($current->id === $provider->id && $current->owner_id === $provider->owner_id
+            && $current->connection_key === $provider->connection_key
+            && $current->authorization_revision === $provider->authorization_revision
+            && $active->id === $link->id && $active->provider_id === $link->provider_id
+            && $active->generation === $link->generation
+            && $active->local_token_digest === $link->local_token_digest
+            && $active->configuration_hash === $link->configuration_hash, 401);
+        [$connection] = $exchange->configuration($current);
+        abort_unless($current->version === '2.2.1'
+            && in_array($module, $exchange->receiverModules($current), true)
+            && is_string($current->endpoints[$module] ?? null)
+            && $current->endpoints[$module] === ($provider->endpoints[$module] ?? null)
+            && $identity['country_code'] === $connection['party_country']
+            && $identity['party_id'] === $connection['party_id'], 403);
     }
 
     private function component(array $location, string $evse, ?string $connector): array
