@@ -264,18 +264,41 @@ class SandboxRoamingTest extends TestCase
         $order = DB::table('ocpi_roaming_orders')->first();
         if ($change === 'attempted') {
             $this->assertNotNull($command->attempted_at);
-            $this->assertSame('prepared', $command->state);
-            $this->assertNotNull($order->active_target_key);
         } else {
             $this->assertNull($command->attempted_at);
-            $this->assertSame('not_dispatched', $command->state);
-            $this->assertSame('not_dispatched', $order->state);
-            $this->assertNull($order->active_target_key);
         }
+        $this->assertSame('outcome_unknown', $command->state);
+        $this->assertSame('start_outcome_unknown', $order->state);
+        $this->assertNotNull($order->active_target_key);
         $this->assertNull($command->transport_result);
         $this->assertDatabaseCount('charging_sessions', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_start_claim_changed_at_insert_never_registers_a_token_or_sends_a_command(): void
+    {
+        [, $driver, , , $location] = $this->fixture();
+        $armed = true;
+        DB::listen(function ($query) use (&$armed) {
+            if ($armed && str_starts_with($query->sql, 'insert into "ocpi_roaming_commands"')) {
+                $armed = false;
+                DB::table('ocpi_roaming_commands')->where('action', 'START_SESSION')->update([
+                    'callback_key' => (string) Str::uuid(),
+                ]);
+            }
+        });
+        $url = '/api/roaming/locations/'.$location->id;
+        $offer = $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->json('offers.0');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true];
+        $this->postJson($url.'/sandbox-orders', $body)->assertCreated()->assertJsonPath('state', 'start_outcome_unknown');
+        $this->postJson($url.'/sandbox-orders', $body)->assertOk();
+        $this->assertFalse($armed);
+        $this->assertCount(0, $this->writes);
+        $this->assertSame('outcome_unknown', DB::table('ocpi_roaming_commands')->value('state'));
+        $this->assertNotNull(DB::table('ocpi_roaming_orders')->value('active_target_key'));
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
     }
 
     #[TestWith(['callback'])]
