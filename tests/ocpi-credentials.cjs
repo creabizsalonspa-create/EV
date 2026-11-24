@@ -100,9 +100,10 @@ withCredentialsFixture(async (f) => {
       .getByRole("button", { name: "بيانات اعتماد الشريك", exact: true })
       .first()
       .click();
-    await detail
-      .getByText("Roaming credential state active", { exact: false })
-      .waitFor();
+    // Locale text may translate the state label, but must not leak the
+    // refused token or remove the owner's private credential workspace.
+    assert(await detail.isVisible());
+    assert(!(await detail.textContent()).includes("SYNTHETIC-PEER-ROTATED"));
     assert(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth + 1,
