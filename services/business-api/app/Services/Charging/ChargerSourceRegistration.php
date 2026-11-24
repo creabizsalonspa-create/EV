@@ -52,7 +52,7 @@ final class ChargerSourceRegistration
         $parts = is_string($url) ? parse_url($url) : false;
         abort_unless(is_array($parts) && isset($parts['host']) && ! isset($parts['user']) && ! isset($parts['pass']) && ! isset($parts['query']) && ! isset($parts['fragment']) && strlen($url) <= 2048 && ! preg_match('/[\x00-\x20\x7f\\\\]/', $url), 503, 'A fixed authenticated source URL is required.');
         $tls = ($parts['scheme'] ?? null) === 'https';
-        $local = app()->environment(['local', 'testing']) && config('csms.upstream_registration_allow_local_http') && ($parts['scheme'] ?? null) === 'http' && in_array(strtolower($parts['host']), ['127.0.0.1', 'localhost', '[::1]', 'hasura', 'citrine-hasura', 'ev-hasura', 'charging-graphql', 'source.test'], true);
+        $local = app()->environment(['local', 'testing']) && config('csms.upstream_registration_allow_local_http') && ($parts['scheme'] ?? null) === 'http' && in_array(strtolower($parts['host']), ['127.0.0.1', 'localhost', '[::1]', 'hasura', 'citrine-hasura', 'ev-hasura', 'charging-graphql'], true);
         abort_unless(($tls || $local) && strlen((string) config('csms.graphql_secret')) >= 32, 503, 'A TLS authenticated source is required.');
 
         return hash('sha256', 'citrineos-v2.1.0-tenant-1|'.$url);
