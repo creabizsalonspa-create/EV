@@ -93,6 +93,50 @@ class CsmsDispatcher
         return true;
     }
 
+    /** Re-evaluate current start consent and capacity; never gate a legitimate stop on new-start policy. */
+    private function startBlocked(User $actor, Station $station, ChargerCommand $command): ?string
+    {
+        $blocked = app(ChargingActorConsent::class)->matches($actor, $command->consent_auth_epoch) ? null : 'pre_dispatch_actor_revoked';
+        if (! $blocked && ! User::whereKey($station->vendor_id)->where('role', 'vendor')->where('account_status', 'active')->exists()) {
+            $blocked = 'pre_dispatch_vendor_unavailable';
+        }
+        if (! $blocked && isset($command->payload['session_id'])) {
+            $session = ChargingSession::findOrFail($command->payload['session_id']);
+            $booking = Reservation::findOrFail($session->reservation_id);
+            if ($actor->role !== 'customer' || $booking->user_id !== $actor->id) {
+                $blocked = 'pre_dispatch_actor_revoked';
+            }
+            $start = CarbonImmutable::parse($booking->starts_at, 'UTC');
+            if ($booking->status !== 'confirmed' || ! now()->gte($start) || ! now()->lt($start->addMinutes(30))) {
+                $blocked = 'pre_dispatch_window_unavailable';
+            }
+        }
+        if (! $blocked && ! isset($booking) && ! ($actor->role === 'vendor' && $station->vendor_id === $actor->id)) {
+            $blocked = 'pre_dispatch_actor_revoked';
+        }
+        if (! $blocked) {
+            try {
+                app(StationGate::class)->requireReady($station, isset($booking) ? $booking->connector_mapping_id : null);
+            } catch (HttpException $e) {
+                if ($e->getStatusCode() !== 409) {
+                    throw $e;
+                }
+                $blocked = 'pre_dispatch_company_gate';
+            }
+        }
+        if (! $blocked) {
+            try {
+                app(OperatingCalendar::class)->requireStart($station);
+            } catch (HttpException $e) {
+                if ($e->getStatusCode() !== 409) {
+                    throw $e;
+                }
+                $blocked = 'pre_dispatch_operating_calendar';
+            }
+        }
+        return $blocked;
+    }
+
     public function dispatch(int $id): ChargerCommand
     {
         abort_unless(config('csms.simulator_enabled') && ! app()->environment('production'), 503, 'Simulator dispatch is disabled.');
@@ -117,6 +161,11 @@ class CsmsDispatcher
                 return null;
             }
             if ($c->status === 'pending') {
+                // A detected in-flight authority change is a permanent fence for
+                // this queued intent. An operator must resolve it, not retarget it.
+                if ($c->failure_code === 'pre_dispatch_authority_changed') {
+                    return null;
+                }
                 // Repointed canonical inventory or source identity must not
                 // redirect an existing pending command to a different owner
                 // or device. Keep the outbox pending, provably unsent.
@@ -148,45 +197,7 @@ class CsmsDispatcher
                     }
                 }
                 if ($c->action === 'start') {
-                    $blocked = app(ChargingActorConsent::class)->matches($actor, $c->consent_auth_epoch) ? null : 'pre_dispatch_actor_revoked';
-                    $station = Station::findOrFail($c->station_id);
-                    if (! $blocked && ! User::whereKey($station->vendor_id)->where('role', 'vendor')->where('account_status', 'active')->exists()) {
-                        $blocked = 'pre_dispatch_vendor_unavailable';
-                    }
-                    if (! $blocked && isset($c->payload['session_id'])) {
-                        $session = ChargingSession::findOrFail($c->payload['session_id']);
-                        $booking = Reservation::findOrFail($session->reservation_id);
-                        if ($actor->role !== 'customer' || $booking->user_id !== $actor->id) {
-                            $blocked = 'pre_dispatch_actor_revoked';
-                        }
-                        $start = CarbonImmutable::parse($booking->starts_at, 'UTC');
-                        if ($booking->status !== 'confirmed' || ! now()->gte($start) || ! now()->lt($start->addMinutes(30))) {
-                            $blocked = 'pre_dispatch_window_unavailable';
-                        }
-                    }
-                    if (! $blocked && ! isset($booking) && ! ($actor->role === 'vendor' && $station->vendor_id === $actor->id)) {
-                        $blocked = 'pre_dispatch_actor_revoked';
-                    }
-                    if (! $blocked) {
-                        try {
-                            app(StationGate::class)->requireReady(Station::findOrFail($c->station_id), isset($booking) ? $booking->connector_mapping_id : null);
-                        } catch (HttpException $e) {
-                            if ($e->getStatusCode() !== 409) {
-                                throw $e;
-                            }
-                            $blocked = 'pre_dispatch_company_gate';
-                        }
-                    }
-                    if (! $blocked) {
-                        try {
-                            app(OperatingCalendar::class)->requireStart(Station::findOrFail($c->station_id));
-                        } catch (HttpException $e) {
-                            if ($e->getStatusCode() !== 409) {
-                                throw $e;
-                            }
-                            $blocked = 'pre_dispatch_operating_calendar';
-                        }
-                    }
+                    $blocked = $this->startBlocked($actor, $station, $c);
                     if ($blocked) {
                         $c->failure_code = $blocked;
                         $c->save();
@@ -210,6 +221,7 @@ class CsmsDispatcher
         }
         $wireAttempted = false;
         $verifiedPrewireSourceMismatch = false;
+        $verifiedPrewireAuthorityMismatch = false;
         try {
             $link = isset($command->payload['session_id']) ? SessionLink::where('charging_session_id', $command->payload['session_id'])->first() : null;
             if ($link) {
@@ -266,6 +278,43 @@ class CsmsDispatcher
                 $verifiedPrewireSourceMismatch = true;
                 throw new \RuntimeException('Pre-dispatch source lineage changed');
             }
+            // Authentication is a network boundary: consent, booking,
+            // availability, adapter state and connector numbers may have changed.
+            $authorized = DB::transaction(function () use ($command, $base, $b, $link, $sourceConnector, $sourceEvse) {
+                $actor = User::whereKey($command->actor_id)->lockForUpdate()->firstOrFail();
+                $station = Station::whereKey($command->station_id)->lockForUpdate()->firstOrFail();
+                $current = ChargerCommand::whereKey($command->id)->lockForUpdate()->firstOrFail();
+                if (! config('csms.simulator_enabled') || app()->environment('production')
+                    || config('csms.base_url') !== $base || $current->status !== 'dispatching'
+                    || $current->actor_id !== $command->actor_id || $current->station_id !== $command->station_id
+                    || $current->action !== $command->action || $current->payload !== $command->payload
+                    || $current->consent_auth_epoch !== $command->consent_auth_epoch
+                    || ! $this->sourceLineage($current)) {
+                    return false;
+                }
+                if ($link) {
+                    $latest = SessionLink::whereKey($link->id)->first();
+                    if (! $latest || $latest->connector_mapping_id !== $link->connector_mapping_id
+                        || $latest->binding_id !== $b->id || $latest->closed_without_dispatch_at !== null
+                        || ($current->action === 'start' ? $latest->started_at !== null : $latest->ended_at !== null)) {
+                        return false;
+                    }
+                    if ($latest->connector_mapping_id) {
+                        $mapping = ConnectorMapping::find($latest->connector_mapping_id);
+                        $evse = $mapping ? Evse::find($mapping->evse_id) : null;
+                        if (! $mapping || ! $evse || $mapping->source_connector_number !== $sourceConnector
+                            || $evse->source_evse_number !== $sourceEvse) {
+                            return false;
+                        }
+                    }
+                }
+
+                return $current->action !== 'start' || $this->startBlocked($actor, $station, $current) === null;
+            }, 3);
+            if (! $authorized) {
+                $verifiedPrewireAuthorityMismatch = true;
+                throw new \RuntimeException('Pre-dispatch authority changed');
+            }
             $wireAttempted = true;
             $response = Http::withToken($token)->timeout(25)->withoutRedirecting()->post($base.'/ocpp/'.$b->protocol.'/evdriver/'.$action.'?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), $payload)->throw();
             $confirmation = $response->json();
@@ -289,10 +338,10 @@ class CsmsDispatcher
             // service credentials: no automatic retry of failed CSMS auth.
             // Only an affirmative *local* source rebind detected before
             // the HTTP wire begins is provably unsent and may stay pending.
-            $provenUnsent = ! $wireAttempted && $verifiedPrewireSourceMismatch;
+            $provenUnsent = ! $wireAttempted && ($verifiedPrewireSourceMismatch || $verifiedPrewireAuthorityMismatch);
             ChargerCommand::whereKey($command->id)->where('status', 'dispatching')->update(
                 $provenUnsent
-                    ? ['status' => 'pending', 'failure_code' => 'pre_dispatch_source_lineage_changed']
+                    ? ['status' => 'pending', 'failure_code' => $verifiedPrewireAuthorityMismatch ? 'pre_dispatch_authority_changed' : 'pre_dispatch_source_lineage_changed']
                     : ['status' => 'outcome_unknown', 'failure_code' => 'dispatch_requires_reconciliation'],
             );
         }
