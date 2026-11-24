@@ -76,6 +76,69 @@ class OcpiAuthorizationBoundaryTest extends TestCase
         $this->assertNull($p->fresh()->version);
     }
 
+    public function test_connection_replacement_during_versions_cannot_dispatch_second_read(): void
+    {
+        $p = $this->provider();
+        Http::fake(function () {
+            config(['ocpi.connections.boundary.origin' => 'https://replacement.example',
+                'ocpi.connections.boundary.authorization_token' => base64_encode('replacement-synthetic')]);
+
+            return Http::response($this->envelope([['version' => '2.2.1', 'url' => 'https://replacement.example/details']]));
+        });
+        try {
+            app(PartnerClient::class)->negotiate($p);
+            $this->fail('Changed connection continued negotiation.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('connection authority changed', $error->getMessage());
+        }
+        Http::assertSentCount(1);
+        $this->assertNull($p->fresh()->version);
+        $this->assertSame(0, $p->fresh()->authorization_revision);
+    }
+
+    public function test_same_origin_token_replacement_discards_incomplete_catalog_read(): void
+    {
+        $p = $this->provider();
+        $p->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        Http::fake(function () {
+            config(['ocpi.connections.boundary.authorization_token' => base64_encode('replacement-synthetic')]);
+
+            return Http::response($this->envelope([]), 200, ['Link' => '<https://partner.example/locations?page=2>; rel="next"']);
+        });
+        try {
+            app(PartnerClient::class)->pull($p, 'locations');
+            $this->fail('Changed token continued catalog pagination.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('connection authority changed', $error->getMessage());
+        }
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    public function test_final_catalog_page_is_discarded_if_connection_changes_during_response(): void
+    {
+        $p = $this->provider();
+        $p->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        $record = ['country_code' => 'AE', 'party_id' => 'TST', 'id' => 'source', 'last_updated' => now()->toISOString(),
+            'publish' => true, 'address' => 'Fixture', 'city' => 'Fixture', 'country' => 'ARE',
+            'coordinates' => ['latitude' => '25', 'longitude' => '55']];
+        Http::fake(function () use ($record) {
+            config(['ocpi.connections.boundary.authorization_token' => base64_encode('replacement-synthetic')]);
+
+            return Http::response($this->envelope([$record]));
+        });
+        try {
+            $records = app(PartnerClient::class)->pull($p, 'locations');
+            app(RecordSynchronizer::class)->ingest($p, 'locations', $records);
+            $this->fail('Changed connection returned a final catalog page.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('connection authority changed', $error->getMessage());
+        }
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_revocation_after_versions_response_prevents_next_outbound_request(): void
     {
         $p = $this->provider();
