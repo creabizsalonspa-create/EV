@@ -30,15 +30,28 @@ final class ScheduledSync
         return $current;
     }
 
-    private function fingerprint(OcpiProvider $provider): string
+    private function fingerprint(OcpiProvider $provider, User $actor, string $module): string
     {
         abort_unless($provider->authorized && $provider->version === '2.2.1'
             && User::whereKey($provider->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(), 409);
-        $configuration = app(PartnerClient::class)->connection($provider);
-        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first();
+        abort_unless(in_array($module, PartnerClient::MODULES, true)
+            && is_string($provider->endpoints[$module] ?? null), 409);
+        $client = app(PartnerClient::class);
+        $configuration = $client->connection($provider);
+        $client->guardedUrl($provider, $provider->endpoints[$module]);
+        $link = ($configuration['managed_credentials'] ?? false)
+            ? DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first()
+            : null;
 
-        return hash('sha256', json_encode([$provider->connection_key, $provider->authorization_revision, $provider->owner_id, $provider->endpoints,
-            $configuration['origin'], hash('sha256', $configuration['authorization_token']), $link->generation ?? null, $link->configuration_hash ?? null], JSON_THROW_ON_ERROR));
+        // A legacy consent digest cannot be upgraded silently. Operators must
+        // explicitly renew plans after this exact-source consent format changes.
+        // Persist only the combined digest, never credential or password bytes.
+        return hash('sha256', json_encode(['poll-consent-v2', $provider->id, $provider->connection_key,
+            $provider->authorization_revision, $provider->owner_id, $provider->version, $provider->endpoints,
+            $module, $actor->id, $actor->role, $actor->auth_epoch, $actor->password, $configuration,
+            $link ? [$link->id, $link->owner_id, $link->generation, $link->state, $link->configuration_hash,
+                $link->bootstrap_hash, $link->local_token_digest, $link->local_token_ciphertext, $link->remote_token_ciphertext] : null,
+        ], JSON_THROW_ON_ERROR));
     }
 
     private function currentConsent(object $plan, OcpiProvider $provider): bool
@@ -51,7 +64,7 @@ final class ScheduledSync
             return false;
         }
         try {
-            return hash_equals((string) $plan->configuration_hash, $this->fingerprint($provider));
+            return hash_equals((string) $plan->configuration_hash, $this->fingerprint($provider, $actor, $plan->module));
         } catch (Throwable) {
             return false;
         }
@@ -88,7 +101,7 @@ final class ScheduledSync
             $plan = DB::table('ocpi_sync_plans')->where('provider_id', $provider->id)->where('module', $module)->lockForUpdate()->first();
             if ($enabled) {
                 abort_unless(config('ocpi.scheduled_sync_enabled') && is_string($provider->endpoints[$module] ?? null), 409, 'Scheduled polling is not configured for this module.');
-                $hash = $this->fingerprint($provider);
+                $hash = $this->fingerprint($provider, $actor, $module);
                 if ($this->currentConsent($plan, $provider) && (int) $plan->interval_minutes === $interval) {
                     return $this->project($plan, $module, $provider);
                 }
@@ -124,7 +137,15 @@ final class ScheduledSync
     private function claimCurrent(object $plan, object $current, OcpiProvider $provider, string $id): bool
     {
         return config('ocpi.scheduled_sync_enabled') && $current->active_run === $id
-            && (int) $current->revision === (int) $plan->revision && $this->currentConsent($current, $provider)
+            && (int) $current->revision === (int) $plan->revision
+            && (int) $current->provider_id === (int) $plan->provider_id
+            && $current->module === $plan->module
+            && (int) $current->interval_minutes === (int) $plan->interval_minutes
+            && $current->configuration_hash === $plan->configuration_hash
+            && (int) $current->actor_epoch === (int) $plan->actor_epoch
+            && $current->actor_role === $plan->actor_role
+            && (int) $current->provider_revision === (int) $plan->provider_revision
+            && $this->currentConsent($current, $provider)
             && DB::table('ocpi_sync_runs')->where('id', $id)->where('plan_id', $current->id)
                 ->where('plan_revision', $plan->revision)->where('state', 'claimed')->exists();
     }
