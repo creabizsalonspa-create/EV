@@ -43,6 +43,39 @@ class SubscriptionTest extends TestCase
         return $this->actingAs($f[0])->postJson($f[2].'/mock-payment', ['invoice_id' => end($f[1]['invoices'])['id'], 'outcome' => $outcome, 'idempotency_key' => $key])->assertOk()->json();
     }
 
+    public function test_paginated_plan_subscription_and_private_event_reads_enforce_exact_pages_after_authority(): void
+    {
+        $p = $this->plan();
+        $f = $this->subscribe($p);
+        $id = $f[1]['subscription']['id'];
+        $base = '/subscription-test/commercial';
+        $this->actingAs($f[0]);
+
+        foreach ([
+            $base.'/plans',
+            $base.'/subscriptions',
+            $base.'/subscriptions/'.$id.'/events',
+        ] as $url) {
+            $this->getJson($url.'?page=1')->assertOk()
+                ->assertJsonPath('current_page', 1);
+            $this->getJson($url.'?page=10000')->assertOk()
+                ->assertJsonPath('current_page', 10000)
+                ->assertJsonCount(0, 'data');
+            foreach (['0', '-1', 'abc', '100001', '1e5'] as $bad) {
+                $this->getJson($url.'?page='.urlencode($bad))
+                    ->assertUnprocessable();
+            }
+        }
+
+        $other = User::factory()->create(['role' => 'vendor']);
+        $this->actingAs($other)
+            ->getJson($base.'/subscriptions/'.$id.'/events?page=0')
+            ->assertNotFound();
+        $this->assertDatabaseCount('commercial_subscriptions', 1);
+        $this->assertDatabaseCount('commercial_subscription_events', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+    }
+
     public function test_enrollment_payment_entitlements_and_replays_are_connected(): void
     {
         $p = $this->plan();
