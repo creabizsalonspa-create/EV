@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -7,6 +8,18 @@ import 'test_support.dart';
 
 class ReviewsApi extends FixtureApi {
   bool lose = false, unsafe = false, denied = false, created = false;
+  int reads = 0, epoch = 0;
+  final changes = StreamController<int>.broadcast(sync:true);
+  Completer<dynamic>? nextRead;
+  @override
+  bool Function() sessionFence() {
+    final original = epoch;
+    return () => epoch == original;
+  }
+  @override
+  Stream<int> get sessionEvents => changes.stream;
+  void rotate() { epoch++; changes.add(epoch); }
+
   int writes = 0;
   Map<String, dynamic>? first;
   Map<String, dynamic> review() => {
@@ -42,6 +55,10 @@ class ReviewsApi extends FixtureApi {
       }
       return review();
     }
+    reads++;
+    final held = nextRead;
+    nextRead = null;
+    if (held != null) return held.future;
     return {
       'data': path.endsWith('eligible')
           ? [
@@ -166,4 +183,94 @@ void main() {
       expect(find.text('Private test feedback'), findsOneWidget);
     },
   );
+  testWidgets('first inactive review mount makes no request until foreground',(tester) async {
+    final api=ReviewsApi()..created=true;
+    addTearDown(api.changes.close);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    addTearDown(()=>tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    await tester.pumpWidget(app(api));
+    await tester.pumpAndSettle();
+    expect(api.reads,0);
+    expect(find.text('Private test feedback'),findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.reads,1);
+    expect(find.text('Private test feedback'),findsOneWidget);
+  });
+
+  testWidgets('credential rotation clears private feedback and rejects stale withdrawal',(tester) async {
+    final api=ReviewsApi()..created=true;
+    addTearDown(api.changes.close);
+    await tester.binding.setSurfaceSize(const Size(800,1200));
+    addTearDown(()=>tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(app(api));
+    await tester.pumpAndSettle();
+    final withdrawal=find.widgetWithText(TextButton,'Withdraw publication');
+    final stale=tester.widget<TextButton>(withdrawal).onPressed!;
+    api.rotate();
+    await tester.pumpAndSettle();
+    expect(find.text('Private test feedback'),findsNothing);
+    expect(find.text('Account changed. Reopen charging feedback.'),findsOneWidget);
+    stale();
+    await tester.pumpAndSettle();
+    expect(api.writes,0);
+    expect(api.reads,1);
+    await tester.pumpWidget(app(api));
+    await tester.pumpAndSettle();
+    expect(api.reads,1);
+    expect(find.text('Private test feedback'),findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.reads,1);
+    expect(api.writes,0);
+  });
+
+  testWidgets('late source reply after rotation cannot repaint the retired account',(tester) async {
+    final api=ReviewsApi();
+    addTearDown(api.changes.close);
+    final held=Completer<dynamic>();
+    api.nextRead=held;
+    var expired=0;
+    await tester.pumpWidget(app(api,expired:()=>expired++));
+    await tester.pump();
+    expect(api.reads,1);
+    api.rotate();
+    held.complete({'data':[api.review()],'current_page':1,'last_page':1,'total':1});
+    await tester.pumpAndSettle();
+    expect(find.text('Private test feedback'),findsNothing);
+    expect(find.byType(LinearProgressIndicator),findsNothing);
+    expect(expired,0);
+    expect(api.writes,0);
+  });
+
+  testWidgets('uncertain write remains same-account only and is not replayed on resume',(tester) async {
+    final api=ReviewsApi()..created=true..lose=true;
+    addTearDown(api.changes.close);
+    await tester.binding.setSurfaceSize(const Size(800,1200));
+    addTearDown(()=>tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(app(api));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton,'Withdraw publication'));
+    await tester.pumpAndSettle();
+    expect(api.writes,1);
+    final retry=find.widgetWithText(TextButton,'Retry same feedback request');
+    expect(retry,findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    expect(retry,findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.writes,1);
+    expect(retry,findsOneWidget);
+    final stale=tester.widget<TextButton>(retry).onPressed!;
+    api.rotate();
+    await tester.pumpAndSettle();
+    expect(retry,findsNothing);
+    stale();
+    await tester.pumpAndSettle();
+    expect(api.writes,1);
+    expect(find.text('Private test feedback'),findsNothing);
+  });
 }
