@@ -4,6 +4,7 @@ namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use Closure;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -155,7 +156,9 @@ class CredentialExchange
             $text = '';
             try {
                 while (! $stream->eof() && strlen($text) <= 65536) {
-                    $text .= $stream->read(min(8192, 65537 - strlen($text)));
+                    $chunk = $stream->read(min(8192, 65537 - strlen($text)));
+                    abort_if($chunk === '' && ! $stream->eof(), 503);
+                    $text .= $chunk;
                 }
             } finally {
                 $stream->close();
@@ -171,14 +174,17 @@ class CredentialExchange
         }
     }
 
-    public function endpoint(OcpiProvider $p, string $token): string
+    public function endpoint(OcpiProvider $p, string $token, ?Closure $guard = null): string
     {
         [$c] = $this->configuration($p);
+        $guard?->__invoke();
         $versions = $this->wire($p, $c['versions_path'] ?? '/ocpi/versions', $token)['data'];
+        $guard?->__invoke();
         abort_unless(is_array($versions) && array_is_list($versions) && count($versions) <= 20, 409, 'Invalid peer versions.');
         $v = array_values(array_filter($versions, fn ($x) => is_array($x) && ($x['version'] ?? null) === '2.2.1'));
         abort_unless(count($v) === 1 && is_string($v[0]['url'] ?? null), 409, 'A unique OCPI2.2.1 advertisement is required.');
         $details = $this->wire($p, $v[0]['url'], $token)['data'];
+        $guard?->__invoke();
         abort_unless(is_array($details) && ($details['version'] ?? null) === '2.2.1' && is_array($details['endpoints'] ?? null) && count($details['endpoints']) <= 30, 409);
         $endpoints = array_values(array_filter($details['endpoints'], fn ($e) => is_array($e) && ($e['identifier'] ?? null) === 'credentials' && ($e['role'] ?? null) === 'RECEIVER'));
         abort_unless(count($endpoints) === 1 && is_string($endpoints[0]['url'] ?? null), 409, 'Unique peer credentials receiver is required.');
@@ -243,9 +249,16 @@ class CredentialExchange
             abort_unless($link && $link->state === 'active', 409, 'Current active managed credentials are required.');
             $token = $client->connection($p)['authorization_token'];
         }
-        // Discovery is read-only; the atomic claim below fences any changes it observes.
-        $endpoint = $this->endpoint($p, $token);
-        abort_unless(hash_equals($configuration, $this->configurationHash($p)), 409, 'Partner configuration changed during discovery.');
+        // Read-only discovery also transmits a credential. Do not issue a
+        // second request after a changed approval, peer or source generation.
+        $guard = function () use ($p, $approval, $configuration, $link, $v) {
+            app(AdminCredentialApproval::class)->current($approval);
+            $current = OcpiProvider::findOrFail($p->id);
+            $this->unchanged($p, $current, $configuration, $v['action'] === 'unregister');
+            $latest = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->first();
+            abort_unless($this->sameLink($link, $latest), 409, 'Credential state changed during discovery.');
+        };
+        $endpoint = $this->endpoint($p, $token, $guard);
         $localToken = bin2hex(random_bytes(32));
         $payload = $v['action'] === 'unregister' ? null : $this->localPayload($localToken, $p);
         $version = $v['action'] === 'unregister' && ($link->generation ?? 0) === 2147483647 ? 2147483647 : (int) ($link->generation ?? 0) + 1;

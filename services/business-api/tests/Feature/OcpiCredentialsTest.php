@@ -136,6 +136,47 @@ class OcpiCredentialsTest extends TestCase
         $this->assertDatabaseCount('ocpi_credential_operations', 1);
     }
 
+    public function test_changed_peer_origin_after_versions_cannot_receive_the_original_bootstrap_token(): void
+    {
+        [, $admin, , $url] = $this->fixture();
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) {
+            $this->assertSame('GET', $request->method());
+            $this->assertSame('https://partner.example/ocpi/versions', $request->url());
+            config(['ocpi.connections.managed.origin' => 'https://replacement.example']);
+
+            return Http::response($this->envelope([['version' => '2.2.1', 'url' => 'https://replacement.example/ocpi/2.2.1']]));
+        });
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertConflict();
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        $this->assertDatabaseCount('ocpi_credential_links', 0);
+    }
+
+    public function test_changed_managed_token_after_versions_stops_rotation_discovery(): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        $this->source();
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'acknowledged');
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first();
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($link) {
+            $this->assertSame('GET', $request->method());
+            $this->assertSame('https://partner.example/ocpi/versions', $request->url());
+            DB::table('ocpi_credential_links')->where('id', $link->id)->update([
+                'remote_token_ciphertext' => Crypt::encryptString('REPLACEMENT-REMOTE-SYNTHETIC'),
+            ]);
+
+            return Http::response($this->envelope([['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]));
+        });
+        $this->postJson($url, $this->intent('rotate', 'new-rotation'))->assertConflict();
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_credential_operations', 1);
+        $this->assertSame($link->generation, DB::table('ocpi_credential_links')->where('id', $link->id)->value('generation'));
+    }
+
     public function test_bootstrap_configuration_change_during_discovery_requires_fresh_approval(): void
     {
         [, $admin, , $url] = $this->fixture();
