@@ -121,6 +121,31 @@ void main() {
     expect(find.text('Approve'), findsNothing);
     expect(t.takeException(), isNull);
   });
+  testWidgets('pagination reuses exact applied vendor and currency filter', (t) async {
+    final api = ReviewApi()..total = 21;
+    addTearDown(api.close);
+    await open(t, api);
+    await t.enterText(find.byKey(const Key('finance-review-currency')), 'KWD');
+    await t.enterText(find.byKey(const Key('finance-review-vendor')), '9');
+    FocusManager.instance.primaryFocus?.unfocus();
+    await t.pumpAndSettle();
+    await t.ensureVisible(find.byKey(const Key('finance-review-refresh')));
+    await t.tap(find.byKey(const Key('finance-review-refresh')));
+    await t.pumpAndSettle();
+    expect(api.queries.last, {
+      'kind': 'all', 'page': '1', 'per_page': '20',
+      'currency': 'KWD', 'vendor_id': '9',
+    });
+    await t.scrollUntilVisible(find.byKey(const Key('finance-review-next')), 500,
+      scrollable: find.byType(Scrollable).first, maxScrolls: 50);
+    await t.tap(find.byKey(const Key('finance-review-next')));
+    await t.pumpAndSettle();
+    expect(api.queries.last, {
+      'kind': 'all', 'page': '2', 'per_page': '20',
+      'currency': 'KWD', 'vendor_id': '9',
+    });
+    expect(find.text('Adjustment #21'), findsOneWidget);
+  });
   testWidgets('non-Admin cannot dispatch review queue read', (t) async {
     final api = ReviewApi(role: 'vendor');
     addTearDown(api.close);
