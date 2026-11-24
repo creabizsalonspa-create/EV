@@ -207,6 +207,51 @@ class RemoteSessionAuthorizationTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public static function remoteSourceChanges(): array
+    {
+        return [['endpoint'], ['key'], ['capability_endpoint'], ['capability_key'], ['disabled']];
+    }
+
+    #[DataProvider('remoteSourceChanges')]
+    public function test_verified_remote_source_rejects_authority_drift_during_read(string $kind): void
+    {
+        [, , , $command, $link] = $this->fixture();
+        $tag = $command->payload['id_token'];
+        $link->update(['remote_authorization_id' => 7]);
+        config(['csms.graphql_secret' => str_repeat('g', 64), 'csms.graphql_url' => 'https://source.test/graphql']);
+        Http::fake(function ($request) use ($kind, $link, $tag) {
+            $this->assertSame('https://source.test/graphql', $request->url());
+            $this->assertSame(str_repeat('g', 64), $request->header('x-hasura-admin-secret')[0] ?? null);
+            match ($kind) {
+                'endpoint' => config(['csms.graphql_url' => 'https://alternate.example.test/graphql']),
+                'key' => config(['csms.graphql_secret' => str_repeat('h', 64)]),
+                'capability_endpoint' => config(['csms.rider_source_api_url' => 'https://alternate.example.test']),
+                'capability_key' => config(['csms.rider_client_secret' => str_repeat('t', 64)]),
+                'disabled' => config(['csms.remote_authorization_enabled' => false]),
+            };
+
+            return Http::response(['data' => ['Authorizations' => [[
+                'id' => 7, 'idToken' => $tag, 'idTokenType' => 'Central', 'status' => 'Accepted',
+                'additionalInfo' => [['type' => 'CREABIZ_REMOTE', 'additionalIdToken' => $link->remote_registration_nonce]],
+                'realTimeAuth' => 'Never', 'realTimeAuthUrl' => RemoteSessionAuthorization::CALLBACK,
+                'realTimeAuthTimeout' => 0, 'cacheExpiryDateTime' => now()->addMinutes(15)->toISOString(),
+                'concurrentTransaction' => false, 'isPrepaid' => false,
+            ]]]]);
+        });
+        try {
+            app(RemoteSessionAuthorization::class)->verified($link->fresh(), $tag);
+            $this->fail('Changed remote source authority was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'alternate.example.test')
+            || str_starts_with((string) $request['query'], 'mutation'));
+        $this->assertSame('pending', $command->fresh()->status);
+        $this->assertSame(7, (int) $link->fresh()->remote_authorization_id);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_unknown_service_credentials_and_unknown_remote_token_fail_closed(): void
     {
         $this->fixture();
