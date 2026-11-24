@@ -91,3 +91,37 @@ The new `SubscriptionCreditTest` verifies real TEST creation,
 authenticated pages 1 and 10000, invalid pages, private 404
 precedence for an unauthorized tenant, no-store response headers,
 and no journal/credit mutation on reads.
+
+
+## Pre-dispatch credit allocation and signed recovery identity (Agent 3 continuation)
+
+A sufficient gross captured balance alone is not enough to send a
+TEST refund. Before reserving a new durable credit request, and again
+under the subscription lock immediately before provider dispatch, the
+service verifies the immutable invoice's subtotal/tax/total, exact
+captured receipt amount/currency/invoice ID, and each existing credit's
+receipt-linked invoice/subscription, currency/precision, evidence and
+exact subtotal/tax allocation. It rejects internally inconsistent
+credits, excessive per-component sums and unrepresentable allocations
+with HTTP 409. This preflight performs the same exact allocation that
+the posting path will use, not just a late check after provider I/O.
+It also revalidates the current receipt and checkout identities
+against the original durable request. Recovery posting repeats the
+canonical checks but does not send another refund POST.
+
+A signed Stripe TEST callback that explicitly supplies
+`metadata.creabiz_recovery` must supply a positive exact integer
+within 2^53−1 (or its canonical decimal string). Malformed supplied
+metadata is rejected, never silently replaced by the known provider
+reference. Absence of that field retains the existing observed-source
+reconciliation policy. Valid duplicate signed callbacks still follow
+the original immutable event and provider identity rules.
+
+New isolated regression fixtures insert a deliberately inconsistent
+historical credit without bypassing update/delete immutability
+triggers, prove that its apparently sufficient gross funds do not
+permit a provider refund POST or a new credit reservation, and
+check that signed malformed recovery identities cannot add event
+receipts or modify posted credit journals. The fake provider and
+synthetic fixtures are not external merchant acceptance. Exact
+source CI and Agent 5 integration remain required.
