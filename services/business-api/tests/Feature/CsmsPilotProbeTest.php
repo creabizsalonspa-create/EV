@@ -103,6 +103,12 @@ class CsmsPilotProbeTest extends TestCase
             }
             if (str_contains($request['query'], 'ChargingStations')) {
                 $stationReads++;
+                if ($stationReads === 1 && $state === 'origin_changed') {
+                    config(['csms.graphql_url' => 'https://alternate.example.test/v1/graphql']);
+                }
+                if ($stationReads === 2 && $state === 'inbox_key_changed') {
+                    config(['csms.event_secret' => str_repeat('c', 64)]);
+                }
                 $row = [
                     'id' => 91, 'isOnline' => true, 'protocol' => $fixture['protocol'],
                     'chargePointVendor' => $state === 'wrong_vendor' ? 'Other' : 'Synthetic',
@@ -131,6 +137,12 @@ class CsmsPilotProbeTest extends TestCase
                     : ($state === 'object_station' ? ['station' => $row] : [$row]);
 
                 return Http::response(['data' => ['ChargingStations' => $projection]]);
+            }
+            if ($state === 'adapter_disabled') {
+                config(['csms.session_bridge_enabled' => false]);
+            }
+            if ($state === 'source_key_changed') {
+                config(['csms.graphql_secret' => str_repeat('c', 64)]);
             }
             if ($state === 'removed_mapping') {
                 $mappingId = DB::table('charging_connector_mappings')
@@ -307,6 +319,33 @@ class CsmsPilotProbeTest extends TestCase
         }
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_mid_probe_source_authority_change_never_certifies_software_readiness(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['origin_changed' => 1, 'adapter_disabled' => 2, 'source_key_changed' => 2, 'inbox_key_changed' => 3] as $state => $calls) {
+                config([
+                    'csms.graphql_url' => 'http://127.0.0.1:8095/v1/graphql',
+                    'csms.graphql_secret' => str_repeat('a', 64),
+                    'csms.event_secret' => str_repeat('b', 64),
+                    'csms.session_bridge_enabled' => true,
+                ]);
+                $f = $this->fixture($protocol);
+                $this->source($f, $state);
+                $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+                $output = Artisan::output();
+                $this->assertStringContainsString('Source pilot probe blocked', $output);
+                $this->assertStringNotContainsString(str_repeat('a', 64), $output);
+                $this->assertStringNotContainsString(str_repeat('c', 64), $output);
+                Http::assertSentCount($calls);
+                Http::assertNotSent(fn ($request) => str_contains($request->url(), 'alternate.example.test')
+                    || str_contains($request->url(), '/ocpp/') || str_contains($request->url(), '/dev/token'));
+            }
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('csms_inbox_events', 0);
     }
 
     public function test_stale_source_requires_review_without_creating_hardware_authority(): void
