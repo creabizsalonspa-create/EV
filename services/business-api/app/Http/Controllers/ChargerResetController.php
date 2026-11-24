@@ -172,9 +172,12 @@ class ChargerResetController extends Controller
                     app(VendorAccess::class)->operational($company);
                     $this->enabled();
                     $this->idle($b);
-                    $auth = app(OperationsCredentials::class)->token(config('csms.operations_base_url'));
+                    $operationsBase = config('csms.operations_base_url');
+                    $auth = app(OperationsCredentials::class)->token($operationsBase);
+                    $this->enabled();
+                    abort_unless(config('csms.operations_base_url') === $operationsBase, 409, 'Operations authority changed before reset dispatch.');
                     abort_unless(is_string($auth) && $auth !== '', 503);
-                    $reply = Http::timeout(10)->withoutRedirecting()->withToken($auth)->post(config('csms.operations_base_url').'/ocpp/'.$b->protocol.'/configuration/reset?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), ['type' => $row->reset_type]);
+                    $reply = Http::timeout(10)->withoutRedirecting()->withToken($auth)->post($operationsBase.'/ocpp/'.$b->protocol.'/configuration/reset?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), ['type' => $row->reset_type]);
 
                     return $reply->successful() && $reply->json() === [['success' => true]] ? 'transport_submitted' : 'outcome_unknown';
                 });
