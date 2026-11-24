@@ -202,6 +202,53 @@ class OcpiAuthorizationBoundaryTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_same_origin_pagination_cannot_switch_to_another_module(): void
+    {
+        $p = $this->provider();
+        $p->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations', 'sessions' => 'https://partner.example/sessions']]);
+        Http::fake(fn () => Http::response($this->envelope([]), 200, ['Link' => '<https://partner.example/sessions?page=2>; rel="next"']));
+        try {
+            app(PartnerClient::class)->pull($p, 'locations');
+            $this->fail('Catalog pagination switched modules.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('negotiated module path', $error->getMessage());
+        }
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    public function test_query_relative_pagination_keeps_the_negotiated_module(): void
+    {
+        $p = $this->provider();
+        $p->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        Http::fake([
+            'https://partner.example/locations' => Http::response($this->envelope([['id' => 'one']]), 200, ['Link' => '<?page=2>; rel="next"']),
+            'https://partner.example/locations?page=2' => Http::response($this->envelope([['id' => 'two']])),
+        ]);
+        $this->assertSame(['one', 'two'], array_column(app(PartnerClient::class)->pull($p, 'locations'), 'id'));
+        Http::assertSentCount(2);
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    public function test_endpoint_replacement_without_revision_change_discards_current_read(): void
+    {
+        $p = $this->provider();
+        $p->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        Http::fake(function () use ($p) {
+            $p->fresh()->update(['endpoints' => ['locations' => 'https://partner.example/changed']]);
+
+            return Http::response($this->envelope([]));
+        });
+        try {
+            app(PartnerClient::class)->pull($p, 'locations');
+            $this->fail('Read accepted after negotiated endpoint changed.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('connection authority changed', $error->getMessage());
+        }
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
     public function test_revocation_after_versions_response_prevents_next_outbound_request(): void
     {
         $p = $this->provider();

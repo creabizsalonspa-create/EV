@@ -129,7 +129,9 @@ class PartnerClient
             ? DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first()
             : null;
 
-        return hash('sha256', json_encode([$connection, $link ? [
+        $current = OcpiProvider::findOrFail($provider->id);
+
+        return hash('sha256', json_encode([$connection, $current->connection_key, $current->version, $current->endpoints, $link ? [
             $link->id, $link->owner_id, $link->generation, $link->state, $link->configuration_hash,
             $link->bootstrap_hash, $link->local_token_digest, $link->local_token_ciphertext, $link->remote_token_ciphertext,
         ] : null], JSON_THROW_ON_ERROR));
@@ -383,7 +385,8 @@ class PartnerClient
         }
         $authority = $this->readAuthority($provider);
         $window = $this->pullWindow($requestedWindow);
-        $url = $provider->endpoints[$module];
+        $url = $this->guardedUrl($provider, $provider->endpoints[$module]);
+        $path = parse_url($url, PHP_URL_PATH) ?? '/';
         if ($window !== []) {
             parse_str((string) (parse_url($url, PHP_URL_QUERY) ?? ''), $existing);
             if (array_key_exists('date_from', $existing) || array_key_exists('date_to', $existing)) {
@@ -403,6 +406,11 @@ class PartnerClient
                 throw new OcpiException('Inactive operator owner cannot synchronize public catalog modules.');
             }
             $url = $this->guardedUrl($provider, $url);
+            // Only follow pagination of this negotiated module, not an
+            // unrelated same-origin resource or a different API operation.
+            if ((parse_url($url, PHP_URL_PATH) ?? '/') !== $path) {
+                throw new OcpiException('Partner pagination escaped the negotiated module path.');
+            }
             if (isset($seen[$url])) {
                 throw new OcpiException('Operator pagination loop detected.');
             }$seen[$url] = true;
@@ -427,8 +435,12 @@ class PartnerClient
 
                 return $records;
             }
-            $this->verifyWindowNext($result['next'], $window);
-            $url = $result['next'];
+            $next = $result['next'];
+            if (str_starts_with($next, '?')) {
+                $next = explode('?', $url, 2)[0].$next;
+            }
+            $this->verifyWindowNext($next, $window);
+            $url = $next;
         }
         throw new OcpiException('Operator pagination exceeded the configured page limit.');
     }
