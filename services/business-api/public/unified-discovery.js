@@ -99,8 +99,21 @@
    uncertain=false;const turn=++generation;mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();state.replaceChildren(text('span','Searching…','جارٍ البحث…'));submit.disabled=true;
    try{
     const data=await api('search?'+new URLSearchParams({...advancedQuery,...viewportQuery,q:query,scope,...(country?{country}:{}),connector,page:String(target),saved_only:savedOnly?'1':'0',recent_source_status:recentStatus,...(maxSourceAge?{max_source_age_hours:maxSourceAge}:{})}));if(turn!==generation)return;
-    if(!Array.isArray(data.data)||!Number.isInteger(data.current_page)||!Number.isInteger(data.last_page)||!Number.isInteger(data.total))throw Error('Invalid catalog response');
-    mapRows=data.data;mapButton.disabled=mapRows.length===0;
+    if(!data||!Array.isArray(data.data)||data.data.length>25||
+       !Number.isSafeInteger(data.current_page)||data.current_page!==target||
+       !Number.isSafeInteger(data.last_page)||data.last_page<1||data.last_page>1000000||
+       !Number.isSafeInteger(data.total)||data.total<0||data.total<data.data.length||
+       (data.current_page>data.last_page&&data.data.length>0))
+      throw Error('Unverified catalog page');
+    // Validate unique typed record identities before rendering any card
+    // or authorizing the map. A failed page must never reveal partial records.
+    const keys=new Set();
+    for(const row of data.data){
+      if(!row||typeof row!=='object'||Array.isArray(row)||
+         typeof row.key!=='string'||keys.has(row.key))
+        throw Error('Invalid catalog identity');
+      keys.add(row.key);
+    }
     page=data.current_page;state.replaceChildren(text('span',`${data.total} published results`,`${data.total} نتيجة منشورة`));
     for(const row of data.data){
      const card=document.createElement('article');card.dataset.discoveryKey=row.key;
@@ -118,7 +131,11 @@
          'بيانات المحطة المنشورة غير مكتملة. لا تتوفر إجراءات الحجز أو الحفظ حتى تصحيح بيانات الكتالوج.'));
       }
      }else if(row.kind==='partner'&&Number.isSafeInteger(row.record_id)&&row.record_id>0&&row.key==='partner:'+row.record_id&&row.location&&row.reservable===false&&row.remote_control===false&&row.availability==='unknown'){
-      allowedFavorite=true;card.dataset.partnerLocationId=String(row.record_id);const l=row.location;
+      const partnerSource=row.evidence==='PARTNER_REPORTED_UNVERIFIED'&&
+        row.location.availability==='unknown'&&row.location.reservable===false&&
+        row.location.remote_control===false;
+      allowedFavorite=partnerSource;
+      card.dataset.partnerLocationId=String(row.record_id);const l=row.location;
       const safe=value=>typeof value==='string'&&value.trim()?value.trim().slice(0,250):'';
       const providedName=safe(l.name)||safe(l.id);
       const nameEn=providedName||'Partner record #'+row.record_id;
@@ -159,12 +176,20 @@
       });star.dataset.favoriteKind=row.kind;card.append(star);
      }
      list.append(card);
+     // Do not send a rejected identity, guessed partner status, or incomplete
+     // catalog metadata to the separate map event consumer.
+     if(row.kind==='catalog' ? catalogMetadataComplete(row) :
+        allowedFavorite&&row.location_available!==false)mapRows.push(row);
     }
+    mapButton.disabled=mapRows.length===0;
     if(page>1)nav.append(button('Previous','السابق',()=>load(page-1)));
     nav.append(text('span',`Page ${page} / ${data.last_page}`,`الصفحة ${page} / ${data.last_page}`));
     if(page<data.last_page)nav.append(button('Next','التالي',()=>load(page+1)));
     rememberSuccessfulSearch(historySnapshot);
-   }catch{if(turn===generation)state.replaceChildren(text('span','Search failed. Submit again to retry.','تعذر البحث. أعد الإرسال للمحاولة.'));}
+   }catch{if(turn===generation){
+     mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();
+     state.replaceChildren(text('span','Search failed. Submit again to retry.','تعذر البحث. أعد الإرسال للمحاولة.'));
+    }}
    finally{if(turn===generation)submit.disabled=false;}
   }
   form.onsubmit=e=>{e.preventDefault();if(writing)return;advancedQuery={};viewportQuery={};for(const [key,control] of Object.entries(advancedInputs)){let value=control.value.trim();if(key==='price_currency')value=value.toUpperCase();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].includes(key))value=normalizeRate(value);if(value)advancedQuery[key]=value;}query=input.value.trim();scope=source.value;country=market.value;connector=plug.value;recentStatus=report.value;maxSourceAge=ageFilter.value;savedOnly=customer&&savedInput.checked;load(1,true);};
