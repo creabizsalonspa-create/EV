@@ -98,6 +98,20 @@ void main() {
       expect(tester.takeException(),isNull);
     });
   }
+
+  test('verified receipt accepts exact PostgreSQL fractional UTC without rollover',() {
+    final exp=price['expires_at'] as String;
+    final receipt=<String,dynamic>{
+      'id':77,
+      'accepted_at':DateTime.now().toUtc().toIso8601String(),
+      'valid_until':exp.substring(0,19).replaceFirst('T',' ')+'.000000',
+    };
+    expect(confirmedPrechargeReceipt(receipt,price),true);
+    expect(confirmedPrechargeReceipt({...receipt,'id':0},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'valid_until':'2026-02-30 10:00:00'},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'valid_until':'not-a-timestamp'},price),false);
+  });
+
   testWidgets('SQL UTC replay receipt preserves verified price acceptance', (tester) async {
     final api=PricingApi()..sqlReplay=true;
     addTearDown(api.close);
