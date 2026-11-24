@@ -10,7 +10,7 @@ class Element{
 }
 const sample={data:[{key:'catalog:7',kind:'catalog',station:{id:7,name:'<b>Catalog</b>',evidence:'SIMULATED',connector_type:'CCS2',power_kw:50}},{key:'partner:7',kind:'partner',record_id:7,provider_label:'Private operator label',location:{name:'<img src=x>',address:'Synthetic',country:'ARE',availability:'unknown',remote_control:false,reservable:false},evidence:'PARTNER_REPORTED_UNVERIFIED',availability:'unknown',remote_control:false,reservable:false}],current_page:1,last_page:2,total:3};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-function fixture(lang='en',api=async()=>sample){const events=[],listeners=new Map(),window={addEventListener(type,fn){listeners.set(type,[...(listeners.get(type)||[]),fn]);},dispatchEvent(event){events.push(event);for(const fn of listeners.get(event.type)||[])fn(event);}},document={getElementById:()=>null,documentElement:{lang},createElement:tag=>new Element(tag)};vm.runInNewContext(fs.readFileSync('services/business-api/public/partner-catalog-policy.js','utf8'),{window});vm.runInNewContext(fs.readFileSync('services/business-api/public/unified-discovery.js','utf8'),{window,document,URLSearchParams,CustomEvent:class{constructor(type,data={}){this.type=type;this.detail=data.detail??null;}}});const root=new Element('section'),chosen=[],calls=[];const control=window.EvUnifiedDiscovery.install(root,async(...args)=>{calls.push(args);return api(...args);},id=>chosen.push(id));return{root,chosen,calls,control,events,emit:(type,detail)=>window.dispatchEvent({type,detail}),form:root.children[2],list:root.children[4],nav:root.children[5]};}
+function fixture(lang='en',api=async()=>sample){const events=[],listeners=new Map(),window={addEventListener(type,fn){listeners.set(type,[...(listeners.get(type)||[]),fn]);},dispatchEvent(event){events.push(event);for(const fn of listeners.get(event.type)||[])fn(event);}},document={visibilityState:'visible',addEventListener:(type,fn)=>window.addEventListener('document:'+type,fn),getElementById:()=>null,documentElement:{lang},createElement:tag=>new Element(tag)};vm.runInNewContext(fs.readFileSync('services/business-api/public/partner-catalog-policy.js','utf8'),{window});vm.runInNewContext(fs.readFileSync('services/business-api/public/unified-discovery.js','utf8'),{window,document,URLSearchParams,CustomEvent:class{constructor(type,data={}){this.type=type;this.detail=data.detail??null;}}});const root=new Element('section'),chosen=[],calls=[];const control=window.EvUnifiedDiscovery.install(root,async(...args)=>{calls.push(args);return api(...args);},id=>chosen.push(id));return{root,document,chosen,calls,control,events,emit:(type,detail)=>window.dispatchEvent({type,detail}),form:root.children[2],list:root.children[4],nav:root.children[5]};}
 for(const lang of ['en','ar'])test('actual unified DOM query, typed identities and safe source text '+lang,async()=>{
  const f=fixture(lang);assert.equal(f.calls.length,0);f.form.children[0].children.find(n=>n.tag==='input').value='100%_hub';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls[0][0].split('?')[1]).get('q'),'100%_hub');assert.equal(f.list.children.length,2);assert.match(f.list.textContent,/<img src=x>/);assert.equal(f.list.children[1].children.some(n=>n.tag==='button'),false);f.list.children[0].children.find(n=>n.tag==='button').onclick();assert.deepEqual(f.chosen,[7]);assert.equal(f.list.children[0].children[0].innerHTML,undefined);assert.match(f.list.textContent,lang==='ar'?/التوفر غير معروف/:/availability unknown/);f.nav.children.find(n=>n.tag==='button').onclick();await tick();assert.equal(new URLSearchParams(f.calls[1][0].split('?')[1]).get('page'),'2');assert(f.calls.every(args=>args.length===1));
 });
@@ -127,6 +127,29 @@ test('pagehide clears mapped private query and recent history without network',a
  assert.equal(f.root.children[7].hidden,true);
  assert.equal(f.events.at(-1).type,'unified-map-clear');
  assert.equal(f.calls.length,before);
+});
+
+for(const lang of ['en','ar'])test('background tab purges private mapped search and refuses stale results '+lang,async()=>{
+ const f=fixture(lang);
+ f.control.setContext({owner:'customer',customer:true});
+ const q=f.form.children[0].children.find(node=>node.tag==='input');
+ q.value='Former private location';
+ f.form.onsubmit({preventDefault(){}});await tick();
+ f.root.children[6].onclick();
+ assert.match(f.root.textContent,/Former private location/);
+ const sent=f.calls.length;
+ f.document.visibilityState='hidden';
+ f.emit('document:visibilitychange');
+ assert.equal(q.value,'');
+ assert.equal(f.list.children.length,0);
+ assert.equal(f.root.children[6].disabled,true);
+ assert.equal(f.root.children[7].hidden,true);
+ assert.equal(f.events.at(-1).type,'unified-map-clear');
+ f.document.visibilityState='visible';
+ f.emit('document:visibilitychange');
+ await tick();
+ assert.equal(f.calls.length,sent,'Foreground alone cannot perform a private discovery lookup');
+ assert.equal(f.list.children.length,0);
 });
 test('mapping the mixed page is explicit, preserves typed sources and performs no lookup',async()=>{
  const f=fixture();assert.equal(f.events.length,0);f.form.onsubmit({preventDefault(){}});await tick();assert.equal(f.events.length,0);f.root.children[6].onclick();assert.equal(f.events.length,1);assert.equal(f.events[0].type,'unified-map-data');assert.deepEqual(Array.from(f.events[0].detail,row=>row.key),['catalog:7','partner:7']);assert.equal(f.calls.length,1);f.control.clear();assert.equal(f.root.children[6].disabled,true);
