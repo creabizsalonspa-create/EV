@@ -45,6 +45,29 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
       });
     }
   }
+  bool validReceipt(dynamic row, bool cancelled) =>
+      row is Map &&
+      row['station_id'] == widget.stationId &&
+      row['id'] is String &&
+      RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(row['id'] as String) &&
+      row['starts_at'] is String &&
+      row['ends_at'] is String &&
+      row['reason_en'] is String &&
+      row['reason_ar'] is String &&
+      row['revision'] is int &&
+      row['revision'] > 0 &&
+      row['scope'] == 'STATION_WIDE_OPERATOR_POLICY' &&
+      row['cancelled'] == cancelled &&
+      row['physical_availability_verified'] == false;
+
+  bool sameInstant(dynamic a, dynamic b) {
+    if (a is! String || b is! String) return false;
+    final first = DateTime.tryParse(a);
+    final second = DateTime.tryParse(b);
+    return first != null && second != null &&
+        first.isUtc && second.isUtc && first.isAtSameMomentAs(second);
+  }
+
   Future<void> read(int ticket) async {
     final data=await widget.api.request(path);
     if (!current(ticket)) return;
@@ -55,22 +78,12 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
       throw const ApiException(502, 'Invalid block response');
     }
     final typed = <Map<String, dynamic>>[];
+    final ids = <String>{};
     for (final row in data['data'] as List) {
-      if (row is! Map ||
-          row['station_id'] != widget.stationId ||
-          row['id'] is! String ||
-          row['starts_at'] is! String ||
-          row['ends_at'] is! String ||
-          row['reason_en'] is! String ||
-          row['reason_ar'] is! String ||
-          row['revision'] is! int ||
-          row['revision'] < 1 ||
-          row['scope'] != 'STATION_WIDE_OPERATOR_POLICY' ||
-          row['cancelled'] != false ||
-          row['physical_availability_verified'] != false) {
+      if (!validReceipt(row, false) || !ids.add(row['id'] as String)) {
         throw const ApiException(502, 'Invalid station block source');
       }
-      typed.add(Map<String, dynamic>.from(row));
+      typed.add(Map<String, dynamic>.from(row as Map));
     }
     setState(() => rows = typed);
   }
@@ -100,9 +113,32 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
     pending ??= {'idempotency_key':operationKey(),for(final entry in fields.entries)entry.key:entry.value.text.trim()};
     final result=await widget.api.request(path,method:'POST',body:pending);
     if(!current(ticket))return;
-    if(result is! Map || result['station_id']!=widget.stationId || result['id'] is! String)throw const ApiException(502,'Invalid block receipt');
+    if (result is! Map || !validReceipt(result, result['cancelled'] == true) ||
+        result['revision'] != (result['cancelled'] == true ? 2 : 1) ||
+        !sameInstant(result['starts_at'], pending!['starts_at']) ||
+        !sameInstant(result['ends_at'], pending!['ends_at']) ||
+        result['reason_en'] != pending!['reason_en'] ||
+        result['reason_ar'] != pending!['reason_ar']) {
+      throw const ApiException(502, 'Invalid block receipt');
+    }
     pending=null;for(final controller in fields.values)controller.clear();await read(ticket);
   });
+  Future<void> cancel(Map<String, dynamic> row) => act((ticket) async {
+    final result = await widget.api.request('$path/${row['id']}/cancel',
+        method: 'POST', body: {'revision': row['revision']});
+    if (!current(ticket)) return;
+    if (result is! Map || !validReceipt(result, true) ||
+        result['id'] != row['id'] ||
+        result['revision'] != (row['revision'] as int) + 1 ||
+        result['starts_at'] != row['starts_at'] ||
+        result['ends_at'] != row['ends_at'] ||
+        result['reason_en'] != row['reason_en'] ||
+        result['reason_ar'] != row['reason_ar']) {
+      throw const ApiException(502, 'Invalid cancellation receipt');
+    }
+    await read(ticket);
+  });
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if(state==AppLifecycleState.resumed){if(background){setState(()=>background=false);act(read);}}
@@ -117,7 +153,7 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
       for(final row in rows)...[
         Text('${row['starts_at']} → ${row['ends_at']} (UTC)',textDirection:TextDirection.ltr),
         Text('${Localizations.localeOf(context).languageCode=='ar'?row['reason_ar']:row['reason_en']}'),
-        OutlinedButton(onPressed:busy?null:()=>act((ticket)async{await widget.api.request('$path/${row['id']}/cancel',method:'POST',body:{'revision':row['revision']});if(current(ticket))await read(ticket);}),child:Text(t('Cancel this block','إلغاء فترة الحجب'))),
+        OutlinedButton(onPressed:busy?null:()=>cancel(row),child:Text(t('Cancel this block','إلغاء فترة الحجب'))),
       ],
       for(final entry in fields.entries)TextField(key:Key('block-${entry.key}'),controller:entry.value,enabled:!busy&&pending==null,
         maxLength:entry.key.startsWith('reason')?300:20,decoration:InputDecoration(labelText:switch(entry.key){
