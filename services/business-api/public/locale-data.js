@@ -2688,7 +2688,7 @@ window.EV_MESSAGES = {
     },
     "{version}: {status}": {
         en: "{version}: {status}",
-        ar: "{version}: {status}",
+        ar: "الإصدار {version}: {status}",
     },
     "Signed firmware operations": {
         en: "Signed firmware operations",
