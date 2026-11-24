@@ -11,13 +11,15 @@ final class CsmsPreflight
     private function endpointConfigured(): bool
     {
         $url = config('csms.graphql_url');
-        if (! is_string($url) || strlen($url) > 512) {
+        if (! is_string($url) || strlen($url) > 512 || preg_match('/[\x00-\x20\x7f\\\\]/', $url)) {
             return false;
         }
         $parts = parse_url($url);
 
         if (! is_array($parts) || ! in_array($parts['scheme'] ?? null, ['http', 'https'], true)
             || ! is_string($parts['host'] ?? null) || $parts['host'] === ''
+            || ! preg_match('/^(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])$/D', $parts['host'])
+            || (isset($parts['port']) && ($parts['port'] < 1 || $parts['port'] > 65535))
             || isset($parts['user']) || isset($parts['pass'])
             || isset($parts['query']) || isset($parts['fragment'])
             || ($parts['path'] ?? '') !== '/v1/graphql') {
