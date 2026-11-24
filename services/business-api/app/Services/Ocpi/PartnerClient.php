@@ -80,7 +80,10 @@ class PartnerClient
     {
         $current = OcpiProvider::find($provider->id);
         if (! $current || ! $current->authorized || $current->authorization_revision !== $provider->authorization_revision || $current->connection_key !== $provider->connection_key || $current->owner_id !== $provider->owner_id) {
-            throw new OcpiException('Operator authorization changed; refresh and negotiate again.');
+            throw new OcpiException('Operator authorization changed; stale negotiation or read discarded.');
+        }
+        if ($current->version !== $provider->version || $current->endpoints !== $provider->endpoints) {
+            throw new OcpiException('Operator connection authority changed; refresh the negotiated endpoints.');
         }
     }
 
@@ -181,6 +184,7 @@ class PartnerClient
                 throw new OcpiException('Operator OCPI response was unsuccessful or malformed.');
             }
 
+            $this->assertCurrent($provider);
             $this->assertReadAuthority($provider, $authority);
 
             return ['data' => $body['data'], 'next' => $this->next($response->header('Link'))];
@@ -447,12 +451,18 @@ class PartnerClient
 
     /** Manual synchronization must carry the same read authority through
      * final canonical ingestion, including the interval after the last GET. */
-    public function synchronize(OcpiProvider $provider, string $module, RecordSynchronizer $synchronizer): array
+    public function synchronize(OcpiProvider $provider, string $module, RecordSynchronizer $synchronizer, ?Closure $consent = null): array
     {
+        if ($consent !== null && ! $consent()) {
+            throw new OcpiException('Source synchronization consent changed.');
+        }
         $authority = $this->readAuthority($provider);
-        $records = $this->pull($provider, $module);
+        $records = $this->pull($provider, $module, [], $consent);
 
-        return DB::transaction(function () use ($provider, $module, $synchronizer, $authority, $records) {
+        return DB::transaction(function () use ($provider, $module, $synchronizer, $authority, $records, $consent) {
+            if ($consent !== null && ! $consent()) {
+                throw new OcpiException('Source synchronization consent changed.');
+            }
             $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
             $this->assertCurrent($provider);
             $this->assertReadAuthority($current, $authority);
@@ -460,6 +470,9 @@ class PartnerClient
             // A changed in-process configuration must also roll back a batch
             // that has already started canonical ingestion.
             $this->assertReadAuthority($current, $authority);
+            if ($consent !== null && ! $consent()) {
+                throw new OcpiException('Source synchronization consent changed.');
+            }
 
             return $counts;
         }, 3);

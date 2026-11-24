@@ -249,6 +249,38 @@ class OcpiAuthorizationBoundaryTest extends TestCase
         $this->assertDatabaseCount('ocpi_records', 0);
     }
 
+    public function test_manual_sync_account_epoch_change_prevents_second_page(): void
+    {
+        $p = $this->provider();
+        $p->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        $actor = User::factory()->create(['role' => 'admin']);
+        Http::fake(function () use ($actor) {
+            DB::table('users')->where('id', $actor->id)->increment('auth_epoch');
+
+            return Http::response($this->envelope([]), 200, ['Link' => '<https://partner.example/locations?page=2>; rel="next"']);
+        });
+        $this->actingAs($actor)->postJson('/api/ocpi/providers/'.$p->id.'/sync/locations')->assertConflict();
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_stale_negotiated_endpoint_snapshot_is_rejected_before_transport(): void
+    {
+        $p = $this->provider();
+        $p->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        $old = $p->fresh();
+        $p->update(['endpoints' => ['locations' => 'https://partner.example/replacement']]);
+        try {
+            app(PartnerClient::class)->pull($old, 'locations');
+            $this->fail('Stale endpoint dispatched.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('connection authority changed', $error->getMessage());
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
     public function test_revocation_after_versions_response_prevents_next_outbound_request(): void
     {
         $p = $this->provider();
