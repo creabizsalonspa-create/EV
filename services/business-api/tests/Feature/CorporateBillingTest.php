@@ -9,6 +9,7 @@ use App\Models\Fleet;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Services\Commercial\CorporateBilling;
 use App\Services\Commercial\Payments\GatewayService;
 use App\Services\Enterprise\FleetReport;
 use App\Services\Finance\FinanceService;
@@ -94,6 +95,90 @@ class CorporateBillingTest extends TestCase
     private function issue(array $a, array $claims, string $key = 'statement')
     {
         return $this->actingAs($this->owner)->postJson($this->url('agreements/'.$a['id'].'/statements'), ['period' => now()->format('Y-m'), 'claim_ids' => array_column($claims, 'id'), 'idempotency_key' => $key]);
+    }
+
+    public function test_exact_source_guard_rejects_lossy_and_overflowed_corporate_amounts(): void
+    {
+        $max = 9_007_199_254_740_991;
+        $this->assertSame($max, CorporateBilling::exactMinor((string) $max));
+        $this->assertSame($max, CorporateBilling::addMinor($max - 1, 1));
+        foreach ([100.0, true, false, -1, '1.5', '1e3', '9007199254740992'] as $bad) {
+            try {
+                CorporateBilling::exactMinor($bad);
+                $this->fail('Unsafe corporate financial source was accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+        try {
+            CorporateBilling::addMinor(4_503_599_627_370_496, 4_503_599_627_370_496);
+            $this->fail('Corporate aggregate overflow was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->assertDatabaseCount('corporate_statements', 0);
+        $this->assertDatabaseCount('corporate_receipts', 0);
+    }
+
+    public function test_malformed_approved_claim_is_not_consolidated_even_when_credit_limit_allows_it(): void
+    {
+        $a = $this->agreement();
+        $invoice = $this->invoice();
+        $id = DB::table('corporate_claims')->insertGetId([
+            'agreement_id' => $a['id'], 'invoice_id' => $invoice->id,
+            'driver_id' => $this->driver->id, 'cost_center_id' => $this->center,
+            'cost_center_code' => 'ENGINEERING', 'cost_center_name' => 'Engineering',
+            'amount_minor' => $invoice->total_minor + 1, 'currency' => 'AED',
+            'minor_units' => 2, 'request_key' => hash('sha256', 'malformed-claim'),
+            'fingerprint' => hash('sha256', 'malformed-claim-source'), 'created_at' => now(),
+        ]);
+        DB::table('corporate_claim_decisions')->insert([
+            'claim_id' => $id, 'actor_id' => $this->owner->id,
+            'decision' => 'approved', 'reason' => 'Synthetic inconsistent fixture',
+            'created_at' => now(),
+        ]);
+        $before = DB::table('finance_journals')->count();
+        $this->issue($a, [['id' => $id]])->assertConflict();
+        $this->assertDatabaseCount('corporate_statements', 0);
+        $this->assertDatabaseCount('corporate_statement_lines', 0);
+        $this->assertDatabaseCount('corporate_receipts', 0);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
+    public function test_statement_matching_gross_total_but_forged_tax_is_not_read_or_collected(): void
+    {
+        $a = $this->agreement();
+        $invoice = $this->invoice();
+        $claim = $this->approved($a, $invoice);
+        $id = DB::table('corporate_statements')->insertGetId([
+            'agreement_id' => $a['id'], 'fleet_id' => $this->fleet->id,
+            'issued_by' => $this->owner->id, 'payer_id' => $this->owner->id,
+            'number' => 'TEST-INCONSISTENT-STATEMENT', 'period' => now()->format('Y-m'),
+            'currency' => 'AED', 'minor_units' => 2,
+            'subtotal_minor' => $invoice->subtotal_minor - 1,
+            'tax_minor' => $invoice->tax_minor + 1, 'total_minor' => $invoice->total_minor,
+            'due_at' => now()->addDays(30), 'agreement_snapshot' => json_encode($a, JSON_THROW_ON_ERROR),
+            'request_key' => hash('sha256', 'bad-statement'),
+            'fingerprint' => hash('sha256', 'bad-statement-source'), 'created_at' => now(),
+        ]);
+        DB::table('corporate_statement_lines')->insert([
+            'statement_id' => $id, 'claim_id' => $claim['id'], 'invoice_id' => $invoice->id,
+            'invoice_number' => $invoice->number, 'driver_id' => $this->driver->id,
+            'cost_center_id' => $this->center, 'cost_center_code' => 'ENGINEERING',
+            'cost_center_name' => 'Engineering', 'subtotal_minor' => $invoice->subtotal_minor - 1,
+            'tax_minor' => $invoice->tax_minor + 1, 'total_minor' => $invoice->total_minor,
+            'created_at' => now(),
+        ]);
+        $before = DB::table('finance_journals')->count();
+        $this->actingAs($this->owner)->getJson($this->url('statements/'.$id))
+            ->assertConflict();
+        $this->get($this->url('statements/'.$id.'/export'))->assertConflict();
+        $this->postJson($this->url('statements/'.$id.'/simulate-payment'), [
+            'idempotency_key' => 'blocked-inconsistent-statement',
+        ])->assertConflict();
+        $this->assertDatabaseCount('corporate_receipts', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertSame($before, DB::table('finance_journals')->count());
     }
 
     public function test_complete_claim_consolidation_cost_center_statement_and_atomic_canonical_simulated_receipts(): void
