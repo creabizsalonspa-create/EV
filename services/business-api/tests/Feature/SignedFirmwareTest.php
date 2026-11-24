@@ -221,10 +221,10 @@ class SignedFirmwareTest extends TestCase
         return compact('owner', 'admin', 'station', 'company', 'charger', 'binding', 'releases', 'path', 'entry', 'bytes', 'pin', 'protocol');
     }
 
-    private function source(array $f, bool $unknown = false, bool $loss = false, ?string $statusTime = null, ?string $firmwareVersion = 'sim-fw-v1', bool $drift = false, ?string $malformedSource = null, ?string $malformedReview = null): void
+    private function source(array $f, bool $unknown = false, bool $loss = false, ?string $statusTime = null, ?string $firmwareVersion = 'sim-fw-v1', bool $drift = false, ?string $malformedSource = null, ?string $malformedReview = null, bool $faultedIdle = false): void
     {
         $compatibilityReads = 0;
-        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime, $firmwareVersion, $drift, $malformedSource, $malformedReview, &$compatibilityReads) {
+        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime, $firmwareVersion, $drift, $malformedSource, $malformedReview, $faultedIdle, &$compatibilityReads) {
             if (str_contains($r->url(), '/capabilities')) {
                 parse_str(parse_url($r->url(), PHP_URL_QUERY), $query);
 
@@ -303,7 +303,7 @@ class SignedFirmwareTest extends TestCase
                     return Http::response(['data' => ['ChargingStations' => [$row]]]);
                 }
 
-                return Http::response(['data' => ['Transactions' => [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'errorCode' => $f['protocol'] === '1.6' ? 'NoError' : null, 'timestamp' => $statusTime ?? now()->toISOString()]]]]);
+                return Http::response(['data' => ['Transactions' => [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'errorCode' => $faultedIdle ? 'GroundFailure' : ($f['protocol'] === '1.6' ? 'NoError' : null), 'timestamp' => $statusTime ?? now()->toISOString()]]]]);
             }
             if (str_ends_with($r->url(), '/dev/token')) {
                 return Http::response(['accessToken' => 'synthetic-source-token']);
@@ -405,6 +405,29 @@ class SignedFirmwareTest extends TestCase
         $this->source($f, statusTime: 'now');
         $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Malformed source time cannot confirm installation'])->assertServiceUnavailable();
         $this->assertDatabaseHas('charger_firmware_operations', ['id' => $id, 'reviewed_at' => null, 'status' => 'transport_submitted']);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_faulted_idle_source_cannot_dispatch_or_complete_firmware(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source($f, faultedIdle: true);
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approved pinned synthetic bytes',
+        ])->assertCreated()->json('id');
+        $body = ['release_id' => $release, 'reason' => 'Fault-aware firmware source validation', 'idempotency_key' => 'faulted-idle'];
+        $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertConflict();
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/signedUpdateFirmware?') || str_contains($r->url(), '/updateFirmware?'));
+        Http::swap(new Factory);
+        $this->source($f);
+        $id = $this->postJson($f['path'], $body)->assertCreated()->json('id');
+        Http::swap(new Factory);
+        $this->source($f, faultedIdle: true);
+        $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Faulted source cannot confirm installation'])->assertConflict();
+        $this->assertDatabaseHas('charger_firmware_operations', ['id' => $id, 'reviewed_at' => null, 'status' => 'transport_submitted']);
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/signedUpdateFirmware?') || str_contains($r->url(), '/updateFirmware?'));
     }
 
     #[DataProvider('protocols')]
