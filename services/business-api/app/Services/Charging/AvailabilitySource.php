@@ -39,7 +39,7 @@ final class AvailabilitySource
     {
         $this->requireAuthority($authority, true);
 
-        return $this->source->serviceToken($authority[0]);
+        return app(OperationsCredentials::class)->token($authority[0]);
     }
 
     public function watermark(int $station): int
