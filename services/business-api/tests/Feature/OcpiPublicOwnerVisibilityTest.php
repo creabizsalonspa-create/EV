@@ -104,7 +104,7 @@ class OcpiPublicOwnerVisibilityTest extends TestCase
         $this->postJson('/api/ocpi/providers', [
             'owner_id' => $f['owner']->id, 'name' => 'Suspended test peer',
             'connection_key' => 'suspended-fixture', 'authorized' => true,
-        ])->assertConflict();
+        ])->assertUnprocessable();
 
         $this->getJson('/api/roaming/locations')->assertJsonPath('total', 0);
         $this->assertDatabaseCount('ocpi_providers', 1);
