@@ -231,6 +231,51 @@ class SandboxRoamingTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 0);
     }
 
+    #[TestWith(['hash'])]
+    #[TestWith(['ciphertext'])]
+    #[TestWith(['attempted'])]
+    public function test_changed_durable_start_claim_never_dispatches_after_token_registration(string $change): void
+    {
+        [, $driver, , , $location] = $this->fixture();
+        $requests = [];
+        Http::fake(function ($request) use ($change, &$requests) {
+            $requests[] = $request->method();
+            if ($request->method() === 'PUT') {
+                $command = DB::table('ocpi_roaming_commands')->where('action', 'START_SESSION');
+                $command->update(match ($change) {
+                    'hash' => ['intent_hash' => str_repeat('a', 64)],
+                    'ciphertext' => ['payload_ciphertext' => 'corrupted-synthetic-capsule'],
+                    'attempted' => ['attempted_at' => now()],
+                });
+            }
+
+            return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => $request->method() === 'PUT' ? null : ['result' => 'ACCEPTED', 'timeout' => 30]]);
+        });
+        $url = '/api/roaming/locations/'.$location->id;
+        $offer = $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->json('offers.0');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true];
+        $this->postJson($url.'/sandbox-orders', $body)->assertCreated();
+        $this->postJson($url.'/sandbox-orders', $body)->assertOk();
+        $this->assertSame(['PUT'], $requests);
+
+        $command = DB::table('ocpi_roaming_commands')->first();
+        $order = DB::table('ocpi_roaming_orders')->first();
+        if ($change === 'attempted') {
+            $this->assertNotNull($command->attempted_at);
+            $this->assertSame('prepared', $command->state);
+            $this->assertNotNull($order->active_target_key);
+        } else {
+            $this->assertNull($command->attempted_at);
+            $this->assertSame('not_dispatched', $command->state);
+            $this->assertSame('not_dispatched', $order->state);
+            $this->assertNull($order->active_target_key);
+        }
+        $this->assertNull($command->transport_result);
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_stale_authenticated_actor_cannot_create_new_roaming_consent_but_fresh_actor_can(): void
     {
         [, $driver, , , $location] = $this->fixture();

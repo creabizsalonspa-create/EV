@@ -27,6 +27,24 @@ class RoamingDispatch
         return DB::table('ocpi_roaming_commands')->find($id);
     }
 
+    /** Match the durable command to the immutable bytes approved before token registration. */
+    private function preparedStartClaim(object $order, object $command, bool $lock = false): void
+    {
+        $query = DB::table('ocpi_roaming_commands')->where('id', $command->id);
+        $claim = ($lock ? $query->lockForUpdate() : $query)->first();
+        abort_unless($claim && (int) $claim->order_id === (int) $order->id
+            && (int) $claim->actor_id === (int) $order->user_id
+            && $claim->action === 'START_SESSION'
+            && $claim->request_key === $command->request_key
+            && $claim->callback_key === $command->callback_key
+            && hash_equals($command->intent_hash, $claim->intent_hash)
+            && hash_equals($command->payload_ciphertext, $claim->payload_ciphertext)
+            && $claim->state === 'prepared' && $claim->attempted_at === null
+            && $claim->transport_result === null && $claim->callback_hash === null
+            && $claim->callback_result === null && $claim->callback_at === null,
+            409, 'Start claim changed; source reconciliation is required.');
+    }
+
     public function start(object $order): void
     {
         $service = app(SandboxRoaming::class);
@@ -53,9 +71,13 @@ class RoamingDispatch
         $startAttempted = false;
         try {
             $current = DB::table('ocpi_roaming_orders')->find($order->id);
-            [$provider,,$local] = $service->current($current, true);
+            [$provider] = $service->current($current, true);
+            $this->preparedStartClaim($current, $command);
             $payload = json_decode(Crypt::decryptString($command->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
+            abort_unless(is_array($payload) && hash_equals($command->intent_hash,
+                hash('sha256', json_encode([$current->id, 'START_SESSION', $payload], JSON_THROW_ON_ERROR))), 409);
             $token = $payload['token'];
+            abort_unless(($token['valid'] ?? null) === true, 409);
             app(PartnerClient::class)->write($provider, 'tokens_receiver', 'PUT', [$token['country_code'], $token['party_id'], $token['uid']], $token);
             DB::table('ocpi_roaming_orders')->where('id', $current->id)->whereNull('token_revoked_at')->update(['token_state' => 'registered', 'updated_at' => now()]);
             $current = DB::table('ocpi_roaming_orders')->find($order->id);
@@ -63,14 +85,17 @@ class RoamingDispatch
             $target = json_decode(Crypt::decryptString($current->target_ciphertext), true, flags: JSON_THROW_ON_ERROR);
             $offer = $service->offer(OcpiRecord::findOrFail($current->location_record_id), $target['evse_uid'], $target['connector_id'], $target['tariff_id']);
             abort_unless(hash_equals($current->offer_hash, $offer['hash']), 409);
-            DB::transaction(function () use ($current, $command, $service) {
+            $provider = DB::transaction(function () use ($current, $command, $service) {
                 User::whereKey($current->user_id)->lockForUpdate()->firstOrFail();
                 OcpiProvider::whereKey($current->provider_id)->lockForUpdate()->firstOrFail();
                 $row = DB::table('ocpi_roaming_orders')->where('id', $current->id)->lockForUpdate()->firstOrFail();
-                $service->current($row, true);
-                abort_unless($row->state === 'registering_token' && $row->token_revoked_at === null, 409);
+                [$provider] = $service->current($row, true);
+                abort_unless($row->state === 'registering_token' && $row->token_state === 'registered' && $row->token_revoked_at === null, 409);
+                $this->preparedStartClaim($row, $command, true);
                 DB::table('ocpi_roaming_orders')->where('id', $row->id)->update(['state' => 'start_dispatching', 'updated_at' => now()]);
                 DB::table('ocpi_roaming_commands')->where('id', $command->id)->update(['state' => 'dispatching', 'attempted_at' => now(), 'updated_at' => now()]);
+
+                return $provider;
             }, 3);
             $startAttempted = true;
             $response = app(PartnerClient::class)->write($provider, 'commands_receiver', 'POST', ['START_SESSION'], $payload);
@@ -79,8 +104,18 @@ class RoamingDispatch
             DB::transaction(function () use ($order, $command, $startAttempted) {
                 OcpiProvider::whereKey($order->provider_id)->lockForUpdate()->firstOrFail();
                 $current = DB::table('ocpi_roaming_orders')->where('id', $order->id)->lockForUpdate()->firstOrFail();
-                DB::table('ocpi_roaming_commands')->where('id', $command->id)->whereNull('transport_result')->update(['state' => $startAttempted ? 'outcome_unknown' : 'not_dispatched', 'updated_at' => now()]);
-                if ($current->token_revoked_at === null && ! in_array($current->state, ['source_active', 'source_completed'], true)) {
+                // Never erase a concurrent callback/receipt or release an EVSE
+                // if the durable claim already contains ambiguous wire evidence.
+                $claim = DB::table('ocpi_roaming_commands')->where('id', $command->id)
+                    ->where('order_id', $current->id)->where('action', 'START_SESSION')
+                    ->where('state', $startAttempted ? 'dispatching' : 'prepared')
+                    ->whereNull('transport_result')->whereNull('callback_hash')
+                    ->whereNull('callback_result')->whereNull('callback_at');
+                if (! $startAttempted) {
+                    $claim->whereNull('attempted_at');
+                }
+                $changed = $claim->update(['state' => $startAttempted ? 'outcome_unknown' : 'not_dispatched', 'updated_at' => now()]);
+                if ($changed && $current->token_revoked_at === null && ! in_array($current->state, ['source_active', 'source_completed'], true)) {
                     DB::table('ocpi_roaming_orders')->where('id', $current->id)->update(['state' => $startAttempted ? 'start_outcome_unknown' : 'not_dispatched', 'active_target_key' => $startAttempted ? $current->active_target_key : null, 'token_state' => $current->token_state === 'dispatching' ? 'outcome_unknown' : $current->token_state, 'updated_at' => now()]);
                 }
             }, 3);
