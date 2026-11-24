@@ -136,6 +136,88 @@ class OcpiCredentialsTest extends TestCase
         $this->assertDatabaseCount('ocpi_credential_operations', 1);
     }
 
+    public function test_bootstrap_configuration_change_during_discovery_requires_fresh_approval(): void
+    {
+        [, $admin, , $url] = $this->fixture();
+        $this->source(duringDiscovery: function () {
+            config(['ocpi.connections.managed.authorization_token' => base64_encode('BOOTSTRAP-B-SYNTHETIC')]);
+        });
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertConflict();
+        $this->assertSame([], $this->writes);
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        $this->assertDatabaseCount('ocpi_credential_links', 0);
+        $this->source();
+        $this->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'acknowledged');
+        $this->assertSame('Token '.base64_encode('BOOTSTRAP-B-SYNTHETIC'), $this->writes[0]['authorization']);
+    }
+
+    public function test_rotation_does_not_replace_a_same_generation_changed_token_discovered_with_old_authority(): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        $this->source();
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'acknowledged');
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first();
+        $this->source(duringDiscovery: function () use ($link) {
+            DB::table('ocpi_credential_links')->where('id', $link->id)->update([
+                'remote_token_ciphertext' => Crypt::encryptString('CHANGED-SAME-GENERATION'),
+            ]);
+        });
+        $this->postJson($url, $this->intent('rotate', 'rotate-changed'))->assertConflict();
+        $this->assertCount(1, $this->writes);
+        $this->assertDatabaseCount('ocpi_credential_operations', 1);
+        $this->assertSame('active', DB::table('ocpi_credential_links')->where('id', $link->id)->value('state'));
+        $this->assertSame($link->generation, DB::table('ocpi_credential_links')->where('id', $link->id)->value('generation'));
+    }
+
+    public function test_changed_claim_identity_cannot_dispatch_or_be_replayed(): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        $this->source();
+        $armed = true;
+        DB::listen(function ($query) use (&$armed, $provider) {
+            if ($armed && str_contains($query->sql, 'insert into "ocpi_credential_operations"')) {
+                $armed = false;
+                DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)->update([
+                    'action' => 'rotate',
+                ]);
+            }
+        });
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'outcome_unknown');
+        $this->assertFalse($armed);
+        $this->assertSame([], $this->writes);
+        $this->assertNull(DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->value('local_token_digest'));
+        $this->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'outcome_unknown');
+        $this->assertSame([], $this->writes);
+        $this->assertDatabaseCount('ocpi_credential_operations', 1);
+    }
+
+    public function test_valid_partner_envelope_cannot_activate_a_changed_dispatch_claim(): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($provider) {
+            if (str_ends_with($request->url(), '/ocpi/versions')) {
+                return Http::response($this->envelope([['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]));
+            }
+            if (str_ends_with($request->url(), '/ocpi/2.2.1')) {
+                return Http::response($this->envelope(['version' => '2.2.1', 'endpoints' => [['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => 'https://partner.example/ocpi/2.2.1/credentials']]]));
+            }
+            $this->assertSame('POST', $request->method());
+            DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->update([
+                'local_token_digest' => hash('sha256', 'CHANGED-CLAIM'),
+            ]);
+
+            return Http::response($this->envelope($this->peer('REMOTE-VALID-SYNTHETIC')));
+        });
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'outcome_unknown');
+        $this->assertSame('outcome_unknown', DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->value('state'));
+        $this->assertNull(DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->value('local_token_digest'));
+        $this->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'outcome_unknown');
+        Http::assertSentCount(3);
+        $this->assertDatabaseCount('ocpi_credential_operations', 1);
+    }
+
     public function test_incoming_preparation_cannot_borrow_a_new_admin_epoch_from_a_stale_request(): void
     {
         [$provider, $admin] = $this->fixture();
