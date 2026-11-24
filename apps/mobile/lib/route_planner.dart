@@ -231,11 +231,19 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
         identical(widget.client, client) && sessionCurrent;
     try {
       final result = await client.capabilities();
-      if (active() && current == generation) {
-        setState(() => capabilities = result);
+      if (active()) {
+        if (!result.routing) {
+          // A provider withdrawal supersedes any earlier itinerary consent,
+          // even if the driver edited that itinerary while checking.
+          invalidate();
+          setState(() => capabilities = result);
+        } else if (current == generation) {
+          setState(() => capabilities = result);
+        }
       }
     } catch (_) {
-      if (active() && current == generation) {
+      if (active()) {
+        invalidate();
         setState(() => capabilities = null);
       }
     } finally {
