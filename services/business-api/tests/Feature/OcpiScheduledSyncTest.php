@@ -168,6 +168,51 @@ class OcpiScheduledSyncTest extends TestCase
         }
     }
 
+    public function test_same_epoch_password_and_configured_party_changes_require_explicit_polling_renewal(): void
+    {
+        foreach (['password', 'party', 'legacy_digest'] as $change) {
+            [$owner, $provider, $url] = $this->fixture();
+            $this->enable($owner, $url);
+            if ($change === 'password') {
+                DB::table('users')->where('id', $owner->id)->update(['password' => 'synthetic-changed-password-hash']);
+            } elseif ($change === 'party') {
+                config(['ocpi.connections.'.$provider->connection_key.'.party_id' => 'XYZ']);
+            } else {
+                DB::table('ocpi_sync_plans')->where('provider_id', $provider->id)->update(['configuration_hash' => str_repeat('a', 64)]);
+            }
+            $service = app(ScheduledSync::class);
+            $this->assertSame('idle', $service->run()['state']);
+            $plan = DB::table('ocpi_sync_plans')->where('provider_id', $provider->id)->first();
+            $this->assertFalse((bool) $plan->enabled);
+            $this->assertSame('consent_or_partner_changed', $plan->stopped_reason);
+            $review = $service->update($owner->fresh(), $provider->fresh(), 'locations', true, 15, (int) $plan->revision);
+            $this->assertTrue($review['consent_current']);
+            $this->assertSame('2', $review['revision']);
+            $service->update($owner->fresh(), $provider->fresh(), 'locations', false, 15, 2);
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_sync_runs', 0);
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    public function test_same_revision_plan_scope_change_cancels_claim_without_accepting_source(): void
+    {
+        [$owner, $provider, $url] = $this->fixture();
+        $this->enable($owner, $url);
+        Http::fake(function () use ($provider) {
+            DB::table('ocpi_sync_plans')->where('provider_id', $provider->id)
+                ->where('module', 'locations')->update(['interval_minutes' => 30]);
+
+            return Http::response($this->response(), 200, ['Link' => '<https://partner.example/locations?page=2>; rel="next"']);
+        });
+        $this->assertSame('cancelled', app(ScheduledSync::class)->run()['state']);
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseHas('ocpi_sync_runs', ['state' => 'cancelled', 'result_code' => 'consent_or_partner_changed']);
+        $this->assertNull(DB::table('ocpi_sync_plans')->where('provider_id', $provider->id)->value('active_run'));
+    }
+
     public function test_failure_waits_until_next_interval_and_does_not_expose_provider_errors(): void
     {
         [$owner, , $url] = $this->fixture();
