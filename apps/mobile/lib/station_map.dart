@@ -346,8 +346,8 @@ class _StationMapViewState extends State<StationMapView> with WidgetsBindingObse
     return number != null && number.isFinite && number.abs() <= limit ? number : null;
   }
 
-  void submitManual() {
-    if (!available || widget.onSearch == null || !(manualForm.currentState?.validate() ?? false)) return;
+  void submitManual(int epoch) {
+    if (!active(epoch) || widget.onSearch == null || !(manualForm.currentState?.validate() ?? false)) return;
     final lat = coordinate(manualLatitude.text, 90)!;
     final lng = coordinate(manualLongitude.text, 180)!;
     setState(() { fix = null; searchPoint = LatLng(lat, lng); });
@@ -380,7 +380,7 @@ class _StationMapViewState extends State<StationMapView> with WidgetsBindingObse
             ),
             OutlinedButton.icon(
               key: const Key('charging-route-open'),
-              onPressed: () => planRoute(),
+              onPressed: () { if (active(epoch)) planRoute(); },
               icon: const Icon(Icons.route),
               label: Text(t('Plan charging route', 'تخطيط مسار الشحن')),
             ),
@@ -407,7 +407,7 @@ class _StationMapViewState extends State<StationMapView> with WidgetsBindingObse
               ),
             OutlinedButton.icon(
               key: const Key('native-location-once'),
-              onPressed: locating ? null : locate,
+              onPressed: locating ? null : () { if (active(epoch)) locate(); },
               icon: locating
                   ? const SizedBox(
                       width: 18,
@@ -467,10 +467,13 @@ class _StationMapViewState extends State<StationMapView> with WidgetsBindingObse
                   children: [
                     Text(
                       t(
-                        'Tap the map to choose a search centre. Coordinates are sent only when you search.',
-                        'اضغط الخريطة لتحديد مركز البحث. تُرسل الإحداثيات عند البحث فقط.',
+                        'Choose a search centre on the map or enter it manually. Coordinates are sent only when you search.',
+                        'اختر مركز البحث على الخريطة أو أدخله يدوياً. تُرسل الإحداثيات عند البحث فقط.',
                       ),
                     ),
+                    if (searchPoint != null)
+                      Text('${searchPoint!.latitude}, ${searchPoint!.longitude}',
+                        key: const Key('map-selected-centre'), textDirection: TextDirection.ltr),
                     if (searchPoint != null)
                       FilledButton(
                         onPressed: () {
@@ -514,10 +517,10 @@ class _StationMapViewState extends State<StationMapView> with WidgetsBindingObse
                           ),
                     initialZoom: 11,
                     onPositionChanged: (camera, _) {
-                      if (camera.zoom != zoom)
+                      if (active(epoch) && enabled && camera.zoom != zoom)
                         setState(() => zoom = camera.zoom);
                     },
-                    onTap: (_, point) { if (active(epoch)) setState(() { fix = null; searchPoint = point; }); },
+                    onTap: (_, point) { if (active(epoch) && enabled) setState(() { fix = null; searchPoint = point; }); },
                   ),
                   children: [
                     TileLayer(
@@ -624,7 +627,7 @@ class _StationMapViewState extends State<StationMapView> with WidgetsBindingObse
                     Text(t('Choosing a centre does not send a search or enable tiles.',
                       'اختيار المركز لا يرسل بحثاً ولا يفعّل الخرائط.')),
                     OutlinedButton(key: const Key('choose-manual-map-centre'),
-                      onPressed: submitManual,
+                      onPressed: () => submitManual(epoch),
                       child: Text(t('Choose centre', 'اختيار المركز'))),
                   ])),
                 ],
@@ -636,9 +639,9 @@ class _StationMapViewState extends State<StationMapView> with WidgetsBindingObse
                 for (final station in widget.stations)
                   ListTile(
                     title: Text(station.name),
-                    subtitle: Text(stationHasMapPoint(station)
+                    subtitle: Text('${station.source} · ${stationHasMapPoint(station)
                       ? t('Published location; availability unverified.', 'موقع منشور؛ التوفر غير مؤكد.')
-                      : t('Map coordinates unavailable.', 'إحداثيات الخريطة غير متاحة.')),
+                      : t('Map coordinates unavailable.', 'إحداثيات الخريطة غير متاحة.')}'),
                     trailing: stationHasMapPoint(station) ? const Icon(Icons.chevron_right) : null,
                     onTap: stationHasMapPoint(station) ? () {
                       if (active(epoch)) details(station);
