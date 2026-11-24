@@ -42,8 +42,11 @@ class RiderSourceController extends Controller
             // rider. Only an explicit fresh Available connector is eligible.
             // OCPP 1.6 also requires an explicit NoError receipt: an
             // Available/GroundFailure contradiction must never authorize.
+            $errorCode = $status['errorCode'] ?? null;
             if (($status['connectorStatus'] ?? null) !== 'Available'
-                || ($binding->protocol === '1.6' && ($status['errorCode'] ?? null) !== 'NoError')) {
+                || ($binding->protocol === '1.6'
+                    ? $errorCode !== 'NoError'
+                    : ! in_array($errorCode, [null, 'NoError'], true))) {
                 return false;
             }
             // For OCPP 2.0.1 the source-supplied EVSE, an optional request
