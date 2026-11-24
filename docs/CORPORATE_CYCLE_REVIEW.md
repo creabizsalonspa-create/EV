@@ -38,5 +38,16 @@ original issuance and mock collection flow. Hosted execution is required
 before integration; tests supplied are not claimed passed.
 
 This is partial corporate cycle planning software (7.1.7 / 8.1.6 / 8.1.7).
-Native review UI, explicit agreed automatic issuance policy and worker,
-legal acceptance, notifications, and live collection remain distinct.
+The native agreement workspace also exposes the bilingual monthly review
+for managers. It rechecks the current account and server can_manage
+authority before each review, validates the complete immutable source
+batch, exact integer totals, currency/precision and readiness state, and
+clears private results on account invalidation/background. It requires
+an explicit foreground refresh and never dispatches a mutation.
+The root agreement menu invalidates its opening session on change,
+preventing stale navigation from carrying earlier company context.
+Flutter regression tests cover parser rejection, real menu navigation,
+manager revocation, delayed responses and Arabic foreground privacy.
+
+Explicit agreed automatic issuance policy and worker, legal acceptance,
+notifications, and live collection remain distinct.
