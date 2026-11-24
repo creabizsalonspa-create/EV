@@ -327,9 +327,19 @@ class SubscriptionCreditService
             409, 'Subscription refund amount or currency mismatch.');
         $credit = DB::table('subscription_credits')->where('provider_reference', $object['id'])->first();
         $evidence = ['id' => $object['id'], 'amount' => $amount, 'currency' => $currency];
-        $recoveryId = $object['metadata']['creabiz_recovery'] ?? null;
-        if (is_int($recoveryId) || (is_string($recoveryId) && ctype_digit($recoveryId))) {
-            $evidence['recovery_id'] = (int) $recoveryId;
+        // An explicitly supplied recovery identity is authoritative.
+        // Never truncate an oversized ID or silently fall back to the
+        // observed provider reference when supplied metadata is malformed.
+        $metadata = $object['metadata'] ?? [];
+        abort_unless(is_array($metadata), 409, 'Invalid subscription refund recovery metadata.');
+        if (array_key_exists('creabiz_recovery', $metadata)) {
+            $recoveryId = $metadata['creabiz_recovery'];
+            abort_unless(is_int($recoveryId)
+                || (is_string($recoveryId) && preg_match('/^[1-9][0-9]*$/D', $recoveryId)),
+                409, 'Invalid subscription refund recovery identity.');
+            $exactId = self::exactMinor($recoveryId);
+            abort_unless($exactId > 0, 409, 'Invalid subscription refund recovery identity.');
+            $evidence['recovery_id'] = $exactId;
         }
         if ($credit) {
             abort_unless((int) $credit->invoice_id === (int) $checkout->invoice_id && self::exactMinor($credit->amount_minor) === $amount && $credit->currency === $currency && $credit->evidence === 'STRIPE_TEST_CONTRACT', 409, 'Subscription refund does not match its posted credit.');
