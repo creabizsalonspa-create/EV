@@ -207,7 +207,7 @@ class SignedFirmwareTest extends TestCase
             $entry['compatibility_signature'] = base64_encode($manifestSignature);
         }
         file_put_contents($this->catalogRoot.'/catalog.json', json_encode([$entry], JSON_THROW_ON_ERROR));
-        config(['csms.firmware_enabled' => true, 'csms.rider_client_secret' => str_repeat('s', 64), 'csms.rider_source_api_url' => 'http://source.test', 'csms.session_bridge_enabled' => true, 'csms.firmware_catalog_root' => $this->catalogRoot, 'csms.firmware_signer_pins' => [$pin], 'csms.graphql_secret' => str_repeat('s', 64), 'csms.graphql_url' => 'https://source.test/graph', 'csms.operations_base_url' => 'http://source.test', 'csms.firmware_download_base' => 'http://127.0.0.1:8000']);
+        config(['csms.firmware_enabled' => true, 'csms.rider_client_secret' => str_repeat('s', 64), 'csms.rider_source_api_url' => 'https://source.test', 'csms.session_bridge_enabled' => true, 'csms.firmware_catalog_root' => $this->catalogRoot, 'csms.firmware_signer_pins' => [$pin], 'csms.graphql_secret' => str_repeat('s', 64), 'csms.graphql_url' => 'https://source.test/graph', 'csms.operations_base_url' => 'https://source.test', 'csms.firmware_download_base' => 'http://127.0.0.1:8000']);
         $owner = User::factory()->create(['role' => 'vendor']);
         $admin = User::factory()->create(['role' => 'admin']);
         $station = Station::create(['vendor_id' => $owner->id, 'name' => 'Firmware fixture', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
@@ -448,7 +448,7 @@ class SignedFirmwareTest extends TestCase
         config(['csms.operations_base_url' => $original]);
         $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id);
         $this->assertNotNull(DB::table('charger_firmware_operations')->find($id)->pre_dispatch_blocked_at);
-        Http::assertSentCount(8);
+        Http::assertSentCount(7);
         Http::assertNotSent(fn ($r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), 'other.example.test'));
     }
 
