@@ -27,7 +27,8 @@ final class CpoCatalogPublisher
     private function admin(User $actor): void
     {
         $current = User::whereKey($actor->id)->lockForUpdate()->first();
-        abort_unless($current && $current->role === 'admin' && $current->account_status === 'active' && $current->auth_epoch === $actor->auth_epoch, 403);
+        abort_unless($current && $current->role === 'admin' && $current->account_status === 'active' && $current->auth_epoch === $actor->auth_epoch
+            && hash_equals((string) $current->password, (string) $actor->password), 403);
     }
 
     private function authority(OcpiProvider $provider): array
@@ -90,6 +91,19 @@ final class CpoCatalogPublisher
             ? Crypt::decryptString($record->payload) : $record->payload;
 
         return json_decode($payload, true, flags: JSON_THROW_ON_ERROR);
+    }
+
+    /** Match the exact publication snapshot across a transport boundary. */
+    private function samePublication(OcpiProvider $provider, object $link, object $snapshot): bool
+    {
+        $row = $this->bound($provider, $link)->where('id', $snapshot->id)->lockForUpdate()->first();
+
+        return $row !== null && $row->module === $snapshot->module
+            && $row->source_id === $snapshot->source_id
+            && $row->published_at === $snapshot->published_at
+            && (bool) $row->withdrawn === (bool) $snapshot->withdrawn
+            && hash_equals($snapshot->source_hash, $row->source_hash)
+            && hash_equals($snapshot->payload, $row->payload);
     }
 
     private function sourcePayload(OcpiProvider $provider, array $contract, string $module, int $source): array
@@ -315,15 +329,17 @@ final class CpoCatalogPublisher
         $state = DB::transaction(function () use ($actor, $provider, $row, $module, $source, $payload, $publishedAt, $key) {
             $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
             $claim = DB::table(self::OPERATIONS)->where('operation_key', $key);
-            $currentState = (clone $claim)->lockForUpdate()->value('state');
-            if ($currentState !== 'dispatching') {
-                return $currentState;
+            $operation = (clone $claim)->lockForUpdate()->first();
+            abort_unless($operation && $operation->publication_id === $row->id
+                && $operation->actor_id === $actor->id && $operation->published_at === $publishedAt, 409);
+            if ($operation->state !== 'dispatching') {
+                return $operation->state;
             }
             try {
                 $this->admin($actor);
                 [$contract, $link] = $this->authority($current);
                 abort_unless($this->pushEnabled($current) && is_string($current->endpoints[$module.'_receiver'] ?? null)
-                    && $this->bound($current, $link)->where(['id' => $row->id, 'published_at' => $publishedAt])->exists(), 409);
+                    && $this->samePublication($current, $link, $row), 409);
                 if (! $row->withdrawn) {
                     $fresh = $this->sourcePayload($current, $contract, $module, $source);
                     abort_unless(hash_equals($row->source_hash, $this->normalizer->hash($fresh)), 409);
@@ -389,7 +405,12 @@ final class CpoCatalogPublisher
             $provider = OcpiProvider::whereKey($current->id)->lockForUpdate()->firstOrFail();
             $this->admin($actor);
             [, $link] = $this->authority($provider);
-            abort_unless($this->bound($provider, $link)->where(['id' => $row->id, 'published_at' => $publishedAt])->exists(), 409);
+            abort_unless($this->samePublication($provider, $link, $row), 409);
+            $currentOperation = DB::table(self::OPERATIONS)->where('id', $operation->id)->lockForUpdate()->first();
+            abort_unless($currentOperation && $currentOperation->publication_id === $row->id
+                && $currentOperation->operation_key === $operation->operation_key
+                && $currentOperation->actor_id === $operation->actor_id
+                && $currentOperation->published_at === $publishedAt, 409);
             $updated = DB::table(self::OPERATIONS)->where('id', $operation->id)->whereIn('state', ['dispatching', 'unknown'])
                 ->update(['state' => $verified ? 'reconciled' : 'unknown', 'updated_at' => now()]);
             if ($verified && $updated === 1) {
