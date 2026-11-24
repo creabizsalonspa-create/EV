@@ -180,6 +180,27 @@ class ChargerAdmissionTest extends TestCase
         $this->assertDatabaseCount('charging_sessions', 0);
     }
 
+    #[DataProvider('protocols')]
+    public function test_captured_charger_route_cannot_rotate_after_protocol_changes(string $protocol): void
+    {
+        [$owner, $company, $charger, , $secret] = $this->fixture($protocol);
+        DB::table('vendor_chargers')->where('id', $charger->id)->update(['ocpp_protocol' => $protocol === '1.6' ? '2.0.1' : '1.6']);
+        $request = Request::create('https://localhost/credential', 'POST', ['expected_version' => 1, 'days' => 1]);
+        $request->setUserResolver(fn () => $owner);
+        try {
+            app(ChargerAdmissionController::class)->credential($request, $company, $charger);
+            $this->fail('Captured inventory cannot authorize credential rotation.');
+        } catch (HttpException $e) {
+            $this->assertSame(409, $e->getStatusCode());
+        }
+        $profile = AdmissionProfile::firstOrFail();
+        $this->assertSame(1, $profile->credential_version);
+        $this->assertSame(hash('sha256', $secret), $profile->getRawOriginal('credential_digest'));
+        $this->admission($secret)->assertUnauthorized();
+        $this->assertDatabaseCount('charger_admission_events', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_replayed_or_spoofed_ingress_tls_protocol_and_expiry_are_rejected(): void
     {
         [,,,,$secret] = $this->fixture();
