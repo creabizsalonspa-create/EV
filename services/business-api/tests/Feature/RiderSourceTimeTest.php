@@ -58,11 +58,13 @@ class RiderSourceTimeTest extends TestCase
                     'id' => 42, 'protocol' => $protocol, 'isOnline' => true,
                 ]]]]);
             }
+
             // A charger with two database connectors must not make
             // authorization ambiguous: the GraphQL source request is scoped
             // to the selected database ID before checking its latest status.
             $selected = str_contains($request['query'], 'id:{_eq:$connector}')
                 && ($request['variables']['connector'] ?? null) === 8;
+
             return Http::response(['data' => [
                 'Connectors' => $selected ? [['id' => 8]] : [['id' => 7], ['id' => 8]],
                 'StatusNotifications' => [[
@@ -127,5 +129,4 @@ class RiderSourceTimeTest extends TestCase
         $this->assertFalse($target->targetMatches($binding, $map, $evse, $scope));
         Http::assertSentCount($protocol === '1.6' ? 32 : 26);
     }
-
 }
