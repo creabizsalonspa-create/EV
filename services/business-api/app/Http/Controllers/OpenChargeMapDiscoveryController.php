@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\Discovery\LicensedSourceCache;
+use App\Services\Discovery\LicensedSourceQuality;
 use App\Services\Discovery\LookupFailure;
 use App\Services\Discovery\OpenChargeMapAdapter;
 use Illuminate\Http\Request;
@@ -29,7 +30,7 @@ final class OpenChargeMapDiscoveryController extends Controller
         ]);
     }
 
-    public function search(Request $request, OpenChargeMapAdapter $adapter, LicensedSourceCache $sources)
+    public function search(Request $request, OpenChargeMapAdapter $adapter, LicensedSourceCache $sources, LicensedSourceQuality $quality)
     {
         $input = $request->validate([
             'consent' => 'required|accepted',
@@ -65,13 +66,13 @@ final class OpenChargeMapDiscoveryController extends Controller
             // Cache only the normalized, attribution-safe provider subset
             // under the geographic/country identity. Filtering by locally
             // reported connector details must not trigger duplicate OCM calls.
-            $source = $sources->read($cacheIdentity, $key, fn () => $adapter->search(
+            $source = $sources->read($cacheIdentity, $key, fn () => $quality->observe(fn () => $adapter->search(
                 (float) $input['latitude'],
                 (float) $input['longitude'],
                 (float) $input['radius_km'],
                 $key,
                 $input['country'] ?? null,
-            ));
+            )));
             $result = $adapter->filterReported(
                 $source,
                 isset($input['min_reported_power_kw']) ? (float) $input['min_reported_power_kw'] : null,
