@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Controllers\RiderSourceController;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
+use App\Services\Charging\ConfigurationProbe;
 use App\Services\Charging\ContinuousFaultObserver;
 use App\Services\Charging\CsmsGraphqlTransport;
 use App\Services\Charging\RemoteSessionAuthorization;
@@ -78,6 +79,12 @@ class CsmsGraphqlTransportTest extends TestCase
                 ['name' => 'ev-test-source']
             );
             $this->fail('An unauthorised CSMS source transport accepted the admin key.');
+        } catch (HttpException $e) {
+            $this->assertSame(503, $e->getStatusCode());
+        }
+        try {
+            app(ConfigurationProbe::class)->graph('query{ChargingStations(limit:1){id}}', []);
+            $this->fail('Unapproved configuration source probe sent a Hasura admin key.');
         } catch (HttpException $e) {
             $this->assertSame(503, $e->getStatusCode());
         }
