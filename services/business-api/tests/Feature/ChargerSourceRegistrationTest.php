@@ -30,7 +30,7 @@ class ChargerSourceRegistrationTest extends TestCase
 
     private function fixture(string $protocol = '1.6'): array
     {
-        config(['csms.upstream_registration_enabled' => true, 'csms.upstream_registration_allow_local_http' => true, 'csms.graphql_secret' => str_repeat('s', 64), 'csms.graphql_url' => 'http://source.test/v1/graphql']);
+        config(['csms.upstream_registration_enabled' => true, 'csms.upstream_registration_allow_local_http' => true, 'csms.graphql_secret' => str_repeat('s', 64), 'csms.graphql_url' => 'http://127.0.0.1:8095/v1/graphql']);
         Http::preventStrayRequests();
         $owner = User::factory()->create(['role' => 'vendor']);
         $admin = User::factory()->create(['role' => 'admin']);
