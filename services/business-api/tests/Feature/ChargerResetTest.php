@@ -34,17 +34,17 @@ class ChargerResetTest extends TestCase
         return compact('owner', 'station', 'company', 'charger', 'binding', 'path', 'protocol');
     }
 
-    private function source(array $f, bool $active = false, bool $uncertain = false, ?string $statusTime = null): void
+    private function source(array $f, bool $active = false, bool $uncertain = false, ?string $statusTime = null, ?string $faultCode = 'NoError'): void
     {
         Http::swap(new Factory);
         Http::preventStrayRequests();
-        Http::fake(function ($r) use ($f, $active, $uncertain, $statusTime) {
+        Http::fake(function ($r) use ($f, $active, $uncertain, $statusTime, $faultCode) {
             if ($r->url() === 'http://127.0.0.1:8095/v1/graphql') {
                 if (str_contains($r['query'], 'ChargingStations')) {
                     return Http::response(['data' => ['ChargingStations' => [['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']]]]]);
                 }
 
-                return Http::response(['data' => ['Transactions' => $active ? [['id' => 1]] : [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => $statusTime ?? now()->toISOString()]]]]);
+                return Http::response(['data' => ['Transactions' => $active ? [['id' => 1]] : [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'errorCode' => $faultCode, 'timestamp' => $statusTime ?? now()->toISOString()]]]]);
             }
             if (str_ends_with($r->url(), '/dev/token')) {
                 return Http::response(['accessToken' => 'synthetic-source-token']);
@@ -98,8 +98,11 @@ class ChargerResetTest extends TestCase
         $out = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
             foreach (['station_object', 'station_string_id', 'station_string_online', 'connector_object', 'connector_string_id',
-                'connector_duplicate', 'status_object', 'status_string_connector', 'status_missing_time', 'active_transaction'] as $kind) {
+                'connector_duplicate', 'status_object', 'status_string_connector', 'status_missing_time', 'active_transaction', 'fault_code', 'malformed_fault_code'] as $kind) {
                 $out[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+            if ($protocol === '1.6') {
+                $out[$protocol.'_missing_error_code'] = [$protocol, 'missing_error_code'];
             }
         }
 
@@ -136,13 +139,20 @@ class ChargerResetTest extends TestCase
             if ($kind === 'connector_duplicate') {
                 $connectors[] = ['id' => 7];
             }
-            $status = ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available',
+            $status = ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'errorCode' => 'NoError',
                 'timestamp' => now()->toISOString()];
             if ($kind === 'status_string_connector') {
                 $status['connectorDatabaseId'] = '7';
             }
             if ($kind === 'status_missing_time') {
                 unset($status['timestamp']);
+            }
+            if ($kind === 'fault_code') {
+                $status['errorCode'] = 'GroundFailure';
+            } elseif ($kind === 'malformed_fault_code') {
+                $status['errorCode'] = ['NoError'];
+            } elseif ($kind === 'missing_error_code') {
+                unset($status['errorCode']);
             }
             $notifications = $kind === 'status_object' ? ['status' => $status] : [$status];
 
@@ -201,6 +211,23 @@ class ChargerResetTest extends TestCase
                 $this->assertDatabaseCount('charger_commands', 0);
                 $this->assertDatabaseCount('finance_invoices', 0);
             }
+        }
+    }
+
+    public function test_fault_receipt_prevents_review_of_existing_reset_hold(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $this->source($f);
+            $id = $this->actingAs($f['owner'])->postJson($f['path'], [
+                'reason' => 'Review simulator reset source safety',
+                'idempotency_key' => 'fault-review-'.$protocol,
+            ])->assertCreated()->json('id');
+            $this->travel(21)->seconds();
+            $this->source($f, faultCode: 'GroundFailure');
+            $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Fault must retain the operation hold'])->assertConflict();
+            $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null]);
+            Http::assertNotSent(fn ($request) => str_contains($request->url(), '/configuration/reset'));
         }
     }
 
