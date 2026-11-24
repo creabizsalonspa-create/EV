@@ -114,7 +114,7 @@ void main() {
     await t.pumpWidget(host(SubscriptionsView(api: api, onExpired: () {})));
     await t.pumpAndSettle();
 
-    final state = t.state(find.byType(SubscriptionsView)) as dynamic;
+    final dynamic state = t.state(find.byType(SubscriptionsView));
     final accepted = state.page.items.single as Map<String, dynamic>;
     final frozen = accepted['entitlements'] as Map;
     api.plan['name'] = 'Stale changed plan after accepted response';
@@ -270,7 +270,7 @@ void main() {
     )));
     await t.pumpAndSettle();
 
-    final state = t.state(find.byType(SubscriptionDetailView)) as dynamic;
+    final dynamic state = t.state(find.byType(SubscriptionDetailView));
     final accepted = state.events.items.single as Map<String, dynamic>;
     final detail = (accepted['data'] as Map)['detail'] as Map;
     (source['data'] as List).first['kind'] = 'forged';
