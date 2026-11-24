@@ -20,7 +20,7 @@ final class CsmsGraphqlTransport
     public function approved(mixed $url): bool
     {
         if (! is_string($url) || strlen($url) < 12 || strlen($url) > 512
-            || preg_match('/[\x00-\x20\x7f]/', $url)) {
+            || preg_match('/[\x00-\x20\x7f\\\\]/', $url)) {
             return false;
         }
         $parts = parse_url($url);
