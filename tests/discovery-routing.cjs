@@ -100,7 +100,13 @@ const fs = require("node:fs");
         json: {
           provider: "geoapify",
           evidence: "GEOCODING_RESULT",
-          places: [
+          places: body.query === "Malformed batch" ? [
+            {id:"geoapify:valid",label:"Must not render",latitude:25.2,longitude:55.3},
+            {id:"geoapify:invalid",label:"Invalid coordinate",latitude:91,longitude:55.3},
+          ] : body.query === "Duplicate batch" ? [
+            {id:"geoapify:duplicate",label:"First duplicate",latitude:25.2,longitude:55.3},
+            {id:"geoapify:duplicate",label:"Second duplicate",latitude:25.3,longitude:55.4},
+          ] : [
             {
               id: "geoapify:fixture",
               label:
@@ -174,6 +180,36 @@ const fs = require("node:fs");
       "25.200000",
     );
     assert.equal(tiles, 0);
+    // The whole provider batch must be valid before even its first row
+    // can become a selectable address. Withdrawn consent also invalidates
+    // an already-detached option callback.
+    for (const invalid of ["Malformed batch","Duplicate batch"]) {
+      await field.locator("input[type=search]").fill(invalid);
+      await field.getByText("Address lookup unavailable. Use GPS or manual coordinates.",{exact:true}).waitFor();
+      assert.equal(await field.getByRole("option").count(),0);
+    }
+    await field.locator("input[type=search]").fill("Sharjah again");
+    await field.getByRole("option").waitFor();
+    await field.getByRole("option").evaluate(row => { window.savedAddressAction = row.onclick; });
+    await field.locator("input[type=checkbox]").uncheck();
+    assert.equal(await field.locator("input[type=search]").inputValue(),"");
+    assert(await field.locator("input[type=search]").isDisabled());
+    await page.locator("#filters [name=latitude]").fill("26");
+    await page.evaluate(() => window.savedAddressAction());
+    assert.equal(await page.locator("#filters [name=latitude]").inputValue(),"26");
+    await page.locator("#filters [name=latitude]").fill("25.200000");
+    const beforeConsent = addressCalls;
+    await field.locator("input[type=checkbox]").check();
+    await page.waitForTimeout(700);
+    assert.equal(addressCalls,beforeConsent,"Fresh consent must not resend old private text");
+    await field.locator("input[type=search]").fill("Private draft");
+    await address.locator("summary").click();
+    await page.waitForTimeout(700);
+    assert.equal(addressCalls,beforeConsent,"Closing address search cancels pending debounce");
+    await address.locator("summary").click();
+    await field.waitFor();
+    assert.equal(await field.locator("input[type=search]").inputValue(),"");
+    assert(await field.locator("input[type=search]").isDisabled());
     const journey = page.locator("#charging-route-planner");
     await journey.locator("summary").first().click();
     await journey.locator("[name=journey_origin_latitude]").fill("٢٥٫٢");
