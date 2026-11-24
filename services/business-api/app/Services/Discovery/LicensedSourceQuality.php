@@ -60,7 +60,7 @@ final class LicensedSourceQuality
         }
 
         return $row['returned_record_observations'] <= 25 * $row['successful_fetches']
-            && $row['unknown_time_observations'] + $row['older_than_24h_observations'] <= $row['returned_record_observations']
+            && $row['returned_record_observations'] >= $row['unknown_time_observations'] + $row['older_than_24h_observations']
             && $row['unknown_operating_observations'] <= $row['returned_record_observations'];
     }
 
@@ -105,7 +105,7 @@ final class LicensedSourceQuality
         $hour = now()->utc()->startOfHour();
         $samples = [];
         if ($enabled) {
-            for ($i = 23; $i >= 0; --$i) {
+            for ($i = 23; $i >= 0; $i--) {
                 $at = $hour->copy()->subHours($i);
                 try {
                     $row = Cache::get($this->key($at->format('YmdH')));
