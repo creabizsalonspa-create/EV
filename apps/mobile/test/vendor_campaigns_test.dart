@@ -173,6 +173,26 @@ void main() {
       );
     },
   );
+  test('campaign receipt time never normalizes invalid dates or assumes a device timezone', () {
+    for (final value in [
+      '2026-11-15T10:00:00',
+      '2026-11-15T11:00:00+01:00',
+      '2026-11-15T10:00:00.000001Z',
+      '2026-11-15T10:00:00Z\n',
+      '2026-11-15 10:00:00 ',
+      '2026-11-14T34:00:00Z',
+      '2026-10-46T10:00:00Z',
+    ]) {
+      expect(campaignMatchesIntent({...campaign(),'starts_at':value},intent()),isFalse,reason:value);
+    }
+    for(final value in [
+      '2026-11-15T10:00:00Z',
+      '2026-11-15T10:00:00.000000Z',
+      '2026-11-15 10:00:00',
+    ]) {
+      expect(campaignMatchesIntent({...campaign(),'starts_at':value},intent()),isTrue,reason:value);
+    }
+  });
   testWidgets('vendor reviews a campaign and confirms a revision-bound pause', (
     tester,
   ) async {
@@ -368,6 +388,9 @@ void main() {
       await tester.tap(find.text('I reviewed this exact campaign intent.'));
       await tester.pump();
       // Editing a previously consented draft requires explicit re-review.
+      // A detached approval callback must not reauthorize the modified draft.
+      final oldConsent = tester.widget<CheckboxListTile>(
+        find.byType(CheckboxListTile)).onChanged!;
       final title = find.byWidgetPredicate((w) => w is TextField &&
           w.decoration?.labelText == 'Title (English)');
       await tester.scrollUntilVisible(title,-150,scrollable:find.byType(Scrollable).first);
@@ -376,6 +399,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(find.text('Create draft'),150,
         scrollable:find.byType(Scrollable).first);
+      expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton,'Create draft')).onPressed,isNull);
+      oldConsent(true);
+      await tester.pumpAndSettle();
       expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton,'Create draft')).onPressed,isNull);
       expect(api.requests.where((r)=>r['method']=='POST'),isEmpty);
       await tester.ensureVisible(find.text('I reviewed this exact campaign intent.'));
