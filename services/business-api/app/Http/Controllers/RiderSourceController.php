@@ -49,9 +49,10 @@ class RiderSourceController extends Controller
                     : ! in_array($errorCode, [null, 'NoError'], true))) {
                 return false;
             }
-            // For OCPP 2.0.1 the source-supplied EVSE, an optional request
-            // scope and the immutable canonical map must agree exactly.
-            if ($binding->protocol === '2.0.1' && isset($v['evseId'])
+            // Source events, selected canonical EVSE and any explicit
+            // request EVSE must agree. OCPP 1.6 uses the synthetic EVSE
+            // scope 0; accepting a foreign nonzero request is ambiguous.
+            if (isset($v['evseId'])
                 && (int) $v['evseId'] !== (int) $evse->source_evse_number) {
                 return false;
             }
