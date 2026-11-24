@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/admin_campaign_review.dart';
+import 'package:creabiz_ev/api.dart';
 import 'test_support.dart';
 
 Map<String, dynamic> campaign({String status = 'submitted', String revision = '11'}) => {
@@ -21,7 +22,7 @@ class AdminCampaignApi extends FixtureApi {
   AdminCampaignApi({super.role = 'admin'});
   final stream = StreamController<int>.broadcast(sync: true);
   int epoch = 0;
-  bool enabled = true, forged = false, demoted = false;
+  bool enabled = true, forged = false, demoted = false, expire = false;
   String status = 'submitted', revision = '11';
   final posts = <Map<String, dynamic>>[];
   Completer<dynamic>? delay;
@@ -44,6 +45,11 @@ class AdminCampaignApi extends FixtureApi {
     if (path == 'me') return {'id': 1, 'role': demoted ? 'vendor' : role};
     if (path == 'commercial/campaigns') {
       if (delay != null) return delay!.future;
+      if (expire) {
+        revoke();
+        final invalidated = epoch;
+        throw ApiException(401, 'Expired', expirationIsCurrent: () => epoch == invalidated);
+      }
       return {
         'data': [campaign(status: status, revision: revision)],
         'current_page': 1, 'last_page': 1, 'per_page': 25, 'total': 1,
@@ -73,11 +79,11 @@ class AdminCampaignApi extends FixtureApi {
   }
 }
 
-Widget app(AdminCampaignApi api, {bool ar = false}) => MaterialApp(
+Widget app(AdminCampaignApi api, {bool ar = false, VoidCallback? onExpired}) => MaterialApp(
   locale: Locale(ar ? 'ar' : 'en'),
   supportedLocales: const [Locale('en'), Locale('ar')],
   localizationsDelegates: GlobalMaterialLocalizations.delegates,
-  home: AdminCampaignReviewView(api: api, onExpired: () {}),
+  home: AdminCampaignReviewView(api: api, onExpired: onExpired ?? () {}),
 );
 
 Future<void> openDetail(WidgetTester t, AdminCampaignApi api) async {
@@ -231,6 +237,32 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('Synthetic campaign'), findsNothing);
     expect(api.posts, isEmpty);
+  });
+
+  testWidgets('real current expiry clears review and invokes sign-in callback', (t) async {
+    final api = AdminCampaignApi()..expire = true;
+    addTearDown(api.close);
+    var expirations = 0;
+    await t.pumpWidget(app(api, onExpired: () { expirations++; }));
+    await t.pumpAndSettle();
+    expect(expirations, 1);
+    expect(find.text('Synthetic campaign'), findsNothing);
+  });
+
+  testWidgets('expired old generation cannot sign out a subsequent account', (t) async {
+    final api = AdminCampaignApi()..delay = Completer<dynamic>();
+    addTearDown(api.close);
+    var expirations = 0;
+    await t.pumpWidget(app(api, onExpired: () { expirations++; }));
+    await t.pump();
+    api.revoke();
+    final expiredGeneration = api.epoch;
+    api.revoke();
+    api.delay!.completeError(ApiException(401, 'Old expiry',
+      expirationIsCurrent: () => api.epoch == expiredGeneration));
+    await t.pumpAndSettle();
+    expect(expirations, 0);
+    expect(find.text('Synthetic campaign'), findsNothing);
   });
 
   testWidgets('Arabic disabled adapter and foreground privacy', (t) async {
