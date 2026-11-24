@@ -53,6 +53,40 @@ class CsmsSessionControlAuthorityTest extends TestCase
         ]);
     }
 
+    public function test_captured_reservation_owner_cannot_replay_a_session_after_ownership_changes(): void
+    {
+        $f = $this->fixture();
+        $reservation = Reservation::findOrFail($f['session']->reservation_id);
+        $replacement = User::factory()->create(['role' => 'customer']);
+        DB::table('reservations')->where('id', $reservation->id)->update(['user_id' => $replacement->id]);
+        try {
+            app(SessionBridge::class)->start($reservation, $f['customer']->id, consentingActor: $f['customer']);
+            $this->fail('A stale reservation owner accessed the private charging session.');
+        } catch (HttpException $error) {
+            $this->assertSame(404, $error->getStatusCode());
+        }
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('csms_session_links', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_existing_start_replay_requires_original_source_identity(): void
+    {
+        $f = $this->fixture();
+        $reservation = Reservation::findOrFail($f['session']->reservation_id);
+        DB::table('csms_bindings')->where('station_id', $f['station']->id)
+            ->update(['identifier' => 'ev-test-rebound-session']);
+        try {
+            app(SessionBridge::class)->start($reservation, $f['customer']->id, consentingActor: $f['customer']);
+            $this->fail('A rebound source was accepted as the existing session.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('csms_session_links', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_old_account_epoch_cannot_queue_a_new_stop_but_current_account_can_stop(): void
     {
         $f = $this->fixture();
