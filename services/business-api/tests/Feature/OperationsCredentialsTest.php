@@ -242,6 +242,37 @@ class OperationsCredentialsTest extends TestCase
     }
 
     #[DataProvider('protocols')]
+    public function test_inflight_service_key_revocation_never_dispatches_or_retries_either_protocol(string $protocol): void
+    {
+        config(['csms.simulator_enabled' => true, 'csms.base_url' => 'https://csms.example.test']);
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = Station::create(['vendor_id' => $vendor->id, 'name' => 'Revoked OAuth fixture',
+            'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25,
+            'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
+        DB::table('csms_bindings')->insert(['station_id' => $station->id, 'identifier' => 'ev-test-oauth-revoked',
+            'protocol' => $protocol, 'created_at' => now(), 'updated_at' => now()]);
+        $command = ChargerCommand::create(['consent_auth_epoch' => 0, 'actor_id' => $vendor->id,
+            'station_id' => $station->id, 'action' => 'start', 'payload' => [],
+            'payload_hash' => str_repeat('c', 64), 'idempotency_key' => 'oauth-revoked']);
+        $jwt = $this->jwt();
+        $keys = config('csms.operations_oauth_public_keys');
+        Http::fake(function (Request $request) use ($jwt) {
+            $this->assertSame('https://identity.example.test/token', $request->url());
+            config(['csms.operations_oauth_public_keys' => []]);
+
+            return Http::response(['token_type' => 'Bearer', 'access_token' => $jwt]);
+        });
+        $this->assertSame('outcome_unknown', app(CsmsDispatcher::class)->dispatch($command->id)->status);
+        config(['csms.operations_oauth_public_keys' => $keys]);
+        app(CsmsDispatcher::class)->dispatch($command->id);
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), '/dev/token'));
+        $this->assertDatabaseCount('csms_inbox_events', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    #[DataProvider('protocols')]
     public function test_rejected_service_authority_cannot_dispatch_or_replay_either_protocol(string $protocol): void
     {
         config(['csms.simulator_enabled' => true, 'csms.base_url' => 'https://csms.example.test']);
