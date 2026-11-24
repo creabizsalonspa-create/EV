@@ -9,6 +9,7 @@ import 'vendor_finance_test.dart' show VendorOperationStore, PausedVendorStore;
 
 class SubscriptionApi extends FixtureApi {
   bool lost = false, wrongOwner = false;
+  int? forgedPlanId, forgedCurrentPage, forgedTotal;
   int writes = 0;
   Completer<dynamic>? meWait, detailWait, eventsWait, postWait;
   final bodies = <Map<String, dynamic>>[];
@@ -71,10 +72,12 @@ class SubscriptionApi extends FixtureApi {
     }
     if (path == 'commercial/plans')
       return {
-        'data': [plan],
-        'current_page': int.parse(query['page'] ?? '1'),
+        'data': [
+          if (forgedPlanId != null) {...plan, 'id': forgedPlanId} else plan,
+        ],
+        'current_page': forgedCurrentPage ?? int.parse(query['page'] ?? '1'),
         'last_page': 2,
-        'total': 26,
+        'total': forgedTotal ?? 26,
       };
     if (path == 'commercial/subscriptions/4') {
       return detailWait?.future ?? summary;
@@ -103,6 +106,52 @@ Future<void> confirm(WidgetTester t) async {
 }
 
 void main() {
+  testWidgets('catalog freezes accepted private plan and entitlement metadata',
+      (t) async {
+    final api = SubscriptionApi();
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionsView(api: api, onExpired: () {})));
+    await t.pumpAndSettle();
+
+    final state = t.state(find.byType(SubscriptionsView)) as dynamic;
+    final accepted = state.page.items.single as Map<String, dynamic>;
+    final frozen = accepted['entitlements'] as Map;
+    api.plan['name'] = 'Stale changed plan after accepted response';
+    (api.plan['entitlements'] as Map)['priority'] = false;
+
+    expect(accepted['name'], 'Published <literal> plan');
+    expect(frozen['priority'], true);
+    expect(() => accepted['id'] = 800, throwsUnsupportedError);
+    expect(() => frozen['priority'] = false, throwsUnsupportedError);
+    state.setState(() {});
+    await t.pump();
+    expect(find.text('Published <literal> plan'), findsOneWidget);
+    expect(find.text('Stale changed plan after accepted response'), findsNothing);
+    expect(api.writes, 0);
+  });
+
+  testWidgets('catalog rejects fabricated page, source IDs and unsafe total',
+      (t) async {
+    for (final poison in [1, 2, 3]) {
+      final api = SubscriptionApi();
+      addTearDown(api.close);
+      if (poison == 1) api.forgedCurrentPage = 2;
+      if (poison == 2) api.forgedPlanId = 9007199254740992;
+      if (poison == 3) api.forgedTotal = 9007199254740992;
+      await t.pumpWidget(
+        host(SubscriptionsView(key: ValueKey(poison), api: api,
+          onExpired: () {})),
+      );
+      await t.pumpAndSettle();
+
+      expect(find.text('Published <literal> plan'), findsNothing);
+      expect(find.text('Private subscription source cleared. Refresh after signing in again.'), findsNothing);
+      expect(find.textContaining('private-subscription-diagnostic'), findsNothing);
+      expect(api.writes, 0);
+      await t.pumpWidget(const SizedBox());
+    }
+  });
+
   testWidgets('initially inactive native plans require a foreground user refresh',
     (t) async {
       final api = SubscriptionApi();
