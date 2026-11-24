@@ -40,3 +40,23 @@ finance validation and Agent 5-only integration are required. Preserve
 the identical shared financial_operation_store.dart source from #265 and
 #325. No live partner supply, legal terms or production acceptance is
 claimed.
+
+
+## Additional actual-database and browser test coverage
+
+The disposable PostgreSQL RetailPartnerConcurrencyTest now starts two
+independent PHP workers together against the same member and intent.
+Claim-first must produce exactly one immutable claim and one redemption
+with an accepted cancellation response; cancel-first must produce exactly
+one immutable cancellation and no redemption, with the delayed claim
+returning 409. Both outcomes preserve the zero points and cash journal
+counts. A subsequent same-key cancellation resolves the same outcome.
+
+The existing actual Laravel/Playwright retail-partner flow loses a response
+after a real synthetic claim commits, reloads, and uses the new cancellation
+control. It asserts the server returns accepted and the original claim ID,
+the UI displays the original receipt, and the saved retry/cancel controls
+disappear. No new claim or replacement key is sent by this recovery flow.
+The previous receipt lookup remains covered by the existing native
+lost-response and Laravel authenticated lookup regressions.
+Hosted runs must validate these new test sources before integration.
