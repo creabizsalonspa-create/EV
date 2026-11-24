@@ -14,7 +14,7 @@ class PricingApi extends FixtureApi {
   final writes = <Map<String,dynamic>>[];
   Completer<dynamic>? pending;
   int epoch = 0;
-  bool expiredQuote = false, malformedReceipt = false, sqlReplay = false;
+  bool expiredQuote = false, malformedReceipt = false, mismatchedReceipt = false, sqlReplay = false;
   @override
   bool Function() sessionFence() { final captured = epoch; return () => captured == epoch; }
   @override
@@ -26,6 +26,7 @@ class PricingApi extends FixtureApi {
       : pending!.future;
     writes.add(body!);
     if (malformedReceipt) return {'id':0,'accepted_at':'invalid','valid_until':'not-a-date'};
+    if (mismatchedReceipt) return {'id':99,'accepted_at':DateTime.now().toUtc().toIso8601String(), 'valid_until':quoteExpiry(600)};
     return {
       'id':7,
       'accepted_at':DateTime.now().toUtc().toIso8601String(),
@@ -111,6 +112,55 @@ void main() {
     expect(confirmedPrechargeReceipt({...receipt,'valid_until':'2026-02-30 10:00:00'},price),false);
     expect(confirmedPrechargeReceipt({...receipt,'valid_until':'not-a-timestamp'},price),false);
   });
+
+
+  for(final ar in [false,true]){
+    testWidgets('well-formed but wrong-price consent receipt cannot report success ($ar)',(tester)async{
+      final api=PricingApi()..mismatchedReceipt=true;
+      addTearDown(api.close);
+      await tester.pumpWidget(app(api,arabic:ar));
+      await tester.tap(find.text('Review'));await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField),'1500');
+      await tester.tap(find.text(ar?'عرض التقدير':'Get estimate'));await tester.pumpAndSettle();
+      await tester.tap(find.text(ar?'قبول السعر':'Accept price'));await tester.pumpAndSettle();
+      expect(api.writes,hasLength(1));
+      expect(find.byType(PrechargePricingDialog),findsOneWidget);
+      expect(find.textContaining('KWD 0.396'),findsNothing);
+      expect(api.calls.where((c)=>c.contains('price-consent')).length,1);
+      expect(tester.takeException(),isNull);
+    });
+    testWidgets('same retained native dialog switches reservation without inheriting quote ($ar)',(tester)async{
+      final api=PricingApi();
+      addTearDown(api.close);
+      Widget form(int reservation) => MaterialApp(
+        locale:Locale(ar?'ar':'en'),
+        supportedLocales:const[Locale('en'),Locale('ar')],
+        localizationsDelegates:const[
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home:PrechargePricingDialog(
+          key:const ValueKey('retained-price-dialog'),
+          api:api,reservation:reservation),
+      );
+      await tester.pumpWidget(form(7));await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField),'1500');
+      await tester.tap(find.text(ar?'عرض التقدير':'Get estimate'));await tester.pumpAndSettle();
+      expect(find.textContaining('KWD 0.396'),findsOneWidget);
+      final reads=api.calls.length;
+      api.epoch++;
+      await tester.pumpWidget(form(8));await tester.pumpAndSettle();
+      expect(api.calls.length,reads,'A changed account must explicitly request new quote');
+      expect(find.textContaining('KWD 0.396'),findsNothing);
+      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,'10000');
+      expect(tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton,ar?'قبول السعر':'Accept price'))
+        .onPressed,isNull);
+      expect(api.writes,isEmpty);
+      expect(tester.takeException(),isNull);
+    });
+  }
 
   testWidgets('SQL UTC replay receipt preserves verified price acceptance', (tester) async {
     final api=PricingApi()..sqlReplay=true;
