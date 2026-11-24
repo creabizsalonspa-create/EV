@@ -204,6 +204,46 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_receiver_request_readiness_distinguishes_negotiation_from_active_credentials(): void
+    {
+        [$owner, $admin, $provider, $path] = $this->fixture();
+        $this->actingAs($admin)->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_request_ready', true)
+            ->assertJsonPath('capability_matrix.modules.1.local_receiver_request_ready', false)
+            ->assertJsonPath('capability_matrix.modules.2.local_receiver_active', true)
+            ->assertJsonPath('capability_matrix.modules.2.local_receiver_request_ready', false)
+            ->assertJsonPath('capability_matrix.modules.3.local_receiver_request_ready', false);
+        $provider->update(['version' => null]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_active', true)
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_request_ready', false);
+        $provider->update(['version' => '2.2.1', 'endpoints' => [
+            'locations' => 'https://foreign.example/locations',
+            'sessions' => 'https://peer.example/sessions',
+            'cdrs' => 'https://peer.example/cdrs',
+        ]]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_request_ready', false)
+            ->assertJsonPath('capability_matrix.modules.2.local_receiver_request_ready', true)
+            ->assertJsonPath('capability_matrix.modules.3.local_receiver_request_ready', true)
+            ->assertDontSee('https://foreign.example');
+        $owner->forceFill(['account_status' => 'suspended'])->save();
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.credentials_current', false)
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_request_ready', false)
+            ->assertJsonPath('capability_matrix.modules.2.local_receiver_request_ready', true)
+            ->assertJsonPath('capability_matrix.modules.3.local_receiver_request_ready', true)
+            ->assertJsonPath('capability_matrix.live_roaming_verified', false)
+            ->assertJsonPath('capability_matrix.payment_authority', false);
+        $provider->update(['authorized' => false]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.modules.2.local_receiver_request_ready', false)
+            ->assertJsonPath('capability_matrix.modules.3.local_receiver_request_ready', false);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_cpo_sender_requires_current_generation_and_sandbox_delivery_remains_nonlive(): void
     {
         [$owner, $admin, $provider, $path] = $this->fixture();
