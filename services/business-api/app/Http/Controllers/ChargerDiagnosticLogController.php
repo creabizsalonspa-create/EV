@@ -9,6 +9,7 @@ use App\Services\Charging\ConfigurationProbe;
 use App\Services\Charging\DiagnosticAuthority;
 use App\Services\Charging\DiagnosticLogSource;
 use App\Services\Charging\FaultMonitor;
+use App\Services\Charging\OperationsCredentials;
 use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
@@ -112,15 +113,18 @@ class ChargerDiagnosticLogController extends Controller
             $sent = false;
             $state = 'not_dispatched';
             try {
+                $authority = $source->authority($b);
                 $stationId = $probe->station($b);
+                $source->requireAuthority($b, $authority);
                 abort_unless(empty($b->diagnostic_direct) || $stationId === $b->diagnostic_source_station_id, 409, 'Registered source station identity changed.');
-                $token = $probe->serviceToken();
-                $state = DB::transaction(function () use ($r, $company, $charger, $b, $row, $source, $token, &$sent) {
+                $token = app(OperationsCredentials::class)->token($authority[0]);
+                $source->requireAuthority($b, $authority);
+                $state = DB::transaction(function () use ($r, $company, $charger, $b, $row, $source, $token, $authority, &$sent) {
                     VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                     User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
                     $current = $this->scope($r, $company, $charger, true);
                     app(VendorAccess::class)->operational($company->fresh());
-                    $source->enabled($current);
+                    $source->requireAuthority($current, $authority);
                     app(DiagnosticAuthority::class)->dispatchable($current);
                     abort_unless(hash_equals(FaultMonitor::generation($b), FaultMonitor::generation($current)), 409);
                     $fresh = $this->record($current, $row->id);
@@ -129,7 +133,7 @@ class ChargerDiagnosticLogController extends Controller
                     $payload = json_decode(Crypt::decryptString($fresh->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
                     $sent = true;
 
-                    return $source->submit($current, $token, $payload) ? 'transport_submitted' : 'outcome_unknown';
+                    return $source->submit($current, $token, $payload, $authority) ? 'transport_submitted' : 'outcome_unknown';
                 }); // One attempt only: a network write must never be transaction-retried.
             } catch (Throwable) {
                 $state = $sent ? 'outcome_unknown' : 'not_dispatched';

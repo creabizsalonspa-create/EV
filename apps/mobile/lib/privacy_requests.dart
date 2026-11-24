@@ -54,8 +54,12 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
   void initState() {
     super.initState();
     accountFence = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    // First mount may occur while the OS has already hidden the app. Never
+    // fetch private data-subject requests in that state or on silent resume.
+    background = lifecycle != null && lifecycle != AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    refresh();
+    if (!background) refresh();
   }
 
   @override
@@ -66,7 +70,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     // hold an operation key from a prior authentication context.
     clearPrivate();
     accountFence = widget.api.sessionFence();
-    refresh();
+    if (!background) refresh();
   }
 
   void clearPrivate() {
@@ -121,14 +125,63 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
   void failure(Object e) {
     if (e is ApiException && [401, 419].contains(e.status)) widget.onExpired();
     if (mounted)
-      setState(
-        () => error = e is ApiException && e.status == 409
+      setState(() {
+        // No historical withdraw/export control remains usable after an
+        // unverified GET, POST receipt, or mutation outcome.
+        items.clear();
+        historyLoaded = false;
+        error = e is ApiException && e.status == 409
             ? t(
                 'Request changed or key conflicts. Refresh before retrying.',
                 'تغير الطلب أو تعارض المعرف. حدّث قبل إعادة المحاولة.',
               )
-            : e.toString(),
-      );
+            : t(
+                'Unable to verify the result. Refresh your private request history before trying again.',
+                'تعذّر التحقق من النتيجة. حدّث سجل طلباتك الخاصة قبل المحاولة مجدداً.',
+              );
+      });
+  }
+
+  ApiPage<Map<String, dynamic>> verifiedHistory(dynamic response, int requested) {
+    final data = ApiPage<Map<String, dynamic>>.fromJson(response, (v) => v);
+    if (requested < 1 ||
+        requested > 100000 ||
+        data.current != requested ||
+        data.last < requested ||
+        data.last > 100000 ||
+        data.total < 0 ||
+        data.items.length > 25 ||
+        data.total < (requested - 1) * 25 + data.items.length ||
+        data.last != (data.total == 0 ? 1 : (data.total - 1) ~/ 25 + 1)) {
+      throw const FormatException('Unverified private request page');
+    }
+    final seen = <int>{};
+    for (final row in data.items) {
+      if (row['id'] is! int ||
+          (row['id'] as int) <= 0 ||
+          !seen.add(row['id'] as int) ||
+          (row['created_at'] != null &&
+              (row['created_at'] is! String ||
+                  (row['created_at'] as String).length > 80)) ||
+          !const {'access', 'correction', 'erasure'}.contains(row['kind']) ||
+          !const {
+            'pending', 'reviewing', 'closed_review', 'blocked_external', 'withdrawn',
+          }.contains(row['status']) ||
+          (row['details'] != null &&
+              (row['details'] is! String ||
+                  (row['details'] as String).length > 2000)) ||
+          (row['copy'] != null &&
+              (row['copy'] is! Map ||
+                  !const {'available', 'expired', 'revoked'}
+                      .contains((row['copy'] as Map)['status']) ||
+                  ((row['copy'] as Map)['status'] == 'available' &&
+                      ((row['copy'] as Map)['expires_at'] is! String ||
+                          (((row['copy'] as Map)['expires_at']) as String)
+                              .length > 80))))) {
+        throw const FormatException('Unverified private request record');
+      }
+    }
+    return data;
   }
 
   Future<void> refresh([int target = 1]) async {
@@ -137,13 +190,15 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     setState(() {
       loading = true;
       error = null;
+      items.clear();
+      historyLoaded = false;
     });
     try {
       final result = await widget.api.request(
         'account/privacy-requests',
         query: {'page': target.toString()},
       );
-      final data = ApiPage<Map<String, dynamic>>.fromJson(result, (v) => v);
+      final data = verifiedHistory(result, target);
       if (!mounted || ticket != generation || !fence()) return;
       setState(() {
         historyLoaded = true;
@@ -230,6 +285,8 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     setState(() {
       sending = true;
       error = success = null;
+      items.clear();
+      historyLoaded = false;
     });
     try {
       final posted = await widget.api.request(
@@ -246,7 +303,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
         query: {'page': '1'},
       );
       if (!mounted || ticket != generation || !fence()) return;
-      final data = ApiPage<Map<String, dynamic>>.fromJson(response, (v) => v);
+      final data = verifiedHistory(response, 1);
       final savedId = (posted as Map)['id'];
       if (savedId == null || !data.items.any((item) => item['id'] == savedId)) {
         throw const FormatException(
@@ -281,6 +338,8 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     setState(() {
       sending = true;
       error = success = null;
+      items.clear();
+      historyLoaded = false;
     });
     try {
       await widget.api.request(

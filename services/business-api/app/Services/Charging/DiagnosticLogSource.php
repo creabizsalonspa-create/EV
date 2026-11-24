@@ -36,12 +36,26 @@ class DiagnosticLogSource
         return $protocol === '1.6' ? ['location' => $url, 'retries' => 0] : ['logType' => 'DiagnosticsLog', 'requestId' => $id, 'retries' => 0, 'log' => ['remoteLocation' => $url]];
     }
 
-    public function submit(object $binding, string $token, array $payload): bool
+    public function authority(object $binding): array
     {
         $this->enabled($binding);
+
+        return [rtrim((string) config('csms.operations_base_url'), '/'),
+            config('csms.graphql_url'), (string) config('csms.graphql_secret'),
+            config(! empty($binding->diagnostic_direct) ? 'csms.production_diagnostic_upload_origin' : 'csms.diagnostic_upload_origin')];
+    }
+
+    public function requireAuthority(object $binding, array $authority): void
+    {
+        abort_unless($this->authority($binding) === $authority, 503, 'Diagnostic source authority changed.');
+    }
+
+    public function submit(object $binding, string $token, array $payload, array $authority): bool
+    {
+        $this->requireAuthority($binding, $authority);
         app(DiagnosticAuthority::class)->dispatchable($binding);
         $path = $binding->protocol === '1.6' ? 'reporting/getDiagnostics' : 'reporting/getLog';
-        $r = Http::connectTimeout(3)->timeout(10)->withoutRedirecting()->withToken($token)->post(rtrim(config('csms.operations_base_url'), '/').'/ocpp/'.$binding->protocol.'/'.$path.'?'.http_build_query(['identifier' => $binding->identifier, 'tenantId' => 1, 'staleAfterSeconds' => 10]), $payload);
+        $r = Http::connectTimeout(3)->timeout(10)->withoutRedirecting()->withToken($token)->post($authority[0].'/ocpp/'.$binding->protocol.'/'.$path.'?'.http_build_query(['identifier' => $binding->identifier, 'tenantId' => 1, 'staleAfterSeconds' => 10]), $payload);
         $body = $r->json();
 
         return $r->successful() && is_array($body) && array_is_list($body) && count($body) === 1 && ($body[0]['success'] ?? null) === true;

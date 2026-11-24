@@ -22,9 +22,24 @@ final class AvailabilitySource
         return $this->source->station($binding, $online);
     }
 
-    public function token(): string
+    public function authority(bool $dispatch = false): array
     {
-        return $this->source->serviceToken();
+        $this->enabled($dispatch);
+
+        return [rtrim((string) config('csms.operations_base_url'), '/'),
+            config('csms.graphql_url'), (string) config('csms.graphql_secret')];
+    }
+
+    public function requireAuthority(array $authority, bool $dispatch = false): void
+    {
+        abort_unless($this->authority($dispatch) === $authority, 503, 'Availability source authority changed.');
+    }
+
+    public function token(array $authority): string
+    {
+        $this->requireAuthority($authority, true);
+
+        return app(OperationsCredentials::class)->token($authority[0]);
     }
 
     public function watermark(int $station): int
@@ -38,10 +53,11 @@ final class AvailabilitySource
         return $rows[0]['id'] ?? 0;
     }
 
-    public function submit(object $binding, string $token, array $payload): bool
+    public function submit(object $binding, string $token, array $payload, array $authority): bool
     {
+        $this->requireAuthority($authority, true);
         $query = http_build_query(['identifier' => $binding->identifier, 'tenantId' => 1, 'staleAfterSeconds' => 8]);
-        $url = rtrim(config('csms.operations_base_url'), '/').'/ocpp/'.$binding->protocol.'/configuration/changeAvailability?'.$query;
+        $url = $authority[0].'/ocpp/'.$binding->protocol.'/configuration/changeAvailability?'.$query;
         $response = Http::connectTimeout(3)->timeout(8)->withoutRedirecting()->withToken($token)->post($url, $payload);
         $reply = $response->json();
 
