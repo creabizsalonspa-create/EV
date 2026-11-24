@@ -53,10 +53,12 @@ class ChargerAdmissionController extends Controller
         try {
             return DB::transaction(function () use ($r, $company, $charger, $v) {
                 $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+                app(MaintenanceActor::class)->check($r->user());
                 $charger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
                 $this->scope($r, $company, $charger, true);
                 app(VendorAccess::class)->operational($company);
                 $this->requireActiveOwner($company);
+                abort_unless(in_array($charger->ocpp_protocol, ['1.6', '2.0.1'], true), 409, 'Set an OCPP protocol before provisioning.');
                 abort_unless(app(AdmissionIdentity::class)->compatible($company, $charger, $v['identity'], $charger->ocpp_protocol, app()->environment('production')), 409, 'Charger identity requires canonical ownership review.');
                 $old = AdmissionProfile::where('charger_id', $charger->id)->first();
                 if ($old) {
@@ -82,6 +84,7 @@ class ChargerAdmissionController extends Controller
 
         return DB::transaction(function () use ($r, $company, $charger, $v) {
             $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            app(MaintenanceActor::class)->check($r->user());
             $charger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
             $this->scope($r, $company, $charger, true);
             app(VendorAccess::class)->operational($company);
@@ -108,6 +111,7 @@ class ChargerAdmissionController extends Controller
 
         return DB::transaction(function () use ($r, $company, $charger) {
             $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            app(MaintenanceActor::class)->check($r->user());
             $charger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
             $this->scope($r, $company, $charger, true);
             $p = AdmissionProfile::where('charger_id', $charger->id)->lockForUpdate()->firstOrFail();
