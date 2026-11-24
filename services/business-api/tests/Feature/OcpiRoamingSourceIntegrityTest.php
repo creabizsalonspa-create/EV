@@ -49,6 +49,40 @@ class OcpiRoamingSourceIntegrityTest extends TestCase
         $this->assertDatabaseCount('charging_sessions', 0);
     }
 
+    public function test_backward_source_lifecycle_cannot_replace_observed_active_state(): void
+    {
+        [, $driver, , $provider, $location] = $this->fixture();
+        [$id] = $this->start($driver, $location);
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        $raw = $this->sourceSessionFixture($provider, $order, $this->writes[0]['body']);
+        $service = app(RecordSynchronizer::class);
+        $service->ingest($provider, 'sessions', [$raw]);
+        $url = '/api/roaming/sandbox-orders/'.$id.'/reconcile';
+        $this->postJson($url)->assertOk()->assertJsonPath('state', 'source_active')
+            ->assertJsonPath('source_status', 'ACTIVE')->assertJsonPath('energy_wh', 10);
+        $active = DB::table('ocpi_roaming_orders')->find($id);
+        $this->travel(1)->seconds();
+        $raw['last_updated'] = now()->toISOString();
+        $raw['status'] = 'PENDING';
+        $service->ingest($provider, 'sessions', [$raw]);
+        $this->postJson($url)->assertOk()->assertJsonPath('state', 'source_active')
+            ->assertJsonPath('source_status', 'ACTIVE')->assertJsonPath('reconciliation_state', 'requires_review')
+            ->assertJsonPath('energy_wh', 10)->assertJsonPath('can_stop', false);
+        $held = DB::table('ocpi_roaming_orders')->find($id);
+        $this->assertSame($active->source_session_hash, $held->source_session_hash);
+        $this->assertSame($active->active_target_key, $held->active_target_key);
+        $this->travel(1)->seconds();
+        $raw['last_updated'] = now()->toISOString();
+        $raw['status'] = 'ACTIVE';
+        $raw['kwh'] = '0.02';
+        $service->ingest($provider, 'sessions', [$raw]);
+        $this->postJson($url)->assertOk()->assertJsonPath('state', 'source_active')
+            ->assertJsonPath('source_status', 'ACTIVE')->assertJsonPath('energy_wh', 20)
+            ->assertJsonPath('can_stop', true);
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_corrupt_cdr_projection_cannot_become_consistent_financial_lineage(): void
     {
         [, $driver, , $provider, $location] = $this->fixture();
