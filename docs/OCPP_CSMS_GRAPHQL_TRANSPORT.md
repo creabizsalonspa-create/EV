@@ -11,9 +11,12 @@ The shared `CsmsGraphqlTransport` transport gate applies before any source HTTP 
 - `ContinuousFaultObserver::observe()` (before its source read or fault cursor writes).
 - `RemoteSessionAuthorization::graph()` (read/mutation source token lifecycle).
 - `ConfigurationProbe::graph()` (even if a future caller skips its stricter `enabled()` gate).
+- `RiderSourceProvisioner::graph()` (writes and verifies source authorization, including RFID retirement).
+- `SourceConsumer::graph()` (reads meter/source events that can ultimately influence charging and invoice reconciliation).
+- `ChargerSourceRegistration::graph()` (reads/writes upstream charger metadata; remains independently gated by explicit administrator approval and `upstream_registration_enabled`).
 - `RiderSourceController::targetMatches()` (returns blocked if the source URL is unsafe).
 
-The separate charger-fleet read view has its own strict source guard. The pilot probe also has independent `CsmsPreflight` configuration checks. Those stronger, purpose-specific restrictions must **not** be removed when these branches are integrated.
+The direct source registration test doubles and the independent PostgreSQL race worker now use the reviewed local loopback service rather than the synthetic `source.test` plaintext hostname. The separate charger-fleet read view has its own strict source guard. The pilot probe also has independent `CsmsPreflight` configuration checks. Those stronger, purpose-specific restrictions must **not** be removed when these branches are integrated.
 
 ## Accepted transport
 
