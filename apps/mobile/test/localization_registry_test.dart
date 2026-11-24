@@ -19,8 +19,11 @@ void main() {
       expect(en[key]!.trim(), isNotEmpty, reason: key);
       expect(ar[key]!.trim(), isNotEmpty, reason: key);
       expect(placeholders(ar[key]!), placeholders(en[key]!), reason: key);
+      // Language self-names intentionally remain identical in both menus.
       if (key != 'english') {
         expect(ar[key], matches(RegExp(r'[ء-ي]')), reason: key);
+      }
+      if (!const {'english', 'arabic'}.contains(key)) {
         expect(ar[key], isNot(en[key]), reason: key);
       }
     }
