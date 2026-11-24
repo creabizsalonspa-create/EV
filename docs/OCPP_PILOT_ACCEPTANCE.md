@@ -133,3 +133,7 @@ A pilot remains **BLOCKED** unless every required protocol/model row is explicit
 - [ ] Business owner authorizes the next scope — reviewer/date: __________________
 
 **Unexecuted/blocked gates are not passes.** Track simulator code/test/merge evidence separately from physical-pilot acceptance and production sign-off; do not mark requirement `5.4.5` or overall production readiness complete merely because this runbook exists.
+
+### Source authority continuity
+
+The read-only pilot probe binds its station and connector evidence to the same preflight-approved GraphQL endpoint, source credential, inbox credential and enabled local simulator adapter. Each request checks that authority before and after the read; an in-flight endpoint change, key rotation or adapter disablement blocks the report rather than combining evidence from different sources. No alternate source receives the captured credential. The offline preflight rejects ambiguous URL control characters, backslashes and malformed authorities. Dual-protocol regression cases exercise these boundaries. This is a software-only criterion, not a physical or production acceptance result; exact-head CI and canonical integration remain required.
