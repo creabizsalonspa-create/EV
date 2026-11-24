@@ -148,3 +148,24 @@ mismatch). That old workflow result cannot be promoted to green by
 ignoring the provenance assertion. This newly committed genuine source
 change triggers a **new source SHA and first-attempt workflow**. CI must
 pass on that exact head and Agent 5 must perform the only canonical merge.
+
+
+## Exact subscription action identities (additional 24 November source)
+
+The same positive 2^53−1 identity limit now also applies to
+`subscriptionSummary` subscription and invoice IDs, as well as
+`SubscriptionActionView` plan, subscription and authenticated owner
+identities **before** it restores the encrypted replay nonce or offers
+a mutation. This closes the previously inconsistent condition where
+catalogue IDs were bounded but downstream historical invoice IDs and
+direct navigation to `cancel_now`/enroll could still accept an
+unrepresentable native/JSON integer. A rejected ID never dispatches an
+enrollment, cancellation or plan-change POST and does not acknowledge
+an unrelated durable operation.
+
+Added independent non-UI source vectors for fractional, boolean and
+greater-than-2^53 invoice/subscription IDs, and Flutter widget
+regressions proving that oversized plan/cancellation targets disable
+submission without invoking the write endpoint. No new payment flow,
+provider integration or financial authority is implied. Fresh exact
+head Native/Platform validation and Agent 5 source integration required.
