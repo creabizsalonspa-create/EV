@@ -26,6 +26,9 @@ class SourceConsumer
         if (strlen($key) < 32) {
             throw new RuntimeException('Source authentication is not configured.');
         }
+        if (! app(CsmsGraphqlTransport::class)->approved(config('csms.graphql_url'))) {
+            throw new RuntimeException('Authenticated CSMS source transport is not approved.');
+        }
         $response = Http::timeout(15)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $key])
             ->post(config('csms.graphql_url'), compact('query', 'variables'));
         if (! $response->successful()) {
