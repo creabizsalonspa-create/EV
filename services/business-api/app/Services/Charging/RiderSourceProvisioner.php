@@ -19,6 +19,7 @@ class RiderSourceProvisioner
     private function graph(string $query, array $variables): array
     {
         abort_unless(strlen((string) config('csms.graphql_secret')) >= 32, 503, 'Authenticated source is unavailable.');
+        app(CsmsGraphqlTransport::class)->requireApproved();
         try {
             $r = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), compact('query', 'variables'));
             $data = $r->json('data');
