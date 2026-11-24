@@ -147,7 +147,7 @@ withSource(async (f) => {
     // Prove that the old cookie cannot read the private invoice, then use
     // a new authenticated customer session for the post-review ledger proof.
     const invoicePath = `finance/invoices/${invoice.id}`;
-    await assert.rejects(f.driverClient.request(invoicePath), /failed \\(401\\)/);
+    await assert.rejects(f.driverClient.request(invoicePath), /failed [(]401[)]/);
     const reader = new BusinessClient({ base: f.base });
     reader.csrf = (await reader.request("csrf")).token;
     const identity = await reader.request("login", "POST", {
