@@ -228,6 +228,8 @@ class ChargerDiagnosticLogController extends Controller
         $updates = [];
         if (count($requests) === 1) {
             $request = $requests[0];
+            abort_unless($op->source_request_id === null || $op->source_request_id === $request['id'], 409,
+                'Changed diagnostic request identity requires review.');
             $replies = $probe->messages($graph('query($station:Int!,$request:Int!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},requestMessageId:{_eq:$request},type:{_in:[3,4]}},limit:2){id type payload createdAt}}', ['station' => $station, 'request' => $request['id']]), true);
             if (count($replies) === 1) {
                 $reply = $replies[0];
@@ -253,14 +255,22 @@ class ChargerDiagnosticLogController extends Controller
                     $events = $graph('query($station:Int!,$action:String!,$after:timestamptz!,$until:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},action:{_eq:$action},createdAt:{_gte:$after,_lte:$until},payload:{_contains:$match}},order_by:{id:asc},limit:51){id payload createdAt}}', ['station' => $station, 'action' => $name, 'after' => $reply['createdAt'], 'until' => CarbonImmutable::parse($op->expires_at)->toISOString(), 'match' => $match])['OCPPMessages'] ?? null;
                     abort_unless(is_array($events) && array_is_list($events) && count($events) <= 50,
                         503, 'Malformed or unbounded diagnostic source status history.');
+                    $previousId = $reply['id'];
+                    $previousAt = $at;
+                    $terminal = null;
                     foreach ($events as $event) {
-                        abort_unless(is_array($event) && is_int($event['id'] ?? null) && $event['id'] > $reply['id']
+                        abort_unless(is_array($event) && is_int($event['id'] ?? null) && $event['id'] > $previousId
+                            && $event['id'] <= 2147483647
                             && is_array($event['payload'] ?? null) && is_string($event['createdAt'] ?? null),
                             503, 'Malformed diagnostic source status.');
                         $statusAt = SourceStatusTime::parse($event['createdAt'], 300);
-                        abort_unless($statusAt->gte($at)
+                        abort_unless($statusAt->gte($previousAt)
                             && $statusAt->lte(CarbonImmutable::parse($op->expires_at, 'UTC')), 409,
                             'Diagnostic status clock requires review.');
+                        $previousId = $event['id'];
+                        $previousAt = $statusAt;
+                        abort_unless($b->protocol === '1.6' || ($event['payload']['requestId'] ?? null) === (int) $op->id,
+                            409, 'Diagnostic status belongs to a different request.');
                         $state = $event['payload']['status'] ?? null;
                         if (! in_array($state, ['Uploading', 'Uploaded', 'UploadFailed', 'UploadFailure', 'BadMessage', 'NotSupportedOperation', 'PermissionDenied'], true)) {
                             continue;
@@ -272,12 +282,16 @@ class ChargerDiagnosticLogController extends Controller
 
                             continue;
                         }
+                        if ($terminal !== null) {
+                            abort_unless($state === $terminal, 409, 'Conflicting terminal diagnostic source status.');
+                            continue;
+                        }
                         $updates['device_status'] = $state;
                         if ($state !== 'Uploading') {
+                            $terminal = $state;
                             $updates['source_status_id'] = $event['id'];
                             $updates['source_status_digest'] = hash('sha256', json_encode($event['payload'], JSON_THROW_ON_ERROR));
                             $updates['source_status_at'] = $statusAt->format('Y-m-d H:i:s.u');
-                            break;
                         }
                     }
                 }
