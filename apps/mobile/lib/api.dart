@@ -468,6 +468,35 @@ class EvApi {
   Future<PrivateDocument> downloadDocument(String path) async =>
       await _request(path, binary: true) as PrivateDocument;
 
+  /// The same authenticated, owner-scoped and bounded page as the JSON
+  /// vendor earnings list. Never collect money or write a CSV onto a device.
+  Future<PrivateDocument> downloadVendorEarningsPage(
+    int vendorId, {
+    required String currency,
+    required int page,
+    int perPage = 20,
+  }) async {
+    if (vendorId < 1 ||
+        vendorId > 9007199254740991 ||
+        !RegExp(r'^[A-Z]{3}$').hasMatch(currency) ||
+        page < 1 || page > 10000 ||
+        perPage < 1 || perPage > 25) {
+      throw ArgumentError('Invalid private earnings page.');
+    }
+    return await _request(
+          'commercial/vendors/$vendorId/earnings/export',
+          query: {
+            'currency': currency,
+            'page': '$page',
+            'per_page': '$perPage',
+          },
+          binary: true,
+          binaryTypes: const ['text/csv'],
+          binaryLimit: 65536,
+        )
+        as PrivateDocument;
+  }
+
   Future<PrivateDocument> downloadPartnerBilling(
     int providerId,
     Map<String, String> query,
