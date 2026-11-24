@@ -33,6 +33,28 @@
     };
     const coordinate = (p) =>
         `${p.latitude.toFixed(6)},${p.longitude.toFixed(6)}`;
+    // Validate the complete provider response before any option can be selected.
+    // Wire coordinates are numeric, not arbitrary coercible user input.
+    function addressPlaces(response) {
+        if (!response || response.provider !== "geoapify" ||
+            response.evidence !== "GEOCODING_RESULT" ||
+            !Array.isArray(response.places) || response.places.length > 5)
+            throw Error("Invalid address evidence");
+        const ids = new Set();
+        return response.places.map(place => {
+            if (!place || typeof place.id !== "string" ||
+                !place.id.startsWith("geoapify:") ||
+                place.id.length <= "geoapify:".length || place.id.length > 100 ||
+                ids.has(place.id) || typeof place.label !== "string" ||
+                !place.label.trim() || place.label.length > 600 ||
+                typeof place.latitude !== "number" || typeof place.longitude !== "number")
+                throw Error("Invalid address point");
+            const p = point(place.latitude, place.longitude);
+            if (!p) throw Error("Invalid address point");
+            ids.add(place.id);
+            return { ...p, id: place.id, label: place.label };
+        });
+    }
     function addressSearch(request, onSelected) {
         const root = document.createElement("fieldset"),
             legend = label("legend", "Find an address", "البحث عن عنوان");
@@ -53,6 +75,8 @@
         input.disabled = true;
         input.setAttribute("aria-label", "Address search / البحث عن عنوان");
         input.setAttribute("autocomplete", "off");
+        input.setAttribute("autocorrect", "off");
+        input.spellcheck = false;
         const results = document.createElement("div");
         results.setAttribute("role", "listbox");
         results.setAttribute(
@@ -73,6 +97,9 @@
         let timer,
             abort,
             generation = 0;
+        const active = () => root.isConnected && !document.hidden &&
+            !root.closest("[hidden]") &&
+            !root.closest("details:not([open])");
         function clear() {
             generation++;
             clearTimeout(timer);
@@ -80,9 +107,15 @@
             results.replaceChildren();
             state.replaceChildren();
         }
+        function revoke() {
+            clear();
+            input.value = "";
+            consent.checked = false;
+            input.disabled = true;
+        }
         async function lookup() {
             const query = input.value.trim();
-            if (!consent.checked || query.length < 3) return;
+            if (!active() || !consent.checked || query.length < 3 || query.length > 180) return;
             clear();
             const current = ++generation;
             abort = new AbortController();
@@ -100,37 +133,25 @@
                     { consent: true, query, language: arabic() ? "ar" : "en" },
                     abort.signal,
                 );
-                if (current !== generation) return;
-                if (
-                    response.provider !== "geoapify" ||
-                    response.evidence !== "GEOCODING_RESULT" ||
-                    !Array.isArray(response.places) ||
-                    response.places.length > 5
-                )
-                    throw Error("Invalid address evidence");
+                if (current !== generation || !active() || !consent.checked) return;
+                const places = addressPlaces(response);
                 state.replaceChildren();
                 results.replaceChildren();
-                for (const place of response.places) {
-                    const p = point(place.latitude, place.longitude);
-                    if (
-                        !p ||
-                        typeof place.label !== "string" ||
-                        typeof place.id !== "string" ||
-                        !place.id.startsWith("geoapify:")
-                    )
-                        throw Error("Invalid address point");
+                for (const place of places) {
                     const row = document.createElement("button");
                     row.type = "button";
                     row.setAttribute("role", "option");
                     row.textContent = place.label;
                     row.onclick = () => {
+                        if (current !== generation || !active() || !consent.checked ||
+                            !results.contains(row)) return;
                         clear();
                         input.value = place.label;
-                        onSelected({ ...p, label: place.label });
+                        onSelected({ latitude: place.latitude, longitude: place.longitude, label: place.label });
                     };
                     results.append(row);
                 }
-                if (!response.places.length)
+                if (!places.length)
                     state.append(
                         label(
                             "span",
@@ -140,11 +161,12 @@
                     );
             } catch (error) {
                 if (
-                    current !== generation ||
+                    current !== generation || !active() || !consent.checked ||
                     error.name === "AbortError" ||
                     error.name === "SessionChangedError"
                 )
                     return;
+                results.replaceChildren();
                 state.replaceChildren(
                     label(
                         "span",
@@ -159,14 +181,22 @@
             }
         }
         consent.onchange = () => {
-            clear();
-            input.disabled = !consent.checked;
-            if (consent.checked) input.focus();
+            const allowed = active() && consent.checked;
+            revoke();
+            if (allowed) {
+                consent.checked = true;
+                input.disabled = false;
+                input.focus();
+            }
         };
         input.oninput = () => {
             clear();
-            if (consent.checked && input.value.trim().length >= 3)
-                timer = setTimeout(lookup, 600);
+            const current = generation;
+            if (active() && consent.checked && input.value.trim().length >= 3 &&
+                input.value.trim().length <= 180)
+                timer = setTimeout(() => {
+                    if (current === generation) lookup();
+                }, 600);
         };
         input.onkeydown = (event) => {
             if (event.key === "ArrowDown") {
@@ -192,16 +222,16 @@
                 input.focus();
             }
         };
-        window.addEventListener("ev:locale", clear);
-        return {
-            root,
-            clear: () => {
-                clear();
-                input.value = "";
-                consent.checked = false;
-                input.disabled = true;
-            },
-        };
+        // Locale changes invalidate language-specific queries and consent.
+        function localeChanged() {
+            if (!root.isConnected) {
+                window.removeEventListener("ev:locale", localeChanged);
+                return;
+            }
+            revoke();
+        }
+        window.addEventListener("ev:locale", localeChanged);
+        return { root, clear: revoke };
     }
     function install({ root, request, onPoint, getCentre, onRoute }) {
         let stations = [],
@@ -294,6 +324,7 @@
                 label("summary", "Find an address", "البحث عن عنوان"),
                 addresses.root,
             );
+            addressToggle.ontoggle = () => { if (!addressToggle.open) addresses.clear(); };
             addresses.root = addressToggle;
             addresses.root.hidden = true;
             fieldset.append(addresses.root);
@@ -639,6 +670,11 @@
                     typeof c.routing !== "boolean"
                 )
                     throw Error("Invalid capabilities");
+                if (!c.geocoding) {
+                    search.clear();
+                    origin.addresses.clear();
+                    destination.addresses.clear();
+                }
                 search.root.hidden =
                     origin.addresses.root.hidden =
                     destination.addresses.root.hidden =
@@ -658,6 +694,9 @@
                 privacy.hidden = !routeAvailable;
             } catch (_) {
                 if (requestGeneration !== capabilityEpoch) return;
+                search.clear();
+                origin.addresses.clear();
+                destination.addresses.clear();
                 search.root.hidden =
                     origin.addresses.root.hidden =
                     destination.addresses.root.hidden =
@@ -668,9 +707,14 @@
         }
         address.ontoggle = () => {
             if (address.open) capabilities();
+            else search.clear();
         };
         journey.ontoggle = () => {
             if (journey.open) capabilities();
+            else {
+                origin.addresses.clear();
+                destination.addresses.clear();
+            }
         };
         const controls = {
             update(data) {
@@ -730,5 +774,5 @@
         window.addEventListener("pagehide", onPageHide);
         return controls;
     }
-    window.EvGeoTools = { install, point, navigationCoordinate: coordinate };
+    window.EvGeoTools = { install, point, navigationCoordinate: coordinate, addressPlaces };
 })();
