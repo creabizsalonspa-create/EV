@@ -9,6 +9,8 @@ use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\VendorOps\VendorAccess;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Throwable;
 
 /**
  * Operator-only, local simulator source-contract inspection.
@@ -48,6 +50,35 @@ final class CsmsPilotProbe
         return $binding;
     }
 
+    /** Bind all reads to the configuration that passed preflight. */
+    private function requireSource(string $url, string $key, string $inboxKey): void
+    {
+        abort_unless(app()->environment(['local', 'testing'])
+            && config('csms.simulator_enabled') && config('csms.session_bridge_enabled')
+            && config('csms.graphql_url') === $url
+            && hash_equals($key, (string) config('csms.graphql_secret'))
+            && hash_equals($inboxKey, (string) config('csms.event_secret')), 503,
+            'Pilot source authority changed during inspection.');
+    }
+
+    private function graph(string $url, string $key, string $inboxKey, string $query, array $variables): array
+    {
+        $this->requireSource($url, $key, $inboxKey);
+        try {
+            $reply = Http::timeout(10)->withoutRedirecting()
+                ->withHeaders(['x-hasura-admin-secret' => $key])
+                ->post($url, compact('query', 'variables'));
+            $data = $reply->json('data');
+        } catch (Throwable) {
+            abort(503, 'Pilot source is unavailable.');
+        }
+        $this->requireSource($url, $key, $inboxKey);
+        abort_unless($reply->successful() && ! $reply->json('errors') && is_array($data), 503,
+            'Pilot source evidence is unavailable.');
+
+        return $data;
+    }
+
     public function inspect(int $bindingId): array
     {
         // A pilot probe is read-only but must never reuse the local simulator
@@ -59,9 +90,11 @@ final class CsmsPilotProbe
         $charger = VendorCharger::findOrFail($binding->vendor_charger_id);
         $manufacturer = $charger->manufacturer;
         $model = $charger->model;
-        $source = app(RemoteSessionAuthorization::class);
+        $url = (string) config('csms.graphql_url');
+        $key = (string) config('csms.graphql_secret');
+        $inboxKey = (string) config('csms.event_secret');
         $stationQuery = 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}';
-        $stations = $source->graph($stationQuery, [
+        $stations = $this->graph($url, $key, $inboxKey, $stationQuery, [
             'name' => $binding->identifier,
         ])['ChargingStations'] ?? null;
         abort_unless(is_array($stations) && array_is_list($stations) &&
@@ -79,7 +112,7 @@ final class CsmsPilotProbe
         $lastSeen = $last === null ? null : SourceStatusTime::parse($last);
         $recent = $lastSeen !== null && $lastSeen->gte(now()->subMinutes(5));
 
-        $inventory = $source->graph(
+        $inventory = $this->graph($url, $key, $inboxKey,
             'query($station:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},isActive:{_eq:true}},limit:2){id} Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1001){id connectorDatabaseId evseId connectorId connectorStatus errorCode timestamp}}',
             ['station' => $station['id']]
         );
@@ -168,7 +201,7 @@ final class CsmsPilotProbe
         // connector inventory query is in flight. Re-read the exact station,
         // then re-check current local ownership; neither read alone is a
         // durable physical proof or permission to issue device commands.
-        $afterRows = $source->graph($stationQuery, [
+        $afterRows = $this->graph($url, $key, $inboxKey, $stationQuery, [
             'name' => $binding->identifier,
         ])['ChargingStations'] ?? null;
         abort_unless(is_array($afterRows) && array_is_list($afterRows) &&
@@ -251,6 +284,7 @@ final class CsmsPilotProbe
                 ->where('status', 'confirmed')
                 ->where('starts_at', '<', now()->addMinutes(5))
                 ->where('starts_at', '>', now()->subMinutes(30))->exists();
+        $this->requireSource($url, $key, $inboxKey);
         $covered = $recentConnectorCount === count($known);
         $idle = $idleConnectorCount === count($known) && count($active) === 0;
         $observed = $stationOnline && $recent && $covered && $idle &&
