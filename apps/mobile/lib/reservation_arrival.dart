@@ -107,7 +107,21 @@ class _ReservationArrivalButtonState extends State<ReservationArrivalButton>
     // Explicit approval belongs to the exact original reservation and
     // authenticated customer, never an account that replaced the widget
     // while the operating-system dialog or Flutter route was open.
-    if (yes != true || !consentValid() || widget.disabled || busy) return;
+    if (!consentValid()) {
+      if (mounted && generation == confirmationEpoch &&
+          identical(widget.api, api) && identical(authorized, fence) &&
+          widget.reservationId == reservation && !fence()) {
+        // Repaint the retired button after a credential change without
+        // granting the replacement account access to the former consent.
+        setState(() {
+          generation++;
+          busy = false;
+          error = null;
+        });
+      }
+      return;
+    }
+    if (yes != true || widget.disabled || busy) return;
     final operationEpoch = ++generation;
     bool current() => scoped(api, fence, reservation, operationEpoch);
     setState(() {
