@@ -22,7 +22,7 @@ class ChargerResetTest extends TestCase
 
     private function fixture(string $protocol = '1.6'): array
     {
-        config(['csms.safe_reset_enabled' => true, 'csms.session_bridge_enabled' => true, 'csms.graphql_secret' => str_repeat('x', 64), 'csms.graphql_url' => 'http://source.test/graphql']);
+        config(['csms.safe_reset_enabled' => true, 'csms.session_bridge_enabled' => true, 'csms.graphql_secret' => str_repeat('x', 64), 'csms.graphql_url' => 'http://127.0.0.1:8095/v1/graphql']);
         $owner = User::factory()->create(['role' => 'vendor']);
         $station = Station::create(['vendor_id' => $owner->id, 'name' => 'Reset fixture', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
         $company = VendorCompany::create(['owner_id' => $owner->id, 'legal_name' => 'Synthetic reset', 'country' => 'AE', 'trade_license_number' => 'SYNTHETIC', 'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved']);
@@ -39,7 +39,7 @@ class ChargerResetTest extends TestCase
         Http::swap(new Factory);
         Http::preventStrayRequests();
         Http::fake(function ($r) use ($f, $active, $uncertain, $statusTime) {
-            if ($r->url() === 'http://source.test/graphql') {
+            if ($r->url() === 'http://127.0.0.1:8095/v1/graphql') {
                 if (str_contains($r['query'], 'ChargingStations')) {
                     return Http::response(['data' => ['ChargingStations' => [['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']]]]]);
                 }
@@ -113,7 +113,7 @@ class ChargerResetTest extends TestCase
         Http::swap(new Factory);
         Http::preventStrayRequests();
         Http::fake(function ($r) use ($f, $kind) {
-            $this->assertSame('http://source.test/graphql', $r->url());
+            $this->assertSame('http://127.0.0.1:8095/v1/graphql', $r->url());
             if (str_contains($r['query'], 'ChargingStations')) {
                 $station = ['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']];
                 if ($kind === 'station_string_id') {
@@ -172,7 +172,7 @@ class ChargerResetTest extends TestCase
                 Http::swap(new Factory);
                 Http::preventStrayRequests();
                 Http::fake(function ($r) use ($f, $kind) {
-                    $this->assertSame('http://source.test/graphql', $r->url());
+                    $this->assertSame('http://127.0.0.1:8095/v1/graphql', $r->url());
                     if (str_contains($r['query'], 'ChargingStations')) {
                         return Http::response(['data' => [
                             'ChargingStations' => [['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']]],
