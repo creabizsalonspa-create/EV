@@ -116,6 +116,7 @@ class FinanceApprovalQueueView extends StatefulWidget {
 class _FinanceApprovalQueueState extends State<FinanceApprovalQueueView>
     with WidgetsBindingObserver {
   final currency = TextEditingController(), vendor = TextEditingController();
+  final scroll = ScrollController();
   String kind = 'all';
   FinanceReviewPage? page;
   Map<String, String>? applied;
@@ -183,6 +184,7 @@ class _FinanceApprovalQueueState extends State<FinanceApprovalQueueView>
     WidgetsBinding.instance.removeObserver(this);
     currency.dispose();
     vendor.dispose();
+    scroll.dispose();
     super.dispose();
   }
 
@@ -204,6 +206,9 @@ class _FinanceApprovalQueueState extends State<FinanceApprovalQueueView>
     final api = widget.api;
     final epoch = ++generation;
     bool active() => mounted && visible && identical(api, widget.api) && epoch == generation;
+    // Page navigation starts from the filters rather than retaining an old
+    // offset below the end of a much shorter replacement page.
+    if (scroll.hasClients) scroll.jumpTo(0);
     setState(() { busy = true; failed = false; page = null; applied = null; });
     try {
       final query = Map<String, String>.unmodifiable(
@@ -242,7 +247,7 @@ class _FinanceApprovalQueueState extends State<FinanceApprovalQueueView>
     final data = visible ? page : null;
     return Scaffold(
       appBar: AppBar(title: Text(t('Pending finance reviews', 'المراجعات المالية المعلقة'))),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
+      body: ListView(controller: scroll, padding: const EdgeInsets.all(16), children: [
         Text(t('Read-only TEST review queue. These are pending source records, not balances or approval, payment or payout authority.',
           'قائمة مراجعة اختبارية للقراءة فقط. هذه سجلات معلقة وليست أرصدة أو صلاحية اعتماد أو دفع أو تحويل.')),
         if (!visible)
