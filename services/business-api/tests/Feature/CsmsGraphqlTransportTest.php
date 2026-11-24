@@ -56,6 +56,7 @@ class CsmsGraphqlTransportTest extends TestCase
             'http://charging-graphql:8080/v1/graphql?secret=PRIVATE',
             'http://charging-graphql:8080/v1/graphql#PRIVATE',
             'http://charging-graphql:8080/other',
+            'http://charging-graphql:8080\\@untrusted.test/v1/graphql',
             'https://operator:password@source.test/graphql',
             'https://source.test/graphql?secret=PRIVATE',
             'https://source.test/graphql#PRIVATE',
