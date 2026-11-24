@@ -136,9 +136,20 @@ class RoamingDispatch
 
                 return;
             }
-            DB::table('ocpi_roaming_commands')->where('id', $cmd->id)->update(['transport_result' => $result, 'state' => $result === 'ACCEPTED' ? 'transport_accepted' : 'partner_rejected', 'updated_at' => now()]);
-            if ($command->action === 'START_SESSION' && ! in_array($row->state, ['source_active', 'source_completed'], true)) {
-                DB::table('ocpi_roaming_orders')->where('id', $row->id)->update(['state' => $result === 'ACCEPTED' ? 'start_accepted' : 'partner_rejected', 'active_target_key' => $result === 'ACCEPTED' ? $row->active_target_key : null, 'updated_at' => now()]);
+            // An asynchronous receipt or prior token authorization may arrive
+            // before a synchronous rejection. Preserve both facts and capacity
+            // until source reconciliation; rejection alone no longer proves no start.
+            $start = $command->action === 'START_SESSION';
+            $conflicting = $start && $result !== 'ACCEPTED' && (
+                $cmd->callback_hash !== null || $cmd->callback_result !== null
+                || $cmd->callback_at !== null || $row->authorized_at !== null
+                || in_array($row->state, ['source_active', 'source_completed'], true)
+            );
+            $state = $conflicting ? 'outcome_unknown' : ($result === 'ACCEPTED' ? 'transport_accepted' : 'partner_rejected');
+            DB::table('ocpi_roaming_commands')->where('id', $cmd->id)->update(['transport_result' => $result, 'state' => $state, 'updated_at' => now()]);
+            if ($start && ! in_array($row->state, ['source_active', 'source_completed'], true)) {
+                $orderState = $conflicting ? 'start_outcome_unknown' : ($result === 'ACCEPTED' ? 'start_accepted' : 'partner_rejected');
+                DB::table('ocpi_roaming_orders')->where('id', $row->id)->update(['state' => $orderState, 'active_target_key' => $orderState === 'partner_rejected' ? null : $row->active_target_key, 'updated_at' => now()]);
             }
         }, 3);
     }

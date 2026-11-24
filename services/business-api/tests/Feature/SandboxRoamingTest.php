@@ -276,6 +276,60 @@ class SandboxRoamingTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 0);
     }
 
+    #[TestWith(['callback'])]
+    #[TestWith(['authorization'])]
+    #[TestWith(['none'])]
+    public function test_start_transport_rejection_preserves_earlier_source_authority_and_capacity(string $evidence): void
+    {
+        [, $driver, , , $location] = $this->fixture();
+        $attempts = [];
+        Http::fake(function ($request) use ($evidence, &$attempts) {
+            $attempts[] = $request->method();
+            if ($request->method() === 'POST') {
+                // Inject the persisted evidence an asynchronous peer can commit
+                // while the original command transport is still in flight.
+                if ($evidence === 'callback') {
+                    DB::table('ocpi_roaming_commands')->where('action', 'START_SESSION')->update([
+                        'callback_result' => 'ACCEPTED',
+                        'callback_hash' => hash('sha256', '{"result":"ACCEPTED"}'),
+                        'callback_at' => now(),
+                    ]);
+                } elseif ($evidence === 'authorization') {
+                    DB::table('ocpi_roaming_orders')->update(['authorized_at' => now()]);
+                }
+            }
+
+            return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => $request->method() === 'PUT' ? null : ['result' => 'REJECTED', 'timeout' => 30]]);
+        });
+        $url = '/api/roaming/locations/'.$location->id;
+        $offer = $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->json('offers.0');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true];
+        $this->postJson($url.'/sandbox-orders', $body)->assertCreated();
+        $this->postJson($url.'/sandbox-orders', $body)->assertOk();
+        $this->assertSame(['PUT', 'POST'], $attempts);
+        $command = DB::table('ocpi_roaming_commands')->first();
+        $order = DB::table('ocpi_roaming_orders')->first();
+        $this->assertSame('REJECTED', $command->transport_result);
+        $this->assertNotNull($command->attempted_at);
+        if ($evidence === 'none') {
+            $this->assertSame('partner_rejected', $command->state);
+            $this->assertSame('partner_rejected', $order->state);
+            $this->assertNull($order->active_target_key);
+        } else {
+            $this->assertSame('outcome_unknown', $command->state);
+            $this->assertSame('start_outcome_unknown', $order->state);
+            $this->assertNotNull($order->active_target_key);
+        }
+        if ($evidence === 'callback') {
+            $this->assertSame('ACCEPTED', $command->callback_result);
+        } elseif ($evidence === 'authorization') {
+            $this->assertNotNull($order->authorized_at);
+        }
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_stale_authenticated_actor_cannot_create_new_roaming_consent_but_fresh_actor_can(): void
     {
         [, $driver, , , $location] = $this->fixture();
