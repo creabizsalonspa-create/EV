@@ -92,7 +92,7 @@ void main() {
       expect(api.calls,isEmpty);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
-      expect(api.calls,isEmpty,'Resume must not automatically quote or approve');
+      expect(api.calls,isEmpty,reason:'Resume must not automatically quote or approve');
       expect(tester.widget<TextButton>(
           find.widgetWithText(TextButton,ar?'عرض التقدير':'Get estimate'))
         .onPressed,isNotNull);
@@ -151,7 +151,7 @@ void main() {
       final reads=api.calls.length;
       api.epoch++;
       await tester.pumpWidget(form(8));await tester.pumpAndSettle();
-      expect(api.calls.length,reads,'A changed account must explicitly request new quote');
+      expect(api.calls.length,reads,reason:'A changed account must explicitly request new quote');
       expect(find.textContaining('KWD 0.396'),findsNothing);
       expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,'10000');
       expect(tester.widget<FilledButton>(
