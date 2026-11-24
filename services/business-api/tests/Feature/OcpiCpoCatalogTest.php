@@ -374,6 +374,60 @@ class OcpiCpoCatalogTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_cpo_sender_and_dependent_publications_reject_corrupted_tariff_bytes(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sources = $this->source($owner);
+        [$site, $tariff] = $sources;
+        [, $token, $operations] = $this->peer($owner, 'owner', $sources);
+        $url = $operations.'/tariffs/'.$tariff;
+        $stamp = $this->actingAs($admin)->publication($url)->assertOk()->json('published_at');
+        $row = DB::table('ocpi_cpo_catalog')->first();
+        $payload = json_decode($row->payload, true, flags: JSON_THROW_ON_ERROR);
+        $payload['elements'][0]['price_components'][0]['price'] = 99;
+        DB::table('ocpi_cpo_catalog')->where('id', $row->id)->update(['payload' => json_encode($payload, JSON_THROW_ON_ERROR)]);
+        $this->getJson(self::SENDER.'/tariffs', $token)->assertConflict()->assertJsonPath('data', null);
+        $this->getJson(self::SENDER.'/tariffs/T'.$tariff, $token)->assertConflict()->assertJsonPath('data', null);
+        $this->publication($operations.'/locations/'.$site)->assertConflict();
+        $this->assertDatabaseCount('ocpi_cpo_catalog', 1);
+        DB::table('ocpi_cpo_catalog')->where('id', $row->id)->update(['payload' => $row->payload, 'payload_digest' => null]);
+        $this->getJson(self::SENDER.'/tariffs', $token)->assertConflict();
+        $this->publication($operations.'/locations/'.$site)->assertConflict();
+        $this->publication($url, 'publish', $stamp)->assertOk();
+        $this->getJson(self::SENDER.'/tariffs/T'.$tariff, $token)->assertOk()->assertJsonPath('data.elements.0.price_components.0.price', 1.29);
+        $this->publication($operations.'/locations/'.$site)->assertOk();
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_successful_push_envelope_cannot_credit_a_changed_publication_during_transport(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sources = $this->source($owner);
+        [, $tariff] = $sources;
+        [, , $operations] = $this->peer($owner, 'owner', $sources);
+        config(['ocpi.cpo_push_enabled' => true]);
+        $url = $operations.'/tariffs/'.$tariff;
+        $stamp = $this->actingAs($admin)->publication($url)->assertOk()->json('published_at');
+        Http::fake(function (Request $request) {
+            $this->assertSame('PUT', $request->method());
+            $row = DB::table('ocpi_cpo_catalog')->first();
+            $payload = json_decode($row->payload, true, flags: JSON_THROW_ON_ERROR);
+            $payload['elements'][0]['price_components'][0]['price'] = 99;
+            DB::table('ocpi_cpo_catalog')->where('id', $row->id)->update(['payload' => json_encode($payload, JSON_THROW_ON_ERROR)]);
+            $trace = ['X-Request-ID' => $request->header('X-Request-ID')[0], 'X-Correlation-ID' => $request->header('X-Correlation-ID')[0]];
+
+            return Http::response(['status_code' => 1000, 'data' => null, 'timestamp' => now()->toISOString()], 200, $trace);
+        });
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertOk()->assertJsonPath('delivery', 'unknown');
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertConflict();
+        $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])->assertConflict();
+        $this->assertSame('unknown', DB::table('ocpi_cpo_publication_operations')->value('state'));
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_cpo_reconciliation_can_read_the_full_size_of_a_published_location(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);

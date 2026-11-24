@@ -87,6 +87,7 @@ final class CpoCatalogPublisher
 
     private function decode(object $record): array
     {
+        abort_if($record->payload_digest !== null && ! $this->payloadIntact($record), 409, 'Stored publication requires integrity review.');
         $payload = in_array($record->module, CpoCatalogContract::SESSION_MODULES, true)
             ? Crypt::decryptString($record->payload) : $record->payload;
 
@@ -220,13 +221,13 @@ final class CpoCatalogPublisher
                 $location = (clone $bound)->where(['module' => 'locations', 'source_id' => (int) $contract['session_exports'][$source]['site_id'], 'withdrawn' => false])->first();
                 $evse = $payload['evse_uid'] ?? $payload['cdr_location']['evse_uid'];
                 $connector = $payload['connector_id'] ?? $payload['cdr_location']['connector_id'];
-                $publishedEvse = $location ? collect($this->decode($location)['evses'])->firstWhere('uid', $evse) : null;
+                $publishedEvse = $location && $this->payloadIntact($location) ? collect($this->decode($location)['evses'])->firstWhere('uid', $evse) : null;
                 abort_unless($publishedEvse && $publishedEvse['status'] !== 'REMOVED' && collect($publishedEvse['connectors'])->contains('id', $connector),
                     409, 'Publish the approved session location and connector first.');
                 if ($module === 'cdrs') {
                     $sessionHash = $this->normalizer->hash($this->sourcePayload($provider, $contract, 'sessions', $source));
-                    abort_unless((clone $bound)->where(['module' => 'sessions', 'source_id' => $source, 'source_hash' => $sessionHash])->exists(),
-                        409, 'Publish the matching final session first.');
+                    $session = (clone $bound)->where(['module' => 'sessions', 'source_id' => $source, 'source_hash' => $sessionHash])->first();
+                    abort_unless($session && $this->payloadIntact($session), 409, 'Publish the matching final session first.');
                 }
             }
             if ($previous && $this->payloadIntact($previous) && $previous->source_hash === $sourceHash && (bool) $previous->withdrawn === $withdraw && (clone $bound)->where('id', $previous->id)->exists()) {
@@ -236,7 +237,8 @@ final class CpoCatalogPublisher
             abort_if($previous && DB::table(self::OPERATIONS)->where('publication_id', $previous->id)->whereIn('state', ['dispatching', 'unknown'])->exists(), 409, 'Earlier delivery requires reconciliation.');
             if ($module === 'locations' && ! $withdraw) {
                 foreach ($this->tariffReferences($payload) as $tariff) {
-                    abort_unless((clone $bound)->where(['module' => 'tariffs', 'source_id' => (int) substr($tariff, 1), 'withdrawn' => false])->exists(), 409, 'Publish referenced tariffs first.');
+                    $publishedTariff = (clone $bound)->where(['module' => 'tariffs', 'source_id' => (int) substr($tariff, 1), 'withdrawn' => false])->first();
+                    abort_unless($publishedTariff && $this->payloadIntact($publishedTariff), 409, 'Publish referenced tariffs first.');
                 }
                 if ($sameIdentity) {
                     $payload = $this->includeRemovedEvses($payload, $priorPayload);
@@ -286,6 +288,8 @@ final class CpoCatalogPublisher
                 $row = $query->where('source_id', $source)->first();
                 abort_unless($row, 404);
 
+                abort_unless($this->payloadIntact($row), 409, 'Stored publication requires integrity review.');
+
                 return [$this->decode($row), 1];
             }
             if (isset($window['date_from'])) {
@@ -304,6 +308,7 @@ final class CpoCatalogPublisher
                 if ($bytes > 1_900_000) {
                     break;
                 }
+                abort_unless($this->payloadIntact($record), 409, 'Stored publication requires integrity review.');
                 $payloads[] = $this->decode($record);
             }
 
@@ -398,7 +403,24 @@ final class CpoCatalogPublisher
             } catch (OcpiException|HttpExceptionInterface) {
                 $state = 'unknown';
             }
-            $claim->update(['state' => $state, 'updated_at' => now()]);
+            // A successful envelope does not certify changed local evidence.
+            // Recheck the actual claim and publication before marking delivery.
+            $receiptClaim = (clone $claim)->lockForUpdate()->first();
+            if (! $receiptClaim || $receiptClaim->id !== $operation->id
+                || $receiptClaim->publication_id !== $row->id || $receiptClaim->actor_id !== $actor->id
+                || $receiptClaim->published_at !== $publishedAt || $receiptClaim->state !== 'dispatching') {
+                return null;
+            }
+            try {
+                $this->admin($actor);
+                $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+                [, $receiptLink] = $this->authority($current);
+                abort_unless($this->samePublication($current, $receiptLink, $row)
+                    && $this->deliveryMatches($row, $receiptClaim), 409);
+            } catch (OcpiException|HttpExceptionInterface) {
+                $state = 'unknown';
+            }
+            $claim->where('id', $operation->id)->where('state', 'dispatching')->update(['state' => $state, 'updated_at' => now()]);
 
             return $state;
         });
