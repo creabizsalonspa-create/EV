@@ -24,3 +24,42 @@ test('actual display expires in both languages and disposes its timer when remov
   assert.match(element.textContent,lang==='ar'?/قديم/:/stale/);
  }
 });
+
+
+test('connector clocks reject impossible calendar dates rather than silently rolling them over',()=>{
+ for(const field of ['observed_at','checked_at','valid_until']){
+  for(const invalid of [
+   '2026-02-30T05:00:00Z',
+   '2026-04-31T05:00:00Z',
+   '2027-02-29T05:00:00Z',
+   '2026-11-14T24:00:00Z',
+   '2026-11-14T05:61:00Z',
+   '2026-11-14T05:00:60Z',
+  ]){
+   assert.equal(state({...value,[field]:invalid}), 'unknown',field+': '+invalid);
+  }
+ }
+ const leap={...value, observed_at:'2028-02-29T05:00:00Z',
+   checked_at:'2028-02-29T05:04:00Z',valid_until:'2028-02-29T05:05:00Z'};
+ assert.equal(state(leap,59999),'Available');
+ assert.equal(state(leap,60000),'stale');
+});
+test('malformed or untrusted observed clock cannot appear in EN/AR label',()=>{
+ for(const lang of ['en','ar']){
+  let tick;
+  const element={dataset:{},isConnected:true};
+  const window={},document={documentElement:{lang},createElement:()=>element};
+  const perf={now:()=>0};
+  const env={window,document,performance:perf,setInterval:fn=>{tick=fn;return 1;},
+    clearInterval:()=>{}};
+  vm.runInNewContext(fs.readFileSync('services/business-api/public/connector-freshness.js','utf8'),env);
+  window.EvConnectorFreshness.attach({append:()=>{}},{...value,observed_at:'2026-02-30T05:00:00Z'});
+  assert.doesNotMatch(element.textContent,/2026-02-30/);
+  assert.match(element.textContent,lang==='ar'?/غير معروف/:/unknown/);
+  window.EvConnectorFreshness.attach({append:()=>{}},{...value,evidence:'LIVE',
+    observed_at:'2026-11-14T05:00:00Z'});
+  assert.doesNotMatch(element.textContent,/2026-11-14/);
+  assert.match(element.textContent,lang==='ar'?/غير معروف/:/unknown/);
+  element.isConnected=false;tick();
+ }
+});

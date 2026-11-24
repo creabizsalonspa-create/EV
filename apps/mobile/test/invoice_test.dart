@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/invoice.dart';
@@ -8,6 +9,8 @@ import 'test_support.dart';
 class InvoiceFixture extends FixtureApi {
   bool fail = false, invalidEvidence = false;
   String? corruptField;
+  int precision = 2;
+  String currencyCode = 'AED';
   int requests = 0;
   @override
   Future<dynamic> request(
@@ -25,19 +28,20 @@ class InvoiceFixture extends FixtureApi {
         'id': corruptField == 'id' ? '7' : 7,
         'user_id': 123,
         'charging_session_id': corruptField == 'session' ? 8 : 7,
-        'minor_units': corruptField == 'minor_units' ? 5 : 2,
+        'minor_units': corruptField == 'minor_units' ? 5 : precision,
         'number': 'SIM-FIXTURE',
         'evidence': 'SIMULATED',
         'subtotal_minor': 313,
         'tax_minor': 16,
-        'total_minor': corruptField == 'total_minor' ? -1 : 329,
-        'currency': corruptField == 'currency' ? 'DANGEROUS' : 'AED',
+        'total_minor': corruptField == 'total_minor' ? -1 :
+            corruptField == 'arithmetic' ? 330 : 329,
+        'currency': corruptField == 'currency' ? 'DANGEROUS' : currencyCode,
       },
-      'paid_minor': 329,
-      'refunded_minor': 329,
-      'amount_due_minor': 0,
+      'paid_minor': corruptField == 'overpaid' ? 330 : 329,
+      'refunded_minor': corruptField == 'overrefund' ? 330 : 329,
+      'amount_due_minor': corruptField == 'due' ? 1 : 0,
       'unpaid_credited_minor': 0,
-      'state': 'refunded',
+      'state': corruptField == 'state' ? 'paid' : 'refunded',
       'ledger_balanced': true,
       'payments': corruptField == 'payment'
           ? [{'amount_minor': 'not-an-amount', 'created_at': '2026-11-16'}]
@@ -77,7 +81,160 @@ class DeferredInvoiceApi extends InvoiceFixture {
   }
 }
 
+class RotatingInvoiceApi extends InvoiceFixture {
+  final events = StreamController<int>.broadcast(sync: true);
+  int actorEpoch = 0;
+  @override
+  Stream<int> get sessionEvents => events.stream;
+  @override
+  bool Function() sessionFence() {
+    final captured = actorEpoch;
+    return () => captured == actorEpoch;
+  }
+
+  void rotate() {
+    actorEpoch++;
+    events.add(actorEpoch);
+  }
+
+  @override
+  void close() {
+    unawaited(events.close());
+    super.close();
+  }
+}
+
 void main() {
+
+  for (final digits in [0, 2, 3]) {
+    for (final arabic in [false, true]) {
+      testWidgets('invoice currency precision and direction ($digits, $arabic)', (
+        tester,
+      ) async {
+        final api = InvoiceFixture()
+          ..precision = digits
+          ..currencyCode = digits == 0 ? 'JPY' : digits == 3 ? 'KWD' : 'AED';
+        addTearDown(api.close);
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await tester.pumpWidget(MaterialApp(
+          locale: Locale(arabic ? 'ar' : 'en'),
+          supportedLocales: const [Locale('en'), Locale('ar')],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          home: InvoicePage(api: api, sessionId: 7, onExpired: () {}),
+        ));
+        await tester.pumpAndSettle();
+        final amount = digits == 0 ? '16 JPY' : digits == 3 ? '0.016 KWD' : '0.16 AED';
+        final label = find.textContaining(amount);
+        await tester.scrollUntilVisible(label, 200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(label, findsOneWidget);
+        expect(Directionality.of(tester.element(label)),
+          arabic ? TextDirection.rtl : TextDirection.ltr);
+        expect(api.requests, 1);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  testWidgets('initial inactive invoice never issues a hidden POST', (tester) async {
+    final api = InvoiceFixture();
+    addTearDown(api.close);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    addTearDown(() => tester.binding.handleAppLifecycleStateChanged(
+      AppLifecycleState.resumed,
+    ));
+    await tester.pumpWidget(MaterialApp(
+      home: InvoicePage(api: api, sessionId: 7, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    expect(api.requests, 0);
+    expect(find.byType(OutlinedButton), findsNothing);
+    expect(find.text('Refresh'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.requests, 0);
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(api.requests, 1);
+    expect(find.text('SIM-FIXTURE'), findsOneWidget);
+  });
+
+  testWidgets('retired account immediately hides invoice and rejects cached actions', (
+    tester,
+  ) async {
+    final api = RotatingInvoiceApi();
+    addTearDown(api.close);
+    Widget screen(int id) => MaterialApp(
+      home: InvoicePage(api: api, sessionId: id, onExpired: () {}),
+    );
+    await tester.pumpWidget(screen(7));
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-FIXTURE'), findsOneWidget);
+    final oldDocument = tester.widget<OutlinedButton>(
+      find.byType(OutlinedButton).first,
+    ).onPressed!;
+    final oldRefresh = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, 'Refresh'),
+    ).onPressed!;
+    api.rotate();
+    oldDocument();
+    oldRefresh();
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-FIXTURE'), findsNothing);
+    expect(find.byType(OutlinedButton), findsNothing);
+    expect(find.text('Refresh'), findsNothing);
+    expect(api.requests, 1);
+    // Reusing the same API object cannot give the retired route a new actor.
+    await tester.pumpWidget(screen(8));
+    await tester.pumpAndSettle();
+    oldDocument();
+    oldRefresh();
+    await tester.pumpAndSettle();
+    expect(find.byType(OutlinedButton), findsNothing);
+    expect(api.requests, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('background and refreshed invoice reject former action callbacks', (
+    tester,
+  ) async {
+    final api = InvoiceFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: InvoicePage(api: api, sessionId: 7, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    final oldDocument = tester.widget<OutlinedButton>(
+      find.byType(OutlinedButton).first,
+    ).onPressed!;
+    final oldRefresh = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, 'Refresh'),
+    ).onPressed!;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    addTearDown(() => tester.binding.handleAppLifecycleStateChanged(
+      AppLifecycleState.resumed,
+    ));
+    oldDocument();
+    oldRefresh();
+    await tester.pumpAndSettle();
+    expect(api.requests, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(api.requests, 2);
+    oldDocument();
+    oldRefresh();
+    await tester.pumpAndSettle();
+    expect(api.requests, 2);
+    expect(find.text('SIM-FIXTURE'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('late old-account invoice result cannot repopulate financial actions', (
     tester,
   ) async {
@@ -152,7 +309,12 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('SIM-FIXTURE'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Tax: 16 minor units AED'), 200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Tax: 16 minor units AED'), findsOneWidget);
+      expect(find.textContaining('0.16 AED'), findsOneWidget);
       // The verified detail screen contains several safe, read-only actions;
       // its ListView lazily builds the lower amount rows on small viewports.
       await tester.scrollUntilVisible(
@@ -186,7 +348,7 @@ void main() {
       expect(api.requests, 2);
     },
   );
-  for (final field in ['id', 'session', 'minor_units', 'total_minor', 'currency', 'payment', 'refund', 'credit_note']) {
+  for (final field in ['id', 'session', 'minor_units', 'total_minor', 'currency', 'payment', 'refund', 'credit_note', 'arithmetic', 'overpaid', 'overrefund', 'due', 'state']) {
     testWidgets('malformed invoice $field cannot open financial actions', (
       tester,
     ) async {
