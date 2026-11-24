@@ -14,6 +14,7 @@ Map<String, dynamic> reviewSource() => {
   'remaining_credit_minor': 100000, 'blocked_count': 0,
   'state': 'ready_for_review', 'read_only': true,
   'statement_issued': false, 'real_payment_processed': false,
+  'can_issue_reviewed_batch': false,
 };
 
 CorporateCycleReview parse(dynamic raw) => CorporateCycleReview.parse(
@@ -24,7 +25,7 @@ class CycleApi extends CorporateApi {
   int epoch = 0;
   int reviewReads = 0;
   Completer<dynamic>? delayed;
-  bool malformed = false;
+  bool malformed = false, canIssue = false, forgeIssue = false;
   @override
   Stream<int> get sessionEvents => changes.stream;
   @override
@@ -51,7 +52,22 @@ class CycleApi extends CorporateApi {
       expect(body, isNull);
       reviewReads++;
       if (delayed != null) return delayed!.future;
-      return reviewSource()..['agreement_id'] = malformed ? 8 : 6;
+      return reviewSource()
+        ..['agreement_id'] = malformed ? 8 : 6
+        ..['can_issue_reviewed_batch'] = canIssue;
+    }
+    if (path.endsWith('/cycle-review/issue')) {
+      expect(method, 'POST');
+      posts++;
+      bodies.add({...body!});
+      return {
+        'statement_id': 12, 'agreement_id': 6,
+        'period': body['period'], 'claim_ids': body['claim_ids'],
+        'total_minor': forgeIssue ? 1251 : body['total_minor'],
+        'currency': 'KWD', 'minor_units': 3,
+        'statement_issued': true, 'real_payment_processed': false,
+        'evidence': 'TEST_REVIEWED_STATEMENT', 'replayed': posts > 1,
+      };
     }
     return super.request(path, method: method, body: body, query: query);
   }
@@ -110,6 +126,60 @@ void main() {
     expect(find.text('Proposed total: KWD 1.250'), findsOneWidget);
     expect(api.posts, 0);
     expect(find.byType(FilledButton), findsNothing);
+    expect(find.text('Issue reviewed TEST statement'), findsNothing);
+  });
+
+  testWidgets('reviewed TEST issuance needs explicit consent and exact acknowledgement', (t) async {
+    final api = CycleApi()..canIssue = true..forgeIssue = true;
+    addTearDown(api.close);
+    await t.pumpWidget(reviewApp(api));
+    await t.pumpAndSettle();
+    expect(api.posts, 0);
+    final button = find.text('Issue reviewed TEST statement');
+    await t.ensureVisible(button);
+    await t.tap(button);
+    await t.pumpAndSettle();
+    expect(api.posts, 0);
+    await t.tap(find.text('Cancel'));
+    await t.pumpAndSettle();
+    expect(api.posts, 0);
+    await t.tap(button);
+    await t.pumpAndSettle();
+    await t.tap(find.text('Confirm TEST issue'));
+    await t.pumpAndSettle();
+    expect(api.posts, 1);
+    expect(api.bodies.single, {
+      'period': '2026-01', 'claim_ids': [7], 'total_minor': 1250,
+      'consent': true,
+    });
+    expect(find.textContaining('Statement not confirmed.'), findsOneWidget);
+    expect(find.textContaining('TEST statement #12 confirmed'), findsNothing);
+    api.forgeIssue = false;
+    await t.ensureVisible(button);
+    await t.tap(button);
+    await t.pumpAndSettle();
+    await t.tap(find.text('Confirm TEST issue'));
+    await t.pumpAndSettle();
+    expect(api.posts, 2);
+    expect(api.bodies[1], api.bodies[0]);
+    expect(find.text('TEST statement #12 confirmed. No payment collected.'), findsOneWidget);
+    expect(button, findsNothing);
+  });
+
+  testWidgets('revoked session cannot confirm an old reviewed TEST batch', (t) async {
+    final api = CycleApi()..canIssue = true;
+    addTearDown(api.close);
+    await t.pumpWidget(reviewApp(api));
+    await t.pumpAndSettle();
+    await t.ensureVisible(find.text('Issue reviewed TEST statement'));
+    await t.tap(find.text('Issue reviewed TEST statement'));
+    await t.pumpAndSettle();
+    api.revoke();
+    await t.pumpAndSettle();
+    await t.tap(find.text('Confirm TEST issue'));
+    await t.pumpAndSettle();
+    expect(api.posts, 0);
+    expect(find.text('Issue reviewed TEST statement'), findsNothing);
   });
 
   testWidgets('stale manager eligibility does not dispatch private review', (t) async {
