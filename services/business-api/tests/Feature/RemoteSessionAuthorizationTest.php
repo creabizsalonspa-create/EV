@@ -252,6 +252,40 @@ class RemoteSessionAuthorizationTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    #[DataProvider('remoteSourceChanges')]
+    public function test_capability_probe_authority_drift_prevents_remote_publication(string $kind): void
+    {
+        [, , , $command, $link] = $this->fixture();
+        config(['csms.graphql_secret' => str_repeat('g', 64), 'csms.graphql_url' => 'https://source.test/graphql']);
+        Http::fake(function ($request) use ($kind) {
+            $this->assertStringContainsString('/creabiz/rider-auth/capabilities', $request->url());
+            parse_str(parse_url($request->url(), PHP_URL_QUERY), $query);
+            $proof = hash_hmac('sha256', "creabiz-rider-v1\n".$query['nonce'], str_repeat('s', 64));
+            match ($kind) {
+                'endpoint' => config(['csms.graphql_url' => 'https://alternate.example.test/graphql']),
+                'key' => config(['csms.graphql_secret' => str_repeat('h', 64)]),
+                'capability_endpoint' => config(['csms.rider_source_api_url' => 'https://alternate.example.test']),
+                'capability_key' => config(['csms.rider_client_secret' => str_repeat('t', 64)]),
+                'disabled' => config(['csms.remote_authorization_enabled' => false]),
+            };
+
+            return Http::response(['proof' => $proof, 'remote_session_authorization' => true,
+                'ready' => true, 'tenant_id' => 1, 'offline_fallback' => false, 'cache_seconds' => 0]);
+        });
+        try {
+            app(RemoteSessionAuthorization::class)->publish($command);
+            $this->fail('Changed capability authority was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/graphql')
+            || str_contains($request->url(), 'alternate.example.test'));
+        $this->assertNull($link->fresh()->remote_authorization_id);
+        $this->assertSame('pending', $command->fresh()->status);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_unknown_service_credentials_and_unknown_remote_token_fail_closed(): void
     {
         $this->fixture();
