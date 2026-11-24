@@ -124,6 +124,7 @@ class _StationMapViewState extends State<StationMapView> with WidgetsBindingObse
   void didUpdateWidget(covariant StationMapView old) {
     super.didUpdateWidget(old);
     if (!identical(old.discoveryClient, widget.discoveryClient) ||
+        !identical(old.stations, widget.stations) ||
         old.customer != widget.customer || !sessionCurrent) {
       clearTransient();
       if (available) {
@@ -346,11 +347,22 @@ class _StationMapViewState extends State<StationMapView> with WidgetsBindingObse
     return number != null && number.isFinite && number.abs() <= limit ? number : null;
   }
 
+  void choosePoint(LatLng point) {
+    locationGeneration++;
+    setState(() {
+      locating = false;
+      fix = null;
+      locationError = null;
+      searchPoint = point;
+    });
+  }
+
   void submitManual(int epoch) {
     if (!active(epoch) || widget.onSearch == null || !(manualForm.currentState?.validate() ?? false)) return;
     final lat = coordinate(manualLatitude.text, 90)!;
     final lng = coordinate(manualLongitude.text, 180)!;
-    setState(() { fix = null; searchPoint = LatLng(lat, lng); });
+    FocusManager.instance.primaryFocus?.unfocus();
+    choosePoint(LatLng(lat, lng));
     if (enabled && lat.abs() <= 85.05112878) controller.move(searchPoint!, 13);
   }
 
@@ -393,12 +405,7 @@ class _StationMapViewState extends State<StationMapView> with WidgetsBindingObse
                     client: widget.discoveryClient!,
                     onSelected: (place) {
                       if (!active(epoch)) return;
-                      setState(
-                        () => searchPoint = LatLng(
-                          place.point.latitude,
-                          place.point.longitude,
-                        ),
-                      );
+                      choosePoint(LatLng(place.point.latitude, place.point.longitude));
                       if (enabled && place.point.latitude.abs() <= 85.05112878)
                         controller.move(searchPoint!, 13);
                     },
@@ -520,7 +527,7 @@ class _StationMapViewState extends State<StationMapView> with WidgetsBindingObse
                       if (active(epoch) && enabled && camera.zoom != zoom)
                         setState(() => zoom = camera.zoom);
                     },
-                    onTap: (_, point) { if (active(epoch) && enabled) setState(() { fix = null; searchPoint = point; }); },
+                    onTap: (_, point) { if (active(epoch) && enabled) choosePoint(point); },
                   ),
                   children: [
                     TileLayer(
