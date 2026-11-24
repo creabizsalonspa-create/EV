@@ -6,7 +6,7 @@ import 'package:creabiz_ev/api.dart';
 void main() {
   final path = Platform.environment['EV_NATIVE_OCPI_CREDENTIALS_FIXTURE'];
   test(
-    'native actual Laravel credentials reject unproven peer rotation and accept safe revocation',
+    'native actual Laravel credential metadata and authenticated peer rotation/revocation',
     () async {
       final f =
           jsonDecode(await File(path!).readAsString()) as Map<String, dynamic>;
@@ -82,39 +82,47 @@ void main() {
       }
       expect(before['state'], 'active');
       expect(jsonEncode(before).contains(f['local_token']), false);
-      // The isolated local server deliberately has no contracted remote
-      // HTTPS peer. Rotation must fail closed rather than installing an
-      // unauthenticated token. Positive token-proof paths are covered by the
-      // Laravel HTTP-fake credential lifecycle tests.
-      final rotated = await protocol(
+      final offered = <String, dynamic>{
+        'token': 'SYNTHETIC-NATIVE-C',
+        'url': 'https://partner.example/ocpi/versions',
+        'roles': [
+          {
+            'role': 'CPO',
+            'country_code': 'NL',
+            'party_id': 'ABC',
+            'business_details': {'name': 'Synthetic native peer'},
+          },
+        ],
+      };
+      // Unknown proof is deterministically rejected by the isolated local
+      // fixture; no real HTTPS connection or credential fallback is needed.
+      final rejected = await protocol(
         'PUT',
         f['local_token'],
         expected: 400,
-        body: {
-          'token': 'SYNTHETIC-NATIVE-C',
-          'url': 'https://partner.example/ocpi/versions',
-          'roles': [
-            {
-              'role': 'CPO',
-              'country_code': 'NL',
-              'party_id': 'ABC',
-              'business_details': {'name': 'Synthetic native peer'},
-            },
-          ],
-        },
+        body: {...offered, 'token': 'SYNTHETIC-UNPROVEN-PEER'},
       );
-      expect(rotated['status_code'], 2000);
-      expect(rotated['data'], isNull);
-      expect(jsonEncode(rotated).contains('SYNTHETIC-NATIVE-C'), false);
+      expect(rejected['status_code'], 2000);
+      expect(rejected['data'], isNull);
       await protocol('GET', f['local_token']);
-      final state = await api.request(endpoint);
-      expect(state['state'], 'active');
-      final history = (state['operations'] as Map<String, dynamic>)['data'] as List;
-      expect(history.any((entry) => entry['action'] == 'peer_rotate'), false);
-      expect(jsonEncode(state).contains(f['local_token']), false);
-      expect(jsonEncode(state).contains('SYNTHETIC-NATIVE-C'), false);
-      await protocol('DELETE', f['local_token']);
+      final unchanged = await api.request(endpoint);
+      expect(unchanged['generation'], before['generation']);
+      expect(
+        (unchanged['operations']['data'] as List)
+            .any((row) => row['action'] == 'peer_rotate'),
+        false,
+      );
+      final rotated = await protocol('PUT', f['local_token'], body: offered);
+      final token = rotated['data']['token'] as String;
+      expect(token.length, 64);
+      expect(token != f['local_token'], true);
       await protocol('GET', f['local_token'], expected: 401);
+      final state = await api.request(endpoint);
+      expect(state['operations']['data'][0]['action'], 'peer_rotate');
+      expect(jsonEncode(state).contains(token), false);
+      expect(jsonEncode(state).contains('SYNTHETIC-NATIVE-C'), false);
+      await protocol('DELETE', token);
+      await protocol('GET', token, expected: 401);
       final revoked = await api.request(endpoint);
       expect(revoked['state'], 'revoked');
       expect(revoked['available_actions'], isEmpty);

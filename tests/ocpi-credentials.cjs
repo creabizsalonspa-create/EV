@@ -34,7 +34,7 @@ withCredentialsFixture(async (f) => {
     f.base + "/api/roaming-protocol/versions",
   );
   assert.equal(unauthenticated.status, 401);
-  const rotated = await protocol("PUT", f.local_token, {
+  const offered = {
     token: "SYNTHETIC-PEER-ROTATED",
     url: "https://partner.example/ocpi/versions",
     roles: [
@@ -45,19 +45,26 @@ withCredentialsFixture(async (f) => {
         business_details: { name: "Synthetic peer" },
       },
     ],
+  };
+  // Deterministic fixture transport rejects unknown token proof without DNS,
+  // without replacing the previous generation or logging the offered token.
+  const rejected = await protocol("PUT", f.local_token, {
+    ...offered,
+    token: "SYNTHETIC-UNPROVEN-PEER",
   });
-  // This isolated fixture intentionally has no reachable/contracted HTTPS
-  // operator. Unproven peer PUT must never mutate a credential generation.
-  // Positive two-page version/credentials proof is tested with PHP HTTP fakes.
-  assert.equal(rotated.status, 400);
-  assert.equal(rotated.body.status_code, 2000);
-  assert.equal(rotated.body.data, null);
-  assert(!JSON.stringify(rotated.body).includes("SYNTHETIC-PEER-ROTATED"));
+  assert.equal(rejected.status, 400);
+  assert.equal(rejected.body.status_code, 2000);
+  assert.equal(rejected.body.data, null);
   assert.equal((await protocol("GET", f.local_token)).status, 200);
   const unchanged = await client.request(path);
-  assert.equal(unchanged.state, "active");
-  assert(!unchanged.operations.data.some((row) => row.action === "peer_rotate"));
-  assert(!JSON.stringify(unchanged).includes(f.local_token));
+  assert.equal(unchanged.generation, state.generation);
+  assert(!unchanged.operations.data.some(row => row.action === "peer_rotate"));
+  const rotated = await protocol("PUT", f.local_token, offered);
+  assert.equal(rotated.status, 200);
+  const newToken = rotated.body.data.token;
+  assert.notEqual(newToken, f.local_token);
+  assert.equal((await protocol("GET", f.local_token)).status, 401);
+  assert.equal((await protocol("GET", newToken)).status, 200);
   const browser = await chromium.launch({
     headless: true,
     executablePath: process.env.EV_CHROMIUM_PATH || undefined,
@@ -86,9 +93,9 @@ withCredentialsFixture(async (f) => {
       .click();
     const detail = page.locator("[data-roaming-detail]");
     await detail
-      .getByText("Roaming credential state active", { exact: false })
+      .getByText("Peer rotated credentials", { exact: false })
       .waitFor();
-    assert(!(await detail.textContent()).includes(f.local_token));
+    assert(!(await detail.textContent()).includes(newToken));
     assert(
       !(await page.locator("body").textContent()).includes(
         "SYNTHETIC-PEER-ROTATED",
@@ -100,10 +107,9 @@ withCredentialsFixture(async (f) => {
       .getByRole("button", { name: "بيانات اعتماد الشريك", exact: true })
       .first()
       .click();
-    // Locale text may translate the state label, but must not leak the
-    // refused token or remove the owner's private credential workspace.
-    assert(await detail.isVisible());
-    assert(!(await detail.textContent()).includes("SYNTHETIC-PEER-ROTATED"));
+    await detail
+      .getByText("قام الشريك بتدوير بيانات الاعتماد", { exact: false })
+      .waitFor();
     assert(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth + 1,
@@ -113,13 +119,13 @@ withCredentialsFixture(async (f) => {
   } finally {
     await browser.close();
   }
-  assert.equal((await protocol("DELETE", f.local_token)).status, 200);
-  assert.equal((await protocol("GET", f.local_token)).status, 401);
+  assert.equal((await protocol("DELETE", newToken)).status, 200);
+  assert.equal((await protocol("GET", newToken)).status, 401);
   const revoked = await client.request(path);
   assert.equal(revoked.state, "revoked");
   assert.deepEqual(revoked.available_actions, []);
   console.log(
-    "PASS: actual Laravel rejects unproven peer token without source mutation, safely revokes prior token and shows private EN/AR390px credential state; positive proof is independently HTTP-faked, not a live partnership.",
+    "PASS: actual local protocol peer rotation/revocation and old-token denial; Admin EN/AR390px credential history, no tokens in UI, refused proof preserves generation, valid proof uses isolated HTTP fake only; no external network or charging/billing action.",
   );
 }).catch(() => {
   console.error(
