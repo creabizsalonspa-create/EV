@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'money_input.dart';
+import 'vendor_earnings_csv.dart';
 
 const _max = 9007199254740991;
 int _exact(dynamic value, {bool signed = false, bool positive = false}) {
@@ -124,6 +126,52 @@ class InvoiceAuditPage {
   }
 }
 
+/// Verify every CSV cell against the already accepted private page.
+class InvoiceAuditCsv {
+  static const headers = [
+    'invoice_id', 'invoice_number', 'currency', 'minor_units', ...auditMoneyFields,
+    'journal_count', 'status', 'issues', 'evidence', 'external_psp_or_bank_verified',
+  ];
+
+  // PHP's literalCsv guards Unicode separators, controls and format
+  // characters. Match their exact prefix policy without changing the source.
+  static String literal(String value) =>
+      RegExp(r'^[\p{Z}\p{Cc}\p{Cf}]*[=+\-@]', unicode: true).hasMatch(value)
+          ? "'$value" : value;
+
+  static String verify(PrivateDocument document, InvoiceAuditPage source) {
+    if (document.mime != 'text/csv' || document.bytes.isEmpty ||
+        document.bytes.length > 65536) {
+      throw const FormatException('Invalid private audit CSV.');
+    }
+    final text = utf8.decode(document.bytes, allowMalformed: false);
+    final data = VendorEarningsCsv.parseBounded(text);
+    bool same(List<String> a, List<String> b) {
+      if (a.length != b.length) return false;
+      for (var i = 0; i < a.length; i++) {
+        if (a[i] != b[i]) return false;
+      }
+      return true;
+    }
+    if (data.length != source.rows.length + 1 || !same(data.first, headers)) {
+      throw const FormatException('Audit export differs from private page.');
+    }
+    for (var i = 0; i < source.rows.length; i++) {
+      final row = source.rows[i];
+      final expected = [
+        '${row.id}', literal(row.number), row.currency, '${row.precision}',
+        for (final field in auditMoneyFields) '${row.amounts[field]}',
+        '${row.journals}', row.status, row.issues.join(';'),
+        'SIMULATED_CANONICAL_LEDGER', 'false',
+      ];
+      if (!same(data[i + 1], expected)) {
+        throw const FormatException('Audit CSV does not match canonical source.');
+      }
+    }
+    return text;
+  }
+}
+
 class InvoiceReconciliationView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
@@ -140,6 +188,7 @@ class _AuditState extends State<InvoiceReconciliationView> with WidgetsBindingOb
   final from = TextEditingController(), to = TextEditingController();
   InvoiceAuditPage? data;
   Map<String, String>? applied;
+  String? csvPreview;
   int generation = 0;
   int? actor;
   String? role;
@@ -164,6 +213,7 @@ class _AuditState extends State<InvoiceReconciliationView> with WidgetsBindingOb
     generation++;
     data = null;
     applied = null;
+    csvPreview = null;
     busy = false;
     failed = false;
   }
@@ -211,7 +261,7 @@ class _AuditState extends State<InvoiceReconciliationView> with WidgetsBindingOb
     final api = widget.api;
     final epoch = ++generation;
     bool current() => mounted && visible && identical(api, widget.api) && generation == epoch;
-    setState(() { data = null; applied = null; busy = true; failed = false; });
+    setState(() { data = null; applied = null; csvPreview = null; busy = true; failed = false; });
     try {
       if (!RegExp(r'^[A-Z]{3}$').hasMatch(widget.currency) || page < 1 || page > 10000) {
         throw const FormatException('Invalid audit filters.');
@@ -252,6 +302,36 @@ class _AuditState extends State<InvoiceReconciliationView> with WidgetsBindingOb
     }
   }
 
+  Future<void> exportPage() async {
+    final source = data, query = applied;
+    if (!visible || busy || source == null || query == null) return;
+    final api = widget.api;
+    final epoch = ++generation;
+    bool current() => mounted && visible && identical(api, widget.api) && generation == epoch;
+    setState(() { busy = true; failed = false; csvPreview = null; });
+    try {
+      final me = await api.request('me');
+      if (!current()) return;
+      if (me is! Map || me['id'] != actor || me['role'] != role) {
+        setState(() { revoked = true; clear(); });
+        return;
+      }
+      final document = await api.downloadInvoiceAuditPage(query);
+      if (!current()) return;
+      final verified = InvoiceAuditCsv.verify(document, source);
+      if (current()) setState(() => csvPreview = verified);
+    } catch (error) {
+      if (mounted && identical(api, widget.api) &&
+          error is ApiException && error.endsCurrentSession) {
+        widget.onExpired();
+        return;
+      }
+      if (current()) setState(() { clear(); failed = true; });
+    } finally {
+      if (current()) setState(() => busy = false);
+    }
+  }
+
   String label(String field) => switch(field) {
     'invoiced_minor' => t('Invoiced', 'قيمة الفاتورة'),
     'paid_minor' => t('Recorded payments', 'المدفوعات المسجلة'),
@@ -282,6 +362,17 @@ class _AuditState extends State<InvoiceReconciliationView> with WidgetsBindingOb
           if (failed) Text(t('Private audit unavailable. Check dates and access.', 'التدقيق الخاص غير متاح. تحقق من التواريخ والصلاحية.')),
           if (page != null) ...[
             Text('${t('Invoices', 'الفواتير')}: ${page.total}'),
+            OutlinedButton(onPressed: busy ? null : exportPage,
+              child: Text(t('View verified current-page CSV', 'عرض CSV الموثق للصفحة الحالية'))),
+            if (csvPreview != null) ...[
+              Text(t('Private CSV preview in memory only. Not a bank statement.',
+                'معاينة CSV خاصة في الذاكرة فقط. ليست كشفاً مصرفياً.')),
+              OutlinedButton(onPressed: () => setState(() => csvPreview = null),
+                child: Text(t('Close CSV preview', 'إغلاق معاينة CSV'))),
+              SingleChildScrollView(scrollDirection: Axis.horizontal,
+                child: Text(csvPreview!, textDirection: TextDirection.ltr,
+                  key: const Key('invoice-audit-csv-preview'))),
+            ],
             if (page.rows.isEmpty) Text(t('No invoices in this scope.', 'لا توجد فواتير في هذا النطاق.')),
             for (final row in page.rows) Card(child: Padding(
               padding: const EdgeInsets.all(12),
