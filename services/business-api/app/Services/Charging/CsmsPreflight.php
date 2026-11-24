@@ -30,6 +30,10 @@ final class CsmsPreflight
             return in_array(strtolower($parts['host']), [
                 'localhost', '127.0.0.1', '[::1]',
                 'citrine', 'hasura', 'citrine-hasura', 'ev-hasura',
+                // Compose's authenticated read-only Hasura service label:
+                // the vendor source inspector already permits this exact
+                // hostname. It is not a wildcard or an external HTTP host.
+                'charging-graphql',
             ], true);
         }
 
