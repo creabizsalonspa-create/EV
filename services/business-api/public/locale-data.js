@@ -2645,6 +2645,50 @@ window.EV_MESSAGES = {
         en: "Credential revoked",
         ar: "أُبطلت بيانات الدخول",
     },
+    "Read live connector source": {
+        en: "Read live connector source",
+        ar: "قراءة حالة موصلات المصدر المباشر",
+    },
+    "Checking authenticated local connector source…": {
+        en: "Checking authenticated local connector source…",
+        ar: "جارٍ فحص مصدر الموصلات المحلي الموثق…",
+    },
+    "Local CSMS connector source snapshot": {
+        en: "Local CSMS connector source snapshot",
+        ar: "لقطة موصلات نظام إدارة الشحن المحلي",
+    },
+    "No physical connector availability or command authorization is verified.": {
+        en: "No physical connector availability or command authorization is verified.",
+        ar: "لم يُتحقق من التوفر الفعلي للموصلات أو صلاحية إرسال الأوامر.",
+    },
+    "Source connector targets match the local inventory": {
+        en: "Source connector targets match the local inventory",
+        ar: "أهداف موصلات المصدر تطابق المخزون المحلي",
+    },
+    "Source connector topology requires review": {
+        en: "Source connector topology requires review",
+        ar: "يلزم فحص مطابقة موصلات المصدر",
+    },
+    "Recent source status: {status}": {
+        en: "Recent source status: {status}",
+        ar: "حالة حديثة من المصدر: {status}",
+    },
+    "Stale source; live status unknown": {
+        en: "Stale source; live status unknown",
+        ar: "بيانات المصدر قديمة؛ الحالة المباشرة مجهولة",
+    },
+    "Source connector status unknown": {
+        en: "Source connector status unknown",
+        ar: "حالة موصل المصدر مجهولة",
+    },
+    "Operator maintenance block active": {
+        en: "Operator maintenance block active",
+        ar: "حظر الصيانة من المشغل مفعّل",
+    },
+    "Local connector source unavailable; no control is authorized.": {
+        en: "Local connector source unavailable; no control is authorized.",
+        ar: "مصدر الموصلات المحلي غير متاح؛ لا يُسمح بأي تحكم.",
+    },
     "Source diagnostics": { en: "Source diagnostics", ar: "تشخيص المصدر" },
     "Cancel firmware before dispatch": {
         en: "Cancel firmware before dispatch",

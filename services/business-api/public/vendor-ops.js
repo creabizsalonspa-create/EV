@@ -2579,6 +2579,100 @@ window.createVendorWorkspace = ({
         button(pane, "Refresh", () =>
             diagnostics(company, charger, parent, epoch),
         );
+        // Explicit GET only: no poll, charger command or implied physical
+        // availability. Private results belong to the captured actor.
+        const liveViewer = actor();
+        button(pane, "Read live connector source", async () => {
+            if (!valid(epoch) || actor() !== liveViewer ||
+                document.hidden || !pane.isConnected) return;
+            pane.querySelector("[data-live-connector-snapshot]")?.remove();
+            const live = document.createElement("section");
+            live.dataset.liveConnectorSnapshot = "";
+            pane.append(live);
+            live.append(ui("p", "Checking authenticated local connector source…"));
+            const current = () => valid(epoch) && actor() === liveViewer &&
+                !document.hidden && live.isConnected;
+            // A former live observation is not a persisted permission or
+            // current state when the browser leaves the foreground.
+            document.addEventListener("visibilitychange", () => {
+                if (document.hidden && live.isConnected)
+                    live.replaceChildren();
+            }, { signal: controller?.signal });
+            try {
+                const result = await api(
+                    base + `companies/${company.id}/chargers/${charger.id}/live-connectors`,
+                    "GET", undefined, controller?.signal,
+                );
+                if (!current()) return;
+                const statuses = [
+                    "Available", "Occupied", "Preparing", "Charging",
+                    "SuspendedEV", "SuspendedEVSE", "Finishing",
+                    "Reserved", "Unavailable", "Faulted",
+                ];
+                if (!result || result.company_id !== company.id ||
+                    result.charger_id !== charger.id ||
+                    result.protocol !== charger.ocpp_protocol ||
+                    result.evidence !== "SIMULATED_CSMS_SOURCE" ||
+                    result.physical_availability_verified !== false ||
+                    result.remote_control_authorized !== false ||
+                    result.commands_sent !== false ||
+                    result.source_identity_rechecked !== true ||
+                    typeof result.source_topology_matches_local !== "boolean" ||
+                    !Array.isArray(result.connectors) ||
+                    result.connectors.length < 1 || result.connectors.length > 100) {
+                    throw Error("Unexpected live connector source contract.");
+                }
+                for (const row of result.connectors) {
+                    if (!row || !Number.isSafeInteger(row.mapping_id) ||
+                        row.mapping_id <= 0 ||
+                        !Number.isSafeInteger(row.source_evse_number) ||
+                        !Number.isSafeInteger(row.source_connector_number) ||
+                        row.source_connector_number <= 0 ||
+                        typeof row.operator_maintenance_blocked !== "boolean" ||
+                        !["recent", "stale", "unknown"].includes(row.state) ||
+                        (row.state === "recent"
+                            ? (!statuses.includes(row.reported_status) ||
+                                result.source_topology_matches_local !== true ||
+                                result.source_online !== true ||
+                                typeof row.source_event_at !== "string")
+                            : row.reported_status !== null) ||
+                        (row.error_code !== null &&
+                            (typeof row.error_code !== "string" ||
+                                row.error_code.length > 80 ||
+                                (!["", "NoError"].includes(row.error_code) &&
+                                    row.reported_status !== "Faulted"))) ||
+                        row.physical_available !== false ||
+                        row.remote_control_authorized !== false) {
+                        throw Error("Unexpected source connector shape.");
+                    }
+                }
+                live.replaceChildren(
+                    ui("h4", "Local CSMS connector source snapshot"),
+                    ui("p", "No physical connector availability or command authorization is verified."),
+                    ui("p", result.source_topology_matches_local
+                        ? "Source connector targets match the local inventory"
+                        : "Source connector topology requires review"),
+                );
+                for (const row of result.connectors) {
+                    const card = document.createElement("article");
+                    card.append(raw("h5", `#${row.mapping_id} · ${row.source_evse_number}/${row.source_connector_number}`));
+                    card.append(ui("p", row.state === "recent"
+                        ? "Recent source status: {status}"
+                        : row.state === "stale"
+                            ? "Stale source; live status unknown"
+                            : "Source connector status unknown", {
+                        status: row.reported_status ?? "",
+                    }));
+                    if (row.operator_maintenance_blocked)
+                        card.append(ui("p", "Operator maintenance block active"));
+                    live.append(card);
+                }
+            } catch (_) {
+                if (current()) live.replaceChildren(
+                    ui("p", "Local connector source unavailable; no control is authorized."),
+                );
+            }
+        });
         button(pane, "Repair work orders", () =>
             repairOrders(company, charger, pane, epoch),
         );
