@@ -268,16 +268,23 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
     actor = id;
   }
 
-  void failure(Object error, int epoch) {
+  void failure(Object error, int epoch, EvApi requestApi) {
+    // EvApi synchronously invalidates the old fence before throwing an
+    // authentic expiry. Only its current-generation signal can sign out.
+    if (mounted && identical(requestApi, widget.api) &&
+        error is ApiException && error.endsCurrentSession) {
+      widget.onExpired();
+      return;
+    }
     if (!current(epoch)) return;
     setState(() { selected = null; page = null; history = const []; eligible = false; failed = true; reason.clear(); });
-    if (error is ApiException && [401, 419].contains(error.status)) widget.onExpired();
   }
 
   Future<void> load({int next = 1, AdminCampaignRecord? detail}) async {
     if (!visible || busy) return;
     if (scroll.hasClients) scroll.jumpTo(0);
     final epoch = ++generation;
+    final requestApi = widget.api;
     setState(() {
       busy = true; failed = false; confirmed = false; selected = null; page = null;
       eligible = false; history = const []; reason.clear(); number = next;
@@ -309,7 +316,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
         }
       }
       setState(() { page = data; selected = record; history = audit; eligible = canServe; });
-    } catch (error) { failure(error, epoch); }
+    } catch (error) { failure(error, epoch, requestApi); }
     finally { if (current(epoch)) setState(() => busy = false); }
   }
 
@@ -319,6 +326,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
     if (!visible || busy || row == null || page?.enabled != true ||
         !row.actions.contains(action) || note.length < 5 || note.length > 500) return;
     final epoch = generation;
+    final requestApi = widget.api;
     final answer = await showDialog<bool>(context: context, builder: (dialog) =>
       AlertDialog(
         title: Text(label(action)),
@@ -342,7 +350,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
       row.verifyDecision(receipt, action);
       // Never infer serving eligibility from an accepted moderation transition.
       setState(() { selected = null; page = null; history = const []; eligible = false; confirmed = true; });
-    } catch (error) { failure(error, epoch); }
+    } catch (error) { failure(error, epoch, requestApi); }
     finally { if (current(epoch)) setState(() => busy = false); }
   }
 
