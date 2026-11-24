@@ -30,6 +30,31 @@ void main() {
     }
   });
 
+  test('energy candidates are bounded, source-qualified and ordered by straight-line distance', () {
+    Station station(int id, double lng, {String connector='CCS2',
+      String evidence='DISCOVERY_ONLY', int power=50}) => Station.fromJson({
+      'id':id,'name':'Station $id','connector_type':connector,'power_kw':power,
+      'evidence':evidence,'latitude':0,'longitude':lng,
+    });
+    final list = [
+      station(4,1),station(2,0.5),station(1,0.5),
+      station(5,2),station(6,0.1,connector:'Type2'),
+      station(7,0.1,evidence:'UNKNOWN'),station(8,0.1,power:0),
+      station(9,0.1),station(9,0.2),station(10,181),
+    ];
+    final candidates = routeEnergyCandidates(raw,GeoPoint(0,0),list,connector:'CCS2');
+    expect(candidates.map((c)=>c.station.id),[1,2,4]);
+    expect(candidates.first.km,closeTo(55.597,0.001));
+    expect(routeEnergyCandidates(raw,GeoPoint(0,0),list,connector:'Type2')
+      .map((c)=>c.station.id),[6]);
+    expect(routeEnergyCandidates(raw,null,list),isEmpty);
+    expect(routeEnergyCandidates({...raw,'reserve':'80'},GeoPoint(0,0),list),isEmpty);
+    expect(routeEnergyCandidates(raw,GeoPoint(0,0),
+      List.generate(26,(i)=>station(i+1,0.01))),isEmpty);
+    expect(routeEnergyCandidates(raw,GeoPoint(0,0),
+      List.generate(8,(i)=>station(i+1,0.01))).length,5);
+  });
+
   for(final ar in [false,true]) {
     testWidgets('energy review is local, bilingual, and cleared on background ($ar)', (tester) async {
       var calls=0;
