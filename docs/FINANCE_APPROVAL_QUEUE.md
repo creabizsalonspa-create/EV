@@ -21,3 +21,23 @@ After Admin-only source validation, the bilingual web view provides a same-origi
 ## Revoked reviewer protection (Agent 3 continuation)
 
 The read-only Admin pending-finance review and its one-page CSV now share the same transaction-scoped `CurrentFinanceReader` guard used by the reconciliation audit. Historical role snapshots are never enough: current persisted active Admin role, unchanged password and epoch must be confirmed before private pending refund, settlement or adjustment rows are returned. Four revoked-session scenarios and unchanged canonical approval/ledger state are covered by added Laravel tests. No adjustment approval or real transfer was enabled. Exact-head validation and Agent 5 integration remain open.
+
+
+## Source-exact pending amount review (Agent 3 continuation)
+
+The administrative queue and its all-filtered grouped summary now share an
+explicit signed minor-unit source validator. It rejects PHP floats/booleans,
+fractional/exponent strings and values outside ±(2^53−1) **before**
+converting money or request counts to browser/native JSON. Group counts must
+also remain nonnegative. Previously, whole-valued PHP floats and `true`
+could be interpreted as integer amounts by `FILTER_VALIDATE_INT`,
+making an inexact source appear legitimate. All existing kind/currency/
+precision-separated full filtered summaries, private page export and
+source-only status flags remain unchanged.
+
+`FinanceApprovalQueueTest` adds a direct exact-source regression plus
+a genuine three-category Admin request with the full filter summary on
+page 2; no refund, approval, settlement, external PSP call or canonical
+financial journal is created by read. This remains read-only simulated
+triage, not banking reconciliation or final finance approval governance.
+Exact-head CI and Agent 5 integration remain pending.
