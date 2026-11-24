@@ -2,6 +2,7 @@
 window.EvPhoneVerification = (() => {
     const root = document.getElementById('phone-verification');
     let generation = 0, request, current, challenge, intent, busy = false;
+    const visible = () => document.visibilityState !== 'hidden' && document.hidden !== true;
     const text = (tag, en, ar) => {
         const node = document.createElement(tag);
         node.dataset.en = en; node.dataset.ar = ar;
@@ -9,12 +10,54 @@ window.EvPhoneVerification = (() => {
         return node;
     };
     function verifiedStatus(data) {
-        if (!data || typeof data.available !== 'boolean' || typeof data.verified !== 'boolean') throw Error('Invalid status');
+        if (!data || typeof data.available !== 'boolean' || typeof data.verified !== 'boolean')
+            throw Error('Invalid private phone status');
+        if (data.phone_mask != null &&
+            (typeof data.phone_mask !== 'string' || data.phone_mask.length > 40))
+            throw Error('Invalid private phone mask');
+        const item = data.challenge;
+        if (item != null &&
+            (typeof item !== 'object' || Array.isArray(item) ||
+             typeof item.id !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(item.id) ||
+             !['pending', 'uncertain'].includes(item.status) ||
+             (item.attempts_remaining != null &&
+                (!Number.isSafeInteger(item.attempts_remaining) ||
+                 item.attempts_remaining < 0 || item.attempts_remaining > 5))))
+            throw Error('Unverified private challenge');
         return data;
     }
     function clear() {
         generation++; request = current = challenge = intent = null; busy = false;
         root.replaceChildren(); root.hidden = true;
+    }
+    function showClosed(unavailable = false) {
+        if (!request) return;
+        root.hidden = false;
+        root.replaceChildren(text('p',
+            unavailable
+                ? 'Phone verification status is unavailable. Refresh before another request.'
+                : 'Private phone verification is closed. Return to this tab and refresh before continuing.',
+            unavailable
+                ? 'حالة التحقق من الهاتف غير متاحة. حدّث قبل أي طلب جديد.'
+                : 'أُغلق التحقق الخاص بالهاتف. ارجع إلى الصفحة وحدّث الحالة قبل المتابعة.'));
+        const refresh = text('button', 'Refresh verification status', 'تحديث حالة التحقق');
+        refresh.type = 'button';
+        const version = generation;
+        refresh.onclick = async () => {
+            if (!visible() || !request || busy || version !== generation) return;
+            busy = true; refresh.disabled = true;
+            try {
+                const data = verifiedStatus(await request('account/phone'));
+                if (version !== generation || !visible()) return;
+                current = data; challenge = data.challenge ?? null;
+                render();
+            } catch {
+                if (version === generation && visible()) showClosed(true);
+            } finally {
+                if (version === generation) { busy = false; refresh.disabled = false; }
+            }
+        };
+        root.append(refresh);
     }
     function field(form, name, en, ar, type, max) {
         const label = text('label', en, ar), input = document.createElement('input');
@@ -23,6 +66,7 @@ window.EvPhoneVerification = (() => {
         label.append(input); form.append(label); return input;
     }
     function render() {
+        if (!visible() || !current) { showClosed(); return; }
         root.replaceChildren();
         root.append(text('h2', 'Verify your phone', 'التحقق من رقم الهاتف'));
         root.append(text('p', 'Phone verification confirms contact ownership. It does not enable SMS sign-in or two-factor authentication.',
@@ -32,7 +76,7 @@ window.EvPhoneVerification = (() => {
         root.append(notice);
         const version = generation;
         async function act(operation) {
-            if (busy || version !== generation) return;
+            if (busy || version !== generation || !visible()) return;
             busy = true;
             root.querySelectorAll('button').forEach(button => button.disabled = true);
             try {
@@ -49,9 +93,24 @@ window.EvPhoneVerification = (() => {
         }
         const refresh = text('button', 'Refresh verification status', 'تحديث حالة التحقق'); refresh.type = 'button';
         refresh.onclick = () => act(async () => {
-            const data = await request('account/phone');
-            if (version !== generation) return;
-            current = verifiedStatus(data); challenge = data.challenge; render();
+            let data;
+            try { data = verifiedStatus(await request('account/phone')); }
+            catch {
+                if (version === generation && visible()) {
+                    // The previous form was based on an unverified state.
+                    // A retained submit callback must not be usable after
+                    // the page closes, even if it is still referenced in JS.
+                    generation++; busy = false;
+                    current = challenge = intent = null;
+                    root.querySelectorAll('input').forEach(n => {
+                        n.value = ''; if (n.type === 'checkbox') n.checked = false;
+                    });
+                    showClosed(true);
+                }
+                return;
+            }
+            if (version !== generation || !visible()) return;
+            current = data; challenge = data.challenge ?? null; render();
         }); root.append(refresh);
         if (!current.available) root.append(text('p', 'SMS verification delivery is unavailable.', 'إرسال رسائل التحقق غير متاح.'));
         if (current.available) {
@@ -107,18 +166,28 @@ window.EvPhoneVerification = (() => {
     async function setActor(actor, api) {
         clear(); if (!['customer', 'vendor'].includes(actor?.role)) return;
         request = api; const version = generation;
+        if (!visible()) { showClosed(); return; }
         try {
-            const data = await api('account/phone');
-            if (version !== generation) return;
-            verifiedStatus(data);
-            current = data; challenge = data.challenge; root.hidden = false; render();
+            const data = verifiedStatus(await api('account/phone'));
+            if (version !== generation || !visible()) return;
+            current = data; challenge = data.challenge ?? null;
+            root.hidden = false; render();
         } catch {
-            if (version !== generation) return;
-            root.hidden = false;
-            root.append(text('p', 'Phone verification status is unavailable.', 'حالة التحقق من الهاتف غير متاحة.'));
-            const retry = text('button', 'Refresh verification status', 'تحديث حالة التحقق'); retry.type = 'button';
-            retry.onclick = () => setActor(actor, api); root.append(retry);
+            if (version === generation && visible()) showClosed(true);
         }
     }
+    function obscure() {
+        // Visibility and BFCache navigation both invalidate old private
+        // phone, OTP, password, consent and in-flight status responses.
+        generation++; busy = false; current = challenge = intent = null;
+        root.querySelectorAll('input').forEach(n => {
+            n.value = ''; if (n.type === 'checkbox') n.checked = false;
+        });
+        showClosed();
+    }
+    document.addEventListener?.('visibilitychange', () => {
+        if (!visible()) obscure();
+    });
+    window.addEventListener?.('pagehide', obscure);
     return {setActor, clear};
 })();

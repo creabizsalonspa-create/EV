@@ -102,6 +102,116 @@ const page = (data = [record]) => ({
   data,
 });
 
+test("hide clears existing customer history, withdrawal controls and the private draft", async () => {
+  const ui = fixture();
+  ui.setSelfActor({ id: 3, role: "customer" }, async () =>
+    page([{ ...record, details: "PRIVATE HISTORY THAT MUST DISAPPEAR" }]));
+  await tick();
+  const form = nodes(ui.mine, "form")[0];
+  const draft = nodes(form, "textarea")[0];
+  draft.value = "PRIVATE UNSUBMITTED DRAFT DETAIL";
+  assert.match(ui.mine.textContent, /PRIVATE HISTORY THAT MUST DISAPPEAR/);
+  assert(nodes(ui.mine, "button").some((b) =>
+    b.textContent.startsWith("Withdraw request")));
+  ui.hide();
+  assert(!ui.mine.textContent.includes("PRIVATE HISTORY THAT MUST DISAPPEAR"));
+  assert(!nodes(ui.mine, "button").some((b) =>
+    b.textContent.startsWith("Withdraw request")));
+  assert.equal(draft.value, "");
+  const results = ui.mine.children.find((x) => x.tag === "div");
+  assert.equal(results.attributes["aria-busy"], undefined);
+  ui.show();
+  assert(!ui.mine.textContent.includes("PRIVATE HISTORY THAT MUST DISAPPEAR"));
+});
+
+test("hidden submit completion preserves same request identity for deliberate retry", async () => {
+  const ui = fixture(), posts = [];
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  let committed = [];
+  ui.setSelfActor({id: 3, role:"customer"}, async (path, method="GET", body) => {
+    if (method === "POST") {
+      posts.push(body);
+      if (posts.length === 1) await pending;
+      committed = [{...record, details:body.details, kind:body.kind}];
+      return { id: record.id };
+    }
+    return page(committed);
+  });
+  await tick();
+  const form = nodes(ui.mine, "form")[0];
+  const draft = nodes(form, "textarea")[0];
+  draft.value = "Please check my private account details before deletion.";
+  const first = form.onsubmit({preventDefault(){}});
+  assert.equal(posts.length, 1);
+  ui.hide();
+  ui.show();
+  release();
+  await first;
+  assert.equal(posts.length, 1);
+  assert(!ui.mine.textContent.includes("Request recorded for manual review"));
+  const reload = nodes(ui.mine, "button").find((b) => b.textContent.startsWith("Refresh requests"));
+  await reload.onclick();
+  await tick();
+  // A subsequent explicit retry with identical body must reuse the prior key.
+  draft.value = posts[0].details;
+  await form.onsubmit({preventDefault(){}});
+  await tick();
+  assert.equal(posts.length, 2);
+  assert.equal(posts[1].idempotency_key, posts[0].idempotency_key);
+  assert.match(ui.mine.textContent,/Request recorded for manual review/);
+});
+
+test("hidden-first customer web mount and resume do not fetch private history", async () => {
+  const ui = fixture();
+  let reads = 0;
+  ui.hide();
+  ui.setSelfActor({ id: 3, role: "customer" }, async () => {
+    reads++;
+    return page([{ ...record, details: "PRIVATE BACKGROUND ACCOUNT DETAILS" }]);
+  });
+  await tick();
+  assert.equal(reads, 0);
+  assert(!ui.mine.textContent.includes("PRIVATE BACKGROUND ACCOUNT DETAILS"));
+  ui.show();
+  await tick();
+  assert.equal(reads, 0, "Resume cannot silently read private account history");
+  const refresh = nodes(ui.mine, "button").find((b) =>
+    b.textContent.startsWith("Refresh requests"));
+  assert.ok(refresh);
+  await refresh.onclick();
+  await tick();
+  assert.equal(reads, 1);
+  assert.match(ui.mine.textContent, /PRIVATE BACKGROUND ACCOUNT DETAILS/);
+});
+
+test("customer history read started before hide cannot render after visible resume", async () => {
+  const ui = fixture();
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  let reads = 0;
+  ui.setSelfActor({ id: 3, role: "customer" }, async () => {
+    reads++;
+    if (reads === 1) return pending;
+    return page([{ ...record, details: "FRESH FOREGROUND HISTORY" }]);
+  });
+  assert.equal(reads, 1);
+  ui.hide();
+  ui.show();
+  release(page([{ ...record, details: "PRIVATE OBSOLETE HIDDEN HISTORY" }]));
+  await tick();
+  await tick();
+  assert(!ui.mine.textContent.includes("PRIVATE OBSOLETE HIDDEN HISTORY"));
+  assert(!nodes(ui.mine, "button").some((b) =>
+    b.textContent.startsWith("Withdraw request")));
+  const refresh = nodes(ui.mine, "button").find((b) =>
+    b.textContent.startsWith("Refresh requests"));
+  await refresh.onclick();
+  await tick();
+  assert.equal(reads, 2);
+  assert.match(ui.mine.textContent, /FRESH FOREGROUND HISTORY/);
+});
+
 test("guest context never fetches and both private views clear on signout", async () => {
   const ui = fixture(),
     calls = [];
@@ -175,6 +285,145 @@ test("self-service captures a real private reason without claiming automated del
   assert.match(ui.mine.textContent, /No data has been automatically deleted/);
   assert.match(ui.mine.textContent, /Request #22/);
   assert.equal(details.value, "");
+});
+
+
+test("Admin private reviewer notes, owner identifiers and actions disappear on tab hide",async()=>{
+  const ui=fixture();const calls=[];
+  const privateRecord={
+    ...record, kind:"access", status:"reviewing",
+    details:"PRIVATE REVIEWER CASE FOR OTHER PERSON",
+    owner:{id:3,name:"PRIVATE CUSTOMER NAME",email:"private.owner@example.test"},
+  };
+  ui.setAdminActor({id:4,role:"admin"},async(path,method="GET")=>{
+    calls.push({path,method});
+    return page([privateRecord]);
+  });
+  await tick();
+  assert.match(ui.admin.textContent,/PRIVATE REVIEWER CASE FOR OTHER PERSON/);
+  const notes=nodes(ui.admin,"textarea");
+  const passwords=nodes(ui.admin,"input").filter(x=>x.type==="password");
+  assert.equal(notes.length,1);
+  assert.equal(passwords.length,1);
+  notes[0].value="PRIVATE INTERNAL DECISION BEFORE HIDE";
+  passwords[0].value="PRIVATE ADMIN REAUTHENTICATION";
+  const oldDecision=nodes(ui.admin,"form").find(f=>nodes(f,"textarea").length);
+  assert.ok(oldDecision);
+  ui.hide();
+  assert(!ui.admin.textContent.includes("PRIVATE CUSTOMER NAME"));
+  assert(!ui.admin.textContent.includes("private.owner@example.test"));
+  assert(!ui.admin.textContent.includes("PRIVATE REVIEWER CASE"));
+  assert.equal(notes[0].value,"");
+  assert.equal(passwords[0].value,"");
+  assert.equal(nodes(ui.admin,"article").length,0);
+  ui.show();
+  assert.equal(calls.length,1,"resume must not auto-fetch Admin queue");
+  await oldDecision.onsubmit({preventDefault(){}});
+  assert.equal(calls.length,1,"detached decision cannot run after hide");
+  const filters=nodes(ui.admin,"form").find(f=>f.attributes["aria-label"]==="Admin privacy request filters");
+  await filters.onsubmit({preventDefault(){}});
+  await tick();
+  assert.equal(calls.length,2);
+  assert.match(ui.admin.textContent,/PRIVATE CUSTOMER NAME/);
+  assert(calls.every(c=>c.method==="GET"));
+});
+
+test("Admin initially hidden queue requires explicit foreground filter submission",async()=>{
+  const ui=fixture();let reads=0;
+  ui.hide();
+  ui.setAdminActor({id:4,role:"admin"},async()=>{reads++;return page([])});
+  await tick();assert.equal(reads,0);
+  ui.show();await tick();assert.equal(reads,0);
+  const filters=nodes(ui.admin,"form").find(f=>f.attributes["aria-label"]==="Admin privacy request filters");
+  assert.ok(filters);
+  await filters.onsubmit({preventDefault(){}});
+  await tick();
+  assert.equal(reads,1);
+});
+
+test("pending Admin private queue GET cannot reveal account data across BFCache restore",async()=>{
+  const ui=fixture();
+  let release,reads=0;
+  const pending=new Promise(resolve=>{release=resolve});
+  ui.setAdminActor({id:4,role:"admin"},async()=>{
+    reads++;
+    return reads===1?pending:page([{...record,details:"CURRENT ADMIN DATA",
+      owner:{id:3,name:"Fresh owner"}}]);
+  });
+  ui.pagehide();
+  ui.show();
+  release(page([{...record,details:"PRIVATE OLD BFCache DATA",
+    owner:{id:3,name:"Stale owner"}}]));
+  await tick();await tick();
+  assert(!ui.admin.textContent.includes("PRIVATE OLD BFCache DATA"));
+  const filters=nodes(ui.admin,"form").find(f=>f.attributes["aria-label"]==="Admin privacy request filters");
+  await filters.onsubmit({preventDefault(){}});
+  await tick();
+  assert.equal(reads,2);
+  assert.match(ui.admin.textContent,/CURRENT ADMIN DATA/);
+  assert(!ui.admin.textContent.includes("Stale owner"));
+});
+
+
+test("malformed Admin private queues fail closed instead of showing false empty or decision controls",async()=>{
+  const valid={
+    ...record,kind:"erasure",details:"Private data subject reason",
+    owner:{id:3,name:"Owner",email:"owner@example.test"},
+  };
+  for(const wrong of [
+    {data:"not-a-list",current_page:1,last_page:1,total:0},
+    {data:[valid],current_page:2,last_page:2,total:26},
+    {data:[valid],current_page:1,last_page:1,total:0},
+    {data:[valid,valid],current_page:1,last_page:1,total:2},
+    page([{...valid,id:"22"}]),
+    page([{...valid,kind:"untrusted"}]),
+    page([{...valid,status:"untrusted"}]),
+    page([{...valid,owner:{id:"3"}}]),
+    page([{...valid,details:123}]),
+  ]){
+    const ui=fixture(),calls=[];
+    let corrupt=true;
+    ui.setAdminActor({id:4,role:"admin"},async(path,method="GET")=>{
+      calls.push({path,method});
+      return corrupt?wrong:page([valid]);
+    });
+    await tick();
+    assert.match(ui.admin.textContent,/Privacy queue unavailable/);
+    assert.equal(nodes(ui.admin,"article").length,0);
+    assert.equal(nodes(ui.admin,"form").filter(f=>nodes(f,"textarea").length).length,0);
+    assert(!ui.admin.textContent.includes("No requests match these filters"));
+    corrupt=false;
+    const filters=nodes(ui.admin,"form").find(f=>f.attributes["aria-label"]==="Admin privacy request filters");
+    await filters.onsubmit({preventDefault(){}});
+    await tick();
+    assert.match(ui.admin.textContent,/Private data subject reason/);
+    assert.equal(nodes(ui.admin,"article").length,1);
+    assert(calls.every(c=>c.method==="GET"));
+  }
+});
+
+test("malformed Admin decision history never appears as a successful empty timeline",async()=>{
+  const ui=fixture();let broken=true;
+  const valid={...record,kind:"erasure",details:"Private review reason",
+    owner:{id:3,name:"Private owner"}};
+  ui.setAdminActor({id:4,role:"admin"},async(path)=>{
+    if(path.endsWith("/reviews"))
+      return broken
+        ? {data:[{id:1,from_status:"pending",to_status:"reviewing",
+                 note:{secret:"INVALID PRIVATE NOTE"},created_at:"2026-11-23"}]}
+        : {data:[{id:1,from_status:"pending",to_status:"reviewing",
+                 note:"Verified authorized decision",created_at:"2026-11-23"}]};
+    return page([valid]);
+  });
+  await tick();
+  const history=nodes(ui.admin,"button").find(x=>
+    x.textContent.startsWith("Private review history"));
+  await history.onclick();
+  assert.match(ui.admin.textContent,/Review history unavailable/);
+  assert(!ui.admin.textContent.includes("No recorded review decisions"));
+  broken=false;
+  await history.onclick();
+  assert.match(ui.admin.textContent,/Verified authorized decision/);
 });
 
 test("Admin can filter and record a stage transition with expected prior state", async () => {
@@ -566,6 +815,51 @@ test("failed privacy refresh revokes stale access-copy controls and clears busy 
   const list=ui.mine.children.find(x=>x.tag==="div");
   assert.equal(list.attributes["aria-busy"],undefined);
 });
+
+test("untrusted customer history cannot render withdrawal or export controls",async()=>{
+  const corrupt=[
+    {...record,id:"22/withdraw",kind:"access",copy:{status:"available",expires_at:"2026-11-30"}},
+    {...record,id:0},
+    {...record,kind:"untrusted"},
+    {...record,status:"untrusted"},
+    {...record,kind:"access",copy:{status:"available"}},
+    {...record,kind:"access",copy:{status:"untrusted"}},
+    {...record,created_at:123},
+    {...record,details:"X".repeat(2001)},
+    null,
+  ];
+  for(const value of corrupt){
+    const ui=fixture(),calls=[];
+    let broken=true;
+    ui.setSelfActor({id:3,role:"customer"},async(path,method="GET")=>{
+      calls.push({path,method});return page(broken?[value]:[record]);
+    });
+    await tick();
+    assert.match(ui.mine.textContent,/Could not load your request history/);
+    assert(!nodes(ui.mine,"button").some(b=>
+      b.textContent.startsWith("Withdraw request") ||
+      b.textContent.startsWith("View private account copy")));
+    broken=false;
+    await nodes(ui.mine,"button").find(b=>b.textContent.startsWith("Refresh requests")).onclick();
+    await tick();
+    assert.match(ui.mine.textContent,/Request #22/);
+    assert(nodes(ui.mine,"button").some(b=>b.textContent.startsWith("Withdraw request")));
+    assert(calls.every(c=>c.method==="GET"));
+  }
+  for(const invalid of [
+    {data:[record],current_page:2,last_page:2,total:26},
+    {data:[record],current_page:1,last_page:1,total:0},
+    {data:[record],current_page:1,last_page:1,total:26},
+    {data:[record,record],current_page:1,last_page:1,total:1},
+    {data:[record,record],current_page:1,last_page:1,total:2},
+  ]){
+    const ui=fixture();
+    ui.setSelfActor({id:3,role:"customer"},async()=>invalid);
+    await tick();
+    assert.match(ui.mine.textContent,/Could not load your request history/);
+    assert(!nodes(ui.mine,"button").some(b=>b.textContent.startsWith("Withdraw request")));
+  }
+});
 test("malformed private history fails closed rather than showing false empty results",async()=>{
   const ui=fixture();
   ui.setSelfActor({id:3,role:"customer"},async()=>({data:"corrupt",current_page:1,last_page:1}));
@@ -595,11 +889,19 @@ test("hidden browser tab wipes revealed private account copy and password inputs
   assert.equal(inputs.find(x=>x.type==="password").value,"");
   assert.equal(inputs.find(x=>x.autocomplete==="one-time-code").value,"");
   ui.show();
-  inputs.find(x=>x.type==="password").value="Entered after foreground";
-  inputs.find(x=>x.autocomplete==="one-time-code").value="654321";
+  // Private controls were detached and cannot be re-used after returning.
+  assert.equal(nodes(ui.mine,"pre").length,0);
+  const reload=nodes(ui.mine,"button").find(x=>
+    x.textContent.startsWith("Refresh requests"));
+  await reload.onclick();
+  await tick();
+  const freshInputs=nodes(ui.mine,"input");
+  freshInputs.find(x=>x.type==="password").value="Entered after foreground";
+  freshInputs.find(x=>x.autocomplete==="one-time-code").value="654321";
   ui.hide();
-  assert.equal(inputs.find(x=>x.type==="password").value,"");
-  assert.equal(inputs.find(x=>x.autocomplete==="one-time-code").value,"");
+  assert.equal(freshInputs.find(x=>x.type==="password").value,"");
+  assert.equal(freshInputs.find(x=>x.autocomplete==="one-time-code").value,"");
+  assert.equal(nodes(ui.mine,"pre").length,0);
 });
 test("private copy response stays sealed across a hidden-to-visible round trip", async () => {
   const ui = fixture();
@@ -628,10 +930,20 @@ test("private copy response stays sealed across a hidden-to-visible round trip",
     scope: "self_service_account_copy",
     profile: { email: "old-background-copy@example.test" } });
   await inFlight;
-  assert.equal(nodes(ui.mine, "pre")[0].textContent, "");
+  assert.equal(nodes(ui.mine, "pre").length, 0);
   assert(!ui.mine.textContent.includes("old-background-copy@example.test"));
-  // A new, intentional visible read remains available after the old one is rejected.
+  // Returning to the tab requires a *new* read and reauthentication,
+  // never replaying a detached pre-hide callback.
   await view.onclick();
+  assert.equal(reads, 1, "Old detached action cannot submit again");
+  const reload=nodes(ui.mine,"button").find(x=>
+    x.textContent.startsWith("Refresh requests"));
+  await reload.onclick();
+  await tick();
+  const freshView=nodes(ui.mine,"button").find(x=>
+    x.textContent.startsWith("View private account copy"));
+  assert.ok(freshView);
+  await freshView.onclick();
   assert.equal(reads, 2);
   assert.match(nodes(ui.mine, "pre")[0].textContent, /fresh-visible-copy@example.test/);
 });
@@ -658,7 +970,7 @@ test("BFCache pagehide clears credentials and invalidates a pending access copy"
     scope: "self_service_account_copy",
     profile: { email: "forbidden-bfcache-reveal@example.test" } });
   await pending;
-  assert.equal(nodes(ui.mine, "pre")[0].textContent, "");
+  assert.equal(nodes(ui.mine, "pre").length, 0);
   assert(!ui.mine.textContent.includes("forbidden-bfcache-reveal@example.test"));
 });
 
@@ -677,6 +989,6 @@ test("late private copy read cannot repopulate a hidden browser tab",async()=>{
   resolveCopy({schema_version:1,owner_id:3,request_id:22,
     scope:"self_service_account_copy",profile:{email:"not-visible@example.test"}});
   await pending;
-  assert.equal(nodes(ui.mine,"pre")[0].textContent,"");
+  assert.equal(nodes(ui.mine,"pre").length,0);
   assert(!ui.mine.textContent.includes("not-visible@example.test"));
 });
