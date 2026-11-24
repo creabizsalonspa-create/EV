@@ -77,6 +77,12 @@ final class StoredSourceIntegrity
         ];
     }
 
+    /** Bounded single-record check for decisions that reuse stored evidence. */
+    public function consistent(OcpiRecord $row): bool
+    {
+        return in_array($row->module, PartnerClient::MODULES, true) && $this->findings($row, $row->module) === [];
+    }
+
     private function findings(OcpiRecord $row, string $module): array
     {
         try {

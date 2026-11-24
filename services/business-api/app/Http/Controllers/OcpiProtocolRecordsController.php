@@ -7,6 +7,7 @@ use App\Models\OcpiRecord;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\OcpiMessageHeaders;
 use App\Services\Ocpi\RecordSynchronizer;
+use App\Services\Ocpi\StoredSourceIntegrity;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -70,6 +71,7 @@ class OcpiProtocolRecordsController extends Controller
                     $record = OcpiRecord::where($identity)->where('external_id', $external)->first();
                     abort_unless($record, 404);
                     abort_if(DB::table('ocpi_catalog_retirements')->where('record_id', $record->id)->where('content_hash', $record->content_hash)->exists(), 404);
+                    abort_unless(app(StoredSourceIntegrity::class)->consistent($record), 409);
 
                     return $evse === null ? $record->payload : $this->component($record->payload, $evse, $connector);
                 }, 3);
@@ -85,6 +87,7 @@ class OcpiProtocolRecordsController extends Controller
                     abort_unless($active->generation === $link->generation && $current->authorization_revision === $provider->authorization_revision && $current->version === '2.2.1' && is_string($current->endpoints['tariffs'] ?? null), 401);
                     $record = OcpiRecord::where($identity)->where('external_id', $external)->first();
                     abort_unless($record, 404);
+                    abort_unless(app(StoredSourceIntegrity::class)->consistent($record), 409);
                     // Preserve the canonical source payload and every historical
                     // financial reference. DELETE only withdraws current catalog use.
                     DB::table('ocpi_catalog_retirements')->insertOrIgnore(['record_id' => $record->id, 'content_hash' => $record->content_hash, 'credential_generation' => $active->generation,
@@ -121,6 +124,7 @@ class OcpiProtocolRecordsController extends Controller
                 if ($r->isMethod('PATCH') || $evse !== null) {
                     $old = OcpiRecord::where($identity)->where('external_id', $id)->first();
                     abort_unless($old, 404);
+                    abort_unless(app(StoredSourceIntegrity::class)->consistent($old), 409);
                     $record = $evse === null ? $this->merge($old->payload, $body) : $this->updateComponent($old->payload, $evse, $connector, $body, $r->isMethod('PATCH'));
                 }
                 if ($module === 'tariffs') {
@@ -135,6 +139,7 @@ class OcpiProtocolRecordsController extends Controller
                 // A stale push is not acknowledged as an applied update.
                 abort_if($result['stale'] !== 0, 409);
                 $accepted = OcpiRecord::where($identity)->where('external_id', $id)->firstOrFail();
+                abort_unless(app(StoredSourceIntegrity::class)->consistent($accepted), 409);
                 DB::table('ocpi_record_receipts')->insertOrIgnore(['provider_id' => $current->id, 'record_id' => $accepted->id, 'credential_generation' => $active->generation,
                     'method' => $r->method(), 'content_hash' => $accepted->content_hash, 'created_at' => now()]);
 
