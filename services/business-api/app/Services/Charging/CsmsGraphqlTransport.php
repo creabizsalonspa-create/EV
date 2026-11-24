@@ -28,7 +28,7 @@ final class CsmsGraphqlTransport
             || ! is_string($parts['host'] ?? null) || $parts['host'] === ''
             || isset($parts['user']) || isset($parts['pass'])
             || isset($parts['query']) || isset($parts['fragment'])
-            || ! is_string($parts['path'] ?? null) || $parts['path'] === ''
+            || ! is_string($parts['path'] ?? null) || strlen($parts['path']) < 2
             || ! str_starts_with($parts['path'], '/')) {
             return false;
         }
