@@ -232,12 +232,20 @@ void main() {
       find.byType(TextField),
       'Pause this approved campaign',
     );
+    // Editing invalidates the previously rendered consent callback. Let the
+    // new reviewed-intent frame settle before the user can opt in again.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('I reviewed this campaign decision.'));
     await tester.tap(find.text('I reviewed this campaign decision.'));
     await tester.pump();
     await tester.ensureVisible(find.text('Pause'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,isTrue);
+    expect(tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton,'Pause')).onPressed,isNotNull);
     await tester.tap(find.text('Pause'));
     await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog),findsOneWidget);
     expect(api.requests.where((r) => r['method'] == 'POST'), isEmpty);
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
@@ -558,12 +566,20 @@ void main() {
     await tester.tap(find.text('Review'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField),'Pause the reviewed campaign');
+    // Editing invalidates the previously rendered consent callback. Let the
+    // new reviewed-intent frame settle before the user can opt in again.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('I reviewed this campaign decision.'));
     await tester.tap(find.text('I reviewed this campaign decision.'));
     await tester.pump();
     await tester.ensureVisible(find.text('Pause'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,isTrue);
+    expect(tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton,'Pause')).onPressed,isNotNull);
     await tester.tap(find.text('Pause'));
     await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog),findsOneWidget);
     api.rotate();
     await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm'));
@@ -581,12 +597,20 @@ void main() {
     await tester.tap(find.text('Review'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField),'Pause this reviewed campaign');
+    // Editing invalidates the previously rendered consent callback. Let the
+    // new reviewed-intent frame settle before the user can opt in again.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('I reviewed this campaign decision.'));
     await tester.tap(find.text('I reviewed this campaign decision.'));
     await tester.pump();
     await tester.ensureVisible(find.text('Pause'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,isTrue);
+    expect(tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton,'Pause')).onPressed,isNotNull);
     await tester.tap(find.text('Pause'));
     await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog),findsOneWidget);
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
     expect(api.requests.where((r)=>r['method']=='POST').length,1);
