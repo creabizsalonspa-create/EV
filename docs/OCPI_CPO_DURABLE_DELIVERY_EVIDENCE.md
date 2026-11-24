@@ -7,3 +7,5 @@ Existing catalog and operation rows receive nullable digest columns without inve
 These are sandbox software safeguards, not live partner delivery or production conformance. Validate the exact source on SQLite and PostgreSQL before canonical integration.
 
 The same stored-byte digest is required before serving individual or paginated CPO Sender objects and before referencing tariffs, location/connector mappings or final sessions from dependent publications. Historical undigested objects return a conflict until explicitly republished, with no silent exclusion from a successful page. A successful transport envelope is not acknowledged if the publication or delivery claim changed during the attempt. The attempt remains uncertain, requiring review.
+
+The existing negotiated Sender route contract is unchanged: tariffs, sessions and CDRs use lists; Locations additionally supports object, EVSE and connector reads. All exposed read paths enforce stored publication integrity.

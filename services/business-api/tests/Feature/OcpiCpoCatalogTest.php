@@ -388,15 +388,44 @@ class OcpiCpoCatalogTest extends TestCase
         $payload['elements'][0]['price_components'][0]['price'] = 99;
         DB::table('ocpi_cpo_catalog')->where('id', $row->id)->update(['payload' => json_encode($payload, JSON_THROW_ON_ERROR)]);
         $this->getJson(self::SENDER.'/tariffs', $token)->assertConflict()->assertJsonPath('data', null);
-        $this->getJson(self::SENDER.'/tariffs/T'.$tariff, $token)->assertConflict()->assertJsonPath('data', null);
+        // The negotiated Tariffs Sender exposes lists only, not object reads.
+        $this->getJson(self::SENDER.'/tariffs/T'.$tariff, $token)->assertNotFound();
         $this->publication($operations.'/locations/'.$site)->assertConflict();
         $this->assertDatabaseCount('ocpi_cpo_catalog', 1);
         DB::table('ocpi_cpo_catalog')->where('id', $row->id)->update(['payload' => $row->payload, 'payload_digest' => null]);
         $this->getJson(self::SENDER.'/tariffs', $token)->assertConflict();
         $this->publication($operations.'/locations/'.$site)->assertConflict();
         $this->publication($url, 'publish', $stamp)->assertOk();
-        $this->getJson(self::SENDER.'/tariffs/T'.$tariff, $token)->assertOk()->assertJsonPath('data.elements.0.price_components.0.price', 1.29);
+        $this->getJson(self::SENDER.'/tariffs', $token)->assertOk()->assertJsonPath('data.0.elements.0.price_components.0.price', 1.29);
         $this->publication($operations.'/locations/'.$site)->assertOk();
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_cpo_location_sender_rejects_corrupted_object_and_nested_reads(): void
+    {
+        Http::preventStrayRequests();
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sources = $this->source($owner);
+        [$site, $tariff, $evse, $connector] = $sources;
+        [, $token, $operations] = $this->peer($owner, 'owner', $sources);
+        $this->actingAs($admin)->publication($operations.'/tariffs/'.$tariff)->assertOk();
+        $this->publication($operations.'/locations/'.$site)->assertOk();
+        $url = self::SENDER.'/locations/S'.$site;
+        $paths = [self::SENDER.'/locations', $url, $url.'/E'.$evse, $url.'/E'.$evse.'/C'.$connector];
+        foreach ($paths as $path) {
+            $this->getJson($path, $token)->assertOk();
+        }
+        $row = DB::table('ocpi_cpo_catalog')->where('module', 'locations')->first();
+        $payload = json_decode($row->payload, true, flags: JSON_THROW_ON_ERROR);
+        $payload['evses'][0]['status'] = 'AVAILABLE';
+        DB::table('ocpi_cpo_catalog')->where('id', $row->id)->update(['payload' => json_encode($payload, JSON_THROW_ON_ERROR)]);
+        foreach ($paths as $path) {
+            $this->getJson($path, $token)->assertConflict()->assertJsonPath('data', null);
+        }
+        DB::table('ocpi_cpo_catalog')->where('id', $row->id)->update(['payload' => $row->payload]);
+        $this->getJson($url.'/E'.$evse, $token)->assertOk()->assertJsonPath('data.status', 'UNKNOWN');
+        Http::assertNothingSent();
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
