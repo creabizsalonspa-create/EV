@@ -199,3 +199,26 @@ is sent. This is a **read-only session isolation boundary**, not
 legal financial, billing collection or historical provider acceptance.
 Exact-source Native and Platform validation plus Agent 5-only
 integration are required.
+
+
+## Laravel/native shared page contract (24 November 2026)
+
+Authenticated Laravel `SubscriptionController::plans`,
+`SubscriptionController::index` and `SubscriptionController::history`
+now enforce `page` as an integer in the closed range 1–100000,
+using the **explicit validated page** with all three 25-record
+paginators rather than allowing Laravel's generic fallback to silently
+reinterpret invalid values. Source identity is always revalidated
+**before** pagination validation: a revoked account or non-owning
+vendor cannot probe another subscriber's event history merely by
+sending a malformed `page` parameter.
+
+`SubscriptionTest` verifies page 1 and an empty page 10000,
+rejects zero, negatives, nonnumeric, exponent and overrange pages
+for all three real API endpoints, verifies foreign subscription
+history still returns 404 before bad-page validation, and confirms
+no receipts or extra subscriptions are created by read operations.
+The Flutter catalogue/detail page contract independently verifies
+the same bounded source and preserves the original private
+session-generation fence. This remains TEST/simulator commercial
+software; provider collection and external acceptance remain open.
