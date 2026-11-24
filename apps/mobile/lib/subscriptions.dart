@@ -144,8 +144,12 @@ Map<String, dynamic> subscriptionSummary(dynamic value, int owner, {int? id}) {
       id is int && id >= 1 && id <= 9007199254740991;
   if (sub is! Map ||
       !sourceId(owner) || !sourceId(sub['id']) ||
+      !sourceId(sub['plan_id']) ||
       sub['user_id'] != owner ||
       (id != null && sub['id'] != id) ||
+      data['plan'] is! Map ||
+      !sourceId((data['plan'] as Map)['id']) ||
+      (data['plan'] as Map)['id'] != sub['plan_id'] ||
       data['real_payment_processed'] != false ||
       data['ledger_balanced'] != true ||
       data['entitlements_active'] is! bool ||
