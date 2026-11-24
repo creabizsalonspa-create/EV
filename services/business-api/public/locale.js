@@ -5,19 +5,20 @@
         if (localStorage.getItem("creabiz.locale") === "ar") language = "ar";
     } catch {}
     function text(key, values = {}) {
-        let result = Object.hasOwn(messages, key)
+        const template = Object.hasOwn(messages, key)
             ? messages[key][language]
             : key;
-        for (const [name, raw] of Object.entries(values)) {
-            const value =
-                raw &&
+        // Expand only placeholders in the original resource. Replacement
+        // callbacks preserve literal customer text, including dollar signs.
+        return template.replace(/\{([A-Za-z0-9_]+)\}/g, (token, name) => {
+            if (!Object.hasOwn(values, name)) return token;
+            const raw = values[name];
+            return raw &&
                 typeof raw === "object" &&
                 Object.hasOwn(raw, "translate")
                     ? text(raw.translate)
                     : String(raw);
-            result = result.replaceAll("{" + name + "}", value);
-        }
-        return result;
+        });
     }
     function update(node) {
         if (node.dataset.i18n) {
