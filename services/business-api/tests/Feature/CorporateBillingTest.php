@@ -96,42 +96,6 @@ class CorporateBillingTest extends TestCase
         return $this->actingAs($this->owner)->postJson($this->url('agreements/'.$a['id'].'/statements'), ['period' => now()->format('Y-m'), 'claim_ids' => array_column($claims, 'id'), 'idempotency_key' => $key]);
     }
 
-    public function test_hosted_statement_fingerprint_uses_invoice_order_not_submission_order(): void
-    {
-        $a = $this->agreement();
-        $earlierInvoice = $this->invoice();
-        $laterInvoice = $this->invoice();
-        // The later invoice is submitted first: claim and immutable statement
-        // line identities now run in the opposite order to invoice identities.
-        $firstClaim = $this->approved($a, $laterInvoice);
-        $secondClaim = $this->approved($a, $earlierInvoice);
-        $statement = $this->issue($a, [$firstClaim, $secondClaim])->assertCreated()->json('statement');
-        $detail = $this->getJson($this->url('statements/'.$statement['id']))
-            ->assertOk()->assertJsonPath('lines.0.invoice_id', $laterInvoice->id)
-            ->assertJsonPath('lines.1.invoice_id', $earlierInvoice->id)->json();
-
-        config(['payments.provider' => 'mock']);
-        $checkout = $this->postJson('/api/commercial/corporate/hosted-checkouts', [
-            'statement_id' => $statement['id'], 'consent' => true,
-            'idempotency_key' => 'canonical-invoice-order',
-        ])->assertCreated()->json('checkout');
-        $this->assertSame($detail['line_fingerprint'], $checkout['line_fingerprint']);
-        $canonicalLines = DB::table('corporate_statement_lines')
-            ->where('statement_id', $statement['id'])->orderBy('invoice_id')->get();
-        $expected = hash('sha256', json_encode($canonicalLines->map(fn ($line) => [
-            (int) $line->id, (int) $line->invoice_id, (int) $line->total_minor, (int) $line->driver_id,
-        ])->all(), JSON_THROW_ON_ERROR));
-        $this->assertSame($expected, $checkout['line_fingerprint']);
-
-        $this->postJson('/api/commercial/corporate/hosted-checkouts/'.$checkout['id'].'/simulate', [
-            'consent' => true, 'outcome' => 'authorized',
-        ])->assertOk()->assertJsonPath('checkout.status', 'authorized');
-        $this->postJson('/api/commercial/corporate/hosted-checkouts/'.$checkout['id'].'/capture')
-            ->assertOk()->assertJsonPath('checkout.status', 'captured');
-        $this->assertDatabaseCount('corporate_receipts', 1);
-        $this->assertDatabaseCount('finance_payments', 2);
-    }
-
     public function test_complete_claim_consolidation_cost_center_statement_and_atomic_canonical_simulated_receipts(): void
     {
         $a = $this->agreement();
@@ -355,6 +319,42 @@ class CorporateBillingTest extends TestCase
         $this->issue($a, [$c])->assertNotFound();
         $this->actingAs($newOwner)->postJson($this->url('claims/'.$c['id'].'/review'), ['decision' => 'approved', 'reason' => 'Authorized'])->assertOk();
         $this->postJson($this->url('agreements/'.$a['id'].'/statements'), ['period' => now()->format('Y-m'), 'claim_ids' => [$c['id']], 'idempotency_key' => 'new-owner'])->assertCreated()->assertJsonPath('statement.payer_id', $newOwner->id);
+    }
+
+    public function test_hosted_statement_fingerprint_uses_invoice_order_not_submission_order(): void
+    {
+        $a = $this->agreement();
+        $earlierInvoice = $this->invoice();
+        $laterInvoice = $this->invoice();
+        // The later invoice is submitted first: claim and immutable statement
+        // line identities now run in the opposite order to invoice identities.
+        $firstClaim = $this->approved($a, $laterInvoice);
+        $secondClaim = $this->approved($a, $earlierInvoice);
+        $statement = $this->issue($a, [$firstClaim, $secondClaim])->assertCreated()->json('statement');
+        $detail = $this->getJson($this->url('statements/'.$statement['id']))
+            ->assertOk()->assertJsonPath('lines.0.invoice_id', $laterInvoice->id)
+            ->assertJsonPath('lines.1.invoice_id', $earlierInvoice->id)->json();
+
+        config(['payments.provider' => 'mock']);
+        $checkout = $this->postJson('/api/commercial/corporate/hosted-checkouts', [
+            'statement_id' => $statement['id'], 'consent' => true,
+            'idempotency_key' => 'canonical-invoice-order',
+        ])->assertCreated()->json('checkout');
+        $this->assertSame($detail['line_fingerprint'], $checkout['line_fingerprint']);
+        $canonicalLines = DB::table('corporate_statement_lines')
+            ->where('statement_id', $statement['id'])->orderBy('invoice_id')->get();
+        $expected = hash('sha256', json_encode($canonicalLines->map(fn ($line) => [
+            (int) $line->id, (int) $line->invoice_id, (int) $line->total_minor, (int) $line->driver_id,
+        ])->all(), JSON_THROW_ON_ERROR));
+        $this->assertSame($expected, $checkout['line_fingerprint']);
+
+        $this->postJson('/api/commercial/corporate/hosted-checkouts/'.$checkout['id'].'/simulate', [
+            'consent' => true, 'outcome' => 'authorized',
+        ])->assertOk()->assertJsonPath('checkout.status', 'authorized');
+        $this->postJson('/api/commercial/corporate/hosted-checkouts/'.$checkout['id'].'/capture')
+            ->assertOk()->assertJsonPath('checkout.status', 'captured');
+        $this->assertDatabaseCount('corporate_receipts', 1);
+        $this->assertDatabaseCount('finance_payments', 2);
     }
 
     public function test_production_or_nonmock_collection_is_disabled(): void
