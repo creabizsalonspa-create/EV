@@ -211,6 +211,11 @@ class OcpiScheduledSyncTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseHas('ocpi_sync_runs', ['state' => 'cancelled', 'result_code' => 'consent_or_partner_changed']);
         $this->assertNull(DB::table('ocpi_sync_plans')->where('provider_id', $provider->id)->value('active_run'));
+        $this->getJson($url)->assertOk()->assertJsonPath('plans.0.consent_current', false);
+        $this->travel(31)->minutes();
+        $this->assertSame('idle', app(ScheduledSync::class)->run()['state']);
+        Http::assertSentCount(1);
+        $this->assertFalse((bool) DB::table('ocpi_sync_plans')->where('provider_id', $provider->id)->value('enabled'));
     }
 
     public function test_failure_waits_until_next_interval_and_does_not_expose_provider_errors(): void
