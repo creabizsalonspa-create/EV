@@ -53,6 +53,9 @@ class ContinuousFaultObserver
     public function observe(int $id): array
     {
         abort_unless(config('csms.fault_worker_enabled') && config('csms.session_bridge_enabled') && app()->environment(['local', 'testing']) && strlen((string) config('csms.graphql_secret')) >= 32, 503);
+        // Reject an unreviewed plaintext/credential-bearing source URL before
+        // any privileged GraphQL request or local fault cursor mutation.
+        app(CsmsGraphqlTransport::class)->requireApproved();
         [$b, $companyId, $ownerId] = $this->scope($id);
         $generation = FaultMonitor::generation($b);
         $cursor = DB::table('charging_fault_cursors')->where('source_generation', $generation)->first();
