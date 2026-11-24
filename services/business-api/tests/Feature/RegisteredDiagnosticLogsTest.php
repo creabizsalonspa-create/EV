@@ -254,6 +254,36 @@ class RegisteredDiagnosticLogsTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 0);
     }
 
+    public static function diagnosticAuthorityDrift(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['operations_base_url', 'graphql_url', 'graphql_secret', 'production_diagnostic_upload_origin'] as $field) {
+                $cases[] = [$protocol, $field];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('diagnosticAuthorityDrift')]
+    public function test_source_authority_drift_during_token_fetch_cannot_dispatch(string $protocol, string $field): void
+    {
+        $f = $this->fixture($protocol);
+        $original = config('csms.'.$field);
+        $replacement = $field === 'graphql_secret' ? str_repeat('z', 64) : 'https://replacement.example.test';
+        $this->onToken = fn () => config(['csms.'.$field => $replacement]);
+        $intent = ['request_key' => (string) Str::uuid(), 'reason' => 'Reject changed diagnostic source authority'];
+        $id = $this->postJson($f['path'], $intent)->assertCreated()->assertJsonPath('dispatch_state', 'not_dispatched')->json('id');
+        config(['csms.'.$field => $original]);
+        $this->postJson($f['path'], $intent)->assertOk()->assertJsonPath('id', $id)->assertJsonPath('dispatch_state', 'not_dispatched');
+        $this->assertSame(0, $this->reportingAttempts);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'replacement.example.test'));
+        $this->assertDatabaseCount('charger_diagnostic_logs', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     #[DataProvider('protocols')]
     public function test_profile_rotation_during_token_fetch_blocks_dispatch_without_sending_old_capability(string $protocol): void
     {

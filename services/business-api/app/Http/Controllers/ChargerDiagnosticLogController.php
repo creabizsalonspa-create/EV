@@ -77,11 +77,11 @@ class ChargerDiagnosticLogController extends Controller
     public function create(Request $r, VendorCompany $company, VendorCharger $charger, DiagnosticLogSource $source, ConfigurationProbe $probe)
     {
         $b = $this->scope($r, $company, $charger, true);
-        $source->enabled($b);
+        $authority = $source->authority($b);
         app(DiagnosticAuthority::class)->dispatchable($b);
         $v = $r->validate(['request_key' => 'required|uuid', 'reason' => 'required|string|min:10|max:500', 'repair_order_id' => 'sometimes|nullable|integer|min:1']);
         $hash = hash('sha256', json_encode([FaultMonitor::generation($b), $v['reason'], $v['repair_order_id'] ?? null], JSON_THROW_ON_ERROR));
-        $op = DB::transaction(function () use ($r, $company, $charger, $b, $v, $hash, $source) {
+        $op = DB::transaction(function () use ($r, $company, $charger, $b, $v, $hash, $source, $authority) {
             VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
             $current = $this->scope($r, $company, $charger, true);
@@ -100,6 +100,7 @@ class ChargerDiagnosticLogController extends Controller
                 $this->repair($locked, $v['repair_order_id']);
             }
             $cap = bin2hex(random_bytes(32));
+            $source->requireAuthority($current, $authority);
             app(DiagnosticAuthority::class)->dispatchable($current);
             $id = DB::table('charger_diagnostic_logs')->insertGetId(app(DiagnosticAuthority::class)->capture($r->user(), $current) + ['binding_id' => $b->id, 'actor_id' => $r->user()->id, 'repair_order_id' => $v['repair_order_id'] ?? null, 'request_key' => $v['request_key'], 'intent_hash' => $hash, 'source_generation' => FaultMonitor::generation($b), 'protocol' => $b->protocol, 'reason_ciphertext' => Crypt::encryptString($v['reason']), 'upload_token_digest' => hash('sha256', $cap), 'dispatch_state' => 'requested', 'expires_at' => now()->addMinutes(15), 'created_at' => now(), 'updated_at' => now()]);
             abort_if($id > 2147483647, 409);
@@ -113,7 +114,7 @@ class ChargerDiagnosticLogController extends Controller
             $sent = false;
             $state = 'not_dispatched';
             try {
-                $authority = $source->authority($b);
+                $source->requireAuthority($b, $authority);
                 $stationId = $probe->station($b);
                 $source->requireAuthority($b, $authority);
                 abort_unless(empty($b->diagnostic_direct) || $stationId === $b->diagnostic_source_station_id, 409, 'Registered source station identity changed.');
