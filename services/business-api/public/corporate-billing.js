@@ -660,6 +660,8 @@ window.mountCorporateBilling = ({ container, api, ui, actor }) => {
         if (!result || result.agreement_id !== agreement.id ||
             result.read_only !== true || result.statement_issued !== false ||
             result.real_payment_processed !== false || !states[result.state] ||
+            typeof result.can_issue_reviewed_batch !== "boolean" ||
+            (result.can_issue_reviewed_batch && result.state !== "ready_for_review") ||
             result.currency !== agreement.currency || result.minor_units !== agreement.minor_units ||
             !/^\d{4}-(0[1-9]|1[0-2])$/.test(result.period) ||
             !safe(result.claim_count) || !safe(result.remaining_credit_minor) ||
@@ -708,8 +710,40 @@ window.mountCorporateBilling = ({ container, api, ui, actor }) => {
             if (claim.held) row.append(t("p", "Financial hold", "قيد مالي"));
             content.append(row);
         }
-        // Never create an automatic liability or change the original workflow.
-        // The existing issue endpoint repeats authorization and source checks.
+        if (result.can_issue_reviewed_batch) {
+            const exactIds = Object.freeze([...ids].sort((a, b) => a - b));
+            const exactPeriod = result.period, exactTotal = result.total_minor;
+            button(content, "Issue reviewed TEST statement", "إصدار كشف الاختبار المراجع", async () => {
+                if (!alive() || seq !== generation) return;
+                const ar = document.documentElement.lang === "ar";
+                const amount = money(exactTotal, result.currency, result.minor_units);
+                const consent = window.confirm(ar
+                    ? `إصدار كشف اختبار واحد للفترة ${exactPeriod}، ${exactIds.length} مطالبة، ${amount}؟ لن يتم تحصيل أي دفعة.`
+                    : `Issue one TEST statement for ${exactPeriod}, ${exactIds.length} claims, ${amount}? No payment will be collected.`);
+                if (!consent || !alive() || seq !== generation) return;
+                const receipt = await request(
+                    `commercial/corporate/agreements/${agreement.id}/cycle-review/issue`, "POST", {
+                        period: exactPeriod, claim_ids: exactIds, total_minor: exactTotal, consent: true,
+                    },
+                );
+                if (!alive() || seq !== generation) return;
+                if (!receipt || !safe(receipt.statement_id) || receipt.statement_id < 1 ||
+                    receipt.agreement_id !== agreement.id || receipt.period !== exactPeriod ||
+                    receipt.total_minor !== exactTotal || receipt.currency !== result.currency ||
+                    receipt.minor_units !== result.minor_units || receipt.statement_issued !== true ||
+                    receipt.real_payment_processed !== false || receipt.evidence !== "TEST_REVIEWED_STATEMENT" ||
+                    typeof receipt.replayed !== "boolean" || !Array.isArray(receipt.claim_ids) ||
+                    receipt.claim_ids.length !== exactIds.length ||
+                    receipt.claim_ids.some((id, index) => id !== exactIds[index]))
+                    throw Error("Unconfirmed reviewed statement. Check statement history before retrying.");
+                await statements(agreement);
+                if (alive()) status.textContent = ar
+                    ? "تم تأكيد كشف الاختبار. لم تُحصّل أي دفعة."
+                    : "TEST statement confirmed. No payment collected.";
+            });
+        }
+        // Explicit existing claim selection remains available even when the
+        // bounded batch is held, over the cap or not ready. Never auto-issue.
         button(content, "Open explicit claim selection", "فتح تحديد المطالبات الصريح", () => claims(agreement));
     }
     async function statements(agreement, page = 1) {
