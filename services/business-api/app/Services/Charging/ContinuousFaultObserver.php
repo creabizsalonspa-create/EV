@@ -43,7 +43,10 @@ class ContinuousFaultObserver
 
     private function graph(string $query, array $variables): array
     {
-        $reply = Http::connectTimeout(5)->timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), compact('query', 'variables'));
+        // Revalidate and pin each HTTP request, even when a previous status
+        // page was read before a dynamic configuration change.
+        $url = app(CsmsGraphqlTransport::class)->requireApproved();
+        $reply = Http::connectTimeout(5)->timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, compact('query', 'variables'));
         $data = $reply->json('data');
         abort_unless($reply->successful() && ! $reply->json('errors') && is_array($data), 503);
 
