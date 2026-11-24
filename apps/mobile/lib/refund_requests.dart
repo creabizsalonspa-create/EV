@@ -662,64 +662,131 @@ class RefundDecisionView extends StatefulWidget {
   State<RefundDecisionView> createState() => _RefundDecisionState();
 }
 
-class _RefundDecisionState extends State<RefundDecisionView> {
+class _RefundDecisionState extends State<RefundDecisionView>
+    with WidgetsBindingObserver {
   final note = TextEditingController();
   String decision = 'reject';
   bool busy = true, uncertain = false, confirmed = false;
   Object? error;
-  int generation = 0;
+  int generation = 0, privateEpoch = 0;
+  bool foreground = true, revoked = false;
+  late final bool Function() ownsSession;
+  StreamSubscription<int>? session;
+  bool get visible => foreground && !revoked && ownsSession();
+  bool current(int epoch) => mounted && visible && epoch == generation;
   FinancialOperation? operation;
   @override
   void initState() {
     super.initState();
+    ownsSession = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
+    session = widget.api.sessionEvents.listen((_) {
+      if (mounted) setState(() {
+        revoked = true;
+        clearPrivate();
+      });
+    });
     restore();
+  }
+
+  void clearPrivate() {
+    generation++;
+    privateEpoch++;
+    operation = null;
+    error = null;
+    busy = false;
+    uncertain = false;
+    confirmed = false;
+    decision = 'reject';
+    note.clear();
+  }
+
+  @override
+  void didUpdateWidget(covariant RefundDecisionView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        oldWidget.requestId != widget.requestId) {
+      revoked = true;
+      clearPrivate();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) clearPrivate();
+    });
+    if (visible && operation == null) restore();
   }
 
   @override
   void dispose() {
     generation++;
+    session?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     note.dispose();
     super.dispose();
   }
 
   Future<void> restore() async {
+    if (!visible) return;
     final epoch = ++generation;
+    setState(() => busy = true);
     try {
+      if (!_refundId(widget.requestId)) {
+        throw const FormatException('Invalid refund review source.');
+      }
       final me = await widget.api.request('me');
-      if (me['id'] is! int || me['role'] != 'vendor')
+      if (!current(epoch)) return;
+      if (!_refundId(me['id']) || me['role'] != 'vendor')
         throw const ApiException(403, 'Vendor ownership required.');
+      final sourceEpoch = privateEpoch;
       final op = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${widget.api.base.origin}:${me['id']}:refund-review:${widget.requestId}',
-        isCurrent: widget.api.sessionFence(),
+        isCurrent: () => mounted && visible && sourceEpoch == privateEpoch,
       );
       await op.restore();
-      if (!mounted || epoch != generation) return;
+      if (!current(epoch)) return;
       operation = op;
       if (op.pending != null) {
         final body = op.pending!['body'] as Map;
+        if (!['approve', 'reject'].contains(body['decision']) ||
+            body['note'] is! String || (body['note'] as String).trim().isEmpty ||
+            (body['note'] as String).length > 500) {
+          operation = null;
+          throw const FormatException('Invalid saved refund decision.');
+        }
         decision = body['decision'] as String;
         note.text = body['note'] as String;
         uncertain = true;
       }
     } catch (e) {
-      if (mounted && generation == epoch) {
+      if (current(epoch)) {
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> submit() async {
-    if (note.text.trim().isEmpty || note.text.length > 500) return;
+    if (!visible || busy || operation == null) return;
+    final formGeneration = generation;
+    final op = operation!;
+    final selectedDecision = decision;
+    final selectedNote = note.text.trim();
+    if (selectedNote.isEmpty || selectedNote.length > 500 ||
+        !['approve', 'reject'].contains(selectedDecision)) return;
     final t = (String k) => refundText(context, k);
     final yes = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: Text(t(decision)),
+        title: Text(t(selectedDecision)),
         content: Text(t('notice')),
         actions: [
           TextButton(
@@ -733,41 +800,47 @@ class _RefundDecisionState extends State<RefundDecisionView> {
         ],
       ),
     );
-    if (yes != true || !mounted) return;
+    if (yes != true || !current(formGeneration) ||
+        !identical(op, operation) || busy) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      final body = await operation!.prepare({
-        'decision': decision,
-        'note': note.text.trim(),
+      final body = await op.prepare({
+        'decision': selectedDecision,
+        'note': selectedNote,
       });
-      if (!mounted || generation != epoch) return;
+      if (!current(epoch)) return;
       final result = await widget.api.request(
         'finance/refund-requests/${widget.requestId}/review',
         method: 'POST',
         body: body,
       );
-      if (!mounted || generation != epoch) return;
+      if (!current(epoch)) return;
       if (result is! Map ||
+          !_refundId(result['id']) ||
           result['id'] != widget.requestId ||
+          result.containsKey('request_key') ||
+          result.containsKey('fingerprint') ||
+          result.containsKey('request_receipt') ||
           result['decision_note'] != body['note'] ||
-          result['status'] != (decision == 'approve' ? 'approved' : 'rejected'))
+          result['status'] != (selectedDecision == 'approve' ? 'approved' : 'rejected'))
         throw const ApiException(502, 'Unconfirmed decision receipt.');
+      await op.confirmed();
+      if (!current(epoch)) return;
       confirmed = true;
-      await operation!.confirmed();
       uncertain = false;
     } catch (e) {
-      if (mounted && generation == epoch) {
+      if (current(epoch)) {
         error = e;
         uncertain = operation?.pending != null;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
@@ -780,6 +853,7 @@ class _RefundDecisionState extends State<RefundDecisionView> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(t('notice')),
+          if (visible) ...[
           if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
           if (uncertain) Text(t('uncertain')),
           if (confirmed) Text(t('confirmed')),
@@ -804,6 +878,7 @@ class _RefundDecisionState extends State<RefundDecisionView> {
             onPressed: busy || confirmed || operation == null ? null : submit,
             child: Text(t(uncertain ? 'resume' : 'confirm')),
           ),
+          ],
         ],
       ),
     );
