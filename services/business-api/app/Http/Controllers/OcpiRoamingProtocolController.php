@@ -34,12 +34,45 @@ class OcpiRoamingProtocolController extends Controller
 
     private function hasAttemptedGrant(object $order): bool
     {
-        return DB::table('ocpi_roaming_commands')->where('order_id', $order->id)
-            ->where('actor_id', $order->user_id)
-            ->where('action', ($order->intent_kind ?? 'start') === 'reservation' ? 'RESERVE_NOW' : 'START_SESSION')
-            ->whereNotNull('attempted_at')
-            ->whereIn('state', ['dispatching', 'transport_accepted', 'outcome_unknown'])
-            ->exists();
+        $action = ($order->intent_kind ?? 'start') === 'reservation' ? 'RESERVE_NOW' : 'START_SESSION';
+        $claims = DB::table('ocpi_roaming_commands')->where('order_id', $order->id)
+            ->where('action', $action)->limit(2)->get();
+        if ($claims->count() !== 1) {
+            return false;
+        }
+        $claim = $claims->first();
+        if ((int) $claim->actor_id !== (int) $order->user_id || $claim->attempted_at === null
+            || ! in_array($claim->state, ['dispatching', 'transport_accepted', 'outcome_unknown'], true)
+            || ($claim->transport_result !== null && $claim->transport_result !== 'ACCEPTED')
+            || ($claim->callback_result !== null && $claim->callback_result !== 'ACCEPTED')) {
+            return false;
+        }
+        try {
+            $payload = json_decode(Crypt::decryptString($claim->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
+            $target = json_decode(Crypt::decryptString($order->target_ciphertext), true, flags: JSON_THROW_ON_ERROR);
+            $service = app(SandboxRoaming::class);
+            [, , $local] = $service->current($order, true);
+            $expected = $service->token($order);
+            $token = $payload['token'] ?? [];
+            $expected['last_updated'] = $token['last_updated'] ?? null;
+            $callback = substr($local['url'], 0, -strlen('versions')).'2.2.1/commands/'.$claim->callback_key;
+
+            return hash_equals($claim->intent_hash, hash('sha256', json_encode([$order->id, $action, $payload], JSON_THROW_ON_ERROR)))
+                && $claim->request_key === $order->request_key
+                && ($payload['response_url'] ?? null) === $callback
+                && ($payload['authorization_reference'] ?? null) === $order->authorization_reference
+                && ($payload['location_id'] ?? null) === $target['location_id']
+                && ($payload['evse_uid'] ?? null) === $target['evse_uid']
+                && ($action === 'START_SESSION'
+                    ? ($payload['connector_id'] ?? null) === $target['connector_id']
+                    : ($payload['reservation_id'] ?? null) === $order->reservation_id
+                        && ($payload['expiry_date'] ?? null) === CarbonImmutable::parse($order->reservation_expires_at, 'UTC')->toISOString())
+                && $expected === $token && $token['valid'] === true
+                && is_string($token['last_updated'])
+                && hash_equals($order->token_digest, hash('sha256', $token['uid']));
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     private function tokenValid(object $order, SandboxRoaming $service): bool
@@ -169,11 +202,19 @@ class OcpiRoamingProtocolController extends Controller
             [$p,$link] = $this->peer($r);
             [, $local] = app(SandboxRoaming::class)->policy($p);
             abort_unless($country === $local['roles'][0]['country_code'] && $party === $local['roles'][0]['party_id'] && $r->query('type', 'APP_USER') === 'APP_USER' && preg_match('/^[A-Za-z0-9]{1,36}$/D', $uid), 404);
-            $order = DB::table('ocpi_roaming_orders')->where('provider_id', $p->id)->where('provider_owner_id', $p->owner_id)->where('counterparty_hash', $link->configuration_hash)->where('token_digest', hash('sha256', strtoupper($uid)))->first();
-            abort_unless($order, 404);
-            $service = app(SandboxRoaming::class);
+            $data = DB::transaction(function () use ($r, $p, $link, $uid) {
+                OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
+                DB::table('ocpi_credential_links')->where('id', $link->id)->lockForUpdate()->firstOrFail();
+                [$current, $active] = $this->peer($r);
+                abort_unless($current->id === $p->id && $active->id === $link->id && $active->generation === $link->generation, 401);
+                $order = DB::table('ocpi_roaming_orders')->where('provider_id', $current->id)->where('provider_owner_id', $current->owner_id)->where('counterparty_hash', $active->configuration_hash)->where('token_digest', hash('sha256', strtoupper($uid)))->lockForUpdate()->first();
+                abort_unless($order, 404);
+                $service = app(SandboxRoaming::class);
 
-            return $this->reply($service->token($order, $this->tokenValid($order, $service)));
+                return $service->token($order, $this->tokenValid($order, $service));
+            }, 3);
+
+            return $this->reply($data);
         } catch (Throwable $e) {
             $http = $e instanceof HttpExceptionInterface ? $e->getStatusCode() : 409;
 
@@ -207,14 +248,22 @@ class OcpiRoamingProtocolController extends Controller
             $from = isset($v['date_from']) ? $utc($v['date_from']) : null;
             $to = isset($v['date_to']) ? $utc($v['date_to']) : null;
             abort_if($from !== null && $to !== null && $to < $from, 422);
-            $query = DB::table('ocpi_roaming_orders')->where('provider_id', $p->id)->where('provider_owner_id', $p->owner_id)->where('counterparty_hash', $link->configuration_hash)->when($from !== null, fn ($q) => $q->where('updated_at', '>=', $from))->when($to !== null, fn ($q) => $q->where('updated_at', '<', $to));
-            $total = (clone $query)->count();
-            $rows = $query->orderBy('id')->offset($v['offset'] ?? 0)->limit($v['limit'] ?? 25)->get();
-            $service = app(SandboxRoaming::class);
-            $data = [];
-            foreach ($rows as $order) {
-                $data[] = $service->token($order, $this->tokenValid($order, $service));
-            }
+            [$data, $total] = DB::transaction(function () use ($r, $p, $link, $from, $to, $v) {
+                OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
+                DB::table('ocpi_credential_links')->where('id', $link->id)->lockForUpdate()->firstOrFail();
+                [$current, $active] = $this->peer($r);
+                abort_unless($current->id === $p->id && $active->id === $link->id && $active->generation === $link->generation, 401);
+                $query = DB::table('ocpi_roaming_orders')->where('provider_id', $current->id)->where('provider_owner_id', $current->owner_id)->where('counterparty_hash', $active->configuration_hash)->when($from !== null, fn ($q) => $q->where('updated_at', '>=', $from))->when($to !== null, fn ($q) => $q->where('updated_at', '<', $to));
+                $total = (clone $query)->count();
+                $rows = $query->orderBy('id')->offset($v['offset'] ?? 0)->limit($v['limit'] ?? 25)->lockForUpdate()->get();
+                $service = app(SandboxRoaming::class);
+                $data = [];
+                foreach ($rows as $order) {
+                    $data[] = $service->token($order, $this->tokenValid($order, $service));
+                }
+
+                return [$data, $total];
+            }, 3);
             $reply = $this->reply($data)->header('X-Total-Count', (string) $total)->header('X-Limit', (string) ($v['limit'] ?? 25));
             $offset = (int) ($v['offset'] ?? 0);
             $limit = (int) ($v['limit'] ?? 25);
