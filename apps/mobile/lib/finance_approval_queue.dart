@@ -133,7 +133,12 @@ class _FinanceApprovalQueueState extends State<FinanceApprovalQueueView>
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     session = widget.api.sessionEvents.listen((_) {
-      if (mounted) setState(() { revoked = true; clear(); });
+      if (mounted) setState(() {
+        revoked = true;
+        clear();
+        currency.clear();
+        vendor.clear();
+      });
     });
     if (foreground) load();
   }
@@ -152,6 +157,8 @@ class _FinanceApprovalQueueState extends State<FinanceApprovalQueueView>
     if (!identical(oldWidget.api, widget.api)) {
       revoked = true;
       clear();
+      currency.clear();
+      vendor.clear();
     }
   }
 
@@ -160,7 +167,12 @@ class _FinanceApprovalQueueState extends State<FinanceApprovalQueueView>
     if (!mounted) return;
     setState(() {
       foreground = state == AppLifecycleState.resumed;
-      if (!foreground) clear();
+      if (!foreground) {
+        clear();
+        currency.clear();
+        vendor.clear();
+        kind = 'all';
+      }
     });
   }
 
@@ -240,6 +252,7 @@ class _FinanceApprovalQueueState extends State<FinanceApprovalQueueView>
           DropdownButtonFormField<String>(
             key: const Key('finance-review-kind'),
             initialValue: kind,
+            isExpanded: true,
             items: ['all', ..._kinds].map((v) => DropdownMenuItem(value: v, child: Text(kindLabel(v)))).toList(),
             onChanged: busy ? null : (v) => setState(() { clear(); kind = v!; }),
           ),
