@@ -32,6 +32,13 @@ Map<String, dynamic> financialRecord({
 class DocumentApi extends FixtureApi {
   int stamp = 0, requests = 0, posts = 0, downloads = 0;
   bool forgedSource = false;
+  bool expireList = false, expirePost = false, expirePdf = false;
+  Future<Never> expire() async {
+    stamp++;
+    final expired = stamp;
+    await forgetSession();
+    throw ApiException(401, 'Expired', expirationIsCurrent: () => stamp == expired);
+  }
   Completer<dynamic>? listHeld, postHeld;
   Completer<PrivateDocument>? pdfHeld;
   @override
@@ -54,6 +61,7 @@ class DocumentApi extends FixtureApi {
     }
     if (method == 'POST') {
       posts++;
+      if (expirePost) return expire();
       return postHeld?.future ?? financialRecord(
         kind: body!['source_kind'] as String,
         source: body['source_id'] as int,
@@ -62,6 +70,7 @@ class DocumentApi extends FixtureApi {
     }
     if (method != 'GET') throw StateError('Unexpected financial mutation');
     if (listHeld != null) return listHeld!.future;
+    if (expireList) return expire();
     return {
       'data': [financialRecord(
         kind: forgedSource ? 'vendor_settlement' : 'charging_invoice',
@@ -76,13 +85,14 @@ class DocumentApi extends FixtureApi {
   Future<PrivateDocument> downloadDocument(String path) async {
     downloads++;
     calls.add('GET $path');
+    if (expirePdf) return expire();
     return pdfHeld?.future ?? PrivateDocument(testPdf, 'application/pdf');
   }
 }
 
-Widget app(DocumentApi api, {String? kind, int? source}) => MaterialApp(
+Widget app(DocumentApi api, {String? kind, int? source, VoidCallback? onExpired}) => MaterialApp(
   home: FinancialDocumentsView(
-    api: api, onExpired: () {}, sourceKind: kind, sourceId: source,
+    api: api, onExpired: onExpired ?? () {}, sourceKind: kind, sourceId: source,
   ),
 );
 
@@ -245,6 +255,73 @@ void main() {
     expect(find.byType(VendorDocumentPreview), findsNothing);
     expect(find.text('CB-TDOC-AE-P-2026-000000041'), findsNothing);
     expect(find.text(financialEn['privateCleared']!), findsOneWidget);
+  });
+
+  testWidgets('current document listing expiry requests sign-in after fence clears',
+      (tester) async {
+    final api = DocumentApi()..expireList = true;
+    addTearDown(api.close);
+    var expirations = 0;
+    await tester.pumpWidget(app(api, onExpired: () { expirations++; }));
+    await tester.pumpAndSettle();
+    expect(expirations, 1);
+    expect(find.text('CB-TDOC-AE-P-2026-000000041'), findsNothing);
+  });
+
+  testWidgets('expired private PDF download closes source without opening viewer',
+      (tester) async {
+    final api = DocumentApi()..expirePdf = true;
+    addTearDown(api.close);
+    var expirations = 0;
+    await tester.pumpWidget(app(api, onExpired: () { expirations++; }));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('View private PDF'));
+    await tester.tap(find.text('View private PDF'));
+    await tester.pumpAndSettle();
+    expect(api.downloads, 1);
+    expect(expirations, 1);
+    expect(find.byType(VendorDocumentPreview), findsNothing);
+    expect(find.text('CB-TDOC-AE-P-2026-000000041'), findsNothing);
+  });
+
+  testWidgets('expired document generation does not confirm or resend the POST',
+      (tester) async {
+    final api = DocumentApi()..expirePost = true;
+    addTearDown(api.close);
+    var expirations = 0;
+    await tester.pumpWidget(app(api, kind: 'charging_invoice', source: 7,
+      onExpired: () { expirations++; }));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Prepare document').first);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(CheckboxListTile));
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pumpAndSettle();
+    final button = find.widgetWithText(FilledButton, 'Prepare document');
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(api.posts, 1);
+    expect(expirations, 1);
+    expect(find.text('CB-TDOC-AE-P-2026-000000041'), findsNothing);
+    expect(button, findsNothing);
+  });
+
+  testWidgets('superseded listing expiry cannot sign out a later account',
+      (tester) async {
+    final api = DocumentApi()..listHeld = Completer<dynamic>();
+    addTearDown(api.close);
+    var expirations = 0;
+    await tester.pumpWidget(app(api, onExpired: () { expirations++; }));
+    await tester.pump();
+    final expired = ++api.stamp;
+    await api.forgetSession();
+    api.stamp++;
+    api.listHeld!.completeError(ApiException(401, 'Old expiry',
+      expirationIsCurrent: () => api.stamp == expired));
+    await tester.pumpAndSettle();
+    expect(expirations, 0);
+    expect(find.text('CB-TDOC-AE-P-2026-000000041'), findsNothing);
   });
 
   testWidgets('uncertain document creation is not auto-retried after background',
