@@ -41,6 +41,8 @@ const fs = require("node:fs");
       addressCalls = 0,
       routeBody = null,
       routeCalls = 0,
+      heldRoute = false,
+      releaseRoute = null,
       tiles = 0,
       holdNextCapabilities = false,
       signalHeldCapabilities = null,
@@ -120,11 +122,15 @@ const fs = require("node:fs");
         },
       });
     });
-    await page.route("**/api/discovery/route", (r) => {
+    await page.route("**/api/discovery/route", async (r) => {
       routeCalls++;
       routeBody = r.request().postDataJSON();
       assert.equal(routeBody.consent, true);
       assert.equal(routeBody.points.length, 5);
+      if (heldRoute) {
+        heldRoute = false;
+        await new Promise(resolve => { releaseRoute = resolve; });
+      }
       return r.fulfill({
         json: {
           provider: "geoapify",
@@ -314,6 +320,26 @@ const fs = require("node:fs");
     assert(routeBounds && routeBounds.width >= 2 && routeBounds.height >= 2,
       "The selected journey must remain visible despite distant catalog results");
     assert.equal(await page.locator("#stations form").count(), 0);
+    // Consent remains checked and withdrawable during an outstanding
+    // preview. A detached duplicate click must not dispatch a second lookup.
+    heldRoute = true;
+    const routeConsent = journey.locator("form>label input[type=checkbox]");
+    const routePreview = journey.getByRole("button",{name:"Preview provider route",exact:true});
+    assert(await routeConsent.isChecked());
+    await routePreview.click();
+    for (let n=0;n<100 && !releaseRoute;n++) await page.waitForTimeout(50);
+    assert(releaseRoute,"Controlled held route never started");
+    assert(await routeConsent.isChecked());
+    assert(await routePreview.isDisabled());
+    await routePreview.evaluate(button => button.onclick());
+    assert.equal(routeCalls,3);
+    await routeConsent.uncheck();
+    assert(await routePreview.isDisabled());
+    releaseRoute();
+    await page.waitForTimeout(100);
+    assert.equal(await journey.getByText("1.3 km · 4 min",{exact:true}).count(),0);
+    assert.equal(await page.locator(".leaflet-overlay-pane path").count(),0);
+    assert.equal(routeCalls,3);
     await page.locator("#language").click();
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(
@@ -356,7 +382,7 @@ const fs = require("node:fs");
     assert(await journey.getByRole("button", { name: "معاينة مسار المزود", exact: true }).isDisabled());
     assert(await journey.getByRole("button", { name: "فتح الملاحة بالتوقفات المحددة", exact: true }).isDisabled());
     assert.equal(await journey.locator("ol li").count(), 3, "Filter must not silently remove stops");
-    assert.equal(routeCalls, 2, "Connector filter must not send route/provider requests");
+    assert.equal(routeCalls, 3, "Connector filter must not send route/provider requests");
     for(let i=0;i<3;i++) {
       await journey.locator("ol li").first().getByRole("button", { name: "إزالة التوقف", exact: true }).click();
     }
@@ -366,7 +392,7 @@ const fs = require("node:fs");
     assert(await addType2.isEnabled());
     await addType2.click();
     assert.equal(await journey.locator("ol li").count(),1);
-    assert.equal(routeCalls,2);
+    assert.equal(routeCalls,3);
     // Verify the real loaded browser parser, including bounds before
     // geometry is passed to the map or energy estimate.
     const geometryChecks = await page.evaluate(() => {
@@ -405,7 +431,7 @@ const fs = require("node:fs");
     await journey.locator("summary").first().click();
     await journey.locator("form>label").filter({hasText:"Geoapify"}).waitFor({state:"visible"});
     assert.equal(await journey.locator("form>label input[type=checkbox]").isChecked(),false);
-    assert.equal(routeCalls,2);
+    assert.equal(routeCalls,3);
     await page.locator("#location-consent").check();
     await page
       .getByRole("button", { name: "استخدام موقعي مرة واحدة", exact: true })
