@@ -77,6 +77,8 @@ class ContinuousFaultObserver
             // a previous page contained only Available/diagnostic statuses.
             // An absent durable observation cannot certify a source cursor.
             $previousClock = null;
+            $lastClock = null;
+            $sameTimeTargets = [];
             if ($after > 0) {
                 $lastClock = DB::table('charging_status_observations')
                     ->where('source_generation', $generation)
@@ -161,6 +163,38 @@ class ContinuousFaultObserver
                         abort(503, 'Source event timestamp is invalid.');
                     }
                     abort_unless($previousClock === null || ! $eventClock->lt($previousClock), 503, 'Source status chronology regressed.');
+                    // Equal timestamps may describe distinct connectors, or
+                    // repeated identical receipts, but must never establish
+                    // two incompatible states for the same source component.
+                    $evse = $event['evseId'] ?? null;
+                    $connector = $event['connectorId'] ?? null;
+                    abort_unless(is_int($evse) && $evse >= 0 && is_int($connector) && $connector >= 0, 503,
+                        'Malformed source component identity.');
+                    $target = $evse.':'.$connector;
+                    $receipt = [$event['connectorStatus'], $event['errorCode'] ?? null];
+                    if ($previousClock === null || ! $eventClock->equalTo($previousClock)) {
+                        $sameTimeTargets = [];
+                    } elseif (isset($sameTimeTargets[$target])) {
+                        abort_unless($sameTimeTargets[$target] === $receipt, 503,
+                            'Conflicting same-time source status receipts.');
+                    }
+                    if ($lastClock !== null && $eventClock->equalTo(CarbonImmutable::parse($lastClock, 'UTC'))) {
+                        $conflict = DB::table('charging_status_observations')
+                            ->where('source_generation', $generation)
+                            ->where('source_event_id', '<=', $after)
+                            ->where('occurred_at', $lastClock)
+                            ->where('evse_number', $evse)->where('connector_number', $connector)
+                            ->where(function ($q) use ($receipt) {
+                                $q->where('status', '!=', $receipt[0]);
+                                if ($receipt[1] === null) {
+                                    $q->orWhereNotNull('error_code');
+                                } else {
+                                    $q->orWhereNull('error_code')->orWhere('error_code', '!=', $receipt[1]);
+                                }
+                            })->exists();
+                        abort_if($conflict, 503, 'Conflicting same-time status crosses the durable cursor.');
+                    }
+                    $sameTimeTargets[$target] = $receipt;
                     $previousClock = $eventClock;
                     $previous = $event['id'];
                 }
