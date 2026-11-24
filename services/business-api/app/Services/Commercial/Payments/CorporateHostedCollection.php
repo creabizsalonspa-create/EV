@@ -5,6 +5,7 @@ namespace App\Services\Commercial\Payments;
 use App\Models\Finance\Invoice;
 use App\Models\Fleet;
 use App\Models\User;
+use App\Services\Commercial\CorporateBilling;
 use App\Services\Finance\FinanceService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Crypt;
@@ -107,30 +108,59 @@ class CorporateHostedCollection
 
     private function lineFingerprint(object $s, iterable $lines, array $invoices): string
     {
-        $sum = 0;
+        CorporateBilling::validateStatementLines($s, $lines, $invoices);
         $parts = [];
         foreach ($lines as $l) {
-            $i = $invoices[$l->invoice_id];
-            abort_unless((int) $l->total_minor === (int) $i->total_minor && $i->currency === $s->currency && (int) $i->minor_units === (int) $s->minor_units && (int) $l->driver_id === (int) $i->user_id, 409, 'Corporate invoice terms do not reconcile.');
-            abort_unless($sum <= PHP_INT_MAX - (int) $l->total_minor, 409);
-            $sum += (int) $l->total_minor;
-            $parts[] = [(int) $l->id, (int) $l->invoice_id, (int) $l->total_minor, (int) $l->driver_id];
+            // Preserve the established immutable checkout fingerprint shape.
+            $parts[] = [(int) $l->id, (int) $l->invoice_id,
+                CorporateBilling::exactMinor($l->total_minor), (int) $l->driver_id];
         }
-        abort_unless($sum > 0 && $sum === (int) $s->total_minor, 409, 'Corporate total does not reconcile.');
 
         return hash('sha256', json_encode($parts, JSON_THROW_ON_ERROR));
+    }
+
+    /** Check the original persisted collection contract before any new TEST provider operation. */
+    private function validateCollectionSource(object $statement, iterable $lines, array $invoices, object $checkout): void
+    {
+        abort_unless(hash_equals($checkout->line_fingerprint,
+            $this->lineFingerprint($statement, $lines, $invoices))
+            && CorporateBilling::exactMinor($checkout->amount_minor) === CorporateBilling::exactMinor($statement->total_minor)
+            && $checkout->currency === $statement->currency
+            && (int) $checkout->minor_units === (int) $statement->minor_units,
+            409, 'Corporate checkout no longer matches its immutable statement.');
+        $heldRows = DB::table('corporate_hosted_lines')
+            ->where('checkout_id', $checkout->id)->get();
+        $held = $heldRows->keyBy('statement_line_id');
+        abort_unless($heldRows->count() === $held->count(), 409,
+            'Duplicate corporate checkout held source.');
+        $count = 0;
+        foreach ($lines as $line) {
+            $source = $held->get($line->id);
+            abort_unless($source && (int) $source->invoice_id === (int) $line->invoice_id
+                && CorporateBilling::exactMinor($source->amount_minor) === CorporateBilling::exactMinor($line->total_minor),
+                409, 'Corporate checkout held invoice source does not reconcile.');
+            $count++;
+        }
+        abort_unless($count === $held->count(), 409, 'Unexpected corporate checkout held source.');
     }
 
     private function unpaid(iterable $lines): void
     {
         foreach ($lines as $l) {
             abort_if(DB::table('finance_payments')->where('invoice_id', $l->invoice_id)->exists() || DB::table('gateway_checkouts')->where('invoice_id', $l->invoice_id)->exists(), 409, 'A corporate source invoice already has a payment path.');
+            abort_if(DB::table('finance_unpaid_credits')->where('invoice_id', $l->invoice_id)->exists(), 409, 'A noncash-credited corporate invoice cannot be collected.');
             abort_if(DB::table('finance_refund_requests')->where('invoice_id', $l->invoice_id)->where('status', 'pending')->exists() || DB::table('gateway_cases')->where('invoice_id', $l->invoice_id)->where('status', 'open')->exists(), 409, 'A financial case holds this corporate invoice.');
         }
     }
 
     public function statementContract(object $s, iterable $lines, int $actor): array
     {
+        // roots() has always ordered the persisted checkout contract by
+        // invoice identity. Statement display order follows claim identity
+        // instead, which can differ when drivers submit older invoices late.
+        // Canonicalize only the input to the existing fingerprint encoding;
+        // never change an already persisted checkout's fingerprint.
+        $lines = collect($lines)->sortBy(fn ($line) => (int) $line->invoice_id)->values();
         $invoices = [];
         foreach ($lines as $l) {
             $invoices[$l->invoice_id] = Invoice::findOrFail($l->invoice_id);
@@ -248,7 +278,8 @@ class CorporateHostedCollection
         $this->assertConfiguration($hint);
         $lease = Str::random(48);
         $h = DB::transaction(function () use ($hint, $actor, $lease) {
-            [,,$invoices,$h] = $this->roots((int) $hint->statement_id, $actor->id, (int) $hint->id);
+            [$s,$lines,$invoices,$h] = $this->roots((int) $hint->statement_id, $actor->id, (int) $hint->id);
+            $this->validateCollectionSource($s, $lines, $invoices, $h);
             abort_unless(! $h->provider_session && in_array($h->status, ['preparing', 'uncertain', 'needs_review'], true) && now()->lt($h->expires_at) && (! $h->lease_until || now()->gte($h->lease_until)), 409, 'Inspect the original preparation before retrying.');
             DB::table('corporate_hosted_checkouts')->where('id', $h->id)->update(['status' => 'preparing', 'lease' => $lease, 'lease_until' => now()->addMinutes(3), 'updated_at' => now()]);
 
@@ -389,8 +420,12 @@ class CorporateHostedCollection
         $this->assertConfiguration($hint);
 
         return DB::transaction(function () use ($hint, $actor, $kind) {
-            [, , ,$h] = $this->roots((int) $hint->statement_id, $actor->id, (int) $hint->id);
+            [$s,$lines,$invoices,$h] = $this->roots((int) $hint->statement_id, $actor->id, (int) $hint->id);
             $this->assertConfiguration($h);
+            if ($kind === 'capture') {
+                $this->validateCollectionSource($s, $lines, $invoices, $h);
+                $this->unpaid($lines);
+            }
             abort_unless($h->status === ($kind === 'expire' ? 'open' : 'authorized'), 409, 'Inspect the original authorization first.');
             $old = DB::table('corporate_hosted_operations')->where('checkout_id', $h->id)->where('kind', $kind)->lockForUpdate()->first();
             abort_if(DB::table('corporate_hosted_operations')->where('checkout_id', $h->id)->where('kind', '!=', $kind)->where('status', '!=', 'completed')->exists(), 409, 'Resolve the original corporate provider operation first.');

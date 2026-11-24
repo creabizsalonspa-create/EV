@@ -79,6 +79,114 @@ class SubscriptionCreditTest extends TestCase
         return $this->call('POST', '/subscription-credit-test/subscription-credit-payments/stripe-test/webhook', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_STRIPE_SIGNATURE' => $signature], $raw);
     }
 
+    public function test_credit_amounts_reject_inexact_sources_and_overflow_before_any_provider_refund(): void
+    {
+        $minor = new \ReflectionMethod(SubscriptionCreditService::class, 'exactMinor');
+        $sum = new \ReflectionMethod(SubscriptionCreditService::class, 'sumCredits');
+        $add = new \ReflectionMethod(SubscriptionCreditService::class, 'checkedAdd');
+        $max = 9_007_199_254_740_991;
+
+        $this->assertSame(0, $minor->invoke(null, 0));
+        $this->assertSame($max, $minor->invoke(null, '9007199254740991'));
+        $this->assertSame($max, $add->invoke(null, $max - 1, 1));
+        $this->assertSame(125, $sum->invoke(null, [
+            (object) ['amount_minor' => '100'],
+            (object) ['amount_minor' => 25],
+        ], 'amount_minor'));
+
+        foreach ([100.0, -100.0, true, false, '-1', '0.5',
+            '1e3', '9007199254740992', 'bad-credit'] as $unsafe) {
+            try {
+                $minor->invoke(null, $unsafe);
+                $this->fail('Subscription credit source was rounded into a valid amount.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+
+        foreach ([
+            [(object) ['amount_minor' => 4_503_599_627_370_496],
+                (object) ['amount_minor' => 4_503_599_627_370_496]],
+            [(object) ['amount_minor' => true]],
+            [(object) ['amount_minor' => -1]],
+        ] as $unsafeRows) {
+            try {
+                $sum->invoke(null, $unsafeRows, 'amount_minor');
+                $this->fail('Unsafe credit accumulation succeeded.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+
+        $this->assertDatabaseCount('subscription_credits', 0);
+        $this->assertDatabaseCount('subscription_credit_requests', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_invalid_historical_credit_component_blocks_test_refund_before_provider_dispatch(): void
+    {
+        $this->stripeFake();
+        $f = $this->fixture(true);
+        $invoice = DB::table('commercial_subscription_invoices')->find($f[3]);
+        $receipt = DB::table('commercial_subscription_receipts')
+            ->where('invoice_id', $f[3])->first();
+
+        // Deliberately inconsistent source in an isolated test database.
+        // Do not mutate or bypass the immutable financial-record triggers.
+        $request = DB::table('subscription_credit_requests')->insertGetId([
+            'subscription_id' => $f[2], 'invoice_id' => $invoice->id,
+            'receipt_id' => $receipt->id, 'checkout_id' => $f[4]->id,
+            'actor_id' => $f[0]->id, 'request_key' => hash('sha256', 'bad-component-source'),
+            'fingerprint' => hash('sha256', 'bad-component-fingerprint'),
+            'amount_minor' => 100, 'currency' => $invoice->currency,
+            'reason' => 'Synthetic malformed historical source', 'created_at' => now(),
+        ]);
+        DB::table('subscription_credits')->insert([
+            'request_id' => $request, 'number' => 'TEST-CORRUPT-COMPONENT',
+            'subscription_id' => $f[2], 'invoice_id' => $invoice->id,
+            'receipt_id' => $receipt->id, 'actor_id' => $f[0]->id,
+            'amount_minor' => 100, 'subtotal_minor' => 100, 'tax_minor' => 10,
+            'currency' => $invoice->currency, 'minor_units' => $invoice->minor_units,
+            'provider_reference' => 're_SyntheticMalformedCredit',
+            'evidence' => $receipt->evidence, 'reason' => 'Synthetic malformed historical source',
+            'created_at' => now(),
+        ]);
+        $before = DB::table('commercial_subscription_ledger')->count();
+        $eventsBefore = DB::table('commercial_subscription_events')->count();
+
+        // Gross funds appear sufficient (1050 - 100), but the immutable
+        // tax/base allocation does not reconcile. No new provider refund,
+        // reservation, recovery request or local ledger entry may result.
+        $this->refund($f, 100, 'blocked-invalid-historical-components')->assertConflict();
+        Http::assertNotSent(fn ($request) => str_ends_with($request->url(), '/refunds'));
+        $this->assertDatabaseCount('subscription_credit_requests', 1);
+        $this->assertDatabaseCount('subscription_credits', 1);
+        $this->assertSame($before, DB::table('commercial_subscription_ledger')->count());
+        $this->assertSame($eventsBefore, DB::table('commercial_subscription_events')->count());
+    }
+
+    public function test_private_credit_detail_reconciles_exact_components_and_journal_without_writes(): void
+    {
+        $f = $this->fixture();
+        $issued = $this->refund($f, 200, 'audited-exact-source')
+            ->assertCreated()->json('credit');
+        $url = '/subscription-credit-test/commercial/subscription-credits/'.$issued['id'];
+        $beforeEntries = DB::table('commercial_subscription_ledger')->count();
+        $beforeCredits = DB::table('subscription_credits')->count();
+
+        $this->actingAs($f[0])->getJson($url)
+            ->assertOk()
+            ->assertJsonPath('credit.amount_minor', 200)
+            ->assertJsonCount(3, 'entries')
+            ->assertJsonPath('subscription.ledger_balanced', true)
+            ->assertJsonPath('real_payment_processed', false);
+
+        $this->assertSame($beforeEntries,
+            DB::table('commercial_subscription_ledger')->count());
+        $this->assertSame($beforeCredits, DB::table('subscription_credits')->count());
+        Http::assertNothingSent();
+    }
+
     public function test_partial_and_full_refunds_allocate_exactly_without_mutating_invoice_or_receipt(): void
     {
         $f = $this->fixture();
@@ -178,6 +286,30 @@ class SubscriptionCreditTest extends TestCase
         $this->assertDatabaseCount('subscription_credits', 1);
     }
 
+    public function test_credit_pagination_validates_exact_page_after_tenant_authority_and_never_caches_refunds(): void
+    {
+        $f = $this->fixture();
+        $this->refund($f, 100, 'private-credit-history')
+            ->assertCreated()->assertHeader('Cache-Control', 'no-store, private');
+        $ledgerBefore = DB::table('commercial_subscription_ledger')->count();
+        $this->actingAs($f[1])->getJson($f[5].'?page=1')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('current_page', 1)->assertJsonCount(1, 'data');
+        $this->getJson($f[5].'?page=10000')->assertOk()
+            ->assertJsonPath('current_page', 10000)->assertJsonCount(0, 'data');
+        foreach (['0', '-1', 'abc', '1e5', '100001'] as $bad) {
+            $this->getJson($f[5].'?page='.urlencode($bad))
+                ->assertUnprocessable();
+        }
+        $stranger = User::factory()->create(['role' => 'customer']);
+        $this->actingAs($stranger)->getJson($f[5].'?page=0')
+            ->assertNotFound();
+        $this->assertSame($ledgerBefore,
+            DB::table('commercial_subscription_ledger')->count());
+        $this->assertDatabaseCount('subscription_credits', 1);
+        Http::assertNothingSent();
+    }
+
     public function test_only_administrators_can_refund_and_credit_reads_preserve_tenant_isolation(): void
     {
         $f = $this->fixture();
@@ -270,6 +402,18 @@ class SubscriptionCreditTest extends TestCase
         $this->webhook($object)->assertOk()->assertJsonPath('duplicate', false);
         $this->webhook($object)->assertOk()->assertJsonPath('duplicate', true);
         $this->webhook(array_replace($object, ['amount' => 1049]))->assertConflict();
+
+        // An explicit malformed identity on a new signed event must not
+        // fall back to the already observed provider reference.
+        $before = DB::table('commercial_subscription_ledger')->count();
+        foreach ([false, 1.5, '0', '-1', '1e3', '9007199254740992',
+            '999999999999999999999999', null] as $i => $unsafe) {
+            $this->webhook(array_replace($object, [
+                'metadata' => ['creabiz_recovery' => $unsafe],
+            ]), 'evt_BadRecoveryIdentity'.$i)->assertConflict();
+        }
+        $this->assertDatabaseCount('subscription_credit_webhooks', 1);
+        $this->assertSame($before, DB::table('commercial_subscription_ledger')->count());
         $this->assertDatabaseCount('subscription_credits', 1);
         $this->assertDatabaseHas('payment_recovery_intents', ['id' => $recoveryId, 'status' => 'completed']);
         $this->assertFalse(app(SubscriptionService::class)->summary($f[2])['entitlements_active']);

@@ -265,6 +265,43 @@ class CorporateHostedCollectionTest extends TestCase
         $this->assertDatabaseCount('corporate_hosted_checkouts', 1);
     }
 
+    public function test_capture_rechecks_original_statement_and_checkout_amount_before_provider_io(): void
+    {
+        $f = $this->f();
+        $this->stripe();
+        $statement = $f['statement'];
+        $lines = DB::table('corporate_statement_lines')
+            ->where('statement_id', $statement->id)->orderBy('invoice_id')->get();
+        $source = app(CorporateBilling::class)->statement($statement->id, $f['owner']->id);
+
+        // Exercise a malformed in-memory source without rewriting
+        // the immutable checkout record or disabling database triggers.
+        $valid = $this->stripeCreate($f);
+        $original = DB::table('corporate_hosted_checkouts')->find($valid['id']);
+        $service = app(CorporateHostedCollection::class);
+        $invoiceMap = collect($f['invoices'])->keyBy('id')->all();
+        $preflight = new \ReflectionMethod($service, 'validateCollectionSource');
+        $preflight->invoke($service, $statement, $lines, $invoiceMap, $original);
+        $bad = clone $original;
+        $bad->amount_minor = 2101;
+
+        $before = DB::table('finance_journals')->count();
+        $this->fake(fn () => Http::response($this->pi($valid, 'succeeded')));
+        try {
+            $preflight->invoke($service, $statement, $lines, $invoiceMap, $bad);
+            $this->fail('Inconsistent checkout source was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+
+        Http::assertNothingSent();
+        $this->assertSame($source['line_fingerprint'], $original->line_fingerprint);
+        $this->assertDatabaseCount('corporate_hosted_operations', 0);
+        $this->assertDatabaseCount('corporate_receipts', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
     public function test_stripe_contract_authorizes_captures_and_allocates_one_original_statement(): void
     {
         $f = $this->f();

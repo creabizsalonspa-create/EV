@@ -15,9 +15,11 @@ class SubscriptionCreditController extends Controller
         return DB::transaction(function () use ($r, $subscription, $service) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
             $service->access($actor, $subscription);
+            $page = $r->validate(['page' => 'sometimes|integer|between:1,100000']);
 
             return response()->json(DB::table('subscription_credits')
-                ->where('subscription_id', $subscription)->orderByDesc('id')->paginate(25))
+                ->where('subscription_id', $subscription)->orderByDesc('id')
+                ->paginate(25, ['*'], 'page', (int) ($page['page'] ?? 1)))
                 ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
