@@ -78,6 +78,7 @@ class CompleteApiAuthenticationInventoryTest extends TestCase
         'POST api/v1/register',
         'POST api/webhooks/payouts/stripe-test',
         'PUT api/internal/diagnostic-logs/{operation}',
+        'PUT api/internal/diagnostic-logs/{operation}/{filename}',
     ];
 
     public function test_every_api_route_is_authenticated_or_in_reviewed_public_inventory(): void

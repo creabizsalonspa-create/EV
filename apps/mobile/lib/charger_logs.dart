@@ -4,6 +4,37 @@ import 'package:crypto/crypto.dart';
 import 'api.dart';
 import 'strings.dart';
 
+Map<String, dynamic> parseDiagnosticLogPage(dynamic value) {
+  if (value is! Map ||
+      value['can_request'] is! bool ||
+      value['can_manage'] is! bool ||
+      value['maximum_file_bytes'] != 524288 ||
+      value['upload_lifetime_seconds'] != 900 ||
+      value['file_retention_seconds'] != 86400 ||
+      ![
+        'SIMULATED_SOURCE',
+        'AUTHENTICATED_SOURCE',
+      ].contains(value['evidence']) ||
+      value['charging_capacity_changed'] != false ||
+      value['data'] is! List)
+    throw const FormatException('Unexpected log capability');
+  for (final row in value['data']) {
+    if (row is! Map ||
+        row['id'] is! int ||
+        row['id'] <= 0 ||
+        row['id'] > 9007199254740991 ||
+        !['1.6', '2.0.1'].contains(row['protocol']) ||
+        ![
+          'SIMULATED_SOURCE',
+          'AUTHENTICATED_SOURCE',
+        ].contains(row['evidence']) ||
+        row['physical_device_verified'] != false ||
+        row['can_download'] is! bool)
+      throw const FormatException('Invalid log receipt');
+  }
+  return Map<String, dynamic>.from(value);
+}
+
 class ChargerLogsView extends StatefulWidget {
   final EvApi api;
   final int companyId, chargerId;
@@ -24,7 +55,20 @@ class ChargerLogsView extends StatefulWidget {
 class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
   Map<String, dynamic>? data, pending;
   Object? error;
-  bool busy = false;
+  bool busy = false, foreground = true;
+  late bool Function() owner;
+  bool current(int epoch) =>
+      mounted && foreground && epoch == generation && owner();
+  bool acceptsFailure(Object e, int epoch) =>
+      mounted &&
+      foreground &&
+      epoch == generation &&
+      (owner() || e is ApiException && e.endsCurrentSession);
+  bool ownsRow(Map row) {
+    final rows = data?['data'];
+    return rows is List && rows.any((item) => identical(item, row));
+  }
+
   int generation = 0, page = 1;
   String get path =>
       'vendor-ops/companies/${widget.companyId}/chargers/${widget.chargerId}/diagnostic-logs';
@@ -33,6 +77,7 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    owner = widget.api.sessionFence();
     WidgetsBinding.instance.addObserver(this);
     load();
   }
@@ -40,6 +85,9 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
   @override
   void dispose() {
     generation++;
+    data = null;
+    pending = null;
+    error = null;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -52,6 +100,7 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
         old.chargerId != widget.chargerId ||
         old.repairOrderId != widget.repairOrderId) {
       generation++;
+      owner = widget.api.sessionFence();
       data = null;
       pending = null;
       page = 1;
@@ -61,47 +110,28 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) {
-      generation++;
+    generation++;
+    if (mounted)
       setState(() {
+        foreground = state == AppLifecycleState.resumed;
         data = null;
         busy = false;
         error = null;
       });
-    }
   }
 
   void failed(Object e) {
+    busy = false;
     error = e;
-    if (e is ApiException && [401, 403, 404, 419].contains(e.status)) {
+    if (e is ApiException && [401, 403, 404, 409, 419].contains(e.status)) {
       data = null;
-      pending = null;
+      if (e.status != 409) pending = null;
       if ([401, 419].contains(e.status)) widget.onExpired();
     }
   }
 
-  Map<String, dynamic> parse(dynamic value) {
-    if (value is! Map ||
-        value['can_request'] is! bool ||
-        value['can_manage'] is! bool ||
-        value['maximum_file_bytes'] != 524288 ||
-        value['evidence'] != 'SIMULATED_SOURCE' ||
-        value['charging_capacity_changed'] != false ||
-        value['data'] is! List)
-      throw const FormatException('Unexpected log capability');
-    for (final row in value['data']) {
-      if (row is! Map ||
-          row['id'] is! int ||
-          row['id'] <= 0 ||
-          row['evidence'] != 'SIMULATED_SOURCE' ||
-          row['physical_device_verified'] != false ||
-          row['can_download'] is! bool)
-        throw const FormatException('Invalid log receipt');
-    }
-    return Map<String, dynamic>.from(value);
-  }
-
   Future<void> load() async {
+    if (!foreground || !owner()) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -109,7 +139,7 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
       error = null;
     });
     try {
-      final v = parse(
+      final v = parseDiagnosticLogPage(
         await widget.api.request(
           path,
           query: {
@@ -119,28 +149,28 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
           },
         ),
       );
-      if (mounted && epoch == generation) setState(() => data = v);
+      if (current(epoch)) setState(() => data = v);
     } catch (e) {
-      if (mounted && epoch == generation) setState(() => failed(e));
+      if (acceptsFailure(e, epoch)) setState(() => failed(e));
     } finally {
       if (mounted && epoch == generation) setState(() => busy = false);
     }
   }
 
   Future<void> create() async {
-    if (busy || pending != null || data?['can_request'] != true) return;
+    if (busy ||
+        !foreground ||
+        !owner() ||
+        pending != null ||
+        data?['can_request'] != true)
+      return;
     final epoch = generation;
     final note = await showDialog<String>(
       context: context,
       builder: (_) =>
           _LogReason(ar: Localizations.localeOf(context).languageCode == 'ar'),
     );
-    if (!mounted ||
-        epoch != generation ||
-        note == null ||
-        busy ||
-        pending != null)
-      return;
+    if (!current(epoch) || note == null || busy || pending != null) return;
     pending = {
       'request_key': operationKey(),
       'reason': note,
@@ -150,18 +180,23 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
   }
 
   Future<void> send() async {
-    if (busy || pending == null || data?['can_request'] != true) return;
+    if (busy ||
+        !foreground ||
+        !owner() ||
+        pending == null ||
+        data?['can_request'] != true)
+      return;
     final epoch = ++generation;
     final intent = Map<String, dynamic>.from(pending!);
     setState(() => busy = true);
     try {
       await widget.api.request(path, method: 'POST', body: intent);
-      if (!mounted || epoch != generation) return;
+      if (!current(epoch)) return;
       pending = null;
     } catch (e) {
-      if (mounted && epoch == generation) setState(() => failed(e));
+      if (acceptsFailure(e, epoch)) setState(() => failed(e));
     } finally {
-      if (mounted && epoch == generation) {
+      if (current(epoch)) {
         setState(() => busy = false);
         await load();
       }
@@ -169,7 +204,13 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
   }
 
   Future<void> act(Map row, bool cancel) async {
-    if (busy) return;
+    if (busy ||
+        !foreground ||
+        !owner() ||
+        !ownsRow(row) ||
+        data?['can_manage'] != true)
+      return;
+    final beforeDialog = generation;
     if (cancel) {
       final ok = await showDialog<bool>(
         context: context,
@@ -198,7 +239,7 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
           ],
         ),
       );
-      if (!mounted || ok != true) return;
+      if (!current(beforeDialog) || ok != true) return;
     }
     final epoch = ++generation;
     setState(() => busy = true);
@@ -208,19 +249,24 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
         method: cancel ? 'DELETE' : 'POST',
         body: cancel ? null : {},
       );
-      if (mounted && epoch == generation) {
+      if (current(epoch)) {
         setState(() => busy = false);
         await load();
       }
     } catch (e) {
-      if (mounted && epoch == generation) setState(() => failed(e));
+      if (acceptsFailure(e, epoch)) setState(() => failed(e));
     } finally {
       if (mounted && epoch == generation) setState(() => busy = false);
     }
   }
 
   Future<void> save(Map row) async {
-    if (busy || row['can_download'] != true) return;
+    if (busy ||
+        !foreground ||
+        !owner() ||
+        !ownsRow(row) ||
+        row['can_download'] != true)
+      return;
     final expected = row['file_sha256'];
     final size = row['file_size'];
     if (expected is! String ||
@@ -239,7 +285,7 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
           doc.bytes.length != size ||
           sha256.convert(doc.bytes).toString() != expected)
         throw const FormatException('Diagnostic integrity mismatch');
-      if (!mounted || epoch != generation) return;
+      if (!current(epoch)) return;
       await FilePicker.platform.saveFile(
         dialogTitle: tr(
           'Save private diagnostic file',
@@ -251,7 +297,7 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
         bytes: doc.bytes,
       );
     } catch (e) {
-      if (mounted && epoch == generation) setState(() => failed(e));
+      if (acceptsFailure(e, epoch)) setState(() => failed(e));
     } finally {
       if (mounted && epoch == generation) setState(() => busy = false);
     }
@@ -280,145 +326,163 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
       children: [
         Text(
           tr(
-            'Private simulator logs. Uploads expire after 15 minutes; stored content after 24 hours. OCPP 1.6 upload-status notifications have no request ID and remain unattributed. Exports are saved under your device control.',
-            'سجلات محاكي خاصة. تنتهي صلاحية الرفع بعد ١٥ دقيقة والمحتوى المخزن بعد ٢٤ ساعة. إشعارات رفع OCPP 1.6 بلا معرّف طلب وتبقى غير منسوبة. تُحفظ الملفات المصدرة تحت تحكم جهازك.',
+            'Private diagnostic files. Each record identifies simulated or authenticated-source evidence; neither proves physical hardware or changes charging capacity. Uploads expire after 15 minutes; stored content after 24 hours. OCPP 1.6 upload-status notifications remain unattributed. Exports are saved under your device control.',
+            'ملفات تشخيص خاصة. يحدد كل سجل دليلاً من محاكاة أو مصدر مصادق؛ ولا يثبت أي منهما الأجهزة الفعلية أو يغير سعة الشحن. تنتهي صلاحية الرفع بعد ١٥ دقيقة والمحتوى بعد ٢٤ ساعة. تبقى إشعارات رفع OCPP 1.6 غير منسوبة. تُحفظ الملفات المصدرة تحت تحكم جهازك.',
           ),
         ),
-        if (busy) const LinearProgressIndicator(),
-        if (error != null) Text(EvStrings.of(context).t(errorKey(error!))),
-        TextButton(
-          onPressed: busy ? null : load,
-          child: Text(tr('Refresh diagnostic history', 'تحديث سجل التشخيص')),
-        ),
-        if (pending != null) ...[
+        if (!foreground || !owner())
           Text(
             tr(
-              'Request outcome unknown. Refresh history or resolve the original identity; no automatic redispatch.',
-              'نتيجة الطلب غير معلومة. حدّث السجل أو تحقّق من المعرّف الأصلي؛ لا إعادة إرسال تلقائية.',
+              'Private diagnostic history hidden. Return to your inventory to continue.',
+              'سجل التشخيص الخاص مخفي. ارجع إلى المخزون للمتابعة.',
             ),
-          ),
+          )
+        else ...[
+          if (busy) const LinearProgressIndicator(),
+          if (error != null) Text(EvStrings.of(context).t(errorKey(error!))),
           TextButton(
-            onPressed: busy || data?['can_request'] != true ? null : send,
-            child: Text(
-              tr('Resolve diagnostic request', 'التحقق من طلب التشخيص'),
-            ),
+            onPressed: busy ? null : load,
+            child: Text(tr('Refresh diagnostic history', 'تحديث سجل التشخيص')),
           ),
-          if (data != null)
+          if (pending != null) ...[
+            Text(
+              tr(
+                'Request outcome unknown. Refresh history or resolve the original identity; no automatic redispatch.',
+                'نتيجة الطلب غير معلومة. حدّث السجل أو تحقّق من المعرّف الأصلي؛ لا إعادة إرسال تلقائية.',
+              ),
+            ),
             TextButton(
-              onPressed: busy ? null : () => setState(() => pending = null),
+              onPressed: busy || data?['can_request'] != true ? null : send,
               child: Text(
-                tr(
-                  'Clear pending form after reviewing history',
-                  'مسح النموذج المعلق بعد مراجعة السجل',
+                tr('Resolve diagnostic request', 'التحقق من طلب التشخيص'),
+              ),
+            ),
+            if (data != null)
+              TextButton(
+                onPressed: busy ? null : () => setState(() => pending = null),
+                child: Text(
+                  tr(
+                    'Clear pending form after reviewing history',
+                    'مسح النموذج المعلق بعد مراجعة السجل',
+                  ),
+                ),
+              ),
+          ],
+          if (data?['can_request'] == true && pending == null)
+            TextButton(
+              onPressed: busy ? null : create,
+              child: Text(tr('Request diagnostic file', 'طلب ملف تشخيص')),
+            ),
+          for (final row in data?['data'] as List? ?? [])
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('#${row['id']} · OCPP ${row['protocol']}'),
+                    Text(
+                      row['evidence'] == 'AUTHENTICATED_SOURCE'
+                          ? tr(
+                              'Authenticated source record; hardware unverified',
+                              'سجل مصدر مصادق؛ الأجهزة غير متحققة',
+                            )
+                          : tr('Simulated source record', 'سجل مصدر محاكى'),
+                    ),
+                    Text(stateLabel(row['dispatch_state'])),
+                    Text(
+                      '${tr('Upload expires', 'تنتهي صلاحية الرفع')}: ${row['expires_at']}',
+                    ),
+                    if (row['expired'] == true)
+                      Text(tr('Upload expired', 'انتهت صلاحية الرفع')),
+                    if (row['cancelled_at'] != null)
+                      Text(
+                        tr(
+                          'Upload revoked; stored content removed',
+                          'أُلغيت صلاحية الرفع وحُذف المحتوى المخزن',
+                        ),
+                      ),
+                    if (row['accepted_at'] != null)
+                      Text(
+                        tr(
+                          'Correlated source acceptance observed',
+                          'رُصد قبول منسوب للمصدر',
+                        ),
+                      ),
+                    if (row['device_status'] == 'legacy_status_unattributed')
+                      Text(
+                        tr(
+                          'Legacy upload status is unattributed',
+                          'حالة الرفع القديمة غير منسوبة',
+                        ),
+                      ),
+                    if (row['source_status_at'] != null)
+                      Text(
+                        '${tr('Correlated source status', 'حالة المصدر المنسوبة')}: ${row['device_status']}',
+                      ),
+                    if (row['file_received_at'] != null)
+                      Text(
+                        '${tr('File received', 'تم استلام الملف')}: ${row['file_size']} B · ${row['file_expires_at']}',
+                      ),
+                    if (data?['can_manage'] == true)
+                      TextButton(
+                        onPressed: busy || row['cancelled_at'] != null
+                            ? null
+                            : () => act(row, false),
+                        child: Text(
+                          tr('Inspect diagnostic source', 'فحص مصدر التشخيص'),
+                        ),
+                      ),
+                    if (row['can_download'] == true)
+                      TextButton(
+                        onPressed: busy ? null : () => save(row),
+                        child: Text(
+                          tr(
+                            'Save private diagnostic file',
+                            'حفظ ملف التشخيص الخاص',
+                          ),
+                        ),
+                      ),
+                    if (data?['can_manage'] == true &&
+                        row['cancelled_at'] == null)
+                      TextButton(
+                        onPressed: busy ? null : () => act(row, true),
+                        child: Text(
+                          tr(
+                            'Revoke upload and remove file',
+                            'إلغاء صلاحية الرفع وحذف الملف',
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
-        ],
-        if (data?['can_request'] == true && pending == null)
-          TextButton(
-            onPressed: busy ? null : create,
-            child: Text(tr('Request diagnostic file', 'طلب ملف تشخيص')),
-          ),
-        for (final row in data?['data'] as List? ?? [])
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('#${row['id']} · OCPP ${row['protocol']}'),
-                  Text(stateLabel(row['dispatch_state'])),
-                  Text(
-                    '${tr('Upload expires', 'تنتهي صلاحية الرفع')}: ${row['expires_at']}',
-                  ),
-                  if (row['expired'] == true)
-                    Text(tr('Upload expired', 'انتهت صلاحية الرفع')),
-                  if (row['cancelled_at'] != null)
-                    Text(
-                      tr(
-                        'Upload revoked; stored content removed',
-                        'أُلغيت صلاحية الرفع وحُذف المحتوى المخزن',
-                      ),
-                    ),
-                  if (row['accepted_at'] != null)
-                    Text(
-                      tr(
-                        'Canonical device acceptance observed',
-                        'تم رصد قبول الجهاز من المصدر',
-                      ),
-                    ),
-                  if (row['device_status'] == 'legacy_status_unattributed')
-                    Text(
-                      tr(
-                        'Legacy upload status is unattributed',
-                        'حالة الرفع القديمة غير منسوبة',
-                      ),
-                    ),
-                  if (row['source_status_at'] != null)
-                    Text(
-                      '${tr('Correlated source status', 'حالة المصدر المنسوبة')}: ${row['device_status']}',
-                    ),
-                  if (row['file_received_at'] != null)
-                    Text(
-                      '${tr('File received', 'تم استلام الملف')}: ${row['file_size']} B · ${row['file_expires_at']}',
-                    ),
-                  TextButton(
-                    onPressed: busy || row['cancelled_at'] != null
-                        ? null
-                        : () => act(row, false),
-                    child: Text(
-                      tr('Inspect diagnostic source', 'فحص مصدر التشخيص'),
-                    ),
-                  ),
-                  if (row['can_download'] == true)
-                    TextButton(
-                      onPressed: busy ? null : () => save(row),
-                      child: Text(
-                        tr(
-                          'Save private diagnostic file',
-                          'حفظ ملف التشخيص الخاص',
-                        ),
-                      ),
-                    ),
-                  if (data?['can_manage'] == true &&
-                      row['cancelled_at'] == null)
-                    TextButton(
-                      onPressed: busy ? null : () => act(row, true),
-                      child: Text(
-                        tr(
-                          'Revoke upload and remove file',
-                          'إلغاء صلاحية الرفع وحذف الملف',
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+          if (data != null)
+            Row(
+              children: [
+                TextButton(
+                  onPressed: busy || page <= 1
+                      ? null
+                      : () {
+                          page--;
+                          load();
+                        },
+                  child: Text(tr('Previous', 'السابق')),
+                ),
+                Text('$page / ${data!['last_page']}'),
+                TextButton(
+                  onPressed: busy || page >= data!['last_page']
+                      ? null
+                      : () {
+                          page++;
+                          load();
+                        },
+                  child: Text(tr('Next', 'التالي')),
+                ),
+              ],
             ),
-          ),
-        if (data != null)
-          Row(
-            children: [
-              TextButton(
-                onPressed: busy || page <= 1
-                    ? null
-                    : () {
-                        page--;
-                        load();
-                      },
-                child: Text(tr('Previous', 'السابق')),
-              ),
-              Text('$page / ${data!['last_page']}'),
-              TextButton(
-                onPressed: busy || page >= data!['last_page']
-                    ? null
-                    : () {
-                        page++;
-                        load();
-                      },
-                child: Text(tr('Next', 'التالي')),
-              ),
-            ],
-          ),
+        ],
       ],
     ),
   );

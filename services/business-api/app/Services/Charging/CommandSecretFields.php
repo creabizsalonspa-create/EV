@@ -18,6 +18,22 @@ final class CommandSecretFields
         return in_array($name, ['idtoken', 'idtag', 'token', 'accesstoken', 'refreshtoken', 'authorization', 'secret', 'clientsecret', 'apikey', 'privatekey', 'password', 'xhasuraadminsecret', 'signature'], true);
     }
 
+    /** URI userinfo is reusable authority even under protocol-defined URL keys. */
+    public static function credentialUri(mixed $value): bool
+    {
+        if (! is_string($value)) {
+            return false;
+        }
+        $uri = parse_url($value);
+
+        return is_array($uri) && isset($uri['scheme'], $uri['host']) && (array_key_exists('user', $uri) || array_key_exists('pass', $uri));
+    }
+
+    private static function protectedValue(string|int $key, mixed $value): bool
+    {
+        return self::secretKey($key) || self::credentialUri($value) || (is_array($value) && array_key_exists(self::MARKER, $value));
+    }
+
     public static function read(?string $json, array $attributes, string $field): mixed
     {
         return self::walk(self::json($json), $attributes, [$field], false);
@@ -37,7 +53,7 @@ final class CommandSecretFields
                 return;
             }
             foreach ($value as $key => $child) {
-                if (self::secretKey($key)) {
+                if (self::protectedValue($key, $child)) {
                     $counts[is_array($child) && array_key_exists(self::MARKER, $child) ? 'encrypted_fields' : 'legacy_fields']++;
                 } else {
                     $count($child);
@@ -92,7 +108,7 @@ final class CommandSecretFields
         }
         foreach ($data as $key => $value) {
             $child = [...$path, $key];
-            if (! self::secretKey($key)) {
+            if (! self::protectedValue($key, $value)) {
                 $data[$key] = self::walk($value, $attributes, $child, $seal, $rekey);
 
                 continue;

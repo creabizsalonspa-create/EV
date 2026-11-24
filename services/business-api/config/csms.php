@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'production_diagnostics_enabled' => env('CSMS_PRODUCTION_DIAGNOSTICS_ENABLED', false),
+    'production_diagnostic_upload_origin' => env('CSMS_PRODUCTION_DIAGNOSTIC_UPLOAD_ORIGIN'),
     'upstream_registration_enabled' => env('CSMS_UPSTREAM_REGISTRATION_ENABLED', false),
     'upstream_registration_allow_local_http' => env('CSMS_UPSTREAM_REGISTRATION_ALLOW_LOCAL_HTTP', false),
     // Explicit production service identity. No discovery/JWKS fetch or dev fallback.

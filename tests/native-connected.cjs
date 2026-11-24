@@ -35,7 +35,7 @@ const { spawnSync } = require("node:child_process");
     ["native-privacy"], // three ordinary bearer logins; canonical private rights requests, no erasure
     ["native-operating-calendar"], // six fixture/browser + three native logins; same production limit
     ["native-financial-analytics"], // 3 logins, separate unchanged authentication window
-    ["native-fleet-pagination"], // 3 identities; operational pages only, own unchanged auth window
+    ["native-fleet-pagination", "native-source-registration"], // 4 identities; retained registration snapshots are read-only
     ["native-account-recovery"], // synthetic password reset; isolated identity and single-use token
     ["native-vendor-session-observations"], // two identities; delegated read-only scope, own unchanged window
     ["native-subscription-preview"], // 2 cookie logins plus a negative Admin-token GET; own window

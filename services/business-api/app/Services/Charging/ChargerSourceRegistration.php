@@ -99,11 +99,11 @@ final class ChargerSourceRegistration
         }
     }
 
-    private function lineage(object $row, VendorCharger $charger, Station $station): object
+    private function lineage(object $row, VendorCharger $charger, Station $station, bool $currentSource = true): object
     {
         $binding = DB::table('csms_bindings')->where('id', $row->binding_id)->lockForUpdate()->first();
         $profile = AdmissionProfile::whereKey($row->profile_id)->lockForUpdate()->first();
-        abort_unless($binding && $profile && $row->charger_id === $charger->id && $profile->charger_id === $charger->id && $binding->vendor_charger_id === $charger->id && $binding->station_id === $station->id && $binding->identifier === $profile->identity && $binding->protocol === $charger->ocpp_protocol && $profile->protocol === $charger->ocpp_protocol && hash_equals($row->source_generation, $this->source(false)), 409, 'Canonical registration mapping or authenticated source changed.');
+        abort_unless($binding && $profile && $row->charger_id === $charger->id && $profile->charger_id === $charger->id && $binding->vendor_charger_id === $charger->id && $binding->station_id === $station->id && $binding->identifier === $profile->identity && $binding->protocol === $charger->ocpp_protocol && $profile->protocol === $charger->ocpp_protocol && (! $currentSource || hash_equals($row->source_generation, $this->source(false))), 409, 'Canonical registration mapping or authenticated source changed.');
 
         $hash = hash('sha256', json_encode([$charger->company_id, $station->vendor_id, $charger->id, $station->id, $binding->identifier, $charger->ocpp_protocol, $charger->manufacturer, $charger->model, $row->source_generation], JSON_THROW_ON_ERROR));
         abort_unless(hash_equals($row->payload_hash, $hash), 409, 'Prepared registration inventory changed; retain the original request for review.');
@@ -137,10 +137,10 @@ final class ChargerSourceRegistration
         return array_intersect_key($row, array_flip(['id', 'tenantId', 'ocppConnectionName', 'protocol', 'isOnline', 'chargePointVendor', 'chargePointModel']));
     }
 
-    public function verified(VendorCompany $company, VendorCharger $charger): bool
+    public function verified(VendorCompany $company, VendorCharger $charger, bool $currentSource = true): bool
     {
         try {
-            return DB::transaction(function () use ($company, $charger) {
+            return DB::transaction(function () use ($company, $charger, $currentSource) {
                 $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                 $charger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
                 if ($charger->company_id !== $company->id) {
@@ -152,7 +152,7 @@ final class ChargerSourceRegistration
                 if (! $row || ! $station || $site->company_id !== $company->id || $station->vendor_id !== $company->owner_id) {
                     return false;
                 }
-                $this->lineage($row, $charger, $station);
+                $this->lineage($row, $charger, $station, $currentSource);
 
                 return true;
             });
