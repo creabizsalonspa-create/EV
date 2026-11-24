@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'financial_operation_store.dart';
@@ -164,6 +165,12 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
   };
   final reason = TextEditingController();
   late bool Function() authorized;
+  StreamSubscription<int>? sessionSubscription;
+  bool get active => mounted && foreground && authorized();
+  VoidCallback guard(VoidCallback callback) {
+    final ticket = generation, api = widget.api;
+    return () { if (current(ticket) && identical(api,widget.api) && !busy) callback(); };
+  }
   late FinancialOperationStore store;
   FinancialOperation? operation;
   ApiPage<Map<String, dynamic>>? records, packages, stations;
@@ -187,13 +194,28 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
     super.initState();
     authorized = widget.api.sessionFence();
     store = widget.operationStore ?? DeviceFinancialOperationStore();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    load();
+    subscribe();
+    if (active) load();
   }
 
-  void clearPrivate() {
+  void subscribe() {
+    final api = widget.api;
+    sessionSubscription = api.sessionEvents.listen((_) {
+      if (mounted && identical(api,widget.api) && !authorized()) {
+        setState(() => clearPrivate(invalidateRequest: false));
+      }
+    });
+  }
+
+  void clearPrivate({bool invalidateRequest = true}) {
     FocusManager.instance.primaryFocus?.unfocus();
-    generation++;
+    if (invalidateRequest) generation++;
+    creating = false;
+    pageNumber = packagePage = stationPage = 1;
+    placement = 'discovery_banner';
     records = null;
     packages = null;
     stations = null;
@@ -218,14 +240,20 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
   @override
   void didUpdateWidget(covariant VendorCampaignsView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.api != widget.api || !authorized()) {
+    if (!identical(oldWidget.api,widget.api)) {
+      unawaited(sessionSubscription?.cancel());
       clearPrivate();
       authorized = widget.api.sessionFence();
+      store = widget.operationStore ?? DeviceFinancialOperationStore();
+      subscribe();
+    } else if (!authorized()) {
+      clearPrivate();
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
     foreground = state == AppLifecycleState.resumed;
     setState(() {
       if (!foreground) clearPrivate();
@@ -236,6 +264,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
   void dispose() {
     generation++;
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(sessionSubscription?.cancel());
     for (final controller in fields.values) {
       controller.dispose();
     }
@@ -244,7 +273,11 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
   }
 
   void failure(Object e, int request) {
-    if (!current(request)) return;
+    if (!current(request)) {
+      if (mounted && foreground && generation == request &&
+          e is ApiException && e.endsCurrentSession) widget.onExpired();
+      return;
+    }
     if (e is ApiException && [401, 419].contains(e.status)) {
       widget.onExpired();
       return;
@@ -258,8 +291,8 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
   }
 
   Future<void> load({int? id}) async {
-    if (!foreground || !authorized()) return;
-    final request = ++generation;
+    if (!active) return;
+    final request = ++generation, api = widget.api;
     setState(() {
       busy = true;
       error = null;
@@ -276,9 +309,9 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
       reason.clear();
     });
     try {
-      final me = await widget.api.request('me') as Map;
+      final me = await api.request('me') as Map;
       if (!current(request)) return;
-      if (me['id'] is! int || me['role'] != 'vendor')
+      if (me['id'] is! int || (me['id'] as int) < 1 || me['role'] != 'vendor')
         throw const FormatException('Vendor access required.');
       final actor = me['id'] as int, actorRole = me['role'] as String;
       FinancialOperation? journal;
@@ -292,13 +325,15 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               fence() && foreground && identical(sourceApi, widget.api),
         );
         await journal.restore();
+        if (!current(request)) return;
         if (journal.pending != null)
           nativeCampaignIntent(journal.pending!['body']);
       }
-      final raw = await widget.api.request(
+      final raw = await api.request(
         'commercial/campaigns',
         query: {'page': '$pageNumber'},
       );
+      if (!current(request)) return;
       final list = ApiPage.fromJson(
         raw,
         (row) => nativeCampaign(row, actor, actorRole),
@@ -308,7 +343,8 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
       ApiPage<Map<String, dynamic>>? availablePackages, ownedStations;
       if (id != null) {
         final receipt =
-            await widget.api.request('commercial/campaigns/$id') as Map;
+            await api.request('commercial/campaigns/$id') as Map;
+        if (!current(request)) return;
         selected = nativeCampaign(
           receipt['campaign'],
           actor,
@@ -324,7 +360,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
       }
       if (creating && actorRole == 'vendor') {
         availablePackages = ApiPage.fromJson(
-          await widget.api.request(
+          await api.request(
             'commercial/campaign-packages',
             query: {'page': '$packagePage'},
           ),
@@ -336,8 +372,9 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
             return row;
           },
         );
+        if (!current(request)) return;
         ownedStations = ApiPage.fromJson(
-          await widget.api.request(
+          await api.request(
             'commercial/campaign-stations',
             query: {'page': '$stationPage'},
           ),
@@ -380,9 +417,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
 
   Future<void> create({bool resolve = false}) async {
     final journal = operation;
-    if (busy ||
-        !authorized() ||
-        !foreground ||
+    if (busy || !active || !creating ||
         role != 'vendor' ||
         journal == null ||
         !consent ||
@@ -393,7 +428,8 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
       if (journal.pending != null) {
         body = nativeCampaignIntent(journal.pending!['body']);
       } else {
-        if (resolve) return;
+        if (resolve || packages == null || stations == null ||
+            !packages!.items.any((row) => row['invoice_id'] == invoiceId && row['campaign_eligible'] == true)) return;
         final station = stations!.items.firstWhere(
           (row) => row['id'] == stationId,
         );
@@ -527,13 +563,14 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
   };
   Future<void> act(String action) async {
     final row = detail, note = reason.text.trim();
-    if (row == null ||
+    if (row == null || !active || creating || !enabled ||
         busy ||
         !consent ||
         note.length < 5 ||
         note.length > 500 ||
         !actions(row).contains(action))
       return;
+    final reviewedGeneration = generation, api = widget.api;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -558,8 +595,8 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
     );
     if (confirmed != true ||
         !mounted ||
-        !foreground ||
-        !authorized() ||
+        !current(reviewedGeneration) || !identical(widget.api,api) ||
+        busy || !enabled || !consent || reason.text.trim() != note || creating ||
         detail?['id'] != row['id'] ||
         detail?['control_revision'] != row['control_revision'])
       return;
@@ -598,19 +635,22 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
   ) => Row(
     children: [
       TextButton(
-        onPressed: !busy && value > 1 ? () => select(value - 1) : null,
+        onPressed: !busy && value > 1 ? guard(() => select(value - 1)) : null,
         child: Text(t('Previous', 'السابق')),
       ),
       Text('$value / ${data.last}'),
       TextButton(
-        onPressed: !busy && value < data.last ? () => select(value + 1) : null,
+        onPressed: !busy && value < data.last ? guard(() => select(value + 1)) : null,
         child: Text(t('Next', 'التالي')),
       ),
     ],
   );
   @override
   Widget build(BuildContext context) {
-    final visible = foreground && authorized();
+    final visible = active;
+    final renderedGeneration = generation;
+    final renderedApi = widget.api;
+    bool editable() => current(renderedGeneration) && identical(renderedApi,widget.api) && !busy;
     final saved = visible ? operation?.pending : null;
     final row = visible ? detail : null;
     return Scaffold(
@@ -626,7 +666,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
             ),
           ),
           OutlinedButton(
-            onPressed: busy || !visible ? null : () => load(),
+            onPressed: busy || !visible ? null : guard(() { load(); }),
             child: Text(t('Refresh history', 'تحديث السجل')),
           ),
           if (busy && visible) const LinearProgressIndicator(),
@@ -643,10 +683,10 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
             OutlinedButton(
               onPressed: busy
                   ? null
-                  : () {
+                  : guard(() {
                       setState(() => creating = !creating);
                       load();
-                    },
+                    }),
               child: Text(
                 creating
                     ? t('Back to campaigns', 'العودة للحملات')
@@ -689,7 +729,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
                   ],
                   onChanged: busy
                       ? null
-                      : (value) => setState(() => invoiceId = value),
+                      : (value) { if (editable()) setState(() { invoiceId = value; consent = false; }); },
                 ),
                 pages(packages!, packagePage, (value) {
                   packagePage = value;
@@ -712,7 +752,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
                   ],
                   onChanged: busy
                       ? null
-                      : (value) => setState(() => stationId = value),
+                      : (value) { if (editable()) setState(() { stationId = value; consent = false; }); },
                 ),
                 pages(stations!, stationPage, (value) {
                   stationPage = value;
@@ -737,12 +777,13 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
                 ],
                 onChanged: busy
                     ? null
-                    : (value) => setState(() => placement = value!),
+                    : (value) { if (editable()) setState(() { placement = value!; consent = false; }); },
               ),
               for (final key in fields.keys)
                 TextField(
                   controller: fields[key],
                   enabled: !busy,
+                  onChanged: (_) { if (editable()) setState(() => consent = false); },
                   maxLength: key.startsWith('title')
                       ? 120
                       : key.startsWith('description')
@@ -781,7 +822,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               value: consent,
               onChanged: busy
                   ? null
-                  : (value) => setState(() => consent = value == true),
+                  : (value) { if (editable()) setState(() => consent = value == true); },
               title: Text(
                 t(
                   'I reviewed this exact campaign intent.',
@@ -790,7 +831,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               ),
             ),
             FilledButton(
-              onPressed: busy || !consent || !enabled ? null : () => create(),
+              onPressed: busy || !consent || !enabled ? null : guard(() { create(); }),
               child: Text(
                 saved == null
                     ? t('Create draft', 'إنشاء مسودة')
@@ -804,7 +845,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               OutlinedButton(
                 onPressed: busy || !consent
                     ? null
-                    : () => create(resolve: true),
+                    : guard(() { create(resolve: true); }),
                 child: Text(
                   t(
                     'Resolve saved creation: recover receipt or cancel unused intent',
@@ -813,7 +854,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
                 ),
               ),
           ],
-          if (row != null) ...[
+          if (row != null && !creating) ...[
             Text(row['title'] as String),
             Text('${row['title_ar']}'),
             Text('${row['status']} · #${row['id']}'),
@@ -840,6 +881,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               ),
             TextField(
               controller: reason,
+              onChanged: (_) { if (editable()) setState(() => consent = false); },
               maxLength: 500,
               enabled: !busy,
               decoration: InputDecoration(
@@ -853,7 +895,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               value: consent,
               onChanged: busy
                   ? null
-                  : (value) => setState(() => consent = value == true),
+                  : (value) { if (editable()) setState(() => consent = value == true); },
               title: Text(
                 t(
                   'I reviewed this campaign decision.',
@@ -865,7 +907,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               OutlinedButton(
                 onPressed: busy || !consent || !enabled
                     ? null
-                    : () => act(action),
+                    : guard(() { act(action); }),
                 child: Text(label(action)),
               ),
           ],
@@ -879,7 +921,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
                 trailing: TextButton(
                   onPressed: busy
                       ? null
-                      : () => load(id: campaign['id'] as int),
+                      : guard(() { load(id: campaign['id'] as int); }),
                   child: Text(t('Review', 'مراجعة')),
                 ),
               ),
