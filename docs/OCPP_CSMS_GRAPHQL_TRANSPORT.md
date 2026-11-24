@@ -41,3 +41,7 @@ The exact pull-request head must also pass the full GitHub business-platform, co
 ## Maintenance interlock (5.2.10 / 5.2.11)
 
 Reset and signed-firmware workflows share `ChargerResetController::idle()` before dispatch and before reviewing an existing operation hold. Its authenticated status query now includes `errorCode`. A latest `Available` receipt is insufficient for OCPP 1.6 without explicit `NoError`; OCPP 2.0.1 accepts null or `NoError` only. Invalid fault-code types and contradictory same-instant status/error receipts fail closed. A fault blocks new operation admission and leaves an existing reset/firmware hold unreviewed. The signed-firmware test double uses an approved HTTPS GraphQL origin; no plaintext exception is introduced. These are simulator-only source tests and require full exact-head hosted verification.
+
+## Durable upstream registration source generation (3.2.6 / 5.2.6)
+
+Every source lookup, single metadata mutation and read-back independently validates the exact URL against the generation recorded in the prepared registration and checks that upstream registration remains enabled. Changing to a different approved HTTPS origin after the initial lookup or write cannot produce a verified receipt. Adapter revocation during lookup prevents the mutation; revocation during read-back prevents receipt finalization. Any such interruption preserves the one-attempt inspection hold and never grants charger admission. Both OCPP protocols have regression cases; hosted CI and canonical integration remain required.
