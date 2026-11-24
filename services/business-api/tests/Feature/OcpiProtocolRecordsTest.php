@@ -9,6 +9,7 @@ use App\Services\Ocpi\CredentialExchange;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class OcpiProtocolRecordsTest extends TestCase
@@ -34,6 +35,51 @@ class OcpiProtocolRecordsTest extends TestCase
     private function cdr(array $s): array
     {
         return ['country_code' => 'NL', 'party_id' => 'ABC', 'id' => 'cdr-1', 'session_id' => $s['id'], 'last_updated' => $s['last_updated'], 'start_date_time' => $s['start_date_time'], 'end_date_time' => $s['end_date_time'], 'currency' => $s['currency'], 'total_energy' => $s['kwh'], 'total_time' => '1', 'total_cost' => $s['total_cost'], 'cdr_location' => ['id' => $s['location_id'], 'evse_uid' => $s['evse_uid'], 'connector_id' => $s['connector_id']], 'cdr_token' => ['uid' => 'PRIVATE-SOURCE-TAG']];
+    }
+
+    public function test_managed_pull_rejects_foreign_party_in_any_page_without_partial_ingestion(): void
+    {
+        [$provider] = $this->context();
+        $session = $this->sessionPayload();
+        $owner = User::findOrFail($provider->owner_id);
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://partner.example/sessions' => Http::response([
+                'status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => [$session],
+            ], 200, ['Link' => '<https://partner.example/sessions?page=2>; rel="next"']),
+            'https://partner.example/sessions?page=2' => Http::response([
+                'status_code' => 1000, 'timestamp' => now()->toISOString(),
+                'data' => [array_replace($session, ['party_id' => 'BAD', 'id' => 'foreign-session'])],
+            ]),
+        ]);
+        $this->actingAs($owner)->postJson('/api/ocpi/providers/'.$provider->id.'/sync/sessions')->assertConflict();
+        Http::assertSentCount(2);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('ocpi_session_meter_history', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertNull($provider->fresh()->last_synced_at);
+    }
+
+    public function test_managed_cdr_pull_rejects_foreign_country_and_preserves_accepted_session(): void
+    {
+        [$provider, $headers] = $this->context();
+        $session = $this->sessionPayload();
+        $this->putJson('/api/roaming-protocol/2.2.1/sessions/NL/ABC/session-1', $session, $headers)->assertCreated();
+        Http::preventStrayRequests();
+        $cdr = $this->cdr($session);
+        Http::fake([
+            'https://partner.example/cdrs' => Http::response([
+                'status_code' => 1000, 'timestamp' => now()->toISOString(),
+                'data' => [$cdr, array_replace($cdr, ['country_code' => 'AE', 'id' => 'foreign-cdr'])],
+            ]),
+        ]);
+        $this->actingAs(User::findOrFail($provider->owner_id))->withHeaders(['Authorization' => ''])
+            ->postJson('/api/ocpi/providers/'.$provider->id.'/sync/cdrs')->assertConflict();
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 1);
+        $this->assertSame('sessions', OcpiRecord::firstOrFail()->module);
+        $this->assertDatabaseCount('ocpi_record_receipts', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_authenticated_session_and_cdr_delivery_is_idempotent_and_visible_to_owned_operations(): void
