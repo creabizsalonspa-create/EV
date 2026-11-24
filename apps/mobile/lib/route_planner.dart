@@ -19,6 +19,51 @@ class RouteEnergyReview {
   bool? get firstExceeds => firstKm == null ? null : firstKm! > km + 1e-9;
 }
 
+double straightLineKm(GeoPoint a, GeoPoint b) {
+  const rad = math.pi / 180;
+  final dlat = (b.latitude-a.latitude)*rad;
+  final dlng = (b.longitude-a.longitude)*rad;
+  final h = math.pow(math.sin(dlat/2),2) +
+      math.cos(a.latitude*rad)*math.cos(b.latitude*rad)*math.pow(math.sin(dlng/2),2);
+  return 6371*2*math.asin(math.sqrt(h.clamp(0,1)));
+}
+
+class RouteEnergyCandidate {
+  final Station station;
+  final double km;
+  const RouteEnergyCandidate(this.station,this.km);
+}
+
+/// Current catalog page only; no availability or road reachability claim.
+List<RouteEnergyCandidate> routeEnergyCandidates(Map<String,String> raw,
+    GeoPoint? origin, List<Station> stations, {String connector = ''}) {
+  final review = routeEnergyReview(raw);
+  if (review == null || origin == null || stations.length > 25 ||
+      !['','CCS2','Type2','CHAdeMO'].contains(connector)) return [];
+  final counts = <int,int>{};
+  for(final s in stations) {
+    counts[s.id] = (counts[s.id] ?? 0)+1;
+  }
+  final results = <RouteEnergyCandidate>[];
+  for(final s in stations) {
+    final lat = s.latitude, lng = s.longitude;
+    if(s.id < 1 || s.id > 9007199254740991 || counts[s.id] != 1 ||
+       s.name.trim().isEmpty || !['SIMULATED','DISCOVERY_ONLY'].contains(s.source) ||
+       !['CCS2','Type2','CHAdeMO'].contains(s.connector) ||
+       (connector.isNotEmpty && s.connector != connector) ||
+       s.powerKw < 1 || s.powerKw > 1000 ||
+       lat == null || lng == null || !lat.isFinite || !lng.isFinite ||
+       lat.abs() > 90 || lng.abs() > 180) continue;
+    final km = straightLineKm(origin,GeoPoint(lat,lng));
+    if (km <= review.km+1e-9) results.add(RouteEnergyCandidate(s,km));
+  }
+  results.sort((a,b) {
+    final distance = a.km.compareTo(b.km);
+    return distance == 0 ? a.station.id.compareTo(b.station.id) : distance;
+  });
+  return results.take(5).toList(growable:false);
+}
+
 RouteEnergyReview? routeEnergyReview(Map<String, String> raw, {
   double? routeMeters, GeoPoint? origin, GeoPoint? firstStop,
 }) {
@@ -38,12 +83,7 @@ RouteEnergyReview? routeEnergyReview(Map<String, String> raw, {
   final km = budget/values['consumption']!*100;
   double? firstKm;
   if (origin != null && firstStop != null) {
-    const rad = math.pi/180;
-    final dlat = (firstStop.latitude-origin.latitude)*rad;
-    final dlng = (firstStop.longitude-origin.longitude)*rad;
-    final h = math.pow(math.sin(dlat/2),2) +
-        math.cos(origin.latitude*rad)*math.cos(firstStop.latitude*rad)*math.pow(math.sin(dlng/2),2);
-    firstKm = 6371*2*math.asin(math.sqrt(h.clamp(0,1)));
+    firstKm = straightLineKm(origin,firstStop);
   }
   final needed = routeMeters != null && routeMeters.isFinite &&
       routeMeters >= 0 && routeMeters <= 40000000
@@ -394,6 +434,8 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
       GeoPoint(stops.first.latitude!,stops.first.longitude!);
     final raw = {for(final e in energyFields.entries)e.key:e.value.text};
     final result = routeEnergyReview(raw, routeMeters:estimate?.meters, origin:origin, firstStop:first);
+    final candidates = awaitingFreshAccountCatalog ? <RouteEnergyCandidate>[] :
+        routeEnergyCandidates(raw,origin,widget.stations,connector:requiredConnector);
     String number(double n) => NumberFormat('0.0',EvStrings.of(context).arabic?'ar':'en').format(n);
     return ExpansionTile(
       key: const Key('journey-energy-review'),
@@ -447,6 +489,24 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
                   'تقدير المسار الكامل ضمن طاقة البداية المفترضة. لا يضمن ذلك الوصول.')),
             ] else Text(t('Preview a provider route for a whole-route energy estimate.',
               'عاين مسار المزود لتقدير طاقة المسار الكامل.')),
+            if(origin != null && !awaitingFreshAccountCatalog) ...[
+              Text(t('First-stop candidates from this result page (nearest straight-line distance first). Review a candidate in the existing charging-stop selector; nothing is selected automatically.',
+                'مرشحات التوقف الأول من صفحة النتائج الحالية (الأقرب بالمسافة الجوية أولاً). راجع المرشح في محدد توقفات الشحن؛ لا يُختار شيء تلقائياً.')),
+              if(candidates.isEmpty)
+                Text(t('No supported candidate on this page within the assumed straight-line range. Search another area or revise your assumptions.',
+                  'لا يوجد مرشح مدعوم في هذه الصفحة ضمن المدى الجوي المفترض. ابحث في منطقة أخرى أو راجع افتراضاتك.')),
+              for(final candidate in candidates)
+                ListTile(
+                  key: Key('energy-candidate-${candidate.station.id}'),
+                  title: Text(candidate.station.name),
+                  subtitle: Text(t(
+                    '${number(candidate.km)} km straight line · ${candidate.station.connector} · ${candidate.station.powerKw} kW advertised · ${candidate.station.source}',
+                    '${number(candidate.km)} كم جواً · ${candidate.station.connector} · ${candidate.station.powerKw} كيلوواط معلنة · ${candidate.station.source}')),
+                ),
+              if(candidates.isNotEmpty)
+                Text(t('Candidates are not verified reachable by road, compatible, available or reservable.',
+                  'لم يتم التحقق من إمكانية الوصول إلى المرشحات عبر الطريق أو توافقها أو توفرها أو قابليتها للحجز.')),
+            ],
           ]),
         ),
       ],
