@@ -49,6 +49,24 @@ class CsmsPreflightTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_approved_local_charging_graphql_service_is_configuration_ready_without_source_access(): void
+    {
+        config(['csms.graphql_url' => 'http://charging-graphql:8080/v1/graphql']);
+        $report = app(CsmsPreflight::class)->report();
+        $this->assertTrue($report['software_configuration_ready']);
+        $this->assertTrue($report['checks']['source_endpoint_format']);
+        $this->assertFalse($report['source_connected']);
+        $this->assertFalse($report['charger_hardware_verified']);
+        $this->assertFalse($report['external_pilot_approved']);
+        $this->assertFalse($report['production_ready']);
+        $this->assertSame(0, Artisan::call('csms:preflight'));
+        $this->assertStringNotContainsString('charging-graphql:8080', Artisan::output());
+        $this->assertStringNotContainsString(str_repeat('a', 64), Artisan::output());
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_missing_or_reused_keys_and_incorrect_adapter_settings_are_blocked(): void
     {
         foreach ([
@@ -60,6 +78,9 @@ class CsmsPreflightTest extends TestCase
             ['csms.graphql_url' => 'http://operator:PRIVATE-PASSWORD@source.example/graphql'],
             ['csms.graphql_url' => 'javascript:PRIVATE-SECRET'],
             ['csms.graphql_url' => 'http://source.example/graphql'],
+            ['csms.graphql_url' => 'http://charging-graphql.evil.test/graphql'],
+            ['csms.graphql_url' => 'http://unreviewed-graphql:8080/v1/graphql'],
+            ['csms.graphql_url' => 'http://charging-graphql:8080/v1/graphql?admin_secret=PRIVATE-KEY'],
         ] as $changes) {
             $original = [];
             foreach ($changes as $key => $value) {
