@@ -127,6 +127,49 @@ class SubscriptionTest extends TestCase
         $this->assertDatabaseCount('subscription_credits', 0);
     }
 
+    public function test_invoice_ledger_rejects_unsafe_minor_units_before_any_partial_journal_post(): void
+    {
+        $ledger = new \ReflectionMethod(SubscriptionService::class, 'ledger');
+        $service = app(SubscriptionService::class);
+        $before = DB::table('commercial_subscription_ledger')->count();
+        $max = 9_007_199_254_740_991;
+        $unsafe = [
+            [['cash:mock_subscription', 100.0, 0],
+                ['subscription_receivable', 0, 100]],
+            [['cash:mock_subscription', true, 0],
+                ['subscription_receivable', 0, 1]],
+            [['cash:mock_subscription', -1, 0],
+                ['subscription_receivable', 0, -1]],
+            [['cash:mock_subscription', $max, 0],
+                ['cash:mock_subscription', 1, 0],
+                ['subscription_receivable', 0, $max],
+                ['subscription_receivable', 0, 1]],
+        ];
+
+        foreach ($unsafe as $entries) {
+            try {
+                $ledger->invoke($service, 1, 'test-invalid', $entries);
+                $this->fail('Inexact ledger was accepted or partially posted.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+            $this->assertSame($before,
+                DB::table('commercial_subscription_ledger')->count());
+        }
+
+        $f = $this->subscribe($this->plan());
+        $posted = DB::table('commercial_subscription_ledger')->count();
+        $this->actingAs($f[0])->postJson($f[2].'/mock-payment', [
+            'invoice_id' => $f[1]['invoices'][0]['id'],
+            'outcome' => 'succeeded',
+            'idempotency_key' => 'test-exact-posting',
+        ])->assertOk()->assertJsonPath('ledger_balanced', true)
+            ->assertJsonPath('net_collected_minor', 1049);
+        $this->assertSame($posted + 2,
+            DB::table('commercial_subscription_ledger')->count());
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+    }
+
     public function test_enrollment_payment_entitlements_and_replays_are_connected(): void
     {
         $p = $this->plan();
