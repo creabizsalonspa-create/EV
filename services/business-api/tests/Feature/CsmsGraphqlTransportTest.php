@@ -63,6 +63,28 @@ class CsmsGraphqlTransportTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_even_fixed_internal_plaintext_hosts_are_rejected_outside_local_test_environments(): void
+    {
+        $prior = app()->environment();
+        app()->detectEnvironment(fn () => 'production');
+        try {
+            $this->assertFalse(app(CsmsGraphqlTransport::class)->approved(
+                'http://charging-graphql:8080/v1/graphql'
+            ));
+            config(['csms.graphql_url' => 'http://charging-graphql:8080/v1/graphql']);
+            try {
+                app(RemoteSessionAuthorization::class)->graph('query{ChargingStations(limit:1){id}}', []);
+                $this->fail('Production sent an admin secret to an internal HTTP source.');
+            } catch (HttpException $e) {
+                $this->assertSame(503, $e->getStatusCode());
+            }
+        } finally {
+            app()->detectEnvironment(fn () => $prior);
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_unreviewed_plaintext_source_never_receives_a_remote_authorization_or_rider_secret(): void
     {
         config(['csms.graphql_url' => 'http://unapproved-source.test/graphql']);
