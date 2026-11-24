@@ -27,6 +27,8 @@ class CorporateHostedDisputeRouteBoundaryTest extends TestCase
             ['GET', '/commercial/corporate/statements/{id}'],
             ['GET', '/commercial/corporate/statements/{id}/export'],
             ['POST', '/commercial/corporate/statements/{id}/simulate-payment'],
+            ['GET', '/commercial/corporate/agreements/{id}/cycle-review'],
+            ['POST', '/commercial/corporate/agreements/{id}/cycle-review/issue'],
             ['GET', '/commercial/hosted-checkouts/{id}'],
             ['GET', '/commercial/hosted-checkouts/{id}/events'],
             ['POST', '/commercial/hosted-checkouts/{id}/inspect'],
@@ -47,7 +49,7 @@ class CorporateHostedDisputeRouteBoundaryTest extends TestCase
             ['POST', '/commercial/external-disputes/{id}/evidence/1/retry'],
             ['POST', '/commercial/external-disputes/1/evidence/{id}/retry'],
         ];
-        $this->assertCount(29, $paths);
+        $this->assertCount(31, $paths);
 
         foreach (['/api', '/api/v1'] as $prefix) {
             foreach ($paths as [$method, $template]) {
