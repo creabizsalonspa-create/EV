@@ -995,6 +995,10 @@ window.createVendorWorkspace = ({
                 button(row, "Source diagnostics", () =>
                     diagnostics(company, charger, row, epoch),
                 );
+                if (charger.source === "direct_unverified")
+                    button(row, "Diagnostic files", () =>
+                        diagnosticFiles(company, charger, row, epoch),
+                    );
                 button(row, "Device operating settings", () =>
                     configurationReads(company, charger, row, epoch),
                 );
@@ -2144,11 +2148,21 @@ window.createVendorWorkspace = ({
             if (
                 typeof result.can_request !== "boolean" ||
                 typeof result.can_manage !== "boolean" ||
-                result.evidence !== "SIMULATED_SOURCE" ||
+                !["SIMULATED_SOURCE", "AUTHENTICATED_SOURCE"].includes(
+                    result.evidence,
+                ) ||
                 result.maximum_file_bytes !== 524288 ||
                 result.charging_capacity_changed !== false
             )
                 throw Error("Unexpected diagnostic capability.");
+            history.append(
+                ui(
+                    "p",
+                    result.evidence === "AUTHENTICATED_SOURCE"
+                        ? "Registered diagnostic source"
+                        : "Simulated diagnostic source",
+                ),
+            );
             if (pending) {
                 history.append(
                     ui(
@@ -2229,7 +2243,7 @@ window.createVendorWorkspace = ({
             };
             for (const row of result.data) {
                 if (
-                    row.evidence !== "SIMULATED_SOURCE" ||
+                    row.evidence !== result.evidence ||
                     row.physical_device_verified !== false ||
                     typeof row.can_download !== "boolean"
                 )
