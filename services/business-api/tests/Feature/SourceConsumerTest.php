@@ -728,8 +728,9 @@ class SourceConsumerTest extends TestCase
 
         $at = now()->toImmutable()->startOfSecond();
         $bad = true;
+        $repoint = false;
         Http::preventStrayRequests();
-        Http::fake(function (Request $request) use ($protocol, $link, $at, &$bad) {
+        Http::fake(function (Request $request) use ($protocol, $link, $map, $at, &$bad, &$repoint) {
             $query = $request['query'];
             if (str_contains($query, 'ChargingStations')) {
                 return Http::response(['data' => [
@@ -776,6 +777,9 @@ class SourceConsumerTest extends TestCase
                 ]]);
             }
             if (str_contains($query, 'MeterValues')) {
+                if ($repoint) {
+                    DB::table('charging_connector_mappings')->where('id', $map->id)->update(['source_connector_number' => 8]);
+                }
                 return Http::response(['data' => ['MeterValues' => [[
                     'id' => 1, 'timestamp' => $at->addSeconds(2)->toIso8601String(),
                     'sampledValue' => [[
@@ -803,7 +807,21 @@ class SourceConsumerTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 1);
 
         $bad = false;
-        $this->assertSame(2, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $repoint = true;
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('A connector repointed during the meter read was accepted.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('Source target changed', $error->getMessage());
+        }
+        $this->assertSame(0, $link->fresh()->source_meter_cursor);
+        $this->assertNull($link->fresh()->ended_at);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseHas('charging_sessions', ['id' => $link->charging_session_id, 'status' => 'charging', 'energy_wh' => 0]);
+        DB::table('charging_connector_mappings')->where('id', $map->id)->update(['source_connector_number' => 7]);
+        $repoint = false;
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
         $this->assertSame(1, $link->fresh()->source_meter_cursor);
         $this->assertSame(8, $link->fresh()->source_station_id);
         $this->assertSame(10, $link->fresh()->source_transaction_database_id);
