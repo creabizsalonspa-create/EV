@@ -348,6 +348,19 @@ class FinancialDocumentsTest extends TestCase
         $values = str_getcsv($rows[1], ',', '"', '');
         $this->assertStringStartsWith("'", $values[6]);
         $this->assertStringContainsString('HYPERLINK', $values[6]);
+        $literal = new \ReflectionMethod(DocumentRenderer::class, 'csvCell');
+        foreach ([
+            "\u{00A0}=SUM(1,1)",
+            "\u{200B}@hidden",
+            "\u{202E}+bidi",
+            "\u{FEFF}-bom",
+            "\u{2009}=thin-space",
+        ] as $formula) {
+            $this->assertSame("'".$formula, $literal->invoke(app(DocumentRenderer::class), $formula));
+        }
+        $this->assertSame('Public disclosure', $literal->invoke(
+            app(DocumentRenderer::class), 'Public disclosure'
+        ));
         Http::assertNothingSent();
     }
 
