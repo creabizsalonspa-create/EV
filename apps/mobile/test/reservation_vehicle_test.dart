@@ -362,7 +362,7 @@ void main() {
     formerMore();
     await tester.pumpAndSettle();
     expect(second.queries, hasLength(1),
-        reason: 'Old pagination must not re-read the new customer's garage');
+        reason: "Old pagination must not re-read the new customer's garage");
     expect(find.text('My EV'), findsOneWidget);
     expect(find.text('Continue without a vehicle'), findsOneWidget);
     expect(tester.takeException(), isNull);
