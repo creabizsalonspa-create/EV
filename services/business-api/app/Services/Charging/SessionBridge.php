@@ -13,6 +13,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Finance\FinanceService;
 use App\Services\Finance\Money;
@@ -49,10 +50,15 @@ class SessionBridge
                 ? app(ChargingActorConsent::class)->capture($consentingActor)
                 : User::whereKey($actor)->lockForUpdate()->firstOrFail();
             abort_unless($customer->id === $actor && $customer->role === 'customer' && $customer->account_status === 'active', 403);
-            Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
-            $binding = app(ConnectorTopology::class)->binding($reservation, true);
-            abort_unless($binding, 409, 'No CSMS simulator binding.');
+            $station = Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
             $r = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
+            abort_unless($r->user_id === $actor, 404);
+            abort_unless($r->station_id === $station->id
+                && $r->connector_mapping_id === $reservation->connector_mapping_id
+                && $r->charging_evse_id === $reservation->charging_evse_id, 409,
+                'Reservation target changed; refresh before starting.');
+            $binding = app(ConnectorTopology::class)->binding($r, true);
+            abort_unless($binding, 409, 'No CSMS simulator binding.');
             if ($rider) {
                 app(StationGate::class)->requireReady(Station::findOrFail($r->station_id), $r->connector_mapping_id);
                 $rider = app(RiderAuthority::class)->requireGrant($r, $rider->id, $grantId ?? 0);
@@ -61,6 +67,11 @@ class SessionBridge
             if ($old) {
                 $link = SessionLink::where('charging_session_id', $old->id)->first();
                 abort_unless($link, 409, 'This reservation already uses the independent application simulator.');
+                abort_unless($link->binding_id === $binding->id
+                    && $link->identifier === $binding->identifier && $link->protocol === $binding->protocol
+                    && $link->connector_mapping_id === $r->connector_mapping_id
+                    && $old->charging_evse_id === $r->charging_evse_id, 409,
+                    'Existing charging source requires reconciliation.');
                 if ($rider) {
                     if ($old->status === 'pending_start') {
                         app(OperatingCalendar::class)->requireStart(Station::findOrFail($r->station_id));
@@ -226,15 +237,24 @@ class SessionBridge
                     && $site->country === $station->country, 409,
                     'Charger ownership or source binding changed.');
             }
+            abort_unless($reservation->connector_mapping_id === $link->connector_mapping_id
+                && $reservation->charging_evse_id === $session->charging_evse_id, 409,
+                'Session reservation target changed; reconcile before posting energy.');
             if ($link->connector_mapping_id) {
                 $map = ConnectorMapping::findOrFail($link->connector_mapping_id);
                 $evse = Evse::findOrFail($map->evse_id);
-                abort_unless(($v['source_connector_number'] ?? null) === $map->source_connector_number
+                $connector = VendorConnector::find($map->connector_id);
+                // Do not apply new-start maintenance or license policy here:
+                // a genuine ongoing transaction must still be able to end.
+                abort_unless($connector && $binding->vendor_charger_id !== null
+                    && $evse->mode === 'csms'
+                    && $evse->id === $session->charging_evse_id
+                    && $connector->charger_id === $evse->charger_id
+                    && $evse->charger_id === $binding->vendor_charger_id
+                    && ($v['source_connector_number'] ?? null) === $map->source_connector_number
                     && ($v['source_evse_number'] ?? null) === $evse->source_evse_number
                     && $evse->binding_id === $binding->id
-                    && $map->station_id === $station->id
-                    && ($binding->vendor_charger_id === null
-                        || $evse->charger_id === $binding->vendor_charger_id), 409,
+                    && $map->station_id === $station->id, 409,
                     'Canonical source target mismatch.');
             }
             abort_unless($link->closed_without_dispatch_at === null, 409, 'This request was closed before dispatch; unexpected source activity requires reconciliation.');
