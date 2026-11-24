@@ -124,6 +124,48 @@
             return { ...p, id: place.id, label: place.label };
         });
     }
+    // Match the native route contract. Validate shape and point budget
+    // before constructing a renderable route or exposing a distance.
+    function routeEvidence(result) {
+        if (!result || result.provider !== "geoapify" ||
+            result.evidence !== "PROVIDER_ROUTE_ESTIMATE" ||
+            result.traffic_verified !== false ||
+            result.charging_time_included !== false ||
+            !Number.isFinite(result.distance_meters) ||
+            result.distance_meters < 0 || result.distance_meters > 40000000 ||
+            !Number.isFinite(result.duration_seconds) ||
+            result.duration_seconds < 0 || result.duration_seconds > 31536000 ||
+            !Array.isArray(result.segments) ||
+            result.segments.length < 1 || result.segments.length > 100)
+            throw Error("Invalid route evidence");
+        let count = 0;
+        for (const line of result.segments) {
+            if (!Array.isArray(line) || line.length < 2 ||
+                (count += line.length) > 10000)
+                throw Error("Invalid route geometry budget");
+        }
+        const segments = result.segments.map(line => line.map(p => {
+            if (!p || typeof p.latitude !== "number" ||
+                typeof p.longitude !== "number")
+                throw Error("Invalid route point");
+            const validated = point(p.latitude, p.longitude);
+            if (!validated) throw Error("Invalid route point");
+            return validated;
+        }));
+        return {
+            provider: result.provider, evidence: result.evidence,
+            traffic_verified: false, charging_time_included: false,
+            distance_meters: result.distance_meters,
+            duration_seconds: result.duration_seconds, segments,
+        };
+    }
+    function routingCapabilities(c) {
+        if (!c || c.provider !== "geoapify" ||
+            typeof c.geocoding !== "boolean" ||
+            typeof c.routing !== "boolean" || c.max_charging_stops !== 3)
+            throw Error("Invalid capabilities");
+        return { geocoding: c.geocoding, routing: c.routing };
+    }
     function addressSearch(request, onSelected) {
         const root = document.createElement("fieldset"),
             legend = label("legend", "Find an address", "البحث عن عنوان");
@@ -485,28 +527,8 @@
                         routeAbort.signal,
                     );
                     if (current !== epoch) return;
-                    if (
-                        result.provider !== "geoapify" ||
-                        result.evidence !== "PROVIDER_ROUTE_ESTIMATE" ||
-                        result.traffic_verified !== false ||
-                        result.charging_time_included !== false ||
-                        !Number.isFinite(result.distance_meters) ||
-                        result.distance_meters < 0 || result.distance_meters > 40000000 ||
-                        !Number.isFinite(result.duration_seconds) ||
-                        result.duration_seconds < 0 || result.duration_seconds > 31536000 ||
-                        !Array.isArray(result.segments) ||
-                        !result.segments.length ||
-                        result.segments.some(
-                            (line) =>
-                                !Array.isArray(line) ||
-                                line.length < 2 ||
-                                line.some(
-                                    (p) => !point(p.latitude, p.longitude),
-                                ),
-                        )
-                    )
-                        throw Error("Invalid route evidence");
-                    estimate = result;
+                    const verified = routeEvidence(result);
+                    estimate = verified;
                     renderEnergy();
                     routeState.replaceChildren();
                     const total = label(
@@ -525,7 +547,7 @@
                             "Routing © Geoapify / OpenStreetMap contributors",
                         ),
                     );
-                    onRoute(result.segments);
+                    onRoute(verified.segments);
                 } catch (error) {
                     if (
                         current !== epoch ||
@@ -820,14 +842,9 @@
             // provider capabilities from the previous authenticated context.
             const requestGeneration = ++capabilityEpoch;
             try {
-                const c = await request("capabilities", "GET");
+                const raw = await request("capabilities", "GET");
                 if (requestGeneration !== capabilityEpoch) return;
-                if (
-                    c.provider !== "geoapify" ||
-                    typeof c.geocoding !== "boolean" ||
-                    typeof c.routing !== "boolean"
-                )
-                    throw Error("Invalid capabilities");
+                const c = routingCapabilities(raw);
                 if (!c.geocoding) {
                     search.clear();
                     origin.addresses.clear();
@@ -847,6 +864,7 @@
                         ),
                     );
                 routeAvailable = c.routing;
+                if (!routeAvailable) invalidate();
                 service.hidden = c.routing;
                 preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
                 privacy.hidden = !routeAvailable;
@@ -860,7 +878,9 @@
                     destination.addresses.root.hidden =
                         true;
                 routeAvailable = false;
-                preview.disabled = true;
+                service.hidden = false;
+                privacy.hidden = true;
+                invalidate();
             }
         }
         address.ontoggle = () => {
@@ -936,5 +956,5 @@
         window.addEventListener("pagehide", onPageHide);
         return controls;
     }
-    window.EvGeoTools = { install, point, navigationCoordinate: coordinate, energyReview, energyCandidates, addressPlaces };
+    window.EvGeoTools = { install, point, navigationCoordinate: coordinate, energyReview, energyCandidates, addressPlaces, routeEvidence, routingCapabilities };
 })();
