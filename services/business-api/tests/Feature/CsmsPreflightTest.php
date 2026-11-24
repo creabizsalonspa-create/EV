@@ -84,6 +84,10 @@ class CsmsPreflightTest extends TestCase
             ['csms.graphql_url' => 'http://charging-graphql:8080/unreviewed'],
             ['csms.graphql_url' => 'http://charging-graphql:8080/v1/graphql/'],
             ['csms.graphql_url' => 'https://source.example.com/unreviewed'],
+            ['csms.graphql_url' => 'https://source.example.com\unexpected/v1/graphql'],
+            ['csms.graphql_url' => "https://source.example.com\t/v1/graphql"],
+            ['csms.graphql_url' => 'https://source.example.com:0/v1/graphql'],
+            ['csms.graphql_url' => 'https://source%2eexample.com/v1/graphql'],
         ] as $changes) {
             $original = [];
             foreach ($changes as $key => $value) {
