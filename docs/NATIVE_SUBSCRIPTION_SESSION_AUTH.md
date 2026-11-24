@@ -247,3 +247,37 @@ the original price/ID are still shown and posted, and prove that
 a mismatched server plan receipt leaves the exact durable intent
 available for explicit review/retry. No new subscription, refund
 or provider payment authority is inferred.
+
+
+## Exact canonical TEST subscription billing arithmetic (Agent 3 continuation)
+
+The Laravel `SubscriptionService` that feeds the native subscription
+and billing pages now rejects source minor-unit values that were
+coerced from PHP floats or booleans, decimal/exponent strings, or
+values outside the signed/unsigned 2^53−1 precision range. Its
+read-only `summary()` verifies exact invoice subtotal + tax = total,
+exactly sums individual receipt and credit rows with running overflow
+checks, verifies that refunded credit never exceeds collected funds,
+and validates immutable per-entry ledger debit/credit sums without
+trusting SQL/PHP `SUM` followed by an unsafe `(int)` cast.
+Valid cancelled, partially credited and fully refunded historical
+billing semantics are retained; the software does not interpret a
+balanced synthetic ledger as real PSP payment verification.
+
+The source writer now checks each new invoice total before insertion,
+checks *all* proposed debit/credit entries and both running posting
+totals **before the first journal write**, and rejects negative,
+float-origin or over-precision amounts. The same exact-money boundary
+protects mock/Stripe-TEST receipt amount capture and provider receipt
+replay checks. A damaged test invoice must not be rounded into a
+supposedly reconciled provider capture. `SubscriptionTest` exercises
+integer and decimal-string source bounds, synthetic 2^53 aggregate
+overflow, invalid journal candidates that must post zero entries,
+unchanged valid TEST invoice/read behavior, and legitimate mock
+receipt creation with balanced journal entries.
+
+No production payment, real settlement authorization, bank payout or
+automatic merchant approval is introduced. This is **partial finance
+integrity software only**. Exact-head Laravel Finance/Platform/Native
+tests and Agent 5 integration are mandatory; do not promote whole
+requirements or production acceptance from these focused checks.
