@@ -119,7 +119,7 @@ class RiderAccessTest extends TestCase
                 parse_str(parse_url($request->url(), PHP_URL_QUERY), $query);
 
                 return Http::response(['ready' => true, 'adapter_version' => 'creabiz-rider-v1', 'tenant_id' => 1, 'offline_fallback' => false, 'cache_seconds' => 0,
-                    'proof' => hash_hmac('sha256', "creabiz-rider-v1\\n".$query['nonce'], str_repeat('s', 64))]);
+                    'proof' => hash_hmac('sha256', "creabiz-rider-v1\n".$query['nonce'], str_repeat('s', 64))]);
             }
             $this->assertSame($original, $request->url());
             if (str_contains($request['query'], 'insert_Authorizations_one')) {
