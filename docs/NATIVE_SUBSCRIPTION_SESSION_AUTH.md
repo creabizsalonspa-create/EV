@@ -169,3 +169,33 @@ regressions proving that oversized plan/cancellation targets disable
 submission without invoking the write endpoint. No new payment flow,
 provider integration or financial authority is implied. Fresh exact
 head Native/Platform validation and Agent 5 source integration required.
+
+
+## Private subscription event pagination (24 November 2026)
+
+The subscription detail screen now validates and deep-freezes the
+**actual authenticated subscription event history** returned by
+`GET /commercial/subscriptions/{id}/events`, in addition to the
+previously immutable invoice/plan summary. The backend currently
+selects only `id`, `kind`, `data`, `created_at` for each
+tenant-filtered event; the client does **not** assume or fabricate a
+per-event `subscription_id` that is not part of that response.
+
+The requested `page` must match `current_page`, `last_page` must
+be within the bounded client window, `total` an exact nonnegative
+JSON-safe count, and no response may contain more than the server's
+25-item page cap. Every displayed event must have a positive
+browser-safe immutable source ID, a bounded nonempty kind string
+and a string timestamp. Invalid event data, pagination or account
+metadata clears the whole private summary/history display instead
+of mixing plausible invoices with an untrusted events page. The
+incoming event's nested `data` is deep-frozen before the state retains
+it; it cannot be rewritten by mutable transport references.
+
+Flutter widget regressions exercise a legitimate event with mutable
+nested evidence and reject a forged current page, over-range event ID
+and over-range count. They assert no subscription/payment mutation
+is sent. This is a **read-only session isolation boundary**, not
+legal financial, billing collection or historical provider acceptance.
+Exact-source Native and Platform validation plus Agent 5-only
+integration are required.
