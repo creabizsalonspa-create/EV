@@ -243,12 +243,23 @@ class _DocumentsState extends State<FinancialDocumentsView>
   void failed(Object e) {
     error = e;
     page = null;
-    if (e is ApiException && [401, 419].contains(e.status)) widget.onExpired();
+  }
+
+  bool handleExpiry(Object e, EvApi requestApi) {
+    // A real expiry clears the old session fence before the error arrives.
+    // Do not sign out a replacement API or newer credential generation.
+    if (mounted && identical(requestApi, widget.api) &&
+        e is ApiException && e.endsCurrentSession) {
+      widget.onExpired();
+      return true;
+    }
+    return false;
   }
 
   Future<void> load({int number = 1}) async {
     if (!foreground || number < 1 || number > 100000) return;
-    final epoch = ++generation, fence = widget.api.sessionFence();
+    final api = widget.api;
+    final epoch = ++generation, fence = api.sessionFence();
     currentSession = fence;
     target = number;
     setState(() {
@@ -259,7 +270,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
       hidden = false;
     });
     try {
-      final raw = await widget.api.request(
+      final raw = await api.request(
         'financial/documents',
         query: {
           'page': '$number',
@@ -285,6 +296,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
       }
       if (active(epoch, fence)) setState(() => page = result);
     } catch (e) {
+      if (handleExpiry(e, api)) return;
       if (active(epoch, fence)) setState(() => failed(e));
     } finally {
       if (mounted && foreground && epoch == generation) {
@@ -303,6 +315,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
   Future<void> generate() async {
     if (!current || busy || uncertain || !consent ||
         !form.currentState!.validate()) return;
+    final api = widget.api;
     final epoch = ++generation, fence = currentSession!;
     final selectedKind = kind, selectedLanguage = language;
     final selectedSource = decimalMinor(source.text, 0, maximum: 2000000000)!;
@@ -312,7 +325,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
       error = null;
     });
     try {
-      final result = await widget.api.request(
+      final result = await api.request(
         'financial/documents',
         method: 'POST',
         body: {
@@ -335,6 +348,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
       mutationInFlight = false;
       await load();
     } catch (e) {
+      if (handleExpiry(e, api)) return;
       if (active(epoch, fence)) {
         setState(() {
           mutationInFlight = false;
@@ -363,13 +377,14 @@ class _DocumentsState extends State<FinancialDocumentsView>
         !page!.items.any((record) => record.id == row.id &&
             record.kind == row.kind && record.sourceId == row.sourceId &&
             record.pdfHash == row.pdfHash)) return;
+    final api = widget.api;
     final epoch = ++generation, fence = currentSession!;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      final bytes = await widget.api.downloadDocument(
+      final bytes = await api.downloadDocument(
         'financial/documents/${row.id}/download/pdf',
       );
       if (!active(epoch, fence)) return;
@@ -388,6 +403,7 @@ class _DocumentsState extends State<FinancialDocumentsView>
         ),
       );
     } catch (e) {
+      if (handleExpiry(e, api)) return;
       if (active(epoch, fence)) setState(() => failed(e));
     } finally {
       if (mounted && foreground && generation == epoch) {
