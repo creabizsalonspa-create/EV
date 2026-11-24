@@ -17,6 +17,43 @@ void main() {
     expect(connectorFreshnessText(value,Duration.zero,false),contains('Physical availability is unverified'));
     expect(connectorFreshnessText(value,Duration.zero,true),contains('2026-11-14T05:00:00Z'));
   });
+
+  test('exact source UTC calendar validation never normalizes an impossible connector date',() {
+    for(final key in ['observed_at','checked_at','valid_until']){
+      for(final invalid in [
+        '2026-02-30T05:00:00Z',
+        '2026-04-31T05:00:00Z',
+        '2027-02-29T05:00:00Z',
+        '2026-11-14T24:00:00Z',
+        '2026-11-14T05:61:00Z',
+        '2026-11-14T05:00:60Z',
+      ]){
+        expect(connectorReportedState({...value,key:invalid},Duration.zero),
+          'unknown',reason:'Never roll forward $key $invalid');
+      }
+    }
+    final leap={
+      ...value,
+      'observed_at':'2028-02-29T05:00:00Z',
+      'checked_at':'2028-02-29T05:04:00Z',
+      'valid_until':'2028-02-29T05:05:00Z',
+    };
+    expect(connectorReportedState(leap,const Duration(milliseconds:59999)),
+      'Available');
+    expect(connectorReportedState(leap,const Duration(seconds:60)),'stale');
+  });
+  test('bad source clocks cannot be rendered as trusted EN/AR observations',() {
+    for(final arabic in [false,true]){
+      final malformed={...value,'observed_at':'2026-02-30T05:00:00Z'};
+      final foreign={...value,'evidence':'LIVE'};
+      final malformedText=connectorFreshnessText(malformed,Duration.zero,arabic);
+      final foreignText=connectorFreshnessText(foreign,Duration.zero,arabic);
+      expect(malformedText, isNot(contains('2026-02-30')));
+      expect(foreignText, isNot(contains('2026-11-14')));
+      expect(malformedText,contains(arabic?'غير معروف':'unknown'));
+      expect(foreignText,contains(arabic?'غير معروف':'unknown'));
+    }
+  });
   test('unsupported or malformed source claims remain unknown', () {
     for(final update in <Map<String,dynamic>>[{'physical_availability_verified':true},{'evidence':'LIVE'},{'max_age_seconds':301},{'observed_at':'2026-11-14T05:05:00Z'},{'valid_until':'garbage'},{'reported_status':'anything'},{'state':'unknown'}]) {
       expect(connectorReportedState({...value,...update},Duration.zero),'unknown');
