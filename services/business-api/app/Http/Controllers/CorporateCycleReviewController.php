@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\CorporateBilling;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /** Bounded planning and explicit TEST-only issuance through canonical corporate billing. */
@@ -56,8 +57,8 @@ final class CorporateCycleReviewController extends Controller
         abort_unless($day >= 1 && $day <= 28, 409, 'Invalid corporate billing day.');
         $reviewAt = $end->copy()->addDays($day - 1);
         $accepted = DB::table('corporate_agreement_acceptances')->where('agreement_id', $a->id)->exists();
-        $active = $accepted && $now->gte(\Illuminate\Support\Carbon::parse($a->effective_from))
-            && $now->lt(\Illuminate\Support\Carbon::parse($a->expires_at));
+        $active = $accepted && $now->gte(Carbon::parse($a->effective_from))
+            && $now->lt(Carbon::parse($a->expires_at));
 
         // 101 is a sentinel, not a silent partial batch. If exceeded,
         // the owner must use the existing explicit selection workflow.
