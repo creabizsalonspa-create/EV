@@ -170,6 +170,52 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_legacy_null_evse_fault_and_recovery_use_the_same_durable_component(): void
+    {
+        $f = $this->fixture('1.6');
+        $this->freezeTime();
+        $events = $this->events(1, 2);
+        $events[0]['evseId'] = null;
+        $events[1]['evseId'] = 0;
+        $this->source($f, [$events[0]], newest: 1);
+        $this->assertSame(1, app(ContinuousFaultObserver::class)->observe($f['binding'])['alerts_created']);
+        $this->source($f, [$events[1]], newest: 2);
+        $this->assertSame('caught_up', app(ContinuousFaultObserver::class)->observe($f['binding'])['state']);
+        $this->assertDatabaseHas('charging_status_observations', ['source_event_id' => 1, 'evse_number' => 0, 'connector_number' => 1]);
+        $this->assertDatabaseHas('charging_status_observations', ['source_event_id' => 2, 'evse_number' => 0, 'connector_number' => 1]);
+        $this->assertNotNull(DB::table('charging_fault_alerts')->value('recovery_observation_id'));
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->source($f, [], newest: 2);
+        $this->assertSame(0, app(ContinuousFaultObserver::class)->observe($f['binding'])['events']);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_modern_null_evse_does_not_advance_the_cursor(): void
+    {
+        $f = $this->fixture('2.0.1');
+        $event = $this->events(1, 1)[0];
+        $event['evseId'] = null;
+        $this->source($f, [$event], newest: 1);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('A missing modern EVSE identity was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 0, 'state' => 'requires_review']);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $event['evseId'] = 1;
+        $this->source($f, [$event], newest: 1);
+        $this->assertSame(1, app(ContinuousFaultObserver::class)->observe($f['binding'])['alerts_created']);
+        $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 1, 'state' => 'caught_up']);
+        $this->assertDatabaseCount('charging_status_observations', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_unparseable_source_timestamp_returns_review_required_without_event_loss(): void
     {
         $f = $this->fixture();
