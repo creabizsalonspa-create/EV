@@ -4,6 +4,7 @@ import 'strings.dart';
 import 'money_input.dart';
 import 'financial_operation_store.dart';
 import 'financial_documents.dart';
+import 'corporate_cycle_review.dart';
 import 'hosted_checkout.dart';
 import 'vendor_finance.dart' show nativeFinancialAmount;
 
@@ -320,6 +321,24 @@ class _CorporateRootState extends State<CorporateBillingView> {
                           OutlinedButton(
                             onPressed: busy ? null : () => action(row, 'claim'),
                             child: Text(t('claim')),
+                          ),
+                        if (canManage)
+                          OutlinedButton(
+                            onPressed: busy
+                                ? null
+                                : () => Navigator.of(c).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => CorporateCycleReviewView(
+                                        api: widget.api,
+                                        onExpired: widget.onExpired,
+                                        agreementId: row['id'] as int,
+                                        fleetId: selected!['id'] as int,
+                                        currency: row['currency'] as String,
+                                        precision: row['minor_units'] as int,
+                                      ),
+                                    ),
+                                  ),
+                            child: Text(cycleText(c, 'Monthly billing review', 'مراجعة الفوترة الشهرية')),
                           ),
                         OutlinedButton(
                           onPressed: busy
