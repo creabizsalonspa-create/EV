@@ -606,6 +606,48 @@ class OcpiReservationTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_reservation_claim_changed_at_insert_does_not_send_or_release_capacity(): void
+    {
+        $f = $this->setupReservation();
+        $armed = true;
+        DB::listen(function ($query) use (&$armed) {
+            if ($armed && str_starts_with($query->sql, 'insert into "ocpi_roaming_commands"')) {
+                $armed = false;
+                DB::table('ocpi_roaming_commands')->where('action', 'RESERVE_NOW')->update(['callback_key' => (string) Str::uuid()]);
+            }
+        });
+        $url = '/api/roaming/locations/'.$f[4]->id;
+        $offer = $this->actingAs($f[1])->getJson($url.'/sandbox-offers')->assertOk()->json('offers.0');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => ReservationRoaming::TERMS, 'consent' => true, 'duration_minutes' => 5];
+        $id = $this->postJson($url.'/sandbox-reservations', $body)->assertCreated()->assertJsonPath('state', 'reservation_outcome_unknown')->json('id');
+        $this->assertFalse($armed);
+        $this->postJson($url.'/sandbox-reservations', $body)->assertOk()->assertJsonPath('id', $id);
+        $this->assertSame('outcome_unknown', DB::table('ocpi_roaming_commands')->value('state'));
+        $this->assertNotNull(DB::table('ocpi_roaming_orders')->find($id)->active_target_key);
+        $this->assertCount(0, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_closure_rejects_changed_cancellation_or_deactivation_intent_hash(): void
+    {
+        $f = $this->setupReservation();
+        [$order] = $this->reserve($f);
+        $url = '/api/roaming/sandbox-orders/'.$order->id;
+        $this->postJson($url.'/cancel-reservation', ['request_key' => (string) Str::uuid(), 'consent' => true])->assertOk();
+        $this->partnerCallback($order, 'CANCEL_RESERVATION', 'ACCEPTED');
+        $this->freshAvailable($f);
+        foreach (['CANCEL_RESERVATION', 'TOKEN_REVOKE'] as $action) {
+            $claim = DB::table('ocpi_roaming_commands')->where('order_id', $order->id)->where('action', $action)->first();
+            DB::table('ocpi_roaming_commands')->where('id', $claim->id)->update(['intent_hash' => str_repeat('a', 64)]);
+            $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', false);
+            $this->assertNotNull(DB::table('ocpi_roaming_orders')->find($order->id)->active_target_key);
+            DB::table('ocpi_roaming_commands')->where('id', $claim->id)->update(['intent_hash' => $claim->intent_hash]);
+        }
+        $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', true);
+        $this->assertCount(3, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_reservation_attempt_evidence_is_not_erased_by_failed_final_claim(): void
     {
         $f = $this->setupReservation();
