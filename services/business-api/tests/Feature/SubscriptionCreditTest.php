@@ -123,6 +123,48 @@ class SubscriptionCreditTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_invalid_historical_credit_component_blocks_test_refund_before_provider_dispatch(): void
+    {
+        $this->stripeFake();
+        $f = $this->fixture(true);
+        $invoice = DB::table('commercial_subscription_invoices')->find($f[3]);
+        $receipt = DB::table('commercial_subscription_receipts')
+            ->where('invoice_id', $f[3])->first();
+
+        // Deliberately inconsistent source in an isolated test database.
+        // Do not mutate or bypass the immutable financial-record triggers.
+        $request = DB::table('subscription_credit_requests')->insertGetId([
+            'subscription_id' => $f[2], 'invoice_id' => $invoice->id,
+            'receipt_id' => $receipt->id, 'checkout_id' => $f[4]->id,
+            'actor_id' => $f[0]->id, 'request_key' => hash('sha256', 'bad-component-source'),
+            'fingerprint' => hash('sha256', 'bad-component-fingerprint'),
+            'amount_minor' => 100, 'currency' => $invoice->currency,
+            'reason' => 'Synthetic malformed historical source', 'created_at' => now(),
+        ]);
+        DB::table('subscription_credits')->insert([
+            'request_id' => $request, 'number' => 'TEST-CORRUPT-COMPONENT',
+            'subscription_id' => $f[2], 'invoice_id' => $invoice->id,
+            'receipt_id' => $receipt->id, 'actor_id' => $f[0]->id,
+            'amount_minor' => 100, 'subtotal_minor' => 100, 'tax_minor' => 10,
+            'currency' => $invoice->currency, 'minor_units' => $invoice->minor_units,
+            'provider_reference' => 're_SyntheticMalformedCredit',
+            'evidence' => $receipt->evidence, 'reason' => 'Synthetic malformed historical source',
+            'created_at' => now(),
+        ]);
+        $before = DB::table('commercial_subscription_ledger')->count();
+        $eventsBefore = DB::table('commercial_subscription_events')->count();
+
+        // Gross funds appear sufficient (1050 - 100), but the immutable
+        // tax/base allocation does not reconcile. No new provider refund,
+        // reservation, recovery request or local ledger entry may result.
+        $this->refund($f, 100, 'blocked-invalid-historical-components')->assertConflict();
+        Http::assertNotSent(fn ($request) => str_ends_with($request->url(), '/refunds'));
+        $this->assertDatabaseCount('subscription_credit_requests', 1);
+        $this->assertDatabaseCount('subscription_credits', 1);
+        $this->assertSame($before, DB::table('commercial_subscription_ledger')->count());
+        $this->assertSame($eventsBefore, DB::table('commercial_subscription_events')->count());
+    }
+
     public function test_private_credit_detail_reconciles_exact_components_and_journal_without_writes(): void
     {
         $f = $this->fixture();
