@@ -73,17 +73,21 @@
     renderRecentPresets();
   }
   root.append(text('h3','Search platform and partner locations','البحث في مواقع المنصة والشركاء'),text('p','One search of published records. Partner reports are unverified and cannot authorize booking, charging or payment. External discovery providers require their separate consent.','بحث موحد في السجلات المنشورة. تقارير الشركاء غير مؤكدة ولا تسمح بالحجز أو الشحن أو الدفع. يتطلب مزودو الاكتشاف الخارجيون موافقة منفصلة.'),form,state,list,nav);
+  // Only this UI instance can revoke its published map. A retired listener
+  // cannot erase a newer view's map when the screen is mounted twice.
+  const mapPublication = {};
   function revokePublishedMap(){
    if(!mapPublished)return;
    mapPublished=false;
-   // Revoke only the map previously published by this search UI.
-   window.dispatchEvent(new CustomEvent('unified-map-clear'));
+   window.dispatchEvent(new CustomEvent('unified-map-clear',{detail:mapPublication}));
   }
   const mapButton=button('Map these loaded results','عرض هذه النتائج المحملة على الخريطة',()=>{
    if(mapButton.disabled||mapRows.length===0||
       document.visibilityState==='hidden')return;
    mapPublished=true;
-   window.dispatchEvent(new CustomEvent('unified-map-data',{detail:mapRows}));
+   const published=new CustomEvent('unified-map-data',{detail:mapRows});
+   published.evUnifiedPublication=mapPublication;
+   window.dispatchEvent(published);
    document.getElementById('discovery-map')?.scrollIntoView({block:'start'});
   });mapButton.disabled=true;root.append(mapButton,recentPanel);
   // Missing source metadata must never become a bookable catalog action.
