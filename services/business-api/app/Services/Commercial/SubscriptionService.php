@@ -12,6 +12,37 @@ use Illuminate\Support\Str;
 
 class SubscriptionService
 {
+    private const MAX_EXACT_MINOR = 9_007_199_254_740_991;
+
+    /** Reject coerced, fractional or unsafe source money before financial JSON. */
+    private static function exactMinor(mixed $value, bool $signed = false): int
+    {
+        abort_unless(is_int($value) || is_string($value), 409,
+            'Subscription source amount is not an exact minor-unit integer.');
+        $minor = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($minor !== false && $minor <= self::MAX_EXACT_MINOR
+            && $minor >= ($signed ? -self::MAX_EXACT_MINOR : 0), 409,
+            'Subscription source amount exceeds exact integer bounds.');
+
+        return $minor;
+    }
+
+    private static function checkedAdd(int $left, int $right, bool $signed = false): int
+    {
+        return self::exactMinor($left + $right, $signed);
+    }
+
+    private static function checkedSum(iterable $rows, string $column): int
+    {
+        $total = 0;
+        foreach ($rows as $row) {
+            $value = is_array($row) ? $row[$column] : $row->{$column};
+            $total = self::checkedAdd($total, self::exactMinor($value));
+        }
+
+        return $total;
+    }
+
     public function plan(int $id): object
     {
         $plan = DB::table('commercial_plan_versions')->find($id);
@@ -343,25 +374,59 @@ class SubscriptionService
         $s->cancel_at_period_end = (bool) $s->cancel_at_period_end;
         $invoices = DB::table('commercial_subscription_invoices')->where('subscription_id', $id)->orderBy('cycle_number')->get()->map(function ($i) {
             $i->entitlements = json_decode($i->entitlements, true, 512, JSON_THROW_ON_ERROR);
+            $i->total_minor = self::exactMinor($i->total_minor);
+            $i->subtotal_minor = self::exactMinor($i->subtotal_minor);
+            $i->tax_minor = self::exactMinor($i->tax_minor);
+            abort_unless(self::checkedAdd($i->subtotal_minor, $i->tax_minor) === $i->total_minor,
+                409, 'Subscription invoice components no longer reconcile.');
             $receipt = DB::table('commercial_subscription_receipts')->where('invoice_id', $i->id)->first();
             $i->paid = (bool) $receipt;
-            $i->refunded_minor = (int) DB::table('subscription_credits')->where('invoice_id', $i->id)->sum('amount_minor');
-            $i->net_collected_minor = ($receipt ? (int) $receipt->amount_minor : 0) - $i->refunded_minor;
-            $i->credit_state = $i->refunded_minor === 0 ? 'none' : ($receipt && $i->refunded_minor === (int) $receipt->amount_minor ? 'fully_refunded' : 'partially_refunded');
+            $creditsForInvoice = DB::table('subscription_credits')
+                ->where('invoice_id', $i->id)->get(['amount_minor']);
+            $i->refunded_minor = self::checkedSum($creditsForInvoice, 'amount_minor');
+            $collected = $receipt ? self::exactMinor($receipt->amount_minor) : 0;
+            $i->net_collected_minor = self::checkedAdd($collected, -$i->refunded_minor, true);
+            abort_unless($i->net_collected_minor >= 0, 409,
+                'Subscription credits exceed the collected source.');
+            $i->credit_state = $i->refunded_minor === 0 ? 'none'
+                : ($receipt && $i->refunded_minor === $collected
+                    ? 'fully_refunded' : 'partially_refunded');
 
             return $i;
         });
-        $current = $invoices->first(fn ($i) => $i->paid && ((int) $i->total_minor === 0 || $i->net_collected_minor > 0) && (int) $i->cycle_number === (int) $s->cycle_number);
-        $enabled = $s->status === 'active' && $current && CarbonImmutable::parse($current->period_start)->lessThanOrEqualTo(now()) && CarbonImmutable::parse($current->period_end)->isFuture();
+        $current = $invoices->first(fn ($i) => $i->paid
+            && ($i->total_minor === 0 || $i->net_collected_minor > 0)
+            && (int) $i->cycle_number === (int) $s->cycle_number);
+        $enabled = $s->status === 'active' && $current
+            && CarbonImmutable::parse($current->period_start)->lessThanOrEqualTo(now())
+            && CarbonImmutable::parse($current->period_end)->isFuture();
 
-        $ledger = DB::table('commercial_subscription_ledger')->whereIn('invoice_id', $invoices->pluck('id'));
-        $balanced = (int) (clone $ledger)->sum('debit_minor') === (int) (clone $ledger)->sum('credit_minor');
+        // Read exact individual ledger entries; SQL SUM/Collection::sum may
+        // become a PHP float before an unsafe legacy (int) cast.
+        $entries = DB::table('commercial_subscription_ledger')
+            ->whereIn('invoice_id', $invoices->pluck('id'))
+            ->get(['debit_minor', 'credit_minor']);
+        $balanced = self::checkedSum($entries, 'debit_minor')
+            === self::checkedSum($entries, 'credit_minor');
 
-        $receipts = DB::table('commercial_subscription_receipts')->whereIn('invoice_id', $invoices->pluck('id'))->orderBy('id')->get();
+        $receipts = DB::table('commercial_subscription_receipts')
+            ->whereIn('invoice_id', $invoices->pluck('id'))->orderBy('id')->get();
         $provider = $receipts->last()?->evidence ?? 'MOCK_PROVIDER';
 
-        $credits = DB::table('subscription_credits')->where('subscription_id', $id)->orderBy('id')->get();
+        $credits = DB::table('subscription_credits')
+            ->where('subscription_id', $id)->orderBy('id')->get();
+        $totalCredited = self::checkedSum($credits, 'amount_minor');
+        $netCollected = self::checkedAdd(
+            self::checkedSum($receipts, 'amount_minor'), -$totalCredited, true);
+        abort_unless($netCollected >= 0, 409,
+            'Subscription credits exceed collected source receipts.');
 
-        return ['credits' => $credits, 'refunded_minor' => (int) $credits->sum('amount_minor'), 'net_collected_minor' => (int) $receipts->sum('amount_minor') - (int) $credits->sum('amount_minor'), 'receipts' => $receipts, 'ledger_balanced' => $balanced, 'subscription' => $s, 'plan' => $this->plan($s->plan_id), 'invoices' => $invoices, 'entitlements' => $enabled ? $current->entitlements : [], 'entitlements_active' => (bool) $enabled, 'billing_provider' => $provider, 'real_payment_processed' => false];
+        return ['credits' => $credits, 'refunded_minor' => $totalCredited,
+            'net_collected_minor' => $netCollected, 'receipts' => $receipts,
+            'ledger_balanced' => $balanced, 'subscription' => $s,
+            'plan' => $this->plan($s->plan_id), 'invoices' => $invoices,
+            'entitlements' => $enabled ? $current->entitlements : [],
+            'entitlements_active' => (bool) $enabled, 'billing_provider' => $provider,
+            'real_payment_processed' => false];
     }
 }
