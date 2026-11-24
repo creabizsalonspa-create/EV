@@ -211,6 +211,54 @@ class OcpiReconciliationTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 0);
     }
 
+    public function test_current_corrupt_cdr_or_session_cannot_yield_clean_reconciliation_from_stale_snapshot(): void
+    {
+        [$provider, $cdr] = $this->source();
+        $session = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'sessions')->firstOrFail();
+        $reviewer = app(CdrReconciler::class);
+        $this->assertSame('source_consistent', $reviewer->inspect($provider, $cdr)['status']);
+
+        DB::table('ocpi_records')->where('id', $cdr->id)->update(['content_hash' => str_repeat('f', 64)]);
+        $report = $reviewer->inspect($provider, $cdr);
+        $this->assertSame('requires_review', $report['status']);
+        $this->assertContains('cdr_source_integrity_requires_review', $report['issues']);
+        DB::table('ocpi_records')->where('id', $cdr->id)->update(['content_hash' => $cdr->content_hash]);
+
+        DB::table('ocpi_records')->where('id', $session->id)->update(['normalized' => json_encode(array_replace($session->normalized, ['energy_kwh' => '99']), JSON_THROW_ON_ERROR)]);
+        $report = $reviewer->inspect($provider, $cdr);
+        $this->assertSame('requires_review', $report['status']);
+        $this->assertContains('session_source_integrity_requires_review', $report['issues']);
+        DB::table('ocpi_records')->where('id', $session->id)->update(['normalized' => $session->getRawOriginal('normalized')]);
+
+        DB::table('ocpi_records')->where('id', $cdr->id)->update(['payload' => 'synthetic-unreadable-ciphertext']);
+        $report = $reviewer->inspect($provider, $cdr->fresh());
+        $this->assertSame('requires_review', $report['status']);
+        $this->assertContains('cdr_source_integrity_requires_review', $report['issues']);
+        $this->assertNull($report['credit_review']);
+        $this->assertFalse($report['billing_eligible']);
+        DB::table('ocpi_records')->where('id', $cdr->id)->update(['payload' => $cdr->getRawOriginal('payload')]);
+        $this->assertSame('source_consistent', $reviewer->inspect($provider, $cdr)['status']);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_credit_reference_does_not_match_corrupted_original_source(): void
+    {
+        [$provider, $original, $raw] = $this->source();
+        app(RecordSynchronizer::class)->ingest($provider, 'cdrs', [array_replace($raw, ['id' => 'credit-1', 'credit' => true, 'credit_reference_id' => 'cdr-1'])]);
+        $credit = OcpiRecord::where('external_id', 'credit-1')->firstOrFail();
+        $reviewer = app(CdrReconciler::class);
+        $this->assertSame('matched', $reviewer->inspect($provider, $credit)['credit_review']['reference_state']);
+        DB::table('ocpi_records')->where('id', $original->id)->update(['payload' => 'synthetic-unreadable-ciphertext']);
+        $report = $reviewer->inspect($provider, $credit);
+        $this->assertSame('requires_review', $report['status']);
+        $this->assertSame('invalid_target', $report['credit_review']['reference_state']);
+        $this->assertFalse($report['credit_review']['financial_authority']);
+        $this->assertFalse($report['credit_review']['automatic_refund']);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_multiple_cdr_claims_and_credits_never_double_count_or_rewrite_source_records(): void
     {
         [$provider, $first, $raw] = $this->source();
