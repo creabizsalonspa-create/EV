@@ -256,10 +256,10 @@ class SubscriptionCreditTest extends TestCase
     {
         $f = $this->fixture();
         $this->refund($f, 100, 'private-credit-history')
-            ->assertCreated()->assertHeader('Cache-Control', 'private, no-store');
+            ->assertCreated()->assertHeader('Cache-Control', 'no-store, private');
         $ledgerBefore = DB::table('commercial_subscription_ledger')->count();
         $this->actingAs($f[1])->getJson($f[5].'?page=1')->assertOk()
-            ->assertHeader('Cache-Control', 'private, no-store')
+            ->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonPath('current_page', 1)->assertJsonCount(1, 'data');
         $this->getJson($f[5].'?page=10000')->assertOk()
             ->assertJsonPath('current_page', 10000)->assertJsonCount(0, 'data');
