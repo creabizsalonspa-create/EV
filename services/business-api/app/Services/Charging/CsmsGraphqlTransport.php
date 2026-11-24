@@ -48,9 +48,13 @@ final class CsmsGraphqlTransport
         return true;
     }
 
-    public function requireApproved(): void
+    /** Validate and return the identical URL that must be used for HTTP. */
+    public function requireApproved(): string
     {
-        abort_unless($this->approved(config('csms.graphql_url')), 503,
+        $url = config('csms.graphql_url');
+        abort_unless($this->approved($url), 503,
             'Authenticated CSMS source transport is not approved.');
+
+        return $url;
     }
 }
