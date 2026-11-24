@@ -10,6 +10,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -251,6 +252,12 @@ class CsmsSessionBridgeTest extends TestCase
             'asset_reference' => 'EVENT-OWNER', 'manufacturer' => 'Synthetic',
             'model' => 'CSMS receipt fixture', 'source' => 'simulator',
             'ocpp_protocol' => $protocol,
+        ]);
+        // The legacy simulator start gate requires exactly one operated
+        // physical inventory connector on the newly claimed site.
+        VendorConnector::create([
+            'charger_id' => $charger->id, 'connector_number' => 1,
+            'connector_type' => 'CCS2', 'max_power_kw' => 50,
         ]);
         DB::table('csms_bindings')->where('station_id', $station->id)
             ->update(['vendor_charger_id' => $charger->id]);
