@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/invoice.dart';
@@ -8,6 +9,8 @@ import 'test_support.dart';
 class InvoiceFixture extends FixtureApi {
   bool fail = false, invalidEvidence = false;
   String? corruptField;
+  int precision = 2;
+  String currencyCode = 'AED';
   int requests = 0;
   @override
   Future<dynamic> request(
@@ -25,14 +28,14 @@ class InvoiceFixture extends FixtureApi {
         'id': corruptField == 'id' ? '7' : 7,
         'user_id': 123,
         'charging_session_id': corruptField == 'session' ? 8 : 7,
-        'minor_units': corruptField == 'minor_units' ? 5 : 2,
+        'minor_units': corruptField == 'minor_units' ? 5 : precision,
         'number': 'SIM-FIXTURE',
         'evidence': 'SIMULATED',
         'subtotal_minor': 313,
         'tax_minor': 16,
         'total_minor': corruptField == 'total_minor' ? -1 :
             corruptField == 'arithmetic' ? 330 : 329,
-        'currency': corruptField == 'currency' ? 'DANGEROUS' : 'AED',
+        'currency': corruptField == 'currency' ? 'DANGEROUS' : currencyCode,
       },
       'paid_minor': corruptField == 'overpaid' ? 330 : 329,
       'refunded_minor': corruptField == 'overrefund' ? 330 : 329,
@@ -102,6 +105,41 @@ class RotatingInvoiceApi extends InvoiceFixture {
 }
 
 void main() {
+
+  for (final digits in [0, 2, 3]) {
+    for (final arabic in [false, true]) {
+      testWidgets('invoice currency precision and direction ($digits, $arabic)', (
+        tester,
+      ) async {
+        final api = InvoiceFixture()
+          ..precision = digits
+          ..currencyCode = digits == 0 ? 'JPY' : digits == 3 ? 'KWD' : 'AED';
+        addTearDown(api.close);
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await tester.pumpWidget(MaterialApp(
+          locale: Locale(arabic ? 'ar' : 'en'),
+          supportedLocales: const [Locale('en'), Locale('ar')],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          home: InvoicePage(api: api, sessionId: 7, onExpired: () {}),
+        ));
+        await tester.pumpAndSettle();
+        final amount = digits == 0 ? '16 JPY' : digits == 3 ? '0.016 KWD' : '0.16 AED';
+        final label = find.textContaining(amount);
+        await tester.scrollUntilVisible(label, 200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(label, findsOneWidget);
+        expect(Directionality.of(tester.element(label)),
+          arabic ? TextDirection.rtl : TextDirection.ltr);
+        expect(api.requests, 1);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   testWidgets('initial inactive invoice never issues a hidden POST', (tester) async {
     final api = InvoiceFixture();
     addTearDown(api.close);
@@ -271,7 +309,12 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('SIM-FIXTURE'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Tax: 16 minor units AED'), 200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Tax: 16 minor units AED'), findsOneWidget);
+      expect(find.textContaining('0.16 AED'), findsOneWidget);
       // The verified detail screen contains several safe, read-only actions;
       // its ListView lazily builds the lower amount rows on small viewports.
       await tester.scrollUntilVisible(
