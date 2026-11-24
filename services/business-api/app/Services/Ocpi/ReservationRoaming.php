@@ -183,7 +183,7 @@ final class ReservationRoaming
 
                 return false;
             }
-            abort_unless($row->active_target_key !== null, 409);
+            abort_unless($row->active_target_key !== null && $row->reservation_cancelled_at === null, 409);
             abort_if($this->pending($row->id), 409);
             abort_if($this->sessions($row)->contains(fn ($s) => in_array($s->normalized['status'], ['ACTIVE', 'COMPLETED'], true)), 409, 'Reconcile the owned charging session and use its stop workflow. Reservation cancellation is not a charging stop.');
             if ($row->token_revoked_at === null) {
@@ -263,6 +263,7 @@ final class ReservationRoaming
                     abort_unless($this->reservableEvse(OcpiRecord::findOrFail($row->location_record_id), $target['evse_uid'], $target['connector_id']), 409,
                         'Partner EVSE no longer advertises reservation capability.');
                 } else {
+                    abort_unless($row->reservation_cancelled_at === null, 409);
                     abort_if($this->sessions($row)->contains(fn ($s) => in_array($s->normalized['status'], ['ACTIVE', 'COMPLETED'], true)), 409);
                 }
                 $claim = DB::table('ocpi_roaming_commands')->where('id', $command->id)->lockForUpdate()->firstOrFail();
@@ -311,7 +312,9 @@ final class ReservationRoaming
                 $known = $claim !== null && $this->sameClaim($claim, $command, $row, $action);
                 $hasEvidence = $claim !== null && ($claim->attempted_at !== null || $claim->transport_result !== null
                     || $claim->callback_hash !== null || $claim->callback_result !== null || $claim->callback_at !== null);
-                $uncertain = $entered || ! $known || $hasEvidence || $row->authorized_at !== null;
+                $uncertain = $entered || ! $known || $hasEvidence
+                    || ($claim !== null && $claim->state !== 'prepared')
+                    || $row->authorized_at !== null || $row->reservation_cancelled_at !== null;
                 if ($known && $claim->transport_result === null && $claim->callback_hash === null
                     && $claim->callback_result === null && $claim->callback_at === null
                     && in_array($claim->state, ['prepared', 'dispatching'], true)) {
@@ -345,15 +348,37 @@ final class ReservationRoaming
             if ($row->active_target_key === null || $row->token_revoked_at === null) {
                 return $row;
             }
-            $cancel = DB::table('ocpi_roaming_commands')->where('order_id', $row->id)->where('action', 'CANCEL_RESERVATION')->whereNotNull('attempted_at')->where('callback_result', 'ACCEPTED')->orderByDesc('id')->first();
+            $cancel = DB::table('ocpi_roaming_commands')->where('order_id', $row->id)
+                ->where('actor_id', $row->user_id)->where('action', 'CANCEL_RESERVATION')
+                ->whereNotNull('attempted_at')->whereNotNull('callback_hash')->whereNotNull('callback_at')
+                ->where('callback_result', 'ACCEPTED')->orderByDesc('callback_at')->orderByDesc('id')->first();
+            // A callback must not turn a contradictory synchronous rejection
+            // into an independently proven cancellation.
+            if ($cancel && ($cancel->transport_result !== 'ACCEPTED' && $cancel->transport_result !== null
+                || ! in_array($cancel->state, ['dispatching', 'transport_accepted', 'outcome_unknown'], true)
+                || CarbonImmutable::parse($cancel->callback_at, 'UTC')->lt(CarbonImmutable::parse($cancel->attempted_at, 'UTC')))) {
+                $cancel = null;
+            }
             $expired = CarbonImmutable::parse($row->reservation_expires_at, 'UTC')->lte(now());
             if (! $cancel && ! $expired && $row->reservation_cancelled_at === null) {
                 return $row;
             }
-            if (! DB::table('ocpi_roaming_commands')->where('order_id', $row->id)->where('action', 'TOKEN_REVOKE')->where('transport_result', 'ACCEPTED')->exists()) {
+            $deactivation = DB::table('ocpi_roaming_commands')->where('order_id', $row->id)
+                ->where('actor_id', $row->user_id)->where('action', 'TOKEN_REVOKE')
+                ->where('state', 'transport_accepted')->whereNotNull('attempted_at')
+                ->where('transport_result', 'ACCEPTED')->first();
+            if (! $deactivation || $row->token_state !== 'partner_revoked') {
                 return $row;
             }
-            $cutoff = $cancel ? CarbonImmutable::parse($cancel->callback_at, 'UTC') : CarbonImmutable::parse($row->reservation_cancelled_at ?? $row->reservation_expires_at, 'UTC');
+            $cutoff = CarbonImmutable::parse($cancel?->callback_at ?? $row->reservation_cancelled_at ?? $row->reservation_expires_at, 'UTC');
+            // Source availability must follow both the final cancellation
+            // evidence and acknowledged token deactivation. Never release
+            // capacity using an earlier snapshot while authority still existed.
+            foreach ([$row->reservation_cancelled_at, $row->token_revoked_at, $deactivation->updated_at] as $boundary) {
+                if ($boundary !== null) {
+                    $cutoff = $cutoff->max(CarbonImmutable::parse($boundary, 'UTC'));
+                }
+            }
             $sessions = $this->sessions($row);
             if ($sessions->count() > 1) {
                 return $row;

@@ -528,6 +528,48 @@ class OcpiReservationTest extends TestCase
         $this->assertDatabaseCount('charging_sessions', 0);
     }
 
+    public function test_reservation_closure_requires_acknowledged_deactivation_and_later_connector_evidence(): void
+    {
+        $f = $this->setupReservation();
+        [$order] = $this->reserve($f);
+        $url = '/api/roaming/sandbox-orders/'.$order->id;
+        $this->partnerCallback($order, 'RESERVE_NOW', 'CANCELED_RESERVATION');
+        $this->freshAvailable($f);
+        $this->travel(1)->seconds();
+        $this->deleteJson($url.'/authority')->assertOk();
+        $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', false);
+        $this->freshAvailable($f);
+        $deactivation = DB::table('ocpi_roaming_commands')->where('order_id', $order->id)->where('action', 'TOKEN_REVOKE')->first();
+        $this->assertNotNull($deactivation->attempted_at);
+        DB::table('ocpi_roaming_commands')->where('id', $deactivation->id)->update(['attempted_at' => null]);
+        $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', false);
+        $this->assertNotNull(DB::table('ocpi_roaming_orders')->find($order->id)->active_target_key);
+        DB::table('ocpi_roaming_commands')->where('id', $deactivation->id)->update(['attempted_at' => $deactivation->attempted_at]);
+        $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', true);
+        $this->assertNull(DB::table('ocpi_roaming_orders')->find($order->id)->active_target_key);
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_contradictory_cancellation_cannot_close_before_expiry_without_independent_source_notice(): void
+    {
+        $f = $this->setupReservation();
+        [$order] = $this->reserve($f);
+        $url = '/api/roaming/sandbox-orders/'.$order->id;
+        $this->postJson($url.'/cancel-reservation', ['request_key' => (string) Str::uuid(), 'consent' => true])->assertOk();
+        DB::table('ocpi_roaming_commands')->where('order_id', $order->id)->where('action', 'CANCEL_RESERVATION')->update(['state' => 'partner_rejected', 'transport_result' => 'REJECTED']);
+        $this->partnerCallback($order, 'CANCEL_RESERVATION', 'ACCEPTED');
+        $this->freshAvailable($f);
+        $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', false);
+        $this->assertNotNull(DB::table('ocpi_roaming_orders')->find($order->id)->active_target_key);
+        $this->partnerCallback($order, 'RESERVE_NOW', 'CANCELED_RESERVATION');
+        $this->freshAvailable($f);
+        $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', true);
+        $this->assertCount(3, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
     public function test_active_source_blocks_cancel_before_reconcile_and_reservation_never_uses_test_billing(): void
     {
         $f = $this->setupReservation();
