@@ -209,6 +209,7 @@ class CsmsDispatcher
             return ChargerCommand::findOrFail($id);
         }
         $wireAttempted = false;
+        $verifiedPrewireSourceMismatch = false;
         try {
             $link = isset($command->payload['session_id']) ? SessionLink::where('charging_session_id', $command->payload['session_id'])->first() : null;
             if ($link) {
@@ -262,6 +263,7 @@ class CsmsDispatcher
                 || $freshBinding->station_id !== $b->station_id
                 || ($freshBinding->vendor_charger_id ?? null) !== ($b->vendor_charger_id ?? null)
                 || ! $this->sourceLineage($command)) {
+                $verifiedPrewireSourceMismatch = true;
                 throw new \RuntimeException('Pre-dispatch source lineage changed');
             }
             $wireAttempted = true;
@@ -283,14 +285,15 @@ class CsmsDispatcher
                 $current->save();
             }, 3);
         } catch (\Throwable $e) {
-            // A failed source/credential preflight cannot have delivered a
-            // charger command. Keep it cancellable and report that known
-            // fact; only after the wire attempt begins can a timeout mean
-            // the remote command may have reached a device.
+            // Preserve the existing quarantine for rejected/unverifiable
+            // service credentials: no automatic retry of failed CSMS auth.
+            // Only an affirmative *local* source rebind detected before
+            // the HTTP wire begins is provably unsent and may stay pending.
+            $provenUnsent = ! $wireAttempted && $verifiedPrewireSourceMismatch;
             ChargerCommand::whereKey($command->id)->where('status', 'dispatching')->update(
-                $wireAttempted
-                    ? ['status' => 'outcome_unknown', 'failure_code' => 'dispatch_requires_reconciliation']
-                    : ['status' => 'pending', 'failure_code' => 'pre_dispatch_transport_setup_failed'],
+                $provenUnsent
+                    ? ['status' => 'pending', 'failure_code' => 'pre_dispatch_source_lineage_changed']
+                    : ['status' => 'outcome_unknown', 'failure_code' => 'dispatch_requires_reconciliation'],
             );
         }
 
