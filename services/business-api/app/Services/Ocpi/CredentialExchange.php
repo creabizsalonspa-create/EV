@@ -217,7 +217,7 @@ class CredentialExchange
     private function assertClaim(object $row, array $expected, bool $operation = false): void
     {
         foreach ($expected as $field => $value) {
-            abort_unless($row->$field === $value, 409, 'Credential claim changed; manual source reconciliation is required.');
+            abort_unless($value === $row->$field, 409, 'Credential claim changed; manual source reconciliation is required.');
         }
         if ($operation) {
             abort_unless($row->attempted_at !== null && $row->completed_at === null, 409);
