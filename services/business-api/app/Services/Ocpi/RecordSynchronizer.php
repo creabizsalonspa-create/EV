@@ -75,6 +75,10 @@ class RecordSynchronizer
                     }
                 }
                 if ($existing) {
+                    if (($connection['managed_credentials'] ?? false) === true
+                        && ! app(StoredSourceIntegrity::class)->consistent($existing)) {
+                        throw new OcpiException('Stored managed operator record requires integrity review before synchronization.');
+                    }
                     if (hash_equals($existing->content_hash, $hash)) {
                         $counts['duplicate']++;
 
