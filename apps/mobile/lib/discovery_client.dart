@@ -38,8 +38,8 @@ class GeoPlace {
       label = json['label'] as String,
       point = GeoPoint.fromJson(json) {
     if (!id.startsWith('geoapify:') ||
-        id.length > 100 ||
-        label.isEmpty ||
+        id.length <= 'geoapify:'.length || id.length > 100 ||
+        label.trim().isEmpty ||
         label.length > 600)
       throw const FormatException('Invalid address result.');
   }
@@ -94,6 +94,7 @@ class DiscoveryClient {
   // Reusing the object after sign-out/sign-in must not let in-flight private
   // route responses or previously approved third-party navigation through.
   final bool Function() currentSession;
+  final Stream<int>? sessionEvents;
   static bool _unfencedTestClient() => true;
   factory DiscoveryClient(EvApi api, {void Function()? onExpired}) {
     final fence = api.sessionFence();
@@ -111,14 +112,14 @@ class DiscoveryClient {
         if (!fence()) throw StateError('Discovery session changed');
         return reply;
       } on ApiException catch (error) {
-        if (fence() && [401, 419].contains(error.status)) {
+        if (error.endsCurrentSession || (fence() && [401, 419].contains(error.status))) {
           onExpired?.call();
         }
         rethrow;
       }
-    }, currentSession: fence);
+    }, currentSession: fence, sessionEvents: api.sessionEvents);
   }
-  DiscoveryClient.withRequest(this.request, {bool Function()? currentSession})
+  DiscoveryClient.withRequest(this.request, {bool Function()? currentSession, this.sessionEvents})
     : currentSession = currentSession ?? _unfencedTestClient;
   Future<DiscoveryCapabilities> capabilities() async =>
       DiscoveryCapabilities.fromJson(
@@ -145,9 +146,13 @@ class DiscoveryClient {
         json['places'] is! List ||
         (json['places'] as List).length > 5)
       throw const FormatException('Invalid address evidence.');
-    return (json['places'] as List)
+    final places = (json['places'] as List)
         .map((p) => GeoPlace.fromJson(Map<String, dynamic>.from(p as Map)))
-        .toList();
+        .toList(growable: false);
+    if (places.map((p) => p.id).toSet().length != places.length) {
+      throw const FormatException('Duplicate address evidence.');
+    }
+    return places;
   }
 
   Future<RouteEstimate> route(List<GeoPoint> points, String language) async {
