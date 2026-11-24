@@ -70,6 +70,8 @@ jobs:
           python3 -B -m unittest discover -s tests -p requirement_coverage_test.py
       - run: ./scripts/php artisan test --compact
       - run: npm ci
+      - name: Verify exact-source OCPP connector receipt and fault safety
+        run: node --test integrations/hasone-express/tests/ocppConnectorObservation.test.mjs
       - name: Verify Agent 9 offline security regression guards
         run: node --test tests/agent9-*.test.cjs tests/client-demo-failure.test.cjs
       - name: Install Playwright Chromium and required OS dependencies
