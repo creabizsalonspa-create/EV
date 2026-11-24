@@ -94,6 +94,43 @@ class AdminCampaignRecord {
   }
 }
 
+class AdminCampaignEvent {
+  final int id, actor;
+  final String action, reason, createdAt;
+  const AdminCampaignEvent(this.id, this.actor, this.action, this.reason, this.createdAt);
+
+  static List<AdminCampaignEvent> parseHistory(dynamic raw, AdminCampaignRecord record) {
+    if (raw is! List || raw.isEmpty) throw const FormatException('Missing campaign history.');
+    final result = <AdminCampaignEvent>[];
+    for (final event in raw) {
+      if (event is! Map || _exact(event['campaign_id'], positive: true) != record.id ||
+          !['created', 'submit', 'approve', 'reject', 'pause', 'resume',
+            'cancel', 'suspend', 'reinstate'].contains(event['action']) ||
+          event['reason'] is! String || (event['reason'] as String).length > 500 ||
+          event['created_at'] is! String || DateTime.tryParse(event['created_at']) == null) {
+        throw const FormatException('Invalid private campaign audit.');
+      }
+      final id = _exact(event['id'], positive: true);
+      if (result.isNotEmpty && result.last.id >= id) {
+        throw const FormatException('Invalid campaign audit order.');
+      }
+      result.add(AdminCampaignEvent(id, _exact(event['actor_id'], positive: true),
+        event['action'], event['reason'], event['created_at']));
+    }
+    final expected = switch (result.last.action) {
+      'created' => 'draft', 'submit' => 'submitted',
+      'approve' || 'resume' || 'reinstate' => 'approved',
+      'reject' => 'rejected', 'pause' => 'paused', 'cancel' => 'cancelled',
+      _ => 'suspended',
+    };
+    if (result.first.action != 'created' || result.last.id != record.revision ||
+        expected != record.status) {
+      throw const FormatException('Campaign revision does not match history.');
+    }
+    return List.unmodifiable(result);
+  }
+}
+
 class AdminCampaignPage {
   final List<AdminCampaignRecord> rows;
   final int number, last;
@@ -138,6 +175,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
   StreamSubscription<int>? events;
   AdminCampaignPage? page;
   AdminCampaignRecord? selected;
+  List<AdminCampaignEvent> history = const [];
   bool eligible = false, foreground = true, revoked = false, busy = false,
       failed = false, confirmed = false;
   int generation = 0, number = 1;
@@ -161,7 +199,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
 
   void clear() {
     generation++;
-    page = null; selected = null; eligible = false; busy = false;
+    page = null; selected = null; history = const []; eligible = false; busy = false;
     failed = false; confirmed = false; reason.clear();
   }
 
@@ -208,7 +246,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
 
   void failure(Object error, int epoch) {
     if (!current(epoch)) return;
-    setState(() { selected = null; page = null; eligible = false; failed = true; reason.clear(); });
+    setState(() { selected = null; page = null; history = const []; eligible = false; failed = true; reason.clear(); });
     if (error is ApiException && [401, 419].contains(error.status)) widget.onExpired();
   }
 
@@ -218,7 +256,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
     final epoch = ++generation;
     setState(() {
       busy = true; failed = false; confirmed = false; selected = null; page = null;
-      eligible = false; reason.clear(); number = next;
+      eligible = false; history = const []; reason.clear(); number = next;
     });
     try {
       await requireAdmin(epoch);
@@ -228,6 +266,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
       if (!current(epoch)) return;
       AdminCampaignRecord? record;
       bool canServe = false;
+      List<AdminCampaignEvent> audit = const [];
       if (detail != null) {
         final raw = await widget.api.request('commercial/campaigns/${detail.id}');
         if (!current(epoch)) return;
@@ -236,12 +275,13 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
         }
         record = AdminCampaignRecord.parse(raw['campaign'], id: detail.id);
         if (!detail.sameTerms(record)) throw const FormatException('Campaign terms changed.');
+        audit = AdminCampaignEvent.parseHistory(raw['events'], record);
         canServe = raw['currently_eligible'] as bool;
         if (canServe && (record.status != 'approved' || record.delivered >= record.budget)) {
           throw const FormatException('Invalid serving authority.');
         }
       }
-      setState(() { page = data; selected = record; eligible = canServe; });
+      setState(() { page = data; selected = record; history = audit; eligible = canServe; });
     } catch (error) { failure(error, epoch); }
     finally { if (current(epoch)) setState(() => busy = false); }
   }
@@ -274,7 +314,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
       final receipt = AdminCampaignRecord.parse(raw['campaign'], id: row.id);
       row.verifyDecision(receipt, action);
       // Never infer serving eligibility from an accepted moderation transition.
-      setState(() { selected = null; page = null; eligible = false; confirmed = true; });
+      setState(() { selected = null; page = null; history = const []; eligible = false; confirmed = true; });
     } catch (error) { failure(error, epoch); }
     finally { if (current(epoch)) setState(() => busy = false); }
   }
@@ -326,6 +366,9 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
           if (row != null) ...[
             Text(t(row.title, row.titleAr), style: Theme.of(context).textTheme.titleLarge),
             Text(t(row.description, row.descriptionAr)),
+            Text(t('Other language creative', 'المحتوى باللغة الأخرى')),
+            Text(t(row.titleAr, row.title)),
+            Text(t(row.descriptionAr, row.description)),
             Text('#${row.id} · ${status(row.status)}'),
             Text('${t('Vendor', 'المورد')} #${row.vendor} · ${t('Invoice', 'الفاتورة')} #${row.invoice} · ${t('Station', 'المحطة')} #${row.station}'),
             Text('${row.country} · ${row.placement} · ${row.region ?? ""}'),
@@ -341,6 +384,12 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
               for (final action in row.actions)
                 OutlinedButton(onPressed: busy || reason.text.trim().length < 5 ? null : () => decide(action), child: Text(label(action))),
             ],
+            Text(t('Immutable control history', 'سجل التحكم الثابت')),
+            for (final event in history.reversed)
+              Card(child: ListTile(
+                title: Text('#${event.id} · ${event.action} · ${t('Actor', 'المنفذ')} #${event.actor}'),
+                subtitle: Text('${event.reason}\n${event.createdAt}'),
+              )),
           ],
         ],
       ]),
