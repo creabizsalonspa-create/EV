@@ -24,6 +24,7 @@ test('actual bilingual DOM presentation renders text without interpreting source
 test('canonical cost timestamps reject impossible dates and contradictory meter evidence in both languages',()=>{
  const invalid=[
   {as_of:'2026-02-29T06:00:00.000000Z'},
+  {as_of:'2026-11-14T06:00:00.000000Z\n'},
   {as_of:'1900-02-29T06:00:00.000000Z'},
   {as_of:'2026-04-31T06:00:00.000000Z'},
   {as_of:'2026-11-14T24:00:00.000000Z'},
