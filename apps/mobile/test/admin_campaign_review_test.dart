@@ -129,8 +129,26 @@ void main() {
     expect(() => AdminCampaignEvent.parseHistory([
       history.first, {...history.last, 'campaign_id': 8},
     ], record), throwsFormatException);
+    // Valid-looking final revision must not hide an impossible state path.
+    for (final bad in [
+      [history.first, {...history.last, 'action': 'pause'}, {...history.last, 'id': 12, 'action': 'submit'}],
+      [history.first, {...history.last, 'actor_id': 8}],
+      [{...history.first, 'actor_id': 8}, history.last],
+      [history.first, {...history.last, 'action': 'created'}, {...history.last, 'id': 12}],
+    ]) {
+      final finalRevision = bad.length == 3 ? '12' : '11';
+      expect(() => AdminCampaignEvent.parseHistory(bad,
+        AdminCampaignRecord.parse(campaign(revision: finalRevision))), throwsFormatException);
+    }
     final accepted = AdminCampaignRecord.parse(campaign(status: 'approved', revision: '12'));
     record.verifyDecision(accepted, 'approve');
+    final delivered = AdminCampaignRecord.parse(
+      campaign(status: 'approved', revision: '12')
+        ..['delivered_units'] = 2
+        ..['verified_server_clicks'] = 1);
+    final regressed = AdminCampaignRecord.parse(
+      campaign(status: 'suspended', revision: '13')..['delivered_units'] = 2);
+    expect(() => delivered.verifyDecision(regressed, 'suspend'), throwsFormatException);
     expect(() => record.verifyDecision(AdminCampaignRecord.parse(
       campaign(status: 'approved', revision: '12')..['invoice_id'] = 13), 'approve'), throwsFormatException);
     expect(() => record.verifyDecision(AdminCampaignRecord.parse(
