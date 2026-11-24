@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use App\Services\Commercial\Loyalty\LoyaltyService;
 use App\Services\Retail\PartnerRegistry;
 use App\Services\Retail\PartnerRewardGovernance;
 use Illuminate\Contracts\Console\Kernel;
@@ -21,7 +22,15 @@ if (! is_file($go)) {
 try {
     $user = User::findOrFail($actor);
     $values = json_decode($payload, true, 32, JSON_THROW_ON_ERROR);
-    if (str_starts_with($action, 'reward:')) {
+    if (in_array($action, ['claim', 'cancel-claim'], true)) {
+        config(['loyalty.enabled' => true]);
+        $service = app(LoyaltyService::class);
+        if ($action === 'claim') {
+            $service->claimPartnerReward((int) $actor, (int) $values['review'], $values['key']);
+        } else {
+            $service->cancelPartnerRewardIntent((int) $actor, (int) $values['review'], $values['key']);
+        }
+    } elseif (str_starts_with($action, 'reward:')) {
         $review = $values['review'];
         unset($values['review']);
         app(PartnerRewardGovernance::class)->record($user, (int) $partner, $review, substr($action, 7), $values);

@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/financial_operation_store.dart';
 import 'package:creabiz_ev/partner_rewards.dart';
@@ -31,6 +33,10 @@ class PartnerRewardApi extends FixtureApi {
   bool verified = true;
   bool loseReply = false;
   bool malformed = false;
+  bool rejectClaim = false;
+  bool malformedCancellation = false;
+  final cancelled = <String>{};
+  final cancellationKeys = <String>[];
   String status = 'pending';
   final claimKeys = <String>[];
   final receiptKeys = <String>[];
@@ -96,9 +102,20 @@ class PartnerRewardApi extends FixtureApi {
       receiptKeys.add(key);
       return {'claim': claims[key]};
     }
+    if (path == '$prefix/claim-intents/cancel') {
+      expect(body['review_id'], 9);
+      cancellationKeys.add(key);
+      final request = sha256.convert(utf8.encode('partner-reward-claim:$owner:$key')).toString();
+      final binding = sha256.convert(utf8.encode('partner-reward-cancel-v1:9:$request')).toString();
+      if (!claims.containsKey(key)) cancelled.add(key);
+      return {'state': claims.containsKey(key) ? 'accepted' : 'cancelled',
+        'review_id': 9, 'request_binding': malformedCancellation ? 'wrong-binding' : binding,
+        'claim': claims[key]};
+    }
     expect(path, '$prefix/offers/9/claim');
     expect(enabled, true);
     claimKeys.add(key);
+    if (rejectClaim || cancelled.contains(key)) throw const ApiException(409, 'Claim blocked');
     final row = claims.putIfAbsent(
       key,
       () => {
@@ -136,6 +153,51 @@ Future<void> tap(WidgetTester tester, String label) async {
 }
 
 void main() {
+  testWidgets('cancelled intent retains its exact key until verified server acknowledgement', (tester) async {
+    final api = PartnerRewardApi(1)..rejectClaim = true;
+    final store = PartnerRewardStore();
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, store, 1));
+    await tester.pumpAndSettle();
+    await tap(tester, 'Claim reward');
+    await tap(tester, 'Claim');
+    final key = api.claimKeys.single;
+    expect(store.values.values.single['key'], key);
+    api.malformedCancellation = true;
+    await tap(tester, 'Cancel saved claim');
+    await tap(tester, 'Confirm cancellation');
+    expect(store.values.values.single['key'], key);
+    expect(find.textContaining('Cancellation not confirmed'), findsOneWidget);
+    api.malformedCancellation = false;
+    await tap(tester, 'Cancel saved claim');
+    await tap(tester, 'Confirm cancellation');
+    expect(api.cancellationKeys, [key, key]);
+    expect(api.cancelled, contains(key));
+    expect(store.values, isEmpty);
+    expect(api.claims, isEmpty);
+    expect(find.text('Saved request cancelled by the server.'), findsOneWidget);
+  });
+
+  testWidgets('cancelling a lost accepted claim recovers its receipt without replacement', (tester) async {
+    final api = PartnerRewardApi(1)..loseReply = true;
+    final store = PartnerRewardStore();
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, store, 1));
+    await tester.pumpAndSettle();
+    await tap(tester, 'Claim reward');
+    await tap(tester, 'Claim');
+    final key = api.claimKeys.single;
+    api.enabled = false;
+    await tap(tester, 'Cancel saved claim');
+    await tap(tester, 'Confirm cancellation');
+    expect(api.cancellationKeys, [key]);
+    expect(api.claimKeys, [key]);
+    expect(api.claims, hasLength(1));
+    expect(api.cancelled, isEmpty);
+    expect(store.values, isEmpty);
+    expect(find.text('Claim receipt'), findsOneWidget);
+  });
+
   testWidgets(
     'Arabic discovery, confirmed claim and current fulfillment history',
     (tester) async {
