@@ -113,7 +113,9 @@
         selectedCentre = null,
         routeSegments = [],
         routeLines;
-    let popupOpen = false, activeUnifiedMap = false;
+    let popupOpen = false;
+    // Each independently published source can supersede only its own layer.
+    let unifiedCatalogOwner = false, unifiedPartnerOwner = false;
     let records = [],
         partnerRows = [],
         ocmRows = [],
@@ -795,21 +797,21 @@
     });
     window.addEventListener("ev:locale", render);
     window.addEventListener("roaming-map-data", (event) => {
-        activeUnifiedMap = false;
+        unifiedPartnerOwner = false;
         partnerRows = Array.isArray(event.detail) && event.detail.length <= 25
             ? event.detail.filter(partnerSafe)
             : [];
         render();
     });
     window.addEventListener("open-charge-map-data", (event) => {
-        activeUnifiedMap = false;
+        // Open-licensed records do not supersede either union-owned layer.
         ocmRows = Array.isArray(event.detail) && event.detail.length <= 25
             ? event.detail.filter(ocmSafe)
             : [];
         render();
     });
     window.addEventListener("unified-map-data", (event) => {
-        activeUnifiedMap = true;
+        unifiedCatalogOwner = unifiedPartnerOwner = true;
         const rows = Array.isArray(event.detail) && event.detail.length <= 25 ? event.detail : [];
         // The event is a UI message, not a new source of server authority.
         // A malformed or incomplete catalog record stays list-only; never
@@ -833,19 +835,33 @@
         fitLoaded(true);
     });
     window.addEventListener("unified-map-clear", () => {
-        if (!activeUnifiedMap) return;
-        activeUnifiedMap = false;
-        // Reuse complete session teardown; preserve any newer map source.
-        window.dispatchEvent(new CustomEvent("catalog-map-clear"));
+        if (!unifiedCatalogOwner && !unifiedPartnerOwner) return;
+        if (unifiedCatalogOwner) {
+            records = [];
+            routeSegments = [];
+            planner?.clear();
+            renderRoute();
+        }
+        if (unifiedPartnerOwner) partnerRows = [];
+        unifiedCatalogOwner = unifiedPartnerOwner = false;
+        if (!records.length && !partnerRows.length && !ocmRows.length) {
+            // No remaining source: revoke prior-account map tiles, GPS
+            // consent, selected coordinates and viewport state.
+            window.dispatchEvent(new CustomEvent("catalog-map-clear"));
+            if (map) disable.onclick();
+        } else {
+            // Preserve independently published catalog, partner or OCM pins.
+            render();
+        }
     });
     window.addEventListener("catalog-map-data", (event) => {
-        activeUnifiedMap = false;
+        unifiedCatalogOwner = false;
         records = event.detail;
         planner?.update(records);
         render();
     });
     window.addEventListener("catalog-map-clear", () => {
-        activeUnifiedMap = false;
+        unifiedCatalogOwner = unifiedPartnerOwner = false;
         records = [];
         partnerRows = [];
         ocmRows = [];
