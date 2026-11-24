@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'api.dart';
+import 'hosted_checkout_events.dart';
 import 'strings.dart';
 import 'invoice.dart';
 import 'subscriptions.dart';
@@ -904,6 +905,25 @@ class _HostedState extends State<HostedCheckoutView>
                       child: Text(t('sourceDetails')),
                     ),
                     Text('${t('expires')}: ${r.source['expires_at'] ?? '—'}'),
+                    OutlinedButton(
+                      onPressed: busy
+                          ? null
+                          : () => Navigator.of(c).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => HostedCheckoutEventsView(
+                                  api: widget.api,
+                                  checkoutId: r.id,
+                                  corporate: widget.corporate,
+                                  onExpired: widget.onExpired,
+                                ),
+                              ),
+                            ),
+                      child: Text(
+                        Localizations.localeOf(c).languageCode == 'ar'
+                            ? 'نشاط عملية الدفع'
+                            : 'Checkout activity',
+                      ),
+                    ),
                     if (!own) Text(t('ownerOnly')),
                     if (own) ...[
                       if (creation != null && r.permits('retry'))
