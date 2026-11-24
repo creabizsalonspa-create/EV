@@ -113,7 +113,7 @@
         selectedCentre = null,
         routeSegments = [],
         routeLines;
-    let popupOpen = false;
+    let popupOpen = false, activeUnifiedMap = false;
     let records = [],
         partnerRows = [],
         ocmRows = [],
@@ -795,18 +795,21 @@
     });
     window.addEventListener("ev:locale", render);
     window.addEventListener("roaming-map-data", (event) => {
+        activeUnifiedMap = false;
         partnerRows = Array.isArray(event.detail) && event.detail.length <= 25
             ? event.detail.filter(partnerSafe)
             : [];
         render();
     });
     window.addEventListener("open-charge-map-data", (event) => {
+        activeUnifiedMap = false;
         ocmRows = Array.isArray(event.detail) && event.detail.length <= 25
             ? event.detail.filter(ocmSafe)
             : [];
         render();
     });
     window.addEventListener("unified-map-data", (event) => {
+        activeUnifiedMap = true;
         const rows = Array.isArray(event.detail) && event.detail.length <= 25 ? event.detail : [];
         // The event is a UI message, not a new source of server authority.
         // A malformed or incomplete catalog record stays list-only; never
@@ -829,12 +832,20 @@
         render();
         fitLoaded(true);
     });
+    window.addEventListener("unified-map-clear", () => {
+        if (!activeUnifiedMap) return;
+        activeUnifiedMap = false;
+        // Reuse complete session teardown; preserve any newer map source.
+        window.dispatchEvent(new CustomEvent("catalog-map-clear"));
+    });
     window.addEventListener("catalog-map-data", (event) => {
+        activeUnifiedMap = false;
         records = event.detail;
         planner?.update(records);
         render();
     });
     window.addEventListener("catalog-map-clear", () => {
+        activeUnifiedMap = false;
         records = [];
         partnerRows = [];
         ocmRows = [];

@@ -82,6 +82,52 @@ for(const language of ['en','ar'])test('contradictory discovery-only booking and
  assert.deepEqual(f.chosen,[]);
  assert.equal(writes,0);
 });
+
+for(const lang of ['en','ar'])test('mapped old account or role clears pins and old map click is invalid '+lang,async()=>{
+ const f=fixture(lang);
+ f.control.setContext({owner:'old',customer:true});
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const map=f.root.children[6],oldClick=map.onclick;
+ assert.equal(f.events.length,0);
+ oldClick();
+ assert.equal(f.events.length,1);
+ assert.equal(f.events[0].type,'unified-map-data');
+ assert.deepEqual(Array.from(f.events[0].detail,row=>row.key),['catalog:7','partner:7']);
+ f.control.setContext({owner:'new',customer:true});
+ assert.equal(f.events.length,2);
+ assert.equal(f.events[1].type,'unified-map-clear');
+ assert.equal(map.disabled,true);
+ assert.equal(f.list.children.length,0);
+ const prior=f.calls.length;oldClick();
+ assert.equal(f.events.length,2,'stale callbacks cannot restore the former account map');
+ assert.equal(f.calls.length,prior);
+ f.control.setContext({owner:'new',customer:false});
+ assert.equal(f.events.length,2,'clear without published map does not touch another source');
+});
+test('a fresh search revokes old map pins without implicit replot',async()=>{
+ const f=fixture();
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const map=f.root.children[6];map.onclick();const before=f.events.length;
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.events.length,before+1);
+ assert.equal(f.events.at(-1).type,'unified-map-clear');
+ assert.equal(map.disabled,false,'New page requires another explicit map click');
+ assert.equal(f.calls.length,2);
+});
+test('pagehide clears mapped private query and recent history without network',async()=>{
+ const f=fixture();f.control.setContext({owner:'customer',customer:true});
+ const q=f.form.children[0].children.find(x=>x.tag==='input');
+ q.value='Private previous customer address';
+ f.form.onsubmit({preventDefault(){}});await tick();f.root.children[6].onclick();
+ const before=f.calls.length;
+ f.emit('pagehide');
+ assert.equal(q.value,'');
+ assert.equal(f.list.children.length,0);
+ assert.equal(f.root.children[6].disabled,true);
+ assert.equal(f.root.children[7].hidden,true);
+ assert.equal(f.events.at(-1).type,'unified-map-clear');
+ assert.equal(f.calls.length,before);
+});
 test('mapping the mixed page is explicit, preserves typed sources and performs no lookup',async()=>{
  const f=fixture();assert.equal(f.events.length,0);f.form.onsubmit({preventDefault(){}});await tick();assert.equal(f.events.length,0);f.root.children[6].onclick();assert.equal(f.events.length,1);assert.equal(f.events[0].type,'unified-map-data');assert.deepEqual(Array.from(f.events[0].detail,row=>row.key),['catalog:7','partner:7']);assert.equal(f.calls.length,1);f.control.clear();assert.equal(f.root.children[6].disabled,true);
 });

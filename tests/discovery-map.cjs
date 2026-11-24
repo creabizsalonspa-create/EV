@@ -364,6 +364,22 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1,
       "Valid published source remains visible after a rejected map payload");
     assert.equal(viewportRequests.length, requestCountBeforeMalformedMap);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("unified-map-clear")));
+    assert.equal(await page.locator(".station-map-pin").count(), 0,
+      "Revoking a unified map removes its prior account pins");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("unified-map-clear")));
+    assert.equal(await page.locator(".station-map-pin").count(), 0);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent(
+      "catalog-map-data", { detail: [{
+        id: 1, name: "Independent source", latitude: 25.2, longitude: 55.3,
+        evidence: "SIMULATED", reservable: false,
+      }] },
+    )));
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("unified-map-clear")));
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1,
+      "Stale unified clear cannot erase another source's map markers");
+    assert.equal(viewportRequests.length, requestCountBeforeMalformedMap);
     assert.deepEqual(errors, []);
     console.log(
       "PASS: consented mixed map, disable/re-enable privacy and map refit, unverified partner capability checks, revocation, GPS opt-in, safe popups, Arabic and mobile layout. Synthetic only.",

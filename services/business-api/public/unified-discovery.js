@@ -3,7 +3,7 @@
  const text=(tag,en,ar)=>{const n=document.createElement(tag);if(tag==='label'){n.append(text('span',en,ar));return n;}n.dataset.en=en;n.dataset.ar=ar;n.textContent=document.documentElement.lang==='ar'?ar:en;return n;};
  const button=(en,ar,action)=>{const n=text('button',en,ar);n.type='button';n.onclick=action;return n;};
  function install(root,api,onCatalog){
-  let advancedQuery={},viewportQuery={},generation=0,page=1,query='',scope='all',country='',connector='',mapRows=[],recentStatus='',maxSourceAge='',savedOnly=false,customer=false,owner=null,favoriteWriter=null,writing=false,uncertain=false,recentPresets=[];
+  let advancedQuery={},viewportQuery={},generation=0,page=1,query='',scope='all',country='',connector='',mapRows=[],mapPublished=false,recentStatus='',maxSourceAge='',savedOnly=false,customer=false,owner=null,favoriteWriter=null,writing=false,uncertain=false,recentPresets=[];
   const form=document.createElement('form'),input=document.createElement('input'),source=document.createElement('select'),plug=document.createElement('select'),state=document.createElement('p'),list=document.createElement('div'),nav=document.createElement('nav');
   input.maxLength=80;input.name='unified-query';
   const field=text('label','Name, address or operator','الاسم أو العنوان أو المشغل');field.append(input);form.append(field);
@@ -73,7 +73,16 @@
     renderRecentPresets();
   }
   root.append(text('h3','Search platform and partner locations','البحث في مواقع المنصة والشركاء'),text('p','One search of published records. Partner reports are unverified and cannot authorize booking, charging or payment. External discovery providers require their separate consent.','بحث موحد في السجلات المنشورة. تقارير الشركاء غير مؤكدة ولا تسمح بالحجز أو الشحن أو الدفع. يتطلب مزودو الاكتشاف الخارجيون موافقة منفصلة.'),form,state,list,nav);
+  function revokePublishedMap(){
+   if(!mapPublished)return;
+   mapPublished=false;
+   // Revoke only the map previously published by this search UI.
+   window.dispatchEvent(new CustomEvent('unified-map-clear'));
+  }
   const mapButton=button('Map these loaded results','عرض هذه النتائج المحملة على الخريطة',()=>{
+   if(mapButton.disabled||mapRows.length===0||
+      document.visibilityState==='hidden')return;
+   mapPublished=true;
    window.dispatchEvent(new CustomEvent('unified-map-data',{detail:mapRows}));
    document.getElementById('discovery-map')?.scrollIntoView({block:'start'});
   });mapButton.disabled=true;root.append(mapButton,recentPanel);
@@ -96,7 +105,7 @@
   async function load(target,remember=false){
    if(writing)return;
    const historySnapshot=remember?{q:query,scope,country,connector,recentStatus,maxSourceAge,savedOnly,advanced:{...advancedQuery}}:null;
-   uncertain=false;const turn=++generation;mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();state.replaceChildren(text('span','Searching…','جارٍ البحث…'));submit.disabled=true;
+   uncertain=false;const turn=++generation;revokePublishedMap();mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();state.replaceChildren(text('span','Searching…','جارٍ البحث…'));submit.disabled=true;
    try{
     const data=await api('search?'+new URLSearchParams({...advancedQuery,...viewportQuery,q:query,scope,...(country?{country}:{}),connector,page:String(target),saved_only:savedOnly?'1':'0',recent_source_status:recentStatus,...(maxSourceAge?{max_source_age_hours:maxSourceAge}:{})}));if(turn!==generation)return;
     if(!data||!Array.isArray(data.data)||data.data.length>25||
@@ -211,7 +220,31 @@
    root.scrollIntoView?.({block:'start'});
   });
   // Location queries and result sets stay in memory; there is no automatic lookup.
-  return {setContext(context){if(owner!==context.owner||customer!==(context.customer===true))this.clear();owner=context.owner;customer=context.customer===true;favoriteWriter=context.favorite;savedField.hidden=!customer;},clear(){recentPresets=[];renderRecentPresets();advancedQuery={};viewportQuery={};for(const control of Object.values(advancedInputs))control.value='';generation++;writing=false;uncertain=false;scope='all';source.value='all';connector='';plug.value='';recentStatus='';report.value='';maxSourceAge='';ageFilter.value='';savedOnly=false;savedInput.checked=false;mapRows=[];mapButton.disabled=true;query='';input.value='';country='';market.value='';list.replaceChildren();nav.replaceChildren();state.replaceChildren();submit.disabled=false;}};
+  const controller={
+   setContext(context){
+    if(owner!==context.owner||customer!==(context.customer===true))this.clear();
+    owner=context.owner;customer=context.customer===true;
+    favoriteWriter=context.favorite;savedField.hidden=!customer;
+   },
+   clear(){
+    revokePublishedMap();
+    recentPresets=[];renderRecentPresets();advancedQuery={};viewportQuery={};
+    for(const control of Object.values(advancedInputs))control.value='';
+    generation++;writing=false;uncertain=false;scope='all';source.value='all';
+    connector='';plug.value='';recentStatus='';report.value='';maxSourceAge='';
+    ageFilter.value='';savedOnly=false;savedInput.checked=false;mapRows=[];
+    mapButton.disabled=true;query='';input.value='';country='';market.value='';
+    list.replaceChildren();nav.replaceChildren();state.replaceChildren();
+    submit.disabled=false;
+   }
+  };
+  // BFCache navigation and hidden tabs cannot retain a previous customer's
+  // search history, typed coordinates, saved filter or published map pins.
+  window.addEventListener('pagehide',()=>controller.clear());
+  document.addEventListener?.('visibilitychange',()=>{
+   if(document.visibilityState==='hidden')controller.clear();
+  });
+  return controller;
  }
  window.EvUnifiedDiscovery={install};
  window.addEventListener('discovery-api-ready',event=>{const root=document.getElementById('unified-discovery');if(root)window.EvUnifiedDiscovery.active=install(root,event.detail,id=>window.dispatchEvent(new CustomEvent('unified-catalog-open',{detail:id})));});
