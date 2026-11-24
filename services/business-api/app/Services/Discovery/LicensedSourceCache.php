@@ -24,7 +24,7 @@ final class LicensedSourceCache
         $key = 'ocm-discovery:'.$identity;
         $cached = Cache::get($key);
         if ($cached !== null) {
-            return $cached; // The adapter still validates every cached field.
+            return $this->cachedArray($cached); // The adapter still validates every cached field.
         }
         $cooldown = 'ocm-cooldown:'.hash('sha256', $credential);
         $this->checkCooldown($cooldown);
@@ -37,7 +37,7 @@ final class LicensedSourceCache
         try {
             $cached = Cache::get($key);
             if ($cached !== null) {
-                return $cached;
+                return $this->cachedArray($cached);
             }
             $this->checkCooldown($cooldown);
             try {
@@ -55,6 +55,15 @@ final class LicensedSourceCache
         } finally {
             $lock->release();
         }
+    }
+
+    private function cachedArray(mixed $cached): array
+    {
+        if (! is_array($cached)) {
+            throw new LookupFailure('invalid_response', 503);
+        }
+
+        return $cached;
     }
 
     private function checkCooldown(string $key): void

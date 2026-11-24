@@ -425,7 +425,9 @@ final class OpenChargeMapAdapter
             if (($country !== null && $item['country'] !== $country)
                 || $distance > $radiusKm + 0.0001
                 || abs($distance - $item['distance_km']) > 0.00051) {
-                throw new LookupFailure('invalid_response');
+                // A locally cached projection no longer matches its query.
+                // Keep upstream malformed-response handling (502) separate.
+                throw new LookupFailure('invalid_response', 503);
             }
         }
     }

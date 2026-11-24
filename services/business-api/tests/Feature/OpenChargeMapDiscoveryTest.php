@@ -159,13 +159,35 @@ class OpenChargeMapDiscoveryTest extends TestCase
         $this->postJson('/api/discovery/open-charge-map/search', $input)->assertOk();
         $key = 'ocm-discovery:'.LicensedSourceCache::identity(25.2, 55.3, 10, 'AE', 'synthetic-private-ocm-key');
         $cached = Cache::get($key);
-        $cached['results'][0]['longitude'] = 56.0;
-        Cache::put($key, $cached, 300);
-        $this->postJson('/api/v1/discovery/open-charge-map/search', $input)->assertStatus(503)->assertJsonPath('reason', 'invalid_response');
+        foreach ([
+            ['longitude' => 56.0],
+            ['country' => 'US'],
+            ['distance_km' => 1.0],
+        ] as $difference) {
+            $corrupt = $cached;
+            $corrupt['results'][0] = array_replace($corrupt['results'][0], $difference);
+            Cache::put($key, $corrupt, 300);
+            $this->postJson('/api/v1/discovery/open-charge-map/search', $input)
+                ->assertStatus(503)->assertJsonPath('reason', 'invalid_response')
+                ->assertJsonMissingPath('results');
+        }
         $report = app(LicensedCoverageAudit::class)->report();
         $this->assertSame(0, $report['observed_areas']);
         $this->assertSame('unverified_cache', $report['areas'][0]['state']);
         Http::assertSentCount(1);
+    }
+
+    public function test_non_array_cached_source_returns_private_unavailable_without_provider_io(): void
+    {
+        $input = $this->input() + ['country' => 'AE'];
+        $key = 'ocm-discovery:'.LicensedSourceCache::identity(25.2, 55.3, 10, 'AE', 'synthetic-private-ocm-key');
+        Cache::put($key, 'synthetic-corrupt-cache', 300);
+
+        $this->postJson('/api/v1/discovery/open-charge-map/search', $input)
+            ->assertStatus(503)->assertJsonPath('reason', 'invalid_response')
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonMissingPath('results');
+        Http::assertNothingSent();
     }
 
     public function test_disabled_source_is_invisible_to_network_and_never_exposes_key(): void
