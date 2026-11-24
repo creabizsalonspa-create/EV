@@ -59,10 +59,38 @@ class FinanceReviewRow {
   }
 }
 
+class FinanceReviewGroup {
+  final String kind, currency;
+  final int precision, count, amount;
+  const FinanceReviewGroup._(this.kind, this.currency, this.precision, this.count, this.amount);
+
+  String get key => '$kind:$currency:$precision';
+  String get amountLabel =>
+      '$currency ${amount < 0 ? '-' : ''}${minorDecimal(amount.abs(), precision)}';
+
+  factory FinanceReviewGroup.parse(dynamic raw, Map<String, String> query) {
+    if (raw is! Map ||
+        raw['basis'] != 'PENDING_RECORDS_NOT_FINANCIAL_BALANCE' ||
+        !_kinds.contains(raw['kind']) ||
+        raw['currency'] is! String ||
+        !RegExp(r'^[A-Z]{3}$').hasMatch(raw['currency']) ||
+        (query['kind'] != 'all' && raw['kind'] != query['kind']) ||
+        (query['currency'] != null && raw['currency'] != query['currency'])) {
+      throw const FormatException('Invalid pending review group.');
+    }
+    final precision = _exact(raw['minor_units']);
+    final count = _exact(raw['review_count'], positive: true);
+    final amount = _exact(raw['signed_amount_minor'], signed: raw['kind'] == 'adjustment');
+    if (precision > 3) throw const FormatException('Invalid review group precision.');
+    return FinanceReviewGroup._(raw['kind'], raw['currency'], precision, count, amount);
+  }
+}
+
 class FinanceReviewPage {
   final List<FinanceReviewRow> rows;
+  final List<FinanceReviewGroup> groups;
   final int page, last, total;
-  FinanceReviewPage._(this.rows, this.page, this.last, this.total);
+  FinanceReviewPage._(this.rows, this.groups, this.page, this.last, this.total);
 
   factory FinanceReviewPage.parse(dynamic raw, Map<String, String> query) {
     if (raw is! Map ||
@@ -100,7 +128,47 @@ class FinanceReviewPage {
         throw const FormatException('Private review filters changed.');
       }
     }
-    return FinanceReviewPage._(List.unmodifiable(rows), page, last, total);
+    final summary = raw['summary'];
+    final groups = <FinanceReviewGroup>[];
+    if (summary != null) {
+      if (summary is! Map ||
+          summary['scope'] != 'ALL_CURRENT_FILTERED_PENDING_RECORDS_NOT_PAGE' ||
+          summary['currency_and_precision_isolated'] != true ||
+          summary['not_a_payment_or_payout_authority'] != true ||
+          summary['groups'] is! List || (summary['groups'] as List).length > 200) {
+        throw const FormatException('Invalid pending review summary.');
+      }
+      final byKey = <String, FinanceReviewGroup>{};
+      int count = 0;
+      for (final value in summary['groups'] as List) {
+        final group = FinanceReviewGroup.parse(value, query);
+        if (byKey.containsKey(group.key)) {
+          throw const FormatException('Duplicate pending review scope.');
+        }
+        byKey[group.key] = group;
+        groups.add(group);
+        count = _exact(count + group.count);
+      }
+      if (count != total) {
+        throw const FormatException('Pending review summary count changed.');
+      }
+      final pageCounts = <String, int>{};
+      for (final row in rows) {
+        if (row.precision == null) continue;
+        final key = '${row.kind}:${row.currency}:${row.precision}';
+        final group = byKey[key];
+        final n = (pageCounts[key] ?? 0) + 1;
+        if (group == null || n > group.count) {
+          throw const FormatException('Pending review row outside summary scope.');
+        }
+        pageCounts[key] = n;
+      }
+      // A zero-precision group might contain a legacy null-precision
+      // source on another page. Never format those amounts as money.
+      groups.removeWhere((group) => group.precision == 0);
+      if (rows.any((row) => row.precision == null)) groups.clear();
+    }
+    return FinanceReviewPage._(List.unmodifiable(rows), List.unmodifiable(groups), page, last, total);
   }
 }
 
@@ -225,11 +293,13 @@ class _FinanceApprovalQueueState extends State<FinanceApprovalQueueView>
       final result = FinanceReviewPage.parse(raw, query);
       setState(() { page = result; applied = query; });
     } catch (error) {
+      if (mounted && identical(api, widget.api) &&
+          error is ApiException && error.endsCurrentSession) {
+        widget.onExpired();
+        return;
+      }
       if (!active()) return;
       setState(() { page = null; applied = null; failed = true; });
-      if (error is ApiException && [401, 419].contains(error.status)) {
-        widget.onExpired();
-      }
     } finally {
       if (active()) setState(() => busy = false);
     }
@@ -276,6 +346,19 @@ class _FinanceApprovalQueueState extends State<FinanceApprovalQueueView>
             'المراجعة الخاصة غير متاحة. تحقق من المرشحات والصلاحية ثم حدّث.')),
           if (data != null) ...[
             Text('${t('Pending records', 'السجلات المعلقة')}: ${data.total}'),
+            if (data.groups.isNotEmpty) ExpansionTile(
+              title: Text(t('Filtered pending records by scope', 'السجلات المعلقة المصفاة حسب النطاق')),
+              subtitle: Text(t('Not a balance or payout amount', 'ليس رصيداً أو مبلغ تحويل')),
+              children: [
+                Text(t('Amounts cover all filtered pages for the shown scopes. Uncertain precision is omitted.',
+                  'تشمل المبالغ جميع الصفحات المصفاة للنطاقات المعروضة. تستبعد الدقة غير المؤكدة.')),
+                for (final group in data.groups) ListTile(
+                  title: Text('${kindLabel(group.kind)} · ${group.currency} · ${t('Precision', 'الدقة')} ${group.precision}'),
+                  subtitle: Text('${t('Records', 'السجلات')}: ${group.count}'),
+                  trailing: Text(group.amountLabel, textDirection: TextDirection.ltr),
+                ),
+              ],
+            ),
             Text('${t('Page', 'صفحة')} ${data.page} / ${data.last}'),
             if (data.rows.isEmpty) Text(t('No pending records on this page.', 'لا توجد سجلات معلقة في هذه الصفحة.')),
             for (final row in data.rows)
