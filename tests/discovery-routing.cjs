@@ -217,6 +217,12 @@ const fs = require("node:fs");
     }
     await energy.getByText("Estimated energy above reserve: 36.0 kWh · assumed range: 180.0 km", {exact:true}).waitFor();
     await energy.getByText("Whole-route assumed energy: 0.3 kWh", {exact:true}).waitFor();
+    const candidates = energy.locator("#energy-first-stop-candidates li");
+    assert.equal(await candidates.count(),4);
+    assert.match(await candidates.first().textContent(),/Synthetic stop 1/);
+    assert.match(await candidates.last().textContent(),/Synthetic stop 4/);
+    assert.equal(await energy.getByText(/Distant catalog fixture/).count(),0);
+    assert.equal(await journey.locator("ol li").count(),3,"Candidates never select or replace itinerary stops");
     assert.equal(routeCalls,1,"Battery assumptions are local only");
     assert.equal(tiles,0);
     assert.deepEqual(Object.keys(routeBody).sort(),["consent","language","points"]);
