@@ -192,6 +192,37 @@ void main() {
     }
   });
 
+  testWidgets('native enrollment consent and stored request keep the original frozen plan',
+      (t) async {
+    final api = SubscriptionApi();
+    final store = VendorOperationStore();
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionActionView(
+      api: api, onExpired: () {}, action: 'enroll',
+      plan: api.plan, store: store,
+    )));
+    await t.pumpAndSettle();
+    expect(find.text('Published <literal> plan'), findsOneWidget);
+    expect(find.textContaining('1.250 KWD'), findsOneWidget);
+
+    // A caller can retain the original transport Map and mutate it after
+    // a user sees its price. Never silently switch the selected plan ID.
+    api.plan['id'] = 8;
+    api.plan['name'] = 'Forged plan';
+    api.plan['price_minor'] = 99999;
+    final dynamic state = t.state(find.byType(SubscriptionActionView));
+    state.setState(() {});
+    await t.pump();
+    expect(find.text('Published <literal> plan'), findsOneWidget);
+    expect(find.text('Forged plan'), findsNothing);
+    expect(find.textContaining('1.250 KWD'), findsOneWidget);
+
+    await confirm(t);
+    expect(api.bodies.single['plan_id'], 7);
+    expect(store.values, isEmpty);
+    expect(api.writes, 1);
+  });
+
   testWidgets('open subscription billing action clears consent and replay UI on logout',
       (t) async {
     final api = SubscriptionApi();
