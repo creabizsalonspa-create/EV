@@ -109,6 +109,47 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       .getByRole("button", { name: "Request refund", exact: true })
       .click();
     await root.getByText("Browser refund " + run, { exact: true }).waitFor();
+
+    // Assert the Admin's actual rendered outstanding-source summary, not a
+    // hidden JSON fixture. The group spans the full filtered queue even when
+    // the detail page is bounded; no cross-currency sum or approval click.
+    const reviewPanel = rootAdmin.locator("[data-finance-approval-queue]");
+    await rootAdmin.getByLabel("Finance approval kind").selectOption("refund");
+    await rootAdmin.getByRole("button", {
+      name: "Load pending finance reviews", exact: true,
+    }).click();
+    await reviewPanel.locator("[data-finance-approval-group-summary]").waitFor();
+    const pendingResponse = await admin.request.get(
+      base + "/api/finance/approval-queue?kind=refund&per_page=20&page=1",
+      { headers: { Accept: "application/json" } },
+    );
+    assert.equal(pendingResponse.status(), 200);
+    const pending = await pendingResponse.json();
+    assert.equal(pending.summary.currency_and_precision_isolated, true);
+    assert.equal(
+      pending.summary.scope,
+      "ALL_CURRENT_FILTERED_PENDING_RECORDS_NOT_PAGE",
+    );
+    assert.equal(
+      pending.summary.groups.reduce((total, group) =>
+        total + group.review_count, 0),
+      pending.total,
+      "Full filtered pending approval count must not be current-page-only",
+    );
+    const renderedRefunds = await reviewPanel
+      .locator('[data-finance-approval-group="refund"]').allInnerTexts();
+    assert.equal(renderedRefunds.length, pending.summary.groups.length);
+    for (const group of pending.summary.groups) {
+      const source = renderedRefunds.find(
+        (value) => value.includes(group.currency) &&
+          value.includes(String(group.signed_amount_minor)),
+      );
+      assert(source, "Admin must show exact server-grouped pending finance amount");
+    }
+    assert(
+      !(await reviewPanel.innerText()).includes("Browser refund " + run),
+      "Private customer refund notes must never leak into Admin review groups",
+    );
     const plan = root.locator(".finance-row").filter({
       has: customer.getByRole("heading", {
         name: "Commercial " + run,

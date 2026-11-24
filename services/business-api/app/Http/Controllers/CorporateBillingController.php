@@ -9,6 +9,43 @@ use Illuminate\Support\Facades\DB;
 
 class CorporateBillingController extends Controller
 {
+    private const MAX_EXACT_MINOR = 9_007_199_254_740_991;
+
+    /** Source monetary fields must remain exact before immutable corporate CSV. */
+    private static function exactMinor(mixed $value): int
+    {
+        abort_unless(is_int($value) || is_string($value), 409,
+            'Corporate statement amount is not an exact minor-unit integer.');
+        $minor = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($minor !== false && $minor >= 0
+            && $minor <= self::MAX_EXACT_MINOR,
+            409, 'Corporate statement amount exceeds exact integer bounds.');
+
+        return $minor;
+    }
+
+    /**
+     * Client responses contain business decisions, never private replay keys
+     * or payload fingerprints used to prove original request identity.
+     * The ledger still retains both values for all idempotency checks.
+     */
+    private function safe(?object $row): ?array
+    {
+        if ($row === null) {
+            return null;
+        }
+        $data = (array) $row;
+        unset($data['request_key'], $data['fingerprint']);
+
+        return $data;
+    }
+
+    /** Keep any external invoice/cost-center identifiers literal in CSV tools. */
+    private static function safeCsvCell(string $value): string
+    {
+        return preg_match('/^[\\p{Z}\\p{Cc}\\p{Cf}]*[=+\\-@]/u', $value) ? "'".$value : $value;
+    }
+
     public function index(Request $r, CorporateBilling $service)
     {
         $fleet = $r->validate(['fleet_id' => 'required|integer|min:1']);
@@ -21,7 +58,7 @@ class CorporateBillingController extends Controller
             return response()->json([
                 'agreements' => DB::table('corporate_agreements')
                     ->where('fleet_id', $company->id)->orderByDesc('id')->get()->map(
-                        fn ($a) => (array) $a + [
+                        fn ($a) => $this->safe($a) + [
                             'acceptance' => DB::table('corporate_agreement_acceptances')
                                 ->where('agreement_id', $a->id)->first(),
                         ]),
@@ -38,7 +75,7 @@ class CorporateBillingController extends Controller
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
             abort_unless($actor->role === 'admin', 403);
 
-            return response()->json(['agreement' => $s->publish($fleet, $actor->id, $v)], 201);
+            return response()->json(['agreement' => $this->safe($s->publish($fleet, $actor->id, $v))], 201);
         }, 3);
     }
 
@@ -49,7 +86,7 @@ class CorporateBillingController extends Controller
         return DB::transaction(function () use ($r, $agreement, $s) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
 
-            return response()->json(['agreement' => $s->accept($agreement, $actor->id)]);
+            return response()->json(['agreement' => $this->safe($s->accept($agreement, $actor->id))]);
         }, 3);
     }
 
@@ -60,7 +97,7 @@ class CorporateBillingController extends Controller
         return DB::transaction(function () use ($r, $agreement, $s, $v) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
 
-            return response()->json(['claim' => $s->claim($agreement, $actor->id, $v)], 201);
+            return response()->json(['claim' => $this->safe($s->claim($agreement, $actor->id, $v))], 201);
         }, 3);
     }
 
@@ -75,7 +112,7 @@ class CorporateBillingController extends Controller
             return response()->json(DB::table('corporate_claims')
                 ->where('agreement_id', $agreement)
                 ->when(! $manager, fn ($q) => $q->where('driver_id', $actor->id))
-                ->orderByDesc('id')->paginate(25)->through(fn ($row) => (array) $row + [
+                ->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->safe($row) + [
                     'decision' => DB::table('corporate_claim_decisions')
                         ->where('claim_id', $row->id)->first(),
                     'statement_id' => DB::table('corporate_statement_lines')
@@ -104,7 +141,7 @@ class CorporateBillingController extends Controller
         return DB::transaction(function () use ($r, $agreement, $s, $v) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
 
-            return response()->json(['statement' => $s->issue($agreement, $actor->id, $v)], 201);
+            return response()->json(['statement' => $this->safe($s->issue($agreement, $actor->id, $v))], 201);
         }, 3);
     }
 
@@ -117,9 +154,9 @@ class CorporateBillingController extends Controller
 
             return response()->json(DB::table('corporate_statements')
                 ->where('agreement_id', $agreement)->orderByDesc('id')->paginate(25)
-                ->through(fn ($row) => (array) $row + [
-                    'receipt' => DB::table('corporate_receipts')
-                        ->where('statement_id', $row->id)->first(),
+                ->through(fn ($row) => $this->safe($row) + [
+                    'receipt' => $this->safe(DB::table('corporate_receipts')
+                        ->where('statement_id', $row->id)->first()),
                 ]))->header('Cache-Control', 'private, no-store');
         }, 3);
     }
@@ -129,7 +166,11 @@ class CorporateBillingController extends Controller
         return DB::transaction(function () use ($r, $statement, $s) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
 
-            return response()->json($s->statement($statement, $actor->id))
+            $data = $s->statement($statement, $actor->id);
+            $data['statement'] = $this->safe($data['statement']);
+            $data['receipt'] = $this->safe($data['receipt']);
+
+            return response()->json($data)
                 ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
@@ -142,7 +183,7 @@ class CorporateBillingController extends Controller
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
 
             return response()->json([
-                'receipt' => $s->simulatePayment($statement, $actor->id, $v['idempotency_key']),
+                'receipt' => $this->safe($s->simulatePayment($statement, $actor->id, $v['idempotency_key'])),
                 'real_payment_processed' => false,
             ])->header('Cache-Control', 'private, no-store');
         }, 3);
@@ -161,13 +202,14 @@ class CorporateBillingController extends Controller
         $f = fopen('php://temp', 'w+');
         fputcsv($f, ['statement', 'invoice', 'cost_center', 'subtotal_minor', 'tax_minor', 'total_minor', 'currency', 'minor_units'], ',', '"', '');
         foreach ($v['lines'] as $line) {
-            $safe = static fn (string $text) => preg_match('/^[\s\p{C}]*[=+\-@]/u', $text) ? "'".$text : $text;
-            fputcsv($f, [$v['statement']->number, $line->invoice_number, $safe($line->cost_center_code), (int) $line->subtotal_minor, (int) $line->tax_minor, (int) $line->total_minor, $v['statement']->currency, (int) $v['statement']->minor_units], ',', '"', '');
+            fputcsv($f, [self::safeCsvCell((string) $v['statement']->number),
+                self::safeCsvCell((string) $line->invoice_number),
+                self::safeCsvCell((string) $line->cost_center_code), self::exactMinor($line->subtotal_minor), self::exactMinor($line->tax_minor), self::exactMinor($line->total_minor), $v['statement']->currency, (int) $v['statement']->minor_units], ',', '"', '');
         }
         rewind($f);
         $data = stream_get_contents($f);
         fclose($f);
 
-        return response($data)->header('Content-Type', 'text/csv; charset=utf-8')->header('Content-Disposition', 'attachment; filename="corporate-statement-'.$statement.'.csv"')->header('Cache-Control', 'private, no-store');
+        return response($data)->header('Content-Type', 'text/csv; charset=utf-8')->header('Content-Disposition', 'attachment; filename="corporate-statement-'.$statement.'.csv"')->header('Cache-Control', 'private, no-store')->header('X-Content-Type-Options', 'nosniff');
     }
 }
