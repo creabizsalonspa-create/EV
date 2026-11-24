@@ -79,6 +79,72 @@ class SubscriptionCreditTest extends TestCase
         return $this->call('POST', '/subscription-credit-test/subscription-credit-payments/stripe-test/webhook', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_STRIPE_SIGNATURE' => $signature], $raw);
     }
 
+    public function test_credit_amounts_reject_inexact_sources_and_overflow_before_any_provider_refund(): void
+    {
+        $minor = new \ReflectionMethod(SubscriptionCreditService::class, 'exactMinor');
+        $sum = new \ReflectionMethod(SubscriptionCreditService::class, 'sumCredits');
+        $add = new \ReflectionMethod(SubscriptionCreditService::class, 'checkedAdd');
+        $max = 9_007_199_254_740_991;
+
+        $this->assertSame(0, $minor->invoke(null, 0));
+        $this->assertSame($max, $minor->invoke(null, '9007199254740991'));
+        $this->assertSame($max, $add->invoke(null, $max - 1, 1));
+        $this->assertSame(125, $sum->invoke(null, [
+            (object) ['amount_minor' => '100'],
+            (object) ['amount_minor' => 25],
+        ], 'amount_minor'));
+
+        foreach ([100.0, -100.0, true, false, '-1', '0.5',
+            '1e3', '9007199254740992', 'bad-credit'] as $unsafe) {
+            try {
+                $minor->invoke(null, $unsafe);
+                $this->fail('Subscription credit source was rounded into a valid amount.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+
+        foreach ([
+            [(object) ['amount_minor' => 4_503_599_627_370_496],
+                (object) ['amount_minor' => 4_503_599_627_370_496]],
+            [(object) ['amount_minor' => true]],
+            [(object) ['amount_minor' => -1]],
+        ] as $unsafeRows) {
+            try {
+                $sum->invoke(null, $unsafeRows, 'amount_minor');
+                $this->fail('Unsafe credit accumulation succeeded.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+
+        $this->assertDatabaseCount('subscription_credits', 0);
+        $this->assertDatabaseCount('subscription_credit_requests', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_private_credit_detail_reconciles_exact_components_and_journal_without_writes(): void
+    {
+        $f = $this->fixture();
+        $issued = $this->refund($f, 200, 'audited-exact-source')
+            ->assertCreated()->json('credit');
+        $url = '/subscription-credit-test/commercial/subscription-credits/'.$issued['id'];
+        $beforeEntries = DB::table('commercial_subscription_ledger')->count();
+        $beforeCredits = DB::table('subscription_credits')->count();
+
+        $this->actingAs($f[0])->getJson($url)
+            ->assertOk()
+            ->assertJsonPath('credit.amount_minor', 200)
+            ->assertJsonCount(3, 'entries')
+            ->assertJsonPath('subscription.ledger_balanced', true)
+            ->assertJsonPath('real_payment_processed', false);
+
+        $this->assertSame($beforeEntries,
+            DB::table('commercial_subscription_ledger')->count());
+        $this->assertSame($beforeCredits, DB::table('subscription_credits')->count());
+        Http::assertNothingSent();
+    }
+
     public function test_partial_and_full_refunds_allocate_exactly_without_mutating_invoice_or_receipt(): void
     {
         $f = $this->fixture();
