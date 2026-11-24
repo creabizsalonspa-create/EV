@@ -327,12 +327,23 @@ class _InvoicePageState extends State<InvoicePage>
             }.entries)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 10),
-                child: Text(
-                  s.t('invoiceLine', {
-                    'label': s.t(entry.key),
-                    'amount': entry.value,
-                    'currency': invoice['currency'],
-                  }),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${s.t(entry.key)}: \u2068${minorDecimal(entry.value as int, invoice['minor_units'] as int)} ${invoice['currency']}\u2069',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    // Retain exact recorded minor units for source review.
+                    Text(
+                      s.t('invoiceLine', {
+                        'label': s.t(entry.key),
+                        'amount': entry.value,
+                        'currency': invoice['currency'],
+                      }),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
               ),
             OutlinedButton(
@@ -379,6 +390,10 @@ class _InvoicePageState extends State<InvoicePage>
               if ((data![kind] as List? ?? []).isEmpty)
                 Text(s.t('noTransactions')),
               for (final row in (data![kind] as List? ?? [])) ...[
+                Text(
+                  '\u2068${minorDecimal(row['amount_minor'] as int, invoice['minor_units'] as int)} ${invoice['currency']}\u2069',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
                 Text(
                   s.t('invoiceTransaction', {
                     'amount': row['amount_minor'],
