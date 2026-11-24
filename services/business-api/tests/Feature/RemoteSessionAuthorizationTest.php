@@ -89,10 +89,10 @@ class RemoteSessionAuthorizationTest extends TestCase
         $tag = $command->payload['id_token'];
         config([
             'csms.graphql_secret' => str_repeat('g', 64),
-            'csms.graphql_url' => 'http://source.test/graphql',
+            'csms.graphql_url' => 'https://source.test/graphql',
         ]);
         Http::fake(function ($request) use ($kind, $link, $tag) {
-            $this->assertSame('http://source.test/graphql', $request->url());
+            $this->assertSame('https://source.test/graphql', $request->url());
             $this->assertStringContainsString('Authorizations', $request['query']);
             $row = [
                 'id' => 7, 'idToken' => $tag, 'idTokenType' => 'Central',
@@ -172,11 +172,11 @@ class RemoteSessionAuthorizationTest extends TestCase
         $link->update(['remote_authorization_id' => 7]);
         config([
             'csms.graphql_secret' => str_repeat('g', 64),
-            'csms.graphql_url' => 'http://source.test/graphql',
+            'csms.graphql_url' => 'https://source.test/graphql',
         ]);
         $sourceExpiry = now()->addMinutes(15)->toISOString();
         Http::fake(function ($request) use ($link, $tag, &$sourceExpiry) {
-            $this->assertSame('http://source.test/graphql', $request->url());
+            $this->assertSame('https://source.test/graphql', $request->url());
 
             return Http::response(['data' => ['Authorizations' => [[
                 'id' => 7, 'idToken' => $tag, 'idTokenType' => 'Central',
