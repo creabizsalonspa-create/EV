@@ -8,6 +8,17 @@ use Illuminate\Support\Facades\Cache;
 /** Shared egress protection; never serves stale results after provider failure. */
 final class LicensedSourceCache
 {
+    public static function identity(float $latitude, float $longitude, float $radiusKm, ?string $country, string $credential): string
+    {
+        return hash('sha256', json_encode([$latitude, $longitude, $radiusKm, $country, hash('sha256', $credential)], JSON_THROW_ON_ERROR));
+    }
+
+    /** No fetch, retry, cooldown change or quota consumption. */
+    public function peek(string $identity): mixed
+    {
+        return Cache::get('ocm-discovery:'.$identity);
+    }
+
     public function read(string $identity, string $credential, Closure $fetch): array
     {
         $key = 'ocm-discovery:'.$identity;

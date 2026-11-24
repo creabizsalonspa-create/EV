@@ -214,7 +214,9 @@ class SandboxRoaming
         return DB::table('ocpi_roaming_commands')->where('order_id', $orderId)->where('action', 'STOP_SESSION')
             ->where(fn ($q) => $q->whereNotIn('state', ['partner_rejected', 'not_dispatched'])
                 ->orWhere(fn ($known) => $known->where('state', 'not_dispatched')->where(fn ($evidence) => $evidence
-                    ->whereNotNull('attempted_at')->orWhereNotNull('transport_result')->orWhereNotNull('callback_hash')->orWhereNotNull('callback_result')->orWhereNotNull('callback_at'))))->exists();
+                    ->whereNotNull('attempted_at')->orWhereNotNull('transport_result')->orWhereNotNull('callback_hash')->orWhereNotNull('callback_result')->orWhereNotNull('callback_at')))
+                ->orWhere(fn ($rejected) => $rejected->where('state', 'partner_rejected')->where(fn ($evidence) => $evidence
+                    ->whereNotNull('callback_hash')->orWhereNotNull('callback_result')->orWhereNotNull('callback_at'))))->exists();
     }
 
     public function present(object $order, bool $driver = false): array

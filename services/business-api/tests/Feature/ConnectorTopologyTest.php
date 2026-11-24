@@ -207,6 +207,53 @@ class ConnectorTopologyTest extends TestCase
     }
 
     #[DataProvider('protocols')]
+    public function test_recent_source_search_quarantines_regressed_source_ids_across_web_native_and_admin(string $protocol): void
+    {
+        $this->freezeTime();
+        $f = $this->topology($protocol);
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $row = [
+            'binding_id' => $binding->id,
+            'source_generation' => FaultMonitor::generation($binding),
+            'fingerprint' => str_repeat('e', 64),
+            'evse_number' => $protocol === '1.6' ? 0 : 5,
+            'connector_number' => 7,
+            'error_code' => 'NoError',
+            'created_at' => now(),
+        ];
+        $check = function (int $available) use ($f, $admin) {
+            $this->actingAs($f['customer']);
+            foreach (['/api/stations', '/api/v1/stations', '/api/discovery/search', '/api/v1/discovery/search'] as $route) {
+                $this->getJson($route.'?recent_source_status=Available')->assertOk()->assertJsonPath('total', $available);
+                $this->getJson($route.'?recent_source_status=Charging')->assertOk()->assertJsonPath('total', 0);
+            }
+            $this->actingAs($admin)->getJson('/api/admin/operations/map?recent_source_status=Available')->assertOk()->assertJsonPath('total', $available);
+            $this->getJson('/api/admin/operations/map?recent_source_status=Charging')->assertOk()->assertJsonPath('total', 0);
+        };
+
+        DB::table('charging_status_observations')->insert($row + [
+            'source_event_id' => 1, 'status' => 'Available', 'occurred_at' => now()->subSeconds(10),
+        ]);
+        $check(1);
+        DB::table('charging_status_observations')->insert($row + [
+            'source_event_id' => 2, 'status' => 'Charging', 'occurred_at' => now()->subSeconds(20),
+        ]);
+        $check(0);
+        // A later coherent report may restore the reported status; it still
+        // cannot imply physical availability or a booking/command entitlement.
+        DB::table('charging_status_observations')->insert($row + [
+            'source_event_id' => 3, 'status' => 'Available', 'occurred_at' => now()->subSecond(),
+        ]);
+        $check(1);
+        $this->actingAs($f['customer'])->getJson('/api/stations?recent_source_status=Available')->assertOk()
+            ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.remote_control', false);
+        $this->assertDatabaseCount('reservations', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
     public function test_recent_source_filter_uses_the_exact_current_connector_before_pagination(string $protocol): void
     {
         $this->freezeTime();

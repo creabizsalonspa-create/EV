@@ -7,6 +7,7 @@ use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\SandboxRoaming;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -229,6 +230,167 @@ class SandboxRoamingTest extends TestCase
         $this->assertFalse(app(SandboxRoaming::class)->token($order)['valid']);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    #[TestWith(['hash'])]
+    #[TestWith(['ciphertext'])]
+    #[TestWith(['attempted'])]
+    public function test_changed_durable_start_claim_never_dispatches_after_token_registration(string $change): void
+    {
+        [, $driver, , , $location] = $this->fixture();
+        Http::swap(new Factory);
+        $requests = [];
+        Http::fake(function ($request) use ($change, &$requests) {
+            $requests[] = $request->method();
+            if ($request->method() === 'PUT') {
+                $command = DB::table('ocpi_roaming_commands')->where('action', 'START_SESSION');
+                $command->update(match ($change) {
+                    'hash' => ['intent_hash' => str_repeat('a', 64)],
+                    'ciphertext' => ['payload_ciphertext' => 'corrupted-synthetic-capsule'],
+                    'attempted' => ['attempted_at' => now()],
+                });
+            }
+
+            return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => $request->method() === 'PUT' ? null : ['result' => 'ACCEPTED', 'timeout' => 30]]);
+        });
+        $url = '/api/roaming/locations/'.$location->id;
+        $offer = $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->json('offers.0');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true];
+        $this->postJson($url.'/sandbox-orders', $body)->assertCreated();
+        $this->postJson($url.'/sandbox-orders', $body)->assertOk();
+        $this->assertSame(['PUT'], $requests);
+
+        $command = DB::table('ocpi_roaming_commands')->first();
+        $order = DB::table('ocpi_roaming_orders')->first();
+        if ($change === 'attempted') {
+            $this->assertNotNull($command->attempted_at);
+        } else {
+            $this->assertNull($command->attempted_at);
+        }
+        $this->assertSame('outcome_unknown', $command->state);
+        $this->assertSame('start_outcome_unknown', $order->state);
+        $this->assertNotNull($order->active_target_key);
+        $this->assertNull($command->transport_result);
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_start_claim_changed_at_insert_never_registers_a_token_or_sends_a_command(): void
+    {
+        [, $driver, , , $location] = $this->fixture();
+        $armed = true;
+        DB::listen(function ($query) use (&$armed) {
+            if ($armed && str_starts_with($query->sql, 'insert into "ocpi_roaming_commands"')) {
+                $armed = false;
+                DB::table('ocpi_roaming_commands')->where('action', 'START_SESSION')->update([
+                    'callback_key' => (string) Str::uuid(),
+                ]);
+            }
+        });
+        $url = '/api/roaming/locations/'.$location->id;
+        $offer = $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->json('offers.0');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true];
+        $this->postJson($url.'/sandbox-orders', $body)->assertCreated()->assertJsonPath('state', 'start_outcome_unknown');
+        $this->postJson($url.'/sandbox-orders', $body)->assertOk();
+        $this->assertFalse($armed);
+        $this->assertCount(0, $this->writes);
+        $this->assertSame('outcome_unknown', DB::table('ocpi_roaming_commands')->value('state'));
+        $this->assertNotNull(DB::table('ocpi_roaming_orders')->value('active_target_key'));
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    #[TestWith(['callback'])]
+    #[TestWith(['authorization'])]
+    #[TestWith(['none'])]
+    public function test_start_transport_rejection_preserves_earlier_source_authority_and_capacity(string $evidence): void
+    {
+        [, $driver, , , $location] = $this->fixture();
+        Http::swap(new Factory);
+        $attempts = [];
+        Http::fake(function ($request) use ($evidence, &$attempts) {
+            $attempts[] = $request->method();
+            if ($request->method() === 'POST') {
+                // Inject the persisted evidence an asynchronous peer can commit
+                // while the original command transport is still in flight.
+                if ($evidence === 'callback') {
+                    DB::table('ocpi_roaming_commands')->where('action', 'START_SESSION')->update([
+                        'callback_result' => 'ACCEPTED',
+                        'callback_hash' => hash('sha256', '{"result":"ACCEPTED"}'),
+                        'callback_at' => now(),
+                    ]);
+                } elseif ($evidence === 'authorization') {
+                    DB::table('ocpi_roaming_orders')->update(['authorized_at' => now()]);
+                }
+            }
+
+            return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => $request->method() === 'PUT' ? null : ['result' => 'REJECTED', 'timeout' => 30]]);
+        });
+        $url = '/api/roaming/locations/'.$location->id;
+        $offer = $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->json('offers.0');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true];
+        $this->postJson($url.'/sandbox-orders', $body)->assertCreated();
+        $this->postJson($url.'/sandbox-orders', $body)->assertOk();
+        $this->assertSame(['PUT', 'POST'], $attempts);
+        $command = DB::table('ocpi_roaming_commands')->first();
+        $order = DB::table('ocpi_roaming_orders')->first();
+        $this->assertSame('REJECTED', $command->transport_result);
+        $this->assertNotNull($command->attempted_at);
+        if ($evidence === 'none') {
+            $this->assertSame('partner_rejected', $command->state);
+            $this->assertSame('partner_rejected', $order->state);
+            $this->assertNull($order->active_target_key);
+        } else {
+            $this->assertSame('outcome_unknown', $command->state);
+            $this->assertSame('start_outcome_unknown', $order->state);
+            $this->assertNotNull($order->active_target_key);
+        }
+        if ($evidence === 'callback') {
+            $this->assertSame('ACCEPTED', $command->callback_result);
+        } elseif ($evidence === 'authorization') {
+            $this->assertNotNull($order->authorized_at);
+        }
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    #[TestWith(['STOP_SESSION'])]
+    #[TestWith(['TOKEN_REVOKE'])]
+    public function test_later_roaming_commands_never_erase_a_durable_attempt_or_resend(string $action): void
+    {
+        [, $driver, , $provider, $location] = $this->fixture();
+        [$id] = $this->start($driver, $location);
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        $url = '/api/roaming/sandbox-orders/'.$id;
+        if ($action === 'STOP_SESSION') {
+            $this->withHeaders($this->peer())->putJson('/api/roaming-protocol/2.2.1/sessions/NL/ABC/S1', $this->sourceSessionFixture($provider, $order, $this->writes[0]['body']))->assertCreated();
+            $this->withHeaders(['Authorization' => ''])->postJson($url.'/reconcile')->assertOk()->assertJsonPath('state', 'source_active');
+        }
+        $injected = false;
+        DB::listen(function ($query) use ($action, &$injected) {
+            if (! $injected && str_starts_with($query->sql, 'insert into "ocpi_roaming_commands"')) {
+                $injected = true;
+                DB::table('ocpi_roaming_commands')->where('action', $action)->update(['attempted_at' => now()]);
+            }
+        });
+        if ($action === 'STOP_SESSION') {
+            $key = (string) Str::uuid();
+            $this->postJson($url.'/stop', ['request_key' => $key])->assertOk()->assertJsonPath('can_stop', false);
+            $this->postJson($url.'/stop', ['request_key' => $key])->assertOk();
+            $this->postJson($url.'/stop', ['request_key' => (string) Str::uuid()])->assertConflict();
+        } else {
+            $this->deleteJson($url.'/authority')->assertOk()->assertJsonPath('token_state', 'local_revoked')->assertJsonPath('can_complete_source_revocation', false);
+            $this->deleteJson($url.'/authority')->assertOk()->assertJsonPath('can_complete_source_revocation', false);
+        }
+        $this->assertTrue($injected);
+        $claim = DB::table('ocpi_roaming_commands')->where('order_id', $id)->where('action', $action)->first();
+        $this->assertNotNull($claim->attempted_at);
+        $this->assertSame('outcome_unknown', $claim->state);
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
     }
 
     public function test_stale_authenticated_actor_cannot_create_new_roaming_consent_but_fresh_actor_can(): void
