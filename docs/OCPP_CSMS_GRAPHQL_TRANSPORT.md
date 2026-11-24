@@ -14,9 +14,11 @@ The shared `CsmsGraphqlTransport` transport gate applies before any source HTTP 
 - `RiderSourceProvisioner::graph()` (writes and verifies source authorization, including RFID retirement).
 - `SourceConsumer::graph()` (reads meter/source events that can ultimately influence charging and invoice reconciliation).
 - `ChargerSourceRegistration::graph()` (reads/writes upstream charger metadata; remains independently gated by explicit administrator approval and `upstream_registration_enabled`).
+- `ChargerDiagnosticsController::graph()` (authenticated connector/fault diagnostics; no charger command).
+- `ChargerResetController::idle()` (checks both source station and connector/transaction state **before** a simulator-only reset can be considered; never trusts an unapproved Hasura host).
 - `RiderSourceController::targetMatches()` (returns blocked if the source URL is unsafe).
 
-The direct source registration test doubles and the independent PostgreSQL race worker now use the reviewed local loopback service rather than the synthetic `source.test` plaintext hostname. The separate charger-fleet read view has its own strict source guard. The pilot probe also has independent `CsmsPreflight` configuration checks. Those stronger, purpose-specific restrictions must **not** be removed when these branches are integrated.
+The direct source registration and charger reset test doubles, and the independent PostgreSQL race worker, now use the reviewed local loopback service rather than the synthetic `source.test` plaintext hostname. The separate charger-fleet read view has its own strict source guard. The pilot probe also has independent `CsmsPreflight` configuration checks. Those stronger, purpose-specific restrictions must **not** be removed when these branches are integrated.
 
 ## Accepted transport
 
