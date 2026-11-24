@@ -351,6 +351,7 @@
             estimate = null,
             epoch = 0,
             capabilityEpoch = 0,
+            routePending = false,
             routeAbort;
         const section = document.createElement("div");
         section.className = "discovery-tools";
@@ -444,13 +445,14 @@
         function invalidate(revokeConsent = true) {
             epoch++;
             routeAbort?.abort();
+            routePending = false;
             estimate = null;
             renderEnergy();
             // Consent was for the exact reviewed itinerary. Editing stops,
             // coordinates or connector filters requires a new explicit opt-in.
             if (revokeConsent) routeConsent.checked = false;
             routeState.replaceChildren();
-            preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
+            preview.disabled = routePending || !routeConsent.checked || !routeAvailable || !compatibleStops();
             navigation.disabled = !compatibleStops();
             onRoute([]);
         }
@@ -503,9 +505,13 @@
             "معاينة مسار المزود",
             async () => {
                 const points = readPoints();
-                if (!points || !compatibleStops() || !routeConsent.checked || !routeAvailable) return;
-                invalidate();
+                if (!section.isConnected || document.hidden || !journey.open ||
+                    routePending || !points || !compatibleStops() || !routeConsent.checked || !routeAvailable) return;
+                // Keep the exact reviewed itinerary consent visible and
+                // withdrawable throughout the pending provider request.
+                invalidate(false);
                 const current = ++epoch;
+                routePending = true;
                 routeAbort = new AbortController();
                 preview.disabled = true;
                 routeState.append(
@@ -526,7 +532,8 @@
                         },
                         routeAbort.signal,
                     );
-                    if (current !== epoch) return;
+                    if (current !== epoch || !routeConsent.checked || !routeAvailable ||
+                        !section.isConnected || document.hidden || !journey.open) return;
                     const verified = routeEvidence(result);
                     estimate = verified;
                     renderEnergy();
@@ -567,9 +574,11 @@
                         ),
                     );
                 } finally {
-                    if (current === epoch)
+                    if (current === epoch) {
+                        routePending = false;
                         preview.disabled =
                             !routeConsent.checked || !routeAvailable || !compatibleStops();
+                    }
                 }
             },
         );
@@ -580,7 +589,8 @@
             "فتح الملاحة بالتوقفات المحددة",
             () => {
                 const points = readPoints();
-                if (!points || !compatibleStops()) return;
+                if (!section.isConnected || document.hidden || !journey.open || !points || !compatibleStops()) return;
+                const reviewed = epoch;
                 if (
                     !confirm(
                         arabic()
@@ -589,6 +599,7 @@
                     )
                 )
                     return;
+                if (reviewed !== epoch || !section.isConnected || document.hidden || !journey.open) return;
                 const url = new URL("https://www.google.com/maps/dir/");
                 url.searchParams.set("api", "1");
                 url.searchParams.set("origin", coordinate(points[0]));
@@ -670,7 +681,7 @@
             choices.replaceChildren();
             mismatchWarning.hidden = compatibleStops();
             navigation.disabled = !compatibleStops();
-            preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
+            preview.disabled = routePending || !routeConsent.checked || !routeAvailable || !compatibleStops();
             for (const station of stations) {
                 const p = point(station.latitude, station.longitude);
                 if (!p) continue;
@@ -866,7 +877,7 @@
                 routeAvailable = c.routing;
                 if (!routeAvailable) invalidate();
                 service.hidden = c.routing;
-                preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
+                preview.disabled = routePending || !routeConsent.checked || !routeAvailable || !compatibleStops();
                 privacy.hidden = !routeAvailable;
             } catch (_) {
                 if (requestGeneration !== capabilityEpoch) return;
@@ -892,6 +903,9 @@
             else {
                 origin.addresses.clear();
                 destination.addresses.clear();
+                // Closing the planner withdraws any in-flight provider
+                // lookup. A displayed route is also no longer authorized.
+                invalidate();
             }
         };
         const controls = {
@@ -905,6 +919,7 @@
                 epoch++;
                 capabilityEpoch++;
                 routeAbort?.abort();
+                routePending = false;
                 // These catalog entries may be tenant-private. A session
                 // reset must clear both selected stops and old search results.
                 stations = [];
