@@ -19,7 +19,8 @@ final class CsmsPreflight
         if (! is_array($parts) || ! in_array($parts['scheme'] ?? null, ['http', 'https'], true)
             || ! is_string($parts['host'] ?? null) || $parts['host'] === ''
             || isset($parts['user']) || isset($parts['pass'])
-            || isset($parts['query']) || isset($parts['fragment'])) {
+            || isset($parts['query']) || isset($parts['fragment'])
+            || ($parts['path'] ?? '') !== '/v1/graphql') {
             return false;
         }
         // An admin-authenticated GraphQL source URL must never be advertised
