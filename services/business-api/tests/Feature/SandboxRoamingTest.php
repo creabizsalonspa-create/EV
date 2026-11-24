@@ -7,6 +7,7 @@ use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\SandboxRoaming;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -237,6 +238,7 @@ class SandboxRoamingTest extends TestCase
     public function test_changed_durable_start_claim_never_dispatches_after_token_registration(string $change): void
     {
         [, $driver, , , $location] = $this->fixture();
+        Http::swap(new Factory);
         $requests = [];
         Http::fake(function ($request) use ($change, &$requests) {
             $requests[] = $request->method();
@@ -282,6 +284,7 @@ class SandboxRoamingTest extends TestCase
     public function test_start_transport_rejection_preserves_earlier_source_authority_and_capacity(string $evidence): void
     {
         [, $driver, , , $location] = $this->fixture();
+        Http::swap(new Factory);
         $attempts = [];
         Http::fake(function ($request) use ($evidence, &$attempts) {
             $attempts[] = $request->method();
