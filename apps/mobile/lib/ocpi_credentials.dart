@@ -97,6 +97,45 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView>
       if (value['charging_commands_enabled'] != false ||
           value['billing_eligible'] != false)
         throw const FormatException('Unexpected partner authority');
+      final matrix = value['capability_matrix'];
+      if (matrix != null) {
+        if (matrix is! Map ||
+            matrix['evidence'] != 'NEGOTIATED_AND_CONFIGURED_SOFTWARE_ONLY' ||
+            matrix['live_roaming_verified'] != false ||
+            matrix['physical_availability_verified'] != false ||
+            matrix['partner_conformance_verified'] != false ||
+            matrix['payment_authority'] != false ||
+            matrix['credentials_current'] is! bool ||
+            !(matrix['peer_role'] == null ||
+                ['CPO', 'EMSP'].contains(matrix['peer_role'])) ||
+            matrix['modules'] is! List ||
+            (matrix['modules'] as List).length != 4) {
+          throw const FormatException('Invalid partner capability evidence');
+        }
+        final seen = <String>{};
+        for (final item in matrix['modules'] as List) {
+          if (item is! Map ||
+              !['locations', 'tariffs', 'sessions', 'cdrs']
+                  .contains(item['module']) ||
+              !seen.add(item['module'] as String) ||
+              [
+                'partner_sender_negotiated',
+                'local_receiver_configured',
+                'local_receiver_active',
+                'local_sender_configured',
+                'local_sender_active',
+                'sandbox_delivery_software_enabled',
+              ].any((key) => item[key] is! bool) ||
+              (item['local_receiver_active'] == true &&
+                  item['local_receiver_configured'] != true) ||
+              (item['local_sender_active'] == true &&
+                  item['local_sender_configured'] != true) ||
+              (item['sandbox_delivery_software_enabled'] == true &&
+                  item['local_sender_active'] != true)) {
+            throw const FormatException('Invalid module capability evidence');
+          }
+        }
+      }
       if (current(epoch))
         setState(() {
           status = value;
@@ -265,6 +304,19 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView>
                   '${entry[1]}: ${(status![entry[0]] as List).where((m) => ['locations', 'tariffs', 'sessions', 'cdrs'].contains(m)).join(', ')}',
                 ),
 
+            if (status!['capability_matrix'] is Map) ...[
+              Text(tr(
+                'Configured/negotiated source modules only. No live roaming, charging or payment approval.',
+                'وحدات المصدر المهيأة أو المتفاوض عليها فقط، دون موافقة على التجوال أو الشحن أو الدفع الفعلي.',
+              )),
+              for (final row in status!['capability_matrix']['modules'] as List)
+                Text(
+                  '${row['module']}: ${tr('Partner read', 'قراءة الشريك')} ${row['partner_sender_negotiated'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '
+                  '${tr('Local receive', 'استقبال محلي')} ${row['local_receiver_active'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '
+                  '${tr('Local send', 'إرسال محلي')} ${row['local_sender_active'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '
+                  '${tr('Sandbox delivery', 'إرسال تجريبي')} ${row['sandbox_delivery_software_enabled'] == true ? tr('yes', 'نعم') : tr('no', 'لا')}',
+                ),
+            ],
             if (status!['configured'] != true)
               Text(
                 tr(

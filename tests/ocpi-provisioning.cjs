@@ -59,6 +59,9 @@ const assert = require("node:assert/strict");
         "/app/services/business-api",
         "-e",
         "OCPI_CONNECTIONS_JSON=" + metadata,
+        // Keep real rate limits while isolating this server from other suites on loopback.
+        "-e",
+        "CACHE_PREFIX=" + name + "-",
         "-e",
         "OCPI_TEST_TOKEN=" + token,
         "--entrypoint",
@@ -99,23 +102,18 @@ const assert = require("node:assert/strict");
     await page.goto(base);
     await page.locator("#account [name=email]").fill(fixture.admin);
     await page.locator("#account [name=password]").fill(password);
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const response = page.waitForResponse(
-        (r) =>
-          new URL(r.url()).pathname === "/api/login" &&
-          r.request().method() === "POST",
-      );
-      await page.locator("button[value=login]").click();
-      const login = await response;
-      if (login.status() === 429 && attempt === 0) {
-        const seconds = login.headers()["retry-after"];
-        assert(/^\d+$/.test(seconds || "") && Number(seconds) <= 60);
-        await page.waitForTimeout((Number(seconds) + 1) * 1000);
-        continue;
-      }
-      assert.equal(login.status(), 200);
-      break;
-    }
+    const loginResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/login" &&
+        response.request().method() === "POST",
+    );
+    await page.locator("button[value=login]").click();
+    const login = await loginResponse;
+    assert.equal(
+      login.status(),
+      200,
+      `Isolated registration sign-in returned HTTP ${login.status()} (Retry-After: ${login.headers()["retry-after"] || "absent"}).`,
+    );
     const root = page.locator("[data-ocpi-registration]");
     try {
       await root.locator("form").waitFor();

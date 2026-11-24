@@ -9,6 +9,7 @@ const assert = require('node:assert/strict');
             await page.addScriptTag({path:'services/business-api/public/roaming.js'});
             await page.evaluate(async () => {
                 window.writes = 0;
+                window.unsafeCredentials = false;
                 window.currentActor = {id:1,role:'vendor'};
                 window.EvLocale = {text:value=>value,attribute:(n,k,v)=>n.setAttribute(k,v)};
                 const paged = data => ({data,current_page:1,last_page:1,total:data.length});
@@ -18,7 +19,7 @@ const assert = require('node:assert/strict');
                     ui:(tag,text)=>{const n=document.createElement(tag);n.textContent=text;return n;},
                     api:async (path,method='GET')=>{
                         if (method!=='GET') { window.writes++; throw Error('Unexpected write'); }
-                        if (path.includes('/credentials')) return {configured:true,state:'active',configured_receiver_modules:['locations','tariffs'],active_receiver_modules:[],available_actions:[],operations:paged([])};
+                        if (path.includes('/credentials')) return {configured:true,state:'active',charging_commands_enabled:window.unsafeCredentials, billing_eligible:false,configured_receiver_modules:['locations','tariffs'],active_receiver_modules:[],available_actions:[],operations:paged([])};
                         if (path.includes('/records/tariffs')) return paged([{id:4,external_id:'retired-1',catalog_retired:true,normalized:{currency:'EUR',elements:[]},payload:{token:'PRIVATE-PARTNER-TOKEN'}}]);
                         if (path.startsWith('ocpi/providers')) return paged([{id:7,name:'Approved partner',authorized:true,version:'2.2.1'}]);
                         return paged([]);
@@ -29,6 +30,13 @@ const assert = require('node:assert/strict');
             await page.getByRole('button',{name:'Roaming credentials',exact:true}).click();
             assert.equal(await page.getByText(ar?'استقبال الشريك المهيأ: locations, tariffs':'Configured partner reception: locations, tariffs',{exact:true}).count(),1);
             assert.equal(await page.getByText(ar?'استقبال التفويض النشط: —':'Active credential reception: —',{exact:true}).count(),1);
+            // Provider responses cannot promote credentials to charging or billing
+            // authority, even when a buggy peer/backend labels them active.
+            await page.evaluate(() => { window.unsafeCredentials = true; });
+            await page.getByRole('button',{name:'Roaming credentials',exact:true}).click();
+            assert.equal(await page.getByText('Roaming credentials unavailable',{exact:true}).count(),1);
+            assert.equal(await page.getByText(ar?'استقبال الشريك المهيأ: locations, tariffs':'Configured partner reception: locations, tariffs',{exact:true}).count(),0);
+            await page.evaluate(() => { window.unsafeCredentials = false; });
             await page.getByRole('button',{name:'Roaming tariffs',exact:true}).click();
             assert.equal(await page.getByText(ar?'تعرفة مسحوبة من الشريك. محفوظة للسجل فقط وليست عرضاً حالياً.':'Withdrawn partner tariff. Historical source only; not a current offer.',{exact:true}).count(),1);
             assert.equal(await page.getByText('PRIVATE-PARTNER-TOKEN').count(),0);

@@ -96,6 +96,40 @@ class IncompleteMetadataApi extends UnifiedApi {
     return raw;
   }
 }
+class ForgedPublishedApi extends UnifiedApi {
+  final Map<String, dynamic> stationPatch;
+  ForgedPublishedApi(this.stationPatch);
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    final response = Map<String, dynamic>.from(
+      await super.request(path, method: method, body: body, query: query) as Map,
+    );
+    final records = [
+      for (final raw in response['data'] as List)
+        Map<String, dynamic>.from(raw as Map),
+    ];
+    if (records.isNotEmpty && records.first['kind'] == 'catalog') {
+      records[0] = {
+        ...records.first,
+        'station': {
+          ...Map<String, dynamic>.from(records.first['station'] as Map),
+          'latitude': 25.2,
+          'longitude': 55.3,
+          ...stationPatch,
+        },
+      };
+    }
+    response['data'] = records;
+    return response;
+  }
+}
+
 void roomy(WidgetTester tester){tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);}
 void main(){
  testWidgets('same API object changing account epoch hides all previous native search data and private drafts',(tester)async{
@@ -494,6 +528,62 @@ void main(){
    await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
    expect(api.queries.last['saved_only'],'0');
    expect(api.queries.last['q'],'');
+ });
+
+
+ for (final adversarial in <({String label, Map<String, dynamic> station})>[
+   (label: 'discovery-only claims reservable', station: {
+     'evidence': 'DISCOVERY_ONLY', 'reservable': true,
+   }),
+   (label: 'server returns text distance', station: {
+     'distance_km': '5.2',
+   }),
+   (label: 'server returns invalid timezone', station: {
+     'timezone': <String, dynamic>{'unexpected': 'zone'},
+   }),
+   (label: 'negative station distance', station: {
+     'distance_km': -1,
+   }),
+ ]) {
+   for (final ar in [false, true]) {
+     testWidgets('malformed optional catalog metadata remains read-only: ${adversarial.label} / $ar', (tester) async {
+       roomy(tester);
+       final api = ForgedPublishedApi(adversarial.station);
+       addTearDown(api.close);
+       await tester.pumpWidget(app(
+         api, (_) => fail('Forged catalog must never open station actions'),
+         customer: true, ar: ar,
+       ));
+       await tester.tap(find.byType(FilledButton));
+       await tester.pumpAndSettle();
+       expect(find.text('Synthetic catalog'), findsOneWidget);
+       expect(find.textContaining(ar ? 'غير مكتملة' : 'details incomplete'), findsOneWidget);
+       expect(find.byKey(const ValueKey('unified-favorite-catalog:7')), findsNothing);
+       expect(find.text(ar ? 'عرض المحطة وخيارات الحجز' : 'View station and booking options'), findsNothing);
+       expect(find.text('Synthetic partner'), findsOneWidget);
+       expect(tester.takeException(), isNull);
+     });
+   }
+ }
+
+ testWidgets('contradictory discovery-only reservation never creates a native map pin', (tester) async {
+   roomy(tester);
+   final api = ForgedPublishedApi({
+     'evidence': 'DISCOVERY_ONLY',
+     'reservable': true,
+   });
+   addTearDown(api.close);
+   await tester.pumpWidget(app(api, (_) => fail('No booking')));
+   await tester.tap(find.byType(FilledButton));
+   await tester.pumpAndSettle();
+   final open = find.byKey(const Key('unified-map-open'));
+   await tester.ensureVisible(open);
+   await tester.tap(open);
+   await tester.pumpAndSettle();
+   final map = tester.widget<PartnerReportMap>(find.byType(PartnerReportMap));
+   expect(map.points, isEmpty);
+   expect(api.calls.length, 1);
+   expect(tester.takeException(), isNull);
  });
 
  testWidgets('unrecognized live evidence with otherwise complete station metadata grants no native booking',(tester)async{

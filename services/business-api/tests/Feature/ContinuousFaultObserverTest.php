@@ -282,11 +282,16 @@ class ContinuousFaultObserverTest extends TestCase
             'ocpp201_relative_clock' => ['2.0.1', 'timestamp', 'tomorrow'],
             'ocpp16_naive_clock' => ['1.6', 'timestamp', '2026-11-15 10:00:00'],
             'ocpp201_naive_clock' => ['2.0.1', 'timestamp', '2026-11-15 10:00:00'],
+            'ocpp16_missing_error_code' => ['1.6', 'errorCode', null],
+            'ocpp16_unknown_error_code' => ['1.6', 'errorCode', 'VendorFaultUnknown'],
+            'ocpp16_faulted_with_noerror' => ['1.6', 'errorCode', 'NoError'],
+            'ocpp16_reserved_ocpp201_only' => ['1.6', 'connectorStatus', 'Occupied'],
+            'ocpp201_charging_ocpp16_only' => ['2.0.1', 'connectorStatus', 'Charging'],
         ];
     }
 
     #[DataProvider('invalidOcppObservations')]
-    public function test_unknown_status_or_ambiguous_clock_requires_reconciliation_without_skipping_event(string $protocol, string $field, string $value): void
+    public function test_invalid_ocpp_status_or_fault_receipt_requires_reconciliation_without_skipping_event(string $protocol, string $field, mixed $value): void
     {
         $fixture = $this->fixture($protocol);
         $events = $this->events(1, 2);
@@ -322,6 +327,70 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertSame(1, InboxNotification::where('kind', 'charging.monitor.resumed.simulated')->count());
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_ocpp16_available_with_ground_failure_must_not_clear_fault_or_advance_cursor(): void
+    {
+        $f = $this->fixture('1.6');
+        $events = $this->events(1, 2);
+        $events[1]['errorCode'] = 'GroundFailure';
+        $this->source($f, $events, newest: 2);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Contradictory Available/GroundFailure source status was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 0, 'state' => 'requires_review',
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->source($f, $this->events(1, 2), newest: 2);
+        $this->assertSame('caught_up', app(ContinuousFaultObserver::class)->observe($f['binding'])['state']);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertNotNull(DB::table('charging_fault_alerts')->value('recovery_observation_id'));
+    }
+
+    public function test_suspended_vendor_cannot_receive_new_private_source_fault_notifications(): void
+    {
+        $f = $this->fixture();
+        DB::table('users')->where('id', $f['owner']->id)->update(['account_status' => 'suspended']);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Suspended operator retained private source observation access.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charging_fault_cursors', 0);
+        $this->assertDatabaseCount('inbox_notifications', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_suspension_during_source_http_read_prevents_old_owner_notification_commit(): void
+    {
+        $f = $this->fixture();
+        Http::fake(function ($request) use ($f) {
+            DB::table('users')->where('id', $f['owner']->id)->update(['account_status' => 'suspended']);
+
+            return Http::response(['data' => [
+                'ChargingStations' => [['id' => 42, 'protocol' => '1.6']],
+            ]]);
+        });
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Source read from a revoked owner was committed.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->assertDatabaseCount('charging_fault_cursors', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('inbox_notifications', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
     }
 
     public function test_empty_page_cannot_claim_catchup_when_source_has_newer_events(): void
