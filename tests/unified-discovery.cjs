@@ -104,6 +104,22 @@ for(const lang of ['en','ar'])test('mapped old account or role clears pins and o
  f.control.setContext({owner:'new',customer:false});
  assert.equal(f.events.length,2,'clear without published map does not touch another source');
 });
+
+for(const language of ['en','ar'])test('map revoke retains its exact instance publication token '+language,async()=>{
+ const f=fixture(language);
+ f.control.setContext({owner:'customer',customer:true});
+ f.form.onsubmit({preventDefault(){}});await tick();
+ f.root.children[6].onclick();
+ const published=f.events.at(-1);
+ assert.equal(published.type,'unified-map-data');
+ assert.ok(published.evUnifiedPublication);
+ f.control.clear();
+ const revoke=f.events.at(-1);
+ assert.equal(revoke.type,'unified-map-clear');
+ assert.equal(revoke.detail,published.evUnifiedPublication);
+ assert.equal(f.list.children.length,0);
+ assert.equal(f.root.children[6].disabled,true);
+});
 test('a fresh search revokes old map pins without implicit replot',async()=>{
  const f=fixture();
  f.form.onsubmit({preventDefault(){}});await tick();
