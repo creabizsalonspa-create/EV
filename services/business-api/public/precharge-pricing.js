@@ -25,8 +25,10 @@ window.EvPrechargePricing = (() => {
             receipt.accepted_at.length < 19 || receipt.accepted_at.length > 64 ||
             typeof receipt.valid_until !== 'string') return false;
         const until = receipt.valid_until;
-        const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(until)
-            ? until.replace(' ', 'T') + '.000000Z' : until;
+        const sql = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?$/.exec(until);
+        const iso = sql
+            ? sql[1].replace(' ', 'T') + '.' + (sql[2] ?? '').padEnd(6, '0') + 'Z'
+            : until;
         return validExpiry(iso) &&
             Date.parse(iso) === Date.parse(estimate.expires_at);
     }
