@@ -45,17 +45,27 @@ final class ChargerSourceRegistration
         return [$company, $charger, $station];
     }
 
-    private function source(bool $enabled = true): string
+    private function sourceUrl(bool $enabled = true): string
     {
         abort_unless(! $enabled || config('csms.upstream_registration_enabled'), 503, 'Upstream registration is disabled.');
-        $url = config('csms.graphql_url');
+        $url = app(CsmsGraphqlTransport::class)->requireApproved();
         $parts = is_string($url) ? parse_url($url) : false;
         abort_unless(is_array($parts) && isset($parts['host']) && ! isset($parts['user']) && ! isset($parts['pass']) && ! isset($parts['query']) && ! isset($parts['fragment']) && strlen($url) <= 2048 && ! preg_match('/[\x00-\x20\x7f\\\\]/', $url), 503, 'A fixed authenticated source URL is required.');
         $tls = ($parts['scheme'] ?? null) === 'https';
         $local = app()->environment(['local', 'testing']) && config('csms.upstream_registration_allow_local_http') && ($parts['scheme'] ?? null) === 'http' && in_array(strtolower($parts['host']), ['127.0.0.1', 'localhost', '[::1]', 'hasura', 'citrine-hasura', 'ev-hasura', 'charging-graphql'], true);
         abort_unless(($tls || $local) && strlen((string) config('csms.graphql_secret')) >= 32, 503, 'A TLS authenticated source is required.');
 
+        return $url;
+    }
+
+    private function generation(string $url): string
+    {
         return hash('sha256', 'citrineos-v2.1.0-tenant-1|'.$url);
+    }
+
+    private function source(bool $enabled = true): string
+    {
+        return $this->generation($this->sourceUrl($enabled));
     }
 
     private function event(int $actor, int $registration, string $action): void
@@ -111,20 +121,22 @@ final class ChargerSourceRegistration
         return $binding;
     }
 
-    private function graph(string $query, array $variables): array
+    private function graph(string $query, array $variables, string $generation): array
     {
-        // Prevent direct metadata-registration reads and writes from ever
-        // leaking the privileged Hasura key to an unreviewed HTTP target.
-        $url = app(CsmsGraphqlTransport::class)->requireApproved();
+        // Every lookup, mutation and read-back must use the exact prepared
+        // source generation, with the registration adapter still enabled.
+        // Even another approved HTTPS origin cannot supply its receipt.
+        $url = $this->sourceUrl();
+        abort_unless(hash_equals($generation, $this->generation($url)), 409, 'Authenticated registration source changed.');
         $response = Http::connectTimeout(3)->timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, compact('query', 'variables'));
         abort_unless($response->successful() && strlen($response->body()) <= 32768 && ! $response->json('errors') && is_array($response->json('data')), 503, 'Authenticated source registration requires inspection.');
 
         return $response->json('data');
     }
 
-    private function lookup(string $identity): array
+    private function lookup(string $identity, string $generation): array
     {
-        $rows = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id tenantId ocppConnectionName protocol isOnline chargePointVendor chargePointModel}}', ['name' => $identity])['ChargingStations'] ?? null;
+        $rows = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id tenantId ocppConnectionName protocol isOnline chargePointVendor chargePointModel}}', ['name' => $identity], $generation)['ChargingStations'] ?? null;
         abort_unless(is_array($rows) && array_is_list($rows) && count($rows) <= 1, 409, 'Ambiguous source identity requires inspection.');
 
         return $rows;
@@ -188,18 +200,19 @@ final class ChargerSourceRegistration
                     $row = DB::table('charger_source_registrations')->where('id', $registration)->where('charger_id', $charger->id)->lockForUpdate()->firstOrFail();
                     abort_unless($row->state === 'registering', 409);
                     $binding = $this->lineage($row, $charger, $station);
-                    abort_unless($this->lookup($binding->identifier) === [], 409, 'An existing upstream identity cannot be adopted or overwritten.');
+                    abort_unless($this->lookup($binding->identifier, $row->source_generation) === [], 409, 'An existing upstream identity cannot be adopted or overwritten.');
                     $object = ['tenantId' => 1, 'ocppConnectionName' => $binding->identifier, 'protocol' => 'ocpp'.$binding->protocol, 'isOnline' => false, 'chargePointVendor' => $charger->manufacturer, 'chargePointModel' => $charger->model, 'createdAt' => now()->utc()->toISOString(), 'updatedAt' => now()->utc()->toISOString()];
                     [, $charger, $station] = $this->scope($request, $company, $charger, true);
                     $this->lineage($row, $charger, $station);
-                    $data = $this->graph('mutation($object:ChargingStations_insert_input!){insert_ChargingStations_one(object:$object){id tenantId ocppConnectionName protocol isOnline chargePointVendor chargePointModel}}', compact('object'));
+                    $data = $this->graph('mutation($object:ChargingStations_insert_input!){insert_ChargingStations_one(object:$object){id tenantId ocppConnectionName protocol isOnline chargePointVendor chargePointModel}}', compact('object'), $row->source_generation);
                     $created = $this->verify($data['insert_ChargingStations_one'] ?? null, $object);
-                    $rows = $this->lookup($binding->identifier);
+                    $rows = $this->lookup($binding->identifier, $row->source_generation);
                     abort_unless(count($rows) === 1, 409, 'Created source registration is not yet observable.');
                     $observed = $this->verify($rows[0], $object);
                     abort_unless($observed['id'] === $created['id'], 409, 'Created source identity changed before read-back.');
                     [, $charger, $station] = $this->scope($request, $company, $charger, true);
                     $this->lineage($row, $charger, $station);
+                    abort_unless(hash_equals($row->source_generation, $this->source()), 409, 'Authenticated registration source changed.');
                     DB::table('charger_source_registrations')->where('id', $row->id)->update(['state' => 'registered', 'source_station_id' => $created['id'], 'source_receipt_hash' => hash('sha256', json_encode($observed, JSON_THROW_ON_ERROR)), 'verified_at' => now()->format('Y-m-d H:i:s.u'), 'updated_at' => now()]);
                     $this->event($request->user()->id, $row->id, 'charger.source_registration_verified');
                 });
