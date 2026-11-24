@@ -411,6 +411,25 @@ class LoyaltyController extends Controller
             ->header('Cache-Control', 'private, no-store');
     }
 
+    public function cancelPartnerRewardIntent(Request $r, LoyaltyService $service, PartnerRewardGovernance $governance)
+    {
+        abort_unless($r->user()->role === 'customer', 403);
+        $input = $r->validate([
+            'review_id' => 'required|integer|between:1,9007199254740991',
+            'idempotency_key' => 'required|string|max:100',
+        ]);
+        $review = (int) $input['review_id'];
+        $result = $service->cancelPartnerRewardIntent($r->user()->id, $review, $input['idempotency_key']);
+        $request = hash('sha256', 'partner-reward-claim:'.$r->user()->id.':'.$input['idempotency_key']);
+
+        return response()->json([
+            'state' => $result['state'],
+            'review_id' => $review,
+            'request_binding' => hash('sha256', 'partner-reward-cancel-v1:'.$review.':'.$request),
+            'claim' => $result['claim'] ? $this->partnerRewardReceipt($result['claim']) + $governance->sandboxEvidence() : null,
+        ])->header('Cache-Control', 'private, no-store');
+    }
+
     private function partnerRewardReceipt(object $claim): array
     {
         return ['id' => (int) $claim->id, 'review_id' => (int) $claim->review_id,
