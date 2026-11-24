@@ -912,10 +912,13 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
       hidden = false;
     });
     try {
+      if (widget.id < 1 || widget.id > 9007199254740991)
+        throw const FormatException('Invalid subscription identity.');
       final me = await widget.api.request('me');
       if (!active()) return;
       if (me is! Map || !['customer', 'vendor'].contains(me['role']) ||
-          me['id'] is! int || me['id'] < 1) {
+          me['id'] is! int || me['id'] < 1 ||
+          me['id'] > 9007199254740991) {
         throw const FormatException('Untrusted subscription account.');
       }
       final data = subscriptionSummary(
@@ -924,14 +927,30 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
         id: widget.id,
       );
       if (!active()) return;
-      final history = ApiPage.fromJson(
+      final history = ApiPage<Map<String, dynamic>>.fromJson(
         await widget.api.request(
           'commercial/subscriptions/${widget.id}/events',
           query: {'page': '$number'},
         ),
-        (r) => r,
+        (r) => _immutableSubscriptionValue(r) as Map<String, dynamic>,
       );
       if (!active()) return;
+      // History is a private authenticated read; a fabricated page or
+      // source event ID must never be rendered with a genuine invoice.
+      if (history.current != number || history.last < number ||
+          history.last > 100000 || history.total < 0 ||
+          history.total > 9007199254740991 || history.items.length > 25 ||
+          (history.total == 0 && history.items.isNotEmpty))
+        throw const FormatException('Invalid subscription history page.');
+      for (final row in history.items) {
+        if (row['id'] is! int || row['id'] < 1 ||
+            row['id'] > 9007199254740991 ||
+            row['kind'] is! String ||
+            (row['kind'] as String).isEmpty ||
+            (row['kind'] as String).length > 100 ||
+            row['created_at'] is! String)
+          throw const FormatException('Invalid subscription history event.');
+      }
       for (final i in data['invoices'] as List) {
         nativeFinancialAmount(
           context,
