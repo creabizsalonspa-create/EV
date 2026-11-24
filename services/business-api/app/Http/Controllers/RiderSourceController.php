@@ -7,6 +7,7 @@ use App\Models\Charging\Evse;
 use App\Models\Charging\RiderAccessToken;
 use App\Models\Reservation;
 use App\Models\Station;
+use App\Services\Charging\CsmsGraphqlTransport;
 use App\Services\Charging\RiderServiceAuth;
 use App\Services\Charging\RiderTokenRegistry;
 use App\Services\Charging\SessionBridge;
@@ -21,7 +22,8 @@ class RiderSourceController extends Controller
 {
     public function targetMatches(object $binding, ConnectorMapping $map, Evse $evse, array $v): bool
     {
-        if (empty($v['connectorId']) || strlen((string) config('csms.graphql_secret')) < 32) {
+        if (empty($v['connectorId']) || strlen((string) config('csms.graphql_secret')) < 32
+            || ! app(CsmsGraphqlTransport::class)->approved(config('csms.graphql_url'))) {
             return false;
         }
         try {
