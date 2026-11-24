@@ -10,6 +10,7 @@ import 'vendor_finance_test.dart' show VendorOperationStore, PausedVendorStore;
 class SubscriptionApi extends FixtureApi {
   bool lost = false, wrongOwner = false;
   int? forgedPlanId, forgedCurrentPage, forgedTotal;
+  Map<String, dynamic>? historyOverride;
   int writes = 0;
   Completer<dynamic>? meWait, detailWait, eventsWait, postWait;
   final bodies = <Map<String, dynamic>>[];
@@ -83,7 +84,7 @@ class SubscriptionApi extends FixtureApi {
       return detailWait?.future ?? summary;
     }
     if (path == 'commercial/subscriptions/4/events') {
-      return eventsWait?.future ??
+      return eventsWait?.future ?? historyOverride ??
           {'data': [], 'current_page': 1, 'last_page': 1, 'total': 0};
     }
     return {'data': [], 'current_page': 1, 'last_page': 1, 'total': 0};
@@ -244,6 +245,71 @@ void main() {
     await t.pumpAndSettle();
     expect(api.calls.length, before + 2);
     expect(find.text('Published <literal> plan'), findsOneWidget);
+  });
+
+  testWidgets('private subscription event history retains immutable source evidence',
+      (t) async {
+    final api = SubscriptionApi();
+    addTearDown(api.close);
+    final source = <String, dynamic>{
+      'data': [
+        {
+          'id': 27,
+          'kind': 'enrolled',
+          'created_at': '2026-10-28T12:00:00Z',
+          'data': {'detail': {'reviewed': true}},
+        },
+      ],
+      'current_page': 1,
+      'last_page': 1,
+      'total': 1,
+    };
+    api.historyOverride = source;
+    await t.pumpWidget(host(SubscriptionDetailView(
+      api: api, onExpired: () {}, id: 4,
+    )));
+    await t.pumpAndSettle();
+
+    final state = t.state(find.byType(SubscriptionDetailView)) as dynamic;
+    final accepted = state.events.items.single as Map<String, dynamic>;
+    final detail = (accepted['data'] as Map)['detail'] as Map;
+    (source['data'] as List).first['kind'] = 'forged';
+    (source['data'] as List).first['data']['detail']['reviewed'] = false;
+    expect(accepted['kind'], 'enrolled');
+    expect(detail['reviewed'], true);
+    expect(() => accepted['kind'] = 'forged', throwsUnsupportedError);
+    expect(() => detail['reviewed'] = false, throwsUnsupportedError);
+    expect(api.writes, 0);
+  });
+
+  testWidgets('private history rejects fabricated page, event and count metadata',
+      (t) async {
+    final wrong = <Map<String, dynamic>>[
+      {'data': [], 'current_page': 2, 'last_page': 2, 'total': 0},
+      {
+        'data': [
+          {'id': 9007199254740992, 'kind': 'enrolled',
+            'created_at': '2026-10-28T12:00:00Z'},
+        ],
+        'current_page': 1, 'last_page': 1, 'total': 1,
+      },
+      {
+        'data': [], 'current_page': 1, 'last_page': 1,
+        'total': 9007199254740992,
+      },
+    ];
+    for (var i = 0; i < wrong.length; i++) {
+      final api = SubscriptionApi()..historyOverride = wrong[i];
+      addTearDown(api.close);
+      await t.pumpWidget(host(SubscriptionDetailView(
+        key: ValueKey(i), api: api, onExpired: () {}, id: 4,
+      )));
+      await t.pumpAndSettle();
+      expect(find.text('Benefits are not active'), findsNothing);
+      expect(find.textContaining('private-subscription-diagnostic'), findsNothing);
+      expect(api.writes, 0);
+      await t.pumpWidget(const SizedBox());
+    }
   });
 
   testWidgets('revoked user cannot initiate invoice history read after late detail', (t) async {
