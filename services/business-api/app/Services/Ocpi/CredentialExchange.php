@@ -157,7 +157,7 @@ class CredentialExchange
             try {
                 while (! $stream->eof() && strlen($text) <= 65536) {
                     $chunk = $stream->read(min(8192, 65537 - strlen($text)));
-                    abort_if($chunk === '' && ! $stream->eof(), 503);
+                    abort_if(! $stream->eof() && strlen($chunk) === 0, 503);
                     $text .= $chunk;
                 }
             } finally {
@@ -177,14 +177,20 @@ class CredentialExchange
     public function endpoint(OcpiProvider $p, string $token, ?Closure $guard = null): string
     {
         [$c] = $this->configuration($p);
-        $guard?->__invoke();
+        if ($guard !== null) {
+            $guard();
+        }
         $versions = $this->wire($p, $c['versions_path'] ?? '/ocpi/versions', $token)['data'];
-        $guard?->__invoke();
+        if ($guard !== null) {
+            $guard();
+        }
         abort_unless(is_array($versions) && array_is_list($versions) && count($versions) <= 20, 409, 'Invalid peer versions.');
         $v = array_values(array_filter($versions, fn ($x) => is_array($x) && ($x['version'] ?? null) === '2.2.1'));
         abort_unless(count($v) === 1 && is_string($v[0]['url'] ?? null), 409, 'A unique OCPI2.2.1 advertisement is required.');
         $details = $this->wire($p, $v[0]['url'], $token)['data'];
-        $guard?->__invoke();
+        if ($guard !== null) {
+            $guard();
+        }
         abort_unless(is_array($details) && ($details['version'] ?? null) === '2.2.1' && is_array($details['endpoints'] ?? null) && count($details['endpoints']) <= 30, 409);
         $endpoints = array_values(array_filter($details['endpoints'], fn ($e) => is_array($e) && ($e['identifier'] ?? null) === 'credentials' && ($e['role'] ?? null) === 'RECEIVER'));
         abort_unless(count($endpoints) === 1 && is_string($endpoints[0]['url'] ?? null), 409, 'Unique peer credentials receiver is required.');
