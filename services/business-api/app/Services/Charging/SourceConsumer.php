@@ -20,18 +20,35 @@ class SourceConsumer
 {
     private bool $localInbox = false;
 
-    private function graph(string $query, array $variables): array
+    /** A poll must not splice station, transaction or meter evidence from different authorities. */
+    private function requireAuthority(array $authority): void
     {
-        $key = (string) config('csms.graphql_secret');
+        if (! app()->environment(['local', 'testing']) || ! config('csms.session_bridge_enabled')
+            || config('csms.graphql_url') !== $authority[0]
+            || ! hash_equals($authority[1], (string) config('csms.graphql_secret'))
+            || ! hash_equals($authority[2], (string) config('csms.event_secret'))) {
+            throw new RuntimeException('Source authority changed; reconciliation is required.');
+        }
+    }
+
+    private function graph(string $query, array $variables, ?array $authority = null): array
+    {
+        if ($authority !== null) {
+            $this->requireAuthority($authority);
+        }
+        $key = $authority[1] ?? (string) config('csms.graphql_secret');
         if (strlen($key) < 32) {
             throw new RuntimeException('Source authentication is not configured.');
         }
-        $url = config('csms.graphql_url');
+        $url = $authority[0] ?? config('csms.graphql_url');
         if (! app(CsmsGraphqlTransport::class)->approved($url)) {
             throw new RuntimeException('Authenticated CSMS source transport is not approved.');
         }
         $response = Http::timeout(15)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $key])
             ->post($url, compact('query', 'variables'));
+        if ($authority !== null) {
+            $this->requireAuthority($authority);
+        }
         if (! $response->successful()) {
             throw new RuntimeException('Authenticated source query failed.');
         }
@@ -81,9 +98,10 @@ class SourceConsumer
             array_key_exists('multiplier', $units) ? $units['multiplier'] : 0);
     }
 
-    private function send(SessionLink $link, array $tx, string $type, int $sequence, int $meter, string $at): void
+    private function send(SessionLink $link, array $tx, string $type, int $sequence, int $meter, string $at, array $authority): void
     {
-        $key = (string) config('csms.event_secret');
+        $this->requireAuthority($authority);
+        $key = $authority[2];
         if (strlen($key) < 32) {
             throw new RuntimeException('Inbox authentication is not configured.');
         }
@@ -116,8 +134,9 @@ class SourceConsumer
         $link->refresh();
     }
 
-    private function advanceCursor(SessionLink $link, int $sourceRowId, string $sourceAt): void
+    private function advanceCursor(SessionLink $link, int $sourceRowId, string $sourceAt, array $authority): void
     {
+        $this->requireAuthority($authority);
         // A second observer may have already committed a later page while this
         // worker was reading source rows. Never rewind its durable progress.
         // The signed inbox independently rejects replayed or conflicting
@@ -160,7 +179,12 @@ class SourceConsumer
                 throw new RuntimeException('Remote source token lineage conflict.');
             }
         }
-        $identity = $this->graph('query($station:String!,$tag:citext!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$station}},limit:2){id protocol} Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id}}', ['station' => $link->identifier, 'tag' => $tag]);
+        $authority = [config('csms.graphql_url'), (string) config('csms.graphql_secret'), (string) config('csms.event_secret')];
+        $this->requireAuthority($authority);
+        if (strlen($authority[2]) < 32) {
+            throw new RuntimeException('Inbox authentication is not configured.');
+        }
+        $identity = $this->graph('query($station:String!,$tag:citext!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$station}},limit:2){id protocol} Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id}}', ['station' => $link->identifier, 'tag' => $tag], $authority);
         if (! is_array($identity['ChargingStations'] ?? null) || ! array_is_list($identity['ChargingStations']) ||
             ! is_array($identity['Authorizations'] ?? null) || ! array_is_list($identity['Authorizations'])) {
             throw new RuntimeException('Malformed authenticated source identity projection requires reconciliation.');
@@ -205,9 +229,9 @@ class SourceConsumer
             throw new RuntimeException('Rider source registration changed; reconciliation is required.');
         }
         if ($rider) {
-            $records = $this->graph('query($station:Int!,$auth:Int!,$after:timestamptz!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},authorizationId:{_eq:$auth},startTime:{_gte:$after}},order_by:{id:desc},limit:25){id transactionId remoteStartId meterStart startTime endTime isActive totalKwh}}', ['station' => $identity['ChargingStations'][0]['id'], 'auth' => $identity['Authorizations'][0]['id'], 'after' => $link->created_at->toImmutable()->subSeconds(2)->toISOString()])['Transactions'] ?? null;
+            $records = $this->graph('query($station:Int!,$auth:Int!,$after:timestamptz!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},authorizationId:{_eq:$auth},startTime:{_gte:$after}},order_by:{id:desc},limit:25){id transactionId remoteStartId meterStart startTime endTime isActive totalKwh}}', ['station' => $identity['ChargingStations'][0]['id'], 'auth' => $identity['Authorizations'][0]['id'], 'after' => $link->created_at->toImmutable()->subSeconds(2)->toISOString()], $authority)['Transactions'] ?? null;
         } else {
-            $records = $this->graph('query($station:Int!,$auth:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},authorizationId:{_eq:$auth}},limit:2){id transactionId remoteStartId meterStart startTime endTime isActive totalKwh}}', ['station' => $identity['ChargingStations'][0]['id'], 'auth' => $identity['Authorizations'][0]['id']])['Transactions'] ?? null;
+            $records = $this->graph('query($station:Int!,$auth:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},authorizationId:{_eq:$auth}},limit:2){id transactionId remoteStartId meterStart startTime endTime isActive totalKwh}}', ['station' => $identity['ChargingStations'][0]['id'], 'auth' => $identity['Authorizations'][0]['id']], $authority)['Transactions'] ?? null;
         }
         if (! is_array($records) || ! array_is_list($records)) {
             throw new RuntimeException('Malformed authenticated source transaction projection requires reconciliation.');
@@ -281,14 +305,14 @@ class SourceConsumer
                 throw new RuntimeException('Mapped source identity conflict.');
             }
             if ($link->protocol === '1.6') {
-                $proof = $this->graph('query($tx:Int!){Transactions(where:{id:{_eq:$tx},tenantId:{_eq:1}}){connectorId}}', ['tx' => $tx['id']])['Transactions'] ?? null;
+                $proof = $this->graph('query($tx:Int!){Transactions(where:{id:{_eq:$tx},tenantId:{_eq:1}}){connectorId}}', ['tx' => $tx['id']], $authority)['Transactions'] ?? null;
                 // The source graph must return one explicitly typed transaction
                 // connector, not a malformed object that silently becomes id 0.
                 if (! is_array($proof) || ! array_is_list($proof) || count($proof) !== 1 ||
                     ! is_array($proof[0]) || ! is_int($proof[0]['connectorId'] ?? null) || $proof[0]['connectorId'] <= 0) {
                     throw new RuntimeException('Malformed source transaction connector proof.');
                 }
-                $connector = $this->graph('query($id:Int!,$station:Int!){Connectors(where:{id:{_eq:$id},tenantId:{_eq:1},stationId:{_eq:$station}}){connectorId}}', ['id' => $proof[0]['connectorId'], 'station' => $identity['ChargingStations'][0]['id']])['Connectors'] ?? null;
+                $connector = $this->graph('query($id:Int!,$station:Int!){Connectors(where:{id:{_eq:$id},tenantId:{_eq:1},stationId:{_eq:$station}}){connectorId}}', ['id' => $proof[0]['connectorId'], 'station' => $identity['ChargingStations'][0]['id']], $authority)['Connectors'] ?? null;
                 if (! is_array($connector) || ! array_is_list($connector) || count($connector) !== 1 ||
                     ! is_array($connector[0]) || ! is_int($connector[0]['connectorId'] ?? null) ||
                     $connector[0]['connectorId'] !== (int) $map->source_connector_number) {
@@ -301,7 +325,7 @@ class SourceConsumer
                 if (! $rider) {
                     $info['remoteStartId'] = (int) $link->start_command_id;
                 }
-                $proof = $this->graph('query($station:Int!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},action:{_eq:"TransactionEvent"},payload:{_contains:$match}},limit:2){payload}}', ['station' => $identity['ChargingStations'][0]['id'], 'match' => ['eventType' => 'Started', 'transactionInfo' => $info]])['OCPPMessages'] ?? null;
+                $proof = $this->graph('query($station:Int!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},action:{_eq:"TransactionEvent"},payload:{_contains:$match}},limit:2){payload}}', ['station' => $identity['ChargingStations'][0]['id'], 'match' => ['eventType' => 'Started', 'transactionInfo' => $info]], $authority)['OCPPMessages'] ?? null;
                 if (! is_array($proof) || ! array_is_list($proof) || count($proof) < 1 || count($proof) > 2) {
                     throw new RuntimeException('Malformed source Started message projection.');
                 }
@@ -329,7 +353,8 @@ class SourceConsumer
         // Atomically pin both external row identifiers before the first
         // signed event. A reused protocol transactionId or a reprovisioned
         // station row cannot adopt an existing canonical charging session.
-        DB::transaction(function () use ($link, $sourceStationId, $sourceTransactionDatabaseId): void {
+        DB::transaction(function () use ($link, $sourceStationId, $sourceTransactionDatabaseId, $authority): void {
+            $this->requireAuthority($authority);
             $locked = SessionLink::whereKey($link->id)->lockForUpdate()->firstOrFail();
             if (($locked->source_station_id !== null && (int) $locked->source_station_id !== $sourceStationId) ||
                 ($locked->source_transaction_database_id !== null && (int) $locked->source_transaction_database_id !== $sourceTransactionDatabaseId) ||
@@ -350,10 +375,10 @@ class SourceConsumer
         $link->refresh();
         $count = 0;
         if ($link->transaction_id === null) {
-            $this->send($link, $tx, 'started', 0, $baseline, $tx['startTime']);
+            $this->send($link, $tx, 'started', 0, $baseline, $tx['startTime'], $authority);
             $count++;
         }
-        $rows = $this->graph('query($tx:Int!,$after:Int!){MeterValues(where:{tenantId:{_eq:1},transactionDatabaseId:{_eq:$tx},id:{_gt:$after}},order_by:{id:asc},limit:100){id timestamp sampledValue}}', ['tx' => $tx['id'], 'after' => max(0, $link->source_meter_cursor)])['MeterValues'] ?? null;
+        $rows = $this->graph('query($tx:Int!,$after:Int!){MeterValues(where:{tenantId:{_eq:1},transactionDatabaseId:{_eq:$tx},id:{_gt:$after}},order_by:{id:asc},limit:100){id timestamp sampledValue}}', ['tx' => $tx['id'], 'after' => max(0, $link->source_meter_cursor)], $authority)['MeterValues'] ?? null;
         if (! is_array($rows) || ! array_is_list($rows) || count($rows) > 100) {
             throw new RuntimeException('Source meter page is missing or exceeds its limit.');
         }
@@ -419,7 +444,7 @@ class SourceConsumer
                 throw new RuntimeException('Ambiguous register requires reconciliation.');
             }
             if (! $samples || ($samples[0]['context'] ?? '') === 'Transaction.Begin') {
-                $this->advanceCursor($link, $row['id'], $row['timestamp']);
+                $this->advanceCursor($link, $row['id'], $row['timestamp'], $authority);
 
                 continue;
             }
@@ -437,8 +462,8 @@ class SourceConsumer
             if ($row['id'] > 1000000000) {
                 throw new RuntimeException('Source sequence exceeds the inbox bound.');
             }
-            $this->send($link, $tx, $ended ? 'ended' : 'meter', $row['id'], $meter, $ended ? $tx['endTime'] : $row['timestamp']);
-            $this->advanceCursor($link, $row['id'], $row['timestamp']);
+            $this->send($link, $tx, $ended ? 'ended' : 'meter', $row['id'], $meter, $ended ? $tx['endTime'] : $row['timestamp'], $authority);
+            $this->advanceCursor($link, $row['id'], $row['timestamp'], $authority);
             $count++;
             if ($ended) {
                 break;
