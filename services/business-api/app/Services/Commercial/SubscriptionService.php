@@ -147,23 +147,35 @@ class SubscriptionService
 
     private function invoice(int $sub, object $p, CarbonImmutable $start, int $cycle): int
     {
-        $tax = Money::multiplyDivide((int) $p->price_minor, (int) $p->tax_bps, 10000);
+        $price = self::exactMinor($p->price_minor);
+        $tax = Money::multiplyDivide($price, (int) $p->tax_bps, 10000);
+        $total = self::checkedAdd($price, self::exactMinor($tax));
 
-        $id = DB::table('commercial_subscription_invoices')->insertGetId(['number' => 'MOCK-SUB-'.Str::ulid(), 'subscription_id' => $sub, 'plan_id' => $p->id, 'cycle_number' => $cycle, 'period_start' => $start, 'period_end' => $this->end($start, $p->interval, $sub), 'currency' => $p->currency, 'minor_units' => $p->minor_units, 'subtotal_minor' => $p->price_minor, 'tax_minor' => $tax, 'total_minor' => $p->price_minor + $tax, 'entitlements' => json_encode($p->entitlements, JSON_THROW_ON_ERROR), 'evidence' => 'MOCK_PROVIDER', 'created_at' => now()]);
-        $this->ledger($id, 'invoice', [['subscription_receivable', $p->price_minor + $tax, 0], ['subscription_revenue', 0, (int) $p->price_minor], ['subscription_tax_payable', 0, $tax]]);
+        $id = DB::table('commercial_subscription_invoices')->insertGetId(['number' => 'MOCK-SUB-'.Str::ulid(), 'subscription_id' => $sub, 'plan_id' => $p->id, 'cycle_number' => $cycle, 'period_start' => $start, 'period_end' => $this->end($start, $p->interval, $sub), 'currency' => $p->currency, 'minor_units' => $p->minor_units, 'subtotal_minor' => $price, 'tax_minor' => $tax, 'total_minor' => $total, 'entitlements' => json_encode($p->entitlements, JSON_THROW_ON_ERROR), 'evidence' => 'MOCK_PROVIDER', 'created_at' => now()]);
+        $this->ledger($id, 'invoice', [['subscription_receivable', $total, 0], ['subscription_revenue', 0, $price], ['subscription_tax_payable', 0, $tax]]);
 
         return $id;
     }
 
     private function ledger(int $invoice, string $kind, array $entries): void
     {
-        if (array_sum(array_column($entries, 1)) !== array_sum(array_column($entries, 2))) {
+        // Validate every entry and both running totals before any financial
+        // posting. An overflow after the first insert must never leave a
+        // partially applied journal, even outside a caller transaction.
+        $debits = 0;
+        $credits = 0;
+        $normalized = [];
+        foreach ($entries as [$account, $debit, $credit]) {
+            $debit = self::exactMinor($debit);
+            $credit = self::exactMinor($credit);
+            $debits = self::checkedAdd($debits, $debit);
+            $credits = self::checkedAdd($credits, $credit);
+            $normalized[] = [$account, $debit, $credit];
+        }
+        if ($debits !== $credits) {
             throw new \LogicException('Unbalanced subscription journal rejected.');
         }
-        foreach ($entries as [$account, $debit, $credit]) {
-            if ($debit < 0 || $credit < 0) {
-                throw new \LogicException('Negative subscription journal rejected.');
-            }
+        foreach ($normalized as [$account, $debit, $credit]) {
             if ($debit || $credit) {
                 DB::table('commercial_subscription_ledger')->insert(['invoice_id' => $invoice, 'kind' => $kind, 'account' => $account, 'debit_minor' => $debit, 'credit_minor' => $credit, 'created_at' => now()]);
             }
@@ -308,9 +320,10 @@ class SubscriptionService
 
     private function settleReceipt(object $subscription, object $invoice, string $reference, string $evidence): object
     {
-        $receipt = DB::table('commercial_subscription_receipts')->insertGetId(['invoice_id' => $invoice->id, 'provider_reference' => $reference, 'amount_minor' => $invoice->total_minor, 'currency' => $invoice->currency, 'evidence' => $evidence, 'created_at' => now()]);
+        $total = self::exactMinor($invoice->total_minor);
+        $receipt = DB::table('commercial_subscription_receipts')->insertGetId(['invoice_id' => $invoice->id, 'provider_reference' => $reference, 'amount_minor' => $total, 'currency' => $invoice->currency, 'evidence' => $evidence, 'created_at' => now()]);
         $account = $evidence === 'STRIPE_TEST_CONTRACT' ? 'cash:stripe_test_subscription' : 'cash:mock_subscription';
-        $this->ledger($invoice->id, 'payment', [[$account, (int) $invoice->total_minor, 0], ['subscription_receivable', 0, (int) $invoice->total_minor]]);
+        $this->ledger($invoice->id, 'payment', [[$account, $total, 0], ['subscription_receivable', 0, $total]]);
         DB::table('commercial_subscriptions')->where('id', $subscription->id)->update(['plan_id' => $invoice->plan_id, 'next_plan_id' => null, 'status' => 'active', 'cycle_number' => $invoice->cycle_number, 'period_start' => $invoice->period_start, 'period_end' => $invoice->period_end, 'updated_at' => now()]);
 
         return DB::table('commercial_subscription_receipts')->find($receipt);
@@ -328,9 +341,14 @@ class SubscriptionService
                 HostedCheckout::guard('subscription', $invoice);
                 $i = DB::table('commercial_subscription_invoices')->where('subscription_id', $subscription)->where('id', $invoice)->first();
                 abort_unless($i, 404);
-                abort_unless((int) $i->total_minor === $amount && $i->currency === $currency, 409, 'Provider settlement does not match subscription invoice.');
+                abort_unless(self::exactMinor($i->total_minor) === self::exactMinor($amount)
+                    && $i->currency === $currency, 409,
+                    'Provider settlement does not match subscription invoice.');
                 if ($old = DB::table('commercial_subscription_receipts')->where('invoice_id', $invoice)->first()) {
-                    abort_unless($old->provider_reference === $reference && (int) $old->amount_minor === $amount && $old->currency === $currency && $old->evidence === $evidence, 409, 'Subscription invoice already settled by another provider operation.');
+                    abort_unless($old->provider_reference === $reference
+                        && self::exactMinor($old->amount_minor) === $amount
+                        && $old->currency === $currency && $old->evidence === $evidence,
+                        409, 'Subscription invoice already settled by another provider operation.');
 
                     return $old;
                 }
