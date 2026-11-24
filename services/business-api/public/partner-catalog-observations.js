@@ -26,18 +26,36 @@ window.EvPartnerCatalogObservations=(()=>{
    return Object.keys(m).length===metrics.length+(key==='locations'?5:3);
   });
  }
+ const qualityCount=n=>Number.isSafeInteger(n)&&n>=0&&n<=1000000;
+ function validQuality(d,id){
+  if(d?.scope!=='stored_partner_catalog_quality_history'||d.provider?.id!==id||typeof d.provider.name!=='string'||typeof d.provider.authorized!=='boolean'||d.period!=='hour_utc'||d.sample_limit!==30||d.retention_hours!==168||d.evidence!=='STORED_PARTNER_CATALOG_TIMESTAMPS_ONLY'||d.sample_completeness!=='STORED_SYNC_AND_OPTIONAL_PERIODIC_SNAPSHOTS'||!['source_covers_whole_network','live_availability_verified','physical_charging_verified','remote_control','billing_authority'].every(k=>d[k]===false)||!Array.isArray(d.samples)||d.samples.length>30||d.count!==d.samples.length)return false;
+  let previous=null;
+  const metrics=['published_count','within_policy_count','stale_count','unknown_age_count','future_clock_count'];
+  const timestamp=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+  const strictInstant=v=>typeof v==='string'&&timestamp.test(v)&&Number.isFinite(Date.parse(v))&&new Date(Date.parse(v)).toISOString().slice(0,23)===v.slice(0,23);
+  for(const row of d.samples){
+   if(!row||typeof row!=='object'||!strictInstant(row.observed_hour)||!strictInstant(row.sampled_at))return false;
+   const hour=Date.parse(row.observed_hour),at=Date.parse(row.sampled_at);
+   if(!Number.isFinite(hour)||!Number.isFinite(at)||!row.observed_hour.endsWith(':00:00.000000Z')||at<hour||at>=hour+3600000||(previous!==null&&hour>=previous))return false;
+   previous=hour;
+   if(['within_policy','attention','empty'].includes(row.state)){
+    if(!Number.isSafeInteger(row.max_age_seconds)||row.max_age_seconds<60||row.max_age_seconds>604800||!metrics.every(k=>qualityCount(row[k]))||row.within_policy_count+row.stale_count+row.unknown_age_count!==row.published_count||row.future_clock_count>row.unknown_age_count||row.state!==(row.published_count===0?'empty':(row.stale_count+row.unknown_age_count>0?'attention':'within_policy')))return false;
+   }else if(!['unavailable','policy_unavailable'].includes(row.state)||!metrics.every(k=>row[k]===null))return false;
+  }
+  return true;
+ }
  function open({host,providerId,api,current}){
   viewers.get(host)?.();let sequence=0,request=null,observer=null;
-  const root=document.createElement('section'),select=document.createElement('select'),read=text('button','Read stored catalog observations','قراءة ملاحظات الكتالوج المخزنة'),output=document.createElement('div');
+  const root=document.createElement('section'),select=document.createElement('select'),read=text('button','Read stored catalog observations','قراءة ملاحظات الكتالوج المخزنة'),quality=text('button','Read source quality history','قراءة سجل جودة المصدر'),output=document.createElement('div');
   const label=text('label','Catalog module','وحدة الكتالوج');label.append(select);
   for(const [value,en,ar]of[['all','Locations and tariffs','المواقع والتعرفة'],['locations','Locations','المواقع'],['tariffs','Tariffs','التعرفة']]){const option=text('option',en,ar);option.value=value;select.append(option);}
-  read.type='button';
-  function erase(){sequence++;request?.abort();request=null;output.replaceChildren();read.disabled=false;select.disabled=false;}
+  read.type='button';quality.type='button';
+  function erase(){sequence++;request?.abort();request=null;output.replaceChildren();read.disabled=false;quality.disabled=false;select.disabled=false;}
   const hidden=()=>{if(document.hidden)erase();};document.addEventListener('visibilitychange',hidden);
   window.addEventListener('pagehide',erase);
   const cleanup=()=>{observer?.disconnect();erase();document.removeEventListener('visibilitychange',hidden);window.removeEventListener('pagehide',erase);};viewers.set(host,cleanup);
   const active=n=>n===sequence&&!document.hidden&&current()&&root.isConnected;
-  read.onclick=async()=>{if(document.hidden||!current())return;erase();const n=sequence,controller=new AbortController();request=controller;read.disabled=true;select.disabled=true;const module=select.value;
+  read.onclick=async()=>{if(document.hidden||!current())return;erase();const n=sequence,controller=new AbortController();request=controller;read.disabled=true;quality.disabled=true;select.disabled=true;const module=select.value;
    try{const d=await api(`ocpi/providers/${providerId}/catalog-observations?module=${module}`,'GET',undefined,controller.signal);if(!active(n))return;if(!valid(d,providerId)||d.module_filter!==module)throw Error('Invalid observation contract');
     output.append(raw('h4',d.provider.name),raw('p',d.as_of));if(!d.provider.authorized)output.append(text('p','Partner authorization is revoked. These are private historical records.','تصريح الشريك ملغى. هذه سجلات تاريخية خاصة.'));
     for(const [key,m]of Object.entries(d.modules)){const card=document.createElement('article');card.append(text('h4',key==='locations'?'Stored locations':'Stored tariffs',key==='locations'?'المواقع المخزنة':'التعرفة المخزنة'),text('p',`Records: ${m.total}`,`السجلات: ${m.total}`));
@@ -50,10 +68,35 @@ window.EvPartnerCatalogObservations=(()=>{
      }output.append(card);
     }
    }catch(error){if(active(n))output.replaceChildren(text('p','Observations unavailable. Check access or select one module, then read again. No partial counts are shown.','الملاحظات غير متاحة. تحقق من الصلاحية أو اختر وحدة واحدة ثم اقرأ مجدداً. لا تُعرض أعداد جزئية.'));}
-   finally{if(active(n)){read.disabled=false;select.disabled=false;}}
+   finally{if(active(n)){read.disabled=false;quality.disabled=false;select.disabled=false;}}
+  };
+  quality.onclick=async()=>{
+   if(document.hidden||!current())return;
+   erase();
+   const n=sequence,controller=new AbortController();request=controller;
+   read.disabled=true;quality.disabled=true;select.disabled=true;
+   try{
+    const d=await api(`ocpi/providers/${providerId}/catalog-quality-history`,'GET',undefined,controller.signal);
+    if(!active(n))return;
+    if(!validQuality(d,providerId))throw Error('Invalid quality history evidence');
+    output.append(text('h4','Stored hourly partner source quality (not live availability)','سجل جودة مصدر الشريك بالساعة (ليس توفراً حياً)'));
+    if(!d.samples.length)output.append(text('p','No changed location syncs recorded; there is no coverage conclusion.','لا توجد عمليات مزامنة مواقع متغيرة مسجلة؛ لا توجد نتيجة عن التغطية.'));
+    for(const entry of d.samples){
+     const item=document.createElement('article');
+     item.append(raw('p',entry.observed_hour),text('p',
+       `Reported-source state: ${entry.state}`,`حالة بيانات المصدر المبلّغ عنها: ${entry.state}`));
+     if(entry.published_count!==null){
+      item.append(text('p',
+       `Stored published: ${entry.published_count} · Within age policy: ${entry.within_policy_count} · Stale: ${entry.stale_count} · Unknown: ${entry.unknown_age_count} · Future clock: ${entry.future_clock_count}`,
+       `التقارير المنشورة: ${entry.published_count} · ضمن سياسة العمر: ${entry.within_policy_count} · قديمة: ${entry.stale_count} · غير معروفة: ${entry.unknown_age_count} · ساعة مستقبلية: ${entry.future_clock_count}`));
+     }
+     output.append(item);
+    }
+   }catch(error){if(active(n))output.replaceChildren(text('p','Quality history unavailable. Refresh explicitly; no partial samples are shown.','سجل جودة المصدر غير متاح. أعد القراءة يدوياً؛ لا تُعرض عينات جزئية.'));}
+   finally{if(active(n)){read.disabled=false;quality.disabled=false;select.disabled=false;}}
   };
   select.onchange=erase;
-  root.append(text('p','Stored partner reports only. Age buckets describe observations, not the configured catalog policy. A recent receipt does not refresh an old source report. Publish flags, coordinate usability and connector lists do not prove geographic accuracy, live availability or charging compatibility. No upstream request, booking, command or payment is sent.','تقارير شريك مخزنة فقط. فئات العمر تصف الملاحظات وليست قرار سياسة الكتالوج المضبوطة. الاستلام الحديث لا يجعل تقرير المصدر القديم حديثاً. علامات النشر وصلاحية عرض الإحداثيات وقوائم الموصلات لا تثبت دقة الموقع أو التوفر الحي أو توافق الشحن. لا يُرسل طلب للشريك أو حجز أو أمر أو دفع.'),label,read,output);host.replaceChildren(root);observer=new MutationObserver(()=>{if(!root.isConnected)cleanup();});observer.observe(document.body,{childList:true,subtree:true});
+  root.append(text('p','Stored partner reports only. Age buckets describe observations, not the configured catalog policy. A recent receipt does not refresh an old source report. Publish flags, coordinate usability and connector lists do not prove geographic accuracy, live availability or charging compatibility. No upstream request, booking, command or payment is sent.','تقارير شريك مخزنة فقط. فئات العمر تصف الملاحظات وليست قرار سياسة الكتالوج المضبوطة. الاستلام الحديث لا يجعل تقرير المصدر القديم حديثاً. علامات النشر وصلاحية عرض الإحداثيات وقوائم الموصلات لا تثبت دقة الموقع أو التوفر الحي أو توافق الشحن. لا يُرسل طلب للشريك أو حجز أو أمر أو دفع.'),label,read,quality,output);host.replaceChildren(root);observer=new MutationObserver(()=>{if(!root.isConnected)cleanup();});observer.observe(document.body,{childList:true,subtree:true});
  }
  return{open};
 })();

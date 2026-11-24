@@ -14,6 +14,8 @@ use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceConsumer;
 use App\Services\CsmsDispatcher;
 use App\Services\Notifications\EmailNotices;
+use App\Services\Ocpi\CatalogQualityHistory;
+use App\Services\Ocpi\CatalogQualitySampler;
 use App\Services\Ocpi\ScheduledSync;
 use App\Services\Operations\OperationalHealth;
 use App\Services\Operations\OperationalIncidents;
@@ -273,6 +275,53 @@ Artisan::command('notifications:handoff-email {--max=100}', function () {
     }
 })->purpose('Bounded, opt-in generic email digests; transport handoff does not prove delivery');
 Schedule::command('notifications:handoff-email')->everyMinute()->withoutOverlapping();
+
+// Opt-in, read-only UTC-hour freshness observation over already stored OCPI
+// locations. Bounded and idempotent; never contacts a partner or charger.
+Artisan::command('ocpi:sample-source-quality {--limit=25}', function () {
+    $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 1, 'max_range' => 50]]);
+    if ($limit === false) {
+        $this->error('Choose a sample limit from 1 to 50.');
+
+        return 1;
+    }
+    try {
+        $result = app(CatalogQualitySampler::class)->run($limit);
+        $this->line(json_encode($result, JSON_THROW_ON_ERROR));
+
+        return ($result['failed'] ?? 0) > 0 ? 1 : 0;
+    } catch (Throwable) {
+        $this->error('Partner source quality sampling requires operator review.');
+
+        return 1;
+    }
+})->purpose('Observe bounded stored OCPI location age, never live source/charging availability');
+Schedule::command('ocpi:sample-source-quality --limit=25')->everyMinute()->withoutOverlapping(30);
+
+// Source-only quality samples must not live indefinitely when a provider
+// stops synchronizing: remove already-expired history without any remote I/O.
+Artisan::command('ocpi:expire-source-quality-snapshots {--limit=500}', function () {
+    $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 1, 'max_range' => 1000]]);
+    if ($limit === false) {
+        $this->error('Choose a cleanup limit from 1 to 1000.');
+
+        return 1;
+    }
+    try {
+        $result = app(CatalogQualityHistory::class)->purgeExpired($limit);
+        $this->line(json_encode($result, JSON_THROW_ON_ERROR));
+    } catch (Throwable) {
+        $this->error('Stored OCPI quality-history cleanup requires operator review.');
+
+        return 1;
+    }
+
+    return 0;
+})->purpose('Delete bounded expired stored-quality timestamps without contacting any OCPI partner');
+Schedule::command('ocpi:expire-source-quality-snapshots --limit=500')
+    ->hourly()->withoutOverlapping(30);
 
 Artisan::command('ocpi:poll-approved', function () {
     try {
