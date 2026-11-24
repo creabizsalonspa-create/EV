@@ -137,7 +137,8 @@ class SettlementController extends Controller
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
             abort_unless($actor->role === 'admin', 403);
 
-            return response()->json($service->transition($settlement, $actor->id, $action));
+            return response()->json($this->safe($service->transition($settlement, $actor->id, $action)))
+                ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
