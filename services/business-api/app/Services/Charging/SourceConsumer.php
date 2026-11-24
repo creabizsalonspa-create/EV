@@ -98,9 +98,42 @@ class SourceConsumer
             array_key_exists('multiplier', $units) ? $units['multiplier'] : 0);
     }
 
-    private function send(SessionLink $link, array $tx, string $type, int $sequence, int $meter, string $at, array $authority): void
+    private function target(SessionLink $link): array
+    {
+        $binding = DB::table('csms_bindings')->where('id', $link->binding_id)->first();
+        if (! $binding || $binding->identifier !== $link->identifier || $binding->protocol !== $link->protocol) {
+            throw new RuntimeException('Mapped source binding changed; reconciliation is required.');
+        }
+        $target = ['binding' => [$binding->id, $binding->station_id, $binding->vendor_charger_id,
+            $binding->identifier, $binding->protocol], 'mapping' => null];
+        if ($link->connector_mapping_id !== null) {
+            $map = ConnectorMapping::findOrFail($link->connector_mapping_id);
+            $evse = Evse::findOrFail($map->evse_id);
+            if ($evse->binding_id !== $binding->id || $map->station_id !== $binding->station_id
+                || $evse->charger_id !== $binding->vendor_charger_id || $evse->mode !== 'csms') {
+                throw new RuntimeException('Mapped source identity conflict.');
+            }
+            $target['mapping'] = [$map->id, $map->evse_id, $map->connector_id,
+                $map->source_connector_number, $evse->source_evse_number];
+        }
+
+        return $target;
+    }
+
+    private function requireTarget(SessionLink $link, array $target): void
+    {
+        $current = SessionLink::findOrFail($link->id);
+        if ($current->charging_session_id !== $link->charging_session_id
+            || $current->closed_without_dispatch_at !== null
+            || $this->target($current) !== $target) {
+            throw new RuntimeException('Source target changed; reconciliation is required.');
+        }
+    }
+
+    private function send(SessionLink $link, array $tx, string $type, int $sequence, int $meter, string $at, array $authority, array $target): void
     {
         $this->requireAuthority($authority);
+        $this->requireTarget($link, $target);
         $key = $authority[2];
         if (strlen($key) < 32) {
             throw new RuntimeException('Inbox authentication is not configured.');
@@ -108,10 +141,9 @@ class SourceConsumer
         $payload = ['event_id' => 'source-'.hash('sha256', implode('|', [$link->id, $tx['transactionId'], $type, $sequence])),
             'session_id' => $link->charging_session_id, 'identifier' => $link->identifier, 'protocol' => $link->protocol,
             'transaction_id' => (string) $tx['transactionId'], 'type' => $type, 'sequence' => $sequence, 'meter_wh' => $meter, 'occurred_at' => $at];
-        if ($link->connector_mapping_id) {
-            $map = ConnectorMapping::findOrFail($link->connector_mapping_id);
-            $payload['source_connector_number'] = $map->source_connector_number;
-            $payload['source_evse_number'] = Evse::findOrFail($map->evse_id)->source_evse_number;
+        if ($target['mapping'] !== null) {
+            $payload['source_connector_number'] = $target['mapping'][3];
+            $payload['source_evse_number'] = $target['mapping'][4];
         }
         $raw = json_encode($payload, JSON_THROW_ON_ERROR);
         $timestamp = (string) time();
@@ -134,9 +166,10 @@ class SourceConsumer
         $link->refresh();
     }
 
-    private function advanceCursor(SessionLink $link, int $sourceRowId, string $sourceAt, array $authority): void
+    private function advanceCursor(SessionLink $link, int $sourceRowId, string $sourceAt, array $authority, array $target): void
     {
         $this->requireAuthority($authority);
+        $this->requireTarget($link, $target);
         // A second observer may have already committed a later page while this
         // worker was reading source rows. Never rewind its durable progress.
         // The signed inbox independently rejects replayed or conflicting
@@ -179,6 +212,7 @@ class SourceConsumer
                 throw new RuntimeException('Remote source token lineage conflict.');
             }
         }
+        $target = $this->target($link);
         $authority = [config('csms.graphql_url'), (string) config('csms.graphql_secret'), (string) config('csms.event_secret')];
         $this->requireAuthority($authority);
         if (strlen($authority[2]) < 32) {
@@ -298,6 +332,7 @@ class SourceConsumer
             $startedAt->lt($link->created_at->subSeconds(2))) {
             throw new RuntimeException('Source correlation conflict requires reconciliation.');
         }
+        $this->requireTarget($link, $target);
         if ($link->connector_mapping_id) {
             $map = ConnectorMapping::findOrFail($link->connector_mapping_id);
             $evse = Evse::findOrFail($map->evse_id);
@@ -353,8 +388,9 @@ class SourceConsumer
         // Atomically pin both external row identifiers before the first
         // signed event. A reused protocol transactionId or a reprovisioned
         // station row cannot adopt an existing canonical charging session.
-        DB::transaction(function () use ($link, $sourceStationId, $sourceTransactionDatabaseId, $authority): void {
+        DB::transaction(function () use ($link, $sourceStationId, $sourceTransactionDatabaseId, $authority, $target): void {
             $this->requireAuthority($authority);
+            $this->requireTarget($link, $target);
             $locked = SessionLink::whereKey($link->id)->lockForUpdate()->firstOrFail();
             if (($locked->source_station_id !== null && (int) $locked->source_station_id !== $sourceStationId) ||
                 ($locked->source_transaction_database_id !== null && (int) $locked->source_transaction_database_id !== $sourceTransactionDatabaseId) ||
@@ -375,7 +411,7 @@ class SourceConsumer
         $link->refresh();
         $count = 0;
         if ($link->transaction_id === null) {
-            $this->send($link, $tx, 'started', 0, $baseline, $tx['startTime'], $authority);
+            $this->send($link, $tx, 'started', 0, $baseline, $tx['startTime'], $authority, $target);
             $count++;
         }
         $rows = $this->graph('query($tx:Int!,$after:Int!){MeterValues(where:{tenantId:{_eq:1},transactionDatabaseId:{_eq:$tx},id:{_gt:$after}},order_by:{id:asc},limit:100){id timestamp sampledValue}}', ['tx' => $tx['id'], 'after' => max(0, $link->source_meter_cursor)], $authority)['MeterValues'] ?? null;
@@ -444,7 +480,7 @@ class SourceConsumer
                 throw new RuntimeException('Ambiguous register requires reconciliation.');
             }
             if (! $samples || ($samples[0]['context'] ?? '') === 'Transaction.Begin') {
-                $this->advanceCursor($link, $row['id'], $row['timestamp'], $authority);
+                $this->advanceCursor($link, $row['id'], $row['timestamp'], $authority, $target);
 
                 continue;
             }
@@ -462,8 +498,8 @@ class SourceConsumer
             if ($row['id'] > 1000000000) {
                 throw new RuntimeException('Source sequence exceeds the inbox bound.');
             }
-            $this->send($link, $tx, $ended ? 'ended' : 'meter', $row['id'], $meter, $ended ? $tx['endTime'] : $row['timestamp'], $authority);
-            $this->advanceCursor($link, $row['id'], $row['timestamp'], $authority);
+            $this->send($link, $tx, $ended ? 'ended' : 'meter', $row['id'], $meter, $ended ? $tx['endTime'] : $row['timestamp'], $authority, $target);
+            $this->advanceCursor($link, $row['id'], $row['timestamp'], $authority, $target);
             $count++;
             if ($ended) {
                 break;
