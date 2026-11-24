@@ -634,6 +634,62 @@ void main() {
       expect(api.writes, 0);
     },
   );
+  test('private subscription detail refuses source identities beyond exact JSON integers',
+      () {
+    final api = SubscriptionApi();
+    for (final broken in [
+      () {
+        final j = api.summary;
+        (j['subscription'] as Map)['id'] = 9007199254740992;
+        return j;
+      }(),
+      () {
+        final j = api.summary;
+        (j['subscription'] as Map)['id'] = 4.0;
+        return j;
+      }(),
+      () {
+        final j = api.summary;
+        (j['invoices'] as List).first['id'] = 9007199254740992;
+        return j;
+      }(),
+      () {
+        final j = api.summary;
+        (j['invoices'] as List).first['id'] = true;
+        return j;
+      }(),
+    ]) {
+      expect(() => subscriptionSummary(broken, 1, id: 4),
+        throwsFormatException);
+    }
+    expect(() => subscriptionSummary(api.summary, 9007199254740992),
+      throwsFormatException);
+  });
+
+  testWidgets('inexact subscription action IDs never dispatch a durable mutation',
+      (t) async {
+    final api = SubscriptionApi();
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionActionView(
+      api: api, onExpired: () {}, action: 'enroll',
+      plan: {...api.plan, 'id': 9007199254740992},
+      store: VendorOperationStore(),
+    )));
+    await t.pumpAndSettle();
+    expect(find.byType(FilledButton), findsOneWidget);
+    expect(t.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
+    expect(api.writes, 0);
+    await t.pumpWidget(host(SubscriptionActionView(
+      api: api, onExpired: () {}, action: 'cancel_now',
+      subscriptionId: 9007199254740992,
+      store: VendorOperationStore(),
+    )));
+    await t.pumpAndSettle();
+    expect(t.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
+    expect(api.writes, 0);
+    expect(api.calls.where((x) => x.endsWith('/change')), isEmpty);
+  });
+
   test('accepted private subscription invoice source is deep immutable', () {
     final raw = SubscriptionApi().summary;
     final report = subscriptionSummary(raw, 1, id: 4);
