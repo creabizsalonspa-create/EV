@@ -109,7 +109,7 @@ class RoamingReconciler
                     $review = true;
                     $wh = $row->energy_wh;
                 }
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 $review = true;
                 $wh = $row->energy_wh;
             }
