@@ -36,7 +36,7 @@ void main() {
     testWidgets('manual map centre and list alternative do not request tiles ($ar)', (tester) async {
       final tiles = FixtureTiles();
       final searched = <List<double>>[];
-      tester.view.physicalSize = const Size(390, 844);
+      tester.view.physicalSize = const Size(390, 1040);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -72,7 +72,9 @@ void main() {
         : 'Availability is unverified. Map placement does not enable charging.'), findsOneWidget);
       expect(tiles.requests, 0);
       expect(searched, isEmpty);
-      await tester.pageBack();
+      Navigator.of(tester.element(find.text(ar
+        ? 'التوفر غير مؤكد. ظهور المحطة على الخريطة لا يتيح الشحن.'
+        : 'Availability is unverified. Map placement does not enable charging.'))).pop();
       await tester.pumpAndSettle();
       await tap(find.byKey(const Key('manual-map-centre')));
       final lat = find.byKey(const Key('map-latitude'));
@@ -92,6 +94,7 @@ void main() {
       expect(searched, isEmpty);
       expect(tiles.requests, 0);
       final search = find.text(ar ? 'البحث ضمن ٢٥ كم هنا' : 'Search within 25 km here');
+      await tester.scrollUntilVisible(search, -200, scrollable: find.byType(Scrollable).first);
       await tap(search);
       expect(searched, [[25.2, 55.3]]);
       expect(tiles.requests, 0);
