@@ -55,7 +55,7 @@ class CampaignStore implements FinancialOperationStore {
 class CampaignApi extends FixtureApi {
   String role = 'vendor';
   void Function(Map<String, dynamic>)? beforeCreate;
-  bool live = true, returnAccepted = false;
+  bool live = true, returnAccepted = false, corruptDecision = false;
   int epoch = 0;
   final changes = StreamController<int>.broadcast(sync:true);
   @override
@@ -117,8 +117,8 @@ class CampaignApi extends FixtureApi {
         'campaign': returnAccepted ? row : null,
       };
     if (path.endsWith('/pause')) {
-      row = {...row, 'status': 'paused', 'control_revision': 10};
-      return {'campaign': row};
+      row = {...row, 'status': 'paused', 'control_revision': 42};
+      return {'campaign': corruptDecision ? {...row,'station_id':999} : row};
     }
     if (path == 'commercial/campaigns' && method == 'POST') {
       beforeCreate?.call(body!);
@@ -192,6 +192,25 @@ void main() {
     ]) {
       expect(campaignMatchesIntent({...campaign(),'starts_at':value},intent()),isTrue,reason:value);
     }
+  });
+  test('campaign transition receipt must preserve intent and advance global event revision', () {
+    final before=campaign(status:'approved');
+    final after={...before,'status':'paused','control_revision':42};
+    expect(campaignConfirmsDecision(before,after,'pause'),isTrue);
+    for(final invalid in [
+      {...after,'control_revision':9},
+      {...after,'control_revision':8},
+      {...after,'status':'approved'},
+      {...after,'id':8},
+      {...after,'vendor_id':2},
+      {...after,'station_id':999},
+      {...after,'budget_units':4},
+      {...after,'starts_at':'2026-11-15T10:00:00'},
+      {...after,'title':'different creative'},
+    ]) {
+      expect(campaignConfirmsDecision(before,invalid,'pause'),isFalse,reason:'$invalid');
+    }
+    expect(campaignConfirmsDecision(before,after,'approve'),isFalse);
   });
   testWidgets('vendor reviews a campaign and confirms a revision-bound pause', (
     tester,
@@ -551,5 +570,35 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.requests.where((r)=>r['method']=='POST'),isEmpty);
     expect(find.text('Private vendor creative'),findsNothing);
+  });
+  testWidgets('mismatched transition receipt blocks further action until source refresh',(tester) async {
+    final api=CampaignApi()..row=campaign(status:'approved')..corruptDecision=true;
+    addTearDown(api.changes.close);
+    await tester.pumpWidget(MaterialApp(home:VendorCampaignsView(
+      api:api,onExpired:(){},operationStore:CampaignStore(),
+    )));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Review'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField),'Pause this reviewed campaign');
+    await tester.ensureVisible(find.text('I reviewed this campaign decision.'));
+    await tester.tap(find.text('I reviewed this campaign decision.'));
+    await tester.pump();
+    await tester.ensureVisible(find.text('Pause'));
+    await tester.tap(find.text('Pause'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    expect(api.requests.where((r)=>r['method']=='POST').length,1);
+    expect(find.text('Pause'),findsNothing);
+    expect(find.text('Resume'),findsNothing);
+    expect(find.textContaining('Request not confirmed'),findsOneWidget);
+    await tester.ensureVisible(find.text('Refresh history'));
+    await tester.tap(find.text('Refresh history'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Review'));
+    await tester.pumpAndSettle();
+    expect(find.text('Resume'),findsOneWidget);
+    expect(api.requests.where((r)=>r['method']=='POST').length,1);
   });
 }
