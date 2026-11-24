@@ -221,10 +221,10 @@ class SignedFirmwareTest extends TestCase
         return compact('owner', 'admin', 'station', 'company', 'charger', 'binding', 'releases', 'path', 'entry', 'bytes', 'pin', 'protocol');
     }
 
-    private function source(array $f, bool $unknown = false, bool $loss = false, ?string $statusTime = null, ?string $firmwareVersion = 'sim-fw-v1', bool $drift = false, ?string $malformedSource = null, ?string $malformedReview = null, bool $faultedIdle = false): void
+    private function source(array $f, bool $unknown = false, bool $loss = false, ?string $statusTime = null, ?string $firmwareVersion = 'sim-fw-v1', bool $drift = false, ?string $malformedSource = null, ?string $malformedReview = null, bool $faultedIdle = false, ?callable $duringToken = null): void
     {
         $compatibilityReads = 0;
-        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime, $firmwareVersion, $drift, $malformedSource, $malformedReview, $faultedIdle, &$compatibilityReads) {
+        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime, $firmwareVersion, $drift, $malformedSource, $malformedReview, $faultedIdle, $duringToken, &$compatibilityReads) {
             if (str_contains($r->url(), '/capabilities')) {
                 parse_str(parse_url($r->url(), PHP_URL_QUERY), $query);
 
@@ -306,6 +306,10 @@ class SignedFirmwareTest extends TestCase
                 return Http::response(['data' => ['Transactions' => [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'errorCode' => $faultedIdle ? 'GroundFailure' : ($f['protocol'] === '1.6' ? 'NoError' : null), 'timestamp' => $statusTime ?? now()->toISOString()]]]]);
             }
             if (str_ends_with($r->url(), '/dev/token')) {
+                if ($duringToken) {
+                    $duringToken();
+                }
+
                 return Http::response(['accessToken' => 'synthetic-source-token']);
             }
 
@@ -428,6 +432,24 @@ class SignedFirmwareTest extends TestCase
         $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Faulted source cannot confirm installation'])->assertConflict();
         $this->assertDatabaseHas('charger_firmware_operations', ['id' => $id, 'reviewed_at' => null, 'status' => 'transport_submitted']);
         Http::assertNotSent(fn ($r) => str_contains($r->url(), '/signedUpdateFirmware?') || str_contains($r->url(), '/updateFirmware?'));
+    }
+
+    #[DataProvider('protocols')]
+    public function test_operations_origin_change_after_token_cannot_dispatch_firmware(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $original = config('csms.operations_base_url');
+        $this->source($f, duringToken: fn () => config(['csms.operations_base_url' => 'https://other.example.test']));
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1', 'note' => 'Approved pinned synthetic bytes',
+        ])->assertCreated()->json('id');
+        $body = ['release_id' => $release, 'reason' => 'Inspect token endpoint generation', 'idempotency_key' => 'token-drift'];
+        $id = $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'not_dispatched')->json('id');
+        config(['csms.operations_base_url' => $original]);
+        $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id);
+        $this->assertNotNull(DB::table('charger_firmware_operations')->find($id)->pre_dispatch_blocked_at);
+        Http::assertSentCount(8);
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), 'other.example.test'));
     }
 
     #[DataProvider('protocols')]
