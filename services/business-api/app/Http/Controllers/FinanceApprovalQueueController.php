@@ -13,6 +13,20 @@ final class FinanceApprovalQueueController extends Controller
 {
     private const MAX_BROWSER_MINOR = 9_007_199_254_740_991;
 
+    /** Verify signed source values before numeric coercion in Admin review. */
+    private static function exactMinor(mixed $value): int
+    {
+        abort_unless(is_int($value) || is_string($value), 409,
+            'Financial approval source is not an exact integer.');
+        $amount = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($amount !== false &&
+            $amount <= self::MAX_BROWSER_MINOR &&
+            $amount >= -self::MAX_BROWSER_MINOR,
+            409, 'Financial approval amount exceeds browser-safe integer bounds.');
+
+        return $amount;
+    }
+
     public function index(Request $request)
     {
         // Keep the live Admin identity locked until all private review rows
@@ -54,19 +68,45 @@ final class FinanceApprovalQueueController extends Controller
         foreach ($sources as $source) {
             $combined->unionAll($source);
         }
-        $query = DB::query()->fromSub($combined, 'q')
+        $filtered = DB::query()->fromSub($combined, 'q')
             ->when(isset($filters['currency']), fn ($q) => $q->where('currency', $filters['currency']))
-            ->when(isset($filters['vendor_id']), fn ($q) => $q->where('vendor_id', (int) $filters['vendor_id']))
-            ->orderByDesc('created_at')->orderByDesc('record_id')->orderBy('kind');
+            ->when(isset($filters['vendor_id']), fn ($q) => $q->where('vendor_id', (int) $filters['vendor_id']));
+
+        // The queue's pageable rows are operational triage, not a balance:
+        // preserve distinct kind + currency + minor-unit buckets across
+        // ALL currently filtered pending requests, never just this page.
+        // Never mix a signed adjustment with a refund or settlement.
+        $sourceGroups = (clone $filtered)
+            ->select('kind', 'currency', 'minor_units')
+            ->selectRaw('COUNT(*) AS review_count, SUM(amount_minor) AS signed_amount_minor')
+            ->groupBy('kind', 'currency', 'minor_units')
+            ->orderBy('kind')->orderBy('currency')->orderBy('minor_units')
+            ->limit(201)->get();
+        abort_if($sourceGroups->count() > 200, 422,
+            'Narrow the review queue filters before summarizing more than 200 financial scopes.');
+        $groups = $sourceGroups->map(static function ($group): array {
+            $amount = self::exactMinor($group->signed_amount_minor);
+            $count = self::exactMinor($group->review_count);
+            abort_if($count < 0, 409, 'Financial approval group count is invalid.');
+
+            return [
+                'kind' => $group->kind,
+                'currency' => $group->currency,
+                'minor_units' => (int) $group->minor_units,
+                'review_count' => $count,
+                'signed_amount_minor' => $amount,
+                'basis' => 'PENDING_RECORDS_NOT_FINANCIAL_BALANCE',
+            ];
+        })->values()->all();
+
+        $query = $filtered->orderByDesc('created_at')
+            ->orderByDesc('record_id')->orderBy('kind');
         $page = $query->paginate((int) ($filters['per_page'] ?? 20), ['*'], 'page', (int) ($filters['page'] ?? 1));
 
         return response()->json([
             'data' => $page->getCollection()->map(static function ($row): array {
                 // Refuse silently rounded JSON amounts in Customer/Vendor/Admin.
-                $amount = filter_var($row->amount_minor, FILTER_VALIDATE_INT);
-                abort_if($amount === false || $amount > self::MAX_BROWSER_MINOR ||
-                    $amount < -self::MAX_BROWSER_MINOR, 409,
-                    'Financial approval amount exceeds browser-safe integer bounds.');
+                $amount = self::exactMinor($row->amount_minor);
 
                 return [
                     'kind' => $row->kind,
@@ -84,6 +124,12 @@ final class FinanceApprovalQueueController extends Controller
             'current_page' => $page->currentPage(),
             'last_page' => $page->lastPage(),
             'per_page' => $page->perPage(),
+            'summary' => [
+                'groups' => $groups,
+                'scope' => 'ALL_CURRENT_FILTERED_PENDING_RECORDS_NOT_PAGE',
+                'currency_and_precision_isolated' => true,
+                'not_a_payment_or_payout_authority' => true,
+            ],
             'admin_only' => true,
             'read_only' => true,
             'mutations_performed' => false,
