@@ -128,8 +128,11 @@ class CorporateHostedCollection
             && $checkout->currency === $statement->currency
             && (int) $checkout->minor_units === (int) $statement->minor_units,
             409, 'Corporate checkout no longer matches its immutable statement.');
-        $held = DB::table('corporate_hosted_lines')
-            ->where('checkout_id', $checkout->id)->get()->keyBy('statement_line_id');
+        $heldRows = DB::table('corporate_hosted_lines')
+            ->where('checkout_id', $checkout->id)->get();
+        $held = $heldRows->keyBy('statement_line_id');
+        abort_unless($heldRows->count() === $held->count(), 409,
+            'Duplicate corporate checkout held source.');
         $count = 0;
         foreach ($lines as $line) {
             $source = $held->get($line->id);
@@ -145,6 +148,7 @@ class CorporateHostedCollection
     {
         foreach ($lines as $l) {
             abort_if(DB::table('finance_payments')->where('invoice_id', $l->invoice_id)->exists() || DB::table('gateway_checkouts')->where('invoice_id', $l->invoice_id)->exists(), 409, 'A corporate source invoice already has a payment path.');
+            abort_if(DB::table('finance_unpaid_credits')->where('invoice_id', $l->invoice_id)->exists(), 409, 'A noncash-credited corporate invoice cannot be collected.');
             abort_if(DB::table('finance_refund_requests')->where('invoice_id', $l->invoice_id)->where('status', 'pending')->exists() || DB::table('gateway_cases')->where('invoice_id', $l->invoice_id)->where('status', 'open')->exists(), 409, 'A financial case holds this corporate invoice.');
         }
     }
