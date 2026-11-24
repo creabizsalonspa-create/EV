@@ -181,6 +181,70 @@ class RiderAccessTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public static function retirementSourceCases(): array
+    {
+        return [['valid'], ['lookup_origin'], ['changed_readback_id'], ['update_disabled']];
+    }
+
+    #[DataProvider('retirementSourceCases')]
+    public function test_rider_retirement_never_confirms_a_different_or_revoked_source(string $kind): void
+    {
+        [$owner, $customer, $company, $id] = $this->approvedSourceFixture();
+        $this->actingAs($customer)->deleteJson('/api/rider-access/tokens/'.$id)->assertOk();
+        $token = RiderAccessToken::findOrFail($id);
+        $original = config('csms.graphql_url');
+        $row = [
+            'id' => 71, 'idToken' => $this->payload()['value'], 'idTokenType' => $token->token_type,
+            'status' => 'Accepted',
+            'additionalInfo' => [['additionalIdToken' => $token->source_registration_nonce, 'type' => 'CREABIZ_RIDER']],
+        ];
+        $writes = 0;
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($original, $kind, &$row, &$writes) {
+            if (str_contains($request->url(), '/capabilities')) {
+                parse_str(parse_url($request->url(), PHP_URL_QUERY), $query);
+
+                return Http::response(['ready' => true, 'adapter_version' => 'creabiz-rider-v1', 'tenant_id' => 1, 'offline_fallback' => false, 'cache_seconds' => 0,
+                    'proof' => hash_hmac('sha256', "creabiz-rider-v1\n".$query['nonce'], str_repeat('s', 64))]);
+            }
+            $this->assertSame($original, $request->url());
+            if (str_contains($request['query'], 'update_Authorizations')) {
+                $writes++;
+                $row = array_replace($row, $request['variables']['set']);
+                if ($kind === 'changed_readback_id') {
+                    $row['id'] = 72;
+                } elseif ($kind === 'update_disabled') {
+                    config(['csms.rider_enabled' => false]);
+                }
+
+                return Http::response(['data' => ['update_Authorizations' => ['affected_rows' => 1]]]);
+            }
+            if ($kind === 'lookup_origin' && $writes === 0) {
+                config(['csms.graphql_url' => 'https://other.example.test/v1/graphql']);
+            }
+
+            return Http::response(['data' => ['Authorizations' => [$row]]]);
+        });
+        try {
+            $result = app(RiderSourceProvisioner::class)->retire($owner, $company, $id);
+            $this->assertSame('valid', $kind);
+            $this->assertTrue($result['source_retirement_observed']);
+            $this->assertFalse($result['active_sessions_stopped']);
+        } catch (HttpException $e) {
+            $this->assertNotSame('valid', $kind);
+            $this->assertContains($e->getStatusCode(), [409, 503]);
+        }
+        $token->refresh();
+        $this->assertSame($kind === 'valid' ? 'retired' : 'requires_inspection', $token->provisioning_state);
+        $this->assertNotNull($token->revoked_at);
+        $this->assertNull($token->provisioned_at);
+        $this->assertSame($kind === 'lookup_origin' ? 0 : 1, $writes);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'other.example.test') || str_contains($request->url(), '/ocpp/'));
+        $this->assertDatabaseCount('csms_session_links', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_station_approval_is_operator_scoped_expiry_bounded_and_private(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);
