@@ -56,12 +56,19 @@ class CampaignApi extends FixtureApi {
   String role = 'vendor';
   void Function(Map<String, dynamic>)? beforeCreate;
   bool live = true, returnAccepted = false;
+  int epoch = 0;
+  final changes = StreamController<int>.broadcast(sync:true);
+  @override
+  Stream<int> get sessionEvents => changes.stream;
+  void rotate() { epoch++; changes.add(epoch); }
   Map<String, dynamic> row = campaign();
   Completer<dynamic>? pendingList;
   final requests = <Map<String, dynamic>>[];
   @override
-  bool Function() sessionFence() =>
-      () => live;
+  bool Function() sessionFence() {
+    final original = epoch;
+    return () => live && epoch == original;
+  }
   dynamic paged(List<dynamic> data) => {
     'data': data,
     'current_page': 1,
@@ -360,6 +367,20 @@ void main() {
       );
       await tester.tap(find.text('I reviewed this exact campaign intent.'));
       await tester.pump();
+      // Editing a previously consented draft requires explicit re-review.
+      final title = find.byWidgetPredicate((w) => w is TextField &&
+          w.decoration?.labelText == 'Title (English)');
+      await tester.scrollUntilVisible(title,-150,scrollable:find.byType(Scrollable).first);
+      await tester.enterText(title,'Updated private creative');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Create draft'),150,
+        scrollable:find.byType(Scrollable).first);
+      expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton,'Create draft')).onPressed,isNull);
+      expect(api.requests.where((r)=>r['method']=='POST'),isEmpty);
+      await tester.ensureVisible(find.text('I reviewed this exact campaign intent.'));
+      await tester.tap(find.text('I reviewed this exact campaign intent.'));
+      await tester.pump();
       await tester.ensureVisible(find.text('Create draft'));
       await tester.tap(find.text('Create draft'));
       await tester.pumpAndSettle();
@@ -368,6 +389,7 @@ void main() {
             request['path'] == 'commercial/campaigns' &&
             request['method'] == 'POST',
       );
+      expect((creation['body'] as Map)['title'], 'Updated private creative');
       expect((creation['body'] as Map)['budget_units'], 3);
       expect((creation['body'] as Map)['invoice_id'], 11);
       expect((creation['body'] as Map)['station_id'], 22);
@@ -428,4 +450,80 @@ void main() {
       );
     },
   );
+  testWidgets('first inactive vendor campaign mount does not read private data',(tester) async {
+    final api = CampaignApi();
+    addTearDown(api.changes.close);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    addTearDown(()=>tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    await tester.pumpWidget(MaterialApp(home:VendorCampaignsView(
+      api:api,onExpired:(){},operationStore:CampaignStore(),
+    )));
+    await tester.pumpAndSettle();
+    expect(api.calls,isEmpty);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.calls,isEmpty);
+    await tester.tap(find.text('Refresh history'));
+    await tester.pumpAndSettle();
+    expect(api.calls,['me','commercial/campaigns']);
+  });
+
+  testWidgets('same API epoch rotation invalidates private recovery and stale refresh',(tester) async {
+    final api=CampaignApi(), store=CampaignStore();
+    addTearDown(api.changes.close);
+    await store.write('${api.base.origin}:${api.base.path}:1:campaign-create',
+      {'key':'original-actor-only','body':intent()});
+    Widget app()=>MaterialApp(home:VendorCampaignsView(
+      api:api,onExpired:(){},operationStore:store,
+    ));
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    final oldRefresh=tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton,'Refresh history')).onPressed!;
+    await tester.tap(find.text('Create or recover campaign'));
+    await tester.pumpAndSettle();
+    expect(find.text('title: Private vendor creative'),findsOneWidget);
+    await tester.ensureVisible(find.text('I reviewed this exact campaign intent.'));
+    await tester.tap(find.text('I reviewed this exact campaign intent.'));
+    await tester.pump();
+    final resolve=find.widgetWithText(OutlinedButton,
+      'Resolve saved creation: recover receipt or cancel unused intent');
+    await tester.ensureVisible(resolve);
+    final stale=tester.widget<OutlinedButton>(resolve).onPressed!;
+    final count=api.requests.length;
+    api.rotate();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Private vendor creative'),findsNothing);
+    stale();
+    oldRefresh();
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    expect(api.requests.length,count);
+    expect(store.values.length,1);
+    expect(find.textContaining('Private vendor creative'),findsNothing);
+  });
+
+  testWidgets('account rotation during decision dialog prevents campaign transition',(tester) async {
+    final api=CampaignApi()..row=campaign(status:'approved');
+    addTearDown(api.changes.close);
+    await tester.pumpWidget(MaterialApp(home:VendorCampaignsView(
+      api:api,onExpired:(){},operationStore:CampaignStore(),
+    )));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Review'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField),'Pause the reviewed campaign');
+    await tester.ensureVisible(find.text('I reviewed this campaign decision.'));
+    await tester.tap(find.text('I reviewed this campaign decision.'));
+    await tester.pump();
+    await tester.ensureVisible(find.text('Pause'));
+    await tester.tap(find.text('Pause'));
+    await tester.pumpAndSettle();
+    api.rotate();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    expect(api.requests.where((r)=>r['method']=='POST'),isEmpty);
+    expect(find.text('Private vendor creative'),findsNothing);
+  });
 }
