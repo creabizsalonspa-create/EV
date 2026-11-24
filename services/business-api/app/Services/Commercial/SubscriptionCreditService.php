@@ -94,7 +94,10 @@ class SubscriptionCreditService
         $capture = DB::table('subscription_gateway_operations')->where('receipt_id', $receipt->id)->where('kind', 'capture')->first();
         $checkout = $capture ? DB::table('subscription_gateway_checkouts')->find($capture->checkout_id) : null;
         if ($receipt->evidence === 'STRIPE_TEST_CONTRACT') {
-            abort_unless($capture && $checkout && $checkout->provider === 'stripe_test' && $checkout->status === 'captured' && $checkout->currency === $receipt->currency && (int) $checkout->amount_minor === (int) $receipt->amount_minor && (int) $checkout->invoice_id === (int) $receipt->invoice_id && (int) $capture->amount_minor === (int) $receipt->amount_minor && $capture->provider_operation_reference === $receipt->provider_reference && preg_match('/^pi_[A-Za-z0-9]+$/D', $checkout->provider_reference), 409, 'A reconciled Stripe test capture is required; local-only external credits are prohibited.');
+            abort_unless($capture && $checkout && $checkout->provider === 'stripe_test' && $checkout->status === 'captured' && $checkout->currency === $receipt->currency
+                && self::exactMinor($checkout->amount_minor) === self::exactMinor($receipt->amount_minor)
+                && (int) $checkout->invoice_id === (int) $receipt->invoice_id
+                && self::exactMinor($capture->amount_minor) === self::exactMinor($receipt->amount_minor) && $capture->provider_operation_reference === $receipt->provider_reference && preg_match('/^pi_[A-Za-z0-9]+$/D', $checkout->provider_reference), 409, 'A reconciled Stripe test capture is required; local-only external credits are prohibited.');
         } else {
             abort_unless($receipt->evidence === 'MOCK_PROVIDER' && (! $checkout || $checkout->provider === 'mock'), 409, 'Receipt provider evidence does not reconcile.');
         }
@@ -196,7 +199,11 @@ class SubscriptionCreditService
             'subtotal_minor' => $subtotal - $creditedSubtotal,
             'tax_minor' => $tax - $creditedTax,
         ]);
-        $id = DB::table('subscription_credits')->insertGetId(['request_id' => $request->id, 'number' => 'TEST-SUB-CN-'.Str::ulid(), 'subscription_id' => $request->subscription_id, 'invoice_id' => $invoice->id, 'receipt_id' => $receipt->id, 'actor_id' => $request->actor_id, 'amount_minor' => $request->amount_minor, ...$allocation, 'currency' => $invoice->currency, 'minor_units' => $invoice->minor_units, 'provider_reference' => $providerReference, 'evidence' => $receipt->evidence, 'reason' => $request->reason, 'created_at' => now()]);
+        abort_unless(self::checkedAdd(
+            self::exactMinor($allocation['subtotal_minor']),
+            self::exactMinor($allocation['tax_minor'])) === $amount,
+            409, 'Subscription credit components do not reconcile.');
+        $id = DB::table('subscription_credits')->insertGetId(['request_id' => $request->id, 'number' => 'TEST-SUB-CN-'.Str::ulid(), 'subscription_id' => $request->subscription_id, 'invoice_id' => $invoice->id, 'receipt_id' => $receipt->id, 'actor_id' => $request->actor_id, 'amount_minor' => $amount, ...$allocation, 'currency' => $invoice->currency, 'minor_units' => $invoice->minor_units, 'provider_reference' => $providerReference, 'evidence' => $receipt->evidence, 'reason' => $request->reason, 'created_at' => now()]);
         $cash = $receipt->evidence === 'STRIPE_TEST_CONTRACT' ? 'cash:stripe_test_subscription' : 'cash:mock_subscription';
         foreach ([['subscription_revenue', $allocation['subtotal_minor'], 0], ['subscription_tax_payable', $allocation['tax_minor'], 0], [$cash, 0, $amount]] as [$account, $debit, $credit]) {
             if ($debit || $credit) {
@@ -274,7 +281,9 @@ class SubscriptionCreditService
         abort_unless(($object['livemode'] ?? null) === false && ($object['status'] ?? null) === 'succeeded' && is_string($object['id'] ?? null) && preg_match('/^re_[A-Za-z0-9]+$/D', $object['id']) && ($object['payment_intent'] ?? null) === $checkout->provider_reference, 409, 'Provider refund is not final or belongs to another capture.');
         $amount = $object['amount'] ?? null;
         $currency = strtoupper((string) ($object['currency'] ?? ''));
-        abort_unless(is_int($amount) && $amount > 0 && $currency === $checkout->currency, 409, 'Subscription refund amount or currency mismatch.');
+        abort_unless(is_int($amount) && $amount > 0 &&
+            $amount <= self::MAX_EXACT_MINOR && $currency === $checkout->currency,
+            409, 'Subscription refund amount or currency mismatch.');
         $credit = DB::table('subscription_credits')->where('provider_reference', $object['id'])->first();
         $evidence = ['id' => $object['id'], 'amount' => $amount, 'currency' => $currency];
         $recoveryId = $object['metadata']['creabiz_recovery'] ?? null;
@@ -282,7 +291,7 @@ class SubscriptionCreditService
             $evidence['recovery_id'] = (int) $recoveryId;
         }
         if ($credit) {
-            abort_unless((int) $credit->invoice_id === (int) $checkout->invoice_id && (int) $credit->amount_minor === $amount && $credit->currency === $currency && $credit->evidence === 'STRIPE_TEST_CONTRACT', 409, 'Subscription refund does not match its posted credit.');
+            abort_unless((int) $credit->invoice_id === (int) $checkout->invoice_id && self::exactMinor($credit->amount_minor) === $amount && $credit->currency === $currency && $credit->evidence === 'STRIPE_TEST_CONTRACT', 409, 'Subscription refund does not match its posted credit.');
             $request = DB::table('subscription_credit_requests')->find($credit->request_id);
             $intent = DB::table('payment_recovery_intents')->where('identity', $request->recovery_identity)->first();
             abort_unless($intent && ($expectedRecovery === null || (int) $intent->id === $expectedRecovery) && (! isset($evidence['recovery_id']) || $evidence['recovery_id'] === (int) $intent->id), 409, 'Posted credit recovery identity does not match.');
@@ -295,11 +304,12 @@ class SubscriptionCreditService
             });
             abort_unless($intent && ($expectedRecovery === null || (int) $intent->id === $expectedRecovery), 409, 'Uncorrelated provider refund requires financial review.');
             $request = DB::table('subscription_credit_requests')->where('recovery_identity', $intent->identity)->first();
-            abort_unless($request && (int) $request->checkout_id === (int) $checkout->id && (int) $request->amount_minor === $amount && $request->currency === $currency && (int) $intent->amount_minor === $amount && $intent->currency === $currency, 409, 'Provider refund does not match the authorized credit request.');
+            abort_unless($request && (int) $request->checkout_id === (int) $checkout->id && self::exactMinor($request->amount_minor) === $amount
+                && $request->currency === $currency && self::exactMinor($intent->amount_minor) === $amount && $intent->currency === $currency, 409, 'Provider refund does not match the authorized credit request.');
             $receipt = $this->receipt($request->subscription_id, $request->invoice_id);
             $this->capture($receipt);
-            $refunded = (int) DB::table('subscription_credits')->where('receipt_id', $receipt->id)->sum('amount_minor');
-            abort_unless($amount <= (int) $receipt->amount_minor - $refunded, 409, 'Provider refund exceeds remaining captured funds.');
+            abort_unless($amount <= self::remaining($receipt), 409,
+                'Provider refund exceeds remaining captured funds.');
             $credit = $this->post($request, $object['id']);
         }
         $evidence['recovery_id'] = (int) $intent->id;
@@ -314,6 +324,25 @@ class SubscriptionCreditService
         abort_unless($c, 404);
         $this->subscriptions->access($actor, $c->subscription_id);
 
-        return ['credit' => $c, 'entries' => DB::table('commercial_subscription_ledger')->where('invoice_id', $c->invoice_id)->where('kind', 'c'.$c->id)->orderBy('id')->get(), 'subscription' => $this->subscriptions->summary($c->subscription_id), 'real_payment_processed' => false];
+        $c->amount_minor = self::exactMinor($c->amount_minor);
+        $c->subtotal_minor = self::exactMinor($c->subtotal_minor);
+        $c->tax_minor = self::exactMinor($c->tax_minor);
+        abort_unless(self::checkedAdd($c->subtotal_minor, $c->tax_minor)
+            === $c->amount_minor, 409,
+            'Subscription credit financial source components do not reconcile.');
+        $entries = DB::table('commercial_subscription_ledger')
+            ->where('invoice_id', $c->invoice_id)->where('kind', 'c'.$c->id)
+            ->orderBy('id')->get();
+        foreach ($entries as $entry) {
+            $entry->debit_minor = self::exactMinor($entry->debit_minor);
+            $entry->credit_minor = self::exactMinor($entry->credit_minor);
+        }
+        abort_unless(self::sumCredits($entries, 'debit_minor') === $c->amount_minor
+            && self::sumCredits($entries, 'credit_minor') === $c->amount_minor,
+            409, 'Subscription credit posting does not reconcile.');
+
+        return ['credit' => $c, 'entries' => $entries,
+            'subscription' => $this->subscriptions->summary($c->subscription_id),
+            'real_payment_processed' => false];
     }
 }
