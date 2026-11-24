@@ -116,6 +116,7 @@
     let popupOpen = false;
     // Each independently published source can supersede only its own layer.
     let unifiedCatalogOwner = false, unifiedPartnerOwner = false;
+    let unifiedPublisherToken = null;
     let records = [],
         partnerRows = [],
         ocmRows = [],
@@ -812,6 +813,7 @@
     });
     window.addEventListener("unified-map-data", (event) => {
         unifiedCatalogOwner = unifiedPartnerOwner = true;
+        unifiedPublisherToken = event.evUnifiedPublication ?? null;
         const rows = Array.isArray(event.detail) && event.detail.length <= 25 ? event.detail : [];
         // The event is a UI message, not a new source of server authority.
         // A malformed or incomplete catalog record stays list-only; never
@@ -847,8 +849,11 @@
         render();
         fitLoaded(true);
     });
-    window.addEventListener("unified-map-clear", () => {
-        if (!unifiedCatalogOwner && !unifiedPartnerOwner) return;
+    window.addEventListener("unified-map-clear", (event) => {
+        // A detached UI/old actor cannot revoke a newer publication. Manual
+        // legacy events without a token remain scoped to an unowned publication.
+        if ((event.detail ?? null) !== unifiedPublisherToken ||
+            (!unifiedCatalogOwner && !unifiedPartnerOwner)) return;
         if (unifiedCatalogOwner) {
             records = [];
             routeSegments = [];
@@ -857,6 +862,7 @@
         }
         if (unifiedPartnerOwner) partnerRows = [];
         unifiedCatalogOwner = unifiedPartnerOwner = false;
+        unifiedPublisherToken = null;
         if (!records.length && !partnerRows.length && !ocmRows.length) {
             // No remaining source: revoke prior-account map tiles, GPS
             // consent, selected coordinates and viewport state.
@@ -875,6 +881,7 @@
     });
     window.addEventListener("catalog-map-clear", () => {
         unifiedCatalogOwner = unifiedPartnerOwner = false;
+        unifiedPublisherToken = null;
         records = [];
         partnerRows = [];
         ocmRows = [];
