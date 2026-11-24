@@ -46,11 +46,18 @@ withCredentialsFixture(async (f) => {
       },
     ],
   });
-  assert.equal(rotated.status, 200);
-  const newToken = rotated.body.data.token;
-  assert.notEqual(newToken, f.local_token);
-  assert.equal((await protocol("GET", f.local_token)).status, 401);
-  assert.equal((await protocol("GET", newToken)).status, 200);
+  // This isolated fixture intentionally has no reachable/contracted HTTPS
+  // operator. Unproven peer PUT must never mutate a credential generation.
+  // Positive two-page version/credentials proof is tested with PHP HTTP fakes.
+  assert.equal(rotated.status, 400);
+  assert.equal(rotated.body.status_code, 2000);
+  assert.equal(rotated.body.data, null);
+  assert(!JSON.stringify(rotated.body).includes("SYNTHETIC-PEER-ROTATED"));
+  assert.equal((await protocol("GET", f.local_token)).status, 200);
+  const unchanged = await client.request(path);
+  assert.equal(unchanged.state, "active");
+  assert(!unchanged.operations.data.some((row) => row.action === "peer_rotate"));
+  assert(!JSON.stringify(unchanged).includes(f.local_token));
   const browser = await chromium.launch({
     headless: true,
     executablePath: process.env.EV_CHROMIUM_PATH || undefined,
@@ -79,9 +86,9 @@ withCredentialsFixture(async (f) => {
       .click();
     const detail = page.locator("[data-roaming-detail]");
     await detail
-      .getByText("Peer rotated credentials", { exact: false })
+      .getByText("Roaming credential state active", { exact: false })
       .waitFor();
-    assert(!(await detail.textContent()).includes(newToken));
+    assert(!(await detail.textContent()).includes(f.local_token));
     assert(
       !(await page.locator("body").textContent()).includes(
         "SYNTHETIC-PEER-ROTATED",
@@ -94,7 +101,7 @@ withCredentialsFixture(async (f) => {
       .first()
       .click();
     await detail
-      .getByText("قام الشريك بتدوير بيانات الاعتماد", { exact: false })
+      .getByText("Roaming credential state active", { exact: false })
       .waitFor();
     assert(
       await page.evaluate(
@@ -105,13 +112,13 @@ withCredentialsFixture(async (f) => {
   } finally {
     await browser.close();
   }
-  assert.equal((await protocol("DELETE", newToken)).status, 200);
-  assert.equal((await protocol("GET", newToken)).status, 401);
+  assert.equal((await protocol("DELETE", f.local_token)).status, 200);
+  assert.equal((await protocol("GET", f.local_token)).status, 401);
   const revoked = await client.request(path);
   assert.equal(revoked.state, "revoked");
   assert.deepEqual(revoked.available_actions, []);
   console.log(
-    "PASS: actual local protocol peer rotation/revocation and old-token denial; Admin EN/AR390px credential history, no tokens in UI, no external peer request or charging/billing action. Initial authority is explicitly synthetic.",
+    "PASS: actual Laravel rejects unproven peer token without source mutation, safely revokes prior token and shows private EN/AR390px credential state; positive proof is independently HTTP-faked, not a live partnership.",
   );
 }).catch(() => {
   console.error(
