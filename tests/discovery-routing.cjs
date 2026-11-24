@@ -367,6 +367,45 @@ const fs = require("node:fs");
     await addType2.click();
     assert.equal(await journey.locator("ol li").count(),1);
     assert.equal(routeCalls,2);
+    // Verify the real loaded browser parser, including bounds before
+    // geometry is passed to the map or energy estimate.
+    const geometryChecks = await page.evaluate(() => {
+      const p = {latitude:0,longitude:0};
+      const valid = {provider:"geoapify",evidence:"PROVIDER_ROUTE_ESTIMATE",
+        traffic_verified:false,charging_time_included:false,
+        distance_meters:1250,duration_seconds:220,segments:[[p,p]]};
+      const parse = window.EvGeoTools.routeEvidence;
+      let accepted = parse(valid).distance_meters === 1250 ? 1 : 0;
+      if (parse({...valid,segments:[Array(10000).fill(p)]}).segments[0].length === 10000) accepted++;
+      let rejected = 0;
+      for (const patch of [
+        {distance_meters:"1250"},{duration_seconds:Infinity},
+        {traffic_verified:true},{charging_time_included:true},
+        {segments:[]},{segments:[[p]]},{segments:Array(101).fill([p,p])},
+        {segments:[Array(10001).fill(p)]},{segments:[[p,{latitude:"1",longitude:1}]]},
+        {segments:[[p,{latitude:true,longitude:0}]]},
+        {segments:[[p,{latitude:91,longitude:0}]]},{segments:[[p,null]]},
+      ]) {
+        try { parse({...valid,...patch}); } catch (_) { rejected++; }
+      }
+      return {accepted,rejected};
+    });
+    assert.deepEqual(geometryChecks,{accepted:2,rejected:12});
+    // A capability downgrade revokes existing permission without sending
+    // a route request. Recovery requires a new explicit opt-in.
+    await journey.locator("form>label input[type=checkbox]").check();
+    enabled = false;
+    await journey.locator("summary").first().click();
+    await journey.locator("summary").first().click();
+    await journey.locator("form>label").filter({hasText:"Geoapify"}).waitFor({state:"hidden"});
+    assert.equal(await journey.locator("form>label input[type=checkbox]").isChecked(),false);
+    assert(await journey.getByRole("button",{name:"معاينة مسار المزود",exact:true}).isDisabled());
+    enabled = true;
+    await journey.locator("summary").first().click();
+    await journey.locator("summary").first().click();
+    await journey.locator("form>label").filter({hasText:"Geoapify"}).waitFor({state:"visible"});
+    assert.equal(await journey.locator("form>label input[type=checkbox]").isChecked(),false);
+    assert.equal(routeCalls,2);
     await page.locator("#location-consent").check();
     await page
       .getByRole("button", { name: "استخدام موقعي مرة واحدة", exact: true })
