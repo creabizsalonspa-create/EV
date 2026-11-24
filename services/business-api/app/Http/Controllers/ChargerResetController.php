@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\CsmsGraphqlTransport;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\OperationsCredentials;
 use App\Services\Charging\SourceStatusTime;
@@ -50,6 +51,7 @@ class ChargerResetController extends Controller
 
     public function idle(object $b, ?string $after = null): void
     {
+        app(CsmsGraphqlTransport::class)->requireApproved();
         abort_if(SessionLink::where('binding_id', $b->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists(), 409, 'An unresolved charging session owns this charger.');
         abort_if(Reservation::where('station_id', $b->station_id)->where('status', 'confirmed')->where('starts_at', '<', now()->addMinutes(5))->where('starts_at', '>', now()->subMinutes(30))->exists(), 409, 'A current or imminent reservation owns this station.');
         try {
