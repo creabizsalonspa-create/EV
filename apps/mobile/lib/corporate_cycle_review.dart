@@ -29,11 +29,11 @@ class CorporateCycleReview {
   final int agreement, day, count, remaining, blocked, precision;
   final int? total;
   final String currency, period, reviewAt, state;
-  final bool lowerBound;
+  final bool lowerBound, canIssue;
   final List<CycleClaim> claims;
   CorporateCycleReview._(this.agreement, this.day, this.count, this.remaining,
       this.blocked, this.precision, this.total, this.currency, this.period,
-      this.reviewAt, this.state, this.lowerBound, this.claims);
+      this.reviewAt, this.state, this.lowerBound, this.canIssue, this.claims);
 
   factory CorporateCycleReview.parse(dynamic raw, {
     required int agreement, required String currency, required int precision,
@@ -47,7 +47,8 @@ class CorporateCycleReview {
         raw['period'] is! String ||
         !RegExp(r'^\d{4}-(0[1-9]|1[0-2])$').hasMatch(raw['period']) ||
         raw['review_at'] is! String || DateTime.tryParse(raw['review_at']) == null ||
-        raw['claims'] is! List || raw['count_is_lower_bound'] is! bool) {
+        raw['claims'] is! List || raw['count_is_lower_bound'] is! bool ||
+        raw['can_issue_reviewed_batch'] is! bool) {
       throw const FormatException('Invalid corporate review authority.');
     }
     final day = _exact(raw['billing_day'], positive: true);
@@ -81,7 +82,9 @@ class CorporateCycleReview {
       claims.add(CycleClaim(id, invoice, amount, hold));
     }
     final state = raw['state'] as String;
+    final canIssue = raw['can_issue_reviewed_batch'] as bool;
     if ((!lower && sum != total) || held != blocked ||
+        (canIssue && state != 'ready_for_review') ||
         (state == 'ready_for_review' &&
           (lower || held != 0 || sum < 1 || sum > remaining)) ||
         (state == 'selection_required' && !lower) ||
@@ -91,10 +94,41 @@ class CorporateCycleReview {
     }
     return CorporateCycleReview._(agreement, day, count, remaining, blocked,
       precision, total, currency, raw['period'], raw['review_at'], state,
-      lower, List.unmodifiable(claims));
+      lower, canIssue, List.unmodifiable(claims));
   }
 
   String money(int amount) => '$currency ${minorDecimal(amount, precision)}';
+
+  Map<String, dynamic> issuePayload() {
+    if (!canIssue || state != 'ready_for_review' || total == null) {
+      throw const FormatException('Reviewed batch cannot be issued.');
+    }
+    return Map.unmodifiable({
+      'period': period,
+      'claim_ids': List<int>.unmodifiable(claims.map((row) => row.id).toList()..sort()),
+      'total_minor': total!,
+      'consent': true,
+    });
+  }
+
+  int verifyIssueReceipt(dynamic raw) {
+    final ids = issuePayload()['claim_ids'] as List<int>;
+    if (raw is! Map || raw['evidence'] != 'TEST_REVIEWED_STATEMENT' ||
+        raw['statement_issued'] != true || raw['real_payment_processed'] != false ||
+        raw['replayed'] is! bool || _exact(raw['agreement_id'], positive: true) != agreement ||
+        raw['period'] != period || raw['currency'] != currency ||
+        _exact(raw['minor_units']) != precision || _exact(raw['total_minor']) != total ||
+        raw['claim_ids'] is! List || (raw['claim_ids'] as List).length != ids.length) {
+      throw const FormatException('Unconfirmed reviewed statement.');
+    }
+    final returned = raw['claim_ids'] as List;
+    for (var i = 0; i < ids.length; i++) {
+      if (_exact(returned[i], positive: true) != ids[i]) {
+        throw const FormatException('Unconfirmed reviewed claim source.');
+      }
+    }
+    return _exact(raw['statement_id'], positive: true);
+  }
 }
 
 class CorporateCycleReviewView extends StatefulWidget {
@@ -116,7 +150,8 @@ class _CycleState extends State<CorporateCycleReviewView>
   CorporateCycleReview? review;
   bool foreground = true, revoked = false, busy = false, failed = false;
   int generation = 0;
-  int? owner;
+  int? owner, issuedId;
+  bool issueFailed = false;
   bool get visible => foreground && !revoked && ownsSession();
   String t(String en, String ar) => cycleText(context, en, ar);
 
@@ -138,6 +173,8 @@ class _CycleState extends State<CorporateCycleReviewView>
     review = null;
     busy = false;
     failed = false;
+    issueFailed = false;
+    issuedId = null;
   }
 
   @override
@@ -175,7 +212,9 @@ class _CycleState extends State<CorporateCycleReviewView>
     final api = widget.api;
     final epoch = ++generation;
     bool current() => mounted && visible && generation == epoch && identical(api, widget.api);
-    setState(() { review = null; busy = true; failed = false; });
+    setState(() {
+      review = null; busy = true; failed = false; issueFailed = false; issuedId = null;
+    });
     try {
       _exact(widget.agreementId, positive: true);
       _exact(widget.fleetId, positive: true);
@@ -217,6 +256,49 @@ class _CycleState extends State<CorporateCycleReviewView>
     }
   }
 
+  Future<void> issue(CorporateCycleReview data) async {
+    if (!visible || busy || !identical(review, data) || !data.canIssue) return;
+    final epoch = generation;
+    final api = widget.api;
+    bool current() => mounted && visible && generation == epoch && identical(api, widget.api);
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(t('Issue reviewed TEST statement?', 'إصدار كشف الاختبار المراجع؟')),
+        content: Text(t(
+          'Issue one TEST statement for ${data.period}, ${data.count} claims, ${data.money(data.total!)}. No payment will be collected.',
+          'إصدار كشف اختبار واحد للفترة ${data.period}، ${data.count} مطالبة، ${data.money(data.total!)}. لن يتم تحصيل أي دفعة.',
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialog).pop(false),
+            child: Text(t('Cancel', 'إلغاء'))),
+          FilledButton(onPressed: () => Navigator.of(dialog).pop(true),
+            child: Text(t('Confirm TEST issue', 'تأكيد إصدار الاختبار'))),
+        ],
+      ),
+    );
+    if (accepted != true || !current() || busy || !identical(review, data)) return;
+    setState(() { busy = true; issueFailed = false; });
+    try {
+      // The server derives a stable actor/batch identity; an explicit
+      // repeat cannot create another statement for these same claims.
+      final response = await api.request(
+        'commercial/corporate/agreements/${widget.agreementId}/cycle-review/issue',
+        method: 'POST', body: data.issuePayload());
+      if (!current()) return;
+      final id = data.verifyIssueReceipt(response);
+      setState(() { issuedId = id; review = null; });
+    } catch (error) {
+      if (!current()) return;
+      setState(() => issueFailed = true);
+      if (error is ApiException && [401, 419].contains(error.status)) {
+        widget.onExpired();
+      }
+    } finally {
+      if (current()) setState(() => busy = false);
+    }
+  }
+
   String status(String state) => switch (state) {
     'agreement_inactive' => t('Agreement inactive', 'الاتفاقية غير سارية'),
     'before_billing_day' => t('Scheduled review day has not arrived', 'لم يحن يوم المراجعة المحدد'),
@@ -233,8 +315,8 @@ class _CycleState extends State<CorporateCycleReviewView>
     return Scaffold(
       appBar: AppBar(title: Text(t('Monthly billing review', 'مراجعة الفوترة الشهرية'))),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        Text(t('Read-only proposed batch. No statement or payment is issued. Return to invoice claims for explicit selection.',
-          'مجموعة مقترحة للقراءة فقط. لا يصدر كشف أو دفع. ارجع إلى مطالبات الفواتير للتحديد الصريح.')),
+        Text(t('Reviewing is read-only. Only a separate, explicitly confirmed TEST issue can create a statement; no payment is collected.',
+          'المراجعة للقراءة فقط. لا يصدر كشف إلا بتأكيد منفصل وصريح للاختبار؛ لا تُحصّل أي دفعة.')),
         if (!visible)
           Text(t('Private review cleared. Reopen from company agreements.',
             'مُسحت المراجعة الخاصة. أعد فتحها من اتفاقيات الشركة.')),
@@ -243,6 +325,11 @@ class _CycleState extends State<CorporateCycleReviewView>
             child: Text(t('Refresh cycle review', 'تحديث مراجعة الدورة'))),
           if (busy) const LinearProgressIndicator(),
           if (failed) Text(t('Private review unavailable.', 'المراجعة الخاصة غير متاحة.')),
+          if (issueFailed) Text(t('Statement not confirmed. Check statement history or explicitly retry this same reviewed batch.',
+            'لم يتأكد الكشف. راجع سجل الكشوف أو أعد محاولة المجموعة المراجعة نفسها صراحةً.')),
+          if (issuedId != null)
+            Text(t('TEST statement #$issuedId confirmed. No payment collected.',
+              'تم تأكيد كشف الاختبار #$issuedId. لم تُحصّل أي دفعة.')),
           if (data != null) ...[
             Text(data.period),
             Text('${t('Scheduled review', 'المراجعة المحددة')}: ${data.reviewAt}'),
@@ -251,6 +338,9 @@ class _CycleState extends State<CorporateCycleReviewView>
             Text('${t('Remaining credit', 'الائتمان المتبقي')}: ${data.money(data.remaining)}'),
             if (data.total != null)
               Text('${t('Proposed total', 'الإجمالي المقترح')}: ${data.money(data.total!)}'),
+            if (data.canIssue)
+              OutlinedButton(onPressed: busy ? null : () => issue(data),
+                child: Text(t('Issue reviewed TEST statement', 'إصدار كشف الاختبار المراجع'))),
             for (final row in data.claims)
               Card(child: ListTile(
                 title: Text('#${row.id} / #${row.invoice}'),
