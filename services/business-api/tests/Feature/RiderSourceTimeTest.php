@@ -114,6 +114,8 @@ class RiderSourceTimeTest extends TestCase
         }
         $source['connectorStatus'] = 'Available';
         if ($protocol === '1.6') {
+            $this->assertFalse($target->targetMatches($binding, $map, $evse,
+                ['connectorId' => 7, 'evseId' => 2]));
             foreach (['GroundFailure', 'PowerSwitchFailure', 'OtherError', null] as $fault) {
                 $source['errorCode'] = $fault;
                 $this->assertFalse($target->targetMatches($binding, $map, $evse, $scope));
@@ -131,6 +133,6 @@ class RiderSourceTimeTest extends TestCase
         }
         $source['connectorId'] = 2;
         $this->assertFalse($target->targetMatches($binding, $map, $evse, $scope));
-        Http::assertSentCount($protocol === '1.6' ? 32 : 28);
+        Http::assertSentCount($protocol === '1.6' ? 34 : 28);
     }
 }
