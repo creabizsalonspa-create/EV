@@ -5,6 +5,7 @@ namespace App\Services\Commercial\Payments;
 use App\Models\Finance\Invoice;
 use App\Models\Fleet;
 use App\Models\User;
+use App\Services\Commercial\CorporateBilling;
 use App\Services\Finance\FinanceService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Crypt;
@@ -107,16 +108,13 @@ class CorporateHostedCollection
 
     private function lineFingerprint(object $s, iterable $lines, array $invoices): string
     {
-        $sum = 0;
+        CorporateBilling::validateStatementLines($s, $lines, $invoices);
         $parts = [];
         foreach ($lines as $l) {
-            $i = $invoices[$l->invoice_id];
-            abort_unless((int) $l->total_minor === (int) $i->total_minor && $i->currency === $s->currency && (int) $i->minor_units === (int) $s->minor_units && (int) $l->driver_id === (int) $i->user_id, 409, 'Corporate invoice terms do not reconcile.');
-            abort_unless($sum <= PHP_INT_MAX - (int) $l->total_minor, 409);
-            $sum += (int) $l->total_minor;
-            $parts[] = [(int) $l->id, (int) $l->invoice_id, (int) $l->total_minor, (int) $l->driver_id];
+            // Preserve the established immutable checkout fingerprint shape.
+            $parts[] = [(int) $l->id, (int) $l->invoice_id,
+                CorporateBilling::exactMinor($l->total_minor), (int) $l->driver_id];
         }
-        abort_unless($sum > 0 && $sum === (int) $s->total_minor, 409, 'Corporate total does not reconcile.');
 
         return hash('sha256', json_encode($parts, JSON_THROW_ON_ERROR));
     }
