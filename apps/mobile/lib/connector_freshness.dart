@@ -4,22 +4,67 @@ String connectorStatusLabel(String state,bool arabic) {
   return arabic?(labels[state]??labels['unknown']!):state;
 }
 
-String connectorReportedState(dynamic value, Duration elapsed) {
-  if (value is! Map || value['evidence'] != 'SIMULATED_SOURCE' || value['physical_availability_verified'] != false || value['max_age_seconds'] != 300 || elapsed.isNegative) return 'unknown';
-  DateTime? instant(String key) {
-    final text = value[key];
-    if (text is! String || !RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$').hasMatch(text)) return null;
-    return DateTime.tryParse(text)?.toUtc();
+final _canonicalUtc = RegExp(
+  r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$',
+);
+
+DateTime? _parseUtcInstant(Object? value) {
+  if (value is! String || !_canonicalUtc.hasMatch(value)) return null;
+  final parsed = DateTime.tryParse(value);
+  // Dart accepts overflow dates. Source timestamps must be actual instants.
+  if (parsed == null ||
+      parsed.toIso8601String().substring(0, 19) != value.substring(0, 19)) {
+    return null;
   }
-  final checked = instant('checked_at'), observed = instant('observed_at'), until = instant('valid_until');
-  if (checked == null || observed == null || until == null || observed.isAfter(checked) || until.difference(observed) != const Duration(seconds: 300)) return 'unknown';
-  if (value['state'] == 'stale' || !until.isAfter(checked.add(elapsed))) return 'stale';
-  return value['state'] == 'recent' && reportedConnectorStatuses.contains(value['reported_status']) ? value['reported_status'] as String : 'unknown';
+  return parsed;
 }
 
-String connectorFreshnessText(dynamic value, Duration elapsed, bool arabic) {
-  final state = connectorReportedState(value, elapsed);
-  const labels = {'Available':'متاح بحسب المصدر','Occupied':'مشغول','Preparing':'قيد التحضير','Charging':'جارٍ الشحن','SuspendedEV':'معلق من المركبة','SuspendedEVSE':'معلق من الشاحن','Finishing':'قيد الإنهاء','Reserved':'محجوز','Unavailable':'غير متاح','Faulted':'عطل','stale':'قديم','unknown':'غير معروف'};
-  final observed = value is Map && value['observed_at'] is String ? value['observed_at'] : (arabic ? 'غير معروف' : 'unknown');
-  return arabic ? 'حالة مصدر المحاكاة: ${labels[state]}. التوفر الفعلي غير مؤكد. وقت الرصد: $observed' : 'Simulated source status: $state. Physical availability is unverified. Observed: $observed';
+({String state, String? observedAt}) _observation(
+  Object? value,
+  Duration elapsed,
+) {
+  const unknown = (state: 'unknown', observedAt: null);
+  if (value is! Map ||
+      value['evidence'] != 'SIMULATED_SOURCE' ||
+      value['physical_availability_verified'] != false ||
+      value['max_age_seconds'] != 300 ||
+      elapsed.isNegative) {
+    return unknown;
+  }
+  final serverState = value['state'];
+  final status = value['reported_status'];
+  if (serverState != 'stale' &&
+      (serverState != 'recent' ||
+          !reportedConnectorStatuses.contains(status))) {
+    return unknown;
+  }
+  final checked = _parseUtcInstant(value['checked_at']);
+  final observed = _parseUtcInstant(value['observed_at']);
+  final until = _parseUtcInstant(value['valid_until']);
+  if (checked == null ||
+      observed == null ||
+      until == null ||
+      observed.isAfter(checked) ||
+      until.difference(observed) != const Duration(seconds: 300) ||
+      (serverState == 'stale' && until.isAfter(checked))) {
+    return unknown;
+  }
+  final expired = until.difference(checked) <= elapsed;
+  return (
+    state: expired ? 'stale' : status as String,
+    observedAt: value['observed_at'] as String,
+  );
+}
+
+String connectorReportedState(Object? value, Duration elapsed) =>
+    _observation(value, elapsed).state;
+
+String connectorFreshnessText(Object? value, Duration elapsed, bool arabic) {
+  final observation = _observation(value, elapsed);
+  final state = connectorStatusLabel(observation.state, arabic);
+  final observed =
+      observation.observedAt ?? connectorStatusLabel('unknown', arabic);
+  return arabic
+      ? 'حالة مصدر المحاكاة: $state. التوفر الفعلي غير مؤكد. وقت الرصد: $observed'
+      : 'Simulated source status: $state. Physical availability is unverified. Observed: $observed';
 }
