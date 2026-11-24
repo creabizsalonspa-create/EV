@@ -166,7 +166,10 @@ class ContinuousFaultObserver
                     // Equal timestamps may describe distinct connectors, or
                     // repeated identical receipts, but must never establish
                     // two incompatible states for the same source component.
-                    $evse = $event['evseId'] ?? null;
+                    // OCPP 1.6 has no EVSE field. Match FaultMonitor's
+                    // durable zero sentinel only for the legacy protocol;
+                    // never convert a missing 2.0.1 target into a station.
+                    $evse = $event['evseId'] ?? ($b->protocol === '1.6' ? 0 : null);
                     $connector = $event['connectorId'] ?? null;
                     abort_unless(is_int($evse) && $evse >= 0 && is_int($connector) && $connector >= 0, 503,
                         'Malformed source component identity.');
