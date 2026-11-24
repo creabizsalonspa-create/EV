@@ -262,11 +262,29 @@ class ChargerFirmwareController extends Controller
 
     private function sourceCapability(object $binding): void
     {
-        $nonce = (string) Str::uuid();
-        $reply = Http::timeout(8)->withoutRedirecting()->get(rtrim(config('csms.rider_source_api_url'), '/').'/creabiz/rider-auth/capabilities', ['nonce' => $nonce]);
-        $proof = $reply->json('proof');
+        $this->enabled();
+        $endpoint = (string) config('csms.rider_source_api_url');
         $secret = (string) config('csms.rider_client_secret');
-        abort_unless(strlen($secret) >= 32 && $reply->successful() && $reply->json('ready') === true && $reply->json('tenant_id') === 1 && in_array($binding->protocol, $reply->json('signed_firmware_protocols', []), true) && is_string($proof) && hash_equals(hash_hmac('sha256', "creabiz-rider-v1\n".$nonce, $secret), $proof), 503, 'Supported signed firmware source is not verified.');
+        $graphql = (string) config('csms.graphql_url');
+        $sourceKey = (string) config('csms.graphql_secret');
+        abort_unless(strlen($secret) >= 32 && strlen($sourceKey) >= 32, 503, 'Supported signed firmware source is not configured.');
+        $nonce = (string) Str::uuid();
+        $reply = Http::timeout(8)->withoutRedirecting()->get(rtrim($endpoint, '/').'/creabiz/rider-auth/capabilities', ['nonce' => $nonce]);
+        $this->enabled();
+        abort_unless(config('csms.rider_source_api_url') === $endpoint
+            && hash_equals($secret, (string) config('csms.rider_client_secret'))
+            && config('csms.graphql_url') === $graphql
+            && hash_equals($sourceKey, (string) config('csms.graphql_secret')), 503,
+            'Firmware capability authority changed during inspection.');
+        $proof = $reply->json('proof');
+        $protocols = $reply->json('signed_firmware_protocols');
+        abort_unless($reply->successful() && $reply->json('ready') === true && $reply->json('tenant_id') === 1
+            && is_array($protocols) && array_is_list($protocols) && count($protocols) <= 2
+            && count(array_filter($protocols, fn ($protocol) => in_array($protocol, ['1.6', '2.0.1'], true))) === count($protocols)
+            && count(array_unique($protocols)) === count($protocols)
+            && in_array($binding->protocol, $protocols, true) && is_string($proof)
+            && hash_equals(hash_hmac('sha256', "creabiz-rider-v1\n".$nonce, $secret), $proof), 503,
+            'Supported signed firmware source is not verified.');
     }
 
     private function compatibleSource(object $binding, VendorCharger $charger, object $release): void
