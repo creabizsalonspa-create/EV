@@ -31,6 +31,9 @@ class ConfigurationProbe
 
     public function graph(string $query, array $variables): array
     {
+        // This public helper must remain safe even when a future caller
+        // forgets to invoke the stricter dispatch-only enabled() gate.
+        app(CsmsGraphqlTransport::class)->requireApproved();
         $r = Http::connectTimeout(3)->timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), compact('query', 'variables'));
         if (! $r->successful() || $r->json('errors') || ! is_array($r->json('data'))) {
             throw new RuntimeException('Authenticated source is unavailable.');
