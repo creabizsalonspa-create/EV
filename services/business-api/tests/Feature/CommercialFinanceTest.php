@@ -115,7 +115,7 @@ class CommercialFinanceTest extends TestCase
         $body = ['amount_minor' => 20, 'reason' => 'Synthetic private receipt', 'idempotency_key' => $key];
         $created = $this->actingAs($customer)->postJson($url, $body)->assertCreated()
             ->assertJsonMissingPath('request_key')
-            ->assertHeader('Cache-Control', 'private, no-store');
+            ->assertHeader('Cache-Control', 'no-store, private');
         $id = $created->json('id');
         $expected = hash('sha256', 'refund-request-v1:'.$customer->id.':'.$invoice->id.':'.$id.':'.$key);
         $created->assertJsonPath('request_receipt', $expected);
