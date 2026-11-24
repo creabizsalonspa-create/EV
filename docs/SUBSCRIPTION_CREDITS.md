@@ -72,3 +72,22 @@ new PSP/bank capability or production release is enabled: the real
 refund route remains disabled in production. Current-source Finance/
 Platform gates and Agent 5-only integration must complete before any
 software atom or production acceptance is credited.
+
+
+## Private bounded credit history and refund receipts
+
+The authenticated `SubscriptionCreditController::index` now
+requires an explicit integer `page=1..100000`, *after*
+current-account and subscription-tenant authorization, and passes
+that exact value to the 25-row paginator. Malformed pages return
+422 to the rightful account rather than silently substituting
+another page; a non-owner still receives the original private
+404 before page validation. Credit-list and credit-detail reads
+retain `Cache-Control: private, no-store`; TEST-only Admin refund
+creation now sets the same no-store header on its complete private
+credit/ledger response. No state change occurs on a paginated read.
+
+The new `SubscriptionCreditTest` verifies real TEST creation,
+authenticated pages 1 and 10000, invalid pages, private 404
+precedence for an unauthorized tenant, no-store response headers,
+and no journal/credit mutation on reads.
