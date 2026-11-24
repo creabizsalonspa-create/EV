@@ -187,8 +187,9 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
 
   void subscribeSession() {
     final client = widget.client;
-    sessionSubscription = client?.sessionEvents?.listen((_) {
-      if (mounted && identical(widget.client, client) && !client!.currentSession()) {
+    if (client == null) return;
+    sessionSubscription = client.sessionEvents?.listen((_) {
+      if (mounted && identical(widget.client, client) && !client.currentSession()) {
         setState(() => resetPrivateRoute(accountChanged: true));
       }
     });
@@ -534,6 +535,8 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
         body: Center(child: Text(t('Account changed. Reopen route planning.', 'تغير الحساب. أعد فتح تخطيط المسار.'))),
       );
     }
+    final consentGeneration = generation;
+    final consentClient = widget.client;
     final lines =
         estimate?.segments
             .where((line) => line.every((p) => p.latitude.abs() <= 85.05112878))
@@ -711,7 +714,9 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
                 key: const Key('route-provider-consent'),
                 value: consent,
                 onChanged: (v) {
-                  if (!mounted || !sessionCurrent) return;
+                  if (!mounted || !sessionCurrent ||
+                      generation != consentGeneration ||
+                      !identical(widget.client, consentClient)) return;
                   if (v != true) {
                     // Withdrawal must also discard an in-flight or displayed
                     // route, including its derived whole-route energy estimate.
