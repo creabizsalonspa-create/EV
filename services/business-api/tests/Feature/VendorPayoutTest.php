@@ -168,6 +168,70 @@ class VendorPayoutTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_suspended_or_demoted_vendor_holds_payout_preparation_approval_and_execution(): void
+    {
+        $f = $this->fixture();
+        $service = app(PayoutService::class);
+        $service->verify($f['account']->id, $f['maker']->id);
+        $vendor = $f['vendor']->id;
+
+        foreach ([
+            ['account_status' => 'suspended'],
+            ['role' => 'customer'],
+        ] as $change) {
+            DB::table('users')->where('id', $vendor)->update($change);
+            try {
+                $service->create($f['settlement']->id, $f['account']->id, $f['maker']->id, 'blocked-vendor');
+                $this->fail('Inactive vendor reserved a new payout.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+            $this->assertDatabaseCount('commercial_payouts', 0);
+            DB::table('users')->where('id', $vendor)->update([
+                'account_status' => 'active', 'role' => 'vendor',
+            ]);
+        }
+
+        $id = $service->create($f['settlement']->id, $f['account']->id, $f['maker']->id, 'vendor-active')->id;
+        DB::table('users')->where('id', $vendor)->update(['account_status' => 'suspended']);
+        try {
+            $service->approve($id, $f['checker']->id);
+            $this->fail('Suspended vendor payout was approved.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('commercial_payouts', ['id' => $id, 'status' => 'prepared']);
+        DB::table('users')->where('id', $vendor)->update(['account_status' => 'active']);
+        $service->approve($id, $f['checker']->id);
+
+        foreach ([
+            ['account_status' => 'suspended'],
+            ['role' => 'customer'],
+        ] as $change) {
+            DB::table('users')->where('id', $vendor)->update($change);
+            try {
+                $service->execute($id, $f['maker']->id);
+                $this->fail('Inactive vendor payout was dispatched.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+            $this->assertDatabaseHas('commercial_payouts', ['id' => $id, 'status' => 'approved']);
+            $this->assertDatabaseCount('commercial_payout_attempts', 0);
+            DB::table('users')->where('id', $vendor)->update([
+                'account_status' => 'active', 'role' => 'vendor',
+            ]);
+        }
+
+        // Preserve safe supervisory cancellation even when a vendor is inactive.
+        DB::table('users')->where('id', $vendor)->update(['account_status' => 'suspended']);
+        $this->assertSame('cancelled', $service->cancel($id, $f['maker']->id)->status);
+        $this->assertDatabaseCount('commercial_payout_attempts', 0);
+        $this->assertDatabaseHas('commercial_settlements', [
+            'id' => $f['settlement']->id, 'state' => 'approved',
+        ]);
+        Http::assertNothingSent();
+    }
+
     public function test_payout_account_service_revalidates_vendor_consent_and_admin_verification(): void
     {
         $f = $this->fixture();

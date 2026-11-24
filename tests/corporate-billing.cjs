@@ -119,7 +119,25 @@ const fs = require("node:fs");
     await owner.root
       .getByText("Accepted company terms", { exact: true })
       .waitFor();
+    await owner.root
+      .getByRole("button", { name: "Review monthly billing cycle", exact: true })
+      .click();
+    await owner.root
+      .getByRole("heading", { name: "Monthly billing review", exact: true })
+      .waitFor();
+    await owner.root
+      .getByText("No approved unallocated claims for this month.", { exact: true })
+      .waitFor();
+    await owner.root
+      .getByRole("button", { name: "Back to agreements", exact: true })
+      .click();
+    await owner.root
+      .getByText("Accepted company terms", { exact: true })
+      .waitFor();
     const driver = await login("driver");
+    assert.equal(await driver.root.getByRole("button", {
+      name: "Review monthly billing cycle", exact: true,
+    }).count(), 0);
     await driver.root
       .getByRole("button", {
         name: "Allocate my charging invoice",

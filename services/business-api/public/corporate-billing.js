@@ -303,6 +303,10 @@ window.mountCorporateBilling = ({ container, api, ui, actor }) => {
                 button(row, "View company statements", "عرض كشوف الشركة", () =>
                     statements(agreement),
                 );
+            if (canManage)
+                button(row, "Review monthly billing cycle", "مراجعة دورة الفوترة الشهرية", () =>
+                    cycleReview(agreement),
+                );
             if (agreement.acceptance && role !== "admin")
                 button(
                     row,
@@ -636,6 +640,111 @@ window.mountCorporateBilling = ({ container, api, ui, actor }) => {
                     await statements(agreement);
                 },
             );
+    }
+    async function cycleReview(agreement) {
+        const seq = ++generation;
+        const result = await request(
+            `commercial/corporate/agreements/${agreement.id}/cycle-review`,
+        );
+        if (!alive() || seq !== generation) return;
+        const safe = (v) => Number.isSafeInteger(v) && v >= 0;
+        const states = {
+            agreement_inactive: ["Agreement is not currently effective and accepted.", "الاتفاقية غير سارية ومقبولة حالياً."],
+            before_billing_day: ["The scheduled billing review day has not arrived.", "لم يحن يوم مراجعة الفوترة المحدد."],
+            selection_required: ["More than 100 claims. Use the explicit claim selection workflow.", "أكثر من ١٠٠ مطالبة. استخدم تحديد المطالبات الصريح."],
+            no_approved_claims: ["No approved unallocated claims for this month.", "لا توجد مطالبات معتمدة غير مخصصة لهذا الشهر."],
+            source_hold: ["One or more original invoices have a financial hold. Review the claims individually.", "توجد قيود مالية على فاتورة أصلية أو أكثر. راجع المطالبات منفردة."],
+            credit_limit: ["The full batch is outside the remaining credit limit or has no collectible total.", "تتجاوز المجموعة حد الائتمان المتبقي أو ليس لها مبلغ قابل للتحصيل."],
+            ready_for_review: ["Review the complete proposed batch before issuing any statement.", "راجع المجموعة المقترحة بالكامل قبل إصدار أي كشف."],
+        };
+        if (!result || result.agreement_id !== agreement.id ||
+            result.read_only !== true || result.statement_issued !== false ||
+            result.real_payment_processed !== false || !states[result.state] ||
+            typeof result.can_issue_reviewed_batch !== "boolean" ||
+            (result.can_issue_reviewed_batch && result.state !== "ready_for_review") ||
+            result.currency !== agreement.currency || result.minor_units !== agreement.minor_units ||
+            !/^\d{4}-(0[1-9]|1[0-2])$/.test(result.period) ||
+            !safe(result.claim_count) || !safe(result.remaining_credit_minor) ||
+            !Array.isArray(result.claims) || result.claims.length > 100 ||
+            typeof result.count_is_lower_bound !== "boolean" ||
+            (result.count_is_lower_bound
+                ? result.claim_count !== 101 || result.claims.length !== 0 || result.total_minor !== null
+                : result.claim_count !== result.claims.length || !safe(result.total_minor)))
+            throw Error("Invalid corporate cycle review.");
+        let total = 0, blocked = 0;
+        const ids = new Set();
+        for (const claim of result.claims) {
+            if (!safe(claim.claim_id) || claim.claim_id < 1 || ids.has(claim.claim_id) ||
+                !safe(claim.invoice_id) || claim.invoice_id < 1 ||
+                !safe(claim.amount_minor) || typeof claim.held !== "boolean")
+                throw Error("Invalid corporate cycle source.");
+            ids.add(claim.claim_id);
+            total += claim.amount_minor;
+            blocked += claim.held ? 1 : 0;
+            if (!safe(total)) throw Error("Invalid corporate cycle total.");
+        }
+        if ((!result.count_is_lower_bound && total !== result.total_minor) ||
+            blocked !== result.blocked_count ||
+            (result.state === "ready_for_review" &&
+                (result.count_is_lower_bound || blocked !== 0 || total < 1 || total > result.remaining_credit_minor)))
+            throw Error("Invalid corporate cycle readiness.");
+        content.replaceChildren();
+        content.append(t("h4", "Monthly billing review", "مراجعة الفوترة الشهرية"),
+            text("p", result.period));
+        button(content, "Back to agreements", "العودة للاتفاقيات", () => agreements(selectedFleet));
+        button(content, "Refresh cycle review", "تحديث مراجعة الدورة", () => cycleReview(agreement));
+        content.append(t("span", "Scheduled review date", "تاريخ المراجعة المحدد"));
+        date(content, result.review_at);
+        content.append(t("p", ...states[result.state]),
+            text("p", `${result.count_is_lower_bound ? "≥" : ""}${result.claim_count}`),
+            t("span", "Remaining agreement credit", "الائتمان المتبقي للاتفاقية"),
+            text("p", money(result.remaining_credit_minor, result.currency, result.minor_units)));
+        if (result.total_minor !== null)
+            content.append(t("span", "Proposed invoice total", "إجمالي الفواتير المقترحة"),
+                text("p", money(result.total_minor, result.currency, result.minor_units)));
+        for (const claim of result.claims) {
+            const row = document.createElement("article");
+            row.className = "finance-row";
+            row.append(text("p", `#${claim.claim_id} / #${claim.invoice_id}`),
+                text("p", money(claim.amount_minor, result.currency, result.minor_units)));
+            if (claim.held) row.append(t("p", "Financial hold", "قيد مالي"));
+            content.append(row);
+        }
+        if (result.can_issue_reviewed_batch) {
+            const exactIds = Object.freeze([...ids].sort((a, b) => a - b));
+            const exactPeriod = result.period, exactTotal = result.total_minor;
+            button(content, "Issue reviewed TEST statement", "إصدار كشف الاختبار المراجع", async () => {
+                if (!alive() || seq !== generation) return;
+                const ar = document.documentElement.lang === "ar";
+                const amount = money(exactTotal, result.currency, result.minor_units);
+                const consent = window.confirm(ar
+                    ? `إصدار كشف اختبار واحد للفترة ${exactPeriod}، ${exactIds.length} مطالبة، ${amount}؟ لن يتم تحصيل أي دفعة.`
+                    : `Issue one TEST statement for ${exactPeriod}, ${exactIds.length} claims, ${amount}? No payment will be collected.`);
+                if (!consent || !alive() || seq !== generation) return;
+                const receipt = await request(
+                    `commercial/corporate/agreements/${agreement.id}/cycle-review/issue`, "POST", {
+                        period: exactPeriod, claim_ids: exactIds, total_minor: exactTotal, consent: true,
+                    },
+                );
+                if (!alive() || seq !== generation) return;
+                if (!receipt || !safe(receipt.statement_id) || receipt.statement_id < 1 ||
+                    receipt.agreement_id !== agreement.id || receipt.period !== exactPeriod ||
+                    receipt.total_minor !== exactTotal || receipt.currency !== result.currency ||
+                    receipt.minor_units !== result.minor_units || receipt.statement_issued !== true ||
+                    receipt.real_payment_processed !== false || receipt.evidence !== "TEST_REVIEWED_STATEMENT" ||
+                    typeof receipt.replayed !== "boolean" || !Array.isArray(receipt.claim_ids) ||
+                    receipt.claim_ids.length !== exactIds.length ||
+                    receipt.claim_ids.some((id, index) => id !== exactIds[index]))
+                    throw Error("Unconfirmed reviewed statement. Check statement history before retrying.");
+                await statements(agreement);
+                if (alive()) status.textContent = ar
+                    ? "تم تأكيد كشف الاختبار. لم تُحصّل أي دفعة."
+                    : "TEST statement confirmed. No payment collected.";
+            });
+        }
+        // Explicit existing claim selection remains available even when the
+        // bounded batch is held, over the cap or not ready. Never auto-issue.
+        button(content, "Open explicit claim selection", "فتح تحديد المطالبات الصريح", () => claims(agreement));
     }
     async function statements(agreement, page = 1) {
         const seq = ++generation;

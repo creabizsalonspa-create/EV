@@ -78,7 +78,10 @@ class SettlementTest extends TestCase
         $base = '/settlement-test/commercial/settlements/'.$s['id'];
         $this->postJson($base.'/approve')->assertForbidden();
         $this->actingAs($this->admin)->postJson($base.'/simulate-payout')->assertConflict();
-        $this->postJson($base.'/approve')->assertOk()->assertJsonPath('state', 'approved');
+        $this->postJson($base.'/approve')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('state', 'approved')
+            ->assertJsonMissingPath('request_key');
         $this->postJson($base.'/approve')->assertOk();
         $this->postJson($base.'/simulate-payout')->assertOk()->assertJsonPath('state', 'simulated_paid');
         $this->postJson($base.'/simulate-payout')->assertOk();
@@ -187,6 +190,37 @@ class SettlementTest extends TestCase
         $this->assertDatabaseCount('commercial_adjustments', 1);
         $this->assertDatabaseCount('finance_payments', 1);
         $this->assertDatabaseCount('finance_journals', 2);
+    }
+
+    public function test_unreconciled_pending_settlement_cannot_be_approved_but_may_be_rejected(): void
+    {
+        $this->invoice();
+        $this->configure();
+
+        // Synthetic historical reservation with no supporting lines.
+        // Do not change or bypass any immutable financial source.
+        $id = DB::table('commercial_settlements')->insertGetId([
+            'number' => 'SIM-SET-UNRECONCILED-TEST', 'vendor_id' => $this->vendor->id,
+            'currency' => 'AED', 'minor_units' => 2, 'amount_minor' => 100,
+            'state' => 'pending', 'request_key' => hash('sha256', 'unreconciled-pending-test'),
+            'created_by' => $this->vendor->id, 'evidence' => 'SIMULATED',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $base = '/settlement-test/commercial/settlements/'.$id;
+        $before = DB::table('finance_journals')->count();
+        $this->actingAs($this->admin)->getJson($base)->assertOk()
+            ->assertJsonPath('reconciled', false);
+        $this->postJson($base.'/approve')->assertConflict();
+        $this->assertDatabaseHas('commercial_settlements', [
+            'id' => $id, 'state' => 'pending',
+        ]);
+        $this->assertDatabaseCount('commercial_settlement_events', 0);
+        $this->postJson($base.'/reject')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('state', 'rejected')
+            ->assertJsonMissingPath('request_key')
+            ->assertJsonMissingPath('fingerprint');
+        $this->assertSame($before, DB::table('finance_journals')->count());
     }
 
     public function test_settlement_detail_reconciliation_refuses_lossy_sums(): void
