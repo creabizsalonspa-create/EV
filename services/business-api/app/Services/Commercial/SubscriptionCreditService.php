@@ -95,7 +95,7 @@ class SubscriptionCreditService
         ];
     }
 
-    private static function allocationFor(object $invoice, object $receipt, int $amount): array
+    private static function allocationFor(object $invoice, object $receipt, int $amount, ?int &$remaining = null): array
     {
         $components = self::remainingComponents($invoice, $receipt);
         $remaining = self::checkedAdd($components['subtotal_minor'], $components['tax_minor']);
@@ -103,7 +103,7 @@ class SubscriptionCreditService
             'Subscription refund exceeds remaining captured funds.');
         try {
             $allocation = Money::allocate($amount, $components);
-        } catch (\InvalidArgumentException $error) {
+        } catch (\InvalidArgumentException) {
             abort(409, 'Subscription credit allocation exceeds exact arithmetic bounds.');
         }
         abort_unless(self::checkedAdd(
@@ -205,9 +205,8 @@ class SubscriptionCreditService
                 $i = DB::table('commercial_subscription_invoices')->find($request->invoice_id);
                 // Preflight component allocation BEFORE provider I/O, not just
                 // in post() after an external test refund has succeeded.
-                self::allocationFor($i, $currentReceipt, $amount);
-                $components = self::remainingComponents($i, $currentReceipt);
-                $remaining = self::checkedAdd($components['subtotal_minor'], $components['tax_minor']);
+                $remaining = null;
+                self::allocationFor($i, $currentReceipt, $amount, $remaining);
                 if ($amount === $remaining && (int) $s->cycle_number === (int) $i->cycle_number) {
                     abort_if(DB::table('subscription_gateway_checkouts')->where('subscription_id', $s->id)->where('invoice_id', '!=', $i->id)->whereIn('status', ['pending', 'authorized', 'action_required'])->exists(), 409, 'Cancel or reconcile the next-cycle checkout before fully refunding the current entitlement.');
                 }
