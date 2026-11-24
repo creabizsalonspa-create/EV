@@ -121,6 +121,14 @@ final class ScheduledSync
         return [$provider, $plan];
     }
 
+    private function claimCurrent(object $plan, object $current, OcpiProvider $provider, string $id): bool
+    {
+        return config('ocpi.scheduled_sync_enabled') && $current->active_run === $id
+            && (int) $current->revision === (int) $plan->revision && $this->currentConsent($current, $provider)
+            && DB::table('ocpi_sync_runs')->where('id', $id)->where('plan_id', $current->id)
+                ->where('plan_revision', $plan->revision)->where('state', 'claimed')->exists();
+    }
+
     public function run(): array
     {
         if (! config('ocpi.scheduled_sync_enabled')) {
@@ -162,30 +170,40 @@ final class ScheduledSync
             }
             [$provider, $plan, $id] = $claim;
             try {
-                $proceed = DB::transaction(function () use ($plan, $id) {
+                $consent = fn () => DB::transaction(function () use ($plan, $id) {
                     [$p, $current] = $this->locked($plan);
 
-                    return config('ocpi.scheduled_sync_enabled') && $current->active_run === $id && (int) $current->revision === (int) $plan->revision && $this->currentConsent($current, $p);
+                    return $this->claimCurrent($plan, $current, $p, $id);
                 });
-                $records = $proceed ? app(PartnerClient::class)->pull($provider, $plan->module) : null;
+                $records = $consent() ? app(PartnerClient::class)->pull($provider, $plan->module, [], $consent) : null;
 
                 return DB::transaction(function () use ($plan, $id, $records) {
                     [$provider, $current] = $this->locked($plan);
-                    $valid = $records !== null && config('ocpi.scheduled_sync_enabled') && $current->active_run === $id && (int) $current->revision === (int) $plan->revision && $this->currentConsent($current, $provider);
+                    $valid = $records !== null && $this->claimCurrent($plan, $current, $provider, $id);
                     $counts = $valid ? app(RecordSynchronizer::class)->ingest($provider, $plan->module, $records) : null;
+                    if ($valid) {
+                        $latest = DB::table('ocpi_sync_plans')->where('id', $plan->id)->lockForUpdate()->firstOrFail();
+                        if (! $this->claimCurrent($plan, $latest, $provider->fresh(), $id)) {
+                            throw new OcpiException('Source polling consent changed during ingestion.');
+                        }
+                    }
                     DB::table('ocpi_sync_runs')->where('id', $id)->where('state', 'claimed')->update(['state' => $valid ? 'completed' : 'cancelled', 'result_code' => $valid ? null : 'consent_or_partner_changed', 'counts' => $counts ? json_encode($counts, JSON_THROW_ON_ERROR) : null, 'completed_at' => now()]);
                     DB::table('ocpi_sync_plans')->where('id', $plan->id)->where('active_run', $id)->update(['active_run' => null, 'claimed_at' => null, 'updated_at' => now()]);
 
                     return ['state' => $valid ? 'completed' : 'cancelled', 'run_id' => $id];
                 }, 3);
             } catch (Throwable) {
-                DB::transaction(function () use ($plan, $id) {
-                    [, $current] = $this->locked($plan);
-                    DB::table('ocpi_sync_runs')->where('id', $id)->where('state', 'claimed')->update(['state' => 'failed', 'result_code' => 'poll_requires_review', 'completed_at' => now()]);
+                return DB::transaction(function () use ($plan, $id) {
+                    [$provider, $current] = $this->locked($plan);
+                    $state = $this->claimCurrent($plan, $current, $provider, $id) ? 'failed' : 'cancelled';
+                    DB::table('ocpi_sync_runs')->where('id', $id)->where('state', 'claimed')->update([
+                        'state' => $state, 'result_code' => $state === 'failed' ? 'poll_requires_review' : 'consent_or_partner_changed',
+                        'completed_at' => now(),
+                    ]);
                     DB::table('ocpi_sync_plans')->where('id', $plan->id)->where('active_run', $id)->update(['active_run' => null, 'claimed_at' => null, 'updated_at' => now()]);
-                });
 
-                return ['state' => 'failed', 'run_id' => $id];
+                    return ['state' => $state, 'run_id' => $id];
+                });
             }
         }
 

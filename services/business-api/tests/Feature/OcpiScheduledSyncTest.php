@@ -109,6 +109,46 @@ class OcpiScheduledSyncTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_opt_out_after_first_page_prevents_another_provider_request(): void
+    {
+        [$owner, $provider, $url] = $this->fixture();
+        $this->enable($owner, $url);
+        Http::fake(function () use ($owner, $provider) {
+            app(ScheduledSync::class)->update($owner, $provider, 'locations', false, 15, 0);
+
+            return Http::response($this->response(), 200, ['Link' => '<https://partner.example/locations?page=2>; rel="next"']);
+        });
+        $this->assertSame('cancelled', app(ScheduledSync::class)->run()['state']);
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->getJson($url)->assertOk()->assertJsonPath('history.data.0.state', 'cancelled')
+            ->assertJsonPath('plans.0.enabled', false)->assertJsonPath('plans.0.running', false);
+    }
+
+    public function test_global_polling_disable_during_ingestion_rolls_back_source_batch(): void
+    {
+        [$owner, $provider, $url] = $this->fixture();
+        $this->enable($owner, $url);
+        Http::fake(fn () => Http::response($this->response()));
+        $changed = false;
+        DB::listen(function ($query) use (&$changed) {
+            if (! $changed && str_starts_with($query->sql, 'insert into "ocpi_records"')) {
+                $changed = true;
+                config(['ocpi.scheduled_sync_enabled' => false]);
+            }
+        });
+        $this->assertSame('cancelled', app(ScheduledSync::class)->run()['state']);
+        $this->assertTrue($changed);
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+        $this->assertNull($provider->fresh()->last_synced_at);
+        $this->assertSame('cancelled', DB::table('ocpi_sync_runs')->value('state'));
+        $this->assertNull(DB::table('ocpi_sync_plans')->value('active_run'));
+        $this->assertSame(['state' => 'disabled'], app(ScheduledSync::class)->run());
+    }
+
     public function test_owner_revocation_or_changed_credentials_invalidate_persisted_consent_before_request(): void
     {
         foreach (['epoch', 'credentials', 'authorization'] as $change) {

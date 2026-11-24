@@ -4,6 +4,7 @@ namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use Closure;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -374,7 +375,7 @@ class PartnerClient
         }
     }
 
-    public function pull(OcpiProvider $provider, string $module, array $requestedWindow = []): array
+    public function pull(OcpiProvider $provider, string $module, array $requestedWindow = [], ?Closure $consent = null): array
     {
         $this->assertCurrent($provider);
         if (! in_array($module, self::MODULES, true) || $provider->version !== '2.2.1' || ! is_string($provider->endpoints[$module] ?? null)) {
@@ -405,7 +406,13 @@ class PartnerClient
             if (isset($seen[$url])) {
                 throw new OcpiException('Operator pagination loop detected.');
             }$seen[$url] = true;
+            if ($consent !== null && ! $consent()) {
+                throw new OcpiException('Source polling consent changed.');
+            }
             $result = $this->get($provider, $url, $authority);
+            if ($consent !== null && ! $consent()) {
+                throw new OcpiException('Source polling consent changed.');
+            }
             if (! is_array($result['data']) || ! array_is_list($result['data'])) {
                 throw new OcpiException('Module response must contain a record list.');
             }
