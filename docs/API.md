@@ -416,6 +416,13 @@ is always false and `billing_authority` remains false. EN/AR web, PDF and native
 views preserve these distinctions. No ledger writes or provider calls occur.
 Oversized exact-number sums return409 rather than rounding or overflowing.
 
+The operational report separately exposes `reported_non_fault_unavailable_seconds`.
+It counts accepted simulator connector `Unavailable` time without an error
+code, bounded by the next observation and the existing 300-second freshness
+window. Reported fault time is counted separately. Conflicting observations
+and stale gaps contribute to unknown time. These metrics do not establish
+physical downtime, uptime, or operational availability.
+
 ### Private Admin platform operations map
 
 `GET /api/admin/operations/map` is web-session Admin only, behind the existing

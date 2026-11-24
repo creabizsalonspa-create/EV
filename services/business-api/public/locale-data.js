@@ -3209,6 +3209,10 @@ window.EV_MESSAGES = {
         en: "Reported fault seconds",
         ar: "ثواني الأعطال المبلغ عنها",
     },
+    "Reported unavailable seconds without a fault": {
+        en: "Reported unavailable seconds without a fault",
+        ar: "ثواني عدم التوفر المبلغ عنها دون عطل",
+    },
     "Maximum observed session interval average (W)": {
         en: "Maximum observed session interval average (W)",
         ar: "أقصى متوسط فترة جلسة مرصودة (واط)",

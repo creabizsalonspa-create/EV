@@ -83,6 +83,29 @@ class OperationalAnalyticsTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_non_fault_unavailable_is_reported_separately_and_stops_at_freshness_limit(): void
+    {
+        [$owner, , , $binding, , , $url] = $this->setupReport();
+        app(FaultMonitor::class)->ingest($binding, [
+            'source_generation' => FaultMonitor::generation($binding),
+            'events' => [
+                ['id' => 1, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Unavailable', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:00:00Z'],
+                ['id' => 2, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Unavailable', 'errorCode' => 'GroundFailure', 'timestamp' => '2026-11-06T10:06:00Z'],
+                ['id' => 3, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:07:00Z'],
+            ],
+        ]);
+
+        $query = '?from=2026-11-06&to=2026-11-06';
+        $this->actingAs($owner)->getJson($url.$query)->assertOk()
+            ->assertJsonPath('sites.0.status_known_seconds', 660)
+            ->assertJsonPath('sites.0.status_unknown_seconds', 42540)
+            ->assertJsonPath('sites.0.reported_fault_seconds', 60)
+            ->assertJsonPath('sites.0.reported_non_fault_unavailable_seconds', 300)
+            ->assertJsonPath('physical_uptime_verified', false);
+        $this->get($url.'/export'.$query)->assertOk()->assertSee('reported_non_fault_unavailable_seconds');
+        $this->get($url.'/pdf'.$query.'&locale=ar')->assertOk()->assertHeader('Content-Type', 'application/pdf');
+    }
+
     public function test_large_valid_meter_delta_does_not_overflow_during_power_scaling(): void
     {
         [$owner, $company, , $b, $map, $evse, $url] = $this->setupReport();
