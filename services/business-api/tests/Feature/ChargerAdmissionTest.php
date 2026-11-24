@@ -201,6 +201,54 @@ class ChargerAdmissionTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    #[DataProvider('protocols')]
+    public function test_stale_company_route_cannot_disclose_admission_after_owner_transfer(string $protocol): void
+    {
+        [$owner, $company, $charger, $base, $secret] = $this->fixture($protocol);
+        $replacement = User::factory()->create(['role' => 'vendor']);
+        DB::table('vendor_companies')->where('id', $company->id)->update(['owner_id' => $replacement->id]);
+        $request = Request::create('https://localhost/admission', 'GET');
+        $request->setUserResolver(fn () => $owner);
+        foreach (['show', 'events'] as $method) {
+            try {
+                app(ChargerAdmissionController::class)->$method($request, $company, $charger);
+                $this->fail('A stale company route disclosed private admission information.');
+            } catch (HttpException $error) {
+                $this->assertSame(404, $error->getStatusCode());
+            }
+        }
+        $this->actingAs($replacement)->getJson($base)->assertOk()
+            ->assertJsonPath('can_manage', true)->assertJsonMissingPath('profile.credential_digest');
+        $this->getJson($base.'/events')->assertOk()->assertJsonCount(2, 'data');
+        $this->assertSame(hash('sha256', $secret), AdmissionProfile::firstOrFail()->getRawOriginal('credential_digest'));
+        $this->assertDatabaseCount('charger_admission_events', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_stale_charger_route_cannot_disclose_admission_after_inventory_transfer(string $protocol): void
+    {
+        [$owner, $company, $charger, , $secret] = $this->fixture($protocol);
+        $replacement = User::factory()->create(['role' => 'vendor']);
+        $foreign = VendorCompany::create(['owner_id' => $replacement->id, 'legal_name' => 'Transferred fixture',
+            'country' => 'AE', 'trade_license_number' => 'TRANSFER', 'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved']);
+        DB::table('vendor_chargers')->where('id', $charger->id)->update(['company_id' => $foreign->id]);
+        $request = Request::create('https://localhost/admission', 'GET');
+        $request->setUserResolver(fn () => $owner);
+        foreach (['show', 'events'] as $method) {
+            try {
+                app(ChargerAdmissionController::class)->$method($request, $company, $charger);
+                $this->fail('A stale inventory route disclosed private admission information.');
+            } catch (HttpException $error) {
+                $this->assertSame(404, $error->getStatusCode());
+            }
+        }
+        $this->admission($secret)->assertUnauthorized();
+        $this->assertDatabaseCount('charger_admission_events', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_replayed_or_spoofed_ingress_tls_protocol_and_expiry_are_rejected(): void
     {
         [,,,,$secret] = $this->fixture();
