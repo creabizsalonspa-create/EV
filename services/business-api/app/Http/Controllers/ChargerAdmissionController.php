@@ -31,18 +31,28 @@ class ChargerAdmissionController extends Controller
 
     public function show(Request $r, VendorCompany $company, VendorCharger $charger)
     {
-        $this->scope($r, $company, $charger);
-        $profile = AdmissionProfile::where('charger_id', $charger->id)->first();
+        return DB::transaction(function () use ($r, $company, $charger) {
+            $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            app(MaintenanceActor::class)->check($r->user());
+            $charger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
+            $this->scope($r, $company, $charger);
+            $profile = AdmissionProfile::where('charger_id', $charger->id)->lockForUpdate()->first();
 
-        return response()->json(['profile' => $profile, 'credential_state' => $profile ? app(AdmissionLifecycle::class)->state($profile) : null, 'can_manage' => $r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 'certificate_management_available' => true, 'hardware_verified' => false, 'upstream_registration_verified' => false])->header('Cache-Control', 'no-store');
+            return response()->json(['profile' => $profile, 'credential_state' => $profile ? app(AdmissionLifecycle::class)->state($profile) : null, 'can_manage' => $r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 'certificate_management_available' => true, 'hardware_verified' => false, 'upstream_registration_verified' => false])->header('Cache-Control', 'no-store');
+        }, 3);
     }
 
     public function events(Request $r, VendorCompany $company, VendorCharger $charger)
     {
-        $this->scope($r, $company, $charger);
-        $profile = AdmissionProfile::where('charger_id', $charger->id)->firstOrFail();
+        return DB::transaction(function () use ($r, $company, $charger) {
+            $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            app(MaintenanceActor::class)->check($r->user());
+            $charger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
+            $this->scope($r, $company, $charger);
+            $profile = AdmissionProfile::where('charger_id', $charger->id)->lockForUpdate()->firstOrFail();
 
-        return response()->json(DB::table('charger_admission_events')->where('profile_id', $profile->id)->select(['id', 'action', 'credential_version', 'actor_id', 'created_at'])->orderByDesc('id')->paginate(25)->through(fn ($e) => ['id' => $e->id, 'action' => $e->action, 'credential_version' => $e->credential_version, 'actor_type' => $e->actor_id === null ? 'system' : 'operator', 'created_at' => $e->created_at]))->header('Cache-Control', 'no-store');
+            return response()->json(DB::table('charger_admission_events')->where('profile_id', $profile->id)->select(['id', 'action', 'credential_version', 'actor_id', 'created_at'])->orderByDesc('id')->paginate(25)->through(fn ($e) => ['id' => $e->id, 'action' => $e->action, 'credential_version' => $e->credential_version, 'actor_type' => $e->actor_id === null ? 'system' : 'operator', 'created_at' => $e->created_at]))->header('Cache-Control', 'no-store');
+        }, 3);
     }
 
     public function configure(Request $r, VendorCompany $company, VendorCharger $charger)
