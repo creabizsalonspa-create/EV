@@ -121,9 +121,16 @@ bool campaignMatchesIntent(
   try {
     DateTime receiptTime(dynamic raw) {
       final value = raw as String;
-      return DateTime.parse(
-        value.contains('T') ? value : '${value.replaceFirst(' ', 'T')}Z',
-      ).toUtc();
+      // Only the documented database UTC and explicit ISO UTC forms.
+      final db = RegExp(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$').firstMatch(value);
+      if (db != null && db.end == value.length) {
+        return campaignUtc('${value.replaceFirst(' ', 'T')}Z');
+      }
+      final iso = RegExp(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.0{1,6})?Z$').firstMatch(value);
+      if (iso == null || iso.end != value.length) {
+        throw const FormatException('Invalid source UTC receipt.');
+      }
+      return campaignUtc('${iso.group(1)}Z');
     }
 
     return receiptTime(row['starts_at']) ==
@@ -166,6 +173,12 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
   final reason = TextEditingController();
   late bool Function() authorized;
   StreamSubscription<int>? sessionSubscription;
+  int intentRevision = 0;
+  void invalidateConsent() { consent = false; intentRevision++; }
+  VoidCallback guardIntent(VoidCallback callback) {
+    final revision = intentRevision;
+    return guard(() { if (revision == intentRevision && consent) callback(); });
+  }
   bool get active => mounted && foreground && authorized();
   VoidCallback guard(VoidCallback callback) {
     final ticket = generation, api = widget.api;
@@ -213,6 +226,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
   void clearPrivate({bool invalidateRequest = true}) {
     FocusManager.instance.primaryFocus?.unfocus();
     if (invalidateRequest) generation++;
+    invalidateConsent();
     creating = false;
     pageNumber = packagePage = stationPage = 1;
     placement = 'discovery_banner';
@@ -570,7 +584,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
         note.length > 500 ||
         !actions(row).contains(action))
       return;
-    final reviewedGeneration = generation, api = widget.api;
+    final reviewedGeneration = generation, reviewedIntent = intentRevision, api = widget.api;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -596,7 +610,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
     if (confirmed != true ||
         !mounted ||
         !current(reviewedGeneration) || !identical(widget.api,api) ||
-        busy || !enabled || !consent || reason.text.trim() != note || creating ||
+        busy || !enabled || !consent || intentRevision != reviewedIntent || reason.text.trim() != note || creating ||
         detail?['id'] != row['id'] ||
         detail?['control_revision'] != row['control_revision'])
       return;
@@ -648,7 +662,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
   @override
   Widget build(BuildContext context) {
     final visible = active;
-    final renderedGeneration = generation;
+    final renderedGeneration = generation, renderedIntent = intentRevision;
     final renderedApi = widget.api;
     bool editable() => current(renderedGeneration) && identical(renderedApi,widget.api) && !busy;
     final saved = visible ? operation?.pending : null;
@@ -729,7 +743,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
                   ],
                   onChanged: busy
                       ? null
-                      : (value) { if (editable()) setState(() { invoiceId = value; consent = false; }); },
+                      : (value) { if (editable()) setState(() { invoiceId = value; invalidateConsent(); }); },
                 ),
                 pages(packages!, packagePage, (value) {
                   packagePage = value;
@@ -752,7 +766,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
                   ],
                   onChanged: busy
                       ? null
-                      : (value) { if (editable()) setState(() { stationId = value; consent = false; }); },
+                      : (value) { if (editable()) setState(() { stationId = value; invalidateConsent(); }); },
                 ),
                 pages(stations!, stationPage, (value) {
                   stationPage = value;
@@ -777,13 +791,13 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
                 ],
                 onChanged: busy
                     ? null
-                    : (value) { if (editable()) setState(() { placement = value!; consent = false; }); },
+                    : (value) { if (editable()) setState(() { placement = value!; invalidateConsent(); }); },
               ),
               for (final key in fields.keys)
                 TextField(
                   controller: fields[key],
                   enabled: !busy,
-                  onChanged: (_) { if (editable()) setState(() => consent = false); },
+                  onChanged: (_) { if (editable()) setState(invalidateConsent); },
                   maxLength: key.startsWith('title')
                       ? 120
                       : key.startsWith('description')
@@ -822,7 +836,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               value: consent,
               onChanged: busy
                   ? null
-                  : (value) { if (editable()) setState(() => consent = value == true); },
+                  : (value) { if (editable() && renderedIntent == intentRevision) setState(() { consent = value == true; intentRevision++; }); },
               title: Text(
                 t(
                   'I reviewed this exact campaign intent.',
@@ -831,7 +845,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               ),
             ),
             FilledButton(
-              onPressed: busy || !consent || !enabled ? null : guard(() { create(); }),
+              onPressed: busy || !consent || !enabled ? null : guardIntent(() { create(); }),
               child: Text(
                 saved == null
                     ? t('Create draft', 'إنشاء مسودة')
@@ -845,7 +859,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               OutlinedButton(
                 onPressed: busy || !consent
                     ? null
-                    : guard(() { create(resolve: true); }),
+                    : guardIntent(() { create(resolve: true); }),
                 child: Text(
                   t(
                     'Resolve saved creation: recover receipt or cancel unused intent',
@@ -881,7 +895,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               ),
             TextField(
               controller: reason,
-              onChanged: (_) { if (editable()) setState(() => consent = false); },
+              onChanged: (_) { if (editable()) setState(invalidateConsent); },
               maxLength: 500,
               enabled: !busy,
               decoration: InputDecoration(
@@ -895,7 +909,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               value: consent,
               onChanged: busy
                   ? null
-                  : (value) { if (editable()) setState(() => consent = value == true); },
+                  : (value) { if (editable() && renderedIntent == intentRevision) setState(() { consent = value == true; intentRevision++; }); },
               title: Text(
                 t(
                   'I reviewed this campaign decision.',
@@ -907,7 +921,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               OutlinedButton(
                 onPressed: busy || !consent || !enabled
                     ? null
-                    : guard(() { act(action); }),
+                    : guardIntent(() { act(action); }),
                 child: Text(label(action)),
               ),
           ],
