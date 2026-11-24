@@ -57,10 +57,8 @@ final class OpenChargeMapDiscoveryController extends Controller
         // A salted one-way cache key prevents storing raw lookup coordinates
         // or API credentials in cache key metadata, while avoiding duplicate
         // provider requests under its published fair-usage requirements.
-        $cacheIdentity = hash('sha256', json_encode([
-            (float) $input['latitude'], (float) $input['longitude'],
-            (float) $input['radius_km'], $input['country'] ?? null, hash('sha256', $key),
-        ], JSON_THROW_ON_ERROR));
+        $cacheIdentity = LicensedSourceCache::identity((float) $input['latitude'], (float) $input['longitude'],
+            (float) $input['radius_km'], $input['country'] ?? null, $key);
 
         try {
             // Cache only the normalized, attribution-safe provider subset
@@ -73,6 +71,9 @@ final class OpenChargeMapDiscoveryController extends Controller
                 $key,
                 $input['country'] ?? null,
             )));
+            $source = $adapter->filterReported($source);
+            $adapter->assertGeography($source, (float) $input['latitude'], (float) $input['longitude'],
+                (float) $input['radius_km'], $input['country'] ?? null);
             $result = $adapter->filterReported(
                 $source,
                 isset($input['min_reported_power_kw']) ? (float) $input['min_reported_power_kw'] : null,
