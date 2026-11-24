@@ -56,6 +56,8 @@ class OcpiReservationTest extends TestCase
         $location = $f[4]->fresh();
         $raw = $location->payload;
         $raw['last_updated'] = now()->toISOString();
+        $raw['evses'][0]['last_updated'] = $raw['last_updated'];
+        $raw['evses'][0]['connectors'][0]['last_updated'] = $raw['last_updated'];
         app(RecordSynchronizer::class)->ingest($f[3], 'locations', [$raw]);
     }
 
@@ -485,8 +487,45 @@ class OcpiReservationTest extends TestCase
         $this->travel(1)->seconds();
         $raw['publish'] = true;
         $raw['last_updated'] = now()->toISOString();
+        $raw['evses'][0]['last_updated'] = $raw['last_updated'];
+        $raw['evses'][0]['connectors'][0]['last_updated'] = $raw['last_updated'];
         app(RecordSynchronizer::class)->ingest($f[3], 'locations', [$raw]);
         $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', true);
+    }
+
+    public function test_parent_refresh_cannot_close_reservation_without_new_selected_connector_evidence(): void
+    {
+        $f = $this->setupReservation();
+        [$order] = $this->reserve($f);
+        $url = '/api/roaming/sandbox-orders/'.$order->id;
+        $this->postJson($url.'/cancel-reservation', ['request_key' => (string) Str::uuid(), 'consent' => true])->assertOk();
+        $this->travel(1)->seconds();
+        $this->partnerCallback($order, 'CANCEL_RESERVATION', 'ACCEPTED');
+        $raw = $f[4]->fresh()->payload;
+        foreach (['parent_only', 'evse_only', 'selected_connector'] as $refresh) {
+            $this->travel(1)->seconds();
+            $raw['last_updated'] = now()->toISOString();
+            if ($refresh !== 'parent_only') {
+                $raw['evses'][0]['last_updated'] = $raw['last_updated'];
+            }
+            if ($refresh === 'selected_connector') {
+                $raw['evses'][0]['connectors'][0]['last_updated'] = $raw['last_updated'];
+            }
+            app(RecordSynchronizer::class)->ingest($f[3], 'locations', [$raw]);
+            $closed = $refresh === 'selected_connector';
+            $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', $closed);
+            $current = DB::table('ocpi_roaming_orders')->find($order->id);
+            if ($closed) {
+                $this->assertNull($current->active_target_key);
+            } else {
+                $this->assertNotNull($current->active_target_key);
+                $this->assertNull($current->reservation_closed_at);
+            }
+            $this->assertCount(3, $this->writes);
+        }
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
     }
 
     public function test_active_source_blocks_cancel_before_reconcile_and_reservation_never_uses_test_billing(): void

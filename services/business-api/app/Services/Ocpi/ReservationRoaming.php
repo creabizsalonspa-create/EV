@@ -104,6 +104,36 @@ final class ReservationRoaming
             && $evseTime->lte($location->source_updated_at);
     }
 
+    /** A Location refresh alone does not prove that its selected EVSE became free. */
+    private function hasPostClosureConnectorEvidence(OcpiRecord $location, array $target, CarbonImmutable $cutoff): bool
+    {
+        $evses = $location->payload['evses'] ?? null;
+        if (! is_array($evses) || ! array_is_list($evses)) {
+            return false;
+        }
+        $matches = array_values(array_filter($evses, fn ($evse) => is_array($evse) && ($evse['uid'] ?? null) === $target['evse_uid']));
+        if (count($matches) !== 1 || ($matches[0]['status'] ?? null) !== 'AVAILABLE') {
+            return false;
+        }
+        $evse = $matches[0];
+        $connectors = $evse['connectors'] ?? null;
+        if (! is_array($connectors) || ! array_is_list($connectors)) {
+            return false;
+        }
+        $selected = array_values(array_filter($connectors, fn ($connector) => is_array($connector) && ($connector['id'] ?? null) === $target['connector_id']));
+        if (count($selected) !== 1) {
+            return false;
+        }
+        $evseTime = $this->sourceUtcInstant($evse['last_updated'] ?? null);
+        $connectorTime = $this->sourceUtcInstant($selected[0]['last_updated'] ?? null);
+
+        return $evseTime !== null && $connectorTime !== null
+            && $connectorTime->gt($cutoff) && $evseTime->gt($cutoff)
+            && $connectorTime->gte(now()->subMinutes(5))
+            && $connectorTime->lte($evseTime)
+            && $evseTime->lte($location->source_updated_at);
+    }
+
     public function sessions(object $order): Collection
     {
         $rows = OcpiRecord::where('ocpi_provider_id', $order->provider_id)->where('module', 'sessions')->where('id', '>', $order->source_record_floor)->orderByDesc('id')->limit(1001)->get();
@@ -296,7 +326,7 @@ final class ReservationRoaming
                 return $row;
             }
             $evses = array_values(array_filter($location->normalized['evses'] ?? [], fn ($e) => ($e['uid'] ?? null) === $target['evse_uid']));
-            if (! $location->received_at->gt($cutoff) || ! $location->source_updated_at->gt($cutoff) || $location->source_updated_at->gt(now()) || $location->source_updated_at->lt(now()->subMinutes(5)) || ($expired && ! $cancel && $location->source_updated_at->lte(CarbonImmutable::parse($row->reservation_expires_at, 'UTC'))) || hash_equals($target['location_hash'], $location->content_hash) || count($evses) !== 1 || ($evses[0]['reported_status'] ?? null) !== 'AVAILABLE') {
+            if (! $location->received_at->gt($cutoff) || ! $location->source_updated_at->gt($cutoff) || $location->source_updated_at->gt(now()) || $location->source_updated_at->lt(now()->subMinutes(5)) || ($expired && ! $cancel && $location->source_updated_at->lte(CarbonImmutable::parse($row->reservation_expires_at, 'UTC'))) || hash_equals($target['location_hash'], $location->content_hash) || count($evses) !== 1 || ($evses[0]['reported_status'] ?? null) !== 'AVAILABLE' || ! $this->hasPostClosureConnectorEvidence($location, $target, $cutoff)) {
                 return $row;
             }
             DB::table('ocpi_roaming_orders')->where('id', $row->id)->update(['state' => 'reservation_closed', 'active_target_key' => null, 'reservation_closed_at' => $location->received_at, 'updated_at' => now()]);
