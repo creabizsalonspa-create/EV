@@ -69,7 +69,7 @@ class DocumentRenderer
 
         // Spreadsheet clients may strip whitespace, control and bidi formatting
         // before evaluating a formula. Quote dangerous text before that happens.
-        return preg_match('/^[\s\p{C}]*[=+\-@]/u', $text) ? "'".$text : $text;
+        return preg_match('/^[\p{Z}\p{Cc}\p{Cf}]*[=+\-@]/u', $text) ? "'".$text : $text;
     }
 
     public function csv(array $d): string
