@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Charging\AdmissionProfile;
+use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\AdmissionIdentity;
@@ -42,6 +43,7 @@ class ChargerIngressController extends Controller
         $company = VendorCompany::findOrFail($charger->company_id);
         abort_unless($charger->ocpp_protocol === $p->protocol && $company->status === 'approved' && app(VendorAccess::class)->licenseValid($company), 401);
 
+        abort_unless(User::whereKey($company->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(), 401);
         abort_unless(app(AdmissionIdentity::class)->compatible($company, $charger, $p->identity, $p->protocol, app()->environment('production')), 401);
 
         try {
