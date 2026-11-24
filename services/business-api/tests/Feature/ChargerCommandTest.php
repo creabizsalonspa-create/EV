@@ -470,8 +470,60 @@ class ChargerCommandTest extends TestCase
         $this->assertSame('pending', $blocked->status);
         $this->assertSame('pre_dispatch_source_lineage_changed', $blocked->failure_code);
         $this->assertSame('pending', $command->fresh()->status);
+        $again = app(CsmsDispatcher::class)->dispatch($command->id);
+        $this->assertSame('pending', $again->status);
+        $this->assertSame('pre_dispatch_source_lineage_changed', $again->failure_code);
         Http::assertSentCount(1);
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/ocpp/'));
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('command_source_observations', 0);
+    }
+
+    #[TestWith(['1.6', 'epoch'])]
+    #[TestWith(['2.0.1', 'epoch'])]
+    #[TestWith(['1.6', 'origin'])]
+    #[TestWith(['2.0.1', 'origin'])]
+    #[TestWith(['1.6', 'disabled'])]
+    #[TestWith(['2.0.1', 'disabled'])]
+    public function test_authority_change_during_service_token_fetch_never_dispatches_or_retargets_start(string $protocol, string $change): void
+    {
+        config(['csms.simulator_enabled' => true]);
+        $base = config('csms.base_url');
+        Http::preventStrayRequests();
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($vendor);
+        DB::table('csms_bindings')->insert([
+            'station_id' => $station->id, 'identifier' => 'ev-test-authority-race',
+            'protocol' => $protocol, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $command = ChargerCommand::create([
+            'actor_id' => $vendor->id, 'station_id' => $station->id,
+            'consent_auth_epoch' => (int) $vendor->auth_epoch,
+            'action' => 'start', 'idempotency_key' => 'authority-race',
+            'payload_hash' => str_repeat('d', 64), 'payload' => [],
+        ]);
+        Http::fake(function ($request) use ($vendor, $change) {
+            if (str_ends_with($request->url(), '/dev/token')) {
+                match ($change) {
+                    'epoch' => DB::table('users')->where('id', $vendor->id)->increment('auth_epoch'),
+                    'origin' => config(['csms.base_url' => 'https://alternate.example.test']),
+                    'disabled' => config(['csms.simulator_enabled' => false]),
+                };
+
+                return Http::response(['accessToken' => 'synthetic-short-lived-token']);
+            }
+
+            return Http::response([['success' => true]]);
+        });
+        $blocked = app(CsmsDispatcher::class)->dispatch($command->id);
+        $this->assertSame('pending', $blocked->status);
+        $this->assertSame('pre_dispatch_authority_changed', $blocked->failure_code);
+        config(['csms.simulator_enabled' => true, 'csms.base_url' => $base]);
+        $again = app(CsmsDispatcher::class)->dispatch($command->id);
+        $this->assertSame('pending', $again->status);
+        $this->assertSame('pre_dispatch_authority_changed', $again->failure_code);
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/ocpp/') || str_contains($request->url(), 'alternate.example.test'));
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('command_source_observations', 0);
     }
