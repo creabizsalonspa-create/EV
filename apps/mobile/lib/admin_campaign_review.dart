@@ -88,7 +88,8 @@ class AdminCampaignRecord {
 
   void verifyDecision(AdminCampaignRecord receipt, String action) {
     if (!actions.contains(action) || !sameTerms(receipt) ||
-        receipt.status != _targets[action] || receipt.revision <= revision) {
+        receipt.status != _targets[action] || receipt.revision <= revision ||
+        receipt.delivered < delivered || receipt.clicks < clicks) {
       throw const FormatException('Unconfirmed campaign decision.');
     }
   }
@@ -102,6 +103,13 @@ class AdminCampaignEvent {
   static List<AdminCampaignEvent> parseHistory(dynamic raw, AdminCampaignRecord record) {
     if (raw is! List || raw.isEmpty) throw const FormatException('Missing campaign history.');
     final result = <AdminCampaignEvent>[];
+    String? state;
+    const transitions = <String, (String, String)>{
+      'submit': ('draft', 'submitted'), 'approve': ('submitted', 'approved'),
+      'reject': ('submitted', 'rejected'), 'pause': ('approved', 'paused'),
+      'resume': ('paused', 'approved'), 'suspend': ('approved', 'suspended'),
+      'reinstate': ('suspended', 'approved'),
+    };
     for (final event in raw) {
       if (event is! Map || _exact(event['campaign_id'], positive: true) != record.id ||
           !['created', 'submit', 'approve', 'reject', 'pause', 'resume',
@@ -114,17 +122,33 @@ class AdminCampaignEvent {
       if (result.isNotEmpty && result.last.id >= id) {
         throw const FormatException('Invalid campaign audit order.');
       }
-      result.add(AdminCampaignEvent(id, _exact(event['actor_id'], positive: true),
-        event['action'], event['reason'], event['created_at']));
+      final actor = _exact(event['actor_id'], positive: true);
+      final action = event['action'] as String;
+      // Replays do not append events. A plausible terminal status cannot
+      // hide an invalid path through the canonical control state machine.
+      if (state == null) {
+        if (action != 'created' || actor != record.vendor) {
+          throw const FormatException('Invalid campaign creation authority.');
+        }
+        state = 'draft';
+      } else if (action == 'cancel') {
+        if (!['draft', 'submitted', 'approved', 'paused', 'suspended'].contains(state) ||
+            actor != record.vendor) {
+          throw const FormatException('Invalid campaign cancellation history.');
+        }
+        state = 'cancelled';
+      } else {
+        final transition = transitions[action];
+        if (transition == null || transition.$1 != state ||
+            (['submit', 'pause', 'resume'].contains(action) && actor != record.vendor)) {
+          throw const FormatException('Invalid campaign control history.');
+        }
+        state = transition.$2;
+      }
+      result.add(AdminCampaignEvent(id, actor,
+        action, event['reason'], event['created_at']));
     }
-    final expected = switch (result.last.action) {
-      'created' => 'draft', 'submit' => 'submitted',
-      'approve' || 'resume' || 'reinstate' => 'approved',
-      'reject' => 'rejected', 'pause' => 'paused', 'cancel' => 'cancelled',
-      _ => 'suspended',
-    };
-    if (result.first.action != 'created' || result.last.id != record.revision ||
-        expected != record.status) {
+    if (result.last.id != record.revision || state != record.status) {
       throw const FormatException('Campaign revision does not match history.');
     }
     return List.unmodifiable(result);
@@ -274,7 +298,10 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
           throw const FormatException('Invalid campaign eligibility.');
         }
         record = AdminCampaignRecord.parse(raw['campaign'], id: detail.id);
-        if (!detail.sameTerms(record)) throw const FormatException('Campaign terms changed.');
+        if (!detail.sameTerms(record) || record.revision < detail.revision ||
+            record.delivered < detail.delivered || record.clicks < detail.clicks) {
+          throw const FormatException('Campaign source regressed or terms changed.');
+        }
         audit = AdminCampaignEvent.parseHistory(raw['events'], record);
         canServe = raw['currently_eligible'] as bool;
         if (canServe && (record.status != 'approved' || record.delivered >= record.budget)) {
