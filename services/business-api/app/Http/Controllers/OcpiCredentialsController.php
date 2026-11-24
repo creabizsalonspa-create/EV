@@ -103,7 +103,7 @@ class OcpiCredentialsController extends Controller
                 // Keep explicit de-registration available to a current admin.
                 $actions = $r->user()->role === 'admin' ? ['unregister'] : [];
             }
-            $activeReceivers = $configured && $tokenBound && $provider->authorized
+            $activeReceivers = $configured && $tokenBound && $provider->authorized && $ownerVendor
                 ? ($ownerActive ? $receiverModules : array_values(array_intersect($receiverModules, ['sessions', 'cdrs']))) : [];
             $capabilities = app(PartnerCapabilityMatrix::class)->read(
                 $provider, $configured, $configured && $tokenBound && $provider->authorized && $ownerActive,
