@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -8,6 +9,47 @@ import 'address_search.dart';
 import 'discovery_client.dart';
 import 'strings.dart';
 import 'vendor_forms.dart' show vendorDigits;
+
+/// Local planning arithmetic only; no telemetry or charging guarantee.
+class RouteEnergyReview {
+  final double budget, km;
+  final double? needed, firstKm;
+  const RouteEnergyReview(this.budget, this.km, this.needed, this.firstKm);
+  bool? get totalExceeds => needed == null ? null : needed! > budget + 1e-9;
+  bool? get firstExceeds => firstKm == null ? null : firstKm! > km + 1e-9;
+}
+
+RouteEnergyReview? routeEnergyReview(Map<String, String> raw, {
+  double? routeMeters, GeoPoint? origin, GeoPoint? firstStop,
+}) {
+  final values = <String,double>{};
+  for (final field in [
+    ('capacity',1.0,250.0), ('soc',0.0,100.0),
+    ('reserve',0.0,100.0), ('consumption',1.0,100.0),
+  ]) {
+    final text = vendorDigits((raw[field.$1] ?? '').trim());
+    if (!RegExp(r'^[0-9]{1,3}(?:\.[0-9]{1,2})?$').hasMatch(text)) return null;
+    final n = double.tryParse(text);
+    if (n == null || !n.isFinite || n < field.$2 || n > field.$3) return null;
+    values[field.$1] = n;
+  }
+  if (values['reserve']! >= values['soc']!) return null;
+  final budget = values['capacity']! * (values['soc']!-values['reserve']!)/100;
+  final km = budget/values['consumption']!*100;
+  double? firstKm;
+  if (origin != null && firstStop != null) {
+    const rad = math.pi/180;
+    final dlat = (firstStop.latitude-origin.latitude)*rad;
+    final dlng = (firstStop.longitude-origin.longitude)*rad;
+    final h = math.pow(math.sin(dlat/2),2) +
+        math.cos(origin.latitude*rad)*math.cos(firstStop.latitude*rad)*math.pow(math.sin(dlng/2),2);
+    firstKm = 6371*2*math.asin(math.sqrt(h.clamp(0,1)));
+  }
+  final needed = routeMeters != null && routeMeters.isFinite &&
+      routeMeters >= 0 && routeMeters <= 40000000
+      ? routeMeters/1000*values['consumption']!/100 : null;
+  return RouteEnergyReview(budget,km,needed,firstKm);
+}
 
 class RoutePlannerView extends StatefulWidget {
   final DiscoveryClient? client;
@@ -38,6 +80,8 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
       destinationLat = TextEditingController(),
       destinationLng = TextEditingController();
   final stops = <Station>[];
+  final energyFields = {for (final key in ['capacity','soc','reserve','consumption']) key: TextEditingController()};
+  void clearEnergy() { for(final field in energyFields.values) { field.clear(); } }
   DiscoveryCapabilities? capabilities;
   RouteEstimate? estimate;
   bool consent = false, loading = false, tiles = false, foreground = true;
@@ -92,6 +136,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
       originLng.clear();
       destinationLat.clear();
       destinationLng.clear();
+      clearEnergy();
       stops.clear();
       requiredConnector = '';
       consent = false;
@@ -123,6 +168,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
       originLng.clear();
       destinationLat.clear();
       destinationLng.clear();
+      clearEnergy();
       requiredConnector = '';
       consent = false;
       estimate = null;
@@ -335,10 +381,76 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     generation++;
-    for (final c in [originLat, originLng, destinationLat, destinationLng]) {
+    for (final c in [originLat, originLng, destinationLat, destinationLng, ...energyFields.values]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  Widget energyReviewPanel() {
+    GeoPoint? origin;
+    try { origin = point(originLat, originLng); } catch (_) {}
+    final first = stops.isEmpty || !valid(stops.first) ? null :
+      GeoPoint(stops.first.latitude!,stops.first.longitude!);
+    final raw = {for(final e in energyFields.entries)e.key:e.value.text};
+    final result = routeEnergyReview(raw, routeMeters:estimate?.meters, origin:origin, firstStop:first);
+    String number(double n) => NumberFormat('0.0',EvStrings.of(context).arabic?'ar':'en').format(n);
+    return ExpansionTile(
+      key: const Key('journey-energy-review'),
+      title: Text(t('Review estimated battery energy','مراجعة طاقة البطارية التقديرية')),
+      children: [
+        Text(t('Driver-entered assumptions only','افتراضات يُدخلها السائق فقط')),
+        for(final field in [
+          ('capacity','Usable battery capacity (kWh)','سعة البطارية القابلة للاستخدام (كيلوواط ساعة)'),
+          ('soc','Starting charge (%)','الشحن عند البداية (%)'),
+          ('reserve','Minimum reserve (%)','الاحتياطي الأدنى (%)'),
+          ('consumption','Assumed consumption (kWh/100 km)','الاستهلاك المفترض (كيلوواط ساعة/١٠٠ كم)'),
+        ]) Padding(
+          padding: const EdgeInsets.all(8),
+          child: TextField(
+            key: Key('energy-${field.$1}'), controller: energyFields[field.$1],
+            textDirection: TextDirection.ltr,
+            maxLength: 6,
+            keyboardType: const TextInputType.numberWithOptions(decimal:true),
+            decoration: InputDecoration(labelText:t(field.$2,field.$3)),
+            onChanged: (_) { if (sessionCurrent) setState(() {}); },
+          ),
+        ),
+        Text(t(
+          'Local arithmetic only. Not live vehicle SOC, verified range, station availability, road reachability or charging advice. Weather, terrain and charging losses are excluded. No recharge is assumed. These inputs are never sent to the provider.',
+          'حساب محلي فقط. لا يمثل شحن المركبة الفعلي أو مدى مؤكداً أو توفر المحطات أو إمكانية الوصول أو نصيحة شحن. لا يشمل الطقس أو التضاريس أو خسائر الشحن. لا يفترض إعادة الشحن. لا تُرسل المدخلات إلى المزود.',
+        )),
+        if(result == null && raw.values.any((v)=>v.trim().isNotEmpty))
+          Semantics(liveRegion:true,child: Text(t(
+            'Enter capacity 1–250, charge and reserve 0–100 (reserve below charge), and consumption 1–100; up to two decimals.',
+            'أدخل السعة ١–٢٥٠ والشحن والاحتياطي ٠–١٠٠ (الاحتياطي أقل من الشحن) والاستهلاك ١–١٠٠؛ حتى منزلتين عشريتين.',
+          ))),
+        if(result != null) Semantics(
+          liveRegion:true,
+          child: Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            Text(t('Estimated energy above reserve: ${number(result.budget)} kWh · assumed range: ${number(result.km)} km',
+              'الطاقة التقديرية فوق الاحتياطي: ${number(result.budget)} كيلوواط ساعة · المدى المفترض: ${number(result.km)} كم')),
+            if(result.firstKm != null) ...[
+              Text(t('First stop straight-line distance: ${number(result.firstKm!)} km',
+                'المسافة الجوية إلى أول توقف: ${number(result.firstKm!)} كم')),
+              Text(result.firstExceeds == true ? t('First stop exceeds the assumed range even in a straight line.',
+                'أول توقف يتجاوز المدى المفترض حتى بخط مستقيم.') :
+                t('First stop not ruled out by straight-line distance; road reachability is unverified.',
+                  'لا تستبعد المسافة الجوية أول توقف؛ الوصول عبر الطريق غير مؤكد.')),
+            ],
+            if(result.needed != null) ...[
+              Text(t('Whole-route assumed energy: ${number(result.needed!)} kWh',
+                'الطاقة المفترضة للمسار الكامل: ${number(result.needed!)} كيلوواط ساعة')),
+              Text(result.totalExceeds == true ? t('Whole-route estimate exceeds starting energy above reserve. Charging may be needed.',
+                'يتجاوز تقدير المسار الكامل الطاقة عند البداية فوق الاحتياطي. قد يلزم الشحن.') :
+                t('Whole-route estimate is within the assumed starting energy. This is not a reachability guarantee.',
+                  'تقدير المسار الكامل ضمن طاقة البداية المفترضة. لا يضمن ذلك الوصول.')),
+            ] else Text(t('Preview a provider route for a whole-route energy estimate.',
+              'عاين مسار المزود لتقدير طاقة المسار الكامل.')),
+          ]),
+        ),
+      ],
+    );
   }
 
   @override
@@ -650,6 +762,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
                   ],
                 ),
               ),
+            energyReviewPanel(),
             OutlinedButton.icon(
               key: const Key('route-navigation'),
               onPressed: incompatibleStops ? null : navigate,
