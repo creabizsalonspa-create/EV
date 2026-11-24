@@ -35,6 +35,18 @@ class CommercialFinanceController extends Controller
         return $row;
     }
 
+    /**
+     * Only the authenticated POST acknowledgement carries a domain-separated
+     * binding to its persisted request identity. Neither the original replay
+     * key nor this binding is returned in history or reviewer responses.
+     */
+    private static function refundAcknowledgement(object $row): object
+    {
+        $row->request_receipt = hash('sha256', 'refund-request-v1:'.$row->user_id.':'.$row->invoice_id.':'.$row->id.':'.$row->request_key);
+
+        return self::safeRefundRequest($row);
+    }
+
     private function invoices(Request $r)
     {
         return Invoice::query()->when($r->user()->role !== 'admin', fn ($q) => $q->where($r->user()->role === 'vendor' ? 'vendor_id' : 'user_id', $r->user()->id));
@@ -113,7 +125,7 @@ class CommercialFinanceController extends Controller
         return DB::transaction(function () use ($r, $invoice) {
             $current = app(CurrentFinanceReader::class)->requireCurrent($r);
             $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
-            abort_unless($invoice->user_id === $current->id, 404);
+            abort_unless($current->role === 'customer' && $invoice->user_id === $current->id, 404);
             // Validate private refund terms only after the persisted current
             // customer and original invoice owner are authorized.
             $v = $r->validate(['ocpi_credit_record_id' => 'sometimes|integer|min:1', 'amount_minor' => 'required|integer|between:1,2000000000', 'reason' => 'required|string|max:500', 'idempotency_key' => 'required|string|max:100']);
@@ -124,7 +136,7 @@ class CommercialFinanceController extends Controller
             if ($old) {
                 abort_unless($old->invoice_id === $invoice->id && (int) $old->amount_minor === (int) $v['amount_minor'] && $old->reason === $v['reason'] && ($old->ocpi_credit_record_id ?? null) === ($v['ocpi_credit_record_id'] ?? null), 409, 'Refund request key conflict.');
 
-                return response()->json(self::safeRefundRequest($old))
+                return response()->json(self::refundAcknowledgement($old))
                     ->header('Cache-Control', 'private, no-store');
             }
             if (isset($v['ocpi_credit_record_id'])) {
@@ -136,7 +148,7 @@ class CommercialFinanceController extends Controller
             $id = DB::table('finance_refund_requests')->insertGetId(['invoice_id' => $invoice->id, 'user_id' => $current->id, 'request_key' => $v['idempotency_key'], 'ocpi_credit_record_id' => $v['ocpi_credit_record_id'] ?? null, 'amount_minor' => (int) $v['amount_minor'], 'reason' => $v['reason'], 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
 
             return response()->json(
-                self::safeRefundRequest(DB::table('finance_refund_requests')->find($id)), 201
+                self::refundAcknowledgement(DB::table('finance_refund_requests')->find($id)), 201
             )->header('Cache-Control', 'private, no-store');
         }, 3);
     }

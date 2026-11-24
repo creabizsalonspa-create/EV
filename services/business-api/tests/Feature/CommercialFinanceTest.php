@@ -107,6 +107,41 @@ class CommercialFinanceTest extends TestCase
         $this->assertDatabaseCount('finance_refunds', 1);
     }
 
+    public function test_refund_post_only_acknowledgement_binds_original_request_without_echoing_replay_key(): void
+    {
+        [$customer, $vendor, $invoice] = $this->fixture();
+        $url = '/api/finance/invoices/'.$invoice->id.'/refund-requests';
+        $key = 'synthetic-private-original-key';
+        $body = ['amount_minor' => 20, 'reason' => 'Synthetic private receipt', 'idempotency_key' => $key];
+        $created = $this->actingAs($customer)->postJson($url, $body)->assertCreated()
+            ->assertJsonMissingPath('request_key')
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $id = $created->json('id');
+        $expected = hash('sha256', 'refund-request-v1:'.$customer->id.':'.$invoice->id.':'.$id.':'.$key);
+        $created->assertJsonPath('request_receipt', $expected);
+        $this->assertStringNotContainsString($key, $created->getContent());
+        $this->postJson($url, $body)->assertOk()->assertJsonPath('id', $id)
+            ->assertJsonPath('request_receipt', $expected)
+            ->assertJsonMissingPath('request_key');
+        $this->postJson($url, array_replace($body, ['amount_minor' => 21]))->assertConflict();
+
+        // A separate request with the same economic terms has another identity.
+        $second = $this->postJson($url, array_replace($body, ['idempotency_key' => 'synthetic-second-key']))->assertCreated();
+        $this->assertNotSame($id, $second->json('id'));
+        $this->assertNotSame($expected, $second->json('request_receipt'));
+        $this->getJson('/api/finance/refund-requests')->assertOk()
+            ->assertJsonMissingPath('data.0.request_receipt')
+            ->assertJsonMissingPath('data.1.request_receipt');
+        $this->actingAs($vendor)->getJson('/api/finance/refund-requests')
+            ->assertOk()->assertJsonMissingPath('data.0.request_receipt');
+        $this->postJson('/api/finance/refund-requests/'.$id.'/review', [
+            'decision' => 'reject', 'note' => 'Synthetic reviewer decision',
+        ])->assertOk()->assertJsonMissingPath('request_receipt')
+            ->assertJsonMissingPath('request_key');
+        $this->assertDatabaseCount('finance_refund_requests', 2);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_private_refund_validation_never_precedes_current_account_and_invoice_authorization(): void
     {
         [$customer, $vendor, $invoice] = $this->fixture();
