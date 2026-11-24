@@ -160,12 +160,17 @@ final class ChargerAvailabilityController extends Controller
         $binding = app(ChargerResetController::class)->scope($request, $company, $charger->fresh(), $write);
         if ($write) {
             app(VendorAccess::class)->operational($company);
-            $token = $request->user()->currentAccessToken();
-            if ($token instanceof PersonalAccessToken) {
-                $query = $token->newQuery()->whereKey($token->getKey());
-                $current = DB::transactionLevel() > 0 ? $query->lockForUpdate()->first() : $query->first();
-                abort_unless($current && (! $current->expires_at || $current->expires_at->isFuture()), 403);
-            }
+        }
+
+        // Mobile logout revokes the individual token without changing the account
+        // epoch. Recheck it after source I/O before persisting an observation.
+        $token = $request->user()->currentAccessToken();
+        if ($token instanceof PersonalAccessToken) {
+            $query = $token->newQuery()->whereKey($token->getKey());
+            $current = DB::transactionLevel() > 0 ? $query->lockForUpdate()->first() : $query->first();
+            $expiration = config('sanctum.expiration');
+            abort_unless($current && (! $current->expires_at || $current->expires_at->isFuture())
+                && (! $expiration || $current->created_at->gt(now()->subMinutes($expiration))), 403);
         }
 
         return $binding;
