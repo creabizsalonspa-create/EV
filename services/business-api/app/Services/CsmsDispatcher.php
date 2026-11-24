@@ -134,6 +134,7 @@ class CsmsDispatcher
                 $blocked = 'pre_dispatch_operating_calendar';
             }
         }
+
         return $blocked;
     }
 
@@ -163,7 +164,7 @@ class CsmsDispatcher
             if ($c->status === 'pending') {
                 // A detected in-flight authority change is a permanent fence for
                 // this queued intent. An operator must resolve it, not retarget it.
-                if ($c->failure_code === 'pre_dispatch_authority_changed') {
+                if (in_array($c->failure_code, ['pre_dispatch_authority_changed', 'pre_dispatch_source_lineage_changed'], true)) {
                     return null;
                 }
                 // Repointed canonical inventory or source identity must not
@@ -292,6 +293,11 @@ class CsmsDispatcher
                     || ! $this->sourceLineage($current)) {
                     return false;
                 }
+                $binding = DB::table('csms_bindings')->where('id', $b->id)->first();
+                if (! $binding || $binding->identifier !== $b->identifier || $binding->protocol !== $b->protocol
+                    || $binding->station_id !== $b->station_id || $binding->vendor_charger_id !== $b->vendor_charger_id) {
+                    return false;
+                }
                 if ($link) {
                     $latest = SessionLink::whereKey($link->id)->first();
                     if (! $latest || $latest->connector_mapping_id !== $link->connector_mapping_id
@@ -336,8 +342,9 @@ class CsmsDispatcher
         } catch (\Throwable $e) {
             // Preserve the existing quarantine for rejected/unverifiable
             // service credentials: no automatic retry of failed CSMS auth.
-            // Only an affirmative *local* source rebind detected before
-            // the HTTP wire begins is provably unsent and may stay pending.
+            // Only an affirmative local source or authority mismatch detected
+            // before entering the HTTP wire is provably unsent and may stay
+            // pending for explicit resolution, without automatic retargeting.
             $provenUnsent = ! $wireAttempted && ($verifiedPrewireSourceMismatch || $verifiedPrewireAuthorityMismatch);
             ChargerCommand::whereKey($command->id)->where('status', 'dispatching')->update(
                 $provenUnsent
