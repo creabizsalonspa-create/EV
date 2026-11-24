@@ -30,11 +30,11 @@ final class ScheduledSync
         return $current;
     }
 
-    private function fingerprint(OcpiProvider $provider, User $actor, string $module): string
+    private function fingerprint(OcpiProvider $provider, User $actor, string $module, int $interval): string
     {
         abort_unless($provider->authorized && $provider->version === '2.2.1'
             && User::whereKey($provider->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(), 409);
-        abort_unless(in_array($module, PartnerClient::MODULES, true)
+        abort_unless(in_array($module, PartnerClient::MODULES, true) && in_array($interval, self::INTERVALS, true)
             && is_string($provider->endpoints[$module] ?? null), 409);
         $client = app(PartnerClient::class);
         $configuration = $client->connection($provider);
@@ -48,7 +48,7 @@ final class ScheduledSync
         // Persist only the combined digest, never credential or password bytes.
         return hash('sha256', json_encode(['poll-consent-v2', $provider->id, $provider->connection_key,
             $provider->authorization_revision, $provider->owner_id, $provider->version, $provider->endpoints,
-            $module, $actor->id, $actor->role, $actor->auth_epoch, $actor->password, $configuration,
+            $module, $interval, $actor->id, $actor->role, $actor->auth_epoch, $actor->password, $configuration,
             $link ? [$link->id, $link->owner_id, $link->generation, $link->state, $link->configuration_hash,
                 $link->bootstrap_hash, $link->local_token_digest, $link->local_token_ciphertext, $link->remote_token_ciphertext] : null,
         ], JSON_THROW_ON_ERROR));
@@ -64,7 +64,7 @@ final class ScheduledSync
             return false;
         }
         try {
-            return hash_equals((string) $plan->configuration_hash, $this->fingerprint($provider, $actor, $plan->module));
+            return hash_equals((string) $plan->configuration_hash, $this->fingerprint($provider, $actor, $plan->module, (int) $plan->interval_minutes));
         } catch (Throwable) {
             return false;
         }
@@ -101,7 +101,7 @@ final class ScheduledSync
             $plan = DB::table('ocpi_sync_plans')->where('provider_id', $provider->id)->where('module', $module)->lockForUpdate()->first();
             if ($enabled) {
                 abort_unless(config('ocpi.scheduled_sync_enabled') && is_string($provider->endpoints[$module] ?? null), 409, 'Scheduled polling is not configured for this module.');
-                $hash = $this->fingerprint($provider, $actor, $module);
+                $hash = $this->fingerprint($provider, $actor, $module, $interval);
                 if ($this->currentConsent($plan, $provider) && (int) $plan->interval_minutes === $interval) {
                     return $this->project($plan, $module, $provider);
                 }
