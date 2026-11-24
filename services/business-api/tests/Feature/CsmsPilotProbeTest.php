@@ -157,12 +157,20 @@ class CsmsPilotProbeTest extends TestCase
                 ['id' => 25, 'connectorDatabaseId' => 8,
                     'evseId' => $fixture['protocol'] === '1.6' ? 0 : 1,
                     'connectorId' => 2, 'connectorStatus' => 'Available',
+                    'errorCode' => $fixture['protocol'] === '1.6' ? 'NoError' : null,
                     'timestamp' => now()->toISOString()],
                 ['id' => 24, 'connectorDatabaseId' => 7,
                     'evseId' => $fixture['protocol'] === '1.6' ? 0 : 1,
                     'connectorId' => 1, 'connectorStatus' => 'Available',
+                    'errorCode' => $fixture['protocol'] === '1.6' ? 'NoError' : null,
                     'timestamp' => now()->subSecond()->toISOString()],
             ];
+            if ($state === 'ocpp16_missing_error') {
+                unset($rows[0]['errorCode']);
+            }
+            if ($state === 'cross_protocol_status') {
+                $rows[0]['connectorStatus'] = $fixture['protocol'] === '1.6' ? 'Occupied' : 'Charging';
+            }
             if ($state === 'busy') {
                 $rows[0]['connectorStatus'] = 'Charging';
             }
@@ -267,6 +275,38 @@ class CsmsPilotProbeTest extends TestCase
             $this->assertFalse($report['physical_hardware_accepted']);
             Http::assertSentCount(3);
         }
+    }
+
+    public function test_ocpp16_available_without_explicit_noerror_remains_blocked_not_healthy(): void
+    {
+        $fixture = $this->fixture('1.6');
+        $this->source($fixture, 'ocpp16_missing_error');
+        $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $fixture['binding']]));
+        $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+        $this->assertSame('requires_source_review', $report['status']);
+        $this->assertFalse($report['software_source_observed']);
+        $this->assertFalse($report['source_idle_candidate']);
+        $this->assertSame(1, $report['idle_connectors_with_recent_safe_status']);
+        $this->assertFalse($report['hardware_pilot_approved']);
+        $this->assertFalse($report['physical_hardware_accepted']);
+        Http::assertSentCount(3);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_pilot_probe_rejects_cross_protocol_status_without_a_hardware_claim(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $fixture = $this->fixture($protocol);
+            $this->source($fixture, 'cross_protocol_status');
+            $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $fixture['binding']]));
+            $this->assertStringContainsString('Source pilot probe blocked', Artisan::output());
+            $this->assertStringNotContainsString(str_repeat('a', 64), Artisan::output());
+            Http::assertNotSent(fn ($request) => str_contains($request->url(), '/ocpp/')
+                || str_contains($request->url(), '/dev/token'));
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_stale_source_requires_review_without_creating_hardware_authority(): void
