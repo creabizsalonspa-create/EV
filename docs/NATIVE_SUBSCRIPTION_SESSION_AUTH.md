@@ -222,3 +222,28 @@ The Flutter catalogue/detail page contract independently verifies
 the same bounded source and preserves the original private
 session-generation fence. This remains TEST/simulator commercial
 software; provider collection and external acceptance remain open.
+
+
+## Frozen consent plan and authoritative receipt lineage
+
+The enrollment/change-plan action now snapshots the selected plan's
+`id`, displayed price, metadata and nested entitlements **when the
+screen mounts**, rather than retaining a mutable Map passed from a
+caller. Every consent label, subscription preview, restored durable
+intent comparison and POST body uses that same immutable source
+snapshot. Background/logout/account revocation explicitly clears the
+snapshot. A mutable source Map can no longer substitute plan 8 after
+the operator saw and consented to plan 7.
+
+The shared `subscriptionSummary` also requires the canonical plan
+record's exact positive `plan.id` to equal the persisted
+`subscription.plan_id`; a server receipt for a different plan
+cannot acknowledge/delete the locally saved operation key. Existing
+`next_plan_id` scheduling is not confused with the **current**
+source plan; historical invoices retain their own immutable plan
+versions and are not repriced. Flutter regression tests mutate
+the original plan object while the action remains mounted, verify
+the original price/ID are still shown and posted, and prove that
+a mismatched server plan receipt leaves the exact durable intent
+available for explicit review/retry. No new subscription, refund
+or provider payment authority is inferred.
