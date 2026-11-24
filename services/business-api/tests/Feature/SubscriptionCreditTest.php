@@ -210,6 +210,30 @@ class SubscriptionCreditTest extends TestCase
         $this->assertDatabaseCount('subscription_credits', 1);
     }
 
+    public function test_credit_pagination_validates_exact_page_after_tenant_authority_and_never_caches_refunds(): void
+    {
+        $f = $this->fixture();
+        $this->refund($f, 100, 'private-credit-history')
+            ->assertCreated()->assertHeader('Cache-Control', 'private, no-store');
+        $ledgerBefore = DB::table('commercial_subscription_ledger')->count();
+        $this->actingAs($f[1])->getJson($f[5].'?page=1')->assertOk()
+            ->assertHeader('Cache-Control', 'private, no-store')
+            ->assertJsonPath('current_page', 1)->assertJsonCount(1, 'data');
+        $this->getJson($f[5].'?page=10000')->assertOk()
+            ->assertJsonPath('current_page', 10000)->assertJsonCount(0, 'data');
+        foreach (['0', '-1', 'abc', '1e5', '100001'] as $bad) {
+            $this->getJson($f[5].'?page='.urlencode($bad))
+                ->assertUnprocessable();
+        }
+        $stranger = User::factory()->create(['role' => 'customer']);
+        $this->actingAs($stranger)->getJson($f[5].'?page=0')
+            ->assertNotFound();
+        $this->assertSame($ledgerBefore,
+            DB::table('commercial_subscription_ledger')->count());
+        $this->assertDatabaseCount('subscription_credits', 1);
+        Http::assertNothingSent();
+    }
+
     public function test_only_administrators_can_refund_and_credit_reads_preserve_tenant_isolation(): void
     {
         $f = $this->fixture();
