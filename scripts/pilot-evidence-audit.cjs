@@ -73,12 +73,16 @@ function audit(manifest) {
         }
         if (!id(model.scope_id) || modelIds.has(model.scope_id)) issue("model_scope_id");
         modelIds.add(model.scope_id);
-        if (!["1.6", "2.0.1"].includes(model.protocol)) issue("model_protocol");
+        const knownProtocol = ["1.6", "2.0.1"].includes(model.protocol);
+        if (!knownProtocol) issue("model_protocol");
         else protocols.add(model.protocol);
-        if (!digest(model.model_firmware_topology_sha256)) issue("model_identity_digest");
-        const tuple = model.protocol + ":" + model.model_firmware_topology_sha256;
-        if (tuples.has(tuple)) issue("duplicate_model_tuple");
-        tuples.add(tuple);
+        const validIdentity = digest(model.model_firmware_topology_sha256);
+        if (!validIdentity) issue("model_identity_digest");
+        if (knownProtocol && validIdentity) {
+          const tuple = model.protocol + ":" + model.model_firmware_topology_sha256;
+          if (tuples.has(tuple)) issue("duplicate_model_tuple");
+          tuples.add(tuple);
+        }
         if (model.evidence_kind !== "supervised_physical_observation") issue("model_evidence_kind");
         group(model.gates, GATES, "model_gate");
       }
@@ -103,7 +107,7 @@ function audit(manifest) {
 
 function readManifest(path) {
   // Read at most one extra byte rather than loading an unbounded file.
-  const fd = fs.openSync(path, "r");
+  const fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
   try {
     if (!fs.fstatSync(fd).isFile()) throw Error("not a regular file");
     const buffer = Buffer.alloc(MAX_BYTES + 1);
