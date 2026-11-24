@@ -8,6 +8,37 @@ import 'package:flutter_test/flutter_test.dart';
 
 const raw = {'capacity':'60','soc':'80','reserve':'20','consumption':'20'};
 void main() {
+  test('provider route contract bounds geometry before accepting a route', () {
+    final point = {'latitude':0,'longitude':0};
+    final valid = <String,dynamic>{
+      'provider':'geoapify','evidence':'PROVIDER_ROUTE_ESTIMATE',
+      'traffic_verified':false,'charging_time_included':false,
+      'distance_meters':1250,'duration_seconds':220,
+      'segments':[[point,point]],
+    };
+    final route=RouteEstimate.fromJson(valid);
+    expect(route.meters,1250);
+    expect(route.segments.single.length,2);
+    expect(()=>route.segments.clear(),throwsUnsupportedError);
+    expect(()=>route.segments.single.clear(),throwsUnsupportedError);
+    expect(RouteEstimate.fromJson({...valid,'segments':[List.filled(10000,point)]})
+      .segments.single.length,10000);
+    for(final bad in <Map<String,dynamic>>[
+      {'distance_meters':'1250'},{'duration_seconds':double.infinity},
+      {'traffic_verified':true},{'charging_time_included':true},
+      {'segments':[]},{'segments':[[point]]},
+      {'segments':List.filled(101,[point,point])},
+      {'segments':[List.filled(10001,point)]},
+      {'segments':[[point,{'latitude':'1','longitude':1}]]},
+      {'segments':[[point,{'latitude':true,'longitude':0}]]},
+      {'segments':[[point,{'latitude':91,'longitude':0}]]},
+      {'segments':[[point,null]]},
+    ]) {
+      expect(()=>RouteEstimate.fromJson({...valid,...bad}),throwsFormatException,
+        reason:bad.keys.join(','));
+    }
+  });
+
   test('driver energy arithmetic preserves reserve and distinguishes lower bound from road range', () {
     final result = routeEnergyReview(raw,routeMeters:200000,
       origin:GeoPoint(0,0),firstStop:GeoPoint(0,2))!;
