@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'source_credit_picker.dart';
@@ -68,6 +71,36 @@ const refundAr = {
 String refundText(BuildContext c, String k) =>
     (Localizations.localeOf(c).languageCode == 'ar' ? refundAr : refundEn)[k] ??
     k;
+
+bool _refundId(dynamic value) =>
+    value is int && value > 0 && value <= 9007199254740991;
+
+/// The POST acknowledgement binds the persisted request identity without
+/// returning a replay key. History and review responses carry no binding.
+bool refundRequestAcknowledged(
+  dynamic receipt,
+  Map<String, dynamic> body, {
+  required int owner,
+  required int invoice,
+}) {
+  if (receipt is! Map ||
+      !_refundId(receipt['id']) ||
+      receipt['user_id'] != owner ||
+      receipt['invoice_id'] != invoice ||
+      receipt['amount_minor'] != body['amount_minor'] ||
+      receipt['reason'] != body['reason'] ||
+      receipt['ocpi_credit_record_id'] != body['ocpi_credit_record_id'] ||
+      !['pending', 'approved', 'rejected'].contains(receipt['status']) ||
+      receipt.containsKey('request_key') ||
+      receipt.containsKey('fingerprint') ||
+      body['idempotency_key'] is! String) {
+    return false;
+  }
+  final binding = sha256.convert(utf8.encode(
+    'refund-request-v1:$owner:$invoice:${receipt['id']}:${body['idempotency_key']}',
+  )).toString();
+  return receipt['request_receipt'] == binding;
+}
 
 List<Widget> _sourceCreditEvidence(BuildContext context, Map row) {
   final v = row['source_credit_evidence'];
@@ -268,7 +301,8 @@ class RefundRequestView extends StatefulWidget {
   State<RefundRequestView> createState() => _RefundRequestState();
 }
 
-class _RefundRequestState extends State<RefundRequestView> {
+class _RefundRequestState extends State<RefundRequestView>
+    with WidgetsBindingObserver {
   final amount = TextEditingController(),
       reason = TextEditingController(),
       credit = TextEditingController();
@@ -276,16 +310,63 @@ class _RefundRequestState extends State<RefundRequestView> {
   Object? error;
   bool busy = true, uncertain = false, confirmed = false;
   int generation = 0;
+  int? ownerId;
+  bool foreground = true, revoked = false;
+  late final bool Function() ownsSession;
+  StreamSubscription<int>? session;
+  bool get visible => foreground && !revoked && ownsSession();
+  bool current(int epoch) => mounted && visible && epoch == generation;
   String t(String k) => refundText(context, k);
   @override
   void initState() {
     super.initState();
+    ownsSession = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
+    session = widget.api.sessionEvents.listen((_) {
+      if (mounted) setState(() { revoked = true; clearPrivate(); });
+    });
     restore();
+  }
+
+  void clearPrivate() {
+    generation++;
+    operation = null;
+    ownerId = null;
+    error = null;
+    busy = false;
+    confirmed = false;
+    uncertain = false;
+    amount.clear();
+    reason.clear();
+    credit.clear();
+  }
+
+  @override
+  void didUpdateWidget(covariant RefundRequestView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        oldWidget.invoiceId != widget.invoiceId ||
+        oldWidget.currency != widget.currency || oldWidget.digits != widget.digits) {
+      revoked = true;
+      clearPrivate();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) clearPrivate();
+    });
+    if (visible && operation == null) restore();
   }
 
   @override
   void dispose() {
     generation++;
+    session?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     amount.dispose();
     reason.dispose();
     credit.dispose();
@@ -293,51 +374,68 @@ class _RefundRequestState extends State<RefundRequestView> {
   }
 
   Future<void> restore() async {
+    if (!visible) return;
     final epoch = ++generation;
+    setState(() => busy = true);
     try {
-      if (widget.digits < 0 ||
+      if (!_refundId(widget.invoiceId) || widget.digits < 0 ||
           widget.digits > 3 ||
           !RegExp(r'^[A-Z]{3}$').hasMatch(widget.currency))
         throw const FormatException('Unsupported precision.');
       final me = await widget.api.request('me');
+      if (!current(epoch)) return;
       final owner = me['id'];
-      if (owner is! int || owner < 1 || me['role'] != 'customer')
+      if (!_refundId(owner) || me['role'] != 'customer')
         throw const ApiException(403, 'Customer invoice ownership required.');
       final pending = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${widget.api.base.origin}:$owner:refund:${widget.invoiceId}',
-        isCurrent: widget.api.sessionFence(),
+        isCurrent: () => mounted && visible,
       );
       await pending.restore();
-      if (!mounted || generation != epoch) return;
+      if (!current(epoch)) return;
+      ownerId = owner as int;
       operation = pending;
       if (pending.pending != null) {
         final body = pending.pending!['body'] as Map;
+        if (body['amount_minor'] is! int ||
+            body['amount_minor'] < 1 || body['amount_minor'] > 2000000000 ||
+            body['reason'] is! String || (body['reason'] as String).trim().isEmpty ||
+            (body['reason'] as String).length > 500 ||
+            (body['ocpi_credit_record_id'] != null && !_refundId(body['ocpi_credit_record_id']))) {
+          operation = null;
+          throw const FormatException('Invalid saved refund request.');
+        }
         amount.text = minorDecimal(body['amount_minor'] as int, widget.digits);
         reason.text = body['reason'] as String;
         credit.text = '${body['ocpi_credit_record_id'] ?? ''}';
         uncertain = true;
       }
     } catch (e) {
-      if (mounted && generation == epoch) {
+      if (current(epoch)) {
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> submit() async {
+    if (!visible || busy || operation == null || ownerId == null) return;
+    final formGeneration = generation;
+    final op = operation!;
+    final owner = ownerId!;
     final creditId = int.tryParse(credit.text.trim());
+    final originalReason = reason.text.trim();
     final minor = decimalMinor(amount.text, widget.digits, maximum: 2000000000);
     if ((credit.text.trim().isNotEmpty &&
-            (creditId == null || creditId <= 0)) ||
+            !_refundId(creditId)) ||
         minor == null ||
         minor < 1 ||
-        reason.text.trim().isEmpty ||
-        reason.text.length > 500) {
+        originalReason.isEmpty ||
+        originalReason.length > 500) {
       setState(
         () => error = const ApiException(422, 'Invalid refund request.'),
       );
@@ -360,45 +458,42 @@ class _RefundRequestState extends State<RefundRequestView> {
         ],
       ),
     );
-    if (consent != true || !mounted) return;
+    if (consent != true || !current(formGeneration) ||
+        !identical(op, operation) || busy) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      final body = await operation!.prepare({
+      final body = await op.prepare({
         'amount_minor': minor,
-        'reason': reason.text.trim(),
-        if (credit.text.trim().isNotEmpty) 'ocpi_credit_record_id': creditId,
+        'reason': originalReason,
+        if (creditId != null) 'ocpi_credit_record_id': creditId,
       });
-      if (!mounted || generation != epoch) return;
+      if (!current(epoch)) return;
       final result = await widget.api.request(
         'finance/invoices/${widget.invoiceId}/refund-requests',
         method: 'POST',
         body: body,
       );
-      if (!mounted || generation != epoch) return;
-      if (result is! Map ||
-          result['invoice_id'] != widget.invoiceId ||
-          result['amount_minor'] != minor ||
-          result['request_key'] != body['idempotency_key'] ||
-          result['reason'] != body['reason'] ||
-          result['ocpi_credit_record_id'] != body['ocpi_credit_record_id'] ||
-          !['pending', 'approved', 'rejected'].contains(result['status']))
+      if (!current(epoch)) return;
+      if (!refundRequestAcknowledged(result, body, owner: owner, invoice: widget.invoiceId)) {
         throw const ApiException(502, 'Unconfirmed request receipt.');
+      }
+      await op.confirmed();
+      if (!current(epoch)) return;
       confirmed = true;
-      await operation!.confirmed();
       uncertain = false;
     } catch (e) {
-      if (mounted && generation == epoch) {
+      if (current(epoch)) {
         uncertain = operation?.pending != null;
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
@@ -409,6 +504,11 @@ class _RefundRequestState extends State<RefundRequestView> {
       padding: const EdgeInsets.all(16),
       children: [
         Text(t('notice')),
+        if (!visible)
+          Text(Localizations.localeOf(c).languageCode == 'ar'
+              ? 'مُسح الطلب الخاص. افتح الطلب مجدداً.'
+              : 'Private request cleared. Reopen the request.'),
+        if (visible) ...[
         if (uncertain) Text(t('uncertain')),
         if (confirmed) Text(t('confirmed')),
         if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
@@ -443,7 +543,7 @@ class _RefundRequestState extends State<RefundRequestView> {
                       ),
                     ),
                   );
-                  if (!mounted ||
+                  if (!mounted || !visible ||
                       !current() ||
                       selected == null ||
                       busy ||
@@ -488,6 +588,7 @@ class _RefundRequestState extends State<RefundRequestView> {
                 ),
           child: Text(t('title')),
         ),
+        ],
       ],
     ),
   );
