@@ -7,6 +7,7 @@ use App\Models\Charging\Evse;
 use App\Models\Charging\RiderAccessToken;
 use App\Models\Reservation;
 use App\Models\Station;
+use App\Services\Charging\CsmsGraphqlTransport;
 use App\Services\Charging\RiderServiceAuth;
 use App\Services\Charging\RiderTokenRegistry;
 use App\Services\Charging\SessionBridge;
@@ -21,16 +22,18 @@ class RiderSourceController extends Controller
 {
     public function targetMatches(object $binding, ConnectorMapping $map, Evse $evse, array $v): bool
     {
-        if (empty($v['connectorId']) || strlen((string) config('csms.graphql_secret')) < 32) {
+        $url = config('csms.graphql_url');
+        if (empty($v['connectorId']) || strlen((string) config('csms.graphql_secret')) < 32
+            || ! app(CsmsGraphqlTransport::class)->approved($url)) {
             return false;
         }
         try {
-            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol}}', 'variables' => ['name' => $binding->identifier]]);
+            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol}}', 'variables' => ['name' => $binding->identifier]]);
             $stations = $reply->json('data.ChargingStations');
             if (! $reply->successful() || $reply->json('errors') || ! is_array($stations) || count($stations) !== 1 || $stations[0]['isOnline'] !== true || ! in_array($stations[0]['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true)) {
                 return false;
             }
-            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), ['query' => 'query($station:Int!,$connector:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:2){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},connectorDatabaseId:{_eq:$connector}},order_by:{id:desc},limit:1){evseId connectorId connectorStatus timestamp}}', 'variables' => ['station' => $stations[0]['id'], 'connector' => (int) $v['connectorId']]]);
+            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, ['query' => 'query($station:Int!,$connector:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:2){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},connectorDatabaseId:{_eq:$connector}},order_by:{id:desc},limit:1){evseId connectorId connectorStatus timestamp}}', 'variables' => ['station' => $stations[0]['id'], 'connector' => (int) $v['connectorId']]]);
             $connectors = $reply->json('data.Connectors');
             $status = $reply->json('data.StatusNotifications.0');
             if (! $reply->successful() || $reply->json('errors') || ! is_array($connectors) || count($connectors) !== 1 || (int) $connectors[0]['id'] !== (int) $v['connectorId'] || ! is_array($status)) {

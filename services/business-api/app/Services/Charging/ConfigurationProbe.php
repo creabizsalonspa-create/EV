@@ -31,7 +31,10 @@ class ConfigurationProbe
 
     public function graph(string $query, array $variables): array
     {
-        $r = Http::connectTimeout(3)->timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), compact('query', 'variables'));
+        // This public helper must remain safe even when a future caller
+        // forgets to invoke the stricter dispatch-only enabled() gate.
+        $url = app(CsmsGraphqlTransport::class)->requireApproved();
+        $r = Http::connectTimeout(3)->timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, compact('query', 'variables'));
         if (! $r->successful() || $r->json('errors') || ! is_array($r->json('data'))) {
             throw new RuntimeException('Authenticated source is unavailable.');
         }
@@ -81,16 +84,25 @@ class ConfigurationProbe
         return $station['id'];
     }
 
-    public function serviceToken(): string
+    public function serviceToken(string $operationsBase): string
     {
-        return app(OperationsCredentials::class)->token(rtrim(config('csms.operations_base_url'), '/'));
+        $this->requireOperationsBase($operationsBase);
+
+        return app(OperationsCredentials::class)->token($operationsBase);
 
     }
 
-    public function submit(object $binding, string $token, array $payload): bool
+    public function requireOperationsBase(string $operationsBase): void
     {
+        $this->enabled(true);
+        abort_unless(rtrim((string) config('csms.operations_base_url'), '/') === $operationsBase, 409, 'Operations authority changed before configuration dispatch.');
+    }
+
+    public function submit(object $binding, string $token, array $payload, string $operationsBase): bool
+    {
+        $this->requireOperationsBase($operationsBase);
         $path = $binding->protocol === '1.6' ? 'configuration/getConfiguration' : 'monitoring/getVariables';
-        $r = Http::connectTimeout(3)->timeout(10)->withoutRedirecting()->withToken($token)->post(rtrim(config('csms.operations_base_url'), '/').'/ocpp/'.$binding->protocol.'/'.$path.'?'.http_build_query(['identifier' => $binding->identifier, 'tenantId' => 1, 'staleAfterSeconds' => 10]), $payload);
+        $r = Http::connectTimeout(3)->timeout(10)->withoutRedirecting()->withToken($token)->post($operationsBase.'/ocpp/'.$binding->protocol.'/'.$path.'?'.http_build_query(['identifier' => $binding->identifier, 'tenantId' => 1, 'staleAfterSeconds' => 10]), $payload);
 
         $reply = $r->json();
 

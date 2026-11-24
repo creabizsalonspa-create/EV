@@ -24,7 +24,7 @@ class ChargerSourceRegistrationConcurrencyTest extends TestCase
         $this->assertSame('pgsql', DB::connection()->getDriverName());
         $this->assertTrue(str_ends_with(DB::connection()->getDatabaseName(), '_review'));
         $this->artisan('migrate:fresh', ['--force' => true])->assertSuccessful();
-        config(['csms.upstream_registration_enabled' => true, 'csms.upstream_registration_allow_local_http' => true, 'csms.graphql_url' => 'http://source.test/v1/graphql', 'csms.graphql_secret' => str_repeat('s', 64)]);
+        config(['csms.upstream_registration_enabled' => true, 'csms.upstream_registration_allow_local_http' => true, 'csms.graphql_url' => 'http://127.0.0.1:8095/v1/graphql', 'csms.graphql_secret' => str_repeat('s', 64)]);
     }
 
     #[TestWith(['1.6', 'prepare'])]

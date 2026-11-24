@@ -6,6 +6,7 @@ use App\Models\Station;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\CsmsGraphqlTransport;
 use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\SourceStatusDurations;
@@ -41,8 +42,9 @@ class ChargerDiagnosticsController extends Controller
     {
         $secret = (string) config('csms.graphql_secret');
         abort_unless(config('csms.session_bridge_enabled') && ! app()->environment('production') && strlen($secret) >= 32, 503, 'Authenticated simulator source is unavailable.');
+        $url = app(CsmsGraphqlTransport::class)->requireApproved();
         try {
-            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $secret])->post(config('csms.graphql_url'), compact('query', 'variables'));
+            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $secret])->post($url, compact('query', 'variables'));
             $data = $reply->json('data');
         } catch (Throwable) {
             abort(503, 'Authenticated simulator source is unavailable.');

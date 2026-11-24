@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\CsmsGraphqlTransport;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\OperationsCredentials;
 use App\Services\Charging\SourceStatusTime;
@@ -50,16 +51,17 @@ class ChargerResetController extends Controller
 
     public function idle(object $b, ?string $after = null): void
     {
+        $url = app(CsmsGraphqlTransport::class)->requireApproved();
         abort_if(SessionLink::where('binding_id', $b->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists(), 409, 'An unresolved charging session owns this charger.');
         abort_if(Reservation::where('station_id', $b->station_id)->where('status', 'confirmed')->where('starts_at', '<', now()->addMinutes(5))->where('starts_at', '>', now()->subMinutes(30))->exists(), 409, 'A current or imminent reservation owns this station.');
         try {
-            $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol} }', 'variables' => ['name' => $b->identifier]]);
+            $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol} }', 'variables' => ['name' => $b->identifier]]);
             $rows = $r->json('data.ChargingStations');
             abort_unless($r->successful() && ! $r->json('errors') && is_array($rows) && array_is_list($rows) && count($rows) === 1 &&
                 is_array($rows[0]) && is_int($rows[0]['id'] ?? null) && $rows[0]['id'] > 0 &&
                 ($rows[0]['isOnline'] ?? null) === true &&
                 in_array($rows[0]['protocol'] ?? null, [$b->protocol, 'ocpp'.$b->protocol], true), 409, 'A current typed online source is required.');
-            $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), ['query' => 'query($station:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},isActive:{_eq:true}},limit:1){id} Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1000){connectorDatabaseId connectorStatus timestamp}}', 'variables' => ['station' => $rows[0]['id']]]);
+            $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, ['query' => 'query($station:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},isActive:{_eq:true}},limit:1){id} Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1000){connectorDatabaseId connectorStatus errorCode timestamp}}', 'variables' => ['station' => $rows[0]['id']]]);
             $d = $r->json('data');
             abort_unless($r->successful() && ! $r->json('errors') && is_array($d) &&
                 ($d['Transactions'] ?? null) === [] &&
@@ -84,7 +86,8 @@ class ChargerResetController extends Controller
                 abort_unless(is_array($row) && is_int($row['connectorDatabaseId'] ?? null) &&
                     $row['connectorDatabaseId'] > 0 &&
                     is_string($row['connectorStatus'] ?? null) &&
-                    is_string($row['timestamp'] ?? null), 409, 'Malformed source connector status.');
+                    is_string($row['timestamp'] ?? null) &&
+                    (! isset($row['errorCode']) || (is_string($row['errorCode']) && strlen($row['errorCode']) <= 80)), 409, 'Malformed source connector status.');
                 $statusAt = SourceStatusTime::parse($row['timestamp']);
                 // Descending source event IDs must never carry increasing
                 // timestamps. Otherwise an earlier-clock Available report
@@ -95,7 +98,8 @@ class ChargerResetController extends Controller
                 $connectorId = $row['connectorDatabaseId'];
                 if (isset($latest[$connectorId])) {
                     abort_unless(! $statusAt->equalTo($latestStatusTime[$connectorId]) ||
-                        $row['connectorStatus'] === $latest[$connectorId]['connectorStatus'],
+                        ($row['connectorStatus'] === $latest[$connectorId]['connectorStatus'] &&
+                            ($row['errorCode'] ?? null) === ($latest[$connectorId]['errorCode'] ?? null)),
                         409, 'Conflicting same-time source status requires manual review.');
                 } else {
                     $latest[$connectorId] = $row;
@@ -104,7 +108,11 @@ class ChargerResetController extends Controller
             }
             foreach ($d['Connectors'] as $connector) {
                 $status = $latest[$connector['id']] ?? null;
-                abort_unless($status && $status['connectorStatus'] === 'Available', 409, 'Every source connector must report Available.');
+                // OCPP 1.6 requires an explicit NoError receipt; a missing code
+                // is unknown, not idle. The 2.0.1 status contract may omit it.
+                $error = $status['errorCode'] ?? null;
+                $noFault = $b->protocol === '1.6' ? $error === 'NoError' : in_array($error, [null, 'NoError'], true);
+                abort_unless($status && $status['connectorStatus'] === 'Available' && $noFault, 409, 'Every source connector must report fault-free Available.');
                 $at = SourceStatusTime::parse($status['timestamp']);
                 abort_unless($at->gte(now()->subMinutes(2)) && $at->lte(now()) && ($after === null || $at->gt(CarbonImmutable::parse($after))), 409, 'Fresh connector evidence after the operation is required.');
             }
@@ -164,9 +172,12 @@ class ChargerResetController extends Controller
                     app(VendorAccess::class)->operational($company);
                     $this->enabled();
                     $this->idle($b);
-                    $auth = app(OperationsCredentials::class)->token(config('csms.operations_base_url'));
+                    $operationsBase = config('csms.operations_base_url');
+                    $auth = app(OperationsCredentials::class)->token($operationsBase);
+                    $this->enabled();
+                    abort_unless(config('csms.operations_base_url') === $operationsBase, 409, 'Operations authority changed before reset dispatch.');
                     abort_unless(is_string($auth) && $auth !== '', 503);
-                    $reply = Http::timeout(10)->withoutRedirecting()->withToken($auth)->post(config('csms.operations_base_url').'/ocpp/'.$b->protocol.'/configuration/reset?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), ['type' => $row->reset_type]);
+                    $reply = Http::timeout(10)->withoutRedirecting()->withToken($auth)->post($operationsBase.'/ocpp/'.$b->protocol.'/configuration/reset?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), ['type' => $row->reset_type]);
 
                     return $reply->successful() && $reply->json() === [['success' => true]] ? 'transport_submitted' : 'outcome_unknown';
                 });

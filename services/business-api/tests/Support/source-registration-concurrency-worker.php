@@ -17,10 +17,10 @@ if (! $app->environment('testing') || DB::connection()->getDriverName() !== 'pgs
     throw new RuntimeException('Disposable PostgreSQL only.');
 }
 $value = json_decode(file_get_contents($argv[1]), true, 16, JSON_THROW_ON_ERROR);
-config(['csms.upstream_registration_enabled' => true, 'csms.upstream_registration_allow_local_http' => true, 'csms.graphql_url' => 'http://source.test/v1/graphql', 'csms.graphql_secret' => str_repeat('s', 64)]);
+config(['csms.upstream_registration_enabled' => true, 'csms.upstream_registration_allow_local_http' => true, 'csms.graphql_url' => 'http://127.0.0.1:8095/v1/graphql', 'csms.graphql_secret' => str_repeat('s', 64)]);
 $remote = [];
 Http::preventStrayRequests();
-Http::fake(['http://source.test/v1/graphql' => function (HttpRequest $request) use (&$remote, $value) {
+Http::fake(['http://127.0.0.1:8095/v1/graphql' => function (HttpRequest $request) use (&$remote, $value) {
     if (str_contains($request['query'], 'insert_ChargingStations_one')) {
         $handle = fopen($value['counter'], 'c+');
         if (! $handle || ! flock($handle, LOCK_EX)) {
