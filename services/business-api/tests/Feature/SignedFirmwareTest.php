@@ -593,6 +593,59 @@ class SignedFirmwareTest extends TestCase
         }
     }
 
+    public static function matrixAuthorityChanges(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['endpoint', 'secret', 'disabled'] as $kind) {
+                foreach ([1, 2] as $read) {
+                    $cases[] = [$protocol, $kind, $read];
+                }
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('matrixAuthorityChanges')]
+    public function test_matrix_requires_same_source_authority_through_both_reads(string $protocol, string $kind, int $changeAt): void
+    {
+        $f = $this->fixture($protocol, ['protocols' => [$protocol], 'from_versions' => ['sim-fw-v1']]);
+        config(['csms.graphql_url' => 'https://source.test/graph']);
+        $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1', 'note' => 'Approve signed fixture before source inspection',
+        ])->assertCreated();
+        $reads = 0;
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($protocol, $kind, $changeAt, &$reads) {
+            $this->assertSame('https://source.test/graph', $request->url());
+            $this->assertSame(str_repeat('s', 64), $request->header('x-hasura-admin-secret')[0] ?? null);
+            if (++$reads === $changeAt) {
+                match ($kind) {
+                    'endpoint' => config(['csms.graphql_url' => 'https://alternate.example.test/graph']),
+                    'secret' => config(['csms.graphql_secret' => str_repeat('t', 64)]),
+                    'disabled' => config(['csms.firmware_enabled' => false]),
+                };
+            }
+
+            return Http::response(['data' => ['ChargingStations' => [[
+                'id' => 9, 'isOnline' => true, 'protocol' => $protocol,
+                'chargePointVendor' => 'Synthetic', 'chargePointModel' => 'Fixture',
+                'firmwareVersion' => 'sim-fw-v1', 'latestOcppMessageTimestamp' => now()->toISOString(),
+            ]]]]);
+        });
+        $path = str_replace('/firmware-operations', '/firmware-compatibility', $f['path']);
+        $this->actingAs($f['owner'])->getJson($path)->assertServiceUnavailable()
+            ->assertJsonMissingPath('releases')->assertJsonMissingPath('source_snapshot_verified');
+        Http::assertSentCount($changeAt);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'alternate.example.test')
+            || str_contains($request->url(), '/dev/token') || str_contains($request->url(), '/ocpp/'));
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        $this->assertDatabaseCount('charger_reset_operations', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_firmware_matrix_rejects_source_firmware_version_drift_between_authenticated_reads(): void
     {
         $f = $this->fixture('2.0.1', [
