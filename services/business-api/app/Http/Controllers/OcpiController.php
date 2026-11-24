@@ -138,8 +138,7 @@ class OcpiController extends Controller
         abort_unless($activeOwner || ($r->user()->role === 'admin' && in_array($module, ['sessions', 'cdrs'], true)),
             409, 'Partner owner is not active for catalog synchronization.');
         try {
-            $records = $client->pull($provider, $module);
-            $counts = $sync->ingest($provider, $module, $records);
+            $counts = $client->synchronize($provider, $module, $sync);
         } catch (OcpiException $e) {
             abort(409, $e->getMessage());
         }

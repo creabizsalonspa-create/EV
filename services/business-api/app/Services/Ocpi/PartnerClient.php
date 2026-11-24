@@ -426,6 +426,26 @@ class PartnerClient
         throw new OcpiException('Operator pagination exceeded the configured page limit.');
     }
 
+    /** Manual synchronization must carry the same read authority through
+     * final canonical ingestion, including the interval after the last GET. */
+    public function synchronize(OcpiProvider $provider, string $module, RecordSynchronizer $synchronizer): array
+    {
+        $authority = $this->readAuthority($provider);
+        $records = $this->pull($provider, $module);
+
+        return DB::transaction(function () use ($provider, $module, $synchronizer, $authority, $records) {
+            $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            $this->assertCurrent($provider);
+            $this->assertReadAuthority($current, $authority);
+            $counts = $synchronizer->ingest($current, $module, $records);
+            // A changed in-process configuration must also roll back a batch
+            // that has already started canonical ingestion.
+            $this->assertReadAuthority($current, $authority);
+
+            return $counts;
+        }, 3);
+    }
+
     /** Fixed protocol writes only; the caller durably claims an identity before network I/O. */
     public function write(OcpiProvider $provider, string $module, string $method, array $segments, array $body): array
     {

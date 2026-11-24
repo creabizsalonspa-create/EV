@@ -4,10 +4,12 @@ namespace Tests\Feature;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -136,6 +138,67 @@ class OcpiAuthorizationBoundaryTest extends TestCase
         }
         Http::assertSentCount(1);
         $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_managed_credential_replacement_at_same_generation_stops_pagination(): void
+    {
+        $p = $this->provider();
+        config(['ocpi.connections.boundary.managed_credentials' => true,
+            'ocpi.connections.boundary.party_country' => 'NL', 'ocpi.connections.boundary.party_id' => 'ABC',
+            'ocpi.connections.boundary.party_role' => 'CPO',
+            'ocpi.local_credentials' => ['url' => 'https://platform.example/api/roaming-protocol/versions',
+                'roles' => [['role' => 'EMSP', 'country_code' => 'AE', 'party_id' => 'EVX',
+                    'business_details' => ['name' => 'Synthetic platform']]]]]);
+        $p->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        $id = DB::table('ocpi_credential_links')->insertGetId([
+            'provider_id' => $p->id, 'owner_id' => $p->owner_id, 'generation' => 1, 'state' => 'active',
+            'configuration_hash' => app(CredentialExchange::class)->configurationHash($p),
+            'bootstrap_hash' => hash('sha256', 'synthetic-bootstrap'),
+            'local_token_digest' => hash('sha256', 'synthetic-local'),
+            'local_token_ciphertext' => Crypt::encryptString('synthetic-local'),
+            'remote_token_ciphertext' => Crypt::encryptString('synthetic-remote'),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        Http::fake(function ($request) use ($id) {
+            $this->assertSame('Token '.base64_encode('synthetic-remote'), $request->header('Authorization')[0]);
+            DB::table('ocpi_credential_links')->where('id', $id)->update([
+                'remote_token_ciphertext' => Crypt::encryptString('synthetic-replacement'),
+            ]);
+
+            return Http::response($this->envelope([]), 200, ['Link' => '<https://partner.example/locations?page=2>; rel="next"']);
+        });
+        try {
+            app(PartnerClient::class)->pull($p, 'locations');
+            $this->fail('Changed managed authority continued pagination.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('connection authority changed', $error->getMessage());
+        }
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    public function test_configuration_change_during_manual_ingestion_rolls_back_whole_batch(): void
+    {
+        $p = $this->provider();
+        $p->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        $record = ['country_code' => 'AE', 'party_id' => 'TST', 'id' => 'source', 'last_updated' => now()->toISOString(),
+            'publish' => true, 'address' => 'Fixture', 'city' => 'Fixture', 'country' => 'ARE',
+            'coordinates' => ['latitude' => '25', 'longitude' => '55']];
+        Http::fake(fn () => Http::response($this->envelope([$record])));
+        $changed = false;
+        DB::listen(function ($query) use (&$changed) {
+            if (! $changed && str_starts_with($query->sql, 'insert into "ocpi_records"')) {
+                $changed = true;
+                config(['ocpi.connections.boundary.authorization_token' => base64_encode('replacement-synthetic')]);
+            }
+        });
+        $this->actingAs(User::findOrFail($p->owner_id))->postJson('/api/ocpi/providers/'.$p->id.'/sync/locations')
+            ->assertConflict();
+        $this->assertTrue($changed);
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertNull($p->fresh()->last_synced_at);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
