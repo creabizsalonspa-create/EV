@@ -297,7 +297,10 @@ class OcpiCpoCatalogTest extends TestCase
 
         $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertConflict();
         Http::assertNothingSent();
-        $this->assertDatabaseCount('ocpi_cpo_publication_operations', 0);
+        $this->assertDatabaseCount('ocpi_cpo_publication_operations', 1);
+        $this->assertSame('unknown', DB::table('ocpi_cpo_publication_operations')->value('state'));
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertConflict();
+        Http::assertNothingSent();
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
@@ -335,6 +338,39 @@ class OcpiCpoCatalogTest extends TestCase
         $this->assertSame('unknown', DB::table('ocpi_cpo_publication_operations')->value('state'));
         $this->assertSame(0, DB::table('audit_events')->where('action', 'ocpi.cpo_reconciled')->count());
         Http::assertSentCount(2);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_cpo_reconciliation_requires_original_durable_delivery_digest_between_requests(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sources = $this->source($owner);
+        [, $tariff] = $sources;
+        [, , $operations] = $this->peer($owner, 'owner', $sources);
+        config(['ocpi.cpo_push_enabled' => true]);
+        $url = $operations.'/tariffs/'.$tariff;
+        $stamp = $this->actingAs($admin)->publication($url)->assertOk()->json('published_at');
+        Http::fake(fn () => Http::response('', 504));
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertOk()->assertJsonPath('delivery', 'unknown');
+        $row = DB::table('ocpi_cpo_catalog')->first();
+        $operation = DB::table('ocpi_cpo_publication_operations')->first();
+        $this->assertNotNull($operation->publication_digest);
+        $payload = json_decode($row->payload, true, flags: JSON_THROW_ON_ERROR);
+        $payload['elements'][0]['price_components'][0]['price'] = 99;
+        $altered = json_encode($payload, JSON_THROW_ON_ERROR);
+        // Even a changed catalog row with an internally consistent new digest
+        // is not the original attempted publication.
+        DB::table('ocpi_cpo_catalog')->where('id', $row->id)->update(['payload' => $altered, 'payload_digest' => hash('sha256', $altered)]);
+        $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])->assertConflict();
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertConflict();
+        DB::table('ocpi_cpo_catalog')->where('id', $row->id)->update(['payload' => $row->payload, 'payload_digest' => $row->payload_digest]);
+        DB::table('ocpi_cpo_publication_operations')->where('id', $operation->id)->update(['publication_digest' => null]);
+        $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])->assertConflict();
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertConflict();
+        $this->assertSame('unknown', DB::table('ocpi_cpo_publication_operations')->value('state'));
+        $this->assertSame(0, DB::table('audit_events')->where('action', 'ocpi.cpo_reconciled')->count());
+        Http::assertSentCount(1);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
