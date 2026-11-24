@@ -37,7 +37,8 @@ void main() {
         await tester.pumpAndSettle();
       }
       Future<void> enter(String key, String value) async {
-        final field = find.byKey(Key(key));
+        final field = key.startsWith('catalog-nearby') || key == 'catalog-radiusKm'
+            ? find.byKey(PageStorageKey(key)) : find.byKey(Key(key));
         await tester.ensureVisible(field);
         await tester.enterText(field, value);
         await tester.pumpAndSettle();
@@ -58,7 +59,7 @@ void main() {
       expect(find.byKey(const Key('catalog-invalid-filter-summary')), findsOneWidget);
       await enter('catalog-price-currency', 'aed');
       await tap(find.byKey(const ValueKey('catalog-source-status-')));
-      await tester.tap(find.text(language == 'ar' ? 'متاح' : 'Available').last);
+      await tester.tap(find.text(language == 'ar' ? 'متاح بحسب المصدر' : 'Available').last);
       await tester.pumpAndSettle();
       await tap(find.text(strings.t('applyFilters')));
       expect(requests.last, {
@@ -68,12 +69,23 @@ void main() {
         'recent_source_status': 'Available', 'page': '1',
       });
       expect(find.byKey(const Key('catalog-invalid-filter-summary')), findsNothing);
+      await tap(find.text(strings.t('nearbySearch')));
+      await enter('catalog-nearbyLatitude', language == 'ar' ? '٢٥٫٢' : '25.2');
+      await enter('catalog-nearbyLongitude', '55.3');
+      await enter('catalog-radiusKm', '10');
+      await tap(find.text(strings.t('applyFilters')));
+      expect(requests.last['latitude'], '25.2');
+      expect(requests.last['longitude'], '55.3');
+      expect(requests.last['radius_km'], '10.0');
       await tap(find.text(strings.t('clearFilters')));
       expect(requests.last, {'page': '1'});
       for (final key in ['catalog-search','catalog-country','catalog-power',
         'catalog-addressSearch','catalog-operatorName','catalog-accessSearch',
-        'catalog-maximum-rate','catalog-price-currency']) {
-        final field = tester.widget<TextFormField>(find.byKey(Key(key)));
+        'catalog-maximum-rate','catalog-price-currency','catalog-nearbyLatitude',
+        'catalog-nearbyLongitude','catalog-radiusKm']) {
+        final finder = key.startsWith('catalog-nearby') || key == 'catalog-radiusKm'
+            ? find.byKey(PageStorageKey(key)) : find.byKey(Key(key));
+        final field = tester.widget<TextFormField>(finder);
         expect(field.controller!.text, isEmpty, reason: key);
       }
       expect(find.byKey(const ValueKey('catalog-source-status-')), findsOneWidget);
