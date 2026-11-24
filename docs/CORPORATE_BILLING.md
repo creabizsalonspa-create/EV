@@ -39,3 +39,37 @@ Migration `2026_10_28_200001` adds eight finance-only tables protected against U
 Executed `CorporateBillingTest`:12 tests/132 assertions on the current source, including the additive reconciliation response; final combined regression remains required. Coverage includes two-invoice canonical receipt/ledger reconciliation, replay, privacy, active membership/expiry, immutable decisions, partial-payment atomic rollback, PSP bypass prevention, credit limit, month/duplicate claims, actor authorization and production/provider gates. PostgreSQL process tests supplied in `CorporateBillingConcurrencyTest`: concurrent competing statements cannot exceed company credit limit; identical issue/payment workers share one statement and one canonical cash journal; two explicit fleet-lock wait/owner-transfer cases ensure former owners cannot decide claims or issue statements after ownership changes. Authorization and payer snapshots derive from the fresh fleet row after lock acquisition. They require the disposable PostgreSQL runner; supplied tests are not claimed executed until the root QA evidence records actual results.
 
 This is a functional **partial corporate financial layer**, not completion of all enterprise requirements. Still missing: negotiated company price/commission contracts applied before charging quotes, automatic cycle issuance using `billing_day`, company-level provider checkout/uncertainty recovery, bank/PSP collection and approved credit underwriting, correction/void/rebill policies when driver payments invalidate company collection, corporate-specific credit-note allocation, grace/collection escalation, granular delegated financial-manager roles, monthly statement notifications and full legal acceptance. Existing fleet identities/cost centers are reused; no native screen or operational fleet logic is recreated. `public/corporate-billing.js` now connects the implemented APIs through a lazy, session-fenced EN/AR responsive web panel. The real-Laravel `tests/corporate-billing.cjs` passed administrator publishing, explicit owner consent, driver own-invoice/cost-center allocation, review, selected-claim consolidation, canonical mock receipt, private CSV download and driver company-statement denial. Light/Dark390/768/1440 and Arabic RTL390 screenshots were captured with no horizontal overflow or JavaScript errors. Login retries are restricted to a single explicit429 with numeric Retry-After1..60 seconds; production rate limits are unchanged. Final combined/hosted evidence belongs in the root checkpoint. Real corporate payments, jurisdiction-specific tax/legal validity and regulated credit authorization require external approvals and provider access.
+
+
+## Exact immutable claim and consolidated collection source (24 November 2026)
+
+Corporate billing now checks raw persisted invoice monetary components
+before Eloquent integer casts can hide an invalid source. All nonnegative
+minor-unit amounts and every running subtotal, tax, total, outstanding
+credit-limit exposure, payment and refund sum must stay within the exact
+2^53−1 bound. Every approved claim must match its own canonical invoice
+amount, driver, currency and precision before it is consolidated. A
+statement whose gross total matches but whose individual tax/subtotal
+components differ from the original invoice fails closed with HTTP 409.
+
+The same source validation is shared by private statement detail/CSV,
+atomic mock payment and corporate hosted collection. Before preparing
+or retrying a hosted checkout or capturing an authorization, the source
+invoice lines, existing checkout fingerprint, amount, currency,
+precision and exact held invoice set must agree. The established
+checkout fingerprint encoding is preserved for existing requests.
+Provider cancel/expiry and read-only reconciliation remain independent;
+the validation does not silently replace or rewrite a financial record.
+
+New CorporateBillingTest regressions exercise exact money bounds,
+synthetic approved claim mismatch, and a forged subtotal/tax split
+with the original gross amount, verifying no statement or payment
+posting. CorporateHostedCollectionTest checks valid and mismatched
+checkout sources without disabling any immutable database trigger.
+Both existing SQL immutability and actual hosted TEST lifecycle
+regressions remain mandatory in hosted CI. No real financial collection,
+underwriting or corporate legal approval is inferred.
+
+Exact-source Finance/Platform CI and Agent 5-only integration are
+required. Preserve any independent pending corporate DTO/privacy tests
+in PR #248 when reconciling these source additions.
