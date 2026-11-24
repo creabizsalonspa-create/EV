@@ -448,7 +448,7 @@ class SignedFirmwareTest extends TestCase
         config(['csms.operations_base_url' => $original]);
         $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id);
         $this->assertNotNull(DB::table('charger_firmware_operations')->find($id)->pre_dispatch_blocked_at);
-        Http::assertSentCount(7);
+        Http::assertSentCount(8);
         Http::assertNotSent(fn ($r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), 'other.example.test'));
     }
 
