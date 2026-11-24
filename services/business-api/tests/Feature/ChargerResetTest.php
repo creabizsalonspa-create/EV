@@ -58,7 +58,7 @@ class ChargerResetTest extends TestCase
     {
         foreach (['1.6', '2.0.1'] as $protocol) {
             $f = $this->fixture($protocol);
-            $this->source($f);
+            $this->source($f, faultCode: $protocol === '1.6' ? 'NoError' : null);
             $body = ['reason' => 'PRIVATE operational safety review', 'idempotency_key' => 'reset-'.$protocol];
             $id = $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'transport_submitted')->assertJsonPath('capacity_released', false)->json('id');
             $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id);
@@ -177,7 +177,7 @@ class ChargerResetTest extends TestCase
     public function test_conflicting_source_status_clocks_cannot_authorize_a_reset(): void
     {
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['same_instant_conflict', 'reverse_source_clock'] as $kind) {
+            foreach (['same_instant_conflict', 'same_instant_fault_code', 'reverse_source_clock'] as $kind) {
                 $f = $this->fixture($protocol);
                 Http::swap(new Factory);
                 Http::preventStrayRequests();
@@ -195,8 +195,8 @@ class ChargerResetTest extends TestCase
                         'Transactions' => [],
                         'Connectors' => [['id' => 7]],
                         'StatusNotifications' => [
-                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => $first],
-                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Faulted', 'timestamp' => $second],
+                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => $first],
+                            ['connectorDatabaseId' => 7, 'connectorStatus' => $kind === 'same_instant_fault_code' ? 'Available' : 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => $second],
                         ],
                     ]]);
                 });
