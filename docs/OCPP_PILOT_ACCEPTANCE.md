@@ -130,6 +130,12 @@ A pilot remains **BLOCKED** unless every required protocol/model row is explicit
 - [ ] Tariff, energy, tax, invoice and ledger reconciliation — reviewer/date: __________________
 - [ ] Business owner authorizes the next scope — reviewer/date: __________________
 
+### Offline production configuration audit
+
+Run `php artisan csms:production-config-audit` against the intended production configuration using a restricted operator shell. This independent configuration-only check does not request an OAuth token, connect to a source or charger, read a certificate chain, enable an adapter, or mutate the database. It checks the production environment, disabled simulator/session-bridge and local-HTTP exceptions, HTTPS source/operations/identity endpoints and exact operations audience, OAuth client and scope formats, independent service secrets, pinned RSA public keys, issuer fingerprint syntax and presence of canonical charging tables.
+
+A successful exit means **configuration checks passed, live validation required**; a failing exit means one or more checks are blocked. Output contains only named check booleans, no credentials or endpoint values. The command is not a readiness approval: actual endpoint ownership, TLS certificate trust, issuer key validity, OAuth claims, migration/index parity, worker health, real source interoperability and production transport coverage require independent validation. Existing local-only operational paths remain disabled in production and this audit does not implement or authorize them. Do not enable production transport or connect hardware based on this result.
+
 ### Offline evidence manifest audit
 
 For each independently approved pilot scope, keep the manifest and the referenced evidence in the restricted evidence store. Run `node scripts/pilot-evidence-audit.cjs /private/path/manifest.json` on the local manifest; do not commit it. The validator reads a bounded regular JSON file, emits only fixed issue codes and boolean evidence limitations, and does not connect to a charger, CSMS, database, payment provider or evidence store.
