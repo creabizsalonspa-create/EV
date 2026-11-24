@@ -71,7 +71,21 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
     } catch (e) {
       if (current()) failed(e);
     } finally {
-      if (current()) setState(() => busy = false);
+      if (current()) {
+        setState(() => busy = false);
+      } else if (mounted && request == generation &&
+          identical(widget.api, api) && identical(ownSession, fence) &&
+          !fence()) {
+        // A retired account may leave an animated loading indicator behind
+        // even when its response is correctly ignored. Clear only this
+        // original view; never touch a successor request or its data.
+        setState(() {
+          generation++;
+          busy = false;
+          data = null;
+          error = null;
+        });
+      }
     }
   }
 
