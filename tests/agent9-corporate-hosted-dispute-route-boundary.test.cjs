@@ -10,14 +10,14 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '../services/business-api/routes');
 const targets = new Map([
-  ['corporate_billing.php', 10],
+  ['corporate_billing.php', 12],
   ['hosted_checkout.php', 4],
   ['corporate_hosted_checkout.php', 4],
   ['external_disputes.php', 5],
 ]);
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 
-test('all 23 typed route constraints use bounded integer patterns', () => {
+test('all 25 typed route constraints use bounded integer patterns', () => {
   let total = 0;
   for (const [file, count] of targets) {
     const src = read(file);
@@ -26,7 +26,7 @@ test('all 23 typed route constraints use bounded integer patterns', () => {
     assert.equal(constraints.length, count, file + ' numeric constraint inventory changed');
     total += count;
   }
-  assert.equal(total, 23);
+  assert.equal(total, 25);
 });
 
 test('hosted checkout reference, action names and dispute evidence IDs remain strictly controlled', () => {
@@ -47,4 +47,10 @@ test('oversized or malformed integer strings fail the route-matcher policy', () 
   for (const bad of ['negative', '-1', '2.0', '1e19', '9'.repeat(19), '9'.repeat(120)]) {
     assert.doesNotMatch(bad, policy);
   }
+});
+
+test('corporate cycle review and explicit issue both bound agreement IDs before dispatch', () => {
+  const src = read('corporate_billing.php');
+  assert.ok(src.includes("Route::get('/commercial/corporate/agreements/{agreement}/cycle-review', [CorporateCycleReviewController::class, 'show'])->where('agreement', '[0-9]{1,18}')"));
+  assert.ok(src.includes("Route::post('/commercial/corporate/agreements/{agreement}/cycle-review/issue', [CorporateCycleReviewController::class, 'issue'])->where('agreement', '[0-9]{1,18}')"));
 });
