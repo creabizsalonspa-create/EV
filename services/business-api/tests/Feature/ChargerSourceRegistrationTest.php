@@ -217,6 +217,71 @@ class ChargerSourceRegistrationTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public static function sourceDriftCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['lookup_url', 'mutation_url', 'lookup_disabled', 'readback_disabled'] as $drift) {
+                $cases[] = [$protocol, $drift];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('sourceDriftCases')]
+    public function test_inflight_source_generation_or_adapter_revocation_cannot_fabricate_registration(string $protocol, string $drift): void
+    {
+        $f = $this->fixture($protocol);
+        $id = $this->prepare($f);
+        $original = config('csms.graphql_url');
+        $alternate = 'https://alternate.example.test/v1/graphql';
+        $calls = 0;
+        Http::fake(function (Request $request) use ($drift, $original, $alternate, &$calls) {
+            $calls++;
+            $this->assertSame($original, $request->url());
+            if (str_contains($request['query'], 'insert_ChargingStations_one')) {
+                $this->writes++;
+                $this->remote = $request['variables']['object'] + ['id' => 401];
+                if ($drift === 'mutation_url') {
+                    config(['csms.graphql_url' => $alternate]);
+                }
+
+                return Http::response(['data' => ['insert_ChargingStations_one' => $this->remote]]);
+            }
+            if ($calls === 1) {
+                if ($drift === 'lookup_url') {
+                    config(['csms.graphql_url' => $alternate]);
+                } elseif ($drift === 'lookup_disabled') {
+                    config(['csms.upstream_registration_enabled' => false]);
+                }
+            } elseif ($drift === 'readback_disabled') {
+                config(['csms.upstream_registration_enabled' => false]);
+            }
+
+            return Http::response(['data' => ['ChargingStations' => $this->remote ? [$this->remote] : []]]);
+        });
+        $response = $this->postJson($f['path'].'/'.$id.'/register');
+        $this->assertContains($response->status(), [409, 503]);
+        $expectedCalls = match ($drift) {
+            'lookup_url', 'lookup_disabled' => 1,
+            'mutation_url' => 2,
+            'readback_disabled' => 3,
+        };
+        $this->assertSame($expectedCalls, $calls);
+        $this->assertSame($expectedCalls > 1 ? 1 : 0, $this->writes);
+        $this->assertDatabaseHas('charger_source_registrations', [
+            'id' => $id, 'state' => 'requires_inspection', 'source_station_id' => null, 'verified_at' => null,
+        ]);
+        config(['csms.graphql_url' => $original, 'csms.upstream_registration_enabled' => true]);
+        $this->postJson($f['path'].'/'.$id.'/register')->assertOk()->assertJsonPath('state', 'requires_inspection');
+        $this->assertSame($expectedCalls, $calls);
+        Http::assertNotSent(fn (Request $request) => $request->url() === $alternate);
+        $this->assertFalse(AdmissionProfile::firstOrFail()->enabled);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_dispatching_crash_receipt_is_inspectable_and_never_resent(): void
     {
         $f = $this->fixture();
