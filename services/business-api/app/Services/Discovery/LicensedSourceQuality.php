@@ -60,7 +60,7 @@ final class LicensedSourceQuality
         }
 
         return $row['returned_record_observations'] <= 25 * $row['successful_fetches']
-            && $row['unknown_time_observations'] + $row['older_than_24h_observations'] <= $row['returned_record_observations']
+            && $row['returned_record_observations'] >= $row['unknown_time_observations'] + $row['older_than_24h_observations']
             && $row['unknown_operating_observations'] <= $row['returned_record_observations'];
     }
 

@@ -22,7 +22,19 @@ window.EvNotificationEmail = {
                 try { await action(); } catch { failed(n); } finally { busy = false; if (b.isConnected) b.disabled = false; }
             }; return b;
         }
+        function showClosed() {
+            if (!root.isConnected) return;
+            root.replaceChildren(node('p', t(
+                'Private email notice history is closed. Return to this tab and refresh to verify the current state.',
+                'أُغلق سجل إشعارات البريد الخاص. ارجع إلى هذه الصفحة وحدّث للتحقق من الحالة.'
+            )));
+            button(t('Refresh', 'تحديث'), () => load());
+        }
         async function load(page = 1) {
+            // A first mount may already be backgrounded before visibility
+            // events are subscribed. Do not send either private request.
+            if (!root.isConnected) return;
+            if (document.hidden || !current()) { showClosed(); return; }
             if (!Number.isSafeInteger(page) || page < 1 || page > 100000) return failed(generation);
             const n = ++generation;
             const loading = node('p', t('Loading email notice preferences and handoff history…', 'جارٍ تحميل إعدادات إشعارات البريد وسجل النقل…'));
@@ -46,8 +58,9 @@ window.EvNotificationEmail = {
                 receipts.current_page !== page || receipts.last_page < page ||
                 receipts.last_page > 100000 ||
                 !receipts.data.every(row => row && typeof row === 'object' && !Array.isArray(row) &&
-                    typeof row.state === 'string' && typeof row.created_at === 'string' &&
-                    (row.evidence == null || typeof row.evidence === 'string')))
+                    typeof row.state === 'string' && row.state.length <= 64 &&
+                    typeof row.created_at === 'string' && row.created_at.length <= 80 &&
+                    (row.evidence == null || (typeof row.evidence === 'string' && row.evidence.length <= 2000))))
                 throw Error('Invalid response');
             root.replaceChildren();
             root.append(node('h3', t('Email activity notices', 'إشعارات النشاط بالبريد')), node('p', t('Optional generic notices to your verified account email. New unread activity only, at most once every 15 minutes. Message details stay in your account. Transport acceptance does not confirm delivery.', 'إشعارات عامة اختيارية إلى بريد حسابك الموثق للنشاط الجديد غير المقروء فقط، بحد أقصى مرة كل 15 دقيقة. تبقى التفاصيل في الحساب. قبول النقل لا يؤكد التسليم.')));
@@ -78,8 +91,21 @@ window.EvNotificationEmail = {
                 failed(n, page);
             }
         }
-        const hide = () => { if (document.hidden || !current()) { generation++; busy = false; root.replaceChildren(); } if (!root.isConnected) document.removeEventListener('visibilitychange', hide); };
+        function obscure() {
+            // BFCache can navigate away without a visibilitychange event.
+            generation++;
+            busy = false;
+            showClosed();
+        }
+        const hide = () => {
+            if (document.hidden || !current()) obscure();
+            if (!root.isConnected) {
+                document.removeEventListener('visibilitychange', hide);
+                window.removeEventListener('pagehide', obscure);
+            }
+        };
         document.addEventListener('visibilitychange', hide);
+        window.addEventListener('pagehide', obscure);
         try { await load(); } catch { failed(generation); }
     },
 };

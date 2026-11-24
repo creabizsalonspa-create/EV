@@ -20,9 +20,48 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
   String t(String en, String ar) => Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
   bool current(int ticket) => mounted && owner() && !background && ticket == generation;
   @override
-  void initState() { super.initState(); owner = widget.api.sessionFence(); WidgetsBinding.instance.addObserver(this); refresh(); }
+  void initState() {
+    super.initState();
+    owner = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    // The view can mount after the OS already obscured the application.
+    // Reading private recovery-code counts must require foreground context.
+    background = lifecycle != null && lifecycle != AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    if (!background) refresh();
+  }
+  void clearPrivate() {
+    generation++;
+    password.clear();
+    code.clear();
+    seed = null;
+    recovery = [];
+    status = null;
+    message = null;
+    busy = false;
+  }
+  @override
+  void didUpdateWidget(covariant AccountSecondFactorView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api || !owner()) {
+      // Retained EvApi instances can be reauthenticated without replacing the
+      // widget. Old setup secrets, one-time codes and status are never reused.
+      clearPrivate();
+      owner = widget.api.sessionFence();
+      // Do not read the replacement account without explicit foreground Refresh.
+    }
+  }
   Map<String, dynamic> valid(dynamic data) {
-    if (data is! Map || data['enabled'] is! bool || data['pending'] is! bool) throw const ApiException(502, 'Invalid authenticator status');
+    if (data is! Map ||
+        data['enabled'] is! bool ||
+        data['pending'] is! bool ||
+        (data['recovery_remaining'] != null &&
+          (data['recovery_remaining'] is! int ||
+           data['recovery_remaining'] < 0 || data['recovery_remaining'] > 100)) ||
+        (data['recovery_rotation_recommended'] != null &&
+          data['recovery_rotation_recommended'] is! bool)) {
+      throw const ApiException(502, 'Unverified authenticator status');
+    }
     return Map<String, dynamic>.from(data);
   }
   Future<void> act(Future<void> Function(int) task) async {
@@ -32,9 +71,20 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
     try { await task(ticket); }
     catch (error) {
       if (!current(ticket)) return;
-      if (error is ApiException && [401, 419].contains(error.status)) { seed = null; recovery = []; password.clear(); code.clear(); widget.onExpired?.call(); }
-      if (mounted) setState(() => message = t('Action not confirmed. Refresh and use your current password plus a fresh authenticator or unused recovery code.',
-        'لم يتأكد الإجراء. حدّث الحالة واستخدم كلمة مرورك الحالية ورمز تحقق جديداً أو رمز استرداد غير مستخدم.'));
+      if (error is ApiException && [401, 419].contains(error.status)) {
+        setState(clearPrivate);
+        widget.onExpired?.call();
+        return;
+      }
+      if (mounted) setState(() {
+        // A failed status GET or uncertain security mutation must not leave
+        // one-time recovery codes or old enabled/disabled controls actionable.
+        status = null;
+        seed = null;
+        recovery = [];
+        message = t('Action not confirmed. Refresh and use your current password plus a fresh authenticator or unused recovery code.',
+          'لم يتأكد الإجراء. حدّث الحالة واستخدم كلمة مرورك الحالية ورمز تحقق جديداً أو رمز استرداد غير مستخدم.');
+      });
     } finally { if (current(ticket)) setState(() => busy = false); }
   }
   Future<void> refresh() => act((ticket) async {
@@ -47,6 +97,7 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
     }
     final body = <String, dynamic>{'password': password.text, if (action != 'prepare') 'code': vendorDigits(code.text.trim())};
     password.clear(); code.clear();
+    try {
     await act((ticket) async {
       final result = await widget.api.request('account/second-factor/$action', method: 'POST', body: body);
       if (!current(ticket)) return;
@@ -56,7 +107,16 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
         if (result is! Map || result['secret'] is! String || !RegExp(r'^[A-Z2-7]{32}$').hasMatch(result['secret'] as String)) throw const ApiException(502, 'Invalid setup');
         nextSeed = result['secret'] as String;
       } else {
-        if (result is! Map || result['recovery_codes'] is! List) throw const ApiException(502, 'Invalid recovery response');
+        if (result is! Map ||
+            result['enabled'] is! bool ||
+            result['recovery_codes'] is! List ||
+            (result['recovery_codes'] as List).length > 20 ||
+            (result['recovery_codes'] as List).any((code) =>
+                code is! String || code.length < 8 || code.length > 100) ||
+            (result['reauthentication_required'] != null &&
+                result['reauthentication_required'] is! bool)) {
+          throw const ApiException(502, 'Invalid recovery response');
+        }
         nextRecovery = List<String>.from(result['recovery_codes'] as List);
       }
       if (result['reauthentication_required'] == true) {
@@ -67,15 +127,20 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
       if (!current(ticket)) return;
       setState(() { status = data; seed = nextSeed; recovery = nextRecovery; });
     });
+    } finally {
+      body.clear();
+    }
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      if (background) { setState(() { background = false; busy = false; }); refresh(); }
-    } else {
-      generation++; password.clear(); code.clear(); seed = null; recovery = []; status = null;
-      if (mounted) setState(() { background = true; busy = false; });
-    }
+    if (!mounted) return;
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == !background) return;
+    setState(() {
+      background = !resumed;
+      if (!resumed) clearPrivate();
+      // Resume exposes Refresh, but never silently reads private MFA state.
+    });
   }
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -111,5 +176,13 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
     ]),
   );
   @override
-  void dispose() { generation++; WidgetsBinding.instance.removeObserver(this); password.dispose(); code.dispose(); super.dispose(); }
+  void dispose() {
+    generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    password.clear();
+    code.clear();
+    password.dispose();
+    code.dispose();
+    super.dispose();
+  }
 }
