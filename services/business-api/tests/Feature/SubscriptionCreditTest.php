@@ -368,6 +368,18 @@ class SubscriptionCreditTest extends TestCase
         $this->webhook($object)->assertOk()->assertJsonPath('duplicate', false);
         $this->webhook($object)->assertOk()->assertJsonPath('duplicate', true);
         $this->webhook(array_replace($object, ['amount' => 1049]))->assertConflict();
+
+        // An explicit malformed identity on a new signed event must not
+        // fall back to the already observed provider reference.
+        $before = DB::table('commercial_subscription_ledger')->count();
+        foreach ([false, 1.5, '0', '-1', '1e3', '9007199254740992',
+            '999999999999999999999999', null] as $i => $unsafe) {
+            $this->webhook(array_replace($object, [
+                'metadata' => ['creabiz_recovery' => $unsafe],
+            ]), 'evt_BadRecoveryIdentity'.$i)->assertConflict();
+        }
+        $this->assertDatabaseCount('subscription_credit_webhooks', 1);
+        $this->assertSame($before, DB::table('commercial_subscription_ledger')->count());
         $this->assertDatabaseCount('subscription_credits', 1);
         $this->assertDatabaseHas('payment_recovery_intents', ['id' => $recoveryId, 'status' => 'completed']);
         $this->assertFalse(app(SubscriptionService::class)->summary($f[2])['entitlements_active']);
