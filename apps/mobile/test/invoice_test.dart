@@ -30,14 +30,15 @@ class InvoiceFixture extends FixtureApi {
         'evidence': 'SIMULATED',
         'subtotal_minor': 313,
         'tax_minor': 16,
-        'total_minor': corruptField == 'total_minor' ? -1 : 329,
+        'total_minor': corruptField == 'total_minor' ? -1 :
+            corruptField == 'arithmetic' ? 330 : 329,
         'currency': corruptField == 'currency' ? 'DANGEROUS' : 'AED',
       },
-      'paid_minor': 329,
-      'refunded_minor': 329,
-      'amount_due_minor': 0,
+      'paid_minor': corruptField == 'overpaid' ? 330 : 329,
+      'refunded_minor': corruptField == 'overrefund' ? 330 : 329,
+      'amount_due_minor': corruptField == 'due' ? 1 : 0,
       'unpaid_credited_minor': 0,
-      'state': 'refunded',
+      'state': corruptField == 'state' ? 'paid' : 'refunded',
       'ledger_balanced': true,
       'payments': corruptField == 'payment'
           ? [{'amount_minor': 'not-an-amount', 'created_at': '2026-11-16'}]
@@ -77,7 +78,125 @@ class DeferredInvoiceApi extends InvoiceFixture {
   }
 }
 
+class RotatingInvoiceApi extends InvoiceFixture {
+  final events = StreamController<int>.broadcast(sync: true);
+  int actorEpoch = 0;
+  @override
+  Stream<int> get sessionEvents => events.stream;
+  @override
+  bool Function() sessionFence() {
+    final captured = actorEpoch;
+    return () => captured == actorEpoch;
+  }
+
+  void rotate() {
+    actorEpoch++;
+    events.add(actorEpoch);
+  }
+
+  @override
+  void close() {
+    unawaited(events.close());
+    super.close();
+  }
+}
+
 void main() {
+  testWidgets('initial inactive invoice never issues a hidden POST', (tester) async {
+    final api = InvoiceFixture();
+    addTearDown(api.close);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    addTearDown(() => tester.binding.handleAppLifecycleStateChanged(
+      AppLifecycleState.resumed,
+    ));
+    await tester.pumpWidget(MaterialApp(
+      home: InvoicePage(api: api, sessionId: 7, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    expect(api.requests, 0);
+    expect(find.byType(OutlinedButton), findsNothing);
+    expect(find.text('Refresh'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.requests, 0);
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(api.requests, 1);
+    expect(find.text('SIM-FIXTURE'), findsOneWidget);
+  });
+
+  testWidgets('retired account immediately hides invoice and rejects cached actions', (
+    tester,
+  ) async {
+    final api = RotatingInvoiceApi();
+    addTearDown(api.close);
+    Widget screen(int id) => MaterialApp(
+      home: InvoicePage(api: api, sessionId: id, onExpired: () {}),
+    );
+    await tester.pumpWidget(screen(7));
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-FIXTURE'), findsOneWidget);
+    final oldDocument = tester.widget<OutlinedButton>(
+      find.byType(OutlinedButton).first,
+    ).onPressed!;
+    final oldRefresh = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, 'Refresh'),
+    ).onPressed!;
+    api.rotate();
+    oldDocument();
+    oldRefresh();
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-FIXTURE'), findsNothing);
+    expect(find.byType(OutlinedButton), findsNothing);
+    expect(find.text('Refresh'), findsNothing);
+    expect(api.requests, 1);
+    // Reusing the same API object cannot give the retired route a new actor.
+    await tester.pumpWidget(screen(8));
+    await tester.pumpAndSettle();
+    oldDocument();
+    oldRefresh();
+    await tester.pumpAndSettle();
+    expect(find.byType(OutlinedButton), findsNothing);
+    expect(api.requests, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('background and refreshed invoice reject former action callbacks', (
+    tester,
+  ) async {
+    final api = InvoiceFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: InvoicePage(api: api, sessionId: 7, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    final oldDocument = tester.widget<OutlinedButton>(
+      find.byType(OutlinedButton).first,
+    ).onPressed!;
+    final oldRefresh = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, 'Refresh'),
+    ).onPressed!;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    addTearDown(() => tester.binding.handleAppLifecycleStateChanged(
+      AppLifecycleState.resumed,
+    ));
+    oldDocument();
+    oldRefresh();
+    await tester.pumpAndSettle();
+    expect(api.requests, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(api.requests, 2);
+    oldDocument();
+    oldRefresh();
+    await tester.pumpAndSettle();
+    expect(api.requests, 2);
+    expect(find.text('SIM-FIXTURE'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('late old-account invoice result cannot repopulate financial actions', (
     tester,
   ) async {
@@ -186,7 +305,7 @@ void main() {
       expect(api.requests, 2);
     },
   );
-  for (final field in ['id', 'session', 'minor_units', 'total_minor', 'currency', 'payment', 'refund', 'credit_note']) {
+  for (final field in ['id', 'session', 'minor_units', 'total_minor', 'currency', 'payment', 'refund', 'credit_note', 'arithmetic', 'overpaid', 'overrefund', 'due', 'state']) {
     testWidgets('malformed invoice $field cannot open financial actions', (
       tester,
     ) async {
