@@ -112,3 +112,18 @@ test('hidden first mount, retired account and malformed reservation never reques
    assert.equal(fixtureCase.calls.length,0);
  }
 });
+
+
+test('SQL replay with fractional seconds matches the exact original reviewed expiry',async()=>{
+ const f=fixture();
+ const api=async(...args)=>{
+   const receipt=await f.api(...args);
+   if(args[0].endsWith('price-consent')){
+     return {...receipt,valid_until:receipt.valid_until.substring(0,23)
+       .replace('T',' ').replace('.', '.')};
+   }
+   return receipt;
+ };
+ assert.equal(await f.p.review({api,reservationId:7,current:f.current}),true);
+ assert.equal(f.calls.length,2,'No replayed consent POST');
+});
