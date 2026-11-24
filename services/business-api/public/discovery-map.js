@@ -826,6 +826,19 @@
             ["SIMULATED", "DISCOVERY_ONLY"].includes(row.station.evidence) &&
             !(row.station.evidence === "DISCOVERY_ONLY" &&
               row.station.reservable === true) &&
+            // An event from another script is not proof of server authority.
+            ["CCS2", "Type2", "CHAdeMO"].includes(row.station.connector_type) &&
+            Number.isSafeInteger(row.station.power_kw) &&
+            row.station.power_kw >= 1 && row.station.power_kw <= 1000 &&
+            (row.station.distance_km == null ||
+              (typeof row.station.distance_km === "number" &&
+               Number.isFinite(row.station.distance_km) &&
+               row.station.distance_km >= 0)) &&
+            (row.station.timezone == null ||
+              (typeof row.station.timezone === "string" &&
+               row.station.timezone.trim() !== "")) &&
+            (row.station.reservation_policy == null ||
+              typeof row.station.reservation_policy === "string") &&
             valid(row.station),
         ).map(row => row.station);
         partnerRows = rows.filter(row => row?.kind === 'partner').map(row => ({...row,id:row.record_id})).filter(partnerSafe);
