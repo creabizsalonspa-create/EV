@@ -41,12 +41,20 @@ class ContinuousFaultObserver
         return [$b, $company->id, $company->owner_id];
     }
 
-    private function graph(string $query, array $variables): array
+    private function requireSource(string $url, string $key): void
     {
-        // Revalidate and pin each HTTP request, even when a previous status
-        // page was read before a dynamic configuration change.
-        $url = app(CsmsGraphqlTransport::class)->requireApproved();
-        $reply = Http::connectTimeout(5)->timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, compact('query', 'variables'));
+        abort_unless(config('csms.fault_worker_enabled') && config('csms.session_bridge_enabled')
+            && app()->environment(['local', 'testing'])
+            && app(CsmsGraphqlTransport::class)->requireApproved() === $url
+            && hash_equals($key, (string) config('csms.graphql_secret')), 503,
+            'Fault source authority changed during observation.');
+    }
+
+    private function graph(string $query, array $variables, string $url, string $key): array
+    {
+        $this->requireSource($url, $key);
+        $reply = Http::connectTimeout(5)->timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $key])->post($url, compact('query', 'variables'));
+        $this->requireSource($url, $key);
         $data = $reply->json('data');
         abort_unless($reply->successful() && ! $reply->json('errors') && is_array($data), 503);
 
@@ -58,7 +66,8 @@ class ContinuousFaultObserver
         abort_unless(config('csms.fault_worker_enabled') && config('csms.session_bridge_enabled') && app()->environment(['local', 'testing']) && strlen((string) config('csms.graphql_secret')) >= 32, 503);
         // Reject an unreviewed plaintext/credential-bearing source URL before
         // any privileged GraphQL request or local fault cursor mutation.
-        app(CsmsGraphqlTransport::class)->requireApproved();
+        $url = app(CsmsGraphqlTransport::class)->requireApproved();
+        $key = (string) config('csms.graphql_secret');
         [$b, $companyId, $ownerId] = $this->scope($id);
         $generation = FaultMonitor::generation($b);
         $cursor = DB::table('charging_fault_cursors')->where('source_generation', $generation)->first();
@@ -76,7 +85,7 @@ class ContinuousFaultObserver
                 abort_unless(is_string($lastClock), 503, 'Status source cursor lacks durable clock evidence.');
                 $previousClock = CarbonImmutable::parse($lastClock, 'UTC');
             }
-            $source = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id protocol}}', ['name' => $b->identifier])['ChargingStations'] ?? null;
+            $source = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id protocol}}', ['name' => $b->identifier], $url, $key)['ChargingStations'] ?? null;
             abort_unless(is_array($source) && array_is_list($source) && count($source) <= 1, 503, 'Malformed source station projection.');
             $sourceId = $source[0]['id'] ?? null;
             if ($source) {
@@ -89,7 +98,7 @@ class ContinuousFaultObserver
             }
             $events = [];
             if ($sourceId !== null) {
-                $data = $this->graph('query($station:Int!,$after:Int!){StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},id:{_gt:$after}},order_by:{id:asc},limit:101){id connectorId evseId connectorStatus errorCode timestamp} newest:StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1){id}}', ['station' => $sourceId, 'after' => $after]);
+                $data = $this->graph('query($station:Int!,$after:Int!){StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},id:{_gt:$after}},order_by:{id:asc},limit:101){id connectorId evseId connectorStatus errorCode timestamp} newest:StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1){id}}', ['station' => $sourceId, 'after' => $after], $url, $key);
                 $events = $data['StatusNotifications'] ?? null;
                 $newest = $data['newest'] ?? null;
                 abort_unless(
@@ -176,7 +185,8 @@ class ContinuousFaultObserver
                 (count($events) > 100 || ($newest && $newest[0]['id'] > $lastRead) ? 'catching_up' : 'caught_up');
             $events = array_slice($events, 0, 100);
 
-            return $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $sourceId, $events, $state, $after, $ownerId, $companyId) {
+            return $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $sourceId, $events, $state, $after, $ownerId, $companyId, $url, $key) {
+                $this->requireSource($url, $key);
                 // The source observation, fault alert and vendor-only in-app
                 // notification commit atomically under the verified ownership lock.
                 // Historical replay never emits a second notification.
