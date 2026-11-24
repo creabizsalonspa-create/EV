@@ -105,7 +105,7 @@ final class LicensedSourceQuality
         $hour = now()->utc()->startOfHour();
         $samples = [];
         if ($enabled) {
-            for ($i = 23; $i >= 0; $i--) {
+            for ($i = 23; $i >= 0; --$i) {
                 $at = $hour->copy()->subHours($i);
                 try {
                     $row = Cache::get($this->key($at->format('YmdH')));
