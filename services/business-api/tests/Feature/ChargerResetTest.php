@@ -34,11 +34,11 @@ class ChargerResetTest extends TestCase
         return compact('owner', 'station', 'company', 'charger', 'binding', 'path', 'protocol');
     }
 
-    private function source(array $f, bool $active = false, bool $uncertain = false, ?string $statusTime = null, ?string $faultCode = 'NoError'): void
+    private function source(array $f, bool $active = false, bool $uncertain = false, ?string $statusTime = null, ?string $faultCode = 'NoError', ?callable $duringToken = null): void
     {
         Http::swap(new Factory);
         Http::preventStrayRequests();
-        Http::fake(function ($r) use ($f, $active, $uncertain, $statusTime, $faultCode) {
+        Http::fake(function ($r) use ($f, $active, $uncertain, $statusTime, $faultCode, $duringToken) {
             if ($r->url() === 'http://127.0.0.1:8095/v1/graphql') {
                 if (str_contains($r['query'], 'ChargingStations')) {
                     return Http::response(['data' => ['ChargingStations' => [['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']]]]]);
@@ -47,6 +47,10 @@ class ChargerResetTest extends TestCase
                 return Http::response(['data' => ['Transactions' => $active ? [['id' => 1]] : [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'errorCode' => $faultCode, 'timestamp' => $statusTime ?? now()->toISOString()]]]]);
             }
             if (str_ends_with($r->url(), '/dev/token')) {
+                if ($duringToken) {
+                    $duringToken();
+                }
+
                 return Http::response(['accessToken' => 'synthetic-source-token']);
             }
 
@@ -228,6 +232,22 @@ class ChargerResetTest extends TestCase
             $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Fault must retain the operation hold'])->assertConflict();
             $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null]);
             Http::assertNotSent(fn ($request) => str_contains($request->url(), '/configuration/reset'));
+        }
+    }
+
+    public function test_operations_origin_change_after_token_blocks_reset_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $original = config('csms.operations_base_url');
+            $this->source($f, duringToken: fn () => config(['csms.operations_base_url' => 'https://other.example.test']));
+            $body = ['reason' => 'Inspect reset token source drift', 'idempotency_key' => 'token-drift-'.$protocol];
+            $id = $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'outcome_unknown')->json('id');
+            config(['csms.operations_base_url' => $original]);
+            $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id);
+            Http::assertSentCount(5);
+            Http::assertNotSent(fn ($r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), 'other.example.test'));
+            $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null]);
         }
     }
 
