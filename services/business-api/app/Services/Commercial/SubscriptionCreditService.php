@@ -16,7 +16,59 @@ use Illuminate\Support\Str;
 
 class SubscriptionCreditService
 {
+    private const MAX_EXACT_MINOR = 9_007_199_254_740_991;
+
     public function __construct(private SubscriptionService $subscriptions, private PaymentRecovery $recovery) {}
+
+    /** Exact positive/zero minor units only; reject implicit float/boolean casts. */
+    private static function exactMinor(mixed $value): int
+    {
+        abort_unless(is_int($value) || is_string($value), 409,
+            'Subscription credit amount is not an exact integer.');
+        $amount = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($amount !== false && $amount >= 0 &&
+            $amount <= self::MAX_EXACT_MINOR,
+            409, 'Subscription credit exceeds exact minor-unit bounds.');
+
+        return $amount;
+    }
+
+    private static function checkedAdd(int $left, int $right): int
+    {
+        return self::exactMinor($left + $right);
+    }
+
+    /** Never trust a SQL SUM that may arrive rounded, coerced or overflowed. */
+    private static function sumCredits(iterable $rows, string $field): int
+    {
+        $sum = 0;
+        foreach ($rows as $row) {
+            $amount = is_array($row) ? $row[$field] : $row->{$field};
+            $sum = self::checkedAdd($sum, self::exactMinor($amount));
+        }
+
+        return $sum;
+    }
+
+    private static function credited(int $receipt, string $field = 'amount_minor'): int
+    {
+        abort_unless(in_array($field, ['amount_minor', 'subtotal_minor', 'tax_minor'], true),
+            409, 'Invalid credit source component.');
+
+        return self::sumCredits(
+            DB::table('subscription_credits')->where('receipt_id', $receipt)
+                ->get([$field]), $field);
+    }
+
+    private static function remaining(object $receipt): int
+    {
+        $captured = self::exactMinor($receipt->amount_minor);
+        $refunded = self::credited((int) $receipt->id);
+        abort_unless($refunded <= $captured, 409,
+            'Subscription credits exceed the captured receipt.');
+
+        return $captured - $refunded;
+    }
 
     private function provider(string $name): PaymentProvider
     {
@@ -73,8 +125,9 @@ class SubscriptionCreditService
             }
             $receipt = $this->receipt($subscription, $invoice);
             $checkout = $this->capture($receipt);
-            $refunded = (int) DB::table('subscription_credits')->where('receipt_id', $receipt->id)->sum('amount_minor');
-            abort_unless($amount > 0 && $amount <= (int) $receipt->amount_minor - $refunded, 409, 'Subscription refund exceeds remaining captured funds.');
+            abort_unless(self::exactMinor($amount) > 0 &&
+                $amount <= self::remaining($receipt), 409,
+                'Subscription refund exceeds remaining captured funds.');
             $id = DB::table('subscription_credit_requests')->insertGetId(['subscription_id' => $subscription, 'invoice_id' => $invoice, 'receipt_id' => $receipt->id, 'checkout_id' => $checkout?->id, 'actor_id' => $actor->id, 'request_key' => $requestKey, 'recovery_identity' => $checkout && $checkout->provider === 'stripe_test' ? hash('sha256', json_encode(['subscription', $checkout->id, 'refund', $requestKey], JSON_THROW_ON_ERROR)) : null, 'fingerprint' => $fingerprint, 'amount_minor' => $amount, 'currency' => $receipt->currency, 'reason' => $reason, 'created_at' => now()]);
 
             return DB::table('subscription_credit_requests')->find($id);
@@ -97,14 +150,16 @@ class SubscriptionCreditService
                 }
                 $currentReceipt = $this->receipt($s->id, $request->invoice_id);
                 $this->capture($currentReceipt);
-                $refunded = (int) DB::table('subscription_credits')->where('receipt_id', $receipt->id)->sum('amount_minor');
-                abort_unless((int) $request->amount_minor <= (int) $receipt->amount_minor - $refunded, 409, 'Subscription refund exceeds remaining captured funds.');
+                $amount = self::exactMinor($request->amount_minor);
+                $remaining = self::remaining($receipt);
+                abort_unless($amount > 0 && $amount <= $remaining, 409,
+                    'Subscription refund exceeds remaining captured funds.');
                 $i = DB::table('commercial_subscription_invoices')->find($request->invoice_id);
-                if ((int) $request->amount_minor + $refunded === (int) $receipt->amount_minor && (int) $s->cycle_number === (int) $i->cycle_number) {
+                if ($amount === $remaining && (int) $s->cycle_number === (int) $i->cycle_number) {
                     abort_if(DB::table('subscription_gateway_checkouts')->where('subscription_id', $s->id)->where('invoice_id', '!=', $i->id)->whereIn('status', ['pending', 'authorized', 'action_required'])->exists(), 409, 'Cancel or reconcile the next-cycle checkout before fully refunding the current entitlement.');
                 }
                 $reference = $checkout?->provider_reference ?? $receipt->provider_reference;
-                $result = $provider->refund($reference, (int) $request->amount_minor, $request->request_key);
+                $result = $provider->refund($reference, $amount, $request->request_key);
                 abort_unless(($result['status'] ?? null) === 'refunded' && is_string($result['reference'] ?? null), 409, 'Subscription provider refund is not final.');
 
                 return $this->post($request, $result['reference']);
@@ -130,21 +185,30 @@ class SubscriptionCreditService
         }
         $invoice = DB::table('commercial_subscription_invoices')->find($request->invoice_id);
         $receipt = DB::table('commercial_subscription_receipts')->find($request->receipt_id);
-        $credits = DB::table('subscription_credits')->where('receipt_id', $receipt->id);
-        $allocation = Money::allocate((int) $request->amount_minor, ['subtotal_minor' => (int) $invoice->subtotal_minor - (int) (clone $credits)->sum('subtotal_minor'), 'tax_minor' => (int) $invoice->tax_minor - (int) (clone $credits)->sum('tax_minor')]);
+        $amount = self::exactMinor($request->amount_minor);
+        $subtotal = self::exactMinor($invoice->subtotal_minor);
+        $tax = self::exactMinor($invoice->tax_minor);
+        $creditedSubtotal = self::credited((int) $receipt->id, 'subtotal_minor');
+        $creditedTax = self::credited((int) $receipt->id, 'tax_minor');
+        abort_unless($creditedSubtotal <= $subtotal && $creditedTax <= $tax, 409,
+            'Subscription credit allocations exceed the immutable invoice.');
+        $allocation = Money::allocate($amount, [
+            'subtotal_minor' => $subtotal - $creditedSubtotal,
+            'tax_minor' => $tax - $creditedTax,
+        ]);
         $id = DB::table('subscription_credits')->insertGetId(['request_id' => $request->id, 'number' => 'TEST-SUB-CN-'.Str::ulid(), 'subscription_id' => $request->subscription_id, 'invoice_id' => $invoice->id, 'receipt_id' => $receipt->id, 'actor_id' => $request->actor_id, 'amount_minor' => $request->amount_minor, ...$allocation, 'currency' => $invoice->currency, 'minor_units' => $invoice->minor_units, 'provider_reference' => $providerReference, 'evidence' => $receipt->evidence, 'reason' => $request->reason, 'created_at' => now()]);
         $cash = $receipt->evidence === 'STRIPE_TEST_CONTRACT' ? 'cash:stripe_test_subscription' : 'cash:mock_subscription';
-        foreach ([['subscription_revenue', $allocation['subtotal_minor'], 0], ['subscription_tax_payable', $allocation['tax_minor'], 0], [$cash, 0, (int) $request->amount_minor]] as [$account, $debit, $credit]) {
+        foreach ([['subscription_revenue', $allocation['subtotal_minor'], 0], ['subscription_tax_payable', $allocation['tax_minor'], 0], [$cash, 0, $amount]] as [$account, $debit, $credit]) {
             if ($debit || $credit) {
                 DB::table('commercial_subscription_ledger')->insert(['invoice_id' => $invoice->id, 'kind' => 'c'.$id, 'account' => $account, 'debit_minor' => $debit, 'credit_minor' => $credit, 'created_at' => now()]);
             }
         }
         $s = DB::table('commercial_subscriptions')->find($request->subscription_id);
-        $full = (int) DB::table('subscription_credits')->where('receipt_id', $receipt->id)->sum('amount_minor') === (int) $receipt->amount_minor;
+        $full = self::remaining($receipt) === 0;
         if ($full && (int) $s->cycle_number === (int) $invoice->cycle_number) {
             DB::table('commercial_subscriptions')->where('id', $s->id)->update(['status' => 'cancelled', 'cancelled_at' => now(), 'cancel_at_period_end' => false, 'next_plan_id' => null, 'updated_at' => now()]);
         }
-        DB::table('commercial_subscription_events')->insert(['subscription_id' => $request->subscription_id, 'actor_id' => $request->actor_id, 'kind' => 'credit_refund_posted', 'data' => json_encode(['credit_id' => $id, 'invoice_id' => $invoice->id, 'amount_minor' => (int) $request->amount_minor, 'evidence' => $receipt->evidence], JSON_THROW_ON_ERROR), 'created_at' => now()]);
+        DB::table('commercial_subscription_events')->insert(['subscription_id' => $request->subscription_id, 'actor_id' => $request->actor_id, 'kind' => 'credit_refund_posted', 'data' => json_encode(['credit_id' => $id, 'invoice_id' => $invoice->id, 'amount_minor' => $amount, 'evidence' => $receipt->evidence], JSON_THROW_ON_ERROR), 'created_at' => now()]);
         DB::table('audit_events')->insert(['actor_id' => $request->actor_id, 'action' => 'finance.subscription_credit_posted', 'subject' => (string) $id, 'created_at' => now()]);
 
         return DB::table('subscription_credits')->find($id);
