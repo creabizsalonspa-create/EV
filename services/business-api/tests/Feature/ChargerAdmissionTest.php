@@ -11,6 +11,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\AdmissionLifecycle;
+use App\Services\Charging\ChargerCertificates;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\DatabaseStore;
 use Illuminate\Database\QueryException;
@@ -19,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
@@ -253,18 +255,18 @@ class ChargerAdmissionTest extends TestCase
     public function test_ingress_rechecks_current_security_policy_before_returning_handshake_authority(string $protocol): void
     {
         [, , , , $secret] = $this->fixture($protocol);
-        $service = app(\App\Services\Charging\ChargerCertificates::class);
-        $mock = \Mockery::mock($service);
+        $service = app(ChargerCertificates::class);
+        $mock = Mockery::mock($service);
         $mock->shouldReceive('usable')->once()->andReturnUsing(function () {
             config(['csms.ingress_secret' => str_repeat('r', 64)]);
 
             return null;
         });
-        $this->app->instance(\App\Services\Charging\ChargerCertificates::class, $mock);
+        $this->app->instance(ChargerCertificates::class, $mock);
         $nonce = (string) Str::uuid();
         $this->admission($secret, nonce: $nonce)->assertServiceUnavailable();
         config(['csms.ingress_secret' => self::KEY]);
-        $this->app->instance(\App\Services\Charging\ChargerCertificates::class, $service);
+        $this->app->instance(ChargerCertificates::class, $service);
         $this->admission($secret, nonce: $nonce)->assertUnauthorized();
         $this->admission($secret)->assertNoContent();
         $this->assertDatabaseCount('charger_admission_events', 2);
