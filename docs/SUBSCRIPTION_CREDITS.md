@@ -38,3 +38,37 @@ Cancellation does not erase or automatically void unrelated unpaid cycle invoice
 `tests/Postgres/SubscriptionConcurrencyTest.php` additionally races same-key refund retries and distinct refund keys against one capture. The shared PostgreSQL runner must execute and persist those results before they are reported as passing. Root project QA/progress documents are authoritative for the latest executed totals.
 
 Remaining external gates: authorized test merchant account, test PaymentMethods, secure test credentials/signing secret, actual callback delivery, legal tax-note approval and merchant/security acceptance. Production refund endpoints remain disabled; no live key or live money is activated.
+
+
+## Exact canonical TEST refund source arithmetic (Agent 3, 24 November 2026)
+
+The refund/cash-credit boundary now rejects PHP float/boolean and
+malformed numeric source data **before** coercion into an exact
+minor-unit amount; positive/zero sources may not exceed 2^53−1.
+The `SubscriptionCreditService` reads individual immutable credit
+rows and checks **every** running sum, instead of relying on a SQL
+`SUM` (or its subsequent `(int)` cast) that could be rounded,
+truncated or overflowed. Remaining captured funds are computed from
+the actual receipt and already posted credits, under existing
+subscription/checkout locks and provider-request idempotency.
+
+The same exact-money checks now bind Stripe TEST capture and
+refund-evidence amount comparisons. A malformed authorized credit,
+provider recovery source, oversized aggregate, or allocation
+component outside the original invoice cannot generate a new local
+credit posting from a fabricated source. The immutable credit note
+and its exact subsidiary journal debit/credit totals are verified
+before returning a private detail response. The original
+fully-refunded cancellation policy and historical-cycle entitlement
+protection remain unchanged.
+
+Targeted `SubscriptionCreditTest` cases exercise 2^53−1 limits,
+float/boolean/exponent rejection, two valid 2^52-sized component
+sources whose sum is unrepresentable, a genuine TEST partial credit
+with exact posted debit/credit and zero read-side mutation. Existing
+refund, current-account revocation, provider timeout, signed Stripe
+TEST evidence and SQL-immutability regressions remain required. No
+new PSP/bank capability or production release is enabled: the real
+refund route remains disabled in production. Current-source Finance/
+Platform gates and Agent 5-only integration must complete before any
+software atom or production acceptance is credited.
