@@ -1,4 +1,5 @@
 import 'station_information.dart';
+import 'station_availability_blocks.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'operational_analytics.dart';
@@ -383,6 +384,39 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                           Text('${row['address']}'),
                           Text('${row['country']} · ${row['timezone']}'),
                           Text('${row['latitude']}, ${row['longitude']}'),
+                          // Only the vendor owner may change a station-wide
+                          // booking policy. A staff member's inventory grant
+                          // is not a station ownership grant.
+                          if (widget.metadataEditor &&
+                              capabilities['owner'] == true &&
+                              row['station_id'] is int &&
+                              (row['station_id'] as int) > 0)
+                            OutlinedButton.icon(
+                              key: Key('station-blocks-${row['station_id']}'),
+                              icon: const Icon(Icons.event_busy_outlined),
+                              onPressed: busy
+                                  ? null
+                                  : () async {
+                                      await Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) => StationAvailabilityBlocksView(
+                                            api: widget.api,
+                                            stationId: row['station_id'] as int,
+                                            onExpired: widget.onExpired,
+                                          ),
+                                        ),
+                                      );
+                                      if (mounted &&
+                                          ModalRoute.of(context)?.isCurrent == true) {
+                                        await load(page: data?.current ?? 1);
+                                      }
+                                    },
+                              label: Text(
+                                Localizations.localeOf(context).languageCode == 'ar'
+                                    ? 'إدارة فترات حجب المحطة'
+                                    : 'Manage station availability blocks',
+                              ),
+                            ),
                         ],
                         if (level == 2) ...[
                           Text('${row['manufacturer']} · ${row['model']}'),

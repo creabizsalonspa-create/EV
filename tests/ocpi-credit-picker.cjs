@@ -143,9 +143,20 @@ withSource(async (f) => {
     await vendor.waitForFunction(
       () => !document.querySelector("#commercial-finance").inert,
     );
-    const final = await f.driverClient.request(
-      `finance/invoices/${invoice.id}`,
-    );
+    // Browser logout invalidates the shared fixture session on the server.
+    // Prove that the old cookie cannot read the private invoice, then use
+    // a new authenticated customer session for the post-review ledger proof.
+    const invoicePath = `finance/invoices/${invoice.id}`;
+    await assert.rejects(f.driverClient.request(invoicePath), /failed [(]401[)]/);
+    const reader = new BusinessClient({ base: f.base });
+    reader.csrf = (await reader.request("csrf")).token;
+    const identity = await reader.request("login", "POST", {
+      email: f.driver,
+      password: f.password,
+    });
+    assert.equal(identity.role, "customer");
+    reader.csrf = (await reader.request("csrf")).token;
+    const final = await reader.request(invoicePath);
     assert.equal(final.refunds.length, 1);
     assert.equal(final.refunded_minor, 25);
     assert.equal(final.ledger_balanced, true);

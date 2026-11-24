@@ -2698,6 +2698,18 @@ window.EV_MESSAGES = {
         en: "Signed firmware releases",
         ar: "إصدارات البرامج الثابتة الموقعة",
     },
+    "Manage station availability blocks": {
+        en: "Manage station availability blocks",
+        ar: "إدارة فترات حجب المحطة",
+    },
+    "Close station availability blocks": {
+        en: "Close station availability blocks",
+        ar: "إغلاق إدارة فترات حجب المحطة",
+    },
+    "Station blocks unavailable": {
+        en: "Station blocks unavailable",
+        ar: "فترات حجب المحطة غير متاحة",
+    },
     "Signed firmware operations": {
         en: "Signed firmware operations",
         ar: "عمليات البرامج الثابتة الموقعة",

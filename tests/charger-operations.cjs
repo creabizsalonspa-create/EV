@@ -67,6 +67,50 @@ const { chromium } = require("playwright"),
       .first()
       .getByRole("button", { name: "Open company", exact: true })
       .click();
+    // A real, linked vendor-owned site exposes its station-wide
+    // reservation policy without assuming live charger availability.
+    const policyButton = ops.getByRole("button", {
+      name: "Manage station availability blocks", exact: true,
+    });
+    await policyButton.waitFor();
+    await policyButton.click();
+    const policy = ops.locator("[data-station-block-editor]");
+    await policy.getByRole("heading", {
+      name: "Station availability blocks", exact: true,
+    }).waitFor();
+    const utc = (offset) => new Date(Date.now() + offset).toISOString().slice(0, 19) + "Z";
+    const fields = policy.locator("form");
+    await fields.locator("[name=starts_at]").fill(utc(3600000));
+    await fields.locator("[name=ends_at]").fill(utc(7200000));
+    await fields.locator("[name=reason_en]").fill("Scheduled source-safe maintenance");
+    await fields.locator("[name=reason_ar]").fill("صيانة مجدولة آمنة");
+    waiting = page.waitForResponse((r) =>
+      new URL(r.url()).pathname === `/api/stations/${f.station_id}/availability-blocks` &&
+      r.request().method() === "POST");
+    await fields.getByRole("button", { name: "Publish station block" }).click();
+    const published = await waiting;
+    assert.equal(published.status(), 201);
+    const publishedBlock = await published.json();
+    assert.equal(publishedBlock.station_id, f.station_id);
+    assert.equal(publishedBlock.scope, "STATION_WIDE_OPERATOR_POLICY");
+    assert.equal(publishedBlock.physical_availability_verified, false);
+    await policy.getByText(/Scheduled source-safe maintenance/).waitFor();
+    await page.locator("#language").click();
+    await policy.getByText(/صيانة مجدولة آمنة/).waitFor();
+    await page.locator("#language").click();
+    waiting = page.waitForResponse((r) =>
+      new URL(r.url()).pathname ===
+        `/api/stations/${f.station_id}/availability-blocks/${publishedBlock.id}/cancel` &&
+      r.request().method() === "POST");
+    await policy.getByRole("button", { name: "Cancel this block" }).click();
+    assert.equal((await waiting).status(), 200);
+    await policy.getByRole("button", { name: "Cancel this block" }).waitFor({
+      state: "detached",
+    });
+    await policy.getByRole("button", {
+      name: "Close station availability blocks", exact: true,
+    }).click();
+    assert.equal(await ops.locator("[data-station-block-editor]").count(), 0);
     await ops
       .getByRole("button", { name: "Open chargers", exact: true })
       .click();
@@ -286,7 +330,7 @@ const { chromium } = require("playwright"),
 
     assert.deepEqual(errors, []);
     console.log(
-      "PASS real Laravel EN/AR390px charger identity, credential hide/revoke, unknown-command recovery, negative unbooted CSMS and positive authenticated 2.0.1 typed connector source status; no device commands, forced capacity release or physical acceptance.",
+      "PASS real Laravel EN/AR390px vendor station-wide availability publish/cancel, owner-linked site navigation; charger identity, credential hide/revoke, unknown-command recovery, negative unbooted CSMS and positive authenticated 2.0.1 typed connector source status; no device commands, forced capacity release or physical acceptance.",
     );
   } finally {
     await simulator?.close();

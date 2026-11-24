@@ -793,6 +793,48 @@ window.createVendorWorkspace = ({
                     button(row, "Open chargers", () =>
                         chargers(company, site, row, operational, epoch),
                     );
+                    // The station-wide policy belongs to the actual station
+                    // owner, not an invited staff member or an Admin reviewer.
+                    // Display it from the linked station ID only; never infer
+                    // a station from site coordinates or charger identifiers.
+                    if (
+                        caps.owner === true &&
+                        Number.isSafeInteger(site.station_id) &&
+                        site.station_id > 0
+                    ) {
+                        button(row, "Manage station availability blocks", () => {
+                            if (
+                                !current() ||
+                                !row.isConnected ||
+                                actor()?.role !== "vendor" ||
+                                actor()?.id !== company.owner_id
+                            ) return;
+                            row.querySelector("[data-station-block-editor]")?.remove();
+                            const shell = document.createElement("section");
+                            shell.dataset.stationBlockEditor = "";
+                            const editor = document.createElement("div");
+                            button(shell, "Close station availability blocks", () => {
+                                shell.remove();
+                            });
+                            shell.append(editor);
+                            row.append(shell);
+                            if (typeof window.EvStationBlocks?.mount !== "function") {
+                                editor.append(ui("p", "Station blocks unavailable"));
+                                return;
+                            }
+                            window.EvStationBlocks.mount(editor, {
+                                stationId: site.station_id,
+                                api: (path, method, body) =>
+                                    api(path, method || "GET", body, controller?.signal),
+                                current: () =>
+                                    current() &&
+                                    !document.hidden &&
+                                    shell.isConnected &&
+                                    actor()?.role === "vendor" &&
+                                    actor()?.id === company.owner_id,
+                            });
+                        });
+                    }
                     p.append(row);
                 },
                 1,
