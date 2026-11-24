@@ -53,6 +53,15 @@ class AdminCampaignApi extends FixtureApi {
     if (path == 'commercial/campaigns/7') return {
       'campaign': campaign(status: status, revision: revision),
       'currently_eligible': false,
+      'events': [
+        {'id': 10, 'campaign_id': 7, 'actor_id': 9, 'action': 'created',
+          'reason': 'Paid units reserved', 'created_at': '2026-11-01 00:00:00'},
+        {'id': 11, 'campaign_id': 7, 'actor_id': 9, 'action': 'submit',
+          'reason': 'Ready for review', 'created_at': '2026-11-01 00:01:00'},
+        if (status == 'approved')
+          {'id': 12, 'campaign_id': 7, 'actor_id': 1, 'action': 'approve',
+            'reason': 'Reviewed synthetic creative', 'created_at': '2026-11-01 00:02:00'},
+      ],
     };
     expect(method, 'POST');
     expect(path, 'commercial/campaigns/7/approve');
@@ -109,6 +118,17 @@ void main() {
       final raw = campaign(); change(raw);
       expect(() => AdminCampaignRecord.parse(raw), throwsFormatException);
     }
+    final history = [
+      {'id': 10, 'campaign_id': 7, 'actor_id': 9, 'action': 'created',
+        'reason': 'Paid units reserved', 'created_at': '2026-11-01 00:00:00'},
+      {'id': 11, 'campaign_id': 7, 'actor_id': 9, 'action': 'submit',
+        'reason': 'Ready for review', 'created_at': '2026-11-01 00:01:00'},
+    ];
+    expect(AdminCampaignEvent.parseHistory(history, record).last.id, 11);
+    expect(() => AdminCampaignEvent.parseHistory(history.take(1).toList(), record), throwsFormatException);
+    expect(() => AdminCampaignEvent.parseHistory([
+      history.first, {...history.last, 'campaign_id': 8},
+    ], record), throwsFormatException);
     final accepted = AdminCampaignRecord.parse(campaign(status: 'approved', revision: '12'));
     record.verifyDecision(accepted, 'approve');
     expect(() => record.verifyDecision(AdminCampaignRecord.parse(
