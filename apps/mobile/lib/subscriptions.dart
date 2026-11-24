@@ -500,6 +500,15 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
   bool foreground = true, hidden = false;
   bool Function()? currentSession;
   StreamSubscription<int>? sessionEvents;
+  Map<String, dynamic>? sourcePlan;
+
+  void freezePlan() {
+    // A retained transport Map must not change the plan/price after
+    // displaying consent or while an encrypted replay intent is pending.
+    sourcePlan = widget.plan == null
+        ? null
+        : _immutableSubscriptionValue(widget.plan) as Map<String, dynamic>;
+  }
 
   void observe(EvApi api) {
     sessionEvents?.cancel();
@@ -524,6 +533,7 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
     generation++;
     owner = 0;
     operation = null;
+    sourcePlan = null;
     error = null;
     consent = false;
     done = false;
@@ -537,6 +547,7 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     observe(widget.api);
+    freezePlan();
     foreground = WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     hidden = !foreground;
@@ -553,13 +564,14 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
       if (oldWidget.api != widget.api) observe(widget.api);
       clearPrivate();
       currentSession = null;
+      freezePlan();
       if (foreground) {
         final api = widget.api, action = widget.action;
-        final id = widget.subscriptionId, plan = widget.plan?['id'];
+        final id = widget.subscriptionId, plan = sourcePlan?['id'];
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && foreground && identical(api, widget.api) &&
               action == widget.action && id == widget.subscriptionId &&
-              plan == widget.plan?['id']) initialize();
+              plan == sourcePlan?['id']) initialize();
         });
       }
     }
@@ -607,8 +619,8 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
               (widget.subscriptionId == null || widget.subscriptionId! < 1 ||
                   widget.subscriptionId! > 9007199254740991)) ||
           (['enroll', 'change_plan'].contains(widget.action) &&
-              (widget.plan?['id'] is! int || widget.plan!['id'] < 1 ||
-                  widget.plan!['id'] > 9007199254740991)))
+              (sourcePlan?['id'] is! int || sourcePlan!['id'] < 1 ||
+                  sourcePlan!['id'] > 9007199254740991)))
         throw const FormatException('Invalid operation.');
       final me = await widget.api.request('me');
       if (!active(epoch, fence)) return;
@@ -641,7 +653,7 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
       final original = operation!.pending?['body'];
       if (original is Map &&
           original['plan_id'] != null &&
-          original['plan_id'] != widget.plan?['id']) {
+          original['plan_id'] != sourcePlan?['id']) {
         blocked = true;
         throw const ApiException(
           409,
@@ -690,7 +702,7 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
       final body = intent.pending == null
           ? <String, dynamic>{
               if (widget.action == 'enroll' || widget.action == 'change_plan')
-                'plan_id': widget.plan!['id'],
+                'plan_id': sourcePlan!['id'],
               if (widget.action != 'enroll') 'action': widget.action,
             }
           : Map<String, dynamic>.from(intent.pending!['body'] as Map);
@@ -753,20 +765,21 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
       padding: const EdgeInsets.all(16),
       children: [
         Text(t('notice')),
-        if (widget.plan != null && !blocked) ...[
-          Text('${widget.plan!['name']}'),
+        if (sourcePlan != null && operation != null && !blocked) ...[
+          Text('${sourcePlan!['name']}'),
           Text(
-            '${t('price')}: ${nativeFinancialAmount(c, widget.plan!, 'price_minor')}',
+            '${t('price')}: ${nativeFinancialAmount(c, sourcePlan!, 'price_minor')}',
           ),
         ],
         if (widget.subscriptionId != null) Text('#${widget.subscriptionId}'),
         if (widget.action == 'change_plan' && !busy && !blocked && !done &&
-            widget.subscriptionId != null && widget.plan?['id'] is int)
+            operation != null && widget.subscriptionId != null &&
+            sourcePlan?['id'] is int)
           SubscriptionPreviewPanel(
-            key: ValueKey('subscription-preview-${widget.subscriptionId}-${widget.plan!['id']}'),
+            key: ValueKey('subscription-preview-${widget.subscriptionId}-${sourcePlan!['id']}'),
             api: widget.api,
             subscriptionId: widget.subscriptionId!,
-            planId: widget.plan!['id'] as int,
+            planId: sourcePlan!['id'] as int,
             onExpired: widget.onExpired,
           ),
         if (operation?.pending != null) ...[
