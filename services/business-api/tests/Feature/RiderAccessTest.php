@@ -101,6 +101,53 @@ class RiderAccessTest extends TestCase
         return [$owner, $customer, $company, $id];
     }
 
+    public static function capabilityAuthorityCases(): array
+    {
+        $cases = [];
+        foreach (['publish', 'retire'] as $operation) {
+            foreach (['csms.graphql_secret', 'csms.rider_client_secret', 'csms.rider_source_api_url', 'csms.rider_callback_url'] as $field) {
+                $cases[] = [$operation, $field];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('capabilityAuthorityCases')]
+    public function test_capability_proof_cannot_authorize_a_replaced_source_policy(string $operation, string $field): void
+    {
+        [$owner, $customer, $company, $id] = $this->approvedSourceFixture();
+        if ($operation === 'retire') {
+            $this->actingAs($customer)->deleteJson('/api/rider-access/tokens/'.$id)->assertOk();
+        }
+        $before = RiderAccessToken::findOrFail($id);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($field) {
+            $this->assertStringStartsWith('http://citrine:8080/creabiz/rider-auth/capabilities?', $request->url());
+            parse_str(parse_url($request->url(), PHP_URL_QUERY), $query);
+            config([$field => str_starts_with($field, 'csms.rider_') && str_ends_with($field, '_url')
+                ? 'https://other.example.test/adapter' : str_repeat('r', 64)]);
+
+            return Http::response(['ready' => true, 'adapter_version' => 'creabiz-rider-v1', 'tenant_id' => 1,
+                'offline_fallback' => false, 'cache_seconds' => 0,
+                'proof' => hash_hmac('sha256', "creabiz-rider-v1\n".$query['nonce'], str_repeat('s', 64))]);
+        });
+        try {
+            app(RiderSourceProvisioner::class)->$operation($owner, $company, $id);
+            $this->fail('A capability proof authorized a changed trust policy.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $after = $before->fresh();
+        $this->assertSame($before->provisioning_state, $after->provisioning_state);
+        $this->assertNull($after->provisioned_at);
+        $this->assertNull($after->source_authorization_id);
+        $this->assertNull($after->provision_lease);
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public static function publicationSourceCases(): array
     {
         return [['valid'], ['lookup_origin'], ['insert_origin'], ['update_disabled'], ['changed_insert_id'], ['changed_update_id'], ['relative_expiry'], ['lookup_key'], ['insert_client'], ['update_callback'], ['lookup_capability_url']];
