@@ -123,10 +123,14 @@ class RiderSourceTimeTest extends TestCase
         } else {
             $this->assertFalse($target->targetMatches($binding, $map, $evse,
                 ['connectorId' => 7, 'evseId' => 2]));
+            $source['errorCode'] = 'GroundFailure';
+            $this->assertFalse($target->targetMatches($binding, $map, $evse, $scope),
+                'OCPP 2.0.1 Available accompanied by a source fault cannot grant rider access.');
+            $source['errorCode'] = null;
             $this->assertTrue($target->targetMatches($binding, $map, $evse, $scope));
         }
         $source['connectorId'] = 2;
         $this->assertFalse($target->targetMatches($binding, $map, $evse, $scope));
-        Http::assertSentCount($protocol === '1.6' ? 32 : 26);
+        Http::assertSentCount($protocol === '1.6' ? 32 : 28);
     }
 }
