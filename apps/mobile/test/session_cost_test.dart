@@ -32,6 +32,7 @@ void main() {
   test('canonical cost timestamps fail closed across English and Arabic', () {
     final invalid = <Map<String, dynamic>>[
       {'as_of': '2026-02-29T06:00:00.000000Z'},
+      {'as_of': '2026-11-14T06:00:00.000000Z\n'},
       {'as_of': '1900-02-29T06:00:00.000000Z'},
       {'as_of': '2026-04-31T06:00:00.000000Z'},
       {'as_of': '2026-11-14T24:00:00.000000Z'},
