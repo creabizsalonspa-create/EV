@@ -291,16 +291,29 @@ class _SubscriptionsState extends State<SubscriptionsView>
     try {
       final me = await widget.api.request('me');
       if (!active()) return;
-      if (!['customer', 'vendor'].contains(me['role']))
+      if (me is! Map || !['customer', 'vendor'].contains(me['role']) ||
+          me['id'] is! int || me['id'] < 1 ||
+          me['id'] > 9007199254740991)
         throw const ApiException(403, 'Role required.');
       final raw = await widget.api.request(
         'commercial/${plans ? 'plans' : 'subscriptions'}',
         query: {'page': '$target'},
       );
       if (!active()) return;
-      final parsed = ApiPage.fromJson(raw, (r) => r);
+      final parsed = ApiPage<Map<String, dynamic>>.fromJson(
+        raw,
+        (r) => _immutableSubscriptionValue(r) as Map<String, dynamic>,
+      );
+      // Paginated private source must not claim a different page,
+      // an impossible last page or a rounded JSON-wide count.
+      if (parsed.current != target || parsed.last < target ||
+          parsed.last > 100000 || parsed.total < 0 ||
+          parsed.total > 9007199254740991 || parsed.items.length > 25 ||
+          (parsed.total == 0 && parsed.items.isNotEmpty))
+        throw const FormatException('Invalid catalog page.');
       for (final r in parsed.items) {
-        if (r['id'] is! int || r['id'] < 1)
+        if (r['id'] is! int || r['id'] < 1 ||
+            r['id'] > 9007199254740991)
           throw const FormatException('Invalid source.');
         if (plans) {
           if (r['audience'] != me['role'] ||
