@@ -118,3 +118,33 @@ Agent 5), while each domain's own listeners remain specific to its
 source data and testable action. These are Flutter security
 acceptance improvements; no real bank/PSP, hardware or legal
 certification is claimed.
+
+
+## Accepted catalogue source integrity (24 November 2026)
+
+The native subscription catalogue now **deep-freezes each accepted plan or
+subscription list row**, including nested entitlements, before the UI retains
+the response. A mutable transport/fixture Map cannot alter the trusted plan
+price/ID, audience or displayed benefits after validation, even if a later
+Flutter rebuild occurs. The authenticated `me` response requires a
+browser-safe positive account ID and either customer or vendor role before
+fetching the subscription catalogue.
+
+For every explicit paginated read, the UI also verifies the server's
+`current_page` equals the request, `last_page` lies within a bounded
+page window, `total` is an exact nonnegative 2^53−1-safe integer,
+each catalogue row ID is positive and exact, and a zero-total page
+cannot fabricate items. Invalid authority metadata or page/source IDs
+fail closed without an enrollment POST. Real Flutter widget regressions
+exercise mutable accepted plan/nested entitlement values, forged page,
+oversized plan IDs and oversized counts. Existing private source wiping,
+manual refresh, no auto-replay and no real payment semantics are unchanged.
+
+The earlier Platform retry for exact head `5fbb66eb` passed the five
+underlying Platform jobs but failed the **recovery-acceptance provenance
+check** when the same workflow was rerun at attempt 2: it correctly
+rejected recovery evidence from attempt 1 (`workflow_run_attempt`
+mismatch). That old workflow result cannot be promoted to green by
+ignoring the provenance assertion. This newly committed genuine source
+change triggers a **new source SHA and first-attempt workflow**. CI must
+pass on that exact head and Agent 5 must perform the only canonical merge.
