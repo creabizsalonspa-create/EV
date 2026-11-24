@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ChargerDiagnosticsController;
+use App\Http\Controllers\ChargerResetController;
 use App\Http\Controllers\RiderSourceController;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
@@ -145,6 +147,31 @@ class CsmsGraphqlTransportTest extends TestCase
         Http::assertNothingSent();
         $this->assertDatabaseCount('csms_inbox_events', 0);
         $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_charger_diagnostic_and_reset_readers_reject_unknown_plaintext_sources_before_network(): void
+    {
+        config([
+            'csms.graphql_url' => 'http://charging-graphql.evil.test/v1/graphql',
+            'csms.safe_reset_enabled' => true,
+        ]);
+        try {
+            (new ReflectionMethod(ChargerDiagnosticsController::class, 'graph'))
+                ->invoke(app(ChargerDiagnosticsController::class), 'query{ChargingStations(limit:1){id}}', []);
+            $this->fail('Charger diagnostic reader sent secret to untrusted source.');
+        } catch (HttpException $e) {
+            $this->assertSame(503, $e->getStatusCode());
+        }
+        try {
+            app(ChargerResetController::class)->idle((object) ['id' => 999, 'station_id' => 999]);
+            $this->fail('Reset-idle read sent secret to untrusted source.');
+        } catch (HttpException $e) {
+            $this->assertSame(503, $e->getStatusCode());
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_reset_operations', 0);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
