@@ -54,7 +54,7 @@ void main(){
         supportedLocales:const [Locale('en'),Locale('ar')],
         localizationsDelegates:GlobalMaterialLocalizations.delegates,
         home:ConnectorChoicesView(station:station(7),currentSession:fence,sessionEvents:events.stream,
-          loader:(_)async{reads++;return reads==1?result([option(11,7)]):pending.future;},
+          loader:(_)async{reads++;if(reads==1)return result([option(11,7)]);return await pending.future;},
           onReserve:(_)async{writes++;},
         ),
       ));
