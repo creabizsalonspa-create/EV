@@ -363,7 +363,44 @@ class VendorRecordsView extends StatefulWidget {
   State<VendorRecordsView> createState() => _VendorRecordsState();
 }
 
-class _VendorRecordsState extends State<VendorRecordsView> {
+Set<String>? staffPermissionSet(dynamic raw) {
+  if (raw is! List || raw.isEmpty || raw.any((p) => p is! String || !vendorPermissions.contains(p))) return null;
+  final values = raw.cast<String>().toSet();
+  return values.length == raw.length ? values : null;
+}
+
+bool staffPermissionChangeReceipt(Map<String,dynamic> original, Set<String> desired, dynamic receipt) {
+  if (receipt is! Map || original['invitation_version'] is! int ||
+      receipt['id'] is! int || receipt['id'] != original['id'] ||
+      receipt['invitation_version'] is! int ||
+      receipt['invitation_version'] != original['invitation_version'] + 1 ||
+      receipt['status'] != 'invited' || receipt['requires_acceptance'] != true) return false;
+  final scopes = staffPermissionSet(receipt['permissions']);
+  return scopes != null && setEquals(scopes,desired);
+}
+
+bool staffAcceptanceReceipt(Map<String,dynamic> original,dynamic receipt) {
+  if (receipt is! Map || receipt['id'] != original['id'] ||
+      receipt['company_id'] != original['company_id'] ||
+      receipt['user_id'] != original['user_id'] ||
+      receipt['invitation_version'] != original['invitation_version'] ||
+      receipt['status'] != 'active' || receipt['admin_revoked_at'] != null) return false;
+  final expected = staffPermissionSet(original['permissions']);
+  final actual = staffPermissionSet(receipt['permissions']);
+  return expected != null && actual != null && setEquals(expected,actual);
+}
+
+class _VendorRecordsState extends State<VendorRecordsView> with WidgetsBindingObserver {
+  late bool Function() authorized;
+  StreamSubscription<int>? sessionSubscription;
+  bool foreground = true, retired = false, confirming = false;
+  bool get active => mounted && foreground && !retired && authorized();
+  bool current(int epoch) => active && generation == epoch;
+  bool get top => ModalRoute.of(context)?.isCurrent ?? true;
+  void redact() {
+    rows = null; currentCompany = null; error = null;
+    notice = null; busy = false; uncertain = false; confirming = false;
+  }
   ApiPage<Map<String, dynamic>>? rows;
   Map<String, dynamic>? currentCompany;
   Object? error;
@@ -377,62 +414,119 @@ class _VendorRecordsState extends State<VendorRecordsView> {
   @override
   void initState() {
     super.initState();
-    load();
+    authorized = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    final api = widget.api;
+    sessionSubscription = api.sessionEvents.listen((_) {
+      if (mounted && identical(api,widget.api) && !authorized()) {
+        setState(() { retired = true; redact(); });
+      }
+    });
+    if (active) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant VendorRecordsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api,widget.api) || oldWidget.kind != widget.kind ||
+        oldWidget.company?['id'] != widget.company?['id']) {
+      generation++; retired = true; redact();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    final next = state == AppLifecycleState.resumed;
+    if (next == foreground) return;
+    setState(() { foreground = next; generation++; redact(); });
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(sessionSubscription?.cancel());
     super.dispose();
+  }
+
+  void handleFailure(Object e, int epoch) {
+    if (current(epoch)) { fail(e); }
+    else if (mounted && foreground && epoch == generation &&
+        e is ApiException && e.endsCurrentSession) {
+      widget.onExpired();
+      if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
+    }
   }
 
   void fail(Object e) {
     setState(() {
       rows = null;
+      currentCompany = null;
       error = e;
     });
     if (e is ApiException && [401, 419].contains(e.status)) {
       widget.onExpired();
-      Navigator.of(context).popUntil((r) => r.isFirst);
+      if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
     }
   }
 
   Future<void> load() async {
-    final epoch = ++generation;
+    if (!active) return;
+    final epoch = ++generation, api = widget.api;
     setState(() {
       busy = true;
       rows = null;
       currentCompany = null;
       error = null;
+      confirming = false;
     });
     try {
       final company = widget.kind == 'invitations'
           ? null
           : Map<String, dynamic>.from(
-              await widget.api.request(
+              await api.request(
                     'vendor-ops/companies/${widget.company!['id']}',
                   )
                   as Map,
             );
+      if (!current(epoch)) return;
+      if (company != null && company['id'] != widget.company!['id'])
+        throw const FormatException('Wrong company source.');
       final r = ApiPage.fromJson(
-        await widget.api.request(base, query: {'page': '$page'}),
+        await api.request(base, query: {'page': '$page'}),
         (r) => r,
       );
-      if (mounted && epoch == generation)
+      if (!current(epoch)) return;
+      final seen = <int>{};
+      if (r.current != page || r.last < 1 || r.total < 0 || r.items.length > 25 ||
+          r.items.any((row) => row['id'] is! int || row['id'] <= 0 ||
+              !seen.add(row['id'] as int))) {
+        throw const FormatException('Wrong private record page.');
+      }
+      if (current(epoch))
         setState(() {
           rows = r;
           currentCompany = company;
           uncertain = false;
         });
     } catch (e) {
-      if (mounted && epoch == generation) fail(e);
+      handleFailure(e,epoch);
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> action(Map<String, dynamic> row) async {
-    if (!await vendorConfirm(
+    if (!active || !top || busy || confirming || !(rows?.items.contains(row) ?? false) ||
+        (widget.kind != 'invitations' && currentCompany?['capabilities']?['owner'] != true)) return;
+    final reviewed = generation, api = widget.api;
+    setState(() => confirming = true);
+    bool accepted = false;
+    try {
+      accepted = await vendorConfirm(
           context,
           widget.kind == 'invitations' ? 'acceptConsent' : 'revokeConsent',
           details: widget.kind == 'invitations'
@@ -441,13 +535,15 @@ class _VendorRecordsState extends State<VendorRecordsView> {
                   for (final p in row['permissions'] as List) t('$p'),
                 ]
               : const [],
-        ) ||
-        !mounted)
-      return;
+        );
+    } finally {
+      if (current(reviewed)) setState(() => confirming = false);
+    }
+    if (!accepted || !current(reviewed) || !top || busy) return;
     final epoch = ++generation;
     setState(() => busy = true);
     try {
-      await widget.api.request(
+      final receipt = await api.request(
         widget.kind == 'invitations'
             ? 'vendor-ops/staff-invitations/${row['id']}/accept'
             : '$base/${row['id']}',
@@ -456,21 +552,90 @@ class _VendorRecordsState extends State<VendorRecordsView> {
             ? {'expected_version': row['invitation_version']}
             : null,
       );
-      if (mounted && epoch == generation) await load();
+      if (!current(epoch)) return;
+      if (widget.kind == 'invitations' && !staffAcceptanceReceipt(row,receipt))
+        throw const FormatException('Unconfirmed invitation acceptance.');
+      await load();
     } catch (e) {
-      if (mounted && epoch == generation) {
-        fail(e);
-        setState(() => uncertain = true);
-      }
+      if (current(epoch)) uncertain = true;
+      handleFailure(e,epoch);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
+    }
+  }
+
+  bool canEdit(Map<String,dynamic> row) =>
+      widget.kind == 'staff' && currentCompany?['capabilities']?['owner'] == true &&
+      row['company_id'] == widget.company?['id'] &&
+      ['invited','active'].contains(row['status']) &&
+      row['admin_revoked_at'] == null && row['invitation_version'] is int &&
+      row['invitation_version'] > 0 && staffPermissionSet(row['permissions']) != null;
+
+  Future<void> editPermissions(Map<String,dynamic> row) async {
+    if (!active || !top || busy || confirming || !canEdit(row) ||
+        !(rows?.items.contains(row) ?? false)) return;
+    final original = staffPermissionSet(row['permissions'])!;
+    final desired = {...original};
+    final reviewed = generation, api = widget.api, path = '$base/${row['id']}/permissions';
+    setState(() => confirming = true);
+    Set<String>? decision;
+    try {
+      decision = await showDialog<Set<String>>(
+        context:context,
+        builder:(dialog) => StatefulBuilder(builder:(dialog,update) => AlertDialog(
+          title:Text(t('editPermissions')),
+          content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,
+            children:[
+              Text(t('editPermissionsConsent')),
+              for(final permission in vendorPermissions) CheckboxListTile(
+                value:desired.contains(permission),
+                title:Text(t(permission)),
+                onChanged:(value) => update(() {
+                  if(value == true) { desired.add(permission); }
+                  else { desired.remove(permission); }
+                }),
+              ),
+            ],
+          )),
+          actions:[
+            TextButton(onPressed:()=>Navigator.pop(dialog),child:Text(t('cancel'))),
+            FilledButton(
+              onPressed:desired.isEmpty || setEquals(desired,original) ? null :
+                ()=>Navigator.pop(dialog,Set<String>.of(desired)),
+              child:Text(t('confirm')),
+            ),
+          ],
+        )),
+      );
+    } finally {
+      if (current(reviewed)) setState(() => confirming = false);
+    }
+    if (decision == null || !current(reviewed) || !top || busy || !canEdit(row)) return;
+    final epoch = ++generation;
+    setState(() { busy = true; error = null; uncertain = false; });
+    try {
+      final receipt = await api.request(path,method:'PATCH',body:{
+        'expected_version':row['invitation_version'],
+        'permissions':[for(final permission in vendorPermissions) if(decision!.contains(permission)) permission],
+      });
+      if (!current(epoch)) return;
+      if (!staffPermissionChangeReceipt(row,decision,receipt))
+        throw const FormatException('Unconfirmed permission change.');
+      await load();
+    } catch(e) {
+      if (current(epoch)) uncertain = true;
+      handleFailure(e,epoch);
+    } finally {
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> create() async {
+    if (!active || !top || busy || confirming || currentCompany?['capabilities']?['owner'] != true) return;
+    final epoch = generation;
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => widget.kind == 'staff'
+        builder: (_) => !current(epoch) ? const Scaffold(body:SizedBox.shrink()) : widget.kind == 'staff'
             ? VendorInviteView(
                 api: widget.api,
                 company: widget.company!['id'] as int,
@@ -484,7 +649,7 @@ class _VendorRecordsState extends State<VendorRecordsView> {
               ),
       ),
     );
-    if (mounted) {
+    if (current(epoch) && top) {
       if (saved == true)
         setState(
           () =>
@@ -495,27 +660,31 @@ class _VendorRecordsState extends State<VendorRecordsView> {
   }
 
   Future<void> preview(Map<String, dynamic> row) async {
+    if (!active || !top || busy || confirming || !(rows?.items.contains(row) ?? false)) return;
     final epoch = ++generation;
     setState(() => busy = true);
     try {
       final doc = await widget.api.downloadDocument('$base/${row['id']}');
-      if (!mounted || epoch != generation) return;
+      if (!current(epoch)) return;
       if (doc.bytes.length != row['size_bytes'])
         throw const ApiException(502, 'Document metadata changed.');
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => VendorDocumentPreview(document: doc),
+          builder: (_) => !current(epoch) ? const Scaffold(body:SizedBox.shrink()) : VendorDocumentPreview(document: doc,revokedSessionEvents:widget.api.sessionEvents),
         ),
       );
     } catch (e) {
-      if (mounted && epoch == generation) fail(e);
+      handleFailure(e,epoch);
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final rendered = generation;
+    VoidCallback guard(VoidCallback action) => () { if (current(rendered) && top && !busy && !confirming) action(); };
+    if (!active) return Scaffold(appBar:AppBar(title:Text(t(widget.kind))),body:Center(child:Text(t('privateHidden'))));
     final editable = [
       'draft',
       'changes_requested',
@@ -536,7 +705,7 @@ class _VendorRecordsState extends State<VendorRecordsView> {
                 (widget.kind == 'staff' ||
                     (widget.kind == 'documents' && editable)))
               FilledButton(
-                onPressed: busy ? null : create,
+                onPressed: busy || confirming ? null : guard(create),
                 child: Text(t(widget.kind == 'staff' ? 'invite' : 'upload')),
               ),
             if (rows?.items.isEmpty == true) Text(t('empty')),
@@ -553,7 +722,7 @@ class _VendorRecordsState extends State<VendorRecordsView> {
                           Text('${row['mime_type']} · ${row['size_bytes']} B'),
                           Text('${row['created_at']}'),
                           TextButton(
-                            onPressed: busy ? null : () => preview(row),
+                            onPressed: busy || confirming ? null : guard(() => preview(row)),
                             child: Text(t('preview')),
                           ),
                         ] else if (widget.kind == 'reviews') ...[
@@ -573,13 +742,19 @@ class _VendorRecordsState extends State<VendorRecordsView> {
                             Text(t('$p')),
                           if (widget.kind == 'invitations')
                             FilledButton(
-                              onPressed: busy ? null : () => action(row),
+                              onPressed: busy || confirming ? null : guard(() => action(row)),
                               child: Text(t('accept')),
                             )
-                          else if (row['status'] != 'revoked')
+                          else if (row['status'] != 'revoked' && currentCompany?['capabilities']?['owner'] == true)
                             TextButton(
-                              onPressed: busy ? null : () => action(row),
+                              onPressed: busy || confirming ? null : guard(() => action(row)),
                               child: Text(t('revoke')),
+                            ),
+                          if (canEdit(row))
+                            TextButton(
+                              key:ValueKey('staff-permissions-${row['id']}'),
+                              onPressed:busy || confirming ? null : guard(()=>editPermissions(row)),
+                              child:Text(t('editPermissions')),
                             ),
                         ],
                       ],
@@ -592,24 +767,18 @@ class _VendorRecordsState extends State<VendorRecordsView> {
                   TextButton(
                     onPressed: busy
                         ? null
-                        : () {
-                            page--;
-                            load();
-                          },
+                        : guard(() { page--; load(); }),
                     child: Text(t('previous')),
                   ),
                 if (rows != null && page < rows!.last)
                   TextButton(
                     onPressed: busy
                         ? null
-                        : () {
-                            page++;
-                            load();
-                          },
+                        : guard(() { page++; load(); }),
                     child: Text(t('next')),
                   ),
                 TextButton(
-                  onPressed: busy ? null : load,
+                  onPressed: busy || confirming ? null : guard(load),
                   child: Text(t('refresh')),
                 ),
               ],
