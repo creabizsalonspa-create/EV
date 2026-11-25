@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
@@ -39,7 +40,11 @@ class FencedCaseApi extends FixtureApi {
   void revoke() { identity++; events.add(identity); }
   Completer<dynamic>? delayedEvidence, delayedUpload;
   Completer<PrivateDocument>? delayedDocument;
-  final bytes = Uint8List.fromList('%PDF-1.4\nFenced fixture'.codeUnits);
+  final Uint8List bytes;
+  final String mime;
+  FencedCaseApi({Uint8List? imageBytes})
+      : bytes = imageBytes ?? Uint8List.fromList('%PDF-1.4\nFenced fixture'.codeUnits),
+        mime = imageBytes == null ? 'application/pdf' : 'image/png';
 
   @override
   bool Function() sessionFence() {
@@ -72,7 +77,7 @@ class FencedCaseApi extends FixtureApi {
         'case_id': 7,
         'kind': 'service_record',
         'created_at': '2026-11-23',
-        'mime_type': 'application/pdf',
+        'mime_type': mime,
         'size_bytes': bytes.length,
         'sha256': sha256.convert(bytes).toString(),
         'evidence_status': 'PRIVATE_REVIEW_ONLY',
@@ -91,7 +96,7 @@ class FencedCaseApi extends FixtureApi {
     final waiting = delayedDocument;
     delayedDocument = null;
     if (waiting != null) return waiting.future;
-    return PrivateDocument(bytes, 'application/pdf');
+    return PrivateDocument(bytes, mime);
   }
 
   @override
@@ -319,5 +324,59 @@ void main() {
     expect(api.downloads, 0);
     expect(api.reads, 2);
     expect(find.byType(VendorDocumentPreview), findsNothing);
+  });
+
+  testWidgets('open private viewer retires when underlying case target changes', (
+    tester,
+  ) async {
+    final api = FencedCaseApi(imageBytes: base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=',
+    ));
+    final store = SessionCaseStore();
+    final target = ValueNotifier<int>(7);
+    await tester.pumpWidget(MaterialApp(
+      home: ValueListenableBuilder<int>(
+        valueListenable: target,
+        builder: (_, id, _) => CaseEvidenceView(
+          api: api, onExpired: () {}, caseId: id, store: store,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tapVisible(tester, 'View verified private file');
+    await tester.pumpAndSettle();
+    expect(find.byType(VendorDocumentPreview), findsOneWidget);
+    expect(api.downloads, 1);
+    target.value = 9;
+    await tester.pumpAndSettle();
+    expect(find.byType(VendorDocumentPreview), findsNothing);
+    expect(find.byType(InteractiveViewer), findsNothing);
+    expect(api.downloads, 1);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    target.dispose();
+  });
+
+  testWidgets('malformed stored evidence metadata cannot enable a file upload', (
+    tester,
+  ) async {
+    final api = FencedCaseApi(), store = SessionCaseStore();
+    final scope = '${api.base.origin}:1:case-evidence:7';
+    store.entries[scope] = {
+      'key': 'retained-fixture-identity',
+      'body': {
+        'kind': 'service_record',
+        'mime_type': 'application/pdf',
+        'size_bytes': -1,
+        'sha256': sha256.convert(api.bytes).toString(),
+      },
+    };
+    await tester.pumpWidget(evidenceScreen(api, store));
+    await tester.pumpAndSettle();
+    expect(find.text('Upload private evidence'), findsNothing);
+    expect(find.text('View verified private file'), findsNothing);
+    expect(store.entries.containsKey(scope), true);
+    expect(api.uploads, 0);
+    expect(store.writes, 0);
   });
 }

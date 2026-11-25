@@ -702,6 +702,12 @@ class _EvidenceState extends State<CaseEvidenceView>
   StreamSubscription<int>? session;
   bool revoked = false;
   int targetGeneration = 0;
+  // Asynchronous delivery avoids rebuilding a detached route during the
+  // underlying parent's didUpdateWidget/dispose framework phase.
+  final previewEvents = StreamController<int>.broadcast();
+  void retirePreview() {
+    if (!previewEvents.isClosed) previewEvents.add(generation);
+  }
   bool authorized() => !revoked && sessionFence();
   bool currentView(int view) => mounted && foreground && authorized() &&
       view == generation;
@@ -715,6 +721,7 @@ class _EvidenceState extends State<CaseEvidenceView>
       revoked = true;
       generation++;
       targetGeneration++;
+      retirePreview();
       redactFormerIdentity();
     });
     final lifecycle = WidgetsBinding.instance.lifecycleState;
@@ -731,6 +738,7 @@ class _EvidenceState extends State<CaseEvidenceView>
         !identical(oldWidget.store, widget.store)) {
       generation++;
       targetGeneration++;
+      retirePreview();
       if (!identical(oldWidget.api, widget.api)) revoked = true;
       operation = null;
       page = null;
@@ -757,6 +765,7 @@ class _EvidenceState extends State<CaseEvidenceView>
         choosingFile) {
       generation++;
       targetGeneration++;
+      retirePreview();
       choosingFile = false;
       foreground = false;
       setState(() {
@@ -783,6 +792,7 @@ class _EvidenceState extends State<CaseEvidenceView>
       }
       generation++;
       targetGeneration++;
+      retirePreview();
       setState(() {
         operation = null;
         page = null;
@@ -802,6 +812,8 @@ class _EvidenceState extends State<CaseEvidenceView>
   @override
   void dispose() {
     generation++;
+    retirePreview();
+    unawaited(previewEvents.close());
     session?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     file = null;
@@ -893,8 +905,20 @@ class _EvidenceState extends State<CaseEvidenceView>
       if (!mounted || !foreground || epoch != generation || !current() ||
           !identical(api, widget.api)) return;
       operation = op;
-      if (op.pending != null)
-        kind = (op.pending!['body'] as Map)['kind'] as String;
+      if (op.pending != null) {
+        final saved = op.pending!['body'];
+        if (saved is! Map ||
+            !['service_record', 'receipt', 'correspondence', 'other'].contains(saved['kind']) ||
+            !['application/pdf', 'image/png', 'image/jpeg'].contains(saved['mime_type']) ||
+            saved['size_bytes'] is! int || saved['size_bytes'] < 1 ||
+            saved['size_bytes'] > 4 * 1024 * 1024 ||
+            saved['sha256'] is! String ||
+            !RegExp(r'^[a-f0-9]{64}$').hasMatch(saved['sha256'])) {
+          operation = null;
+          throw const FormatException('Invalid saved evidence intent.');
+        }
+        kind = saved['kind'] as String;
+      }
       canUpload = raw['can_upload'] as bool;
       page = parsed;
     } catch (e) {
@@ -966,6 +990,7 @@ class _EvidenceState extends State<CaseEvidenceView>
           // retain former foreground authority or its private selection.
           generation++;
           targetGeneration++;
+      retirePreview();
           setState(() {
             choosingFile = false;
             page = null;
@@ -1065,14 +1090,24 @@ class _EvidenceState extends State<CaseEvidenceView>
           sha256.convert(doc.bytes).toString() != row['sha256'] ||
           vendorEvidenceMime(doc.bytes) != doc.mime)
         throw const FormatException('Private evidence integrity failed.');
+      final title = caseText(context, 'evidence');
+      final notice = caseText(context, 'private');
+      final privateCopy = PrivateDocument(Uint8List.fromList(doc.bytes), doc.mime);
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => currentView(epoch) ? VendorDocumentPreview(
-            document: doc,
-            title: caseText(context, 'evidence'),
-            notice: caseText(context, 'private'),
-            revokedSessionEvents: api.sessionEvents,
-          ) : const SizedBox.shrink(),
+          builder: (routeContext) => StreamBuilder<int>(
+            stream: previewEvents.stream,
+            builder: (context, _) => currentView(epoch)
+                ? VendorDocumentPreview(
+                    document: privateCopy,
+                    title: title,
+                    notice: notice,
+                  )
+                : Scaffold(
+                    appBar: AppBar(title: Text(title)),
+                    body: Center(child: Text(notice)),
+                  ),
+          ),
         ),
       );
     } catch (e) {
