@@ -9,6 +9,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\ContinuousFaultObserver;
+use App\Services\Charging\FaultMonitor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
@@ -166,6 +167,69 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertSame(0, app(ContinuousFaultObserver::class)->observe($f['binding'])['events']);
         $this->assertDatabaseCount('charging_status_observations', 250);
         $this->assertDatabaseCount('inbox_notifications', 4);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_retained_recovery_requires_exact_binding_and_protocol_clearance(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $foreign = $this->fixture($protocol);
+        $this->source($f, $this->events(1, 1), newest: 1);
+        $this->assertSame(1, app(ContinuousFaultObserver::class)->observe($f['binding'])['alerts_created']);
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $generation = FaultMonitor::generation($binding);
+        $alert = DB::table('charging_fault_alerts')->firstOrFail();
+        $recovered = [];
+        $scan = function () use ($binding, $generation, &$recovered) {
+            DB::transaction(function () use ($binding, $generation, &$recovered) {
+                $locked = DB::table('csms_bindings')->where('id', $binding->id)->lockForUpdate()->firstOrFail();
+                app(FaultMonitor::class)->ingest($locked,
+                    ['source_generation' => $generation, 'events' => []],
+                    null,
+                    function (int $id) use (&$recovered) {
+                        $recovered[] = $id;
+                    });
+            });
+        };
+        $candidate = [
+            'binding_id' => $foreign['binding'],
+            'source_generation' => $generation,
+            'source_event_id' => 2,
+            'fingerprint' => str_repeat('b', 64),
+            'evse_number' => 1, 'connector_number' => 1,
+            'status' => 'Available', 'error_code' => 'NoError',
+            'occurred_at' => now()->subMinutes(5), 'created_at' => now(),
+        ];
+        DB::table('charging_status_observations')->insert($candidate);
+        $scan();
+        $this->assertSame([], $recovered);
+        $this->assertNull(DB::table('charging_fault_alerts')->where('id', $alert->id)->value('recovery_observation_id'));
+
+        // This retained historical row lacks explicit OCPP 1.6 clearance.
+        // Null is only valid for the 2.0.1 status projection.
+        $local = array_replace($candidate, [
+            'binding_id' => $binding->id, 'source_event_id' => 3,
+            'fingerprint' => str_repeat('c', 64), 'error_code' => null,
+        ]);
+        $localId = DB::table('charging_status_observations')->insertGetId($local);
+        $scan();
+        if ($protocol === '1.6') {
+            $this->assertSame([], $recovered);
+            $this->assertNull(DB::table('charging_fault_alerts')->where('id', $alert->id)->value('recovery_observation_id'));
+            $localId = DB::table('charging_status_observations')->insertGetId(array_replace($local, [
+                'source_event_id' => 4, 'fingerprint' => str_repeat('d', 64),
+                'error_code' => 'NoError',
+            ]));
+            $scan();
+        }
+        $this->assertSame([(int) $alert->id], $recovered);
+        $this->assertDatabaseHas('charging_fault_alerts', [
+            'id' => $alert->id, 'recovery_observation_id' => $localId,
+        ]);
+        $scan();
+        $this->assertSame([(int) $alert->id], $recovered);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
     }

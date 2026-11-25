@@ -39,11 +39,36 @@ class FaultMonitor
         }
         // Persisted recovery evidence also handles backwards pagination: an older
         // fault discovered later can still link to a previously observed recovery.
-        $alerts = DB::table('charging_fault_alerts as a')->join('charging_status_observations as o', 'o.id', '=', 'a.observation_id')->where('o.source_generation', $generation)->whereNull('a.recovery_observation_id')
-            ->whereExists(fn ($q) => $q->selectRaw('1')->from('charging_status_observations as r')->whereColumn('r.source_generation', 'o.source_generation')->whereColumn('r.evse_number', 'o.evse_number')->whereColumn('r.connector_number', 'o.connector_number')->whereColumn('r.source_event_id', '>', 'o.source_event_id')->whereColumn('r.occurred_at', '>', 'o.occurred_at')->where('r.status', 'Available')->where(fn ($codes) => $codes->whereNull('r.error_code')->orWhere('r.error_code', 'NoError')))
+        // Older retained observations predate the strict source worker.
+        // Recheck their actual binding and protocol-specific clearance in
+        // both the candidate selection and the final recovery lookup.
+        $clearance = static function ($q, string $column) use ($binding) {
+            $q->where($column, 'NoError');
+            if ($binding->protocol === '2.0.1') {
+                $q->orWhereNull($column);
+            }
+        };
+        $alerts = DB::table('charging_fault_alerts as a')
+            ->join('charging_status_observations as o', 'o.id', '=', 'a.observation_id')
+            ->where('o.binding_id', $binding->id)->where('o.source_generation', $generation)
+            ->whereNull('a.recovery_observation_id')
+            ->whereExists(fn ($q) => $q->selectRaw('1')->from('charging_status_observations as r')
+                ->whereColumn('r.binding_id', 'o.binding_id')
+                ->whereColumn('r.source_generation', 'o.source_generation')
+                ->whereColumn('r.evse_number', 'o.evse_number')
+                ->whereColumn('r.connector_number', 'o.connector_number')
+                ->whereColumn('r.source_event_id', '>', 'o.source_event_id')
+                ->whereColumn('r.occurred_at', '>', 'o.occurred_at')
+                ->where('r.status', 'Available')
+                ->where(fn ($codes) => $clearance($codes, 'r.error_code')))
             ->orderBy('a.id')->limit(250)->select('a.id as alert_id', 'o.*')->get();
         foreach ($alerts as $alert) {
-            $recovery = DB::table('charging_status_observations')->where('source_generation', $generation)->where('evse_number', $alert->evse_number)->where('connector_number', $alert->connector_number)->where('source_event_id', '>', $alert->source_event_id)->where('occurred_at', '>', $alert->occurred_at)->where('status', 'Available')->where(fn ($q) => $q->whereNull('error_code')->orWhere('error_code', 'NoError'))->orderBy('source_event_id')->first();
+            $recovery = DB::table('charging_status_observations')
+                ->where('binding_id', $binding->id)->where('source_generation', $generation)
+                ->where('evse_number', $alert->evse_number)->where('connector_number', $alert->connector_number)
+                ->where('source_event_id', '>', $alert->source_event_id)->where('occurred_at', '>', $alert->occurred_at)
+                ->where('status', 'Available')->where(fn ($q) => $clearance($q, 'error_code'))
+                ->orderBy('source_event_id')->first();
             if ($recovery) {
                 // Compare-and-set ensures a replay or concurrent observer does
                 // not announce recovery twice. The lock belongs to the caller.
