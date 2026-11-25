@@ -168,7 +168,10 @@ class LoyaltyEconomicsProductionNoncashTest extends TestCase
         $ledger = DB::table('loyalty_ledger')->orderBy('id')->get()->toJson();
         $this->reviewedProduction();
         $v = $this->payload($f);
-        $this->action($f['maker'], 'publishCoupon', $v)->assertCreated();
+        $this->action($f['maker'], 'publishCoupon', $v + ['listed' => true])->assertCreated();
+        $this->action($f['customer'], 'discoverCoupons', [], true)->assertOk()->assertJsonPath('total', 0);
+        $fresh = User::factory()->create(['role' => 'customer']);
+        $this->action($fresh, 'discoverCoupons', [], true)->assertOk()->assertJsonPath('total', 1);
         $this->action($f['customer'], 'claimCoupon', ['code' => $v['code'], 'idempotency_key' => 'blocked'], true)->assertConflict();
         $account = app(LoyaltyService::class)->account($f['customer']->id);
         $this->assertSame(0, $account['spendable_points']);
