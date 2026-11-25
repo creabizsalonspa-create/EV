@@ -449,6 +449,33 @@ class UnifiedDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_partner_viewport_and_radius_reject_invalid_coordinates_consistently(): void
+    {
+        $f = $this->fixtures();
+        $record = $f['record'];
+        $normalized = array_replace($record->normalized, ['latitude' => '0', 'longitude' => '0']);
+        $record->update(['normalized' => $normalized]);
+        foreach ([
+            ['latitude' => 'invalid'], ['longitude' => true], ['latitude' => false],
+            ['longitude' => '360'], ['latitude' => '91'], ['longitude' => '1e999'],
+            ['latitude' => ['0']], ['longitude' => null],
+            ['latitude' => '0e000'], ['longitude' => '0'.str_repeat('0', 40)],
+        ] as $i => $change) {
+            $copy = $record->replicate();
+            $copy->external_id = 'invalid-coordinate-'.$i;
+            $copy->normalized = array_replace($normalized, $change);
+            $copy->save();
+        }
+        foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $path) {
+            $this->getJson($path.'?scope=partner&south=-1&north=1&west=-1&east=1')
+                ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.record_id', $record->id);
+        }
+        $this->getJson('/api/roaming/locations?latitude=0&longitude=0&radius_km=10')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $record->id)
+            ->assertJsonPath('data.0.distance_km', 0)->assertJsonPath('data.0.availability', 'unknown');
+        Http::assertNothingSent();
+    }
+
     public function test_map_view_requires_complete_finite_and_nondegenerate_bounds(): void
     {
         $this->fixtures();
