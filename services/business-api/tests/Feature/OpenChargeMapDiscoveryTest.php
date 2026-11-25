@@ -190,6 +190,25 @@ class OpenChargeMapDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_malformed_cache_envelope_is_rejected_without_refetch_or_private_error(): void
+    {
+        config(['discovery.ocm_quality_enabled' => true]);
+        Http::fake(fn () => Http::response([$this->point()], 200, ['Content-Type' => 'application/json']));
+        $input = $this->input();
+        $this->postJson('/api/discovery/open-charge-map/search', $input)->assertOk();
+        $key = 'ocm-discovery:'.LicensedSourceCache::identity(25.2, 55.3, 10, null, 'synthetic-private-ocm-key');
+        foreach (['synthetic-private-malformed-value', 42, true, [], [['private' => 'synthetic-private-malformed-value']]] as $invalid) {
+            Cache::put($key, $invalid, 300);
+            $this->postJson('/api/v1/discovery/open-charge-map/search', $input)
+                ->assertStatus(503)->assertJsonPath('reason', 'invalid_response')
+                ->assertHeader('Cache-Control', 'no-store, private')
+                ->assertDontSee('synthetic-private-malformed-value');
+        }
+        Http::assertSentCount(1);
+        $report = app(LicensedSourceQuality::class)->report();
+        $this->assertSame(1, $report['samples'][0]['successful_fetches']);
+    }
+
     public function test_disabled_source_is_invisible_to_network_and_never_exposes_key(): void
     {
         config(['discovery.ocm_enabled' => false]);
@@ -480,6 +499,34 @@ class OpenChargeMapDiscoveryTest extends TestCase
         Http::assertSentCount(4);
     }
 
+    public function test_non_list_or_invalid_json_is_not_cached_as_an_empty_licensed_sample(): void
+    {
+        config(['discovery.ocm_quality_enabled' => true]);
+        $point = $this->point();
+        Http::fakeSequence()
+            ->push('{}', 200, ['Content-Type' => 'application/json'])
+            ->push(json_encode((object) [$point], JSON_THROW_ON_ERROR), 200, ['Content-Type' => 'application/json'])
+            ->push('{"private":"NEVER_EXPOSE_PROVIDER_BODY"}', 200, ['Content-Type' => 'application/json'])
+            ->push('[', 200, ['Content-Type' => 'application/json'])
+            ->push(json_encode(array_fill(0, 26, $point), JSON_THROW_ON_ERROR), 200, ['Content-Type' => 'application/json'])
+            ->push('[]', 200, ['Content-Type' => 'application/json']);
+        $identity = LicensedSourceCache::identity(25.2, 55.3, 10, null, 'synthetic-private-ocm-key');
+        for ($i = 0; $i < 5; $i++) {
+            $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+                ->assertStatus(502)->assertJsonPath('reason', 'invalid_response')
+                ->assertDontSee('NEVER_EXPOSE_PROVIDER_BODY');
+            $this->assertNull(Cache::get('ocm-discovery:'.$identity));
+        }
+        $this->postJson('/api/v1/discovery/open-charge-map/search', $this->input())
+            ->assertOk()->assertJsonPath('count', 0);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+            ->assertOk()->assertJsonPath('count', 0);
+        Http::assertSentCount(6);
+        $samples = app(LicensedSourceQuality::class)->report()['samples'];
+        $this->assertSame(5, array_sum(array_column($samples, 'invalid_responses')));
+        $this->assertSame(1, array_sum(array_column($samples, 'successful_fetches')));
+    }
+
     public function test_provider_backoff_covers_other_coordinates_and_both_api_mounts_then_expires(): void
     {
         $this->travelTo(Carbon::parse('2026-11-20T01:00:00Z'));
@@ -679,6 +726,47 @@ class OpenChargeMapDiscoveryTest extends TestCase
         $this->assertFalse($source['reservable']);
     }
 
+    public function test_cached_public_fields_cannot_relay_nested_clock_or_unbounded_labels(): void
+    {
+        Http::fake(['api.openchargemap.io/*' => Http::response([$this->point()], 200, ['Content-Type' => 'application/json'])]);
+        $adapter = app(OpenChargeMapAdapter::class);
+        $source = $adapter->search(25.2, 55.3, 10, 'synthetic-private-ocm-key');
+        $this->assertSame(1, $source['count']);
+        foreach ([['private' => 'NEVER_EXPOSE_CLOCK'], 'NEVER_EXPOSE_CLOCK',
+            '2026-02-30T00:00:00Z', '0000-01-01T00:00:00Z', true] as $clock) {
+            $corrupt = $source;
+            $corrupt['results'][0]['source_updated_at'] = $clock;
+            $readout = $adapter->filterReported($corrupt);
+            $this->assertNull($readout['results'][0]['source_updated_at']);
+            $this->assertNull($readout['results'][0]['source_age_minutes']);
+            $this->assertSame('SOURCE_TIME_UNKNOWN', $readout['results'][0]['source_clock_evidence']);
+            $this->assertStringNotContainsString('NEVER_EXPOSE_CLOCK', json_encode($readout, JSON_THROW_ON_ERROR));
+            $this->assertSame(0, $adapter->filterReported($corrupt, maxSourceAgeHours: 1)['count']);
+        }
+        foreach (['name' => str_repeat('é', 161), 'address' => "private\nvalue",
+            'country' => 'ARE', 'data_provider' => str_repeat('x', 121),
+            'data_license' => str_repeat('x', 241), 'reported_cost_note' => "private\x7fvalue",
+            'connector' => str_repeat('x', 81)] as $field => $value) {
+            $corrupt = $source;
+            if ($field === 'connector') {
+                $corrupt['results'][0]['connections'][0]['reported_connector_type'] = $value;
+            } else {
+                $corrupt['results'][0][$field] = $value;
+                if ($field === 'data_provider') {
+                    $corrupt['results'][0]['attribution'] = 'Open Charge Map / '.$value;
+                }
+            }
+            try {
+                $adapter->filterReported($corrupt);
+                $this->fail('Unbounded public field accepted: '.$field);
+            } catch (LookupFailure $failure) {
+                $this->assertSame('invalid_response', $failure->reason);
+            }
+        }
+        $this->assertSame(1, $adapter->filterReported($source)['count']);
+        Http::assertSentCount(1);
+    }
+
     public function test_impossible_upstream_calendar_date_remains_unknown_and_cannot_pass_freshness(): void
     {
         $poi = $this->point();
@@ -749,6 +837,7 @@ class OpenChargeMapDiscoveryTest extends TestCase
             // previously roll February 30 into March and appear source-dated.
             $source['results'][0]['source_updated_at'] = '2026-02-30T00:00:00Z';
             $filtered = $adapter->filterReported($source);
+            $this->assertNull($filtered['results'][0]['source_updated_at']);
             $this->assertNull($filtered['results'][0]['source_age_minutes']);
             $this->assertSame('SOURCE_TIME_UNKNOWN', $filtered['results'][0]['source_clock_evidence']);
             $this->assertSame(1, $filtered['quality_sample']['source_time_unknown_or_future_count']);

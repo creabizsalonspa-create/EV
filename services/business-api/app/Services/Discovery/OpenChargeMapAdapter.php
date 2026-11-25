@@ -139,10 +139,8 @@ final class OpenChargeMapAdapter
                 || ($item['remote_control'] ?? null) !== false
                 || ($item['reservable'] ?? null) !== false
                 || ($item['billing_eligible'] ?? null) !== false
-                || ! is_string($item['data_provider'] ?? null)
-                || trim($item['data_provider']) === ''
-                || ! is_string($item['data_license'] ?? null)
-                || trim($item['data_license']) === ''
+                || ! LicensedPublicFields::text($item['data_provider'] ?? null, 120, false)
+                || ! LicensedPublicFields::text($item['data_license'] ?? null, 240, false)
                 || ! is_string($item['id'] ?? null)
                 || preg_match('/^ocm:([1-9][0-9]{0,9})$/D', $item['id'], $idMatch) !== 1
                 || (int) ($idMatch[1] ?? 0) > 2147483647
@@ -163,14 +161,15 @@ final class OpenChargeMapAdapter
                     throw new LookupFailure('invalid_response');
                 }
             }
-            foreach (['name', 'address', 'city', 'country', 'operator_label', 'reported_access', 'reported_cost_note'] as $label) {
-                if (! is_string($item[$label] ?? null)) {
+            foreach (['name' => 160, 'address' => 160, 'city' => 100, 'country' => 2,
+                'operator_label' => 120, 'reported_access' => 120, 'reported_cost_note' => 240] as $label => $limit) {
+                if (! LicensedPublicFields::text($item[$label] ?? null, $limit, $label !== 'name')) {
                     throw new LookupFailure('invalid_response');
                 }
             }
             foreach ($item['connections'] as $connection) {
                 if (! is_array($connection)
-                    || ! is_string($connection['reported_connector_type'] ?? null)
+                    || ! LicensedPublicFields::text($connection['reported_connector_type'] ?? null, 80, false)
                     || ($connection['availability'] ?? null) !== 'unknown'
                     || (($connection['reported_power_kw'] ?? null) !== null
                         && ! self::finiteBounded($connection['reported_power_kw'], 1000))
@@ -183,21 +182,11 @@ final class OpenChargeMapAdapter
             // The provider response is cached for 5 minutes. Recompute its
             // sourced age for every request, including unfiltered requests,
             // so a recent->stale transition is never frozen in the cache.
-            $sourceTime = $item['source_updated_at'] ?? null;
-            $seconds = null;
-            if (is_string($sourceTime) && preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/D', $sourceTime) === 1) {
-                // PHP's free-form DateTime constructor silently rolls invalid
-                // calendar dates forward (e.g. February 30 to March 2).
-                // Untrusted cached crowd timestamps must never inherit that
-                // fabricated freshness or a valid source-clock label.
-                $parsed = \DateTimeImmutable::createFromFormat(
-                    '!Y-m-d\TH:i:s\Z', $sourceTime, new \DateTimeZone('UTC')
-                );
-                if ($parsed !== false && \DateTimeImmutable::getLastErrors() === false
-                    && $parsed->format('Y-m-d\TH:i:s\Z') === $sourceTime) {
-                    $seconds = $parsed->getTimestamp();
-                }
-            }
+            $sourceTime = LicensedPublicFields::sourceClock($item['source_updated_at'] ?? null);
+            $seconds = $sourceTime?->getTimestamp();
+            // Do not relay a malformed cached timestamp (including a nested
+            // private object) under a public allowlisted field.
+            $item['source_updated_at'] = $sourceTime?->format('Y-m-d\\TH:i:s\\Z');
             $sourceAgeSeconds = $seconds !== null && $seconds <= $currentTime
                 ? $currentTime - $seconds : null;
             $item['source_age_minutes'] = $sourceAgeSeconds !== null
@@ -346,12 +335,7 @@ final class OpenChargeMapAdapter
                     throw new LookupFailure('invalid_response');
                 }
             }
-            $json = json_decode($body, true, 48, JSON_THROW_ON_ERROR);
-            if (! is_array($json) || ! array_is_list($json)) {
-                throw new LookupFailure('invalid_response');
-            }
-
-            return $json;
+            return LicensedSourceDocument::records($body);
         } catch (LookupFailure $exception) {
             throw $exception;
         } catch (\Throwable) {

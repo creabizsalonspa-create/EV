@@ -80,6 +80,136 @@ class UnifiedDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_sqlite_source_age_filters_reject_malformed_storage_and_keep_exact_boundaries(): void
+    {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('PostgreSQL uses a typed source timestamp.');
+        }
+        $this->travelTo(Carbon::parse('2026-11-15T12:00:00.500000Z'));
+        $record = $this->fixtures()['record'];
+        foreach ([
+            ['2026-11-15 11:30:99', 0],
+            ['2026-11-15 11:30:00.invalid', 0],
+            ['2026-11-15 11:30:00.1234567', 0],
+            ['2026-11-15 11:30:00+04:00', 0],
+            ['2026-11-15 11:30:00', 1],
+            ['2026-11-15T11:30:00Z', 1],
+            ['2026-11-15 12:00:00.5', 1],
+            ['2026-11-15 12:00:00.500001', 0],
+            ['2026-11-15T11:00:00.500000Z', 1],
+            ['2026-11-15 11:00:00.499999', 0],
+        ] as [$source, $count]) {
+            DB::table('ocpi_records')->where('id', $record->id)->update(['source_updated_at' => $source]);
+            foreach (['/api/discovery/search?scope=partner&', '/api/v1/discovery/search?scope=partner&', '/api/roaming/locations?'] as $path) {
+                $this->getJson($path.'max_source_age_hours=1')->assertOk()->assertJsonPath('total', $count)
+                    ->assertJsonCount($count, 'data');
+            }
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_partner_age_filter_uses_utc_even_on_non_utc_application_host(): void
+    {
+        $original = date_default_timezone_get();
+        $originalConfig = config('app.timezone');
+        try {
+            date_default_timezone_set('Asia/Dubai');
+            config(['app.timezone' => 'Asia/Dubai']);
+            $this->travelTo(Carbon::parse('2026-11-15T12:00:00.500000Z'));
+            $f = $this->fixtures();
+            foreach ([
+                ['2026-11-15T12:00:00.500000Z', 1],
+                ['2026-11-15T12:00:00.500001Z', 0],
+                ['2026-11-15T11:00:00.500000Z', 1],
+                ['2026-11-15T11:00:00.499999Z', 0],
+            ] as [$source, $count]) {
+                $f['record']->update(['source_updated_at' => Carbon::parse($source)]);
+                foreach (['/api/discovery/search?scope=partner&', '/api/v1/discovery/search?scope=partner&', '/api/roaming/locations?'] as $path) {
+                    $response = $this->getJson($path.'max_source_age_hours=1')->assertOk()->assertJsonPath('total', $count);
+                    if ($count === 1) {
+                        $response->assertJsonPath('data.0.catalog_checked_at', '2026-11-15T12:00:00.500000Z')
+                            ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.remote_control', false);
+                    }
+                }
+            }
+        } finally {
+            $this->travelBack();
+            date_default_timezone_set($original);
+            config(['app.timezone' => $originalConfig]);
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_partner_reported_status_and_connector_filter_must_match_one_evse(): void
+    {
+        $f = $this->fixtures();
+        $record = $f['record'];
+        $normalized = $record->normalized;
+        $normalized['connector_standards'] = ['IEC_62196_T2_COMBO', 'CHADEMO'];
+        $normalized['evses'] = [
+            ['uid' => 'available', 'reported_status' => 'AVAILABLE', 'connectors' => [['id' => 'a', 'standard' => 'CHADEMO']]],
+            ['uid' => 'charging', 'reported_status' => 'CHARGING', 'connectors' => [['id' => 'b', 'standard' => 'IEC_62196_T2_COMBO']]],
+        ];
+        $record->update(['normalized' => $normalized]);
+        $url = '/api/roaming/locations?';
+        $this->getJson($url.'reported_evse_status=AVAILABLE&connector_standard=IEC_62196_T2_COMBO')->assertOk()->assertJsonPath('total', 0);
+        $this->getJson($url.'reported_evse_status=AVAILABLE&connector_standard=CHADEMO')->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.remote_control', false);
+        $this->getJson($url.'reported_evse_status=CHARGING&connector_standard=IEC_62196_T2_COMBO')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson($url.'connector_standard=IEC_62196_T2_COMBO')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson($url.'reported_evse_status=AVAILABLE')->assertOk()->assertJsonPath('total', 1);
+        $normalized['evses'] = ['malformed-legacy-value', ['uid' => 'broken', 'reported_status' => 'AVAILABLE', 'connectors' => 'invalid']];
+        $record->update(['normalized' => $normalized]);
+        $this->getJson($url.'reported_evse_status=AVAILABLE&connector_standard=CHADEMO')->assertOk()->assertJsonPath('total', 0);
+        $normalized['evses'] = 'malformed-legacy-value';
+        $record->update(['normalized' => $normalized]);
+        $this->getJson($url.'reported_evse_status=AVAILABLE')->assertOk()->assertJsonPath('total', 0);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('reservations', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_reported_state_search_cannot_match_redacted_evse_or_connector(): void
+    {
+        $record = $this->fixtures()['record'];
+        $normalized = $record->normalized;
+        $normalized['connector_standards'] = ['CHADEMO'];
+        $evse = ['uid' => 'valid', 'reported_status' => 'AVAILABLE', 'connectors' => [
+            ['id' => 'valid', 'standard' => 'CHADEMO'],
+        ]];
+        $url = '/api/roaming/locations?reported_evse_status=AVAILABLE';
+        foreach ([null, ['private' => 'hidden'], true, '', str_repeat('x', 65), "bad\nuid"] as $invalid) {
+            $normalized['evses'] = [array_replace($evse, ['uid' => $invalid])];
+            $record->update(['normalized' => $normalized]);
+            $this->getJson($url)->assertOk()->assertJsonPath('total', 0);
+            $normalized['evses'] = [array_replace($evse, ['connectors' => [
+                ['id' => $invalid, 'standard' => 'CHADEMO'],
+            ]])];
+            $record->update(['normalized' => $normalized]);
+            $this->getJson($url.'&connector_standard=CHADEMO')->assertOk()->assertJsonPath('total', 0);
+        }
+        $normalized['evses'] = [...array_fill(0, 100, null), $evse];
+        $record->update(['normalized' => $normalized]);
+        $this->getJson($url)->assertOk()->assertJsonPath('total', 0);
+        $normalized['evses'] = [array_replace($evse, ['connectors' => [
+            ...array_fill(0, 20, null), $evse['connectors'][0],
+        ]])];
+        $record->update(['normalized' => $normalized]);
+        $this->getJson($url.'&connector_standard=CHADEMO')->assertOk()->assertJsonPath('total', 0);
+        $normalized['evses'] = [...array_fill(0, 99, null), array_replace($evse, ['connectors' => [
+            ...array_fill(0, 19, null), $evse['connectors'][0],
+        ]])];
+        $record->update(['normalized' => $normalized]);
+        $this->getJson($url.'&connector_standard=CHADEMO')->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.remote_control', false);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_partner_report_age_filter_is_bounded_before_pagination_and_leaves_catalog_unchanged(): void
     {
         $this->travelTo(Carbon::parse('2026-11-15T12:00:00Z'));
@@ -180,6 +310,60 @@ class UnifiedDiscoveryTest extends TestCase
             $this->getJson('/api/discovery/search?'.$query)->assertUnprocessable();
         }
         $this->getJson('/api/stations?station_id='.$f['station']->id)->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $f['station']->id);
+    }
+
+    public function test_partner_text_and_connector_search_cannot_match_nested_private_projection_data(): void
+    {
+        $f = $this->fixtures();
+        $record = $f['record'];
+        $original = $record->normalized;
+        $private = ['private' => 'private-hidden-value'];
+        $record->update(['normalized' => array_replace($original, [
+            'name' => $private, 'address' => $private, 'city' => $private,
+            'connector_standards' => ['private' => 'IEC_62196_T2_COMBO'],
+        ])]);
+        foreach (['/api/discovery/search?scope=partner&', '/api/v1/discovery/search?scope=partner&'] as $path) {
+            $this->getJson($path.'q=private-hidden-value')->assertOk()->assertJsonPath('total', 0);
+            $this->getJson($path.'address=private-hidden-value')->assertOk()->assertJsonPath('total', 0);
+            $this->getJson($path.'connector=CCS2')->assertOk()->assertJsonPath('total', 0);
+        }
+        $this->getJson('/api/roaming/locations?q=private-hidden-value')->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/roaming/locations?connector_standard=IEC_62196_T2_COMBO')->assertOk()->assertJsonPath('total', 0);
+        $record->update(['normalized' => array_replace($original, ['connector_standards' => 'IEC_62196_T2_COMBO'])]);
+        $this->getJson('/api/discovery/search?scope=partner&connector=CCS2')->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/roaming/locations?connector_standard=IEC_62196_T2_COMBO')->assertOk()->assertJsonPath('total', 0);
+        $record->update(['normalized' => $original]);
+        $this->getJson('/api/discovery/search?scope=partner&q=Shared&connector=CCS2')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson('/api/roaming/locations?q=Shared&connector_standard=IEC_62196_T2_COMBO')->assertOk()->assertJsonPath('total', 1);
+        Http::assertNothingSent();
+    }
+
+    public function test_partner_search_rejects_control_bearing_public_text(): void
+    {
+        $f = $this->fixtures();
+        $record = $f['record'];
+        $original = $record->normalized;
+        $controls = ["\x01", "\x1f", "\x7f", "\n", "\t"];
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            // PostgreSQL text does not support an embedded zero byte.
+            $controls[] = "\x00";
+        }
+        foreach ($controls as $control) {
+            $hidden = 'concealed-search-marker'.$control.'suffix';
+            $record->update(['normalized' => array_replace($original, [
+                'name' => $hidden, 'city' => $hidden, 'address' => $hidden,
+            ])]);
+            foreach (['/api/discovery/search?scope=partner&', '/api/v1/discovery/search?scope=partner&'] as $path) {
+                $this->getJson($path.'q=concealed-search-marker')->assertOk()->assertJsonPath('total', 0);
+                $this->getJson($path.'address=concealed-search-marker')->assertOk()->assertJsonPath('total', 0);
+            }
+            $this->getJson('/api/roaming/locations?q=concealed-search-marker')->assertOk()->assertJsonPath('total', 0);
+        }
+        $record->update(['normalized' => $original]);
+        $this->getJson('/api/discovery/search?scope=partner&q=Shared')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson('/api/v1/discovery/search?scope=partner&q=Shared')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson('/api/roaming/locations?q=Shared')->assertOk()->assertJsonPath('total', 1);
+        Http::assertNothingSent();
     }
 
     public function test_unified_saved_places_use_only_the_current_customers_existing_preferences(): void
@@ -384,6 +568,33 @@ class UnifiedDiscoveryTest extends TestCase
             $this->getJson($route.'?south=9&north=11&west=-1&east=1')
                 ->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'catalog');
         }
+        Http::assertNothingSent();
+    }
+
+    public function test_partner_viewport_and_radius_reject_invalid_coordinates_consistently(): void
+    {
+        $f = $this->fixtures();
+        $record = $f['record'];
+        $normalized = array_replace($record->normalized, ['latitude' => '0', 'longitude' => '0']);
+        $record->update(['normalized' => $normalized]);
+        foreach ([
+            ['latitude' => 'invalid'], ['longitude' => true], ['latitude' => false],
+            ['longitude' => '360'], ['latitude' => '91'], ['longitude' => '1e999'],
+            ['latitude' => ['0']], ['longitude' => null],
+            ['latitude' => '0e000'], ['longitude' => '0'.str_repeat('0', 40)],
+        ] as $i => $change) {
+            $copy = $record->replicate();
+            $copy->external_id = 'invalid-coordinate-'.$i;
+            $copy->normalized = array_replace($normalized, $change);
+            $copy->save();
+        }
+        foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $path) {
+            $this->getJson($path.'?scope=partner&south=-1&north=1&west=-1&east=1')
+                ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.record_id', $record->id);
+        }
+        $this->getJson('/api/roaming/locations?latitude=0&longitude=0&radius_km=10')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $record->id)
+            ->assertJsonPath('data.0.distance_km', 0)->assertJsonPath('data.0.availability', 'unknown');
         Http::assertNothingSent();
     }
 

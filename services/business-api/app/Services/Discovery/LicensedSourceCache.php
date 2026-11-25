@@ -24,7 +24,7 @@ final class LicensedSourceCache
         $key = 'ocm-discovery:'.$identity;
         $cached = Cache::get($key);
         if ($cached !== null) {
-            return $this->cachedArray($cached); // The adapter still validates every cached field.
+            return $this->cachedEnvelope($cached); // The adapter still validates every cached field.
         }
         $cooldown = 'ocm-cooldown:'.hash('sha256', $credential);
         $this->checkCooldown($cooldown);
@@ -37,7 +37,7 @@ final class LicensedSourceCache
         try {
             $cached = Cache::get($key);
             if ($cached !== null) {
-                return $this->cachedArray($cached);
+                return $this->cachedEnvelope($cached);
             }
             $this->checkCooldown($cooldown);
             try {
@@ -57,9 +57,11 @@ final class LicensedSourceCache
         }
     }
 
-    private function cachedArray(mixed $cached): array
+    private function cachedEnvelope(mixed $cached): array
     {
-        if (! is_array($cached)) {
+        if (! is_array($cached) || array_is_list($cached)) {
+            // A corrupted cache backend is not a reason to dispatch another
+            // provider request or return an uncaught PHP return-type error.
             throw new LookupFailure('invalid_response', 503);
         }
 
