@@ -278,6 +278,17 @@ class HostedCheckoutRecord {
             !approvedHostedPaymentUrl(Uri.parse(url))))
       throw const FormatException('Unapproved hosted payment URL.');
   }
+  /// A refreshed or mutated checkout must still be the same immutable billable
+  /// identity. Status and allowed actions may change; the amount and source may not.
+  bool sameFinancialSource(HostedCheckoutRecord other) {
+    const fields = [
+      'id', 'user_id', 'scope', 'invoice_id', 'subscription_id',
+      'canonical_checkout_id', 'statement_id', 'payer_id', 'line_fingerprint',
+      'amount_minor', 'currency', 'minor_units', 'evidence',
+    ];
+    return fields.every((field) => source[field] == other.source[field]);
+  }
+
   int get id => source['id'];
   String get status => source['status'];
   bool permits(String action) => action == 'simulate'
@@ -341,6 +352,7 @@ class _HostedState extends State<HostedCheckoutView>
   bool Function()? actor;
   StreamSubscription<int>? sessionSubscription;
   bool foreground = true, retired = false, confirming = false;
+  bool initialized = false;
 
   void redact() {
     record = null; records = null; statementSource = null;
@@ -423,7 +435,7 @@ class _HostedState extends State<HostedCheckoutView>
       if (mounted && identical(widget.api, source) && actor?.call() == false) {
         setState(() {
           retired = true; redact();
-          owner = 0; selected = null; creation = null; operations.clear();
+          initialized = false; owner = 0; selected = null; creation = null; operations.clear();
         });
       }
     });
@@ -444,7 +456,7 @@ class _HostedState extends State<HostedCheckoutView>
         !identical(oldWidget.store, widget.store)) {
       // A private route is never silently rebound to a different source.
       generation++; retired = true; redact();
-      owner = 0; selected = null; creation = null; operations.clear();
+      initialized = false; owner = 0; selected = null; creation = null; operations.clear();
     }
   }
 
@@ -462,7 +474,7 @@ class _HostedState extends State<HostedCheckoutView>
   void returnSignal() {
     if (current && top) {
       returned = true;
-      if (!busy) load();
+      if (!busy) { if (initialized) { load(); } else { initialize(); } }
     }
   }
 
@@ -475,7 +487,7 @@ class _HostedState extends State<HostedCheckoutView>
     } else if (current && top) {
       HostedPaymentReturnBridge.consume();
       returned = true;
-      if (owner == 0) {
+      if (!initialized) {
         initialize();
       } else {
         load();
@@ -502,10 +514,16 @@ class _HostedState extends State<HostedCheckoutView>
   Future<void> initialize() async {
     if (!current) return;
     final epoch = ++generation;
+    setState(() {
+      initialized = false;
+      busy = true;
+      error = null;
+      consent = false;
+    });
     try {
       final me = await widget.api.request('me');
       if (!current || epoch != generation) return;
-      if (me['id'] is! int || !['customer', 'vendor'].contains(me['role']))
+      if (me['id'] is! int || me['id'] <= 0 || !['customer', 'vendor'].contains(me['role']))
         throw const ApiException(403, 'Unsupported mobile actor.');
       owner = me['id'];
       if (widget.billableId != null &&
@@ -521,7 +539,10 @@ class _HostedState extends State<HostedCheckoutView>
         );
         await creation!.restore();
       }
-      if (current && epoch == generation) await load();
+      if (current && epoch == generation) {
+        initialized = true;
+        await load();
+      }
     } catch (e) {
       if (handlesFailure(e, epoch)) setState(() => fail(e));
     } finally {
@@ -530,7 +551,7 @@ class _HostedState extends State<HostedCheckoutView>
   }
 
   Future<void> load({int? number}) async {
-    if (!current || owner == 0) return;
+    if (!current || !initialized || owner == 0) return;
     final epoch = ++generation;
     if (number != null) page = number;
     setState(() {
@@ -541,6 +562,8 @@ class _HostedState extends State<HostedCheckoutView>
       hidden = false;
       retryDraft = false;
       consent = false;
+      confirming = false;
+      statementSource = null;
     });
     try {
       if (widget.corporate) {
@@ -620,7 +643,7 @@ class _HostedState extends State<HostedCheckoutView>
           'subscription_id': widget.subscriptionId,
         'consent': true,
       });
-      if (!current || epoch != generation) return;
+      if (!current || !top || epoch != generation) return;
       final r = parse(
         (await widget.api.request(
           endpoint,
@@ -669,7 +692,8 @@ class _HostedState extends State<HostedCheckoutView>
       );
       if (!current || epoch != generation) return;
       verifyStatement(fresh);
-      if (fresh.id != before.id || !ownRecord(fresh) || !fresh.permits('retry'))
+      if (!before.sameFinancialSource(fresh) || !contextMatches(fresh) ||
+          !ownRecord(fresh) || !fresh.permits('retry'))
         throw const ApiException(
           409,
           'Original checkout is not safely closed.',
@@ -751,7 +775,7 @@ class _HostedState extends State<HostedCheckoutView>
       } else if (name == 'simulate') {
         body = {'outcome': outcome, 'consent': true};
       }
-      if (!current || epoch != generation) return;
+      if (!current || !top || epoch != generation || !identical(record,before)) return;
       final r = parse(
         (await widget.api.request(
           '$endpoint/${before.id}/${name == 'retry_preparation' ? 'retry-preparation' : name}',
@@ -759,13 +783,7 @@ class _HostedState extends State<HostedCheckoutView>
           body: body,
         ))['checkout'],
       );
-      if (r.id != before.id ||
-          r.source['user_id'] != before.source['user_id'] ||
-          r.source['scope'] != before.source['scope'] ||
-          r.source['invoice_id'] != before.source['invoice_id'] ||
-          r.source['amount_minor'] != before.source['amount_minor'] ||
-          r.source['currency'] != before.source['currency'] ||
-          r.source['minor_units'] != before.source['minor_units'])
+      if (!before.sameFinancialSource(r) || !ownRecord(r) || !contextMatches(r))
         throw const FormatException('Payment acknowledgement mismatch.');
       verifyStatement(r);
       if (!current || epoch != generation) return;
@@ -859,7 +877,7 @@ class _HostedState extends State<HostedCheckoutView>
           const SizedBox(height: 16),
           OutlinedButton(
             key: const Key('hosted-refresh'),
-            onPressed: busy ? null : () { if (activeView()) { if (owner == 0) { initialize(); } else { load(); } } },
+            onPressed: busy ? null : () { if (activeView()) { if (!initialized) { initialize(); } else { load(); } } },
             child: Text(t('refresh')),
           ),
           if (busy) const Center(child: CircularProgressIndicator()),

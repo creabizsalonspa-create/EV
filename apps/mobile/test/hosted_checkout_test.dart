@@ -195,6 +195,24 @@ void main() {
       }
     },
   );
+  test('checkout immutable identity includes canonical payment and subscription', () {
+    final row = hostedFixture()
+      ..['scope'] = 'subscription'
+      ..['subscription_id'] = 17;
+    final original = HostedCheckoutRecord(row);
+    final statusChanged = {...row, 'status':'authorized', 'canonical_status':'authorized'};
+    expect(original.sameFinancialSource(HostedCheckoutRecord(statusChanged)),isTrue);
+    for (final change in [
+      {'canonical_checkout_id': 99},
+      {'subscription_id': 18},
+      {'user_id':2},
+      {'amount_minor':1235},
+      {'invoice_id':4},
+    ]) {
+      expect(original.sameFinancialSource(HostedCheckoutRecord({...row,...change})),isFalse);
+    }
+  });
+
   testWidgets(
     'creation requires explicit consent and privately stores exact intent before any POST',
     (tester) async {
@@ -345,6 +363,22 @@ void main() {
       expect(api.requests.where((r) => r['method'] == 'POST').length, 1);
     },
   );
+  testWidgets('terminal retry rejects a different canonical payment and retains durable intent', (tester) async {
+    final api=HostedApi()..row=hostedFixture(status:'cancelled');
+    final store=VendorOperationStore();
+    final scope='${api.base.origin}:1:hosted:create:charging:3';
+    final saved={'key':'original-payment-request','body':{'scope':'charging','invoice_id':3,'consent':true}};
+    await store.write(scope,saved);
+    await mount(tester,api,store:store);
+    await tap(tester,'hosted-retry');
+    api.row={...api.row!,'canonical_checkout_id':99};
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('hosted-error')),findsOneWidget);
+    expect(find.byKey(const Key('hosted-create')),findsNothing);
+    expect(api.requests.where((r)=>r['method']=='POST'),isEmpty);
+    expect(await store.read(scope),saved);
+  });
   testWidgets(
     'unknown preparation resumes only on explicit same-record action after foreground GET',
     (tester) async {
