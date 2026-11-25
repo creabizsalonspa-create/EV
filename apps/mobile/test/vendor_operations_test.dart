@@ -74,6 +74,7 @@ class VendorApi extends FixtureApi {
       }
       if (path.endsWith('/accept')) return {'id':7,'company_id':1,'user_id':2,'status':'active',
         'permissions':['inventory.read'],'invitation_version':3,'admin_revoked_at':null};
+      if (path.endsWith('/staff')) return {'message':'Invitation recorded if the account is eligible.'};
       return {'id': 9, ...?body};
     }
     if (path == 'regions')
@@ -133,7 +134,7 @@ class VendorApi extends FixtureApi {
     uploads++;
     writes.add({'path': path, 'kind': kind, 'key': key});
     if (lost) throw const ApiException(0, 'private server diagnostic');
-    return {'id': 5};
+    return {'id':5,'company_id':1,'kind':kind,'mime_type':mime,'size_bytes':bytes.length};
   }
 
   @override
@@ -148,6 +149,75 @@ Widget host(Widget child, {bool ar = false}) => MaterialApp(
   home: child,
 );
 void main() {
+  test('KYC acknowledgement binds the reviewed company and metadata without server secrets', () {
+    final receipt={'id':5,'company_id':1,'kind':'identity','mime_type':'image/png','size_bytes':10};
+    bool matches(dynamic value)=>evidenceUploadAcknowledged(value,1,'identity','image/png',10);
+    expect(matches(receipt),isTrue);
+    for(final change in [
+      {'id':0},{'company_id':2},{'kind':'agreement'},{'mime_type':'application/pdf'},
+      {'size_bytes':11},{'storage_path':'private'},{'sha256':'private'},
+    ]) { expect(matches({...receipt,...change}),isFalse); }
+    expect(staffInviteAcknowledged({'message':'Invitation recorded if the account is eligible.'}),isTrue);
+    expect(staffInviteAcknowledged({'id':7}),isFalse);
+  });
+  testWidgets('retained invitation action cannot dispatch after account rotation',(t) async {
+    final api=VendorApi();
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await t.pumpWidget(host(VendorInviteView(api:api,company:1,onExpired:(){})));
+    await t.pumpAndSettle();
+    await t.enterText(find.byType(TextField),'staff@example.test');
+    await t.tap(find.text('Read inventory'));
+    FocusManager.instance.primaryFocus?.unfocus();
+    await t.pumpAndSettle();
+    final invite=find.widgetWithText(FilledButton,'Invite staff member');
+    await t.ensureVisible(invite);
+    final old=t.widget<FilledButton>(invite).onPressed!;
+    api.rotate();
+    await t.pumpAndSettle();
+    old();
+    await t.pumpAndSettle();
+    expect(api.posts,0);
+    expect(find.text('staff@example.test'),findsNothing);
+    expect(find.byType(TextField),findsNothing);
+  });
+  testWidgets('selecting another KYC file invalidates earlier consent and retained upload',(t) async {
+    final api=VendorApi();
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await t.pumpWidget(host(VendorEvidenceUpload(api:api,company:1,onExpired:(){},
+      pick:() async=>VendorEvidence(png,'image/png'))));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Choose PDF, PNG or JPEG'));
+    await t.pumpAndSettle();
+    await t.tap(find.byType(Checkbox));
+    await t.pumpAndSettle();
+    final upload=find.widgetWithText(FilledButton,'Upload private evidence');
+    final old=t.widget<FilledButton>(upload).onPressed!;
+    await t.tap(find.text('Choose PDF, PNG or JPEG'));
+    await t.pumpAndSettle();
+    old();
+    await t.pumpAndSettle();
+    expect(api.uploads,0);
+    expect(t.widget<FilledButton>(upload).onPressed,isNull);
+    expect(t.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,isFalse);
+  });
+  testWidgets('late picker result cannot display evidence after credential rotation',(t) async {
+    final api=VendorApi(), pending=Completer<VendorEvidence?>();
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await t.pumpWidget(host(VendorEvidenceUpload(api:api,company:1,onExpired:(){},pick:()=>pending.future)));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Choose PDF, PNG or JPEG'));
+    await t.pump();
+    api.rotate();
+    pending.complete(VendorEvidence(png,'image/png'));
+    await t.pumpAndSettle();
+    expect(find.textContaining('Evidence selected'),findsNothing);
+    expect(find.byType(Checkbox),findsNothing);
+    expect(api.uploads,0);
+  });
+
   test('staff permission receipt requires exact membership, next revision and renewed consent', () {
     final original={'id':7,'invitation_version':3};
     final receipt={'id':7,'status':'invited','permissions':['charging.read','inventory.read'],

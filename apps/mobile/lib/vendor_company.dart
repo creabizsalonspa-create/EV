@@ -804,7 +804,90 @@ class VendorInviteView extends StatefulWidget {
   State<VendorInviteView> createState() => _VendorInviteState();
 }
 
-class _VendorInviteState extends State<VendorInviteView> {
+/// The invitation API deliberately does not disclose account existence.
+bool staffInviteAcknowledged(dynamic receipt) =>
+    receipt is Map && receipt['message'] == 'Invitation recorded if the account is eligible.';
+
+bool evidenceUploadAcknowledged(dynamic receipt,int company,String kind,
+    String mime,int size) =>
+    receipt is Map && receipt['id'] is int && receipt['id'] > 0 &&
+    receipt['company_id'] is int && receipt['company_id'] == company &&
+    receipt['kind'] == kind && receipt['mime_type'] == mime &&
+    receipt['size_bytes'] is int && receipt['size_bytes'] == size &&
+    !receipt.containsKey('storage_path') && !receipt.containsKey('sha256');
+
+/// These child routes own their original account fence for their entire
+/// lifetime. A parent rebuild must never rebind an unsubmitted private draft.
+mixin _PrivateVendorDraft<T extends StatefulWidget> on State<T>, WidgetsBindingObserver {
+  late bool Function() draftFence;
+  StreamSubscription<int>? draftEvents;
+  bool draftForeground = true, draftRetired = false;
+  int draftEpoch = 0;
+  EvApi get draftApi;
+  int get draftCompany;
+  void clearDraft();
+  bool get activeDraft => mounted && draftForeground && !draftRetired && draftFence();
+  bool draftCurrent(int epoch) => activeDraft && epoch == draftEpoch;
+  bool get draftTop => ModalRoute.of(context)?.isCurrent ?? true;
+  bool get pickingExternal => false;
+
+  @override
+  void initState() {
+    super.initState();
+    final api = draftApi;
+    draftFence = api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    draftForeground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    draftRetired = !draftForeground;
+    WidgetsBinding.instance.addObserver(this);
+    draftEvents = api.sessionEvents.listen((_) {
+      if (mounted && !draftFence()) {
+        setState(() { draftRetired = true; clearDraft(); });
+      }
+    });
+  }
+
+  void retireIfChanged(EvApi previous,int company) {
+    if (!identical(previous,draftApi) || company != draftCompany || !draftFence()) {
+      draftEpoch++; draftRetired = true; clearDraft();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    final next = state == AppLifecycleState.resumed;
+    if (next == draftForeground) return;
+    setState(() {
+      draftForeground = next;
+      // The native picker can temporarily cover the app. No consent exists
+      // while picking, and results are accepted only after foreground return.
+      if (!next && !pickingExternal) {
+        draftEpoch++; draftRetired = true; clearDraft();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    draftEpoch++;
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(draftEvents?.cancel());
+    super.dispose();
+  }
+}
+
+class _VendorInviteState extends State<VendorInviteView>
+    with WidgetsBindingObserver, _PrivateVendorDraft<VendorInviteView> {
+  @override EvApi get draftApi => widget.api;
+  @override int get draftCompany => widget.company;
+  @override void clearDraft() {
+    email.clear(); scopes.clear(); error = null; busy = false; uncertain = false;
+  }
+  @override void didUpdateWidget(covariant VendorInviteView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    retireIfChanged(oldWidget.api,oldWidget.company);
+  }
   final email = TextEditingController();
   final scopes = <String>{};
   Object? error;
@@ -817,23 +900,28 @@ class _VendorInviteState extends State<VendorInviteView> {
   }
 
   Future<void> send() async {
-    if (!email.text.contains('@') || scopes.isEmpty) {
+    if (!activeDraft || !draftTop || busy || uncertain) return;
+    final address = email.text.trim(), reviewed = scopes.toList(), api = widget.api;
+    if (!address.contains('@') || reviewed.isEmpty) {
       setState(
         () =>
             error = const ApiException(422, 'Choose valid invitation details.'),
       );
       return;
     }
+    final epoch = ++draftEpoch;
     setState(() => busy = true);
     try {
-      await widget.api.request(
+      final receipt = await api.request(
         'vendor-ops/companies/${widget.company}/staff',
         method: 'POST',
-        body: {'email': email.text.trim(), 'permissions': scopes.toList()},
+        body: {'email': address, 'permissions': reviewed},
       );
-      if (mounted) Navigator.pop(context, true);
+      if (!draftCurrent(epoch)) return;
+      if (!staffInviteAcknowledged(receipt)) throw const FormatException('Unconfirmed invitation request.');
+      if (draftTop) Navigator.pop(context, true);
     } catch (e) {
-      if (mounted) {
+      if (draftCurrent(epoch)) {
         setState(() {
           error = e;
           uncertain = e is! ApiException || e.status != 422;
@@ -841,16 +929,24 @@ class _VendorInviteState extends State<VendorInviteView> {
         if (e is ApiException && [401, 419].contains(e.status)) {
           email.clear();
           widget.onExpired();
-          Navigator.of(context).popUntil((r) => r.isFirst);
+          if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
         }
+      } else if (mounted && draftForeground && epoch == draftEpoch && e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+        if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
       }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (draftCurrent(epoch)) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    final rendered = draftEpoch;
+    bool editable() => draftCurrent(rendered) && draftTop && !busy && !uncertain;
+    if (!activeDraft) return Scaffold(appBar:AppBar(title:Text(t('invite'))),
+      body:Center(child:Text(t('privateHidden'))));
+    return Scaffold(
     appBar: AppBar(title: Text(t('invite'))),
     body: SafeArea(
       child: ListView(
@@ -880,18 +976,17 @@ class _VendorInviteState extends State<VendorInviteView> {
               title: Text(t(p)),
               onChanged: busy || uncertain
                   ? null
-                  : (v) => setState(
-                      () => v == true ? scopes.add(p) : scopes.remove(p),
-                    ),
+                  : (v) { if (editable()) setState(() => v == true ? scopes.add(p) : scopes.remove(p)); },
             ),
           FilledButton(
-            onPressed: busy || uncertain ? null : send,
+            onPressed: busy || uncertain ? null : () { if (editable()) send(); },
             child: Text(t('invite')),
           ),
         ],
       ),
     ),
   );
+  }
 }
 
 class VendorEvidenceUpload extends StatefulWidget {
@@ -910,49 +1005,71 @@ class VendorEvidenceUpload extends StatefulWidget {
   State<VendorEvidenceUpload> createState() => _EvidenceUploadState();
 }
 
-class _EvidenceUploadState extends State<VendorEvidenceUpload> {
-  final key = operationKey();
+class _EvidenceUploadState extends State<VendorEvidenceUpload>
+    with WidgetsBindingObserver, _PrivateVendorDraft<VendorEvidenceUpload> {
+  @override EvApi get draftApi => widget.api;
+  @override int get draftCompany => widget.company;
+  bool picking = false;
+  @override bool get pickingExternal => picking;
+  int selection = 0;
+  @override void clearDraft() {
+    evidence = null; consent = false; busy = false; uncertain = false;
+    error = null; picking = false; selection++;
+  }
+  @override void didUpdateWidget(covariant VendorEvidenceUpload oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    retireIfChanged(oldWidget.api,oldWidget.company);
+  }
+  String key = operationKey();
   VendorEvidence? evidence;
   String kind = 'trade_license';
   bool consent = false, busy = false, uncertain = false;
   Object? error;
-  int generation = 0;
   String t(String k) => vendorOpsText(context, k);
   @override
   void dispose() {
-    generation++;
     evidence = null;
     super.dispose();
   }
 
   Future<void> pick() async {
-    final epoch = ++generation;
-    setState(() => busy = true);
+    if (!activeDraft || !draftTop || busy || uncertain) return;
+    final epoch = ++draftEpoch;
+    setState(() { busy = true; picking = true; consent = false; evidence = null; selection++; error = null; });
     try {
       final e = await (widget.pick?.call() ?? pickVendorEvidence());
-      if (mounted && epoch == generation) setState(() => evidence = e);
+      if (!draftCurrent(epoch)) return;
+      if (e != null && (e.bytes.isEmpty || e.bytes.length > 5*1024*1024 ||
+          vendorEvidenceMime(e.bytes) != e.mime))
+        throw const FormatException('Invalid evidence selection.');
+      setState(() { evidence = e == null ? null : VendorEvidence(Uint8List.fromList(e.bytes),e.mime); key = operationKey(); });
     } catch (e) {
-      if (mounted && epoch == generation) setState(() => error = e);
+      if (draftCurrent(epoch)) setState(() => error = e);
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && epoch == draftEpoch && !draftRetired && draftFence())
+        setState(() { picking = false; busy = false; });
     }
   }
 
   Future<void> upload() async {
-    if (!consent || evidence == null) return;
-    final epoch = ++generation;
-    setState(() => busy = true);
+    if (!activeDraft || !draftTop || busy || uncertain || !consent || evidence == null) return;
+    final reviewed = evidence!, reviewedKind = kind, api = widget.api, company = widget.company;
+    final epoch = ++draftEpoch;
+    setState(() { busy = true; consent = false; selection++; });
     try {
-      await widget.api.uploadDocument(
-        'vendor-ops/companies/${widget.company}/documents',
-        kind: kind,
-        bytes: evidence!.bytes,
-        mime: evidence!.mime,
+      final receipt = await api.uploadDocument(
+        'vendor-ops/companies/$company/documents',
+        kind: reviewedKind,
+        bytes: reviewed.bytes,
+        mime: reviewed.mime,
         key: key,
       );
-      if (mounted && epoch == generation) Navigator.pop(context, true);
+      if (!draftCurrent(epoch)) return;
+      if (!evidenceUploadAcknowledged(receipt,company,reviewedKind,reviewed.mime,reviewed.bytes.length))
+        throw const FormatException('Unconfirmed evidence upload.');
+      if (draftTop) Navigator.pop(context, true);
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (draftCurrent(epoch)) {
         setState(() {
           error = e;
           uncertain = e is! ApiException || e.status != 422;
@@ -960,16 +1077,24 @@ class _EvidenceUploadState extends State<VendorEvidenceUpload> {
         });
         if (e is ApiException && [401, 419].contains(e.status)) {
           widget.onExpired();
-          Navigator.of(context).popUntil((r) => r.isFirst);
+          if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
         }
+      } else if (mounted && draftForeground && epoch == draftEpoch && e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+        if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (draftCurrent(epoch)) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    final rendered = draftEpoch, reviewedSelection = selection;
+    bool editable() => draftCurrent(rendered) && draftTop && !busy && !uncertain && reviewedSelection == selection;
+    if (!activeDraft) return Scaffold(appBar:AppBar(title:Text(t('upload'))),
+      body:Center(child:Text(t('privateHidden'))));
+    return Scaffold(
     appBar: AppBar(title: Text(t('upload'))),
     body: SafeArea(
       child: ListView(
@@ -993,10 +1118,10 @@ class _EvidenceUploadState extends State<VendorEvidenceUpload> {
                 .toList(),
             onChanged: busy || uncertain
                 ? null
-                : (v) => setState(() => kind = v!),
+                : (v) { if (editable() && v != null && v != kind) setState(() { kind = v; consent = false; selection++; key = operationKey(); }); },
           ),
           TextButton(
-            onPressed: busy || uncertain ? null : pick,
+            onPressed: busy || uncertain ? null : () { if (editable()) pick(); },
             child: Text(t('pick')),
           ),
           if (evidence != null)
@@ -1008,18 +1133,19 @@ class _EvidenceUploadState extends State<VendorEvidenceUpload> {
             title: Text(t('uploadConsent')),
             onChanged: busy || uncertain
                 ? null
-                : (v) => setState(() => consent = v == true),
+                : (v) { if (editable() && evidence != null) setState(() { consent = v == true; selection++; }); },
           ),
           FilledButton(
             onPressed: busy || uncertain || !consent || evidence == null
                 ? null
-                : upload,
+                : () { if (editable()) upload(); },
             child: Text(t('upload')),
           ),
         ],
       ),
     ),
   );
+  }
 }
 
 /// Probe a bounded native raster before declaring a private PDF preview ready.
