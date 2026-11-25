@@ -582,18 +582,27 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   void chooseConnectors(Station station) {
+    final sourceApi=api, actor=account?.id, role=account?.role;
+    if(sourceApi==null)return;
+    final fence=sourceApi.sessionFence();
+    bool current()=>mounted&&identical(api,sourceApi)&&fence()&&
+      account?.id==actor&&account?.role==role;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ConnectorChoicesView(
           station: station,
-          loader: (page) async => ApiPage.fromJson(
-            await api!.request(
-              'stations/${station.id}/connectors',
-              query: {'page': '$page'},
-            ),
-            (v) => v,
-          ),
-          onReserve: reserve,
+          currentSession:current,
+          sessionEvents:sourceApi.sessionEvents,
+          loader: (page) async {
+            if(!current())throw const ApiException(409,'Session changed');
+            final raw=await sourceApi.request(
+              'stations/${station.id}/connectors',query:{'page':'$page'});
+            if(!current())throw const ApiException(409,'Session changed');
+            return ApiPage.fromJson(raw,(v)=>v);
+          },
+          onReserve:(selected)async {
+            if(current()&&role=='customer')await reserve(selected);
+          },
         ),
       ),
     );
