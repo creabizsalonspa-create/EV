@@ -181,6 +181,8 @@ class PaymentMandates
             return $this->enrollmentDto($e) + ['hosted_url' => null];
         }
         abort_if($e->lease_until && CarbonImmutable::parse($e->lease_until)->isFuture(), 409, 'Enrollment is executing; refresh later.');
+        // The enrollment row is locked for this inspection. An abandoned
+        // executing lease may now be resolved by exact provider evidence.
         $a = DB::table('payment_customer_accounts')->where('id', $e->account_id)
             ->where('user_id', $user->id)->lockForUpdate()->firstOrFail();
         if (! $a->provider_customer) {
@@ -203,7 +205,7 @@ class PaymentMandates
         abort_unless(in_array($status, ['open', 'complete', 'expired'], true), 409, 'Provider enrollment status requires reconciliation.');
         $url = null;
         if ($status === 'expired') {
-            DB::table('payment_enrollments')->where('id', $id)->whereNotIn('status', ['completed', 'executing'])->update(['status' => 'expired', 'lease' => null, 'lease_until' => null, 'updated_at' => now()]);
+            DB::table('payment_enrollments')->where('id', $id)->update(['status' => 'expired', 'lease' => null, 'lease_until' => null, 'updated_at' => now()]);
         } elseif ($status === 'complete') {
             abort_unless($e->consent_version === config('payments.mandate_consent_version')
                 && CarbonImmutable::parse($e->consent_expires_at)->isFuture(), 409, 'Enrollment consent expired or changed.');
@@ -245,7 +247,7 @@ class PaymentMandates
                 && CarbonImmutable::parse($e->expires_at)->isFuture()) {
                 $url = $this->hostedUrl($response['url'] ?? null);
             }
-            DB::table('payment_enrollments')->where('id', $id)->whereNotIn('status', ['completed', 'executing'])->update(['provider_session' => Crypt::encryptString($response['id']), 'session_hash' => hash('sha256', $response['id']), 'status' => 'pending', 'lease' => null, 'lease_until' => null, 'updated_at' => now()]);
+            DB::table('payment_enrollments')->where('id', $id)->update(['provider_session' => Crypt::encryptString($response['id']), 'session_hash' => hash('sha256', $response['id']), 'status' => 'pending', 'lease' => null, 'lease_until' => null, 'updated_at' => now()]);
         }
 
         return $this->enrollmentDto(DB::table('payment_enrollments')->find($id)) + ['hosted_url' => $url];
