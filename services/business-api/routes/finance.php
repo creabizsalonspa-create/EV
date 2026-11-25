@@ -1,14 +1,15 @@
 <?php
 
 use App\Http\Controllers\FinanceController as F;
+use App\Http\Controllers\ScheduledTariffController;
 use Illuminate\Support\Facades\Route;
 
 // Load under the parent application's authenticated/throttled api or api/v1 prefix.
 Route::get('/finance/stations', [F::class, 'stations']);
 Route::get('/stations/{station}/tariffs', [F::class, 'tariffs']);
 Route::post('/stations/{station}/tariffs', [F::class, 'createTariff']);
-Route::get('/stations/{station}/tariffs/schedule', [\App\Http\Controllers\ScheduledTariffController::class, 'show']);
-Route::post('/stations/{station}/tariffs/schedule', [\App\Http\Controllers\ScheduledTariffController::class, 'store']);
+Route::get('/stations/{station}/tariffs/schedule', [ScheduledTariffController::class, 'show']);
+Route::post('/stations/{station}/tariffs/schedule', [ScheduledTariffController::class, 'store']);
 Route::get('/finance/invoices', [F::class, 'invoices']);
 Route::post('/finance/sessions/{session}/invoice', [F::class, 'issue']);
 Route::get('/finance/invoices/{invoice}/source-evidence', [F::class, 'sourceEvidence']);
