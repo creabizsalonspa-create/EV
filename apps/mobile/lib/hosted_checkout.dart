@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -338,6 +339,14 @@ class _HostedState extends State<HostedCheckoutView>
       retryDraft = false;
   Object? error;
   bool Function()? actor;
+  StreamSubscription<int>? sessionSubscription;
+  bool foreground = true, retired = false, confirming = false;
+
+  void redact() {
+    record = null; records = null; statementSource = null;
+    consent = false; retryDraft = false; returned = false;
+    busy = false; confirming = false; error = null;
+  }
   FinancialOperationStore get store =>
       widget.store ?? DeviceFinancialOperationStore();
   String get endpoint => widget.corporate
@@ -406,19 +415,49 @@ class _HostedState extends State<HostedCheckoutView>
     selected = widget.checkoutId;
     WidgetsBinding.instance.addObserver(this);
     HostedPaymentReturnBridge.changes.addListener(returnSignal);
+    actor = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    final source = widget.api;
+    sessionSubscription = source.sessionEvents.listen((_) {
+      if (mounted && identical(widget.api, source) && actor?.call() == false) {
+        setState(() {
+          retired = true; redact();
+          owner = 0; selected = null; creation = null; operations.clear();
+        });
+      }
+    });
     HostedPaymentReturnBridge.start();
-    initialize();
+    if (foreground) { initialize(); }
+    else { busy = false; hidden = true; }
+  }
+
+  @override
+  void didUpdateWidget(covariant HostedCheckoutView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        oldWidget.scope != widget.scope ||
+        oldWidget.billableId != widget.billableId ||
+        oldWidget.subscriptionId != widget.subscriptionId ||
+        oldWidget.checkoutId != widget.checkoutId ||
+        oldWidget.sourceOwnerId != widget.sourceOwnerId ||
+        !identical(oldWidget.store, widget.store)) {
+      // A private route is never silently rebound to a different source.
+      generation++; retired = true; redact();
+      owner = 0; selected = null; creation = null; operations.clear();
+    }
   }
 
   @override
   void dispose() {
     generation++;
+    unawaited(sessionSubscription?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     HostedPaymentReturnBridge.changes.removeListener(returnSignal);
     super.dispose();
   }
 
-  bool get current => mounted && (actor?.call() ?? true);
+  bool get current => mounted && foreground && !retired && actor?.call() == true;
   bool get top => ModalRoute.of(context)?.isCurrent ?? true;
   void returnSignal() {
     if (current && top) {
@@ -429,15 +468,10 @@ class _HostedState extends State<HostedCheckoutView>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed && mounted) {
+    foreground = state == AppLifecycleState.resumed;
+    if (!foreground && mounted) {
       generation++;
-      setState(() {
-        record = null;
-        records = null;
-        statementSource = null;
-        busy = false;
-        hidden = true;
-      });
+      setState(() { redact(); hidden = true; });
     } else if (current && top) {
       HostedPaymentReturnBridge.consume();
       returned = true;
@@ -453,7 +487,7 @@ class _HostedState extends State<HostedCheckoutView>
   // Accept only its still-owned expiry; a later credential transition, hidden
   // lifecycle generation or disposed route must never expire a newer actor.
   bool handlesFailure(Object error, int epoch) =>
-      mounted && epoch == generation &&
+      mounted && foreground && epoch == generation &&
       (current || error is ApiException && error.endsCurrentSession);
 
   void fail(Object e) {
@@ -466,7 +500,7 @@ class _HostedState extends State<HostedCheckoutView>
   }
 
   Future<void> initialize() async {
-    actor = widget.api.sessionFence();
+    if (!current) return;
     final epoch = ++generation;
     try {
       final me = await widget.api.request('me');
@@ -496,7 +530,7 @@ class _HostedState extends State<HostedCheckoutView>
   }
 
   Future<void> load({int? number}) async {
-    if (owner == 0) return;
+    if (!current || owner == 0) return;
     final epoch = ++generation;
     if (number != null) page = number;
     setState(() {
@@ -506,6 +540,7 @@ class _HostedState extends State<HostedCheckoutView>
       records = null;
       hidden = false;
       retryDraft = false;
+      consent = false;
     });
     try {
       if (widget.corporate) {
@@ -570,7 +605,7 @@ class _HostedState extends State<HostedCheckoutView>
   }
 
   Future<void> create() async {
-    if (busy || !consent || creation == null || record != null) return;
+    if (!current || !top || busy || confirming || !consent || creation == null || record != null) return;
     final epoch = generation;
     setState(() {
       busy = true;
@@ -614,14 +649,13 @@ class _HostedState extends State<HostedCheckoutView>
 
   Future<void> retryClosed() async {
     final before = record;
-    if (busy ||
+    if (!current || !top || busy || confirming ||
         creation == null ||
         before == null ||
         !ownRecord(before) ||
         !before.permits('retry'))
       return;
-    if (!await confirm('retryNotice') || !current || record?.id != before.id)
-      return;
+    if (!await scopedConfirm('retryNotice', before)) return;
     // Re-read the existing source before releasing any saved creation identity.
     // Backend create also rechecks absence of an unresolved predecessor.
     final epoch = generation;
@@ -656,6 +690,19 @@ class _HostedState extends State<HostedCheckoutView>
     }
   }
 
+  Future<bool> scopedConfirm(String text, HostedCheckoutRecord before) async {
+    if (!current || !top || busy || confirming || !identical(record,before)) return false;
+    final epoch = generation;
+    setState(() => confirming = true);
+    try {
+      final accepted = await confirm(text);
+      return accepted && current && top && epoch == generation &&
+          identical(record,before) && !busy;
+    } finally {
+      if (current && epoch == generation) setState(() => confirming = false);
+    }
+  }
+
   Future<bool> confirm(String text) async =>
       await showDialog<bool>(
         context: context,
@@ -676,12 +723,12 @@ class _HostedState extends State<HostedCheckoutView>
       false;
   Future<void> action(String name, {String? outcome}) async {
     final before = record;
-    if (busy || before == null || !ownRecord(before) || !before.permits(name))
+    if (!current || !top || busy || confirming || before == null ||
+        !ownRecord(before) || !before.permits(name)) return;
+    if (['capture', 'cancel'].contains(name) && !await scopedConfirm('${name}Notice', before))
       return;
-    if (['capture', 'cancel'].contains(name) && !await confirm('${name}Notice'))
-      return;
-    if (name == 'simulate' && !await confirm('mock')) return;
-    if (!current || record?.id != before.id) return;
+    if (name == 'simulate' && !await scopedConfirm('mock', before)) return;
+    if (!current || !top || !identical(record,before) || busy) return;
     final epoch = generation;
     setState(() {
       busy = true;
@@ -737,7 +784,7 @@ class _HostedState extends State<HostedCheckoutView>
 
   Future<void> openProvider() async {
     final before = record, u = before?.hosted;
-    if (busy ||
+    if (!current || !top || busy || confirming ||
         before == null ||
         !ownRecord(before) ||
         u == null ||
@@ -757,15 +804,16 @@ class _HostedState extends State<HostedCheckoutView>
       busy = true;
       error = null;
     });
+    final epoch = generation;
     try {
       final ok =
           await (widget.openProvider?.call(u) ??
               launchUrl(u, mode: LaunchMode.externalApplication));
       if (!ok) throw const ApiException(503, 'Provider browser unavailable.');
     } catch (e) {
-      if (current) setState(() => error = e);
+      if (current && epoch == generation) setState(() => error = e);
     } finally {
-      if (current) setState(() => busy = false);
+      if (current && epoch == generation) setState(() => busy = false);
     }
   }
 
@@ -786,6 +834,14 @@ class _HostedState extends State<HostedCheckoutView>
                 k)
           : k,
     );
+    if (!current && (retired || !foreground || actor?.call() == false)) {
+      return Scaffold(
+        appBar: AppBar(title: Text(t('title'))),
+        body: Center(child: Text(foreground ? EvStrings.of(c).t('expired') : t('hidden'))),
+      );
+    }
+    final renderedEpoch = generation;
+    bool activeView() => current && top && renderedEpoch == generation && !confirming;
     final r = record;
     final own = r != null && ownRecord(r);
     return Scaffold(
@@ -803,7 +859,7 @@ class _HostedState extends State<HostedCheckoutView>
           const SizedBox(height: 16),
           OutlinedButton(
             key: const Key('hosted-refresh'),
-            onPressed: busy ? null : () => load(),
+            onPressed: busy ? null : () { if (activeView()) { if (owner == 0) { initialize(); } else { load(); } } },
             child: Text(t('refresh')),
           ),
           if (busy) const Center(child: CircularProgressIndicator()),
@@ -839,12 +895,12 @@ class _HostedState extends State<HostedCheckoutView>
             CheckboxListTile(
               key: const Key('hosted-consent'),
               value: consent,
-              onChanged: busy ? null : (v) => setState(() => consent = v!),
+              onChanged: busy ? null : (v) { if (activeView()) setState(() => consent = v == true); },
               title: Text(t('consent')),
             ),
             FilledButton(
               key: const Key('hosted-create'),
-              onPressed: busy || !consent ? null : create,
+              onPressed: busy || !consent ? null : () { if (activeView()) create(); },
               child: Text(t('create')),
             ),
           ],
@@ -875,6 +931,7 @@ class _HostedState extends State<HostedCheckoutView>
                       onPressed: busy
                           ? null
                           : () async {
+                              if (!activeView()) return;
                               await Navigator.of(c).push(
                                 MaterialPageRoute<void>(
                                   builder: (_) => widget.corporate
@@ -899,7 +956,7 @@ class _HostedState extends State<HostedCheckoutView>
                                         ),
                                 ),
                               );
-                              if (current && top) await load();
+                              if (activeView()) await load();
                             },
                       child: Text(t('sourceDetails')),
                     ),
@@ -909,13 +966,13 @@ class _HostedState extends State<HostedCheckoutView>
                       if (creation != null && r.permits('retry'))
                         OutlinedButton(
                           key: const Key('hosted-retry'),
-                          onPressed: busy ? null : retryClosed,
+                          onPressed: busy ? null : () { if (activeView()) retryClosed(); },
                           child: Text(t('retry')),
                         ),
                       if (r.hosted != null && r.status == 'open')
                         FilledButton(
                           key: const Key('hosted-provider'),
-                          onPressed: busy ? null : openProvider,
+                          onPressed: busy ? null : () { if (activeView()) openProvider(); },
                           child: Text(t('openProvider')),
                         ),
                       if (r.hosted == null &&
@@ -925,7 +982,7 @@ class _HostedState extends State<HostedCheckoutView>
                       if (r.permits('inspect'))
                         OutlinedButton(
                           key: const Key('hosted-inspect'),
-                          onPressed: busy ? null : () => action('inspect'),
+                          onPressed: busy ? null : () { if (activeView()) action('inspect'); },
                           child: Text(t('inspect')),
                         ),
                       if (r.permits('retry_preparation') &&
@@ -934,14 +991,14 @@ class _HostedState extends State<HostedCheckoutView>
                           key: const Key('hosted-retry-preparation'),
                           onPressed: busy
                               ? null
-                              : () => action('retry_preparation'),
+                              : () { if (activeView()) action('retry_preparation'); },
                           child: Text(t('retryPreparation')),
                         ),
                       for (final name in ['capture', 'cancel'])
                         if (r.permits(name))
                           OutlinedButton(
                             key: Key('hosted-$name'),
-                            onPressed: busy ? null : () => action(name),
+                            onPressed: busy ? null : () { if (activeView()) action(name); },
                             child: Text(t(name)),
                           ),
                       if (r.source['evidence'] == 'MOCK_HOSTED' &&
@@ -955,7 +1012,7 @@ class _HostedState extends State<HostedCheckoutView>
                           OutlinedButton(
                             onPressed: busy
                                 ? null
-                                : () => action('simulate', outcome: pair.$1),
+                                : () { if (activeView()) action('simulate', outcome: pair.$1); },
                             child: Text(t(pair.$2)),
                           ),
                       ],
@@ -986,6 +1043,7 @@ class _HostedState extends State<HostedCheckoutView>
                 onTap: busy
                     ? null
                     : () {
+                        if (!activeView()) return;
                         selected = item.id;
                         load();
                       },
@@ -996,14 +1054,14 @@ class _HostedState extends State<HostedCheckoutView>
                 OutlinedButton(
                   onPressed: busy || page <= 1
                       ? null
-                      : () => load(number: page - 1),
+                      : () { if (activeView()) load(number: page - 1); },
                   child: Text(t('previous')),
                 ),
                 Text('$page / $last'),
                 OutlinedButton(
                   onPressed: busy || page >= last
                       ? null
-                      : () => load(number: page + 1),
+                      : () { if (activeView()) load(number: page + 1); },
                   child: Text(t('next')),
                 ),
               ],
@@ -1020,7 +1078,9 @@ class _HostedState extends State<HostedCheckoutView>
                 trailing: const Icon(Icons.chevron_right),
                 onTap: busy
                     ? null
-                    : () => Navigator.of(c).push(
+                    : () {
+                        if (!activeView()) return;
+                        Navigator.of(c).push(
                         MaterialPageRoute<void>(
                           builder: (_) => HostedCheckoutView(
                             api: widget.api,
@@ -1032,7 +1092,8 @@ class _HostedState extends State<HostedCheckoutView>
                             openProvider: widget.openProvider,
                           ),
                         ),
-                      ),
+                      );
+                      },
               ),
             Wrap(
               spacing: 8,
@@ -1040,14 +1101,14 @@ class _HostedState extends State<HostedCheckoutView>
                 OutlinedButton(
                   onPressed: busy || page <= 1
                       ? null
-                      : () => load(number: page - 1),
+                      : () { if (activeView()) load(number: page - 1); },
                   child: Text(t('previous')),
                 ),
                 Text('$page / $last'),
                 OutlinedButton(
                   onPressed: busy || page >= last
                       ? null
-                      : () => load(number: page + 1),
+                      : () { if (activeView()) load(number: page + 1); },
                   child: Text(t('next')),
                 ),
               ],
