@@ -28,6 +28,7 @@ import 'ocpi_operations.dart';
 import 'invoice_history.dart';
 import 'payment_recovery.dart';
 import 'loyalty.dart';
+import 'partner_rewards.dart';
 import 'referrals.dart';
 import 'financial_documents.dart';
 import 'financial_analytics.dart';
@@ -1609,6 +1610,16 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                       ),
                     ),
                   );
+                } else if (value == 'partnerRewards' &&
+                    account?.role == 'customer') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PartnerRewardsView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'loyalty') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1798,6 +1809,12 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                   enabled: !busy,
                   child: Text(loyaltyText(context, 'title')),
                 ),
+                if (account?.role == 'customer')
+                  PopupMenuItem(
+                    value: 'partnerRewards',
+                    enabled: !busy,
+                    child: Text(partnerRewardsTitle(context)),
+                  ),
                 if (account?.role == 'customer')
                   PopupMenuItem(
                     value: 'referrals',

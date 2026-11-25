@@ -91,3 +91,54 @@ No production merchant activation, live payout dispatch, production customer wal
 Gateway authorization preflight now reads current ownership/status without invoice/account row locks. Its transaction grants no durable authority: the operation still locks invoice then actor and rechecks within its mutation. This allows an overlapping Stripe TEST request to reach the existing execution lease and immediately return409 while the first provider operation is in flight. The original two-process release barrier, crash test, provider idempotency key, single-capture/journal and balance checks are unchanged and pass. No financial arithmetic or provider mode changed.
 
 Flutter's Vendor overview now consumes itemized earnings via the existing server endpoint, with original invoice provenance and no locally computed settlement. Its explicit all-invoice overall-scope label, EN/AR pagination, signed precision and current-account/foreground guards are tested. Full financial mobile scope and external bank/PSP acceptance remain uncredited.
+
+
+## Agent 3 — exact vendor earnings/CSV hardening (23 November 2026)
+
+The existing own-vendor/Admin-only, ledger-derived earnings JSON and CSV use
+the **same explicit page bound (1–10,000) and per-page bound (1–25)**. Invalid
+pages return HTTP 422 to normal browser CSV requests as well as JSON callers,
+instead of following implicit paginator fallbacks or form redirects.
+The export contains only the validated current page, including empty pages.
+
+Amounts on the issued invoice, payment/refund/credit projections, settlement
+reservation rows, per-invoice availability and overall availability must fit
+exact signed or nonnegative JavaScript-safe integer bounds (2^53−1).
+Out-of-range or unrepresentable historical source values fail closed as 409;
+the report must never silently cast or round a large PostgreSQL aggregate.
+Refund debt remains signed and is not falsely turned into a positive payout.
+
+Provider/issuer invoice numbers are left intact in canonical JSON and database
+records but prefixed as literal cells on CSV export if they could be
+interpreted as spreadsheet formulas. CSV escapes RFC quotes without treating
+backslashes as an escape operator; responses remain private/no-store and
+nosniff. Tests cover the original ledger and both invalid-page transports.
+The inexact-amount and spreadsheet-injection primitives are exercised
+directly using reflection **without updating immutable issued invoices**:
+canonical invoice UPDATE/DELETE triggers remain enabled in SQLite and
+PostgreSQL. The same tests prove ordinary JSON/CSV work with those immutable
+originals and leave journals unchanged. No source or financial ledger
+mutation occurs, no bank settlement is verified, and original requirement
+`3.5.9` remains uncredited pending Agent 5 integration and full cross-platform
+acceptance.
+
+### Immutable-source reconciliation CSV safety
+
+The separate `finance/reconciliation-audit/export` one-page CSV now marks
+formula-leading invoice references as literal spreadsheet cells while
+retaining their exact immutable original in source JSON/DB. CSV encoding uses
+explicit RFC quote and empty escape parameters; `nosniff` and
+`private, no-store` remain enforced. This prevents attacker-controlled
+imported invoice references from becoming formulas on an auditor's desktop
+without rewriting immutable finance tables. The feature regression checks
+unsafe leading `=,+,-,@` (including control-prefixes), validates the real
+CSV response and unchanged canonical journals. This remains a read-only
+diagnostic, not verified PSP/bank reconciliation or an approval authority.
+
+## Native internal reconciliation workspace
+
+Vendor finance now links each currency to a bilingual read-only internal invoice audit, using the existing bounded tenant-scoped API. The native view supports optional ISO date filters, exact paging, immutable money and finding validation, read-only diagnostic labels, and current-account/foreground clearing. It never creates a financial operation. Native CSV parity, physical bank/PSP verification and complete requirement 3.5.9 / 7.3.8 acceptance remain outside this batch. Added parser and widget tests; exact-head hosted CI required.
+
+### Native private reconciliation CSV
+
+The Flutter audit now requests the existing server export with exactly the displayed filter/page. CSV is limited to 64 KiB, parsed with the existing bounded finance CSV parser and verified cell-for-cell against the immutable accepted audit rows, including signed amounts, issues and spreadsheet-literal invoice references. The preview is memory-only, never stored or automatically retried; background, scope/credential changes and mismatched source erase it. External PSP/bank acceptance remains unavailable. Added verifier and widget regressions; fresh exact-head CI required.

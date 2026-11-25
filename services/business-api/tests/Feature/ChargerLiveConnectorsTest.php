@@ -115,8 +115,14 @@ class ChargerLiveConnectorsTest extends TestCase
                 if ($case === 'malformed_source_id') {
                     $row['id'] = '42';
                 }
+                if ($case === 'source_endpoint_changed') {
+                    config(['csms.graphql_url' => 'https://replacement.test/graphql']);
+                }
 
                 return Http::response(['data' => ['ChargingStations' => [$row]]]);
+            }
+            if ($case === 'source_secret_changed') {
+                config(['csms.graphql_secret' => str_repeat('r', 64)]);
             }
             if ($case === 'revoke_during_read') {
                 DB::table('users')->where('id', $fixture['owner']->id)->increment('auth_epoch');
@@ -395,6 +401,22 @@ class ChargerLiveConnectorsTest extends TestCase
             $this->assertDatabaseCount('charger_commands', 0);
             $this->assertDatabaseCount('finance_invoices', 0);
         }
+    }
+
+    public function test_live_connector_inspection_cannot_mix_source_authorities(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $fixture = $this->fixture($protocol);
+            foreach (['source_endpoint_changed' => 1, 'source_secret_changed' => 2] as $case => $requests) {
+                config(['csms.graphql_url' => 'https://source.test/graphql', 'csms.graphql_secret' => str_repeat('x', 64)]);
+                $this->source($fixture, $case);
+                $this->actingAs($fixture['owner'])->getJson($fixture['url'])->assertServiceUnavailable()
+                    ->assertJsonMissingPath('connectors');
+                Http::assertSentCount($requests);
+            }
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
     }
 
     public function test_missing_canonical_target_digest_prevents_any_source_request(): void

@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'api.dart';
 import 'strings.dart';
 import 'financial_documents.dart';
 import 'financial_operation_store.dart';
+import 'vendor_earnings_csv.dart';
+import 'vendor_revenue_cohorts.dart';
+import 'invoice_reconciliation.dart';
 
 const vendorFinanceEn = {
   'title': 'Vendor finance',
@@ -201,6 +205,18 @@ class _VendorFinanceState extends State<VendorFinanceView>
   int generation = 0, target = 1;
   bool busy = false, foreground = true, hidden = false;
   late bool Function() authorized;
+  StreamSubscription<int>? sessionEvents;
+
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        clearPrivate();
+      });
+    });
+  }
+
   bool active(int n, bool Function() current) =>
       mounted && foreground && authorized() && current() && n == generation;
   void clearPrivate() {
@@ -222,6 +238,7 @@ class _VendorFinanceState extends State<VendorFinanceView>
     super.initState();
     authorized = widget.api.sessionFence();
     WidgetsBinding.instance.addObserver(this);
+    observe(widget.api);
     foreground =
         WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
@@ -232,6 +249,7 @@ class _VendorFinanceState extends State<VendorFinanceView>
   void didUpdateWidget(covariant VendorFinanceView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.api != widget.api) {
+      observe(widget.api);
       clearPrivate();
       authorized = widget.api.sessionFence();
       final replacement = widget.api;
@@ -256,6 +274,7 @@ class _VendorFinanceState extends State<VendorFinanceView>
 
   @override
   void dispose() {
+    sessionEvents?.cancel();
     generation++;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -464,6 +483,23 @@ class _VendorFinanceState extends State<VendorFinanceView>
                           '${t(field)}: ${nativeFinancialAmount(c, row, field)}',
                         ),
                       OutlinedButton(
+                        key: ValueKey('vendor-revenue-${row['currency']}'),
+                        onPressed: () => openForActor(
+                          MaterialPageRoute<void>(
+                            builder: (_) => VendorRevenueCohortView(
+                              api: widget.api,
+                              onExpired: widget.onExpired,
+                              currency: row['currency'] as String,
+                            ),
+                          ),
+                        ),
+                        child: Text(
+                          Localizations.localeOf(c).languageCode == 'ar'
+                              ? 'لوحة الإيرادات حسب تاريخ الفاتورة'
+                              : 'Revenue by invoice date',
+                        ),
+                      ),
+                      OutlinedButton(
                         key: ValueKey('vendor-itemized-${row['currency']}'),
                         onPressed: () => openForActor(
                           MaterialPageRoute<void>(
@@ -478,6 +514,23 @@ class _VendorFinanceState extends State<VendorFinanceView>
                           Localizations.localeOf(c).languageCode == 'ar'
                               ? 'إيرادات الفواتير التفصيلية'
                               : 'Itemized invoice earnings',
+                        ),
+                      ),
+                      OutlinedButton(
+                        key: ValueKey('vendor-reconciliation-${row['currency']}'),
+                        onPressed: () => openForActor(
+                          MaterialPageRoute<void>(
+                            builder: (_) => InvoiceReconciliationView(
+                              api: widget.api,
+                              onExpired: widget.onExpired,
+                              currency: row['currency'] as String,
+                            ),
+                          ),
+                        ),
+                        child: Text(
+                          Localizations.localeOf(c).languageCode == 'ar'
+                              ? 'تدقيق تسوية الفواتير الداخلية'
+                              : 'Internal invoice reconciliation',
                         ),
                       ),
                       OutlinedButton(
@@ -1208,9 +1261,13 @@ class VendorEarningsSnapshot {
         Map<String, dynamic>.unmodifiable(Map<String, dynamic>.from(row)),
       );
     }
+    final immutableRows = List<Map<String, dynamic>>.unmodifiable(rows);
     return VendorEarningsSnapshot._(
-      Map<String, dynamic>.unmodifiable(Map<String, dynamic>.from(raw)),
-      List<Map<String, dynamic>>.unmodifiable(rows),
+      Map<String, dynamic>.unmodifiable({
+        ...Map<String, dynamic>.from(raw),
+        'data': immutableRows,
+      }),
+      immutableRows,
     );
   }
 }
@@ -1232,7 +1289,26 @@ class VendorEarningsView extends StatefulWidget {
 class _VendorEarningsState extends State<VendorEarningsView>
     with WidgetsBindingObserver {
   VendorEarningsSnapshot? report;
+  String? csvPreview;
   bool Function()? session;
+  StreamSubscription<int>? sessionEvents;
+
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        generation++;
+        report = null;
+        csvPreview = null;
+        error = null;
+        busy = false;
+        hidden = true;
+        session = null;
+      });
+    });
+  }
+
   Object? error;
   bool busy = false, foreground = true, hidden = false;
   int generation = 0;
@@ -1242,6 +1318,7 @@ class _VendorEarningsState extends State<VendorEarningsView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    observe(widget.api);
     foreground =
         WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
@@ -1253,10 +1330,18 @@ class _VendorEarningsState extends State<VendorEarningsView>
   void didUpdateWidget(covariant VendorEarningsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.api != widget.api || oldWidget.currency != widget.currency) {
+      if (oldWidget.api != widget.api) observe(widget.api);
       generation++;
       report = null;
+      csvPreview = null;
       error = null;
-      if (foreground) load();
+      if (foreground) {
+        final api = widget.api, currency = widget.currency;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && identical(widget.api, api) &&
+              widget.currency == currency) load();
+        });
+      }
     }
   }
 
@@ -1268,6 +1353,7 @@ class _VendorEarningsState extends State<VendorEarningsView>
       if (!foreground) {
         generation++;
         report = null;
+        csvPreview = null;
         error = null;
         busy = false;
         hidden = true;
@@ -1277,7 +1363,10 @@ class _VendorEarningsState extends State<VendorEarningsView>
 
   @override
   void dispose() {
+    sessionEvents?.cancel();
     generation++;
+    report = null;
+    csvPreview = null;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -1290,6 +1379,7 @@ class _VendorEarningsState extends State<VendorEarningsView>
       busy = true;
       error = null;
       report = null;
+      csvPreview = null;
       hidden = false;
     });
     bool active() => mounted && foreground && generation == epoch && current();
@@ -1320,7 +1410,79 @@ class _VendorEarningsState extends State<VendorEarningsView>
       if (e is ApiException && [401, 419].contains(e.status))
         widget.onExpired();
     } finally {
-      if (active()) setState(() => busy = false);
+      if (mounted && foreground && generation == epoch) {
+        // An account switch can make the old fence false without causing
+        // a widget rebuild. Clear its old spinner, invoices and CSV preview;
+        // never deliver the stale report or expire the newer session.
+        setState(() {
+          busy = false;
+          if (!current()) {
+            report = null;
+            csvPreview = null;
+            error = null;
+            hidden = true;
+          }
+        });
+      }
+    }
+  }
+
+  /// Copyable in-memory export of the currently visible private invoice
+  /// page. Every CSV cell must match the source JSON snapshot.
+  Future<void> viewCsv() async {
+    final data = report;
+    final current = session;
+    if (!foreground || busy || data == null || current == null || !current()) {
+      return;
+    }
+    final epoch = generation;
+    setState(() {
+      busy = true;
+      error = null;
+      csvPreview = null;
+    });
+    bool active() => mounted && foreground && generation == epoch &&
+        current();
+    try {
+      final vendorId = data.source['vendor_id'] as int;
+      final page = data.source['current_page'] as int;
+      final document = await widget.api.downloadVendorEarningsPage(
+        vendorId,
+        currency: widget.currency,
+        page: page,
+        perPage: data.source['per_page'] as int,
+      );
+      if (!active()) return;
+      final copy = VendorEarningsCsv.verifiedText(
+        document,
+        vendorId: vendorId,
+        currency: widget.currency,
+        page: page,
+        source: data.source,
+        rows: data.rows,
+      );
+      if (active()) setState(() => csvPreview = copy);
+    } catch (e) {
+      if (!active()) return;
+      setState(() => error = e);
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        widget.onExpired();
+      }
+    } finally {
+      if (mounted && foreground && generation == epoch) {
+        // An account switch can make the old fence false without causing
+        // a widget rebuild. Clear its old spinner, invoices and CSV preview;
+        // never deliver the stale report or expire the newer session.
+        setState(() {
+          busy = false;
+          if (!current()) {
+            report = null;
+            csvPreview = null;
+            error = null;
+            hidden = true;
+          }
+        });
+      }
     }
   }
 
@@ -1363,6 +1525,29 @@ class _VendorEarningsState extends State<VendorEarningsView>
               ),
             ),
           if (data != null) ...[
+            OutlinedButton(
+              key: const Key('vendor-earnings-export'),
+              onPressed: busy ? null : viewCsv,
+              child: Text(t(
+                'View copyable CSV for this invoice page',
+                'عرض CSV قابل للنسخ لصفحة الفواتير هذه',
+              )),
+            ),
+            if (csvPreview != null) ...[
+              Text(
+                t(
+                  'Private source CSV, current invoice page only. No bank or PSP verification. Copy manually only to a trusted destination.',
+                  'CSV خاص بالمصدر لهذه الصفحة فقط. لا يوجد تحقق مصرفي أو من مزود الدفع. انسخه يدوياً إلى وجهة موثوقة فقط.',
+                ),
+              ),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SelectableText(
+                  csvPreview!,
+                  key: const Key('vendor-earnings-csv-preview'),
+                ),
+              ),
+            ],
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),

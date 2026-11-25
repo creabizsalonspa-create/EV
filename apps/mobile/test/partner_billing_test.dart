@@ -13,6 +13,8 @@ Map<String, dynamic> response({int provider = 7}) => {
   'payment_execution': false,
   'current_page': 1,
   'last_page': 2,
+  'per_page': 1,
+  'total': 2,
   'data': [
     {
       'external_id': 'CREDIT-1',
@@ -20,7 +22,6 @@ Map<String, dynamic> response({int provider = 7}) => {
       'party_id': 'TST',
       'credit': true,
       'source': {'status': 'requires_review'},
-      'payload': {'token': 'DO NOT DISPLAY'},
       'billing': {
         'status': 'test_invoice_linked',
         'state': 'credited',
@@ -45,6 +46,7 @@ Map<String, dynamic> response({int provider = 7}) => {
 class BillingApi extends FixtureApi {
   Map<String, dynamic> result = response();
   Completer<dynamic>? pending;
+  bool wrongPage = false;
   final exportQueries = <Map<String, String>>[];
   Completer<PrivateDocument>? exportPending;
   @override
@@ -68,11 +70,41 @@ class BillingApi extends FixtureApi {
     expect(method, 'GET');
     expect(path, 'ocpi/providers/7/billing-reconciliation');
     queries.add(query);
-    return pending != null ? pending!.future : result;
+    if (pending != null) return pending!.future;
+    final page = int.parse(query['page'] ?? '1');
+    final empty = query['currency'] == 'USD';
+    return {
+      ...result,
+      'current_page': wrongPage ? page + 1 : page,
+      'last_page': empty ? 1 : result['last_page'],
+      'total': empty ? 0 : result['total'],
+      'data': empty ? [] : result['data'],
+    };
   }
 }
 
 void main() {
+  testWidgets('already rendered partner invoice and private PDF disappear on logout event',
+      (tester) async {
+    final api = BillingApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: PartnerBillingPage(api: api, providerId: 7, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('SIM-PRIVATE'),
+      200, scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('SIM-PRIVATE'), findsOneWidget);
+    final before = api.queries.length;
+    await api.forgetSession();
+    await tester.pump();
+    expect(find.text('SIM-PRIVATE'), findsNothing);
+    expect(find.text('View filtered private PDF'), findsNothing);
+    expect(api.queries.length, before);
+  });
+
   testWidgets(
     'private PDF uses applied filters and reports bounded export failure',
     (tester) async {
@@ -85,6 +117,14 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextField, 'Currency'), 'USD');
       FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      // An unapplied filter must not leave another invoice's private
+      // amount or allow its prior PDF export.
+      expect(find.text('View filtered private PDF'), findsNothing);
+      expect(find.text('SIM-PRIVATE'), findsNothing);
+      await tester.tap(find.text('Refresh'));
+      await tester.pumpAndSettle();
+      expect(api.queries.last['currency'], 'USD');
       await tester.scrollUntilVisible(
         find.text('View filtered private PDF'),
         200,
@@ -92,7 +132,9 @@ void main() {
       );
       await tester.tap(find.text('View filtered private PDF'));
       await tester.pumpAndSettle();
-      expect(api.exportQueries.single, {'kind': 'all', 'locale': 'en'});
+      expect(api.exportQueries.single, {
+        'kind': 'all', 'currency': 'USD', 'locale': 'en',
+      });
       expect(find.textContaining('Export unavailable.'), findsOneWidget);
     },
   );
@@ -133,9 +175,6 @@ void main() {
           home: PartnerBillingPage(api: api, providerId: 7, onExpired: () {}),
         ),
       );
-      await tester.pumpAndSettle();
-      await tester.enterText(find.widgetWithText(TextField, 'Currency'), 'USD');
-      FocusManager.instance.primaryFocus?.unfocus();
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.text('SIM-PRIVATE'),
@@ -183,6 +222,60 @@ void main() {
       await tester.pump();
     },
   );
+  testWidgets('forged invoice amounts or page identity cannot expose private CDR money',
+    (tester) async {
+      final api = BillingApi();
+      final row = (api.result['data'] as List).first as Map<String, dynamic>;
+      (row['billing'] as Map<String, dynamic>)['paid_minor'] = 9007199254740992;
+      await tester.pumpWidget(MaterialApp(
+        home: PartnerBillingPage(api: api, providerId: 7, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('SIM-PRIVATE'), findsNothing);
+      expect(find.text('View filtered private PDF'), findsNothing);
+      expect(find.textContaining('Report unavailable'), findsOneWidget);
+
+      api.result = response();
+      api.wrongPage = true;
+      await tester.tap(find.text('Refresh'));
+      await tester.pumpAndSettle();
+      expect(find.text('SIM-PRIVATE'), findsNothing);
+      expect(find.text('View filtered private PDF'), findsNothing);
+    },
+  );
+
+  testWidgets('mismatched total or page geometry cannot reclassify CDR revenue',
+    (tester) async {
+      final api = BillingApi()..result = {
+        ...response(),
+        'total': 300,
+      };
+      await tester.pumpWidget(MaterialApp(
+        home: PartnerBillingPage(api: api, providerId: 7, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('SIM-PRIVATE'), findsNothing);
+      expect(find.text('View filtered private PDF'), findsNothing);
+      expect(find.textContaining('Report unavailable'), findsOneWidget);
+    },
+  );
+
+  testWidgets('raw private provider payload is refused rather than stored in finance UI',
+    (tester) async {
+      final api = BillingApi();
+      final row = (api.result['data'] as List).first as Map<String, dynamic>;
+      row['payload'] = {'token': 'DO NOT DISPLAY'};
+      await tester.pumpWidget(MaterialApp(
+        home: PartnerBillingPage(api: api, providerId: 7, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('SIM-PRIVATE'), findsNothing);
+      expect(find.text('View filtered private PDF'), findsNothing);
+      expect(find.textContaining('DO NOT DISPLAY'), findsNothing);
+      expect(find.textContaining('Report unavailable'), findsOneWidget);
+    },
+  );
+
   testWidgets('changed account cannot receive outstanding report', (
     tester,
   ) async {

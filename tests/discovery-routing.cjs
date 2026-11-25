@@ -210,6 +210,28 @@ const fs = require("node:fs");
       .getByRole("button", { name: "Preview provider route", exact: true })
       .click();
     await journey.getByText("1.3 km · 4 min", { exact: true }).waitFor();
+    const energy = journey.locator("#journey-energy-review");
+    await energy.locator("summary").click();
+    for (const [key,value] of Object.entries({capacity:"٦٠",soc:"80",reserve:"20",consumption:"20"})) {
+      await energy.locator('[name=energy_'+key+']').fill(value);
+    }
+    await energy.getByText("Estimated energy above reserve: 36.0 kWh · assumed range: 180.0 km", {exact:true}).waitFor();
+    await energy.getByText("Whole-route assumed energy: 0.3 kWh", {exact:true}).waitFor();
+    const candidates = energy.locator("#energy-first-stop-candidates li");
+    assert.equal(await candidates.count(),4);
+    assert.match(await candidates.first().textContent(),/Synthetic stop 1/);
+    assert.match(await candidates.last().textContent(),/Synthetic stop 4/);
+    assert.equal(await energy.getByText(/Distant catalog fixture/).count(),0);
+    assert.equal(await journey.locator("ol li").count(),3,"Candidates never select or replace itinerary stops");
+    assert.equal(routeCalls,1,"Battery assumptions are local only");
+    assert.equal(tiles,0);
+    assert.deepEqual(Object.keys(routeBody).sort(),["consent","language","points"]);
+    await energy.locator("[name=energy_reserve]").fill("90");
+    await energy.getByText(/Enter capacity 1/).waitFor();
+    assert.equal(await energy.getByText(/Whole-route assumed energy:/).count(),0);
+    await energy.locator("[name=energy_reserve]").fill("20");
+    await energy.getByText("Whole-route assumed energy: 0.3 kWh", {exact:true}).waitFor();
+    await energy.locator("summary").click();
     assert.equal(routeBody.points[0].latitude, 25.2);
     assert.equal(routeBody.points[2].latitude, 25.23);
     assert.equal(tiles, 0);
@@ -225,6 +247,10 @@ const fs = require("node:fs");
       name: "Preview provider route", exact: true
     }).isDisabled());
     assert.equal(routeCalls, 1, "Editing never sends the new coordinates");
+    await energy.locator("summary").click();
+    await energy.getByText("Preview a provider route for a whole-route energy estimate.",{exact:true}).waitFor();
+    assert.equal(await energy.getByText(/Whole-route assumed energy:/).count(),0);
+    await energy.locator("summary").click();
     await journey.locator("form>label input[type=checkbox]").check();
     await journey.getByRole("button", {
       name: "Preview provider route", exact: true

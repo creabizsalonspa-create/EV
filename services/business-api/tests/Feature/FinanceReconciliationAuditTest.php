@@ -2,15 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\FinanceReconciliationAuditController;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
 use App\Services\Finance\FinanceService;
+use App\Services\Finance\InvoiceReconciliationAudit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class FinanceReconciliationAuditTest extends TestCase
@@ -49,6 +52,42 @@ class FinanceReconciliationAuditTest extends TestCase
     private function url(): string
     {
         return '/audit-test/finance/reconciliation-audit';
+    }
+
+    public function test_invoice_reconciliation_fails_closed_for_rounded_or_inexact_money_sources(): void
+    {
+        $exact = new \ReflectionMethod(
+            InvoiceReconciliationAudit::class,
+            'exactMinor'
+        );
+        $this->assertSame(0, $exact->invoke(null, 0));
+        $this->assertSame(-9_007_199_254_740_991,
+            $exact->invoke(null, '-9007199254740991'));
+        $this->assertSame(9_007_199_254_740_991,
+            $exact->invoke(null, '9007199254740991'));
+
+        foreach ([
+            100.0, -100.0, true, false, 0.1, '1.0', '1e2',
+            '9007199254740992', '-9007199254740992',
+            'not-a-minor-unit',
+        ] as $invalid) {
+            try {
+                $exact->invoke(null, $invalid);
+                $this->fail('An unsafe financial amount passed: '.var_export($invalid, true));
+            } catch (HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
+        }
+
+        [$vendor, $customer, $invoice] = $this->fixture();
+        $before = DB::table('finance_journals')->count();
+        $this->actingAs($vendor)->getJson($this->url())
+            ->assertOk()->assertJsonPath('data.0.invoice_id', $invoice->id)
+            ->assertJsonPath('data.0.status', 'reconciled')
+            ->assertJsonPath('external_psp_or_bank_verified', false);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
     }
 
     public function test_balanced_invoice_capture_refund_and_read_only_audit(): void
@@ -102,6 +141,37 @@ class FinanceReconciliationAuditTest extends TestCase
             ->getJson($this->url().'?per_page=1')->assertOk()
             ->assertJsonPath('total', 2)->assertJsonCount(1, 'data');
         $this->actingAs($foreignOwner)->getJson($this->url())->assertOk()->assertJsonPath('total', 1);
+    }
+
+    public function test_reconciliation_csv_is_spreadsheet_literal_and_exact_without_changing_immutable_invoices(): void
+    {
+        [$vendor, $customer, $invoice] = $this->fixture();
+        $before = DB::table('finance_journals')->count();
+        // Issued invoice numbers are immutable, so the source must not be
+        // overwritten simply to simulate an untrusted imported reference.
+        $encode = new \ReflectionMethod(
+            FinanceReconciliationAuditController::class,
+            'literalCsv'
+        );
+        foreach (['=HYPERLINK("https://unsafe.test","open")', '+SUM(3,5)',
+            '-CMD', '@DDE', "\t=source", "\u{200B}=hidden",
+            "\u{202E}@bidi", "\u{FEFF}+bom", "\u{00A0}=nbsp"] as $formula) {
+            $this->assertSame("'".$formula, $encode->invoke(null, $formula));
+        }
+        $this->assertSame($invoice->number,
+            $encode->invoke(null, $invoice->number));
+
+        $this->actingAs($vendor)->getJson($this->url())
+            ->assertOk()->assertJsonPath('data.0.invoice_number', $invoice->number);
+        $csv = $this->get($this->url().'/export');
+        $csv->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->assertStringContainsString($invoice->number, $csv->streamedContent());
+        $this->assertDatabaseHas('finance_invoices', [
+            'id' => $invoice->id, 'number' => $invoice->number,
+        ]);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_payments', 0);
     }
 
     public function test_revoked_vendor_and_admin_snapshots_cannot_read_private_reconciliation_or_csv(): void

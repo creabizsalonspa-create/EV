@@ -24,7 +24,19 @@ class ContinuousFaultObserver
         $site = VendorSite::findOrFail($charger->site_id);
         $company = VendorCompany::findOrFail($charger->company_id);
         $station = Station::findOrFail($b->station_id);
-        abort_unless($charger->source === 'simulator' && $station->source === 'simulator' && $site->station_id === $station->id && $site->company_id === $company->id && $station->vendor_id === $company->owner_id && $charger->ocpp_protocol === $b->protocol && User::whereKey($company->owner_id)->where('role', 'vendor')->exists() && DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->count() === 1 && DB::table('csms_bindings')->where('identifier', $b->identifier)->count() === 1, 409);
+        // The checked source may be returned to the operator inbox. Never
+        // publish a source observation after ownership, country or account
+        // authority has changed (including between the HTTP read and commit).
+        abort_unless($charger->source === 'simulator' && $station->source === 'simulator'
+            && $site->station_id === $station->id && $site->company_id === $company->id
+            && $charger->company_id === $company->id
+            && $station->vendor_id === $company->owner_id
+            && $station->country === $site->country && $site->country === $company->country
+            && $charger->ocpp_protocol === $b->protocol
+            && User::whereKey($company->owner_id)->where('role', 'vendor')
+                ->where('account_status', 'active')->exists()
+            && DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->count() === 1
+            && DB::table('csms_bindings')->where('identifier', $b->identifier)->count() === 1, 409);
 
         return [$b, $company->id, $company->owner_id];
     }
@@ -101,6 +113,29 @@ class ContinuousFaultObserver
                     // of availability, faults or recovery and must not advance
                     // the durable cursor beyond an unread source event.
                     abort_unless(in_array($event['connectorStatus'], ConnectorFreshness::STATUSES, true), 503, 'Unsupported source connector status.');
+                    // A 1.6 StatusNotification includes an explicit fault
+                    // errorCode. Do not persist a healthy/status cursor from
+                    // a partial, contradictory or non-1.6 projection.
+                    if ($b->protocol === '1.6') {
+                        abort_unless(in_array($event['connectorStatus'], [
+                            'Available', 'Preparing', 'Charging', 'SuspendedEVSE',
+                            'SuspendedEV', 'Finishing', 'Reserved', 'Unavailable',
+                            'Faulted',
+                        ], true), 503, 'Invalid OCPP 1.6 status.');
+                        $code = $event['errorCode'] ?? null;
+                        abort_unless(is_string($code) && in_array($code, [
+                            'NoError', 'ConnectorLockFailure', 'EVCommunicationError',
+                            'GroundFailure', 'HighTemperature', 'InternalError',
+                            'LocalListConflict', 'OtherError', 'OverCurrentFailure',
+                            'OverVoltage', 'PowerMeterFailure', 'PowerSwitchFailure',
+                            'ReaderFailure', 'ResetFailure', 'UnderVoltage', 'WeakSignal',
+                        ], true) && (($event['connectorStatus'] === 'Faulted') === ($code !== 'NoError')),
+                            503, 'Invalid or inconsistent OCPP 1.6 fault receipt.');
+                    } else {
+                        abort_unless(in_array($event['connectorStatus'], [
+                            'Available', 'Occupied', 'Reserved', 'Unavailable', 'Faulted',
+                        ], true), 503, 'Invalid OCPP 2.0.1 status.');
+                    }
                     try {
                         // Use the same strict absolute-time contract as the
                         // persisted fault observer, including fractional future

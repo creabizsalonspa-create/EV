@@ -184,6 +184,58 @@ class ChargerDiagnosticLogTest extends TestCase
         }
     }
 
+    public function test_malformed_source_diagnostic_receipts_never_mark_a_device_request_accepted(): void
+    {
+        foreach (['relative_reply_clock', 'source_history_object', 'invalid_status_clock'] as $case) {
+            [$owner, , , $url] = $this->setupLog('2.0.1');
+            $this->actingAs($owner);
+            $id = $this->postJson($url, $this->requestBody())->assertCreated()->json('id');
+            $op = DB::table('charger_diagnostic_logs')->find($id);
+            $clock = CarbonImmutable::parse($op->attempted_at, 'UTC');
+            Http::swap(new Factory);
+            Http::preventStrayRequests();
+            Http::fake(function ($request) use ($case, $id, $clock) {
+                $query = $request['query'];
+                if (str_contains($query, 'ChargingStations')) {
+                    return Http::response(['data' => ['ChargingStations' => [[
+                        'id' => 42, 'protocol' => '2.0.1', 'isOnline' => true,
+                    ]]]]);
+                }
+                if (str_contains($query, 'requestMessageId')) {
+                    return Http::response(['data' => ['OCPPMessages' => [[
+                        'id' => 200, 'type' => 3,
+                        'createdAt' => $case === 'relative_reply_clock'
+                            ? 'now' : $clock->addSecond()->toISOString(),
+                        'payload' => ['status' => 'Accepted'],
+                    ]]]]);
+                }
+                if (str_contains($query, 'payload:{_contains')) {
+                    $events = $case === 'source_history_object'
+                        ? ['unexpected' => ['id' => 300]]
+                        : [[
+                            'id' => 300, 'createdAt' => $case === 'invalid_status_clock'
+                                ? 'tomorrow' : $clock->addSeconds(2)->toISOString(),
+                            'payload' => ['requestId' => $id, 'status' => 'Uploaded'],
+                        ]];
+
+                    return Http::response(['data' => ['OCPPMessages' => $events]]);
+                }
+
+                return Http::response(['data' => ['OCPPMessages' => [[
+                    'id' => 100, 'createdAt' => $clock->toISOString(),
+                ]]]]);
+            });
+            $this->postJson($url.'/'.$id.'/observe')->assertServiceUnavailable();
+            $current = DB::table('charger_diagnostic_logs')->find($id);
+            $this->assertNull($current->accepted_at);
+            $this->assertNull($current->source_request_id);
+            $this->assertNull($current->source_reply_id);
+            $this->assertNull($current->source_status_at);
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        }
+    }
+
     public function test_work_order_links_are_scoped_to_the_same_canonical_fault_generation(): void
     {
         [$owner,$company,$charger,$url] = $this->setupLog();

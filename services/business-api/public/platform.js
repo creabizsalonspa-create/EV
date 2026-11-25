@@ -1373,16 +1373,39 @@ async function simulations(page = simulationPage) {
     }
 }
 async function regions() {
-    let j = await api("regions");
-    el("region-list").replaceChildren();
-    for (let r of j)
-        el("region-list").append(
-            ui(
-                "p",
-                "{country} · {currency} · {timezone} · commerce disabled",
-                r,
-            ),
-        );
+    const rows = await api("regions");
+    const root = el("region-list");
+    root.replaceChildren();
+    for (const region of rows) {
+        root.append(ui("p", "{country} · {currency} · {timezone} · commerce disabled", region));
+        const enabled = Boolean(region.review_intake_enabled);
+        const button = enabled
+            ? batteryNode("button", "Pause new charging feedback", "إيقاف استقبال ملاحظات الشحن الجديدة")
+            : batteryNode("button", "Allow new charging feedback", "السماح باستقبال ملاحظات الشحن الجديدة");
+        button.type = "button";
+        button.dataset.access = "admin";
+        button.dataset.regionReviewIntake = region.country;
+        button.hidden = user?.role !== "admin";
+        button.onclick = async () => {
+            if (button.disabled || user?.role !== "admin") return;
+            const epoch = client.sessionEpoch;
+            button.disabled = true;
+            try {
+                await api("regions/" + encodeURIComponent(region.country) + "/review-intake", "PUT", {
+                    enabled: !enabled,
+                    expected_revision: region.review_intake_revision,
+                });
+                if (epoch === client.sessionEpoch) await regions();
+            } catch (error) {
+                if (epoch !== client.sessionEpoch) return;
+                notice(error);
+                if (error.status === 409) await regions().catch(notice);
+            } finally {
+                button.disabled = false;
+            }
+        };
+        root.append(button);
+    }
 }
 // The server owns tenant scope, membership status and page ordering.
 function fleetPageResponse(value, expected) {

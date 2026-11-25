@@ -409,6 +409,14 @@ class OcpiCpoCatalogTest extends TestCase
                 'meter_wh' => 1010, 'occurred_at' => $end, 'outcome' => 'applied', 'created_at' => $end],
         ]);
         $this->publication($cdrPath)->assertConflict();
+        // An immutable invoice must not be exported against subsequently changed
+        // session prices even if the meter and energy evidence still match.
+        DB::table('charging_sessions')->where('id', $session->id)->update(['total_minor' => 130]);
+        $this->publication($sessionPath)->assertConflict();
+        DB::table('charging_sessions')->where('id', $session->id)->update(['total_minor' => 129, 'rate_minor_per_kwh' => 130]);
+        $this->publication($sessionPath)->assertConflict();
+        DB::table('charging_sessions')->where('id', $session->id)->update(['rate_minor_per_kwh' => 129]);
+        $this->assertDatabaseCount('ocpi_cpo_catalog', 2);
         $sessionStamp = $this->publication($sessionPath)->assertOk()->json('published_at');
         $cdrStamp = $this->publication($cdrPath)->assertOk()->json('published_at');
         $this->publication($cdrPath, 'withdraw', $cdrStamp)->assertConflict();

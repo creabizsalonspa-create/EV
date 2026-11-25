@@ -133,6 +133,19 @@ class EvApi {
   final SessionVault? vault;
   bool _remembered = false;
   int _epoch = 0;
+  // Synchronous, privacy-only invalidation signal. Every mounted native
+  // financial document/report can clear old account data immediately when
+  // an authenticated context changes, without polling or trusting an old
+  // request to complete. The event has no cookie, user ID or token.
+  final StreamController<int> _sessionEvents =
+      StreamController<int>.broadcast(sync: true);
+  Stream<int> get sessionEvents => _sessionEvents.stream;
+
+  void _invalidateSessionGeneration() {
+    _epoch++;
+    if (!_sessionEvents.isClosed) _sessionEvents.add(_epoch);
+  }
+
   // Block UI requests that could use an old account while credentials change.
   int? _authTransitionEpoch;
   String? _authTransitionOperation;
@@ -162,7 +175,7 @@ class EvApi {
 
   Future<void> forgetSession() async {
     // Invalidate pending saves before deletion; a late response cannot recreate it.
-    _epoch++;
+    _invalidateSessionGeneration();
     try {
       if (vault != null)
         await _vaultOperation(() => vault!.delete(base.origin));
@@ -454,6 +467,49 @@ class EvApi {
 
   Future<PrivateDocument> downloadDocument(String path) async =>
       await _request(path, binary: true) as PrivateDocument;
+
+  /// The same authenticated, owner-scoped and bounded page as the JSON
+  /// vendor earnings list. Never collect money or write a CSV onto a device.
+  Future<PrivateDocument> downloadVendorEarningsPage(
+    int vendorId, {
+    required String currency,
+    required int page,
+    int perPage = 20,
+  }) async {
+    if (vendorId < 1 ||
+        vendorId > 9007199254740991 ||
+        !RegExp(r'^[A-Z]{3}$').hasMatch(currency) ||
+        page < 1 || page > 10000 ||
+        perPage < 1 || perPage > 25) {
+      throw ArgumentError('Invalid private earnings page.');
+    }
+    return await _request(
+          'commercial/vendors/$vendorId/earnings/export',
+          query: {
+            'currency': currency,
+            'page': '$page',
+            'per_page': '$perPage',
+          },
+          binary: true,
+          binaryTypes: const ['text/csv'],
+          binaryLimit: 65536,
+        )
+        as PrivateDocument;
+  }
+
+  /// Same authenticated, bounded scope as the displayed internal audit.
+  Future<PrivateDocument> downloadInvoiceAuditPage(Map<String, String> query) async {
+    final page = int.tryParse(query['page'] ?? '');
+    if (page == null || page < 1 || page > 10000 ||
+        query['per_page'] != '20' ||
+        !RegExp(r'^[A-Z]{3}$').hasMatch(query['currency'] ?? '') ||
+        query.keys.any((key) => !const ['currency', 'page', 'per_page', 'from', 'to'].contains(key))) {
+      throw ArgumentError('Invalid private audit export scope.');
+    }
+    return await _request('finance/reconciliation-audit/export',
+      query: query, binary: true, binaryTypes: const ['text/csv'],
+      binaryLimit: 65536) as PrivateDocument;
+  }
 
   Future<PrivateDocument> downloadPartnerBilling(
     int providerId,
@@ -793,10 +849,11 @@ class EvApi {
   }
 
   void close() {
-    _epoch++;
+    _invalidateSessionGeneration();
     _remembered = false;
     _cookies.clear();
     _csrf = null;
+    _sessionEvents.close();
     _http.close(force: true);
   }
 }
