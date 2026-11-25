@@ -105,6 +105,33 @@ function audit(manifest) {
   };
 }
 
+// JSON.parse alone silently accepts duplicate object members (last value wins).
+// Scan only after successful JSON syntax validation, using decoded member names
+// and a separate key set for each object, including escaped aliases.
+function parseManifest(text) {
+  const manifest = JSON.parse(text);
+  const tokens = /"(?:[^"\\]|\\[\s\S])*"|[{}\[\]:]/g;
+  const colon = /\s*:/y;
+  const containers = [];
+  let token;
+  while ((token = tokens.exec(text)) !== null) {
+    const value = token[0];
+    if (value === "{") containers.push(new Set());
+    else if (value === "[") containers.push(null);
+    else if (value === "}" || value === "]") containers.pop();
+    else if (value[0] === '"') {
+      colon.lastIndex = tokens.lastIndex;
+      if (colon.test(text)) {
+        const keys = containers[containers.length - 1];
+        const key = JSON.parse(value);
+        if (!(keys instanceof Set) || keys.has(key)) throw Error("duplicate object member");
+        keys.add(key);
+      }
+    }
+  }
+  return manifest;
+}
+
 function readManifest(path) {
   // Read at most one extra byte rather than loading an unbounded file.
   const fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
@@ -118,7 +145,7 @@ function readManifest(path) {
       length += count;
     }
     if (length > MAX_BYTES) throw Error("oversized manifest");
-    return JSON.parse(buffer.subarray(0, length).toString("utf8"));
+    return parseManifest(new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, length)));
   } finally {
     fs.closeSync(fd);
   }
@@ -137,4 +164,4 @@ if (require.main === module) {
   process.exitCode = result.structurally_complete ? 0 : 2;
 }
 
-module.exports = { audit, GATES, SIGNOFFS, PREFLIGHT, APPROVALS };
+module.exports = { audit, parseManifest, GATES, SIGNOFFS, PREFLIGHT, APPROVALS };
