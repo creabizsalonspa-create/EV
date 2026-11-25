@@ -8,7 +8,7 @@ import 'test_support.dart';
 
 class PricingApi extends FixtureApi {
   final publications = <Map<String, dynamic>>[];
-  bool uncertain = false, expired = false;
+  bool uncertain = false, expired = false, futureFirst = false, missingAuthority = false;
   int price = 125, version = 1;
   @override
   Future<dynamic> request(
@@ -29,21 +29,24 @@ class PricingApi extends FixtureApi {
       }
       return {'id': version};
     }
+    final effective = {
+      'id': version, 'station_id': 8,
+      'rate_minor_per_kwh': price, 'tax_bps': 500,
+      'commission_bps': 1250, 'minor_units': 2, 'currency': 'AED',
+      'effective_from': '2026-10-27T00:00:00Z',
+    };
     return {
       'data': [
-        {
-          'id': version,
-          'rate_minor_per_kwh': price,
-          'tax_bps': 500,
-          'commission_bps': 1250,
-          'minor_units': 2,
-          'currency': 'AED',
-          'effective_from': '2026-10-27T00:00:00Z',
-        },
+        if (futureFirst) {...effective, 'id': 99,
+          'rate_minor_per_kwh': 999, 'effective_from': '2026-12-01T00:00:00Z'},
+        effective,
       ],
+      if (!missingAuthority) 'active_tariff': effective,
+      'active_tariff_context_matches': true,
+      'tariff_as_of': '2026-11-25T00:00:00Z',
       'current_page': 1,
       'last_page': 1,
-      'total': 1,
+      'total': futureFirst ? 2 : 1,
       'pricing_context': {
         'currency': 'AED',
         'minor_units': 2,
@@ -97,6 +100,20 @@ void main() {
           expect(decimalMinor(minorDecimal(amount, digits), digits), amount);
     },
   );
+  testWidgets('future history cannot prefill effective price; missing authority blocks publishing', (tester) async {
+    final api = PricingApi()..futureFirst = true;
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, () {}));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextFormField>(find.byType(TextFormField).first).controller!.text, '1.25');
+    expect(find.byKey(const Key('effective-tariff-version')), findsOneWidget);
+    api.missingAuthority = true;
+    await tester.tap(find.text('تحديث سجل التسعير'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('effective-tariff-version')), findsNothing);
+    expect(find.byType(TextFormField), findsNothing);
+    expect(api.publications, isEmpty);
+  });
   testWidgets(
     'vendor publishes exact Arabic prices with an idempotency identity and zero commission sentinel',
     (tester) async {
