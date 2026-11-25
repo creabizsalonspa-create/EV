@@ -107,7 +107,7 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
           for (final row in result.items.where((r) => r['id'] == effective!['id'])) {
             for (final field in ['station_id', 'rate_minor_per_kwh', 'tax_bps',
               'commission_bps', 'currency', 'minor_units', 'effective_from']) {
-              if (row[field] != effective![field]) {
+              if (row[field] != effective[field]) {
                 throw const FormatException('Conflicting effective tariff history.');
               }
             }
