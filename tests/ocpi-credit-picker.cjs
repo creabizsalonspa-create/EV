@@ -3,8 +3,15 @@ const withSource = require("./helpers/ocpi-credit-local.cjs");
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const assert = require("node:assert/strict");
 let stage = "fixture-bootstrap";
+// Safe bounded diagnostics: only fixed synthetic phase labels, no cookies,
+// invoice data, credential values, or URLs. Retained even on suite timeout.
+function checkpoint(next) {
+  stage = next;
+  console.log("Synthetic source credit picker phase: " + next);
+}
+checkpoint(stage);
 withSource(async (f) => {
-  stage = "customer-browser";
+  checkpoint("customer-browser");
   const { invoice, credit, sourceCreditsPath: optionsPath } = f;
   const external = credit.external_id;
   const { chromium } = require("playwright");
@@ -46,6 +53,7 @@ withSource(async (f) => {
         }
       },
     );
+    checkpoint("customer-navigation");
     await page.goto(f.base + "#commercial-finance");
     const root = page.locator("#commercial-finance");
     const row = root.locator(".finance-row").filter({
@@ -74,6 +82,7 @@ withSource(async (f) => {
     );
     await form.locator("[name=amount]").fill("0.25");
     await form.locator("[name=reason]").fill("Synthetic partner credit review");
+    checkpoint("customer-first-refund");
     await form.locator("[type=submit]").click();
     await page.waitForFunction(
       () =>
@@ -94,6 +103,7 @@ withSource(async (f) => {
       await form.locator("[name=ocpi_credit_record_id]").inputValue(),
       String(credit.id),
     );
+    checkpoint("customer-same-key-retry");
     await form.locator("[type=submit]").click();
     await page.waitForFunction(
       () => !document.querySelector("#commercial-finance").inert,
@@ -114,7 +124,7 @@ withSource(async (f) => {
     // acknowledged. Observe the actual authenticated POST and its completion,
     // not just the optimistic redaction. Probe the exact outgoing cookie,
     // rather than the fixture client's potentially superseded cookie jar.
-    stage = "logout-session-revocation";
+    checkpoint("logout-session-revocation");
     const loggedOut = page.waitForResponse(
       (response) => new URL(response.url()).pathname === "/api/logout" &&
         response.request().method() === "POST",
@@ -129,7 +139,9 @@ withSource(async (f) => {
       () => document.querySelector("#commercial-finance").hidden,
     );
     assert.equal(await root.textContent(), "");
+    checkpoint("customer-context-close");
     await context.close();
+    checkpoint("revoked-cookie-probe");
     const retired = new BusinessClient({ base: f.base });
     for (const pair of sentCookie.split(";")) {
       const entry = pair.trim(), index = entry.indexOf("=");
@@ -141,7 +153,7 @@ withSource(async (f) => {
       /failed \(401\)/,
       "The exact acknowledged logout session must be rejected",
     );
-    stage = "vendor-review";
+    checkpoint("vendor-review");
     const owner = new BusinessClient({ base: f.base });
     owner.csrf = (await owner.request("csrf")).token;
     await owner.request("login", "POST", {
@@ -163,6 +175,7 @@ withSource(async (f) => {
     await review
       .locator("[name=note]")
       .fill("Reviewed synthetic captured funds and scoped CPO reference");
+    checkpoint("vendor-review-submit");
     const reviewResponse = vendor.waitForResponse(
       (response) =>
         new URL(response.url()).pathname ===
@@ -178,7 +191,7 @@ withSource(async (f) => {
     );
     // Read the final canonical receipt through a fresh, normally
     // authenticated customer session, never the revoked cookie.
-    stage = "fresh-customer-receipt";
+    checkpoint("fresh-customer-receipt");
     const customer = new BusinessClient({ base: f.base });
     customer.csrf = (await customer.request("csrf")).token;
     await customer.request("login", "POST", {
@@ -199,12 +212,15 @@ withSource(async (f) => {
       1,
     );
     assert.deepEqual(errors, []);
+    checkpoint("vendor-context-close");
     await vendorContext.close();
     console.log(
       "PASS real isolated Laravel: customer scoped credit selection -> committed lost-response/same-body retry -> vendor web review -> one canonical mock refund; Arabic phone/logout privacy; no physical or merchant acceptance",
     );
   } finally {
+    console.log("Synthetic source credit picker phase: browser-close");
     await browser.close();
+    console.log("Synthetic source credit picker phase: fixture-cleanup");
   }
 }).catch((e) => {
   console.error(
