@@ -82,6 +82,32 @@ class FinanceTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_tariff_publication_rejects_stale_effective_version_but_recovers_committed_retry(): void
+    {
+        $this->travelTo(now()->startOfSecond());
+        [$vendor, , $station, , $current] = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $future = TariffVersion::create([
+            'station_id' => $station->id, 'created_by' => $admin->id,
+            'rate_minor_per_kwh' => 250, 'tax_bps' => 500, 'commission_bps' => 1500,
+            'currency' => 'AED', 'minor_units' => 2, 'effective_from' => now()->addMinute(),
+        ]);
+        $path = '/finance-test-api/stations/'.$station->id.'/tariffs';
+        $payload = ['rate_minor_per_kwh' => 300, 'tax_bps' => 500, 'commission_bps' => 0,
+            'expected_active_tariff_id' => $current->id, 'idempotency_key' => 'reviewed-pricing'];
+        $this->actingAs($vendor);
+        $this->travel(1)->minutes();
+        $this->postJson($path, $payload)->assertConflict();
+        $this->assertDatabaseCount('finance_tariff_versions', 2);
+        $payload['expected_active_tariff_id'] = $future->id;
+        $receipt = $this->postJson($path, $payload)->assertCreated()
+            ->assertJsonPath('commission_bps', 1500)->json('id');
+        $this->postJson($path, $payload)->assertCreated()->assertJsonPath('id', $receipt);
+        $payload['expected_active_tariff_id'] = $receipt;
+        $this->postJson($path, $payload)->assertConflict();
+        $this->assertDatabaseCount('finance_tariff_versions', 3);
+    }
+
     public function test_integer_rounding_tariff_snapshot_and_invoice_are_immutable_and_reconcile(): void
     {
         $f = $this->fixture();
