@@ -928,11 +928,49 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         for (const item of cases) {
             const row = document.createElement("div");
             row.className = "finance-row";
+            // Exact minor units only. A malformed server balance must never
+            // render as an apparently approved currency amount or enable review.
+            const amount = item.amount_minor;
+            const exactAmount =
+                typeof amount === "number"
+                    ? Number.isSafeInteger(amount) && amount > 0 && amount <= 2000000000
+                        ? String(amount)
+                        : null
+                    : typeof amount === "string" &&
+                        /^[1-9][0-9]{0,9}$/.test(amount) &&
+                        Number(amount) <= 2000000000
+                      ? amount
+                      : null;
             row.append(
                 text("p", `#${item.id} · ${item.status || item.state}`),
                 text("p", item.reason),
             );
+            if (exactAmount !== null) {
+                const line = document.createElement("p");
+                const value = text("bdi", exactAmount);
+                value.dir = "ltr";
+                value.dataset.caseMinorAmount = "true";
+                line.append(
+                    translated(
+                        "span",
+                        "Disputed amount (minor units)",
+                        "المبلغ المتنازع عليه (وحدات نقدية صغرى)",
+                    ),
+                    document.createTextNode(": "),
+                    value,
+                );
+                row.append(line);
+            } else {
+                row.append(
+                    translated(
+                        "p",
+                        "Dispute amount unverified; refresh before review.",
+                        "مبلغ النزاع غير متحقق منه؛ حدّث البيانات قبل المراجعة.",
+                    ),
+                );
+            }
             if (
+                exactAmount !== null &&
                 actor.role === "admin" &&
                 ["open", "pending"].includes(item.status || item.state)
             )
