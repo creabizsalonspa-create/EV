@@ -340,7 +340,8 @@ class ChargerResetTest extends TestCase
                     // Simulate a retained command becoming uncertain during
                     // the read. The enclosing rejected transaction rolls
                     // back this synthetic change, never an actual wire send.
-                    $command->update(['status' => 'outcome_unknown']);
+                    DB::table('charger_commands')->where('id', $command->id)
+                        ->update(['status' => 'outcome_unknown']);
 
                     return Http::response(['data' => [
                         'Transactions' => [], 'Connectors' => [['id' => 7]],
