@@ -36,3 +36,17 @@ Errors preserve normal401/403 authentication/authority,404 unknown resource,409 
 - `tests/operational-connected.cjs` runs the real browser suite in its own unchanged authentication window. The existing finance PostgreSQL matrix includes the feature test and all process tests; no prior filter/suite was removed.
 
 A registry entry is not evidence that an external merchant signed a contract or fulfilled a reward. Operational onboarding, approved legal terms, real retail fulfillment, production activation and customer partner-reward integration remain separate. No live transactions or activation were performed.
+
+## Partner reward reviews
+
+The internal review workflow for requirement 2.9.7 associates a canonical noncash reward with the exact effective retail partner version and revision. The reward must use the configured currency for the partner country and fit entirely within the contractual window. Another administrator must approve or reject it. An administrator may revoke approval. Suspension, reinstatement, or any subsequent partner revision invalidates the prior terms match and requires a fresh review.
+
+At `/api/admin/retail-partners/{partner}/reward-reviews`, GET lists 25 reviews per page, and POST submits `{reward_id,expected_partner_revision,reason,idempotency_key}`. GET `/{review}` retrieves paginated immutable decision evidence. POST `/{review}/{approve,reject,revoke}` requires `{expected_revision,reason,idempotency_key}`. Each request uses the registry's current Admin authority. Exact retries keep one event, and changed content or revisions conflict. Review records, including reasons, are available only to administrators.
+
+A review records internal approval of the association. It does not change the reward catalog, enable or execute fulfillment by the partner, or create a financial or loyalty entry. The API reports `fulfillment_enabled=false`. Administrators can propose an existing reward, open its paginated decision history, approve or reject a proposal, and revoke approval from the bilingual retail partner workspace.
+
+## Synthetic customer claims
+
+With sandbox loyalty enabled, `GET commercial/partner-rewards/offers` lists current approved offers, `POST commercial/partner-rewards/offers/{review}/claim` accepts an `idempotency_key` from a verified customer, and `GET commercial/partner-rewards/claims` returns the customer's private paginated receipts. The routes work under the existing web and native API prefixes.
+
+A claim retains the exact approval event and reserves the canonical reward inventory at zero points. The existing Admin redemption workflow handles manual decisions. A revoked review, expired terms, or changed partner revision prevents fulfillment and new claims. In sandbox, Admin rejection can release a pending reservation, and receipt history preserves its original source. Claims and fulfillment are sandbox-only even under the reviewed manual production setting. Production partner activation, external delivery evidence and customer app screens require separate work.

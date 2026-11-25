@@ -10,6 +10,39 @@ class CatalogApi extends FixtureApi {
   Completer<dynamic>? pending;
   bool promote = false;
   Map<String, dynamic>? overrideReport;
+  Map<String, dynamic>? overrideQuality;
+  Map<String, dynamic> quality() => {
+    'scope': 'stored_partner_catalog_quality_history',
+    'provider': {
+      'id': 7,
+      'name': 'Private catalog operator',
+      'authorized': true,
+    },
+    'period': 'hour_utc',
+    'sample_limit': 30,
+    'retention_hours': 168,
+    'count': 1,
+    'samples': [
+      {
+        'observed_hour': '2026-11-23T10:00:00.000000Z',
+        'sampled_at': '2026-11-23T10:30:00.000000Z',
+        'state': 'attention',
+        'max_age_seconds': 3600,
+        'published_count': 3,
+        'within_policy_count': 1,
+        'stale_count': 1,
+        'unknown_age_count': 1,
+        'future_clock_count': 0,
+      },
+    ],
+    'evidence': 'STORED_PARTNER_CATALOG_TIMESTAMPS_ONLY',
+    'sample_completeness': 'STORED_SYNC_AND_OPTIONAL_PERIODIC_SNAPSHOTS',
+    'source_covers_whole_network': false,
+    'live_availability_verified': false,
+    'physical_charging_verified': false,
+    'remote_control': false,
+    'billing_authority': false,
+  };
   Map<String, int> ages(String label) => {
     for (final key in catalogAgeLabels.keys) key: key == label ? 1 : 0,
   };
@@ -73,8 +106,12 @@ class CatalogApi extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
-    expect(path, 'ocpi/providers/7/catalog-observations');
     expect(method, 'GET');
+    if (path == 'ocpi/providers/7/catalog-quality-history') {
+      reads.add({'quality': '1'});
+      return pending?.future ?? overrideQuality ?? quality();
+    }
+    expect(path, 'ocpi/providers/7/catalog-observations');
     reads.add(Map.of(query));
     return pending?.future ?? overrideReport ?? report(query['module']!);
   }
@@ -274,4 +311,93 @@ void main() {
       },
     );
   }
+  for (final ar in [false, true]) {
+    testWidgets('quality trend is manually requested with source-only labels ($ar)',
+        (tester) async {
+      final api = CatalogApi();
+      await tester.pumpWidget(view(api, ar: ar));
+      await tester.pumpAndSettle();
+      expect(api.reads, isEmpty);
+      await tester.ensureVisible(find.byType(OutlinedButton));
+      await tester.tap(find.byType(OutlinedButton));
+      await tester.pumpAndSettle();
+      expect(api.reads, [{'quality': '1'}]);
+      expect(find.text('Private catalog operator'), findsOneWidget);
+      final row = find.byKey(
+        const ValueKey('catalog-quality-2026-11-23T10:00:00.000000Z'),
+      );
+      await tester.scrollUntilVisible(row, 160);
+      expect(row, findsOneWidget);
+      expect(
+        find.textContaining(ar ? 'ليست توفراً حياً' : 'not live availability'),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      expect(find.text('Private catalog operator'), findsNothing);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(api.reads.length, 1);
+    });
+  }
+  test('source quality contract rejects inflated counts and forged live authority', () {
+    final api = CatalogApi();
+    expect(catalogQualityHistoryValid(api.quality(), providerId: 7), isTrue);
+    final inflated = api.quality();
+    (inflated['samples'] as List).first['stale_count'] = 99;
+    expect(catalogQualityHistoryValid(inflated, providerId: 7), isFalse);
+    final misleading = api.quality();
+    (misleading['samples'] as List).first['state'] = 'within_policy';
+    expect(catalogQualityHistoryValid(misleading, providerId: 7), isFalse);
+    final promoted = api.quality()..['source_covers_whole_network'] = true;
+    expect(catalogQualityHistoryValid(promoted, providerId: 7), isFalse);
+    final stale = api.quality();
+    (stale['samples'] as List).first['sampled_at'] = '2026-11-23T11:02:00.000000Z';
+    expect(catalogQualityHistoryValid(stale, providerId: 7), isFalse);
+    final invalidCalendar = api.quality();
+    (invalidCalendar['samples'] as List).first['observed_hour'] =
+        '2026-02-30T10:00:00.000000Z';
+    expect(catalogQualityHistoryValid(invalidCalendar, providerId: 7), isFalse);
+    expect(catalogQualityHistoryValid(api.quality(), providerId: 8), isFalse);
+  });
+  testWidgets('forged quality authority fails closed without previous samples',
+      (tester) async {
+    final api = CatalogApi();
+    api.overrideQuality = api.quality()..['live_availability_verified'] = true;
+    await tester.pumpWidget(view(api));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(OutlinedButton));
+    await tester.tap(find.byType(OutlinedButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Private catalog operator'), findsNothing);
+    expect(find.textContaining('no partial samples'), findsOneWidget);
+    expect(find.byKey(const ValueKey('catalog-quality-2026-11-23T10:00:00.000000Z')), findsNothing);
+    expect(api.reads, [{'quality': '1'}]);
+  });
+
+  testWidgets('previous account hourly quality records vanish on native auth epoch transition',
+      (tester) async {
+    final api = CatalogApi();
+    await tester.pumpWidget(view(api));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(OutlinedButton));
+    await tester.tap(find.byType(OutlinedButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Private catalog operator'), findsOneWidget);
+    expect(api.reads, [{'quality': '1'}]);
+
+    // Same EvApi instance is retained, but the session fence has changed.
+    // Rebuilding the app must not show cached private quality samples.
+    await api.forgetSession();
+    await tester.pumpWidget(view(api, ar: true));
+    await tester.pumpAndSettle();
+    expect(find.text('Private catalog operator'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('catalog-quality-2026-11-23T10:00:00.000000Z')),
+      findsNothing,
+    );
+    expect(api.reads.length, 1);
+  });
+
 }

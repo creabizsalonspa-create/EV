@@ -82,6 +82,7 @@ class ExternalDisputesController extends Controller
             $values = $r->validate([
                 'window_hours' => 'sometimes|integer|between:0,168',
                 'per_page' => 'sometimes|integer|between:1,25',
+                'page' => 'sometimes|integer|between:1,10000',
             ]);
             $window = (int) ($values['window_hours'] ?? 48);
             $cutoff = now()->addHours($window);
@@ -104,7 +105,8 @@ class ExternalDisputesController extends Controller
                 ->orderByRaw("CASE WHEN d.status IN ('needs_response', 'warning_needs_response') AND d.evidence_due_at IS NOT NULL THEN 0 WHEN d.status = 'lost' THEN 1 ELSE 2 END")
                 ->orderByRaw('CASE WHEN d.evidence_due_at IS NULL THEN 1 ELSE 0 END')
                 ->orderBy('d.evidence_due_at')->orderBy('d.id')
-                ->paginate((int) ($values['per_page'] ?? 20));
+                ->paginate((int) ($values['per_page'] ?? 20),
+                    ['*'], 'page', (int) ($values['page'] ?? 1));
             $rows = $page->getCollection()->map(function ($row) {
                 $unresolved = DB::table('external_dispute_evidence')
                     ->where('dispute_id', $row->id)
@@ -175,13 +177,13 @@ class ExternalDisputesController extends Controller
 
     public function reconcile(Request $r, int $dispute, ExternalDisputes $service)
     {
-        $this->currentAdmin($r);
+        $actor = $this->currentAdmin($r);
         DB::transaction(function () use ($r, $dispute) {
             abort_unless($this->scoped($r)->where('d.id', $dispute)->exists(), 404);
         }, 3);
         // The service owns the provider read/uncertainty transaction. No
         // controller transaction may span a remote test-provider request.
-        $service->reconcile($dispute);
+        $service->reconcile($dispute, $actor);
 
         return $this->show($r, $dispute);
     }
@@ -190,7 +192,7 @@ class ExternalDisputesController extends Controller
     {
         $actor = $this->currentAdmin($r);
         $v = $r->validate(['idempotency_key' => 'required|string|max:100', 'submit' => 'required|boolean', 'evidence' => 'required|array:product_description,service_date,refund_policy_disclosure,refund_refusal_explanation,access_activity_log,uncategorized_text', 'evidence.*' => 'required|string|max:5000']);
-        $service->evidence($dispute, $actor->id, $v['evidence'], $v['submit'], $v['idempotency_key']);
+        $service->evidence($dispute, $actor->id, $v['evidence'], $v['submit'], $v['idempotency_key'], $actor);
 
         return $this->show($r, $dispute);
     }
@@ -201,7 +203,7 @@ class ExternalDisputesController extends Controller
         // Retry is server-owned: changing evidence or selecting a new provider
         // identity is impossible through this endpoint.
         $r->validate(['evidence' => 'prohibited', 'idempotency_key' => 'prohibited', 'submit' => 'prohibited']);
-        $service->retryEvidence($dispute, $operation, $actor->id);
+        $service->retryEvidence($dispute, $operation, $actor->id, $actor);
 
         return $this->show($r, $dispute);
     }

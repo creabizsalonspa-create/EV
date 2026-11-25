@@ -102,7 +102,7 @@ class RecordNormalizer
         return array_filter(['excl_vat' => isset($cost['excl_vat']) ? (string) $cost['excl_vat'] : null, 'incl_vat' => isset($cost['incl_vat']) ? (string) $cost['incl_vat'] : null], fn ($v) => $v !== null);
     }
 
-    public function hash(array $record): string
+    public function hash(array $record, bool $preserveZeroFraction = true): string
     {
         $canonical = function ($value) use (&$canonical) {
             if (! is_array($value)) {
@@ -114,6 +114,6 @@ class RecordNormalizer
             return array_map($canonical, $value);
         };
 
-        return hash('sha256', json_encode($canonical($record), JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
+        return hash('sha256', json_encode($canonical($record), JSON_THROW_ON_ERROR | ($preserveZeroFraction ? JSON_PRESERVE_ZERO_FRACTION : 0)));
     }
 }

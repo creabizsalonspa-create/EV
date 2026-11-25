@@ -37,6 +37,16 @@ class CustomerReviews
         return ['station' => $station, 'evidence' => $link ? 'SIMULATED_SOURCE_OBSERVED' : 'SIMULATED_APP_ONLY', 'fingerprint' => hash('sha256', json_encode([$session->id, $reservation->id, $station->id, $station->vendor_id, $session->energy_wh, $session->stopped_at, $fingerprints], JSON_THROW_ON_ERROR))];
     }
 
+    public function intakeEnabled(string $country, bool $lock = false): bool
+    {
+        $region = DB::table('regions')->where('country', $country);
+        if ($lock) {
+            $region->lockForUpdate();
+        }
+
+        return (bool) ($region->value('review_intake_enabled') ?? true);
+    }
+
     private function event(object $row): object
     {
         return DB::table('charging_review_events')->where('review_id', $row->id)->where('revision', $row->revision)->whereIn('action', ['create', 'revise'])->firstOrFail();
@@ -73,6 +83,7 @@ class CustomerReviews
                 $source = $this->evidence(ChargingSession::whereKey($session->id)->lockForUpdate()->firstOrFail(), $actor);
                 $station = Station::whereKey($source['station']->id)->lockForUpdate()->firstOrFail();
                 abort_unless($station->vendor_id === $source['station']->vendor_id && $station->source === 'simulator', 409);
+                abort_unless($this->intakeEnabled($station->country, lock: true), 409, 'New charging feedback is paused in this country.');
                 abort_if(DB::table('charging_reviews')->where('user_id', $actor->id)->where('station_id', $station->id)->exists(), 409, 'Update your existing review for this station.');
                 $id = DB::table('charging_reviews')->insertGetId(['public_id' => (string) Str::ulid(), 'user_id' => $actor->id, 'station_id' => $station->id, 'vendor_id' => $station->vendor_id, 'charging_session_id' => $session->id, 'evidence' => $source['evidence'], 'source_fingerprint' => $source['fingerprint'], 'state' => 'pending', 'version' => 1, 'revision' => 1, 'created_at' => now(), 'updated_at' => now()]);
                 $row = DB::table('charging_reviews')->find($id);

@@ -317,17 +317,24 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
                       TextButton(
                         onPressed: busy
                             ? null
-                            : () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => ChargerRepairsView(
-                                    api: widget.api,
-                                    companyId: widget.companyId,
-                                    chargerId: widget.chargerId,
-                                    initialAlertId: alert['id'] as int,
-                                    onExpired: widget.onExpired,
+                            : () async {
+                                final page = alerts!['current_page'] as int;
+                                await Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => ChargerRepairsView(
+                                      api: widget.api,
+                                      companyId: widget.companyId,
+                                      chargerId: widget.chargerId,
+                                      initialAlertId: alert['id'] as int,
+                                      onExpired: widget.onExpired,
+                                    ),
                                   ),
-                                ),
-                              ),
+                                );
+                                if (mounted &&
+                                    ModalRoute.of(context)?.isCurrent == true) {
+                                  await loadAlerts(page: page);
+                                }
+                              },
                         child: Text(tr('Repair work orders', 'أوامر الإصلاح')),
                       ),
                       Text(
@@ -345,6 +352,10 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
                                 'لم يُرصد دليل تعافٍ من المصدر',
                               ),
                       ),
+                      if (alert['repair_review_closed_at'] != null)
+                        Text(
+                          tr('Repair review closed', 'أُغلقت مراجعة الإصلاح'),
+                        ),
                       if (alert['acknowledged_at'] != null)
                         Text(tr('Fault acknowledged', 'تم الإقرار بالعطل'))
                       else if (alerts!['can_manage_faults'] == true)

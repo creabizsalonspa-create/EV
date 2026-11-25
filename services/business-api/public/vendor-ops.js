@@ -2369,8 +2369,14 @@ window.createVendorWorkspace = ({
             );
             try {
                 await api(path, "POST", intent);
-                if (current())
+                if (current()) {
                     await repairOrders(company, charger, parent, epoch, page);
+                    const faults = parent.querySelector("[data-fault-alerts]");
+                    if (faults?.dataset.alertPage)
+                        await run(() =>
+                            faultAlerts(company, charger, faults, epoch, Number(faults.dataset.alertPage)),
+                        );
+                }
             } catch (error) {
                 if (current()) {
                     notice(error);
@@ -2580,6 +2586,7 @@ window.createVendorWorkspace = ({
             diagnosticFiles(company, charger, parent, epoch),
         );
         const faults = document.createElement("section");
+        faults.dataset.faultAlerts = "";
         pane.append(faults);
         button(pane, "Fault alerts", () =>
             faultAlerts(company, charger, faults, epoch),
@@ -2753,6 +2760,7 @@ window.createVendorWorkspace = ({
             controller?.signal,
         );
         if (!valid(epoch) || !pane.isConnected) return;
+        pane.dataset.alertPage = String(result.current_page);
         for (const alert of result.data) {
             const row = document.createElement("article");
             row.dataset.faultAlert = alert.id;
@@ -2783,6 +2791,8 @@ window.createVendorWorkspace = ({
                         : "No recovery source observed",
                 ),
             );
+            if (alert.repair_review_closed_at)
+                row.append(ui("p", "Repair review closed"));
             if (alert.acknowledged_at)
                 row.append(ui("p", "Fault acknowledged"));
             else if (result.can_manage_faults)
@@ -2838,11 +2848,22 @@ window.createVendorWorkspace = ({
             base + `companies/${company.id}/chargers/${charger.id}/admission`;
         const live = () => valid(epoch) && pane.isConnected;
         const refresh = () => admission(company, charger, parent, epoch);
+        if (charger.source === "direct_unverified" && window.mountChargerSourceRegistration) {
+            const source = document.createElement("section");
+            source.dataset.chargerSourceRegistration = "";
+            pane.append(source);
+            window.mountChargerSourceRegistration({
+                root: source,
+                endpoint: base + `companies/${company.id}/chargers/${charger.id}/source-registration`,
+                actor, api, expired, valid: live, signal: controller?.signal,
+                refreshAdmission: refresh,
+            });
+        }
         button(pane, "Refresh admission", refresh);
         const result = await api(path, "GET", undefined, controller?.signal);
         if (!live()) return;
         const profile = result.profile;
-        if (!profile && result.can_manage)
+        if (!profile && result.can_manage && charger.source !== "direct_unverified")
             form(
                 pane,
                 "Prepare identity",

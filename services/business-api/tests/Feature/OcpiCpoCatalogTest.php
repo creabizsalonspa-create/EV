@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Models\ChargingSession;
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Finance\FinanceService;
 use App\Services\Ocpi\CpoCatalogPublisher;
 use App\Services\Ocpi\CredentialExchange;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -12,6 +14,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class OcpiCpoCatalogTest extends TestCase
@@ -348,5 +351,118 @@ class OcpiCpoCatalogTest extends TestCase
         $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertConflict();
         Http::assertNothingSent();
         $this->assertDatabaseCount('ocpi_cpo_publication_operations', 0);
+    }
+
+    #[TestWith([true])]
+    #[TestWith([false])]
+    public function test_approved_final_sandbox_session_and_cdr_are_private_immutable_and_not_replayed(bool $validReceipt): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $customer = User::factory()->create(['role' => 'customer']);
+        $sources = $this->source($owner);
+        [$site, $tariff, $evse, $connector] = $sources;
+        [, $otherToken] = $this->peer(User::factory()->create(['role' => 'vendor']), 'other', $sources);
+        [$provider, $token, $operations] = $this->peer($owner, 'owner', $sources);
+        $station = DB::table('vendor_sites')->where('id', $site)->value('station_id');
+        $map = DB::table('charging_connector_mappings')->where('connector_id', $connector)->value('id');
+        $start = now()->subHour()->startOfSecond();
+        $end = now()->startOfSecond();
+        $reservation = DB::table('reservations')->insertGetId([
+            'user_id' => $customer->id, 'station_id' => $station, 'starts_at' => $start, 'status' => 'confirmed',
+            'idempotency_key' => 'cpo-test-reservation', 'connector_mapping_id' => $map, 'charging_evse_id' => $evse,
+        ]);
+        $session = ChargingSession::create([
+            'reservation_id' => $reservation, 'status' => 'stopped', 'energy_wh' => 1000, 'rate_minor_per_kwh' => 129,
+            'currency' => 'AED', 'total_minor' => 129, 'stopped_at' => $end, 'charging_evse_id' => $evse,
+        ]);
+        $binding = DB::table('csms_bindings')->insertGetId(['station_id' => $station, 'identifier' => 'ev-test-cpo-session', 'protocol' => '2.0.1']);
+        $command = DB::table('charger_commands')->insertGetId([
+            'actor_id' => $customer->id, 'station_id' => $station, 'idempotency_key' => 'cpo-test-start',
+            'payload_hash' => str_repeat('a', 64), 'action' => 'start', 'payload' => '{}',
+        ]);
+        $link = DB::table('csms_session_links')->insertGetId([
+            'charging_session_id' => $session->id, 'binding_id' => $binding, 'start_command_id' => $command,
+            'protocol' => '2.0.1', 'identifier' => 'ev-test-cpo-session', 'transaction_id' => 'test-session',
+            'connector_mapping_id' => $map, 'started_at' => $start, 'ended_at' => $end, 'meter_start_wh' => 10,
+            'last_meter_wh' => 1010, 'last_sequence' => 2,
+        ]);
+        $contractPath = 'ocpi.connections.owner.cpo_catalog.session_exports';
+        config([$contractPath => [$session->id => [
+            'site_id' => $site, 'token_uid' => 'TEST-PEER-TOKEN', 'contract_id' => 'TEST-PEER-CONTRACT', 'evse_id' => 'AE*EVX*ETEST',
+        ]], 'ocpi.cpo_push_enabled' => true]);
+        DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->update([
+            'configuration_hash' => app(CredentialExchange::class)->configurationHash($provider),
+        ]);
+        $provider->update(['endpoints' => $provider->endpoints + ['sessions_receiver' => 'https://emsp.example/sessions', 'cdrs_receiver' => 'https://emsp.example/cdrs']]);
+        app(FinanceService::class)->issue($session, $admin->id);
+        $this->actingAs($admin)->publication($operations.'/tariffs/'.$tariff)->assertOk();
+        $this->publication($operations.'/locations/'.$site)->assertOk();
+        $sessionPath = $operations.'/sessions/'.$session->id;
+        $cdrPath = $operations.'/cdrs/'.$session->id;
+        $this->publication($sessionPath)->assertConflict();
+
+        DB::table('csms_inbox_events')->insert([
+            ['link_id' => $link, 'event_id' => 'cpo-sandbox-start', 'fingerprint' => str_repeat('1', 64), 'sequence' => 1, 'type' => 'started',
+                'meter_wh' => 10, 'occurred_at' => $start, 'outcome' => 'applied', 'created_at' => $start],
+            ['link_id' => $link, 'event_id' => 'cpo-sandbox-end', 'fingerprint' => str_repeat('2', 64), 'sequence' => 2, 'type' => 'ended',
+                'meter_wh' => 1010, 'occurred_at' => $end, 'outcome' => 'applied', 'created_at' => $end],
+        ]);
+        $this->publication($cdrPath)->assertConflict();
+        // An immutable invoice must not be exported against subsequently changed
+        // session prices even if the meter and energy evidence still match.
+        DB::table('charging_sessions')->where('id', $session->id)->update(['total_minor' => 130]);
+        $this->publication($sessionPath)->assertConflict();
+        DB::table('charging_sessions')->where('id', $session->id)->update(['total_minor' => 129, 'rate_minor_per_kwh' => 130]);
+        $this->publication($sessionPath)->assertConflict();
+        DB::table('charging_sessions')->where('id', $session->id)->update(['rate_minor_per_kwh' => 129]);
+        $this->assertDatabaseCount('ocpi_cpo_catalog', 2);
+        $sessionStamp = $this->publication($sessionPath)->assertOk()->json('published_at');
+        $cdrStamp = $this->publication($cdrPath)->assertOk()->json('published_at');
+        $this->publication($cdrPath, 'withdraw', $cdrStamp)->assertConflict();
+        $this->getJson(self::SENDER.'/sessions', $otherToken)->assertNotFound();
+        $this->getJson(self::SENDER.'/sessions', $token)->assertOk()->assertJsonPath('data.0.id', 'Q'.$session->id)
+            ->assertJsonPath('data.0.status', 'COMPLETED')->assertJsonPath('data.0.cdr_token.uid', 'TEST-PEER-TOKEN')->assertJsonMissingPath('data.0.user_id');
+        $this->getJson(self::SENDER.'/cdrs', $token)->assertOk()->assertJsonPath('data.0.session_id', 'Q'.$session->id)
+            ->assertJsonPath('data.0.cdr_location.evse_id', 'AE*EVX*ETEST')->assertJsonPath('data.0.total_cost.incl_vat', 1.29);
+        $this->assertStringNotContainsString('TEST-PEER-TOKEN', DB::table('ocpi_cpo_catalog')->where('module', 'cdrs')->value('payload'));
+        $cdrPayload = $this->getJson(self::SENDER.'/cdrs', $token)->json('data.0');
+
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($session, $cdrPayload, $validReceipt) {
+            $trace = ['X-Request-ID' => $request->header('X-Request-ID')[0], 'X-Correlation-ID' => $request->header('X-Correlation-ID')[0]];
+            if ($request->method() === 'PUT') {
+                $this->assertSame('https://emsp.example/sessions/AE/EVX/Q'.$session->id, $request->url());
+
+                return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString()], 200, $trace);
+            }
+            if ($request->method() === 'GET') {
+                $this->assertSame('https://emsp.example/cdrs/peer-record', $request->url());
+
+                return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => $cdrPayload], 200, $trace);
+            }
+            $this->assertSame('POST', $request->method());
+            $this->assertSame('https://emsp.example/cdrs', $request->url());
+            $this->assertSame('D'.$session->id, $request['id']);
+
+            return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString()], 201, $trace + ['Location' => $validReceipt ? 'https://emsp.example/cdrs/peer-record' : 'https://unexpected.example/cdrs/receipt']);
+        });
+        $this->postJson($sessionPath.'/push', ['confirmed' => true, 'published_at' => $sessionStamp, 'operation_key' => (string) Str::uuid()])
+            ->assertOk()->assertJsonPath('delivery', 'acknowledged');
+        $delivery = $validReceipt ? 'acknowledged' : 'unknown';
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $this->postJson($cdrPath.'/push', ['confirmed' => true, 'published_at' => $cdrStamp, 'operation_key' => (string) Str::uuid()])
+                ->assertOk()->assertJsonPath('delivery', $delivery);
+        }
+        if (! $validReceipt) {
+            $this->postJson($cdrPath.'/reconcile', ['confirmed' => true, 'published_at' => $cdrStamp])->assertConflict();
+            $this->postJson($cdrPath.'/reconcile', ['confirmed' => true, 'published_at' => $cdrStamp, 'cdr_receipt' => 'https://unexpected.example/receipt'])
+                ->assertUnprocessable();
+            $this->postJson($cdrPath.'/reconcile', ['confirmed' => true, 'published_at' => $cdrStamp, 'cdr_receipt' => 'peer-record'])
+                ->assertOk()->assertJsonPath('delivery', 'reconciled');
+        }
+        Http::assertSentCount($validReceipt ? 2 : 3);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('finance_payments', 0);
     }
 }

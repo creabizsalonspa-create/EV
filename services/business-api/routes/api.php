@@ -171,7 +171,7 @@ Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function (
     Route::match(['GET', 'PUT', 'DELETE'], '2.2.1/tariffs/{country}/{party}/{external}', [OcpiProtocolRecordsController::class, 'tariff']);
     Route::post('2.2.1/cdrs', [OcpiProtocolRecordsController::class, 'cdr']);
     Route::get('2.2.1/cdrs/{external}', [OcpiProtocolRecordsController::class, 'cdr']);
-    Route::get('2.2.1/cpo/{module}', [OcpiCpoCatalogController::class, 'protocol'])->whereIn('module', ['locations', 'tariffs']);
+    Route::get('2.2.1/cpo/{module}', [OcpiCpoCatalogController::class, 'protocol'])->whereIn('module', ['locations', 'tariffs', 'sessions', 'cdrs']);
     Route::get('2.2.1/cpo/{module}/{external}/{evse?}/{connector?}', [OcpiCpoCatalogController::class, 'protocol'])
         ->where('module', 'locations')->where('external', 'S[1-9][0-9]{0,17}')->where('evse', 'E[1-9][0-9]{0,17}')->where('connector', 'C[1-9][0-9]{0,17}');
     Route::get('versions', [OcpiProtocolCredentialsController::class, 'handle']);

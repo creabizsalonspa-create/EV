@@ -620,7 +620,7 @@ class VendorOpsController extends Controller
         $this->access->require($r->user(), $company, 'inventory.write');
         $v = $r->validate(['q' => 'sometimes|string|max:100']);
 
-        return Station::where('vendor_id', $company->owner_id)->where('country', $company->country)->where('source', 'simulator')
+        return Station::where('vendor_id', $company->owner_id)->where('country', $company->country)->whereIn('source', ['simulator', 'direct_unverified'])
             ->whereNotIn('id', VendorSite::whereNotNull('station_id')->select('station_id'))
             ->when(isset($v['q']), fn ($q) => $q->where('name', 'like', '%'.$v['q'].'%'))
             ->orderByDesc('id')->paginate(25)->through(fn ($s) => $s->only(['id', 'name', 'country', 'timezone', 'latitude', 'longitude']));

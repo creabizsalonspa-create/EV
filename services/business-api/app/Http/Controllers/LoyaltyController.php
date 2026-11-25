@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\Commercial\Loyalty\LoyaltyService;
 use App\Services\Commercial\Loyalty\NoncashActivation;
 use App\Services\Commercial\Referrals\ReferralRegistry;
+use App\Services\Retail\PartnerRewardGovernance;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -369,6 +370,52 @@ class LoyaltyController extends Controller
     public function redemptions(Request $r)
     {
         return DB::table('loyalty_redemptions')->when($r->user()->role !== 'admin', fn ($q) => $q->where('user_id', $r->user()->id))->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->safe($row));
+    }
+
+    public function partnerRewardOffers(Request $r, PartnerRewardGovernance $governance)
+    {
+        abort_unless($r->user()->role === 'customer', 403);
+
+        return response()->json($governance->sandboxOffers())->header('Cache-Control', 'private, no-store');
+    }
+
+    public function claimPartnerReward(Request $r, int $review, LoyaltyService $service, PartnerRewardGovernance $governance)
+    {
+        abort_unless($r->user()->role === 'customer', 403);
+        $input = $r->validate(['idempotency_key' => 'required|string|max:100']);
+        $claim = $service->claimPartnerReward($r->user()->id, $review, $input['idempotency_key']);
+
+        return response()->json(['claim' => $this->partnerRewardReceipt($claim) + $governance->sandboxEvidence()], 201)
+            ->header('Cache-Control', 'private, no-store');
+    }
+
+    public function partnerRewardClaims(Request $r, PartnerRewardGovernance $governance)
+    {
+        abort_unless($r->user()->role === 'customer', 403);
+        $claims = DB::table('partner_reward_claims as claim')
+            ->join('loyalty_redemptions as redemption', 'redemption.id', '=', 'claim.redemption_id')
+            ->where('claim.user_id', $r->user()->id)->orderByDesc('claim.id')
+            ->paginate(25, ['claim.id', 'claim.review_id', 'claim.redemption_id', 'claim.created_at', 'redemption.status'])
+            ->through(fn ($claim) => (array) $claim + $governance->sandboxEvidence());
+
+        return response()->json($claims)->header('Cache-Control', 'private, no-store');
+    }
+
+    public function findPartnerRewardReceipt(Request $r, LoyaltyService $service, PartnerRewardGovernance $governance)
+    {
+        abort_unless($r->user()->role === 'customer', 403);
+        $input = $r->validate(['idempotency_key' => 'required|string|max:100']);
+        $claim = $service->findPartnerRewardClaim($r->user()->id, $input['idempotency_key']);
+
+        return response()->json(['claim' => $claim ? $this->partnerRewardReceipt($claim) + $governance->sandboxEvidence() : null])
+            ->header('Cache-Control', 'private, no-store');
+    }
+
+    private function partnerRewardReceipt(object $claim): array
+    {
+        return ['id' => (int) $claim->id, 'review_id' => (int) $claim->review_id,
+            'redemption_id' => (int) $claim->redemption_id, 'created_at' => $claim->created_at,
+            'status' => DB::table('loyalty_redemptions')->where('id', $claim->redemption_id)->value('status')];
     }
 
     public function show(Request $r, int $redemption)

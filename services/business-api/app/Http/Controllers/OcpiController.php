@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Ocpi\CdrReconciler;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerBillingExport;
@@ -13,12 +14,31 @@ use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class OcpiController extends Controller
 {
     private function owner(Request $r, OcpiProvider $provider): void
     {
         abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $provider->owner_id === $r->user()->id), 404);
+    }
+
+    /**
+     * Partner CDR financial reports contain canonical private invoice and
+     * credit-note lineage. Call only inside the response snapshot transaction:
+     * actor lock first, then current provider lock. A stale route model or
+     * cached Vendor/Admin credential cannot authorize another owner's ledger.
+     */
+    private function billingProvider(Request $r, OcpiProvider $route): OcpiProvider
+    {
+        $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+        // Retain legacy non-enumerating 404 for customers/foreign peers.
+        abort_unless(in_array($actor->role, ['vendor', 'admin'], true), 404);
+        $provider = OcpiProvider::whereKey($route->id)->lockForUpdate()->firstOrFail();
+        abort_unless($actor->role === 'admin'
+            || (int) $provider->owner_id === (int) $actor->id, 404);
+
+        return $provider;
     }
 
     private function audit(Request $r, string $action, int $id): void
@@ -38,9 +58,18 @@ class OcpiController extends Controller
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['owner_id' => 'required|integer|exists:users,id', 'name' => 'required|string|max:150', 'connection_key' => 'required|string|alpha_dash|max:80|unique:ocpi_providers', 'authorized' => 'required|boolean']);
         abort_unless(User::whereKey($v['owner_id'])->where('role', 'vendor')->exists(), 422, 'Provider owner must be a vendor.');
+        abort_if($v['authorized'] && ! User::whereKey($v['owner_id'])->where('account_status', 'active')->exists(),
+            409, 'Suspended partner owners cannot receive new provider authorization.');
         abort_unless(is_array(config('ocpi.connections.'.$v['connection_key'])), 422, 'Connection must first be provisioned in secure server configuration.');
 
         return DB::transaction(function () use ($r, $v, $client) {
+            // Recheck after request validation and lock the owner before
+            // creating an authorized provider. A suspended/transferred owner
+            // cannot race an administrative create into a public catalog.
+            $owner = User::whereKey($v['owner_id'])->lockForUpdate()->firstOrFail();
+            abort_unless($owner->role === 'vendor', 422, 'Provider owner must be a vendor.');
+            abort_if($v['authorized'] && $owner->account_status !== 'active', 409,
+                'Suspended partner owners cannot receive new provider authorization.');
             $provider = OcpiProvider::create($v);
             if ($provider->authorized) {
                 try {
@@ -61,6 +90,8 @@ class OcpiController extends Controller
 
         return DB::transaction(function () use ($r, $provider, $v, $client) {
             $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            abort_if($v['authorized'] && ! User::whereKey($provider->owner_id)->where('role', 'vendor')
+                ->where('account_status', 'active')->exists(), 409, 'Partner owner is not active.');
             $exhausted = $provider->authorization_revision >= PHP_INT_MAX;
             // Revocation must remain available at the terminal generation.
             // Reauthorization is permanently blocked, so that generation cannot recur.
@@ -85,6 +116,8 @@ class OcpiController extends Controller
     public function negotiate(Request $r, OcpiProvider $provider, PartnerClient $client)
     {
         $this->owner($r, $provider);
+        abort_unless(User::whereKey($provider->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(),
+            409, 'Partner owner is not active.');
         try {
             $endpoints = $client->negotiate($provider);
         } catch (OcpiException $e) {
@@ -98,6 +131,12 @@ class OcpiController extends Controller
     {
         $this->owner($r, $provider);
         abort_unless(in_array($module, PartnerClient::MODULES, true), 404);
+        // Suspended operators cannot refresh a public catalog. Administrators
+        // must retain the ability to reconcile already-owned session/CDR debt.
+        $activeOwner = User::whereKey($provider->owner_id)->where('role', 'vendor')
+            ->where('account_status', 'active')->exists();
+        abort_unless($activeOwner || ($r->user()->role === 'admin' && in_array($module, ['sessions', 'cdrs'], true)),
+            409, 'Partner owner is not active for catalog synchronization.');
         try {
             $records = $client->pull($provider, $module);
             $counts = $sync->ingest($provider, $module, $records);
@@ -111,28 +150,36 @@ class OcpiController extends Controller
 
     public function billingReconciliation(Request $r, OcpiProvider $provider, PartnerBillingReconciliation $service)
     {
-        $this->owner($r, $provider);
-        $filters = $r->validate(['page' => 'sometimes|integer|min:1|max:100000', 'currency' => 'sometimes|regex:/^[A-Z]{3}$/D', 'country_code' => 'sometimes|regex:/^[A-Z]{2}$/D', 'party_id' => 'sometimes|regex:/^[A-Z0-9]{3}$/D', 'kind' => 'sometimes|in:all,charges,credits']);
+        return DB::transaction(function () use ($r, $provider, $service) {
+            $current = $this->billingProvider($r, $provider);
+            // Validate after ownership to avoid revealing that foreign CDR
+            // financial sources exist through a different 422 response.
+            $filters = $r->validate(['page' => 'sometimes|integer|min:1|max:100000', 'currency' => 'sometimes|regex:/^[A-Z]{3}$/D', 'country_code' => 'sometimes|regex:/^[A-Z]{2}$/D', 'party_id' => 'sometimes|regex:/^[A-Z0-9]{3}$/D', 'kind' => 'sometimes|in:all,charges,credits']);
 
-        return DB::transaction(function () use ($r, $provider, $filters, $service) {
-            $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            $this->owner($r, $provider);
-
-            return response()->json($service->page($provider, $filters))->header('Cache-Control', 'private, no-store');
-        });
+            return response()->json($service->page($current, $filters))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function billingExport(Request $r, OcpiProvider $provider, PartnerBillingReconciliation $service, PartnerBillingExport $export, string $format)
     {
-        $this->owner($r, $provider);
         abort_unless(in_array($format, ['csv', 'pdf'], true), 404);
-        $filters = $r->validate(['currency' => 'sometimes|regex:/^[A-Z]{3}$/D', 'country_code' => 'sometimes|regex:/^[A-Z]{2}$/D', 'party_id' => 'sometimes|regex:/^[A-Z0-9]{3}$/D', 'kind' => 'sometimes|in:all,charges,credits', 'locale' => 'sometimes|in:en,ar', 'page' => 'prohibited']);
-        $rows = DB::transaction(function () use ($r, $provider, $filters, $service) {
-            $locked = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            $this->owner($r, $locked);
+        try {
+            [$rows, $filters] = DB::transaction(function () use ($r, $provider, $service) {
+                $current = $this->billingProvider($r, $provider);
+                $filters = $r->validate(['currency' => 'sometimes|regex:/^[A-Z]{3}$/D', 'country_code' => 'sometimes|regex:/^[A-Z]{2}$/D', 'party_id' => 'sometimes|regex:/^[A-Z0-9]{3}$/D', 'kind' => 'sometimes|in:all,charges,credits', 'locale' => 'sometimes|in:en,ar', 'page' => 'prohibited']);
 
-            return $service->exportRows($locked, $filters);
-        });
+                return [$service->exportRows($current, $filters), $filters];
+            }, 3);
+        } catch (ValidationException $error) {
+            // A direct browser download has no Accept: JSON header. Keep
+            // invalid private financial exports an explicit HTTP 422,
+            // never an HTML redirect with a misleading success page.
+            return response()->json([
+                'message' => 'Invalid private partner financial export filters.',
+                'errors' => $error->errors(),
+            ], 422)->header('Cache-Control', 'private, no-store');
+        }
         $body = $format === 'csv' ? $export->csv($rows) : $export->pdf($rows, $provider->id, $filters);
 
         return response($body)->header('Content-Type', $format === 'csv' ? 'text/csv; charset=UTF-8' : 'application/pdf')
@@ -186,7 +233,7 @@ class OcpiController extends Controller
         $v = $request->validate(['q' => 'nullable|string|max:80', 'country' => 'nullable|string|regex:/^[A-Z]{3}$/D', 'connector_standard' => 'nullable|string|max:64']);
         $text = trim($v['q'] ?? '');
 
-        return OcpiRecord::where('module', 'locations')->where('normalized->publish', true)->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'))
+        return OcpiRecord::where('module', 'locations')->where('normalized->publish', true)->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->select('id'))
             ->when($text !== '', fn ($q) => $q->where(fn ($q) => $q->whereLike('normalized->name', '%'.$text.'%')->orWhereLike('normalized->city', '%'.$text.'%')->orWhereLike('normalized->address', '%'.$text.'%')))
             ->when(! empty($v['country']), fn ($q) => $q->where('normalized->country', $v['country']))
             ->when(! empty($v['connector_standard']), fn ($q) => $q->whereJsonContains('normalized->connector_standards', $v['connector_standard']))

@@ -19,7 +19,7 @@ class CampaignService
 
     public function billing(int $invoice, int $vendor, bool $lock = false): array
     {
-        abort_unless(User::whereKey($vendor)->where('role', 'vendor')->exists(), 409, 'The billing account is no longer an eligible vendor.');
+        abort_unless(User::whereKey($vendor)->where('role', 'vendor')->where('account_status', 'active')->exists(), 409, 'The billing account is no longer an active eligible vendor.');
         $i = DB::table('commercial_subscription_invoices')->where('id', $invoice)->first();
         abort_unless($i, 404);
         $s = DB::table('commercial_subscriptions')->where('id', $i->subscription_id)->when($lock, fn ($q) => $q->lockForUpdate())->first();

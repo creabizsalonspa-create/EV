@@ -51,6 +51,45 @@ class ChargingReviewsTest extends TestCase
         return $this->postJson('/api/charging-reviews/'.$row['id'].'/moderate', ['request_key' => (string) Str::uuid(), 'expected_version' => $row['version'], 'action' => $action, 'reason' => 'Synthetic moderation reviewed']);
     }
 
+    public function test_admin_regional_review_intake_pause_preserves_receipts_and_other_country_eligibility(): void
+    {
+        [$driver, $vendor, $admin, $station, $session] = $this->fixture();
+        [$otherDriver, , , $otherStation, $otherSession] = $this->fixture();
+        $this->actingAs($admin)->putJson('/api/regions/OM', [
+            'currency' => 'OMR', 'minor_units' => 3, 'timezone' => 'Asia/Muscat', 'tax_bps' => 0,
+        ])->assertOk();
+        $otherStation->update(['country' => 'OM', 'currency' => 'OMR', 'timezone' => 'Asia/Muscat']);
+        [$row, $original] = $this->postReview($driver, $session);
+        $anotherDriver = User::factory()->create();
+        $anotherReservation = Reservation::create([
+            'user_id' => $anotherDriver->id, 'station_id' => $station->id, 'starts_at' => now()->subDays(2),
+            'status' => 'completed', 'idempotency_key' => (string) Str::uuid(),
+        ]);
+        $anotherSession = ChargingSession::create([
+            'reservation_id' => $anotherReservation->id, 'status' => 'stopped', 'energy_wh' => 100,
+            'rate_minor_per_kwh' => 100, 'currency' => 'AED', 'total_minor' => 10, 'stopped_at' => now(),
+        ]);
+        $route = '/api/regions/AE/review-intake';
+        $pause = ['enabled' => false, 'expected_revision' => 0];
+        $this->actingAs($vendor)->putJson($route, $pause)->assertForbidden();
+        $this->actingAs($admin)->putJson($route, $pause)->assertOk()
+            ->assertJsonPath('review_intake_enabled', false)->assertJsonPath('review_intake_revision', 1);
+        $this->putJson($route, ['enabled' => true, 'expected_revision' => 0])->assertConflict();
+        $this->actingAs($anotherDriver)->getJson('/api/charging-reviews/eligible')->assertOk()
+            ->assertJsonPath('data.0.can_review', false);
+        $this->postJson('/api/charging-reviews/sessions/'.$anotherSession->id, $this->submission())->assertConflict();
+        $this->actingAs($driver)->postJson('/api/charging-reviews/sessions/'.$session->id, $original)
+            ->assertOk()->assertJsonPath('id', $row['id']);
+        $this->postReview($otherDriver, $otherSession);
+        $this->assertDatabaseCount('charging_reviews', 2);
+
+        $this->actingAs($admin)->putJson($route, ['enabled' => true, 'expected_revision' => 1])->assertOk()
+            ->assertJsonPath('review_intake_enabled', true)->assertJsonPath('review_intake_revision', 2);
+        $this->postReview($anotherDriver, $anotherSession);
+        $this->assertDatabaseHas('audit_events', ['action' => 'region.review_intake_disabled', 'subject' => 'AE:1']);
+        $this->assertDatabaseHas('audit_events', ['action' => 'region.review_intake_enabled', 'subject' => 'AE:2']);
+    }
+
     public function test_publication_requires_owned_completed_session_consent_and_independent_admin_decision(): void
     {
         [$driver,$vendor,$admin,$station,$session] = $this->fixture();

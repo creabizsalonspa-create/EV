@@ -175,6 +175,12 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
             .click();
           await repairs.getByText(state, { exact: true }).waitFor();
         }
+        await faultRow.getByText("Repair review closed", { exact: true }).waitFor();
+        await page.locator("#language").click();
+        await page.waitForFunction(() => document.documentElement.dir === "rtl");
+        await faultRow.getByText("أُغلقت مراجعة الإصلاح", { exact: true }).waitFor();
+        await page.locator("#language").click();
+        await page.waitForFunction(() => document.documentElement.dir === "ltr");
         await repairs
           .getByRole("button", { name: "Repair history", exact: true })
           .click();

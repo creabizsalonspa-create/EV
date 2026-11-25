@@ -129,6 +129,13 @@ async function main() {
     );
     const ap = await adminContext.newPage();
     await ap.goto(admin.base);
+    const intake = ap.locator('[data-region-review-intake="AE"]');
+    await intake.filter({ hasText: /^Pause new charging feedback$/ }).click();
+    await intake.filter({ hasText: /^Allow new charging feedback$/ }).waitFor();
+    await ap.locator("#language").click();
+    await intake.filter({ hasText: /^السماح باستقبال ملاحظات الشحن الجديدة$/ }).click();
+    await intake.filter({ hasText: /^إيقاف استقبال ملاحظات الشحن الجديدة$/ }).waitFor();
+    await ap.locator("#language").click();
     const adminRoot = ap.locator("#charging-reviews");
     const card = adminRoot
       .locator("article")
