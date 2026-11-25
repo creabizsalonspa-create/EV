@@ -134,7 +134,7 @@ void main() {
       (r) => r['summary']['groups'][0]['currency'] = 'AED',
       (r) => r['summary']['groups'][0]['signed_amount_minor'] = 9007199254740992,
       (r) => r['summary']['groups'][0]['minor_units'] = 4,
-      (r) => r['summary']['groups'].add(Map.of(r['summary']['groups'][0])),
+      (r) => r['summary']['groups'].add(Map<String, Object>.from(r['summary']['groups'][0] as Map)),
     ]) {
       final invalid = page(number: 2, total: 21);
       change(invalid);
