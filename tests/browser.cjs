@@ -6,7 +6,94 @@ const phpRunner = process.env.EV_TEST_PHP_RUNNER || "./scripts/php";
 
 const {provisionTestRole}=require('./helpers/browser-role.cjs');
 const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
+// Run the exact production support controller with a minimal DOM before
+// the real Laravel/browser journey. No actual ticket is mutated by this test.
+async function supportReceiptRegression() {
+  const source = require("node:fs").readFileSync("services/business-api/public/platform.js", "utf8");
+  const start = source.indexOf("async function ticketDetail(");
+  const end = source.indexOf('\nel("support-create").onsubmit', start);
+  assert(start >= 0 && end > start);
+  class Element {
+    constructor(tag, text = "") {
+      this.tag = tag; this.textContent = text; this.children = [];
+      this.dataset = {}; this.value = ""; this.disabled = false;
+    }
+    append(...nodes) { this.children.push(...nodes); }
+    replaceChildren(...nodes) { this.children = nodes; }
+    setAttribute() {}
+    removeAttribute() {}
+    contains(node) { return this === node || this.children.some(e => e.contains(node)); }
+    find(tag) {
+      if (this.tag === tag) return this;
+      return this.children.map(e => e.find(tag)).find(Boolean);
+    }
+    querySelector(tag) { return this.find(tag); }
+    get elements() {
+      const field = this.find("input");
+      return field?.name === "internal" ? {internal: field} : {};
+    }
+  }
+  const event = {preventDefault() {}};
+  for (const role of ["customer", "admin"]) {
+    const root = new Element("div"), client = {sessionEpoch: 1}, owner = 7, id = 42;
+    let reads = 0, refreshes = 0, notices = 0, finish, finishRefresh;
+    const posts = [];
+    const node = (tag, value) => new Element(tag, value);
+    const view = new Function("document", "user", "client", "api", "el", "batteryNode", "node", "ui",
+      "EvLocale", "crypto", "notice", "support",
+      "let ticketDetailRequest=null,ticketDetailGeneration=0;\n" + source.slice(start,end) + "\nreturn ticketDetail;")(
+        {createElement: tag => new Element(tag)}, {id: owner, role}, client,
+        async (path, method, body) => {
+          if (method === "GET") {
+            reads++;
+            return {ticket:{id,subject:"Fixture",status:"open"},
+              messages:{data:[],current_page:1,last_page:1,total:0}};
+          }
+          posts.push({path,method,body:{...body}});
+          if (posts.length === 1) return new Promise(resolve => {finish=resolve;});
+          return role === "admin" ? {id,status:body.status} :
+            {id:9,support_ticket_id:id,author_id:owner,body:body.body,internal:body.internal};
+        }, () => root, node, node, node, {attribute(){}},
+        {randomUUID}, () => notices++,
+        () => {refreshes++;return new Promise(resolve => {finishRefresh=resolve;});}
+      );
+    await view(id);
+    const forms = root.children.filter(e => e.tag === "form");
+    const form = forms[role === "admin" ? 1 : 0];
+    const field = form.find(role === "admin" ? "input" : "textarea");
+    field.value = "Reviewed private response";
+    if (role === "admin") form.find("select").value = "resolved";
+    const first = form.onsubmit(event);
+    await form.onsubmit(event);
+    assert.equal(posts.length,1,"duplicate callback must not dispatch");
+    if (role === "admin") {
+      forms[0].find("textarea").value="Concurrent reply";
+      await forms[0].onsubmit(event);
+      assert.equal(posts.length,1,"other write must not dispatch");
+    }
+    finish(role === "admin" ? {id,status:"closed"} :
+      {id:9,support_ticket_id:99,author_id:owner,body:field.value,internal:false});
+    await first;
+    assert.equal(notices,1);
+    assert.equal(field.readOnly,true);
+    assert.equal(field.value,"Reviewed private response");
+    // A malicious/stale callback cannot silently replace the uncertain intent.
+    field.value="Changed DOM value";
+    const retry = form.onsubmit(event);
+    await Promise.resolve(); await Promise.resolve();
+    assert.equal(posts.length,2);
+    assert.deepEqual(posts[0],posts[1]);
+    assert.equal(refreshes,1);
+    client.sessionEpoch++;
+    finishRefresh();
+    await retry;
+    assert.equal(reads,1,"retired response cannot read ticket under successor account");
+  }
+  console.log("PASS exact support reply/status recovery: frozen request, duplicate denial, receipt validation and retired-account refresh");
+}
+
 (async () => {
+  await supportReceiptRegression();
   const browser = await chromium.launch({
     headless: true,
     executablePath: process.env.EV_CHROMIUM_PATH || undefined,
