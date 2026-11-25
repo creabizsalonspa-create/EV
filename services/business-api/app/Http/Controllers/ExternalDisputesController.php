@@ -104,9 +104,20 @@ class ExternalDisputesController extends Controller
                 });
             }
 
-            return response()->json($query->orderByDesc('d.id')
+            $page = $query->orderByDesc('d.id')
                 ->paginate((int) ($v['per_page'] ?? 25), ['*'], 'page', (int) ($v['page'] ?? 1))
-                ->through(fn ($row) => $this->sanitized($row)))
+                ->through(fn ($row) => $this->sanitized($row));
+
+            return response()->json($page->toArray() + [
+                'scope' => [
+                    'currency' => $v['currency'] ?? null,
+                    'invoice_id' => isset($v['invoice_id']) ? (int) $v['invoice_id'] : null,
+                    'status' => $v['status'] ?? null,
+                    'attention' => (bool) ($v['attention'] ?? false),
+                ],
+                'evidence' => 'STRIPE_TEST_CONTRACT',
+                'real_money_moved' => false,
+            ])
                 ->header('Cache-Control', 'private, no-store');
         }, 3);
     }

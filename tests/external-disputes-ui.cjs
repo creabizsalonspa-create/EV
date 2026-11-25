@@ -27,6 +27,7 @@ const { chromium } = require("playwright"),
       window.testActor = { id: 1, role: "admin" };
       window.calls = [];
       window.failEvidence = true;
+      window.forgeScope = false;
       window.storedEvidence = [];
       const row = {
         id: 9,
@@ -42,6 +43,9 @@ const { chromium } = require("playwright"),
         settlement_hold: true,
         requires_financial_resolution: false,
         deadline_passed: false,
+        has_uncertain_evidence: false,
+        evidence: "STRIPE_TEST_CONTRACT",
+        real_money_moved: false,
       };
       mountExternalDisputes({
         container: document.querySelector("#disputes"),
@@ -57,8 +61,21 @@ const { chromium } = require("playwright"),
             storedEvidence[0].status = "confirmed";
           if (method === "POST" && path.endsWith("/evidence") && failEvidence)
             throw Error("Simulated uncertain evidence response");
-          if (path.includes("?") || path === "commercial/external-disputes")
-            return { data: [row], current_page: 1, last_page: 1 };
+          if (path.includes("?") || path === "commercial/external-disputes") {
+            const query = new URL(path, "https://fixture.invalid/").searchParams;
+            const deadline = path.includes("/deadline-queue?");
+            const scope = {currency: query.get("currency"), invoice_id: query.has("invoice_id") ? Number(query.get("invoice_id")) : null};
+            if (!deadline) Object.assign(scope, {status: query.get("status"), attention: query.get("attention") === "1"});
+            const matches = (!scope.currency || scope.currency === row.currency) &&
+                (!scope.invoice_id || scope.invoice_id === row.invoice_id) &&
+                (!scope.status || scope.status === row.status);
+            if (forgeScope) scope.currency = "EUR";
+            return { data: matches ? [row] : [], total: matches ? 1 : 0,
+              current_page: Number(query.get("page")), last_page: 1,
+              per_page: Number(query.get("per_page")), scope,
+              evidence: "STRIPE_TEST_CONTRACT", real_money_moved: false,
+              ...(deadline ? {window_hours: Number(query.get("window_hours")), provider_actions_performed: false} : {}) };
+          }
           return {
             dispute: row,
             events: [],
@@ -84,6 +101,23 @@ const { chromium } = require("playwright"),
     assert(queueCalls.some(c =>
       c.path.includes("/deadline-queue?window_hours=48") && c.method === "GET"));
     assert(queueCalls.every(c => c.method === "GET"));
+    await page.locator('[name=dispute_currency]').fill("USD");
+    assert.equal(await page.locator("[data-dispute-deadline-id]").count(), 0);
+    await page.getByRole("button", { name: "Load provider disputes", exact: true }).click();
+    await page.getByText("No provider disputes in this view.", { exact: true }).waitFor();
+    await page.locator('[name=dispute_currency]').fill("AED");
+    await page.locator('[name=dispute_invoice]').fill("8");
+    await page.locator('[name=dispute_window]').selectOption("72");
+    await page.getByRole("button", { name: "Review evidence deadlines", exact: true }).click();
+    await page.getByText("Evidence due within 72 hours", { exact: true }).waitFor();
+    const filtered = await page.evaluate(() => calls.at(-1).path);
+    assert(filtered.includes("currency=AED") && filtered.includes("invoice_id=8") && filtered.includes("window_hours=72"));
+    await page.locator('[name=dispute_status]').selectOption("needs_response");
+    await page.evaluate(() => forgeScope = true);
+    await page.getByRole("button", { name: "Load provider disputes", exact: true }).click();
+    await page.getByText("Provider review scope cannot be verified.", { exact: true }).waitFor();
+    assert.equal(await page.locator("[data-dispute-id]").count(), 0);
+    await page.evaluate(() => forgeScope = false);
     await page
       .getByRole("button", { name: "Load provider disputes", exact: true })
       .click();

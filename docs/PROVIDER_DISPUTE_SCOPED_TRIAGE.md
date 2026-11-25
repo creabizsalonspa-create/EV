@@ -16,3 +16,7 @@ without releasing a settlement hold. This is partial 3.5.8 / 7.3.9, not live
 provider evidence submission acceptance. Existing native clients can retain their
 default query. Agent 5 must preserve the independent #247 provider service guards
 and tests during integration. Fresh exact-head hosted validation is required.
+
+## Web filter and receipt workflow
+
+The existing English/Arabic provider dispute workspace now exposes optional currency/invoice filters, a provider-state selector for the ordinary list, and Admin deadline windows of 0/24/48/72/168 hours. Every page verifies the server's applied scope, exact pagination, safe minor units, simulation flags, unique identities and urgency before rendering. Filter edits erase stale result/action controls. Detail reads verify the selected receipt ID before showing existing authorized evidence actions. Detached controls cannot initiate requests. Existing provider evidence draft/retry identity is preserved. The component browser regression exercises filtered empty results, custom deadline windows, mismatched scope rejection, and the original same-key retry flow. Native remains read-only pending Agent 4 coordination. No production acceptance.

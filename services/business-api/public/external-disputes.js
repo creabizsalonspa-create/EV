@@ -9,7 +9,8 @@ window.mountExternalDisputes = ({ container, api, ui, actor }) => {
         page = 1,
         attention = false;
     container.dataset.externalDisputes = "true";
-    const alive = () => container.isConnected && actor()?.id === identity;
+    const alive = () => container.isConnected && actor()?.id === identity &&
+        actor()?.role === role && !controller.signal.aborted;
     const observer = new MutationObserver(() => {
         if (!alive()) {
             generation++;
@@ -73,7 +74,7 @@ window.mountExternalDisputes = ({ container, api, ui, actor }) => {
     function button(parent, en, ar, action) {
         const el = t("button", en, ar);
         el.type = "button";
-        el.onclick = () => perform(action);
+        el.onclick = () => { if (el.isConnected && container.contains(el)) return perform(action); };
         parent.append(el);
         return el;
     }
@@ -140,11 +141,67 @@ window.mountExternalDisputes = ({ container, api, ui, actor }) => {
         el.dataset.disputeState = value;
         parent.append(el);
     }
+    const providerStates = ["needs_response", "warning_needs_response", "under_review",
+        "warning_under_review", "warning_closed", "won", "lost"];
+    const positiveId = value => Number.isSafeInteger(value) && value > 0;
+    function verifyReceipt(row, scope = {}) {
+        if (!row || !positiveId(row.id) || !positiveId(row.invoice_id) ||
+            !positiveId(row.amount_minor) || !Number.isInteger(row.minor_units) ||
+            row.minor_units < 0 || row.minor_units > 3 || !/^[A-Z]{3}$/.test(row.currency) ||
+            !providerStates.includes(row.status) ||
+            row.evidence !== "STRIPE_TEST_CONTRACT" || row.real_money_moved !== false ||
+            ["settlement_hold", "deadline_passed", "requires_financial_resolution"].some(
+                key => typeof row[key] !== "boolean") ||
+            row.requires_financial_resolution !== (row.status === "lost") ||
+            (row.deadline_passed && !["needs_response", "warning_needs_response"].includes(row.status)) ||
+            "provider_reference" in row || "charge_reference" in row ||
+            (scope.currency && row.currency !== scope.currency) ||
+            (scope.invoice_id && row.invoice_id !== Number(scope.invoice_id)) ||
+            (scope.status && row.status !== scope.status))
+            throw Error("Provider receipt cannot be verified.");
+        return row;
+    }
+    function verifyPage(result, requested, size, scope, deadline = false) {
+        const echoed = result?.scope;
+        if (!result || !echoed || result.evidence !== "STRIPE_TEST_CONTRACT" ||
+            result.real_money_moved !== false ||
+            echoed.currency !== (scope.currency || null) ||
+            echoed.invoice_id !== (scope.invoice_id ? Number(scope.invoice_id) : null) ||
+            (!deadline && (echoed.status !== (scope.status || null) ||
+                echoed.attention !== (scope.attention === "1"))) ||
+            (deadline && (result.provider_actions_performed !== false ||
+                result.window_hours !== Number(scope.window_hours))) ||
+            result.current_page !== requested || result.per_page !== size ||
+            !Number.isSafeInteger(result.total) || result.total < 0 ||
+            result.last_page !== Math.max(1, Math.ceil(result.total / size)) ||
+            !Array.isArray(result.data) ||
+            result.data.length !== Math.min(size, Math.max(0, result.total - (requested - 1) * size)))
+            throw Error("Provider review scope cannot be verified.");
+        const ids = new Set();
+        for (const row of result.data) {
+            verifyReceipt(row, scope);
+            if (ids.has(row.id)) throw Error("Duplicate provider receipt.");
+            ids.add(row.id);
+            if (deadline) {
+                if (typeof row.has_uncertain_evidence !== "boolean" ||
+                    typeof row.provider_observation_stale !== "boolean")
+                    throw Error("Invalid deadline evidence.");
+                const expected = row.status === "lost" ? "financial_resolution_required" :
+                    row.has_uncertain_evidence ? "provider_submission_uncertain" :
+                    row.deadline_passed ? "deadline_passed" : "evidence_due_soon";
+                if (row.urgency !== expected ||
+                    (expected === "evidence_due_soon" &&
+                        (!["needs_response", "warning_needs_response"].includes(row.status) ||
+                            typeof row.evidence_due_at !== "string")))
+                    throw Error("Invalid deadline urgency.");
+            }
+        }
+    }
     function summary(parent, row) {
         parent.append(
             literal(
                 "h4",
-                `#${row.id} · ${row.currency} ${EvMoney.format(Number(row.amount_minor), Number(row.minor_units))}`,
+                `#${row.id} · ${row.currency} ${EvMoney.format(row.amount_minor, row.minor_units)}`,
             ),
         );
         state(parent, row.status);
@@ -279,7 +336,7 @@ window.mountExternalDisputes = ({ container, api, ui, actor }) => {
         form.addEventListener("change", changed);
         form.onsubmit = (event) => {
             event.preventDefault();
-            if (!form.reportValidity()) return;
+            if (!form.isConnected || !alive() || !form.reportValidity()) return;
             remember();
             const data = {
                 idempotency_key: key,
@@ -300,11 +357,22 @@ window.mountExternalDisputes = ({ container, api, ui, actor }) => {
     }
     async function detail(id) {
         const version = ++generation;
+        content.replaceChildren();
         const data = await request(`commercial/external-disputes/${id}`);
         if (!alive() || version !== generation) return;
+        verifyReceipt(data.dispute);
+        if (data.dispute.id !== id || !Array.isArray(data.events) ||
+            !Array.isArray(data.evidence_submissions) || data.events.length > 500 ||
+            data.evidence_submissions.length > 500 ||
+            (role !== "admin" && data.evidence_submissions.length))
+            throw Error("Provider receipt identity or history cannot be verified.");
+        for (const operation of data.evidence_submissions) {
+            if (!positiveId(operation.id) || !["sending", "uncertain", "confirmed"].includes(operation.status))
+                throw Error("Invalid provider evidence receipt.");
+        }
         content.replaceChildren();
         button(content, "Back to disputes", "العودة إلى النزاعات", () =>
-            list(page),
+            list(page, appliedList),
         );
         summary(content, data.dispute);
         if (role === "admin") {
@@ -382,15 +450,87 @@ window.mountExternalDisputes = ({ container, api, ui, actor }) => {
             content.append(card);
         }
     }
-    async function deadlineQueue(nextPage = 1) {
+    const filterBox = document.createElement("div");
+    filterBox.className = "finance-form";
+    const currencyFilter = document.createElement("input"),
+        invoiceFilter = document.createElement("input"),
+        stateFilter = document.createElement("select"),
+        windowFilter = document.createElement("select");
+    currencyFilter.name = "dispute_currency";
+    currencyFilter.maxLength = 3;
+    invoiceFilter.name = "dispute_invoice";
+    invoiceFilter.inputMode = "numeric";
+    invoiceFilter.maxLength = 16;
+    stateFilter.name = "dispute_status";
+    windowFilter.name = "dispute_window";
+    for (const [value, en, ar] of [
+        ["", "All provider states", "جميع حالات المزود"],
+        ["needs_response", "Evidence needed", "الأدلة مطلوبة"],
+        ["warning_needs_response", "Inquiry needs evidence", "الاستفسار يتطلب أدلة"],
+        ["under_review", "Provider review", "مراجعة المزود"],
+        ["warning_under_review", "Inquiry under review", "الاستفسار قيد المراجعة"],
+        ["warning_closed", "Inquiry closed", "أُغلق الاستفسار"],
+        ["won", "Provider reports won", "أبلغ المزود بكسب النزاع"],
+        ["lost", "Provider reports lost", "أبلغ المزود بخسارة النزاع"],
+    ]) {
+        const option = t("option", en, ar);
+        option.value = value;
+        stateFilter.append(option);
+    }
+    for (const hours of [0, 24, 48, 72, 168]) {
+        const option = literal("option", hours);
+        option.value = String(hours);
+        windowFilter.append(option);
+    }
+    windowFilter.value = "48";
+    for (const [input, en, ar] of [
+        [currencyFilter, "Dispute currency (optional)", "عملة النزاع (اختياري)"],
+        [invoiceFilter, "Invoice ID (optional)", "رقم الفاتورة (اختياري)"],
+        [stateFilter, "Provider state (list only)", "حالة المزود (القائمة فقط)"],
+        ...(role === "admin" ? [[windowFilter, "Deadline window in hours", "نافذة الموعد بالساعات"]] : []),
+    ]) {
+        const label = document.createElement("label");
+        label.append(t("span", en, ar), input);
+        filterBox.append(label);
+    }
+    function invalidateView() {
+        generation++;
+        content.replaceChildren();
+        status.textContent = "";
+    }
+    filterBox.addEventListener("input", invalidateView);
+    filterBox.addEventListener("change", invalidateView);
+    container.append(filterBox);
+    function filters(deadline = false) {
+        const currency = currencyFilter.value.trim().toUpperCase(),
+            invoice = invoiceFilter.value.trim();
+        if ((currency && !/^[A-Z]{3}$/.test(currency)) ||
+            (invoice && (!/^[1-9][0-9]{0,15}$/.test(invoice) || !positiveId(Number(invoice)))))
+            throw Error("Invalid dispute filters.");
+        return Object.freeze({
+            ...(currency ? {currency} : {}),
+            ...(invoice ? {invoice_id: invoice} : {}),
+            ...(deadline ? {window_hours: windowFilter.value} :
+                {...(stateFilter.value ? {status: stateFilter.value} : {}),
+                    attention: attention ? "1" : "0"}),
+        });
+    }
+    let appliedList = null;
+    async function deadlineQueue(nextPage = 1, applied = null) {
         if (role !== "admin") return;
         const version = ++generation;
-        const results = await request(
-            "commercial/external-disputes/deadline-queue?window_hours=48&per_page=20&page=" + nextPage,
-        );
+        content.replaceChildren();
+        const scope = applied || filters(true);
+        if (!Number.isInteger(nextPage) || nextPage < 1 || nextPage > 10000 ||
+            !["0", "24", "48", "72", "168"].includes(scope.window_hours))
+            throw Error("Invalid deadline review scope.");
+        const query = new URLSearchParams({...scope, per_page: "20", page: String(nextPage)});
+        const results = await request("commercial/external-disputes/deadline-queue?" + query);
         if (!alive() || version !== generation) return;
+        verifyPage(results, nextPage, 20, scope, true);
         content.replaceChildren(
-            t("h4", "Provider evidence deadlines (48 hours)", "مواعيد أدلة المزود (48 ساعة)"),
+            t("h4", "Provider evidence deadlines", "مواعيد أدلة المزود"),
+            literal("p", scope.window_hours + " h"),
             t("p",
                 "Read-only TEST triage · inspect current provider state before acting",
                 "مراجعة اختبارية للقراءة فقط · تحقق من حالة المزود قبل اتخاذ إجراء"),
@@ -406,7 +546,7 @@ window.mountExternalDisputes = ({ container, api, ui, actor }) => {
                 financial_resolution_required: ["Financial resolution required", "يلزم حل مالي"],
                 provider_submission_uncertain: ["Provider submission outcome uncertain", "نتيجة تقديم الأدلة غير مؤكدة"],
                 deadline_passed: ["Evidence deadline passed", "انتهى موعد تقديم الأدلة"],
-                evidence_due_soon: ["Evidence due within 48 hours", "موعد تقديم الأدلة خلال 48 ساعة"],
+                evidence_due_soon: [`Evidence due within ${scope.window_hours} hours`, `موعد تقديم الأدلة خلال ${scope.window_hours} ساعة`],
             };
             if (urgency[item.urgency])
                 card.append(t("strong", ...urgency[item.urgency]));
@@ -422,19 +562,24 @@ window.mountExternalDisputes = ({ container, api, ui, actor }) => {
         pager.append(literal("p", String(results.current_page) + " / " + String(results.last_page)));
         if (results.current_page > 1)
             button(pager, "Previous deadlines", "المواعيد السابقة",
-                () => deadlineQueue(results.current_page - 1));
-        if (results.current_page < results.last_page)
+                () => deadlineQueue(results.current_page - 1, scope));
+        if (results.current_page < results.last_page && results.current_page < 10000)
             button(pager, "Next deadlines", "المواعيد التالية",
-                () => deadlineQueue(results.current_page + 1));
+                () => deadlineQueue(results.current_page + 1, scope));
         content.append(pager);
     }
-    async function list(nextPage = 1) {
+    async function list(nextPage = 1, applied = null) {
         const version = ++generation;
-        const data = await request(
-            `commercial/external-disputes?page=${nextPage}${attention ? "&attention=1" : ""}`,
-        );
+        content.replaceChildren();
+        const scope = applied || filters();
+        if (!Number.isInteger(nextPage) || nextPage < 1 || nextPage > 10000)
+            throw Error("Invalid dispute review page.");
+        const query = new URLSearchParams({...scope, per_page: "25", page: String(nextPage)});
+        const data = await request("commercial/external-disputes?" + query);
         if (!alive() || version !== generation) return;
+        verifyPage(data, nextPage, 25, scope);
         page = nextPage;
+        appliedList = scope;
         content.replaceChildren();
         if (!data.data.length)
             content.append(
@@ -456,11 +601,11 @@ window.mountExternalDisputes = ({ container, api, ui, actor }) => {
         }
         if (data.current_page > 1)
             button(content, "Previous disputes", "النزاعات السابقة", () =>
-                list(page - 1),
+                list(page - 1, scope),
             );
-        if (data.current_page < data.last_page)
+        if (data.current_page < data.last_page && data.current_page < 10000)
             button(content, "Next disputes", "النزاعات التالية", () =>
-                list(page + 1),
+                list(page + 1, scope),
             );
     }
     button(container, "Load provider disputes", "تحميل نزاعات المزود", () => {
