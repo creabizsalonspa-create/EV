@@ -31,20 +31,27 @@ class RecurringConsentAuthorityTest extends TestCase
         $this->getJson($base.'recurring-subscriptions')->assertOk()->assertJsonPath('data.0.id', $id);
         $before = DB::table('recurring_payment_events')->count();
 
+        $original = (array) DB::table('users')->where('id', $owner->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
         foreach ([
-            ['auth_epoch' => 1],
-            ['auth_epoch' => 0, 'password' => Hash::make('rotated-recurring-password')],
-            ['password' => $owner->password, 'role' => 'vendor'],
-            ['role' => 'customer', 'account_status' => 'suspended'],
+            ['auth_epoch' => (int) $original['auth_epoch'] + 1],
+            ['password' => Hash::make('rotated-recurring-password')],
+            ['role' => 'vendor'],
+            ['account_status' => 'suspended'],
         ] as $change) {
-            DB::table('users')->where('id', $owner->id)->update($change);
+            DB::table('users')->where('id', $owner->id)->update(array_replace($original, $change));
             foreach (['payment-methods', 'payment-enrollments', 'recurring-subscriptions', 'recurring-events'] as $endpoint) {
                 $this->getJson($base.$endpoint)->assertConflict();
             }
             $this->putJson($policy, ['enabled' => false, 'expected_version' => 1])->assertConflict();
             $this->postJson($base.'payment-methods/999/default', [])->assertConflict();
             $this->deleteJson($base.'payment-methods/999', [])->assertConflict();
+            $this->postJson($base.'payment-enrollments/999/inspect')->assertConflict();
+            $this->postJson($base.'payment-methods/999/detach')->assertConflict();
+            $this->postJson($base.'subscription-checkouts/999/authentication')->assertConflict();
         }
+
+        DB::table('users')->where('id', $owner->id)->update($original);
 
         $this->assertDatabaseHas('subscription_collection_policies', ['subscription_id' => $id, 'version' => 1, 'enabled' => false]);
         $this->assertDatabaseCount('recurring_payment_events', $before);
