@@ -409,6 +409,9 @@ void main() {
         await tester.ensureVisible(find.byKey(Key(field.key)));
         await tester.enterText(find.byKey(Key(field.key)), field.value);
       }
+      // Render the newly edited itinerary before re-authorizing its consent.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.byKey(const Key('route-provider-consent')),
         240,
@@ -469,6 +472,9 @@ void main() {
         );
       }
       expect(find.textContaining('Synthetic stop'), findsNothing);
+      // Render the newly edited itinerary before re-authorizing its consent.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.byKey(const Key('route-provider-consent')),
         240,
@@ -520,6 +526,9 @@ void main() {
         await tester.ensureVisible(find.byKey(Key(entry.key)));
         await tester.enterText(find.byKey(Key(entry.key)), entry.value);
       }
+      // Render the newly edited itinerary before re-authorizing its consent.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
       final consent = find.byKey(const Key('route-provider-consent'));
       await tester.ensureVisible(consent);
       await tester.tap(consent);

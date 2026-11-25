@@ -38,8 +38,8 @@ class GeoPlace {
       label = json['label'] as String,
       point = GeoPoint.fromJson(json) {
     if (!id.startsWith('geoapify:') ||
-        id.length > 100 ||
-        label.isEmpty ||
+        id.length <= 'geoapify:'.length || id.length > 100 ||
+        label.trim().isEmpty ||
         label.length > 600)
       throw const FormatException('Invalid address result.');
   }
@@ -58,33 +58,42 @@ class DiscoveryCapabilities {
 class RouteEstimate {
   final double meters, seconds;
   final List<List<GeoPoint>> segments;
-  RouteEstimate.fromJson(Map<String, dynamic> json)
-    : meters = (json['distance_meters'] as num).toDouble(),
-      seconds = (json['duration_seconds'] as num).toDouble(),
-      segments = (json['segments'] as List)
-          .map(
-            (line) => (line as List)
-                .map(
-                  (p) => GeoPoint.fromJson(Map<String, dynamic>.from(p as Map)),
-                )
-                .toList(),
-          )
-          .toList() {
+  RouteEstimate._(this.meters,this.seconds,this.segments);
+  factory RouteEstimate.fromJson(Map<String, dynamic> json) {
+    final distance = json['distance_meters'], duration = json['duration_seconds'];
+    final raw = json['segments'];
     if (json['provider'] != 'geoapify' ||
         json['evidence'] != 'PROVIDER_ROUTE_ESTIMATE' ||
         json['traffic_verified'] != false ||
         json['charging_time_included'] != false ||
-        !meters.isFinite ||
-        meters < 0 ||
-        meters > 40000000 ||
-        !seconds.isFinite ||
-        seconds < 0 ||
-        seconds > 31536000 ||
-        segments.isEmpty ||
-        segments.length > 100 ||
-        segments.any((s) => s.length < 2) ||
-        segments.fold<int>(0, (n, s) => n + s.length) > 10000)
+        distance is! num || !distance.isFinite || distance < 0 || distance > 40000000 ||
+        duration is! num || !duration.isFinite || duration < 0 || duration > 31536000 ||
+        raw is! List || raw.isEmpty || raw.length > 100) {
       throw const FormatException('Invalid provider route evidence.');
+    }
+    var count = 0;
+    // Bound the entire raw geometry before allocating typed points.
+    for (final line in raw) {
+      if (line is! List || line.length < 2 || (count += line.length) > 10000) {
+        throw const FormatException('Invalid route geometry budget.');
+      }
+    }
+    final segments = <List<GeoPoint>>[];
+    for (final line in raw) {
+      final points = <GeoPoint>[];
+      for (final value in line as List) {
+        if (value is! Map || value['latitude'] is! num || value['longitude'] is! num) {
+          throw const FormatException('Invalid route point.');
+        }
+        points.add(GeoPoint(
+          (value['latitude'] as num).toDouble(),
+          (value['longitude'] as num).toDouble(),
+        ));
+      }
+      segments.add(List<GeoPoint>.unmodifiable(points));
+    }
+    return RouteEstimate._(distance.toDouble(),duration.toDouble(),
+      List<List<GeoPoint>>.unmodifiable(segments));
   }
 }
 
@@ -94,6 +103,7 @@ class DiscoveryClient {
   // Reusing the object after sign-out/sign-in must not let in-flight private
   // route responses or previously approved third-party navigation through.
   final bool Function() currentSession;
+  final Stream<int>? sessionEvents;
   static bool _unfencedTestClient() => true;
   factory DiscoveryClient(EvApi api, {void Function()? onExpired}) {
     final fence = api.sessionFence();
@@ -111,14 +121,14 @@ class DiscoveryClient {
         if (!fence()) throw StateError('Discovery session changed');
         return reply;
       } on ApiException catch (error) {
-        if (fence() && [401, 419].contains(error.status)) {
+        if (error.endsCurrentSession || (fence() && [401, 419].contains(error.status))) {
           onExpired?.call();
         }
         rethrow;
       }
-    }, currentSession: fence);
+    }, currentSession: fence, sessionEvents: api.sessionEvents);
   }
-  DiscoveryClient.withRequest(this.request, {bool Function()? currentSession})
+  DiscoveryClient.withRequest(this.request, {bool Function()? currentSession, this.sessionEvents})
     : currentSession = currentSession ?? _unfencedTestClient;
   Future<DiscoveryCapabilities> capabilities() async =>
       DiscoveryCapabilities.fromJson(
@@ -145,9 +155,13 @@ class DiscoveryClient {
         json['places'] is! List ||
         (json['places'] as List).length > 5)
       throw const FormatException('Invalid address evidence.');
-    return (json['places'] as List)
+    final places = (json['places'] as List)
         .map((p) => GeoPlace.fromJson(Map<String, dynamic>.from(p as Map)))
-        .toList();
+        .toList(growable: false);
+    if (places.map((p) => p.id).toSet().length != places.length) {
+      throw const FormatException('Duplicate address evidence.');
+    }
+    return places;
   }
 
   Future<RouteEstimate> route(List<GeoPoint> points, String language) async {

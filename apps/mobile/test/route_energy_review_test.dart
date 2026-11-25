@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/discovery_client.dart';
 import 'package:creabiz_ev/route_planner.dart';
@@ -7,6 +8,37 @@ import 'package:flutter_test/flutter_test.dart';
 
 const raw = {'capacity':'60','soc':'80','reserve':'20','consumption':'20'};
 void main() {
+  test('provider route contract bounds geometry before accepting a route', () {
+    final point = {'latitude':0,'longitude':0};
+    final valid = <String,dynamic>{
+      'provider':'geoapify','evidence':'PROVIDER_ROUTE_ESTIMATE',
+      'traffic_verified':false,'charging_time_included':false,
+      'distance_meters':1250,'duration_seconds':220,
+      'segments':[[point,point]],
+    };
+    final route=RouteEstimate.fromJson(valid);
+    expect(route.meters,1250);
+    expect(route.segments.single.length,2);
+    expect(()=>route.segments.clear(),throwsUnsupportedError);
+    expect(()=>route.segments.single.clear(),throwsUnsupportedError);
+    expect(RouteEstimate.fromJson({...valid,'segments':[List.filled(10000,point)]})
+      .segments.single.length,10000);
+    for(final bad in <Map<String,dynamic>>[
+      {'distance_meters':'1250'},{'duration_seconds':double.infinity},
+      {'traffic_verified':true},{'charging_time_included':true},
+      {'segments':[]},{'segments':[[point]]},
+      {'segments':List.filled(101,[point,point])},
+      {'segments':[List.filled(10001,point)]},
+      {'segments':[[point,{'latitude':'1','longitude':1}]]},
+      {'segments':[[point,{'latitude':true,'longitude':0}]]},
+      {'segments':[[point,{'latitude':91,'longitude':0}]]},
+      {'segments':[[point,null]]},
+    ]) {
+      expect(()=>RouteEstimate.fromJson({...valid,...bad}),throwsFormatException,
+        reason:bad.keys.join(','));
+    }
+  });
+
   test('driver energy arithmetic preserves reserve and distinguishes lower bound from road range', () {
     final result = routeEnergyReview(raw,routeMeters:200000,
       origin:GeoPoint(0,0),firstStop:GeoPoint(0,2))!;
@@ -112,4 +144,111 @@ void main() {
       expect(tester.takeException(),isNull);
     });
   }
+  testWidgets('revoked provider consent rejects delayed route and clears a displayed estimate',(tester) async {
+    final replies=<Completer<dynamic>>[];
+    final requests=<Map<String,dynamic>>[];
+    final client=DiscoveryClient.withRequest((path,method,body) async {
+      if(path=='capabilities') return {
+        'provider':'geoapify','max_charging_stops':3,'geocoding':false,'routing':true,
+      };
+      expect(path,'route');
+      requests.add(body!);
+      final reply=Completer<dynamic>();
+      replies.add(reply);
+      return reply.future;
+    });
+    final result={
+      'provider':'geoapify','evidence':'PROVIDER_ROUTE_ESTIMATE',
+      'traffic_verified':false,'charging_time_included':false,
+      'distance_meters':1250,'duration_seconds':220,
+      'segments':[[{'latitude':25.2,'longitude':55.3},{'latitude':25.3,'longitude':55.4}]],
+    };
+    await tester.binding.setSurfaceSize(const Size(800,1600));
+    addTearDown(()=>tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(home:RoutePlannerView(
+      client:client,stations:const [],origin:GeoPoint(25.2,55.3),
+    )));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('destination-lat')),'25.3');
+    await tester.enterText(find.byKey(const Key('destination-lng')),'55.4');
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    // Render the newly edited itinerary before re-authorizing its consent.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    final consent=find.byKey(const Key('route-provider-consent'));
+    final preview=find.byKey(const Key('route-preview'));
+    final itinerary=find.descendant(of:find.byType(ListView),matching:find.byType(Scrollable)).first;
+    await tester.scrollUntilVisible(consent,200,scrollable:itinerary);
+    await tester.tap(consent);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(preview);
+    await tester.tap(preview);
+    await tester.pump();
+    expect(requests.length,1);
+    await tester.ensureVisible(consent);
+    await tester.tap(consent);
+    await tester.pumpAndSettle();
+    expect(find.byType(LinearProgressIndicator),findsNothing);
+    replies[0].complete(result);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('1.3 km'),findsNothing);
+    expect(tester.widget<CheckboxListTile>(consent).value,false);
+    await tester.tap(consent);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(preview);
+    await tester.tap(preview);
+    await tester.pump();
+    expect(requests.length,2);
+    replies[1].complete(result);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('1.3 km'),findsOneWidget);
+    await tester.ensureVisible(consent);
+    await tester.tap(consent);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('1.3 km'),findsNothing);
+    expect(requests.length,2);
+    expect(tester.takeException(),isNull);
+  });
+
+  testWidgets('discovery epoch event immediately hides route and refuses stale preview',(tester) async {
+    bool current=true;
+    final events=StreamController<int>.broadcast(sync:true);
+    addTearDown(events.close);
+    var routeCalls=0;
+    final client=DiscoveryClient.withRequest((path,method,body) async {
+      if(path=='capabilities') return {
+        'provider':'geoapify','max_charging_stops':3,'geocoding':false,'routing':true,
+      };
+      routeCalls++;
+      throw StateError('Old account must not dispatch');
+    },currentSession:()=>current,sessionEvents:events.stream);
+    await tester.binding.setSurfaceSize(const Size(800,1600));
+    addTearDown(()=>tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(home:RoutePlannerView(
+      client:client,stations:const [],origin:GeoPoint(25.2,55.3),
+    )));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('destination-lat')),'25.3');
+    await tester.enterText(find.byKey(const Key('destination-lng')),'55.4');
+    // Render the newly edited itinerary before re-authorizing its consent.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    final consent=find.byKey(const Key('route-provider-consent'));
+    final preview=find.byKey(const Key('route-preview'));
+    final itinerary=find.descendant(of:find.byType(ListView),matching:find.byType(Scrollable)).first;
+    await tester.scrollUntilVisible(consent,200,scrollable:itinerary);
+    await tester.tap(consent);
+    await tester.pumpAndSettle();
+    final stale=tester.widget<FilledButton>(preview).onPressed!;
+    current=false;
+    events.add(1);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('origin-lat')),findsNothing);
+    expect(find.byKey(const Key('journey-energy-review')),findsNothing);
+    stale();
+    await tester.pumpAndSettle();
+    expect(routeCalls,0);
+    expect(tester.takeException(),isNull);
+  });
 }
