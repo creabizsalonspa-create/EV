@@ -71,18 +71,28 @@ class PaymentMandates
 
             return DB::table('payment_enrollments')->find($id);
         }, 3);
-        if ($enrollment->status === 'completed') {
-            return $this->enrollmentDto($enrollment);
+        // An existing session is inspected rather than recreated, including
+        // after the provider has already completed or expired its setup.
+        if (in_array($enrollment->status, ['pending', 'completed', 'expired'], true)) {
+            return $this->inspect($user, $enrollment->id);
         }
         $lease = Str::random(48);
-        DB::transaction(function () use ($user, $enrollment, $lease) {
+        $leased = DB::transaction(function () use ($user, $enrollment, $lease) {
             app(CurrentFinanceReader::class)->requireSnapshot($user);
             $e = DB::table('payment_enrollments')->where('id', $enrollment->id)
                 ->where('user_id', $user->id)->lockForUpdate()->firstOrFail();
+            if (in_array($e->status, ['pending', 'completed', 'expired'], true)) {
+                return false;
+            }
             abort_if($e->lease_until && CarbonImmutable::parse($e->lease_until)->isFuture(), 409, 'Enrollment is executing; refresh status.');
             abort_unless(CarbonImmutable::parse($e->expires_at)->isFuture(), 409, 'Enrollment expired; inspect its provider outcome before replacing it.');
             DB::table('payment_enrollments')->where('id', $e->id)->update(['lease' => $lease, 'lease_until' => now()->addMinutes(3), 'status' => 'executing', 'updated_at' => now()]);
+
+            return true;
         });
+        if (! $leased) {
+            return $this->inspect($user, $enrollment->id);
+        }
         try {
             // Preserve a confirmed provider customer even if session creation
             // subsequently times out. Neither I/O transaction retries implicitly.
@@ -100,7 +110,9 @@ class PaymentMandates
                 $customer = Crypt::decryptString($a->provider_customer);
                 $session = $provider->hostedEnrollment($customer, $current->reference, CarbonImmutable::parse($current->expires_at)->timestamp, $return);
                 $this->sessionEvidence($current, $customer, $session);
+                abort_unless(($session['status'] ?? null) === 'open', 409, 'Inspect the existing provider enrollment before continuing.');
                 $url = $this->hostedUrl($session['url'] ?? null);
+                abort_unless($url !== null, 409, 'Provider enrollment has no actionable hosted URL.');
                 $changed = DB::table('payment_enrollments')->where('id', $current->id)->where('lease', $lease)->update(['provider_session' => Crypt::encryptString($session['id']), 'session_hash' => hash('sha256', $session['id']), 'status' => 'pending', 'lease' => null, 'lease_until' => null, 'updated_at' => now()]);
                 abort_unless($changed, 409, 'Refresh enrollment after a lost lease.');
 
@@ -165,8 +177,8 @@ class PaymentMandates
         $e = DB::table('payment_enrollments')->where('id', $id)->where('user_id', $user->id)
             ->lockForUpdate()->firstOrFail();
         $provider = $this->provider();
-        if ($e->status === 'completed') {
-            return $this->enrollmentDto($e);
+        if (in_array($e->status, ['completed', 'expired'], true)) {
+            return $this->enrollmentDto($e) + ['hosted_url' => null];
         }
         abort_if($e->lease_until && CarbonImmutable::parse($e->lease_until)->isFuture(), 409, 'Enrollment is executing; refresh later.');
         $a = DB::table('payment_customer_accounts')->where('id', $e->account_id)
@@ -187,10 +199,14 @@ class PaymentMandates
             $response = $matches[0];
         }
         $this->sessionEvidence($e, $customer, $response);
-        $url = $this->hostedUrl($response['url'] ?? null);
-        if (($response['status'] ?? null) === 'expired') {
+        $status = $response['status'] ?? null;
+        abort_unless(in_array($status, ['open', 'complete', 'expired'], true), 409, 'Provider enrollment status requires reconciliation.');
+        $url = null;
+        if ($status === 'expired') {
             DB::table('payment_enrollments')->where('id', $id)->whereNotIn('status', ['completed', 'executing'])->update(['status' => 'expired', 'lease' => null, 'lease_until' => null, 'updated_at' => now()]);
-        } elseif (($response['status'] ?? null) === 'complete') {
+        } elseif ($status === 'complete') {
+            abort_unless($e->consent_version === config('payments.mandate_consent_version')
+                && CarbonImmutable::parse($e->consent_expires_at)->isFuture(), 409, 'Enrollment consent expired or changed.');
             $setup = $response['setup_intent'] ?? null;
             abort_unless(is_array($setup) && ($setup['livemode'] ?? null) === false && ($setup['customer'] ?? null) === $customer && ($setup['status'] ?? null) === 'succeeded' && ($setup['usage'] ?? null) === 'off_session' && ($setup['metadata']['creabiz_enrollment'] ?? null) === $e->reference && is_string($setup['id'] ?? null) && preg_match('/^seti_[A-Za-z0-9]+$/D', $setup['id']) && is_string($setup['payment_method'] ?? null), 409, 'Authenticated off-session consent is not complete.');
             $method = $provider->method($setup['payment_method']);
@@ -222,6 +238,13 @@ class PaymentMandates
             }, 3);
             $url = null;
         } else {
+            // Keep original provider identity for reconciliation, but never
+            // issue a fresh action link against expired or superseded consent.
+            if ($e->consent_version === config('payments.mandate_consent_version')
+                && CarbonImmutable::parse($e->consent_expires_at)->isFuture()
+                && CarbonImmutable::parse($e->expires_at)->isFuture()) {
+                $url = $this->hostedUrl($response['url'] ?? null);
+            }
             DB::table('payment_enrollments')->where('id', $id)->whereNotIn('status', ['completed', 'executing'])->update(['provider_session' => Crypt::encryptString($response['id']), 'session_hash' => hash('sha256', $response['id']), 'status' => 'pending', 'lease' => null, 'lease_until' => null, 'updated_at' => now()]);
         }
 
