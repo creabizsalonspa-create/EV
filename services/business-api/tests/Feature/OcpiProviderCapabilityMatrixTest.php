@@ -54,6 +54,28 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
         return [$owner, $admin, $provider, '/api/ocpi/providers/'.$provider->id.'/credentials'];
     }
 
+    public function test_network_read_scope_restricts_sender_evidence_without_granting_receiver_authority(): void
+    {
+        [$owner, $admin, $provider, $path] = $this->fixture();
+        config(['ocpi.connections.capability-test.read_modules' => ['tariffs']]);
+        $this->actingAs($owner)->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', false)
+            ->assertJsonPath('capability_matrix.modules.1.partner_sender_negotiated', true)
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_active', true)
+            ->assertJsonPath('capability_matrix.modules.1.local_receiver_active', false)
+            ->assertJsonPath('capability_matrix.live_roaming_verified', false)
+            ->assertJsonPath('capability_matrix.payment_authority', false);
+        $this->assertSame(['tariffs'], $provider->fresh()->readable_modules);
+        config(['ocpi.connections.capability-test.read_modules' => []]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', false)
+            ->assertJsonPath('capability_matrix.modules.1.partner_sender_negotiated', false)
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_active', true);
+        $this->assertSame([], $provider->fresh()->readable_modules);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+    }
+
     public function test_customer_vendor_and_admin_status_keeps_source_only_capabilities_with_owner_revocation_fences(): void
     {
         [$owner, $admin, $provider, $path] = $this->fixture();
