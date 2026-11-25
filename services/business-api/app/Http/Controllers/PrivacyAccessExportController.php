@@ -8,6 +8,7 @@ use App\Security\AdminTransactionAuthority;
 use App\Security\PrivacyOwnerAuthority;
 use App\Services\Identity\AccountSecondFactor;
 use App\Services\Privacy\AccountDataExport;
+use App\Services\Privacy\PrivateCopyIntegrity;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -79,22 +80,10 @@ class PrivacyAccessExportController extends Controller
             $factor->consume($owner, $v['second_factor_code'] ?? '');
             try {
                 $body = Crypt::decryptString($copy->payload_encrypted);
-                abort_unless(strlen($body) <= 2 * 1024 * 1024
-                    && strlen($body) === (int) $copy->byte_length
-                    && hash_equals($copy->sha256, hash('sha256', $body)), 409, 'Private copy integrity failed.');
-                $document = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
-            } catch (\Illuminate\Contracts\Encryption\DecryptException|\JsonException) {
+            } catch (\Illuminate\Contracts\Encryption\DecryptException) {
                 abort(409, 'Private copy integrity failed.');
             }
-            // A valid digest proves byte consistency, not the identity of
-            // the account or request. Reject cross-case copied ciphertext
-            // even if all external metadata and checksums were copied too.
-            abort_unless(is_array($document) && ($document['schema_version'] ?? null) === 1
-                && ($document['scope'] ?? null) === 'self_service_account_copy'
-                && ($document['owner_id'] ?? null) === (int) $owner->id
-                && ($document['request_id'] ?? null) === (int) $case->id
-                && is_array($document['sections'] ?? null),
-                409, 'Private copy identity or schema requires review.');
+            PrivateCopyIntegrity::verify($body, (int) $copy->byte_length, $copy->sha256, (int) $owner->id, (int) $case->id);
             $this->audit($owner->id, 'viewed', $case->id);
 
             return response($body)->header('Content-Type', 'application/json; charset=UTF-8')->header('Cache-Control', 'no-store, private')->header('X-Content-Type-Options', 'nosniff');
