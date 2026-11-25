@@ -41,7 +41,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   bool busy = false;
   bool foreground = true;
   StreamSubscription<int>? subscription;
-  int privateEpoch = 0;
+  int privateEpoch = 0, consentRevision=0;
   bool consent = false;
   bool emailVerified = false;
   int generation = 0;
@@ -109,6 +109,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   }
 
   void clearFields() {
+    consentRevision++;
     consent = false;
     code.clear();
     invoice.clear();
@@ -262,6 +263,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   }
 
   Future<void> readAccount(int epoch, int id) async {
+    if(current(epoch))setState((){account=null;consent=false;consentRevision++;});
     final result = await widget.api.request(
       'commercial/referrals/account',
       query: {'program_id': '$id'},
@@ -395,7 +397,8 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
     final id = program['id'] as int;
     final api = widget.api;
     final fence = ownsSession;
-    final rendered=generation, reviewedAccount=account;
+    final rendered=generation, reviewedAccount=account, reviewedConsent=consentRevision;
+    final reviewedCode=code.text.trim().toUpperCase();
     bool sameProgramme() => scoped(api, fence) && generation==rendered &&
         identical(selected,program) && identical(account,reviewedAccount) && !busy;
     void act(Map<String, dynamic> intent) {
@@ -461,7 +464,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
               decoration: InputDecoration(
                 labelText: t('Referral code', 'رمز الإحالة'),
               ),
-              onChanged: (_) {if(sameProgramme())setState(() {consent=false;});},
+              onChanged: (_) {if(sameProgramme())setState(() {consentRevision++;consent=false;});},
             ),
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
@@ -473,7 +476,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
               ),
               value: consent,
               onChanged: enabled
-                  ? (value) {if(sameProgramme())setState(() => consent = value == true);}
+                  ? (value) {if(sameProgramme()&&reviewedConsent==consentRevision&&reviewedCode==code.text.trim().toUpperCase())setState(() => consent = value == true);}
                   : null,
             ),
             FilledButton(
@@ -481,12 +484,15 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
                   enabled &&
                       consent &&
                       validCode.hasMatch(code.text.trim().toUpperCase())
-                  ? () => act({
-                      'action': 'accept',
-                      'program_id': id,
-                      'code': code.text.trim().toUpperCase(),
-                      'terms_version': program['terms_version'],
-                    })
+                  ? () {
+                      if(!consent||reviewedConsent!=consentRevision||reviewedCode!=code.text.trim().toUpperCase())return;
+                      act({
+                        'action':'accept',
+                        'program_id':id,
+                        'code':reviewedCode,
+                        'terms_version':program['terms_version'],
+                      });
+                    }
                   : null,
               child: Text(t('Accept referral', 'قبول الإحالة')),
             ),
