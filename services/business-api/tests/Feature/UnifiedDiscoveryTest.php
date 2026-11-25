@@ -270,6 +270,34 @@ class UnifiedDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_partner_search_rejects_control_bearing_public_text(): void
+    {
+        $f = $this->fixtures();
+        $record = $f['record'];
+        $original = $record->normalized;
+        $controls = ["\x01", "\x1f", "\x7f", "\n", "\t"];
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            // PostgreSQL text does not support an embedded zero byte.
+            $controls[] = "\x00";
+        }
+        foreach ($controls as $control) {
+            $hidden = 'concealed-search-marker'.$control.'suffix';
+            $record->update(['normalized' => array_replace($original, [
+                'name' => $hidden, 'city' => $hidden, 'address' => $hidden,
+            ])]);
+            foreach (['/api/discovery/search?scope=partner&', '/api/v1/discovery/search?scope=partner&'] as $path) {
+                $this->getJson($path.'q=concealed-search-marker')->assertOk()->assertJsonPath('total', 0);
+                $this->getJson($path.'address=concealed-search-marker')->assertOk()->assertJsonPath('total', 0);
+            }
+            $this->getJson('/api/roaming/locations?q=concealed-search-marker')->assertOk()->assertJsonPath('total', 0);
+        }
+        $record->update(['normalized' => $original]);
+        $this->getJson('/api/discovery/search?scope=partner&q=Shared')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson('/api/v1/discovery/search?scope=partner&q=Shared')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson('/api/roaming/locations?q=Shared')->assertOk()->assertJsonPath('total', 1);
+        Http::assertNothingSent();
+    }
+
     public function test_unified_saved_places_use_only_the_current_customers_existing_preferences(): void
     {
         $f = $this->fixtures();
