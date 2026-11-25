@@ -22,8 +22,7 @@ final class SourceReportFilter
         if ($driver === 'sqlite') {
             $pdo = DB::connection()->getPdo();
             $pdo->sqliteCreateFunction('ev_binding_generation', fn ($id, $station, $charger, $identifier, $protocol) => FaultMonitor::generation((object) ['id' => (int) $id, 'station_id' => (int) $station, 'vendor_charger_id' => $charger === null ? null : (int) $charger, 'identifier' => $identifier, 'protocol' => $protocol]), 5);
-            $pdo->sqliteCreateFunction('ev_source_target_matches', static fn ($protocol, $binding, $evse, $connector, $digest) =>
-                is_string($protocol) && SourceTargetIdentity::matches($protocol, $binding, $evse, $connector, $digest) ? 1 : 0, 5);
+            $pdo->sqliteCreateFunction('ev_source_target_matches', static fn ($protocol, $binding, $evse, $connector, $digest) => is_string($protocol) && SourceTargetIdentity::matches($protocol, $binding, $evse, $connector, $digest) ? 1 : 0, 5);
             $pdo->sqliteCreateFunction('ev_source_identifier', fn ($value) => is_string($value) && preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/D', $value) === 1 ? 1 : 0, 1);
             $pdo->sqliteCreateFunction('ev_license_valid', static function ($expiry, $timezone, $at) {
                 try {
