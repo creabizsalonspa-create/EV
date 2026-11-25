@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Services\Discovery\PartnerCatalogAge;
+use App\Services\Discovery\PartnerCatalogText;
+use App\Services\Discovery\PartnerCatalogTime;
 use App\Services\Discovery\PartnerCatalogGeo;
 use App\Services\Discovery\PublicPartnerLocation;
 use Illuminate\Http\Request;
@@ -29,6 +31,7 @@ final class PartnerLocationDiscoveryController extends Controller
             'longitude' => 'required_with:latitude,radius_km|numeric|between:-180,180',
             'radius_km' => 'required_with:latitude,longitude|numeric|between:1,200',
         ]);
+        $checkedAt = now('UTC');
         $text = trim($filters['q'] ?? '');
         $providerText = trim($filters['provider'] ?? '');
         $authorizedProviders = OcpiProvider::publiclyDiscoverable();
@@ -55,36 +58,28 @@ final class PartnerLocationDiscoveryController extends Controller
                 }
                 $operator = $driver === 'pgsql' ? 'ILIKE' : 'LIKE';
                 $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $text).'%';
-                $query->where(function ($match) use ($driver, $operator, $pattern) {
+                $query->where(function ($match) use ($operator, $pattern) {
                     foreach (['name', 'city', 'address'] as $field) {
-                        $column = $driver === 'pgsql'
-                            ? "(ocpi_records.normalized->>'".$field."')"
-                            : "json_extract(ocpi_records.normalized, '$.".$field."')";
+                        $column = PartnerCatalogText::field($field);
                         $match->orWhereRaw("$column $operator ? ESCAPE '!'", [$pattern]);
                     }
                 });
             })
-            ->when(isset($filters['max_source_age_hours']), function ($q) use ($filters) {
+            ->when(isset($filters['max_source_age_hours']), function ($q) use ($filters, $checkedAt) {
                 // A source update timestamp is not telemetry, occupancy or
                 // charging authority. Do not accept future clocks as fresh.
-                $current = now();
-                $q->whereBetween('source_updated_at', [
-                    $current->copy()->subHours((int) $filters['max_source_age_hours'])->format('Y-m-d H:i:s.u'),
-                    $current->format('Y-m-d H:i:s.u'),
-                ]);
+                PartnerCatalogTime::within($q, $checkedAt, (int) $filters['max_source_age_hours']);
             })
             ->when(! empty($filters['reported_evse_status']), function ($q) use ($filters) {
                 // These are the partner's *reported* EVSE states. This query
                 // never converts AVAILABLE into live charging availability.
-                $sql = match (DB::connection()->getDriverName()) {
-                    'sqlite' => "EXISTS (SELECT 1 FROM json_each(ocpi_records.normalized, '$.evses') evse WHERE json_extract(evse.value, '$.reported_status') = ?)",
-                    'pgsql' => "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(ocpi_records.normalized::jsonb->'evses', '[]'::jsonb)) AS evse(value) WHERE evse.value->>'reported_status' = ?)",
-                    default => throw new \LogicException('Unsupported partner EVSE state search database.'),
-                };
-                $q->whereRaw($sql, [$filters['reported_evse_status']]);
+                $standard = $filters['connector_standard'] ?? null;
+                // When both filters are selected, require the reported state
+                // and connector standard on the same EVSE, not sibling EVSEs.
+                PartnerCatalogText::reportedState($q, $filters['reported_evse_status'], $standard);
             })
             ->when(! empty($filters['country']), fn ($q) => $q->where('normalized->country', $filters['country']))
-            ->when(! empty($filters['connector_standard']), fn ($q) => $q->whereJsonContains('normalized->connector_standards', $filters['connector_standard']));
+            ->when(! empty($filters['connector_standard']), fn ($q) => PartnerCatalogText::standard($q, $filters['connector_standard']));
 
         $nearby = isset($filters['latitude']);
         if ($nearby) {
@@ -101,7 +96,6 @@ final class PartnerLocationDiscoveryController extends Controller
         ]);
 
         // The final ID key also stabilizes ties in distance.
-        $checkedAt = now();
 
         $page = $query->orderByDesc('ocpi_records.id')->paginate(25)->appends($filters)
             ->through(function (OcpiRecord $record) use ($nearby, $checkedAt) {
