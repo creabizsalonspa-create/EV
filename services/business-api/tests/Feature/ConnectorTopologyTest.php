@@ -187,6 +187,42 @@ class ConnectorTopologyTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    #[DataProvider('protocols')]
+    public function test_mapping_writer_hashes_validated_integer_not_request_spelling(string $protocol): void
+    {
+        $f = $this->topology($protocol);
+        $this->actingAs($f['owner']);
+        $evse = $f['evses'][0];
+        $connector = VendorConnector::create([
+            'charger_id' => $f['charger']->id, 'connector_number' => 4,
+            'connector_type' => 'CCS2', 'max_power_kw' => 50,
+        ]);
+        $path = $f['base'].'/evses/'.$evse['id'].'/connectors/'.$connector->id.'/mapping';
+        $response = $this->postJson($path, ['source_connector_number' => '+10'])->assertCreated();
+        $id = $response->json('id');
+        $digest = hash('sha256', $f['binding'].':'.$evse['source_evse_number'].':10');
+        $this->assertDatabaseHas('charging_connector_mappings', [
+            'id' => $id, 'source_connector_number' => 10, 'source_target_key' => $digest,
+        ]);
+
+        $duplicate = VendorConnector::create([
+            'charger_id' => $f['charger']->id, 'connector_number' => 5,
+            'connector_type' => 'CCS2', 'max_power_kw' => 50,
+        ]);
+        $duplicatePath = $f['base'].'/evses/'.$evse['id'].'/connectors/'.$duplicate->id.'/mapping';
+        $this->postJson($duplicatePath, ['source_connector_number' => 10])->assertConflict();
+        $this->postJson($duplicatePath, ['source_connector_number' => '+10'])->assertConflict();
+        $this->assertDatabaseCount('charging_connector_mappings', 4);
+
+        $this->actingAs($f['customer']);
+        $this->getJson('/api/stations/'.$f['station']->id.'/connectors')->assertOk()
+            ->assertJsonPath('data.3.id', $id)->assertJsonPath('data.3.reservable', true);
+        $f['maps'][] = ['id' => $id];
+        $this->postJson('/api/reservations', $this->book($f, 3, 'normalized-connector'))->assertCreated();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_application_mapping_cannot_carry_csms_target_metadata(): void
     {
         $f = $this->topology();
