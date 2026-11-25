@@ -172,6 +172,28 @@ class ChargerLiveConnectorsTest extends TestCase
                     'timestamp' => $events[1]['timestamp'],
                 ];
             }
+            if (in_array($case, ['deep_clock_regressed', 'deep_clock_contradiction', 'deep_history_valid'], true)) {
+                // An older pair must be validated even though both times
+                // precede the latest status of connector 1. Interleave
+                // connector 2 to ensure the chronology is target-specific.
+                $older = now()->subMinutes(3);
+                $events[] = array_replace($events[1], [
+                    'id' => 10, 'timestamp' => $older->toISOString(),
+                ]);
+                $events[] = array_replace($events[0], [
+                    'id' => 9, 'timestamp' => now()->subMinutes(2)->toISOString(),
+                ]);
+                $events[] = array_replace($events[1], [
+                    'id' => 8,
+                    'timestamp' => match ($case) {
+                        'deep_clock_regressed' => $older->copy()->addSecond()->toISOString(),
+                        'deep_clock_contradiction' => $older->toISOString(),
+                        default => $older->copy()->subSecond()->toISOString(),
+                    },
+                    'connectorStatus' => $case === 'deep_clock_contradiction' ? 'Faulted' : 'Available',
+                    'errorCode' => $case === 'deep_clock_contradiction' ? 'GroundFailure' : 'NoError',
+                ]);
+            }
             if ($case === 'wrong_protocol_status') {
                 $events[0]['connectorStatus'] = $fixture['protocol'] === '1.6' ? 'Occupied' : 'Charging';
             }
@@ -347,6 +369,29 @@ class ChargerLiveConnectorsTest extends TestCase
             $this->assertContains($response->status(), [403, 409, 503]);
             $response->assertDontSee(str_repeat('x', 64));
             $response->assertDontSee('PRIVATE_SOURCE_ERROR');
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        }
+    }
+
+    public function test_all_retained_connector_status_pairs_require_consistent_chronology_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            foreach (['deep_clock_regressed', 'deep_clock_contradiction'] as $case) {
+                $this->source($f, $case);
+                $this->actingAs($f['owner'])->getJson($f['url'])->assertConflict()
+                    ->assertDontSee('remote_control_authorized');
+            }
+            $this->source($f, 'deep_history_valid');
+            $this->actingAs($f['owner'])->getJson($f['url'])->assertOk()
+                ->assertJsonPath('source_topology_matches_local', true)
+                ->assertJsonPath('connectors.0.state', 'recent')
+                ->assertJsonPath('connectors.0.reported_status', 'Available')
+                ->assertJsonPath('connectors.1.reported_status', $protocol === '1.6' ? 'Charging' : 'Occupied')
+                ->assertJsonPath('physical_availability_verified', false)
+                ->assertJsonPath('commands_sent', false);
+            $this->assertDatabaseCount('charging_status_observations', 0);
             $this->assertDatabaseCount('charger_commands', 0);
             $this->assertDatabaseCount('finance_invoices', 0);
         }

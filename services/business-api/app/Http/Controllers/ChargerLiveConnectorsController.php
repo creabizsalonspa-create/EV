@@ -145,6 +145,7 @@ final class ChargerLiveConnectorsController extends Controller
         }
 
         $latest = [];
+        $previousByTarget = [];
         $sourceTargets = [];
         $sourceConnectorTargets = [];
         $lastEvent = PHP_INT_MAX;
@@ -183,23 +184,27 @@ final class ChargerLiveConnectorsController extends Controller
             }
             $sourceTargets[$target] = $sourceId;
             $at = SourceStatusTime::parse($event['timestamp'] ?? null);
-            if (! isset($latest[$target])) {
-                $latest[$target] = [
-                    'reported_status' => $event['connectorStatus'],
-                    'error_code' => $event['errorCode'] ?? null,
-                    'observed_at' => $at,
-                ];
-            } else {
-                abort_unless(! $at->gt($latest[$target]['observed_at']), 409,
+            $observation = [
+                'reported_status' => $event['connectorStatus'],
+                'error_code' => $event['errorCode'] ?? null,
+                'observed_at' => $at,
+            ];
+            // Rows are sorted by descending source event ID. Compare every
+            // consecutive pair per target, not only against its newest row.
+            // Otherwise a regression or contradiction deeper in the retained
+            // history can appear to be complete, trusted source evidence.
+            $previous = $previousByTarget[$target] ?? null;
+            if ($previous !== null) {
+                abort_unless(! $at->gt($previous['observed_at']), 409,
                     'Source connector observation clock regressed.');
-                // Equal timestamps with contradictory states cannot establish
-                // an unambiguous latest report, regardless of event ID.
-                if ($at->eq($latest[$target]['observed_at'])) {
-                    abort_unless($event['connectorStatus'] === $latest[$target]['reported_status'] &&
-                        ($event['errorCode'] ?? null) === $latest[$target]['error_code'], 409,
+                if ($at->eq($previous['observed_at'])) {
+                    abort_unless($observation['reported_status'] === $previous['reported_status'] &&
+                        $observation['error_code'] === $previous['error_code'], 409,
                         'Contradictory source states at the same instant.');
                 }
             }
+            $latest[$target] ??= $observation;
+            $previousByTarget[$target] = $observation;
         }
 
         // The same station must still be the uniquely authenticated source
