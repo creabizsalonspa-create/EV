@@ -384,20 +384,28 @@ class LoyaltyService
     }
 
     /** A durable no-economic-action fence for a member's uncertain request. */
-    public function cancelCouponIntent(int $user, string $code, string $key): array
+    public function cancelCouponIntent(int $user, ?string $code, string $key, ?int $listedCoupon = null): array
     {
-        return DB::transaction(function () use ($user, $code, $key) {
+        abort_unless(($code === null) !== ($listedCoupon === null), 422);
+
+        return DB::transaction(function () use ($user, $code, $key, $listedCoupon) {
             $current = User::whereKey($user)->lockForUpdate()->firstOrFail();
             abort_unless($current->role === 'customer' && $current->account_status === 'active', 403);
             $request = hash('sha256', 'coupon-claim:'.$user.':'.$key);
-            $hash = hash('sha256', $code);
-            if ($claim = DB::table('loyalty_coupon_claims')->where('request_key', $request)->first()) {
+            // The existing immutable code digest is also the canonical
+            // identity of a listed coupon. Never disclose it to the client.
+            $listed = $listedCoupon === null ? null : DB::table('loyalty_coupons')
+                ->where('id', $listedCoupon)->where('listed', true)->lockForUpdate()->first();
+            abort_if($listedCoupon !== null && ! $listed, 404);
+            $hash = $listed ? $listed->code_hash : hash('sha256', $code);
+            if ($claim = DB::table('loyalty_coupon_claims')->where('user_id', $user)->where('request_key', $request)->first()) {
                 $coupon = DB::table('loyalty_coupons')->find($claim->coupon_id);
-                abort_unless(hash_equals($coupon->code_hash, $hash), 409, 'Coupon intent content changed.');
+                abort_unless($coupon && hash_equals($coupon->code_hash, $hash)
+                    && ($listedCoupon === null || (int) $coupon->id === $listedCoupon), 409, 'Coupon intent content changed.');
 
                 return ['state' => 'accepted', 'claim' => $claim];
             }
-            $prior = DB::table('loyalty_coupon_claim_intents')->where('request_key', $request)->first();
+            $prior = DB::table('loyalty_coupon_claim_intents')->where('user_id', $user)->where('request_key', $request)->first();
             if ($prior) {
                 abort_unless(hash_equals($prior->code_hash, $hash), 409, 'Coupon intent content changed.');
             } else {
