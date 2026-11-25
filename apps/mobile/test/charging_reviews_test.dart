@@ -8,6 +8,8 @@ import 'test_support.dart';
 
 class ReviewsApi extends FixtureApi {
   bool lose = false, unsafe = false, denied = false, created = false;
+  bool wrongReceipt=false, invalidEligible=false, invalidGroups=false;
+  int version=1;
   int reads = 0, epoch = 0;
   final changes = StreamController<int>.broadcast(sync:true);
   Completer<dynamic>? nextRead;
@@ -26,7 +28,7 @@ class ReviewsApi extends FixtureApi {
     'id': 1,
     'session_id': 2,
     'station_id': 3,
-    'version': 1,
+    'version': version,
     'revision': 1,
     'state': 'pending',
     'public_id': 'opaque',
@@ -49,16 +51,25 @@ class ReviewsApi extends FixtureApi {
       first ??= Map<String, dynamic>.from(body!);
       expect(body, first);
       created = true;
+      if (method!='POST') version=2;
       if (lose) {
         lose = false;
         throw const ApiException(503, 'PRIVATE transport');
       }
-      return review();
+      return wrongReceipt?{...review(),'session_id':99}:review();
     }
     reads++;
     final held = nextRead;
     nextRead = null;
     if (held != null) return held.future;
+    if(path=='stations/3/reviews') return {
+      'data':[review()],'current_page':1,'last_page':1,'total':1,
+      'physical_charging_verified':false,'station_name':'Test location',
+      'groups':[
+        {'evidence':'SIMULATED_SOURCE_OBSERVED','count':1,'rating_sum':invalidGroups?99:4},
+        {'evidence':'SIMULATED_APP_ONLY','count':0,'rating_sum':0},
+      ],
+    };
     return {
       'data': path.endsWith('eligible')
           ? [
@@ -66,7 +77,7 @@ class ReviewsApi extends FixtureApi {
                 'session_id': 2,
                 'station_id': 3,
                 'station_name': 'Test location',
-                'evidence': 'SIMULATED_SOURCE_OBSERVED',
+                'evidence': invalidEligible?'UNKNOWN':'SIMULATED_SOURCE_OBSERVED',
                 'physical_charging_verified': false,
                 'can_review': true,
               },
@@ -76,7 +87,7 @@ class ReviewsApi extends FixtureApi {
           : <dynamic>[],
       'current_page': 1,
       'last_page': 1,
-      'total': created ? 1 : 0,
+      'total': path.endsWith('eligible')||created ? 1 : 0,
       'terms_version': 'charging-feedback-v1',
     };
   }
@@ -272,5 +283,60 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.writes,1);
     expect(find.text('Private test feedback'),findsNothing);
+  });
+  testWidgets('malformed eligible evidence never grants review authority',(tester) async {
+    final api=ReviewsApi()..invalidEligible=true;
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await tester.pumpWidget(app(api));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Completed sessions for feedback'));
+    await tester.pumpAndSettle();
+    expect(find.text('Write feedback'),findsNothing);
+    expect(find.text('Feedback unavailable. Refresh before another action.'),findsOneWidget);
+    api.invalidEligible=false;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Write feedback'),findsOneWidget);
+    expect(api.writes,0);
+  });
+
+  testWidgets('public aggregate rejects impossible rating totals before rendering',(tester) async {
+    final api=ReviewsApi()..invalidGroups=true;
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await tester.pumpWidget(MaterialApp(home:ChargingReviewsView(
+      api:api,stationId:3,onExpired:(){},
+    )));
+    await tester.pumpAndSettle();
+    expect(find.text('Private test feedback'),findsNothing);
+    expect(find.text('Feedback unavailable. Refresh before another action.'),findsOneWidget);
+    api.invalidGroups=false;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 · 4.0 / 5'),findsOneWidget);
+    expect(find.text('Private test feedback'),findsOneWidget);
+    expect(tester.takeException(),isNull);
+  });
+
+  testWidgets('failed source refresh withdraws permission to clear uncertain write',(tester) async {
+    final api=ReviewsApi()..created=true..lose=true;
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await tester.binding.setSurfaceSize(const Size(800,1200));
+    addTearDown(()=>tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(app(api));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Withdraw publication'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('My feedback'));
+    await tester.pumpAndSettle();
+    expect(find.text('Clear pending form after reviewing history'),findsOneWidget);
+    api.unsafe=true;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Clear pending form after reviewing history'),findsNothing);
+    expect(find.text('Retry same feedback request'),findsOneWidget);
+    expect(api.writes,1);
   });
 }
