@@ -27,4 +27,17 @@ final class ScheduledTariffWindow
 
         return $effective >= $clock->modify('+60 seconds') && $effective <= $clock->modify('+30 days');
     }
+
+    /** Only the current pending immutable version at its original UTC instant may be corrected. */
+    public static function matchesPending(?int $expectedId, ?int $actualId, ?string $actualAt, DateTimeImmutable $requestedAt): bool
+    {
+        if ($expectedId !== $actualId) {
+            return false;
+        }
+        if ($actualId === null) {
+            return $actualAt === null;
+        }
+
+        return $actualId > 0 && $actualAt === $requestedAt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    }
 }

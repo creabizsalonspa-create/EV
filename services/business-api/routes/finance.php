@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Route;
 Route::get('/finance/stations', [F::class, 'stations']);
 Route::get('/stations/{station}/tariffs', [F::class, 'tariffs']);
 Route::post('/stations/{station}/tariffs', [F::class, 'createTariff']);
+Route::get('/stations/{station}/tariffs/schedule', [\App\Http\Controllers\ScheduledTariffController::class, 'show']);
 Route::post('/stations/{station}/tariffs/schedule', [\App\Http\Controllers\ScheduledTariffController::class, 'store']);
 Route::get('/finance/invoices', [F::class, 'invoices']);
 Route::post('/finance/sessions/{session}/invoice', [F::class, 'issue']);

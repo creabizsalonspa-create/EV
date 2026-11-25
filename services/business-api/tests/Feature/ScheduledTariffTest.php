@@ -97,6 +97,63 @@ class ScheduledTariffTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_pending_schedule_correction_is_immutable_and_compare_and_swap_bound(): void
+    {
+        $f = $this->fixture();
+        $this->actingAs($f['admin']);
+        $this->getJson($f['path'])->assertOk()->assertJsonPath('active_tariff.id', $f['old']->id)
+            ->assertJsonPath('pending_tariff', null)->assertHeader('Cache-Control', 'no-store, private');
+        $first = $this->postJson($f['path'], $f['body'])->assertCreated()->json('id');
+        $this->getJson($f['path'])->assertOk()->assertJsonPath('pending_tariff.id', $first)
+            ->assertJsonMissingPath('pending_tariff.publishing_key')
+            ->assertJsonMissingPath('pending_tariff.publishing_fingerprint');
+        $corrected = array_replace($f['body'], [
+            'expected_pending_tariff_id' => $first, 'rate_minor_per_kwh' => 275,
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+        $this->postJson($f['path'], array_replace($corrected, ['effective_at' => '2026-11-25T10:33:00Z']))->assertConflict();
+        $this->postJson($f['path'], array_replace($corrected, ['expected_pending_tariff_id' => $f['old']->id]))->assertConflict();
+        $second = $this->postJson($f['path'], $corrected)->assertCreated()->json('id');
+        $this->assertNotSame($first, $second);
+        $this->postJson($f['path'], $corrected)->assertCreated()->assertJsonPath('id', $second);
+        $this->postJson($f['path'], array_replace($corrected, ['idempotency_key' => (string) Str::uuid()]))->assertConflict();
+        $this->assertSame(250, TariffVersion::findOrFail($first)->rate_minor_per_kwh);
+        $this->assertSame(275, TariffVersion::findOrFail($second)->rate_minor_per_kwh);
+        $this->getJson($f['path'])->assertOk()->assertJsonPath('pending_tariff.id', $second);
+        $this->actingAs($f['vendor'])->getJson($f['path'])->assertForbidden();
+        $this->actingAs($f['customer'])->getJson($f['path'])->assertForbidden();
+        $this->travelTo(CarbonImmutable::parse('2026-11-25T10:32:00Z'));
+        $this->actingAs($f['admin'])->getJson($f['path'])->assertOk()
+            ->assertJsonPath('active_tariff.id', $second)->assertJsonPath('pending_tariff', null);
+        $this->assertSame($second, app(FinanceService::class)->activeTariff($f['station'])->id);
+        $this->assertDatabaseCount('finance_tariff_versions', 3);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'finance.simulated_tariff_schedule_corrected')->count());
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_pending_full_rate_blocks_immediate_publication_but_not_previous_receipt_replay(): void
+    {
+        $f = $this->fixture();
+        $path = '/api/stations/'.$f['station']->id.'/tariffs';
+        $immediate = ['rate_minor_per_kwh' => 110, 'tax_bps' => 500, 'commission_bps' => 2000, 'idempotency_key' => 'immediate-before-schedule'];
+        $active = $this->actingAs($f['admin'])->postJson($path, $immediate)->assertCreated()->json('id');
+        $this->postJson($f['path'], array_replace($f['body'], [
+            'expected_active_tariff_id' => $active, 'commission_bps' => 2000,
+        ]))->assertCreated();
+        $this->postJson($path, $immediate)->assertCreated()->assertJsonPath('id', $active);
+        $this->postJson($path, array_replace($immediate, ['idempotency_key' => 'admin-after-schedule']))->assertConflict();
+        $this->actingAs($f['vendor'])->postJson($path, array_replace($immediate, [
+            'commission_bps' => 0, 'idempotency_key' => 'vendor-after-schedule',
+        ]))->assertConflict();
+        config(['charging_tariffs.scheduled_enabled' => false]);
+        $this->actingAs($f['admin'])->postJson($path, array_replace($immediate, ['idempotency_key' => 'disabled-schedule-hold']))->assertConflict();
+        $this->assertDatabaseCount('finance_tariff_versions', 3);
+        $this->travelTo(CarbonImmutable::parse('2026-11-25T10:32:00Z'));
+        $this->postJson($path, array_replace($immediate, ['idempotency_key' => 'after-activation']))->assertCreated();
+        $this->assertDatabaseCount('finance_tariff_versions', 4);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_activation_requires_new_customer_consent_and_preserves_the_session_snapshot(): void
     {
         $f = $this->fixture();
