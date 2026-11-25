@@ -66,6 +66,14 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   List<Map<String,dynamic>> rows=[];
   String tr(String en,String ar)=>Localizations.localeOf(context).languageCode=='ar'?ar:en;
   StreamSubscription<int>? sessionSubscription;
+  final mapEvents=StreamController<int>.broadcast(sync:true);
+  int mapAuthority=0;
+  void retireMap(){
+    final epoch=++mapAuthority;
+    // A parent widget can change identity during framework build. Deliver
+    // the privacy repaint to the detached Navigator route after that frame.
+    scheduleMicrotask((){if(!mapEvents.isClosed)mapEvents.add(epoch);});
+  }
   void redact(){
     generation++;formEpoch++;
     query.clear();
@@ -82,7 +90,9 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   void subscribe(){
     final api=widget.api;
     sessionSubscription=api.sessionEvents.listen((_){
-      if(mounted&&identical(api,widget.api)&&!ownSession())setState(redact);
+      if(mounted&&identical(api,widget.api)&&!ownSession()){
+        retireMap();setState(redact);
+      }
     });
   }
   @override
@@ -97,19 +107,22 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   @override
   void didChangeAppLifecycleState(AppLifecycleState state){
     final resumed=state==AppLifecycleState.resumed;
-    if(!mounted||foreground==resumed)return;
+    if(!mounted)return;
+    if(!resumed&&state!=AppLifecycleState.inactive)retireMap();
+    if(foreground==resumed)return;
     setState((){foreground=resumed;if(!resumed)redact();});
   }
   @override
   void didUpdateWidget(covariant UnifiedDiscoveryView old){
     super.didUpdateWidget(old);
     if(!identical(old.api,widget.api)){
+      retireMap();
       unawaited(sessionSubscription?.cancel());
       redact();
       ownSession=widget.api.sessionFence();
       subscribe();
     }else if(old.customer!=widget.customer||!ownSession()){
-      redact();
+      retireMap();redact();
     }
   }
   bool current(int epoch,EvApi api,bool Function() fence)=>
@@ -182,14 +195,14 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     if (!foreground || busy || writing || !ownSession()) return;
     final snapshot = generation;
     final api=widget.api, fence = ownSession;
-    final customer=widget.customer;
-    bool mapSession()=>mounted&&identical(api,widget.api)&&identical(fence,ownSession)&&customer==widget.customer&&fence();
+    final customer=widget.customer, mapEpoch=mapAuthority;
+    bool mapSession()=>mounted&&identical(api,widget.api)&&identical(fence,ownSession)&&customer==widget.customer&&mapEpoch==mapAuthority&&fence();
     final points=mapPoints();
     final bounds = await Navigator.of(context).push<Map<String,String>>(
       MaterialPageRoute(builder: (_) => PartnerReportMap(
         points: points,
         currentSession:mapSession,
-        sessionEvents:api.sessionEvents,
+        sessionEvents:mapEvents.stream,
         tileProvider: widget.mapTileProvider,
         allowViewportSearch: true,
       )),
@@ -397,5 +410,5 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     finally{if(mounted&&foreground&&turn==generation)setState((){writing=false;if(!ownSession()){rows=[];error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');}});}
   }
   @override
-  void dispose(){generation++;WidgetsBinding.instance.removeObserver(this);unawaited(sessionSubscription?.cancel());query.dispose();for(final control in advanced.values){control.dispose();}super.dispose();}
+  void dispose(){generation++;WidgetsBinding.instance.removeObserver(this);unawaited(sessionSubscription?.cancel());unawaited(mapEvents.close());query.dispose();for(final control in advanced.values){control.dispose();}super.dispose();}
 }
