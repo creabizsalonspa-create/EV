@@ -4,10 +4,18 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'reservation_times.dart';
 import 'fleet.dart';
 import 'charger_diagnostics.dart';
 import 'charger_repairs.dart';
 import 'charging_operations.dart';
+
+/// Server UTC, independent of device and station timezone.
+String supportMessageTime(BuildContext context, dynamic raw) {
+  final formatted=reservationTime(context,{'created_at':raw},'created_at');
+  if(formatted!='—')return formatted;
+  return EvStrings.of(context).arabic?'وقت الرسالة غير متاح':'Message time unavailable';
+}
 
 String newSupportRequestKey() {
   final random = Random.secure();
@@ -1577,7 +1585,8 @@ class _TicketPageState extends State<TicketPage>
                         children: [
                           Text('${row['body']}'),
                           Text(
-                            '${row['created_at'] ?? ''}',
+                            supportMessageTime(context,row['created_at']),
+                            key: const Key('support-message-time'),
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
