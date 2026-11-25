@@ -4,6 +4,7 @@ const { chromium } = require("playwright"),
   { randomBytes } = require("node:crypto"),
   fs = require("node:fs"),
   assert = require("node:assert/strict");
+const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
 (async () => {
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["127.0.0.1", "localhost"].includes(new URL(base).hostname));
@@ -185,6 +186,9 @@ const { chromium } = require("playwright"),
       { data: JSON.parse(signed.raw) },
     );
     assert.equal(forged.status(), 401);
+    // Reload and repeated recovery consume the ordinary protected-read budget.
+    // Schedule a new phase without resetting limits or replaying any write.
+    await waitForFreshWindow({ wait: ms => vendor.waitForTimeout(ms) });
     // Verify the exact response used by the UI and the rendered counters
     // separately. An API discrepancy and a rendering failure must not be
     // collapsed into a generic text-locator timeout.
@@ -247,6 +251,8 @@ const { chromium } = require("playwright"),
     assert(await customer.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await station.getByText("حملة برعاية " + run, { exact: true }).waitFor();
     await station.getByText("العروض المموّلة", { exact: true }).click();
+    // Customer catalog translation/refresh and moderation form a new phase.
+    await waitForFreshWindow({ wait: ms => customer.waitForTimeout(ms) });
     await decision(
       a,
       admin,
