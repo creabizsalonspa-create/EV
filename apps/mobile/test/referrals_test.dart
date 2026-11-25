@@ -136,7 +136,11 @@ class ReferralApi extends FixtureApi {
 class PausedReferralApi extends ReferralApi {
   PausedReferralApi(super.owner);
   Completer<dynamic>? pendingMe;
-  int epoch = 0;
+  int epoch = 0, reads=0;
+  final changes=StreamController<int>.broadcast(sync:true);
+  @override
+  Stream<int> get sessionEvents=>changes.stream;
+  void rotate(){epoch++;changes.add(epoch);}
 
   @override
   bool Function() sessionFence() {
@@ -151,6 +155,7 @@ class PausedReferralApi extends ReferralApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if(method=='GET')reads++;
     if (path == 'me' && pendingMe != null) {
       final waiting = pendingMe!;
       pendingMe = null;
@@ -264,6 +269,7 @@ void main() {
     await tester.pumpAndSettle();
     await tap(tester, 'Test programme');
     await tester.enterText(input('Referral code'), invitation);
+    await tester.pumpAndSettle();
     await tap(tester, 'I accept the programme terms shown above.');
     final oldAccept = tester.widget<FilledButton>(
       find.widgetWithText(FilledButton, 'Accept referral'),
@@ -308,14 +314,63 @@ void main() {
     await tap(tester, 'Test programme');
     await tester.enterText(input('Referral code'), invitation);
     expect(find.text('Exact published terms'), findsOneWidget);
-    api.epoch++;
+    final reads=api.reads;
+    addTearDown(api.changes.close);
+    api.rotate();
+    await tester.pumpAndSettle();
+    expect(find.text('Exact published terms'),findsNothing);
     await tester.pumpWidget(referralApp(api, store, 93));
     await tester.pumpAndSettle();
-    expect(find.text('Test programme'), findsOneWidget);
+    expect(find.text('Test programme'), findsNothing);
+    expect(api.reads,reads,reason:'Retired view must not acquire successor credentials');
     expect(find.text('Exact published terms'), findsNothing);
     expect(find.text('Accept referral'), findsNothing);
     expect(api.writes, isEmpty);
     expect(store.entries, isEmpty);
   });
 
+  testWidgets('edited invitation needs new consent and rejects retained acceptance',(tester)async{
+    final api=ReferralApi(1),store=ReferralStore();
+    addTearDown(api.close);
+    await tester.pumpWidget(referralApp(api,store,94));
+    await tester.pumpAndSettle();
+    await tap(tester,'Test programme');
+    await tester.enterText(input('Referral code'),invitation);
+    await tester.pumpAndSettle();
+    await tap(tester,'I accept the programme terms shown above.');
+    final button=find.widgetWithText(FilledButton,'Accept referral');
+    final stale=tester.widget<FilledButton>(button).onPressed!;
+    await tester.enterText(input('Referral code'),'REF-B0123456789ABCDE0123');
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(button).onPressed,isNull);
+    stale();await tester.pumpAndSettle();
+    expect(api.writes,isEmpty);expect(store.entries,isEmpty);
+  });
+
+  testWidgets('background clears private referral data, preserves durable intent, never auto replays',(tester)async{
+    final api=PausedReferralApi(1),store=ReferralStore();
+    addTearDown(api.close);addTearDown(api.changes.close);
+    addTearDown(()=>tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    await tester.pumpWidget(referralApp(api,store,95));
+    await tester.pumpAndSettle();
+    await tap(tester,'Test programme');
+    await tester.enterText(input('Referral code'),invitation);
+    await tester.pumpAndSettle();
+    await tap(tester,'I accept the programme terms shown above.');
+    await tap(tester,'Accept referral');
+    expect(api.writes.length,1);expect(store.entries.length,1);
+    final reads=api.reads;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    expect(find.text('Retry saved request'),findsNothing);
+    expect(find.text('Exact published terms'),findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.reads,reads);expect(api.writes.length,1);
+    await tap(tester,'Retry programmes');
+    expect(find.text('Retry saved request'),findsOneWidget);
+    await tap(tester,'Retry saved request');
+    expect(api.writes.length,2);
+    expect(api.writes.first,api.writes.last);expect(store.entries,isEmpty);
+  });
 }
