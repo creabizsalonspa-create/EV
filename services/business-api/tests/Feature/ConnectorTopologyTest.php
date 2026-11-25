@@ -135,6 +135,58 @@ class ConnectorTopologyTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    #[DataProvider('protocols')]
+    public function test_all_recent_source_searches_require_exact_mapping_and_consistent_source_order(string $protocol): void
+    {
+        $this->freezeTime();
+        $f = $this->topology($protocol);
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $evse = $protocol === '1.6' ? 0 : 5;
+        $mapId = $f['maps'][0]['id'];
+        $digest = hash('sha256', $binding->id.':'.$evse.':7');
+        $admin = User::factory()->create(['role' => 'admin']);
+        $assertSearches = function (int $available) use ($f, $admin): void {
+            $this->actingAs($f['customer']);
+            foreach (['/api/stations', '/api/v1/stations', '/api/discovery/search', '/api/v1/discovery/search'] as $endpoint) {
+                $this->getJson($endpoint.'?recent_source_status=Available')->assertOk()->assertJsonPath('total', $available);
+            }
+            $this->actingAs($admin)->getJson('/api/admin/operations/map?recent_source_status=Available')
+                ->assertOk()->assertJsonPath('total', $available);
+            $this->actingAs($f['customer']);
+        };
+        $row = [
+            'binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding),
+            'source_event_id' => 1, 'fingerprint' => str_repeat('c', 64),
+            'evse_number' => $evse, 'connector_number' => 7, 'status' => 'Available',
+            'error_code' => null, 'occurred_at' => now()->subSeconds(10), 'created_at' => now(),
+        ];
+        DB::table('charging_status_observations')->insert($row);
+        $assertSearches($protocol === '1.6' ? 0 : 1);
+        DB::table('charging_status_observations')->where('binding_id', $binding->id)
+            ->where('source_event_id', 1)->update(['error_code' => 'NoError']);
+        $assertSearches(1);
+        foreach ([null, str_repeat('f', 64), strtoupper($digest)] as $invalid) {
+            DB::table('charging_connector_mappings')->where('id', $mapId)->update(['source_target_key' => $invalid]);
+            $assertSearches(0);
+        }
+        DB::table('charging_connector_mappings')->where('id', $mapId)->update(['source_target_key' => $digest]);
+        $assertSearches(1);
+        // A higher source ID with an older clock must suppress the previously
+        // visible latest-by-time receipt on all discovery surfaces.
+        DB::table('charging_status_observations')->insert(array_replace($row, [
+            'source_event_id' => 2, 'status' => 'Faulted', 'error_code' => 'GroundFailure',
+            'occurred_at' => now()->subSeconds(20),
+        ]));
+        $assertSearches(0);
+        DB::table('charging_status_observations')->insert(array_replace($row, [
+            'source_event_id' => 3, 'error_code' => 'NoError', 'occurred_at' => now(),
+        ]));
+        $assertSearches(1);
+        $this->assertDatabaseCount('reservations', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_application_mapping_cannot_carry_csms_target_metadata(): void
     {
         $f = $this->topology();
@@ -330,7 +382,7 @@ class ConnectorTopologyTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-11-14T19:59:58Z'));
         $f = $this->topology('1.6');
         $binding = DB::table('csms_bindings')->find($f['binding']);
-        DB::table('charging_status_observations')->insert(['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => str_repeat('c', 64), 'evse_number' => 0, 'connector_number' => 7, 'status' => 'Available', 'error_code' => null, 'occurred_at' => now(), 'created_at' => now()]);
+        DB::table('charging_status_observations')->insert(['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => str_repeat('c', 64), 'evse_number' => 0, 'connector_number' => 7, 'status' => 'Available', 'error_code' => 'NoError', 'occurred_at' => now(), 'created_at' => now()]);
         $path = '/api/stations?recent_source_status=Available';
         $this->getJson($path)->assertJsonPath('total', 1);
         foreach ([[$f['company'], 'status', 'suspended'], [$f['connectors'][0], 'maintenance_blocked', true], [$f['station'], 'vendor_id', User::factory()->create(['role' => 'vendor'])->id], [$f['charger'], 'ocpp_protocol', '2.0.1']] as [$model, $field, $value]) {
