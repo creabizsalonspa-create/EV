@@ -168,6 +168,43 @@ bool campaignConfirmsDecision(Map<String,dynamic> previous,
   }
 }
 
+/// All management endpoints use Laravel's 25-row paginator. Do not accept
+/// an unrelated page, duplicate identity or impossible count as private data.
+ApiPage<Map<String,dynamic>> campaignPage(dynamic raw, int requested,
+    String identity, Map<String,dynamic> Function(Map<String,dynamic>) parse) {
+  final page = ApiPage.fromJson(raw, parse);
+  if (requested < 1 || requested > 100000 || page.current != requested ||
+      page.last < 1 || page.total < 0 ||
+      page.last != (page.total == 0 ? 1 : (page.total + 24) ~/ 25) ||
+      page.items.length > 25 || requested > page.last ||
+      page.items.length != (requested < page.last ? 25 : page.total - (requested - 1)*25)) {
+    throw const FormatException('Invalid campaign page.');
+  }
+  final seen = <int>{};
+  for (final row in page.items) {
+    final id = row[identity];
+    if (id is! int || id < 1 || !seen.add(id))
+      throw const FormatException('Invalid campaign page identity.');
+  }
+  return page;
+}
+
+/// Project only approved receipt fields. Older API versions may also return
+/// publisher request keys and fingerprints; these never reach the view.
+Map<String,dynamic> campaignDelivery(Map<String,dynamic> row, int campaignId) {
+  final id = row['id'], parent = row['parent_delivery_id'], kind = row['kind'];
+  if (id is! int || id < 1 || row['campaign_id'] is! int ||
+      row['campaign_id'] != campaignId ||
+      !['delivery','click'].contains(kind) ||
+      (kind == 'delivery' && parent != null) ||
+      (kind == 'click' && (parent is! int || parent < 1 || parent >= id))) {
+    throw const FormatException('Invalid publisher receipt.');
+  }
+  final occurred = campaignReceiptUtc(row['occurred_at']);
+  final created = campaignReceiptUtc(row['created_at']);
+  return {'id':id,'kind':kind,'occurred_at':occurred,'created_at':created};
+}
+
 class VendorCampaignsView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
@@ -213,12 +250,13 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
   }
   late FinancialOperationStore store;
   FinancialOperation? operation;
-  ApiPage<Map<String, dynamic>>? records, packages, stations;
+  ApiPage<Map<String, dynamic>>? records, packages, stations, deliveries;
   Map<String, dynamic>? detail;
   List<dynamic> events = [];
   int? owner, invoiceId, stationId;
   String role = '', placement = 'discovery_banner';
-  int generation = 0, pageNumber = 1, packagePage = 1, stationPage = 1;
+  int generation = 0, pageNumber = 1, packagePage = 1, stationPage = 1, deliveryPage = 1;
+  bool confirming = false;
   bool busy = false,
       foreground = true,
       creating = false,
@@ -255,7 +293,9 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
     if (invalidateRequest) generation++;
     invalidateConsent();
     creating = false;
-    pageNumber = packagePage = stationPage = 1;
+    pageNumber = packagePage = stationPage = deliveryPage = 1;
+    confirming = false;
+    deliveries = null;
     placement = 'discovery_banner';
     records = null;
     packages = null;
@@ -331,13 +371,15 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
     );
   }
 
-  Future<void> load({int? id}) async {
+  Future<void> load({int? id, int receiptPage = 1}) async {
     if (!active) return;
     final request = ++generation, api = widget.api;
     setState(() {
       busy = true;
       error = null;
       detail = null;
+      deliveries = null;
+      confirming = false;
       records = null;
       packages = null;
       stations = null;
@@ -375,16 +417,16 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
         query: {'page': '$pageNumber'},
       );
       if (!current(request)) return;
-      final list = ApiPage.fromJson(
-        raw,
-        (row) => nativeCampaign(row, actor, actorRole),
-      );
+      final list = campaignPage(raw, pageNumber, 'id',
+        (row) => nativeCampaign(row, actor, actorRole));
+      if (raw['adapter_enabled'] is! bool)
+        throw const FormatException('Unconfirmed campaign capability.');
       Map<String, dynamic>? selected;
       List<dynamic> audit = [];
-      ApiPage<Map<String, dynamic>>? availablePackages, ownedStations;
+      ApiPage<Map<String, dynamic>>? availablePackages, ownedStations, publisherReceipts;
       if (id != null) {
         final receipt =
-            await api.request('commercial/campaigns/$id') as Map;
+            await api.request('commercial/campaigns/$id', query: {'page':'$receiptPage'}) as Map;
         if (!current(request)) return;
         selected = nativeCampaign(
           receipt['campaign'],
@@ -398,14 +440,16 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
         if (receipt['events'] is! List)
           throw const FormatException('Invalid campaign history.');
         audit = receipt['events'] as List;
+        publisherReceipts = campaignPage(receipt['deliveries'], receiptPage, 'id',
+            (row) => campaignDelivery(row,id));
       }
       if (creating && actorRole == 'vendor') {
-        availablePackages = ApiPage.fromJson(
+        availablePackages = campaignPage(
           await api.request(
             'commercial/campaign-packages',
             query: {'page': '$packagePage'},
           ),
-          (row) {
+          packagePage, 'invoice_id', (row) {
             if (row['invoice_id'] is! int ||
                 row['vendor_id'] != actor ||
                 row['campaign_eligible'] is! bool)
@@ -414,12 +458,12 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
           },
         );
         if (!current(request)) return;
-        ownedStations = ApiPage.fromJson(
+        ownedStations = campaignPage(
           await api.request(
             'commercial/campaign-stations',
             query: {'page': '$stationPage'},
           ),
-          (row) {
+          stationPage, 'id', (row) {
             if (row['id'] is! int ||
                 row['name'] is! String ||
                 row['country'] is! String)
@@ -437,6 +481,8 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
         records = list;
         detail = selected;
         events = audit;
+        deliveries = publisherReceipts;
+        deliveryPage = receiptPage;
         packages = availablePackages;
         stations = ownedStations;
         if (!(packages?.items.any(
@@ -605,14 +651,17 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
   Future<void> act(String action) async {
     final row = detail, note = reason.text.trim();
     if (row == null || !active || creating || !enabled ||
-        busy ||
+        busy || confirming ||
         !consent ||
         note.length < 5 ||
         note.length > 500 ||
         !actions(row).contains(action))
       return;
     final reviewedGeneration = generation, reviewedIntent = intentRevision, api = widget.api;
-    final confirmed = await showDialog<bool>(
+    setState(() => confirming = true);
+    bool? confirmed;
+    try {
+    confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(label(action)),
@@ -634,6 +683,9 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
         ],
       ),
     );
+    } finally {
+      if (current(reviewedGeneration)) setState(() => confirming = false);
+    }
     if (confirmed != true ||
         !mounted ||
         !current(reviewedGeneration) || !identical(widget.api,api) ||
@@ -664,7 +716,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
       if (!campaignConfirmsDecision(row,receipt,action)) {
         // Do not let a malformed acknowledgement authorize another
         // transition using a stale revision. Require fresh source history.
-        setState(() { detail = null; records = null; events = []; enabled = false; });
+        setState(() { detail = null; records = null; events = []; deliveries = null; enabled = false; });
         throw const FormatException('Unconfirmed campaign decision.');
       }
       await load(id: row['id'] as int);
@@ -713,7 +765,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
             ),
           ),
           OutlinedButton(
-            onPressed: busy || !visible ? null : guard(() { load(); }),
+            onPressed: busy || !visible ? null : guard(() { pageNumber = packagePage = stationPage = 1; load(); }),
             child: Text(t('Refresh history', 'تحديث السجل')),
           ),
           if (busy && visible) const LinearProgressIndicator(),
@@ -926,6 +978,22 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               Text(
                 '${event['created_at']} UTC · ${event['action']} · ${event['reason']}',
               ),
+            if (deliveries != null && deliveries!.items.isNotEmpty) ...[
+              Text(t('Server publisher receipts','إيصالات الناشر من الخادم')),
+              for (final receipt in deliveries!.items)
+                ListTile(
+                  key: ValueKey('campaign-delivery-${receipt['id']}'),
+                  title: Text(receipt['kind'] == 'delivery'
+                    ? t('Recorded delivery unit','وحدة تسليم مسجلة')
+                    : t('Server-verified click','نقرة موثقة بالخادم')),
+                  subtitle: Text(
+                    '${(receipt['occurred_at'] as DateTime).toIso8601String()} UTC',
+                    textDirection: TextDirection.ltr),
+                ),
+              pages(deliveries!, deliveryPage, (number) {
+                load(id: row['id'] as int, receiptPage: number);
+              }),
+            ],
             TextField(
               controller: reason,
               onChanged: (_) { if (editable()) setState(invalidateConsent); },
