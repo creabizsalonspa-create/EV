@@ -340,7 +340,8 @@ class CreatePaymentCaseView extends StatefulWidget {
   State<CreatePaymentCaseView> createState() => _CreateCaseState();
 }
 
-class _CreateCaseState extends State<CreatePaymentCaseView> {
+class _CreateCaseState extends State<CreatePaymentCaseView>
+    with WidgetsBindingObserver {
   final amount = TextEditingController(), reason = TextEditingController();
   FinancialOperation? operation;
   int owner = 0, digits = 0, maximum = 0;
@@ -350,20 +351,24 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
   int generation = 0, targetGeneration = 0;
   late final bool Function() sessionFence;
   StreamSubscription<int>? session;
-  bool revoked = false;
-  bool authorized() => !revoked && sessionFence();
+  bool revoked = false, foreground = true;
+  bool authorized() => foreground && !revoked && sessionFence();
 
   @override
   void initState() {
     super.initState();
     sessionFence = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
     session = widget.api.sessionEvents.listen((_) {
       if (!mounted) return;
       revoked = true;
       generation++;
+      targetGeneration++;
       redactFormerIdentity();
     });
-    initialize();
+    if (foreground) initialize();
   }
 
   @override
@@ -392,9 +397,27 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (!mounted || foreground == resumed) return;
+    foreground = resumed;
+    generation++;
+    targetGeneration++;
+    if (!resumed) {
+      redactFormerIdentity();
+    } else if (authorized()) {
+      setState(() => busy = true);
+      initialize();
+    } else {
+      setState(() {});
+    }
+  }
+
+  @override
   void dispose() {
     generation++;
     session?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     amount.dispose();
     reason.dispose();
     super.dispose();
@@ -407,6 +430,7 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
     operation = null;
     owner = 0;
     maximum = 0;
+    digits = 0;
     currency = '';
     consent = false;
     noFunds = false;
@@ -448,8 +472,9 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
       }
       final invoice = result['invoice'];
       if (invoice is! Map ||
-          invoice['id'] != widget.invoiceId ||
-          invoice['user_id'] != actorId ||
+          invoice['id'] is! int || invoice['id'] != widget.invoiceId ||
+          invoice['id'] < 1 || invoice['id'] > 9007199254740991 ||
+          invoice['user_id'] is! int || invoice['user_id'] != actorId ||
           invoice['minor_units'] is! int ||
           invoice['minor_units'] < 0 ||
           invoice['minor_units'] > 3 ||
@@ -482,7 +507,16 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
         noFunds = true;
         operation = null;
       } else if (pending.pending != null) {
-        final body = pending.pending!['body'] as Map;
+        final body = pending.pending!['body'];
+        if (body is! Map || body['invoice_id'] is! int ||
+            body['invoice_id'] != widget.invoiceId || body['kind'] != 'dispute' ||
+            body['amount_minor'] is! int || body['amount_minor'] < 1 ||
+            body['amount_minor'] > 2000000000 || body['reason'] is! String ||
+            (body['reason'] as String).trim().isEmpty ||
+            (body['reason'] as String).length > 500) {
+          operation = null;
+          throw const FormatException('Invalid saved dispute intent.');
+        }
         amount.text = minorDecimal(body['amount_minor'] as int, digits);
         reason.text = body['reason'] as String;
       }
@@ -505,7 +539,7 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
     final api = widget.api;
     final current = authorized;
     final pending = operation;
-    if (!mounted || busy || pending == null || !consent || !current()) return;
+    if (!mounted || busy || done || pending == null || !consent || !current()) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -595,6 +629,7 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
           TextField(
             controller: amount,
             readOnly: locked,
+            onChanged: (_) { if (authorized() && consent) setState(() => consent = false); },
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: InputDecoration(
               labelText: '${t('amount')} ($currency)',
@@ -603,6 +638,7 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
           TextField(
             controller: reason,
             readOnly: locked,
+            onChanged: (_) { if (authorized() && consent) setState(() => consent = false); },
             maxLength: 500,
             decoration: InputDecoration(labelText: t('reason')),
           ),

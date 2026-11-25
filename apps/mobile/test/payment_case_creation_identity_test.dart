@@ -29,7 +29,7 @@ class SessionCaseStore implements FinancialOperationStore {
 }
 
 class FencedCaseApi extends FixtureApi {
-  int identity = 0, posts = 0;
+  int identity = 0, posts = 0, reads = 0;
   final events = StreamController<int>.broadcast(sync: true);
   @override
   Stream<int> get sessionEvents => events.stream;
@@ -49,7 +49,10 @@ class FencedCaseApi extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
-    if (path == 'me') return {'id': 1, 'role': 'customer'};
+    if (path == 'me') {
+      reads++;
+      return {'id': 1, 'role': 'customer'};
+    }
     if (path == 'finance/invoices/3') {
       final waiting = delayedInvoice;
       delayedInvoice = null;
@@ -166,5 +169,66 @@ void main() {
     expect(find.byType(TextField), findsNothing);
     expect(find.text('Former account private reason'), findsNothing);
     expect(api.posts, 0);
+  });
+
+  testWidgets('inactive dispute mount never reads private invoice until resume', (tester) async {
+    final api = FencedCaseApi(), store = SessionCaseStore();
+    addTearDown(() => tester.binding
+        .handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpWidget(caseScreen(api, store));
+    await tester.pumpAndSettle();
+    expect(api.reads, 0);
+    expect(store.reads, 0);
+    expect(find.byType(TextField), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.reads, 1);
+    expect(find.byType(TextField), findsWidgets);
+  });
+
+  testWidgets('background clears dispute draft and retires old submit callback', (tester) async {
+    final api = FencedCaseApi(), store = SessionCaseStore();
+    addTearDown(() => tester.binding
+        .handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    await tester.pumpWidget(caseScreen(api, store));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '1.25');
+    await tester.enterText(find.byType(TextField).last, 'Private old draft');
+    await tester.ensureVisible(find.byType(CheckboxListTile));
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pumpAndSettle();
+    final submit = tester.widget<FilledButton>(find.byType(FilledButton)).onPressed!;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    expect(find.text('Private old draft'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    submit();
+    await tester.pumpAndSettle();
+    expect(api.posts, 0);
+    expect(store.writes, 0);
+    expect(find.text('Private old draft'), findsNothing);
+    expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value, false);
+  });
+
+  testWidgets('editing dispute amount or reason requires renewed consent', (tester) async {
+    final api = FencedCaseApi(), store = SessionCaseStore();
+    await tester.pumpWidget(caseScreen(api, store));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '1.25');
+    await tester.enterText(find.byType(TextField).last, 'Initial reason');
+    await tester.ensureVisible(find.byType(CheckboxListTile));
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pumpAndSettle();
+    final stale = tester.widget<FilledButton>(find.byType(FilledButton)).onPressed!;
+    await tester.enterText(find.byType(TextField).last, 'Changed reason');
+    await tester.pumpAndSettle();
+    expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value, false);
+    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
+    stale();
+    await tester.pumpAndSettle();
+    expect(api.posts, 0);
+    expect(store.writes, 0);
   });
 }
