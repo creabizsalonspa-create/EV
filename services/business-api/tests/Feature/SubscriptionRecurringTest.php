@@ -325,6 +325,41 @@ class SubscriptionRecurringTest extends TestCase
         $this->assertSame(1, DB::table('recurring_payment_events')->where('kind', 'provider_callback_verified')->count());
     }
 
+    public function test_saved_checkout_authority_rechecks_due_invoice_and_cancellation_under_current_consent(): void
+    {
+        $this->travelTo(now()->startOfSecond());
+        $u = User::factory()->create();
+        $method = $this->enroll($u);
+        [$subscription, $invoice] = $this->subscription($u);
+        $collections = app(SubscriptionCollections::class);
+        $collections->policy($u, $subscription, true, $method, 0);
+        $checkout = app(SubscriptionGateway::class)->checkout($u, $subscription, $invoice, 'due-checkout', $method, 1);
+        $this->assertSame('pm_Contract', $collections->authorize($u, $checkout)['method']);
+        $before = count($this->sent);
+        $this->travel(-1)->seconds();
+        try {
+            $collections->authorize($u, $checkout);
+            $this->fail('A future invoice must not authorize saved collection.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->travel(1)->seconds();
+        // Synthetic state boundary: a previously prepared checkout is not
+        // authority to charge after the subscription becomes ineligible.
+        DB::table('commercial_subscriptions')->where('id', $subscription)->update(['cancel_at_period_end' => true]);
+        try {
+            $collections->authorize($u, $checkout);
+            $this->fail('A subscription scheduled to stop must not authorize saved collection.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->assertCount($before, $this->sent);
+        $this->assertDatabaseHas('subscription_gateway_checkouts', ['id' => $checkout->id, 'status' => 'pending']);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+        DB::table('commercial_subscriptions')->where('id', $subscription)->update(['cancel_at_period_end' => false]);
+        $this->assertSame('pm_Contract', $collections->authorize($u, $checkout)['method']);
+    }
+
     public function test_suspended_owner_cannot_start_collection_but_valid_consent_can_resume_after_reactivation(): void
     {
         $u = User::factory()->create();
