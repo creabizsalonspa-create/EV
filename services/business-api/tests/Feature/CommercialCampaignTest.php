@@ -67,6 +67,69 @@ class CommercialCampaignTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_campaign_private_review_filters_narrow_authorized_scope_and_bound_pages(): void
+    {
+        $first = $this->fixture();
+        $second = $this->fixture();
+        $one = $this->approved($first);
+        $two = $this->create($second);
+        $base = '/campaign-test/commercial/campaigns';
+        $before = DB::table('commercial_campaign_events')->count();
+        $cash = DB::table('commercial_subscription_ledger')->count();
+
+        $this->actingAs($first['admin'])->getJson($base.'?status=draft&vendor_id='.$second['vendor']->id.'&country=AE&per_page=1')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $two['id'])
+            ->assertJsonPath('scope.vendor_id', $second['vendor']->id)
+            ->assertJsonPath('scope.status', 'draft');
+        $this->getJson($base.'?station_id='.$first['station']->id.'&invoice_id='.$first['invoice']->id)
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $one['id']);
+        $this->getJson($base.'?status=approved&per_page=1&page=2')
+            ->assertOk()->assertJsonCount(0, 'data')->assertJsonPath('current_page', 2);
+        $this->actingAs($first['vendor'])->getJson($base.'?vendor_id='.$second['vendor']->id)
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->getJson($base.'?invoice_id='.$second['invoice']->id)->assertOk()->assertJsonPath('total', 0);
+        $this->getJson($base.'/'.$two['id'])->assertNotFound();
+
+        foreach (['page=0', 'page=100001', 'per_page=26'] as $invalid) {
+            foreach ([$base, $base.'/'.$one['id'], '/campaign-test/commercial/campaign-packages', '/campaign-test/commercial/campaign-stations'] as $path) {
+                $this->getJson($path.'?'.$invalid)->assertUnprocessable();
+            }
+        }
+        foreach (['status=paid', 'vendor_id=0001', 'country=ae', 'invoice_id=0'] as $invalid) {
+            $this->getJson($base.'?'.$invalid)->assertUnprocessable();
+        }
+        $this->actingAs($first['customer'])->getJson($base)->assertForbidden();
+        $this->assertSame($before, DB::table('commercial_campaign_events')->count());
+        $this->assertSame($cash, DB::table('commercial_subscription_ledger')->count());
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
+    }
+
+    public function test_private_delivery_history_omits_publisher_request_identity_and_retains_exact_counts(): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture();
+        $c = $this->approved($f);
+        $this->delivery($c['id'], 'publisher-private-delivery')->assertOk();
+        $this->delivery($c['id'], 'publisher-private-click', 'click', 'publisher-private-delivery')->assertOk();
+        $base = '/campaign-test/commercial/campaigns/'.$c['id'].'?per_page=1';
+        $cash = DB::table('commercial_subscription_ledger')->count();
+        $this->actingAs($f['vendor'])->getJson($base)->assertOk()
+            ->assertJsonPath('campaign.delivered_units', 1)
+            ->assertJsonPath('campaign.verified_server_clicks', 1)
+            ->assertJsonPath('deliveries.total', 2)
+            ->assertJsonPath('deliveries.data.0.kind', 'click')
+            ->assertJsonPath('deliveries.data.0.campaign_id', $c['id'])
+            ->assertJsonMissingPath('deliveries.data.0.event_id')
+            ->assertJsonMissingPath('deliveries.data.0.fingerprint');
+        $this->getJson($base.'&page=2')->assertOk()
+            ->assertJsonPath('deliveries.data.0.kind', 'delivery')
+            ->assertJsonMissingPath('deliveries.data.0.event_id')
+            ->assertJsonMissingPath('deliveries.data.0.fingerprint');
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 2);
+        $this->assertSame($cash, DB::table('commercial_subscription_ledger')->count());
+    }
+
     public function test_customer_station_placement_is_scoped_and_does_not_consume_delivery(): void
     {
         $fixture = $this->fixture();
