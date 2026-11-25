@@ -137,6 +137,38 @@ class NotificationEmailTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_queued_range_must_end_at_the_recipient_owned_notice_before_consuming_cursor(): void
+    {
+        $user = $this->fixture();
+        $this->enable($user);
+        $owned = $this->notice($user);
+        $service = app(EmailNotices::class);
+        $this->assertSame(1, $service->prepare());
+        $row = DB::table('notification_email_outbox')->first();
+        $before = DB::table('notification_email_preferences')->where('user_id', $user->id)->first();
+        $other = $this->notice(User::factory()->create());
+        $this->assertGreaterThan($owned->id, $other->id);
+        DB::table('notification_email_outbox')->where('id', $row->id)
+            ->update(['through_notification_id' => $other->id]);
+
+        $this->assertSame('cancelled', $service->deliver($row->id));
+        $this->assertDatabaseHas('notification_email_outbox', [
+            'id' => $row->id, 'state' => 'cancelled', 'claimed_at' => null,
+        ]);
+        $this->assertDatabaseHas('notification_email_preferences', [
+            'user_id' => $user->id, 'after_notification_id' => $before->after_notification_id,
+            'last_attempted_at' => $before->last_attempted_at,
+        ]);
+        Mail::assertNothingSent();
+        $new = $this->notice($user);
+        $this->assertSame(1, $service->prepare());
+        $next = DB::table('notification_email_outbox')->where('state', 'queued')->first();
+        $this->assertSame($new->id, (int) $next->through_notification_id);
+        $this->assertSame('handed_off', $service->deliver($next->id));
+        Mail::assertSent(GenericInboxNotice::class, 1);
+        Mail::assertSent(GenericInboxNotice::class, fn ($mail) => $mail->hasTo($user->email));
+    }
+
     public function test_configuration_change_while_locking_candidate_does_not_disable_consent_or_queue_stale_handoff(): void
     {
         $user = $this->fixture();

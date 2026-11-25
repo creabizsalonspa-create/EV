@@ -175,6 +175,12 @@ final class EmailNotices
 
     private function visibleUnread(User $user, object $receipt): bool
     {
+        // A forged upper bound could otherwise skip a different user's
+        // or not-yet-created notifications while one earlier notice is valid.
+        if (! InboxNotification::where('user_id', $user->id)->whereKey($receipt->through_notification_id)->exists()) {
+            return false;
+        }
+
         return InboxNotification::visibleTo($user)
             ->where('id', '>', $receipt->after_notification_id)->where('id', '<=', $receipt->through_notification_id)
             ->where('created_at', '>=', now()->subDay())->where('created_at', '<=', now())
