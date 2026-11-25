@@ -3,6 +3,7 @@
 namespace App\Services\Commercial;
 
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Payments\PaymentRecovery;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -14,7 +15,7 @@ class SubscriptionCollections
     public function policy(User $user, int $subscription, bool $enabled, ?int $method, int $expected): object
     {
         return DB::transaction(function () use ($user, $subscription, $enabled, $method, $expected) {
-            User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $user = app(CurrentFinanceReader::class)->requireSnapshot($user);
             $s = app(SubscriptionService::class)->access($user, $subscription, true);
             abort_unless($s->user_id === $user->id, 404);
             $old = DB::table('subscription_collection_policies')->where('subscription_id', $subscription)->first();
