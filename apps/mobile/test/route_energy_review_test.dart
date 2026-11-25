@@ -173,6 +173,9 @@ void main() {
     await tester.enterText(find.byKey(const Key('destination-lng')),'55.4');
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpAndSettle();
+    // Render the newly edited itinerary before re-authorizing its consent.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
     final consent=find.byKey(const Key('route-provider-consent'));
     final preview=find.byKey(const Key('route-preview'));
     final itinerary=find.descendant(of:find.byType(ListView),matching:find.byType(Scrollable)).first;
@@ -228,6 +231,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('destination-lat')),'25.3');
     await tester.enterText(find.byKey(const Key('destination-lng')),'55.4');
+    // Render the newly edited itinerary before re-authorizing its consent.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
     final consent=find.byKey(const Key('route-provider-consent'));
     final preview=find.byKey(const Key('route-preview'));
     final itinerary=find.descendant(of:find.byType(ListView),matching:find.byType(Scrollable)).first;
