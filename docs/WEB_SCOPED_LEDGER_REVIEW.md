@@ -1,0 +1,7 @@
+# Vendor-scoped internal ledger review (web)
+
+The existing read-only reconciliation JSON/CSV endpoints accept an optional positive bounded vendor_id. Admins may select a vendor; vendors can only select their own identity and a foreign ID returns 404. Legacy no-filter callers retain their original authorized scope. JSON returns the applied scope (vendor, currency and dates) so the web client can reject a mismatched response. CSV retains its existing column contract and identical server-side filters.
+
+In the existing earnings statement workspace, the bilingual internal audit now uses the selected vendor/currency, optional UTC from/to dates, exact current page and matching CSV link. It clears stale rows and links when dates change or the page is hidden. It verifies the response scope, page length, typed money and source flags before rendering any rows. This supersedes the earlier web audit description that said Admin's selected-vendor panel scanned all accessible invoices. The standalone endpoint still supports Admin all-vendor review without vendor_id.
+
+Laravel regression checks selected tenant/date JSON+CSV and foreign-vendor denial; the browser test exercises a real scoped CSV, empty historical date filter and stale-link clearing. This is source-only simulated accounting diagnostics, not external PSP/bank reconciliation, legal invoice issuance or payout authority. Exact-head Platform/Finance validation and Agent 5 integration required; no whole-atom promotion.

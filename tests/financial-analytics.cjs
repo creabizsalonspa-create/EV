@@ -154,6 +154,32 @@ const assert = require("node:assert/strict");
     }).click();
     const integrityPane = vendor.locator("[data-financial-integrity]");
     await integrityPane.locator('[data-audit-invoice-id="' + f.invoice + '"]').waitFor();
+    const auditLink = integrityPane.getByRole("link", { name: "Download integrity CSV", exact: true });
+    const scopedAudit = new URL(await auditLink.getAttribute("href"), base);
+    assert.equal(scopedAudit.searchParams.get("vendor_id"), String(f.vendor));
+    assert.equal(scopedAudit.searchParams.get("currency"), "AED");
+    assert.equal(scopedAudit.searchParams.get("page"), "1");
+    const auditDownload = vendor.waitForEvent("download");
+    await auditLink.click();
+    const auditFile = await auditDownload;
+    await auditFile.saveAs(dir + "/vendor-integrity.csv");
+    assert.match(fs.readFileSync(dir + "/vendor-integrity.csv", "utf8"),
+      new RegExp("^" + f.invoice + ",", "m"));
+    await vendor.locator("[data-audit-to]").fill("1900-01-01");
+    assert.equal(await auditLink.count(), 0);
+    assert.equal(await integrityPane.locator("[data-audit-invoice-id]").count(), 0);
+    await vendor.getByRole("button", {
+      name: "Inspect accessible ledger integrity", exact: true,
+    }).click();
+    await integrityPane.getByText("No matching invoices.", { exact: true }).waitFor();
+    const emptyScope = new URL(await auditLink.getAttribute("href"), base);
+    assert.equal(emptyScope.searchParams.get("to"), "1900-01-01");
+    await vendor.locator("[data-audit-to]").fill("");
+    assert.equal(await auditLink.count(), 0);
+    await vendor.getByRole("button", {
+      name: "Inspect accessible ledger integrity", exact: true,
+    }).click();
+    await integrityPane.locator('[data-audit-invoice-id="' + f.invoice + '"]').waitFor();
     const auditResponse = await vendor.request.get(base + "/api/finance/reconciliation-audit");
     assert.equal(auditResponse.status(), 200);
     assert.equal((await auditResponse.json()).external_psp_or_bank_verified, false);
