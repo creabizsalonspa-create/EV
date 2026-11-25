@@ -56,7 +56,7 @@ class ReviewsApi extends FixtureApi {
         lose = false;
         throw const ApiException(503, 'PRIVATE transport');
       }
-      return wrongReceipt?{...review(),'session_id':99}:review();
+      return wrongReceipt?{...review(),'id':99,'session_id':99}:review();
     }
     reads++;
     final held = nextRead;
@@ -339,4 +339,25 @@ void main() {
     expect(find.text('Retry same feedback request'),findsOneWidget);
     expect(api.writes,1);
   });
+  testWidgets('wrong review acknowledgement retains frozen withdrawal request',(tester) async {
+    final api=ReviewsApi()..created=true..wrongReceipt=true;
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await tester.binding.setSurfaceSize(const Size(800,1200));
+    addTearDown(()=>tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(app(api));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Withdraw publication'));
+    await tester.pumpAndSettle();
+    expect(api.writes,1);
+    expect(find.text('Retry same feedback request'),findsOneWidget);
+    expect(find.text('Private test feedback'),findsNothing);
+    api.wrongReceipt=false;
+    await tester.tap(find.text('Retry same feedback request'));
+    await tester.pumpAndSettle();
+    expect(api.writes,2);
+    expect(find.text('Retry same feedback request'),findsNothing);
+    expect(find.text('Private test feedback'),findsOneWidget);
+  });
+
 }
