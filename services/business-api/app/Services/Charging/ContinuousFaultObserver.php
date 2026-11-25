@@ -166,7 +166,14 @@ class ContinuousFaultObserver
                     // Equal timestamps may describe distinct connectors, or
                     // repeated identical receipts, but must never establish
                     // two incompatible states for the same source component.
+                    // OCPP 1.6 StatusNotification has no EVSE identifier.
+                    // The GraphQL projection can explicitly return null for it.
+                    // Use the same zero sentinel as FaultMonitor persistence,
+                    // never infer a missing field or a 2.0.1 EVSE.
                     $evse = $event['evseId'] ?? null;
+                    if ($b->protocol === '1.6' && array_key_exists('evseId', $event) && $evse === null) {
+                        $evse = 0;
+                    }
                     $connector = $event['connectorId'] ?? null;
                     abort_unless(is_int($evse) && $evse >= 0 && is_int($connector) && $connector >= 0, 503,
                         'Malformed source component identity.');
