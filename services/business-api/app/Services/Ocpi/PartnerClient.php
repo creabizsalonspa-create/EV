@@ -195,18 +195,70 @@ class PartnerClient
         }
     }
 
+    /**
+     * Parse the bounded HTTP Link list, rather than silently treating a valid
+     * next relation after other parameters as an end-of-catalog response.
+     */
     private function next(?string $link): ?string
     {
-        if (! $link) {
+        if ($link === null || trim($link, " \t") === '') {
             return null;
         }
-
-        preg_match_all('/<([^>]+)>;\s*rel=(?:"next"|next)(?=\s*[,;]|\s*$)/i', $link, $matches);
-        if (count($matches[1]) > 1) {
-            throw new OcpiException('Ambiguous partner pagination links require source review.');
+        if (strlen($link) > 16384 || preg_match('/[\x00-\x08\x0a-\x1f\x7f]/', $link)) {
+            throw new OcpiException('Malformed partner pagination link.');
         }
+        $targetPattern = '/\G[ \t]*<([^<>\x00-\x20\x7f]+)>[ \t]*/';
+        $parameterPattern = <<<'REGEX'
+@\G;[ \t]*([A-Za-z0-9!#$%&'*+\-.^_\x60|~]+)[ \t]*(?:=[ \t]*(?:"((?:[^"\\\x00-\x1f\x7f]|\\[\x20-\x7e])*)"|([A-Za-z0-9!#$%&'*+\-.^_\x60|~]+))[ \t]*)?@
+REGEX;
+        $offset = 0;
+        $next = null;
+        $entries = 0;
+        do {
+            if (++$entries > 64 || ! preg_match($targetPattern, $link, $target, 0, $offset)) {
+                throw new OcpiException('Malformed partner pagination link.');
+            }
+            $offset += strlen($target[0]);
+            $relations = null;
+            $anchored = false;
+            while (($link[$offset] ?? '') === ';') {
+                if (! preg_match($parameterPattern, $link, $parameter, PREG_UNMATCHED_AS_NULL, $offset)) {
+                    throw new OcpiException('Malformed partner pagination link parameter.');
+                }
+                $offset += strlen($parameter[0]);
+                $name = strtolower($parameter[1]);
+                if ($name === 'anchor') {
+                    $anchored = true;
+                }
+                if ($name !== 'rel') {
+                    continue;
+                }
+                $value = $parameter[2] !== null
+                    ? preg_replace('/\\\\(.)/s', '$1', $parameter[2]) : $parameter[3];
+                if ($relations !== null || ! is_string($value) || trim($value) === '') {
+                    throw new OcpiException('Ambiguous partner pagination relation.');
+                }
+                $relations = preg_split('/ +/', strtolower(trim($value)));
+            }
+            if ($relations === null) {
+                throw new OcpiException('Partner pagination link has no relation.');
+            }
+            if (in_array('next', $relations, true)) {
+                if ($next !== null || $anchored) {
+                    throw new OcpiException('Ambiguous partner pagination links require source review.');
+                }
+                $next = $target[1];
+            }
+            if ($offset === strlen($link)) {
+                return $next;
+            }
+            if ($link[$offset] !== ',') {
+                throw new OcpiException('Malformed partner pagination link separator.');
+            }
+            $offset++;
+        } while ($offset < strlen($link));
 
-        return $matches[1][0] ?? null;
+        throw new OcpiException('Malformed partner pagination link.');
     }
 
     public function negotiate(OcpiProvider $provider): array
