@@ -80,8 +80,8 @@ final class PartnerLocationDiscoveryController extends Controller
                 // When both filters are selected, require the reported state
                 // and connector standard on the same EVSE, not sibling EVSEs.
                 $sql = match (DB::connection()->getDriverName()) {
-                    'sqlite' => "EXISTS (SELECT 1 FROM json_each(ocpi_records.normalized, '$.evses') evse WHERE json_extract(CASE WHEN evse.type = 'object' THEN evse.value ELSE '{}' END, '$.reported_status') = ?"
-                        .($standard === null ? '' : " AND EXISTS (SELECT 1 FROM json_each(CASE WHEN evse.type = 'object' THEN evse.value ELSE '{}' END, '$.connectors') connector WHERE json_extract(CASE WHEN connector.type = 'object' THEN connector.value ELSE '{}' END, '$.standard') = ?)").')',
+                    'sqlite' => "EXISTS (SELECT 1 FROM json_each(CASE WHEN json_type(ocpi_records.normalized, '$.evses') = 'array' THEN json_extract(ocpi_records.normalized, '$.evses') ELSE '[]' END) evse WHERE json_extract(CASE WHEN evse.type = 'object' THEN evse.value ELSE '{}' END, '$.reported_status') = ?"
+                        .($standard === null ? '' : " AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_type(CASE WHEN evse.type = 'object' THEN evse.value ELSE '{}' END, '$.connectors') = 'array' THEN json_extract(evse.value, '$.connectors') ELSE '[]' END) connector WHERE json_extract(CASE WHEN connector.type = 'object' THEN connector.value ELSE '{}' END, '$.standard') = ?)").')',
                     'pgsql' => "EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(ocpi_records.normalized::jsonb->'evses') = 'array' THEN ocpi_records.normalized::jsonb->'evses' ELSE '[]'::jsonb END) AS evse(value) WHERE evse.value->>'reported_status' = ?"
                         .($standard === null ? '' : " AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(evse.value->'connectors') = 'array' THEN evse.value->'connectors' ELSE '[]'::jsonb END) AS connector(value) WHERE connector.value->>'standard' = ?)").')',
                     default => throw new \LogicException('Unsupported partner EVSE state search database.'),
