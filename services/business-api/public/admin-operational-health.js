@@ -10,7 +10,25 @@ window.EvAdminOperationalHealth = (() => {
     const incidentNames = {queue_worker_stale:['Queue worker observation expired','انتهت صلاحية ملاحظة عامل قائمة الانتظار'],scheduler_stale:['Scheduler observation expired','انتهت صلاحية ملاحظة المجدول'],queue_backlog:['Ready queue is backed up','تراكم المهام الجاهزة'],queue_failed_jobs:['Recorded queue failures','إخفاقات مسجلة في قائمة الانتظار'],email_handoff_uncertain:['Uncertain email handoff needs operator review','تسليم البريد الإلكتروني غير المؤكد يحتاج إلى مراجعة المشغل'],email_queue_backlog:['Email notices still queued past review threshold','تنبيهات البريد ما زالت قيد الانتظار بعد مهلة المراجعة']};
     function erase() {sequence++;request?.abort();request=null;output?.replaceChildren();if(refresh)refresh.disabled=false;}
     function clear() {revision++;erase();api=null;root.replaceChildren();}
-    function valid(d) {
+    const decimalId = x => typeof x==='string' && /^[1-9][0-9]{0,18}$/.test(x) && (x.length<19 || x<='9223372036854775807');
+    const earlierId = (a,b) => a.length<b.length || (a.length===b.length && a<b);
+    const receiptTime = x => typeof x==='string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(x) && Number.isFinite(Date.parse(x));
+    const escalationStates = {recorded_open:['Recorded open escalation','تصعيد مفتوح مسجل'],recorded_closed:['Recorded escalation closure','إغلاق تصعيد مسجل'],requires_review:['Historical receipt needs review','السجل التاريخي يحتاج إلى مراجعة']};
+    const escalationReasons = {operator_acknowledged:['Operator acknowledged; not proof of repair','أقر المشغل بالتنبيه؛ ليس دليلاً على الإصلاح'],source_recovered:['Source recovery was recorded; not current clearance','تم تسجيل تعافٍ من المصدر؛ ليس دليلاً على الحالة الحالية']};
+    function validEscalations(e,before=null) {
+        if(!e || e.scope!=='ASSIGNED_SIMULATOR_ESCALATIONS' || e.current_fault_state_verified!==false || e.physical_verification!==false ||
+            typeof e.store_readable!=='boolean' || !Array.isArray(e.data) || e.data.length>25 ||
+            (e.next_before!==null && (!decimalId(e.next_before)||e.data.length!==25||e.next_before!==e.data.at(-1)?.alert_id)))return false;
+        if(!e.store_readable)return e.data.length===0 && e.next_before===null;
+        return e.data.every((v,i)=>{
+            if(!v||!decimalId(v.alert_id)|| (i>0&&!earlierId(v.alert_id,e.data[i-1].alert_id)) ||
+                (before!==null&&!earlierId(v.alert_id,before)) || !Object.hasOwn(escalationStates,v.state) || v.physical_verification!==false ||
+                (v.opened_at!==null&&!receiptTime(v.opened_at)))return false;
+            if(v.state==='recorded_closed')return receiptTime(v.opened_at)&&receiptTime(v.closed_at)&&v.closed_at>=v.opened_at&&Object.hasOwn(escalationReasons,v.resolution_source);
+            return v.closed_at===null&&v.resolution_source===null&&(v.state!=='recorded_open'||receiptTime(v.opened_at));
+        });
+    }
+    function valid(d,before=null) {
         if (d?.scope!=='default_queue_and_scheduler_observations' || typeof d.enabled!=='boolean' || typeof d.heartbeat_store_readable!=='boolean' || typeof d.as_of!=='string' || d.max_age_seconds!==150 ||
             d.all_workers_verified!==false || d.job_success_verified!==false || d.charger_connectivity_verified!==false || d.production_readiness_verified!==false || !Array.isArray(d.components) || d.components.length!==2) return false;
         if(new Set(d.components.map(c=>c.component)).size!==2 || !d.components.every(c=>['queue_worker','scheduler'].includes(c.component)&&Object.hasOwn(states,c.state)&&(c.observed_at===null||typeof c.observed_at==='string')))return false;
@@ -36,15 +54,16 @@ window.EvAdminOperationalHealth = (() => {
             e.delivery_confirmed!==false || e.automatic_retry!==false || (e.state==='available' ?
             !exact(e.outcome_unknown)||!exact(e.stale_claimed) : e.outcome_unknown!==null||e.stale_claimed!==null)))return false;
         if(e!==undefined && e.overdue_queued!==undefined && (e.state==='available'?!exact(e.overdue_queued):e.overdue_queued!==null))return false;
+        if(d.fault_escalations!==undefined&&!validEscalations(d.fault_escalations,before))return false;
         return validQueue;
     }
-    async function load() {
+    async function load(before=null) {
         if(!api||document.hidden)return;erase();const own=revision, run=sequence, controller=new AbortController();request=controller;refresh.disabled=true;
         status.replaceChildren(n('span','Reading private process observations…','جارٍ قراءة ملاحظات العمليات الخاصة…'));
         try {
-            const d=await api('admin/operational-health','GET',undefined,controller.signal);
+            const d=await api('admin/operational-health'+(before===null?'':'?fault_before='+encodeURIComponent(before)),'GET',undefined,controller.signal);
             if(own!==revision||run!==sequence||controller.signal.aborted||document.hidden)return;
-            if(!valid(d))throw Error('Unexpected health contract');
+            if(!valid(d,before))throw Error('Unexpected health contract');
             status.replaceChildren(n('span','Snapshot loaded. Refresh for current observations.','تم تحميل اللقطة. حدّث لقراءة الملاحظات الحالية.'));
             output.append(plain('p',d.as_of),n('p',d.enabled?'Monitoring enabled':'Monitoring disabled by deployment configuration',d.enabled?'المراقبة مفعلة':'المراقبة متوقفة حسب إعداد النشر'));
             if(d.enabled&&!d.heartbeat_store_readable)output.append(n('p','Heartbeat storage is unavailable; observations remain unknown.','تخزين نبضات العمليات غير متاح؛ تبقى الملاحظات مجهولة.'));
@@ -84,6 +103,27 @@ window.EvAdminOperationalHealth = (() => {
                     for(const event of i.recent_events){const a=document.createElement('article');a.append(n('p',...incidentNames[event.condition_key]),n('p',event.transition==='opened'?'Opened':'Resolved',event.transition==='opened'?'فُتحت':'تم حلها'),plain('p',event.observed_at));output.append(a);}
                 }
             }
+            if(d.fault_escalations) {
+                const e=d.fault_escalations;
+                output.append(n('h4','Assigned simulator fault escalation history','سجل تصعيد أعطال المحاكي المعينة'));
+                output.append(n('p','Historical records only. Closure is not proof of present charger availability, repair, or physical recovery.','سجلات تاريخية فقط. الإغلاق لا يثبت توفر الشاحن حالياً أو إصلاحه أو تعافيه المادي.'));
+                if(!e.store_readable)output.append(n('p','Escalation history unavailable; do not assume there are no incidents.','سجل التصعيد غير متاح؛ لا تفترض عدم وجود حوادث.'));
+                else {
+                    if(!e.data.length)output.append(n('p','No assigned escalation receipts on this page.','لا توجد سجلات تصعيد معينة في هذه الصفحة.'));
+                    for(const v of e.data){
+                        const card=document.createElement('article');
+                        card.append(n('h5','Alert reference','مرجع التنبيه'),plain('p',v.alert_id),n('p',...escalationStates[v.state]));
+                        if(v.opened_at!==null)card.append(n('p','Opened (UTC)','فتح (UTC)'),plain('time',v.opened_at));
+                        if(v.closed_at!==null)card.append(n('p','Closure recorded (UTC)','سجل الإغلاق (UTC)'),plain('time',v.closed_at),n('p',...escalationReasons[v.resolution_source]));
+                        output.append(card);
+                    }
+                    if(e.next_before!==null){
+                        const more=n('button','Older escalation receipts','سجلات التصعيد الأقدم');more.type='button';
+                        more.onclick=()=>load(e.next_before);output.append(more);
+                    }
+                    if(before!==null){const latest=n('button','Return to latest escalation receipts','العودة إلى أحدث سجلات التصعيد');latest.type='button';latest.onclick=()=>load();output.append(latest);}
+                }
+            }
         } catch(error) {
             if(own===revision&&run===sequence&&!controller.signal.aborted){erase();status.replaceChildren(n('span','Process observations could not load. Refresh explicitly to retry.','تعذر تحميل ملاحظات العمليات. حدّث صراحة للمحاولة.'));}
         } finally {if(own===revision&&run===sequence)refresh.disabled=false;}
@@ -92,7 +132,7 @@ window.EvAdminOperationalHealth = (() => {
         clear();if(actor?.role!=='admin')return;api=requestApi;
         root.append(n('p','Read-only snapshots of the configured default queue and scheduler. A recent process heartbeat does not prove successful jobs, all workers, charger connectivity or production readiness. No job contents are displayed and no retries are dispatched.',
             'لقطات للقراءة فقط لقائمة الانتظار الافتراضية والجدولة. لا تثبت نبضة حديثة نجاح المهام أو جميع العاملين أو اتصال الشواحن أو جاهزية الإنتاج. لا تُعرض محتويات المهام ولا تُرسل إعادة محاولات.'));
-        refresh=n('button','Refresh process observations','تحديث ملاحظات العمليات');refresh.type='button';refresh.onclick=load;
+        refresh=n('button','Refresh process observations','تحديث ملاحظات العمليات');refresh.type='button';refresh.onclick=()=>load();
         status=document.createElement('p');status.setAttribute('role','status');status.setAttribute('aria-live','polite');output=document.createElement('div');root.append(refresh,status,output);
     }
     document.addEventListener('visibilitychange',()=>{if(document.hidden&&api){erase();status.replaceChildren(n('span','Private snapshot cleared. Refresh when ready.','تم مسح اللقطة الخاصة. حدّث عندما تكون مستعداً.'));}});

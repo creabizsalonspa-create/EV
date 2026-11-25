@@ -74,6 +74,89 @@ class FaultReminderEscalatorTest extends TestCase
         return compact('owner', 'company', 'station', 'charger', 'bindingId', 'observation', 'alert');
     }
 
+    public function test_admin_operational_health_projects_only_assigned_historical_fault_receipts(): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $other = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $worker = app(FaultReminderEscalator::class);
+        $this->assertSame(1, $worker->scan()['escalated']);
+        $path = '/api/admin/operational-health';
+        $this->actingAs($admin)->getJson($path)->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('fault_escalations.scope', 'ASSIGNED_SIMULATOR_ESCALATIONS')
+            ->assertJsonPath('fault_escalations.data.0.alert_id', (string) $f['alert'])
+            ->assertJsonPath('fault_escalations.data.0.state', 'recorded_open')
+            ->assertJsonPath('fault_escalations.current_fault_state_verified', false)
+            ->assertJsonPath('fault_escalations.physical_verification', false)
+            ->assertJsonMissingPath('fault_escalations.data.0.admin_user_id')
+            ->assertJsonMissingPath('fault_escalations.data.0.company_id');
+        $this->actingAs($other)->getJson($path)->assertOk()->assertJsonCount(0, 'fault_escalations.data');
+        $this->actingAs($f['owner'])->getJson($path)->assertForbidden();
+        DB::table('charging_fault_alerts')->where('id', $f['alert'])
+            ->update(['acknowledged_at' => now(), 'acknowledged_by' => $f['owner']->id]);
+        $this->assertSame(1, $worker->scan()['closed']);
+        $this->actingAs($admin)->getJson($path)->assertOk()
+            ->assertJsonPath('fault_escalations.data.0.state', 'recorded_closed')
+            ->assertJsonPath('fault_escalations.data.0.resolution_source', 'operator_acknowledged')
+            ->assertJsonPath('fault_escalations.data.0.physical_verification', false);
+        // A recorded closure with contradictory chronology is never
+        // presented as an established closure.
+        DB::table('charging_fault_admin_escalations')->where('alert_id', $f['alert'])
+            ->update(['resolved_at' => now()->subMinute()]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('fault_escalations.data.0.state', 'requires_review')
+            ->assertJsonPath('fault_escalations.data.0.resolution_source', null)
+            ->assertJsonPath('fault_escalations.data.0.closed_at', null);
+        $this->getJson($path.'?fault_before=0')->assertUnprocessable();
+        $this->getJson($path.'?fault_before=9999999999999999999')->assertUnprocessable();
+        $this->getJson($path.'?fault_before='.$f['alert'])->assertOk()->assertJsonCount(0, 'fault_escalations.data');
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_admin_fault_history_paginates_by_exclusive_exact_alert_id(): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $binding = DB::table('csms_bindings')->find($f['bindingId']);
+        $ids = [];
+        for ($i = 2; $i <= 28; $i++) {
+            $observation = DB::table('charging_status_observations')->insertGetId([
+                'binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding),
+                'source_event_id' => $i, 'fingerprint' => hash('sha256', 'history-'.$i),
+                'evse_number' => 1, 'connector_number' => 1, 'status' => 'Faulted',
+                'error_code' => 'GroundFailure', 'occurred_at' => now()->subHours(2),
+                'created_at' => now()->subHours(2),
+            ]);
+            $id = DB::table('charging_fault_alerts')->insertGetId([
+                'observation_id' => $observation, 'created_at' => now()->subHours(2),
+                'updated_at' => now()->subHours(2),
+            ]);
+            DB::table('charging_fault_admin_escalations')->insert([
+                'alert_id' => $id, 'admin_user_id' => $admin->id, 'created_at' => now()->subHour(),
+            ]);
+            $ids[] = (string) $id;
+        }
+        $ids = array_reverse($ids);
+        $path = '/api/admin/operational-health';
+        $page = $this->actingAs($admin)->getJson($path)->assertOk()
+            ->assertJsonCount(25, 'fault_escalations.data')
+            ->assertJsonPath('fault_escalations.next_before', $ids[24])
+            ->json('fault_escalations');
+        $this->assertSame(array_slice($ids, 0, 25), array_column($page['data'], 'alert_id'));
+        $page = $this->getJson($path.'?fault_before='.$ids[24])->assertOk()
+            ->assertJsonCount(2, 'fault_escalations.data')->assertJsonPath('fault_escalations.next_before', null)
+            ->json('fault_escalations');
+        $this->assertSame(array_slice($ids, 25), array_column($page['data'], 'alert_id'));
+        $this->assertDatabaseCount('charging_fault_admin_escalations', 27);
+        $this->assertDatabaseCount('inbox_notifications', 0);
+    }
+
     public function test_simulator_fault_reminds_owner_once_without_hardware_or_payment_side_effects(): void
     {
         $f = $this->fixture();
