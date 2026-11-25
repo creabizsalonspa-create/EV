@@ -84,24 +84,19 @@ class PaymentMandates
             DB::table('payment_enrollments')->where('id', $e->id)->update(['lease' => $lease, 'lease_until' => now()->addMinutes(3), 'status' => 'executing', 'updated_at' => now()]);
         });
         try {
-            // Keep durable lease acquisition separate from provider I/O.
-            // A revocation committed before this lock must prevent new I/O;
-            // the existing uncertain-state recovery remains the only retry path.
-            return DB::transaction(function () use ($user, $enrollment, $lease, $provider, $return) {
-                app(CurrentFinanceReader::class)->requireSnapshot($user);
-                $current = DB::table('payment_enrollments')->where('id', $enrollment->id)
-                    ->where('user_id', $user->id)->where('lease', $lease)
-                    ->where('status', 'executing')->lockForUpdate()->first();
-                abort_unless($current && CarbonImmutable::parse($current->expires_at)->isFuture()
-                    && CarbonImmutable::parse($current->lease_until)->isFuture(), 409, 'Refresh enrollment after a lost or expired lease.');
-                $a = DB::table('payment_customer_accounts')->where('id', $current->account_id)
-                    ->where('user_id', $user->id)->lockForUpdate()->firstOrFail();
+            // Preserve a confirmed provider customer even if session creation
+            // subsequently times out. Neither I/O transaction retries implicitly.
+            DB::transaction(function () use ($user, $enrollment, $lease, $provider) {
+                [$current, $a] = $this->lockedEnrollmentLease($user, $enrollment->id, $lease);
                 if (! $a->provider_customer) {
                     $customer = $provider->createCustomer($a->reference);
                     $this->customerEvidence($a, $customer);
                     DB::table('payment_customer_accounts')->where('id', $a->id)->update(['provider_customer' => Crypt::encryptString($customer['id']), 'updated_at' => now()]);
-                    $a = DB::table('payment_customer_accounts')->find($a->id);
                 }
+            });
+            return DB::transaction(function () use ($user, $enrollment, $lease, $provider, $return) {
+                [$current, $a] = $this->lockedEnrollmentLease($user, $enrollment->id, $lease);
+                abort_unless($a->provider_customer, 409, 'Provider customer requires reconciliation.');
                 $customer = Crypt::decryptString($a->provider_customer);
                 $session = $provider->hostedEnrollment($customer, $current->reference, CarbonImmutable::parse($current->expires_at)->timestamp, $return);
                 $this->sessionEvidence($current, $customer, $session);
@@ -115,6 +110,23 @@ class PaymentMandates
             DB::table('payment_enrollments')->where('id', $enrollment->id)->where('lease', $lease)->update(['status' => 'uncertain', 'lease' => null, 'lease_until' => null, 'updated_at' => now()]);
             throw $e;
         }
+    }
+
+    private function lockedEnrollmentLease(User $user, int $id, string $lease): array
+    {
+        app(CurrentFinanceReader::class)->requireSnapshot($user);
+        $current = DB::table('payment_enrollments')->where('id', $id)
+            ->where('user_id', $user->id)->where('lease', $lease)
+            ->where('status', 'executing')->lockForUpdate()->first();
+        abort_unless($current && CarbonImmutable::parse($current->expires_at)->isFuture()
+            && CarbonImmutable::parse($current->lease_until)->isFuture()
+            && CarbonImmutable::parse($current->consent_expires_at)->isFuture()
+            && $current->consent_version === config('payments.mandate_consent_version'),
+            409, 'Refresh enrollment after a lost or expired lease or changed consent.');
+        $account = DB::table('payment_customer_accounts')->where('id', $current->account_id)
+            ->where('user_id', $user->id)->lockForUpdate()->firstOrFail();
+
+        return [$current, $account];
     }
 
     private function customerEvidence(object $account, array $c): void
