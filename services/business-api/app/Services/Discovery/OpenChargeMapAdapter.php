@@ -417,6 +417,21 @@ final class OpenChargeMapAdapter
         return preg_match('/\A'.preg_quote($literal, '/').'\z/iu', $label) === 1;
     }
 
+    /** Validate the cached normalized subset against its approved query, not just its shape. */
+    public function assertGeography(array $source, float $latitude, float $longitude, float $radiusKm, ?string $country): void
+    {
+        foreach ($source['results'] as $item) {
+            $distance = self::distance($latitude, $longitude, $item['latitude'], $item['longitude']);
+            if (($country !== null && $item['country'] !== $country)
+                || $distance > $radiusKm + 0.0001
+                || abs($distance - $item['distance_km']) > 0.00051) {
+                // A locally cached projection no longer matches its query.
+                // Keep upstream malformed-response handling (502) separate.
+                throw new LookupFailure('invalid_response', 503);
+            }
+        }
+    }
+
     private static function distance(float $lat1, float $lon1, float $lat2, float $lon2): float
     {
         $earthKm = 6371.0088;
