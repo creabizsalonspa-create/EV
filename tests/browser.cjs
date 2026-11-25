@@ -642,7 +642,13 @@ const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
       const requested = Number(new URL(route.request().url()).searchParams.get("page"));
       const data = requested === 2
         ? [{ id: 900000004, body: "Synthetic last visible message",
-             internal: false }]
+             internal: false, created_at: "2026-11-25T15:32:00Z" },
+           { id: 900000005, body: "Malformed calendar fixture",
+             internal: 0, created_at: "2026-02-30T15:32:00Z" },
+           { id: 900000006, body: "Hidden internal test record",
+             internal: 1, created_at: "2026-11-25T15:32:00Z" },
+           { id: 900000007, body: "Unknown visibility test record",
+             internal: "unknown" }]
         : firstConversation.messages.data;
       await route.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({
@@ -657,6 +663,12 @@ const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
     await customer.page.locator(
       "#ticket-detail [data-support-message-page-action=next]").click();
     await customer.page.getByText("Synthetic last visible message").waitFor();
+    const messageClocks = customer.page.locator("#ticket-detail [data-support-message-time]");
+    assert.equal(await messageClocks.count(), 2);
+    assert.match(await messageClocks.first().textContent(), /UTC/);
+    assert.match(await messageClocks.last().textContent(), /Message time unavailable|وقت الرسالة غير متاح/);
+    assert.equal(await customer.page.getByText("Hidden internal test record").count(), 0);
+    assert.equal(await customer.page.getByText("Unknown visibility test record").count(), 0);
     assert.equal(await customer.page.locator(
       "#ticket-detail [data-support-message-page-action=next]").isDisabled(), true);
     messagesOutage = true;
