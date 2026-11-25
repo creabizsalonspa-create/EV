@@ -161,6 +161,19 @@ const { chromium } = require("playwright"),
         (v) => v.commission_bps === 1250 && !Object.hasOwn(v, "publishing_key"),
       ),
     );
+    assert.equal(versions.active_tariff.id, publishedId);
+    await vendor.route(pattern + "?page=1", async (route) => {
+      const response = await route.fetch();
+      const json = await response.json();
+      json.data.unshift({...json.active_tariff, id: 9007199254740000,
+        rate_minor_per_kwh: 999, effective_from: "2099-01-01 00:00:00"});
+      json.total++;
+      await route.fulfill({response, json});
+    });
+    await detail.getByRole("button", {name: "Refresh pricing history", exact: true}).click();
+    await detail.locator("[data-effective-tariff='" + publishedId + "']").waitFor();
+    assert.equal(await detail.locator("[name=price]").inputValue(), "2.75");
+    await vendor.unroute(pattern + "?page=1");
     await vendor.locator("#language").click();
     await vendor.setViewportSize({ width: 390, height: 844 });
     await vroot
