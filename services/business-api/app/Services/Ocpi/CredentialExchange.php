@@ -155,7 +155,7 @@ class CredentialExchange
                 && $currentLink->local_token_digest === $peerLink->local_token_digest
                 && ($currentLink->state === 'active' || ($currentLink->state === 'awaiting_registration'
                     && EnrollmentExpiry::same($peerLink->bootstrap_expires_at, $currentLink->bootstrap_expires_at)
-                    && EnrollmentExpiry::future($currentLink->bootstrap_expires_at, now('UTC'))))
+                    && EnrollmentProof::current($currentLink) !== null))
                 && hash_equals($peerLink->configuration_hash, $currentLink->configuration_hash)
                 && hash_equals($peerLink->configuration_hash, $this->configurationHash($current)), 401);
         }

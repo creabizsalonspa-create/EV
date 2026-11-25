@@ -6,6 +6,7 @@ use App\Models\OcpiProvider;
 use App\Models\User;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\EnrollmentExpiry;
+use App\Services\Ocpi\EnrollmentProof;
 use App\Services\Ocpi\IncomingEnrollment;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerCapabilityMatrix;
@@ -65,7 +66,7 @@ class OcpiCredentialsController extends Controller
             if ($link && $link->owner_id !== $provider->owner_id) {
                 $state = 'ownership_changed';
             }
-            if ($link && $state === 'awaiting_registration' && ! EnrollmentExpiry::future($link->bootstrap_expires_at, now('UTC'))) {
+            if ($link && $state === 'awaiting_registration' && EnrollmentProof::current($link) === null) {
                 $state = 'enrollment_expired';
             }
             $actions = [];

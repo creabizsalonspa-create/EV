@@ -55,7 +55,7 @@ class IncomingEnrollment
     {
         $exchange = app(CredentialExchange::class);
         $peer = $exchange->validatePeer($p, $body);
-        abort_unless($link->state === 'awaiting_registration' && EnrollmentExpiry::future($link->bootstrap_expires_at, now('UTC')), 401);
+        abort_unless(EnrollmentProof::current($link) !== null, 401);
         // Read-only discovery with the peer's newly offered token B. It cannot
         // modify the peer and is fenced again before local activation.
         $exchange->endpoint($p, base64_encode($peer['token']), $link);
@@ -71,12 +71,8 @@ class IncomingEnrollment
                 && $active->local_token_digest === $link->local_token_digest
                 && EnrollmentExpiry::same($link->bootstrap_expires_at, $active->bootstrap_expires_at)
                 && EnrollmentExpiry::future($active->bootstrap_expires_at, now('UTC')), 401);
-            $prepared = DB::table('ocpi_credential_operations')->where('provider_id', $p->id)->where('generation', $active->generation)->where('action', 'prepare_incoming')->where('state', 'awaiting_peer')->lockForUpdate()->firstOrFail();
-            $proof = Crypt::decryptString($prepared->source_payload_ciphertext);
-            abort_unless(hash_equals($prepared->source_payload_hash, hash('sha256', $proof)) && (json_decode($proof, true, flags: JSON_THROW_ON_ERROR)['configuration_hash'] ?? null) === $active->configuration_hash, 409);
-            $evidence = json_decode($proof, true, flags: JSON_THROW_ON_ERROR);
-            abort_unless(EnrollmentExpiry::future($evidence['expires_at'] ?? null, now('UTC'))
-                && EnrollmentExpiry::same($evidence['expires_at'] ?? null, $active->bootstrap_expires_at), 409);
+            $prepared = EnrollmentProof::current($active, true);
+            abort_unless($prepared !== null, 401);
             $token = bin2hex(random_bytes(32));
             DB::table('ocpi_credential_links')->where('id', $active->id)->update(['state' => 'active', 'bootstrap_expires_at' => null, 'local_token_digest' => hash('sha256', $token), 'local_token_ciphertext' => Crypt::encryptString($token), 'remote_token_ciphertext' => Crypt::encryptString($peer['token']), 'exchanged_at' => now(), 'updated_at' => now()]);
             $current->update(['version' => null, 'endpoints' => null, 'negotiated_at' => null, 'authorization_revision' => $current->authorization_revision + 1]);
