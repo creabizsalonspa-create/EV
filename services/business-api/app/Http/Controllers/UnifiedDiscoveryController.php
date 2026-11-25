@@ -29,6 +29,7 @@ final class UnifiedDiscoveryController extends Controller
             'north' => 'nullable|required_with:south,west,east|numeric|between:-90,90',
             'west' => 'nullable|required_with:south,north,east|numeric|between:-180,180',
             'east' => 'nullable|required_with:south,north,west|numeric|between:-180,180', 'connector' => 'nullable|in:CCS2,Type2,CHAdeMO', 'page' => 'nullable|integer|between:1,1000000', 'saved_only' => 'nullable|boolean', 'max_source_age_hours' => 'nullable|integer|between:1,168', 'recent_source_status' => 'nullable|in:Available,Occupied,Preparing,Charging,SuspendedEV,SuspendedEVSE,Finishing,Reserved,Unavailable,Faulted']);
+        $checkedAt = now('UTC');
         $actor = $this->currentActor($request);
         $customer = $actor->role === 'customer' ? $actor->id : null;
         abort_if($request->boolean('saved_only') && $customer === null, 403);
@@ -92,7 +93,6 @@ final class UnifiedDiscoveryController extends Controller
         }
         if (isset($v['max_source_age_hours'])) {
             // Partner source timestamps only: never a receipt-age or availability claim.
-            $checkedAt = now();
             $partner->whereBetween('source_updated_at', [$checkedAt->copy()->subHours((int) $v['max_source_age_hours'])->format('Y-m-d H:i:s.u'), $checkedAt->format('Y-m-d H:i:s.u')]);
         }
         if ($request->boolean('saved_only')) {
@@ -151,7 +151,6 @@ final class UnifiedDiscoveryController extends Controller
         $labels = OcpiProvider::publiclyDiscoverable()->whereIn('id', $partners->pluck('ocpi_provider_id'))->pluck('name', 'id');
         $savedPartners = $customer === null ? collect() : DB::table('partner_location_favorites')->where('user_id', $customer)->whereIn('record_id', $partners->keys())->pluck('record_id')->flip();
         $this->currentActor($request);
-        $checkedAt = now();
         $page->setCollection($rows->map(function ($row) use ($stations, $partners, $labels, $savedPartners, $checkedAt) {
             if ($row->kind === 'catalog') {
                 $station = $stations->get($row->id);
