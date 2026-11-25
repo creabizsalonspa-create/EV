@@ -80,6 +80,68 @@ class UnifiedDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_partner_age_filter_uses_utc_even_on_non_utc_application_host(): void
+    {
+        $original = date_default_timezone_get();
+        $originalConfig = config('app.timezone');
+        try {
+            date_default_timezone_set('Asia/Dubai');
+            config(['app.timezone' => 'Asia/Dubai']);
+            $this->travelTo(Carbon::parse('2026-11-15T12:00:00.500000Z'));
+            $f = $this->fixtures();
+            foreach ([
+                ['2026-11-15T12:00:00.500000Z', 1],
+                ['2026-11-15T12:00:00.500001Z', 0],
+                ['2026-11-15T11:00:00.500000Z', 1],
+                ['2026-11-15T11:00:00.499999Z', 0],
+            ] as [$source, $count]) {
+                $f['record']->update(['source_updated_at' => Carbon::parse($source)]);
+                foreach (['/api/discovery/search?scope=partner&', '/api/v1/discovery/search?scope=partner&', '/api/roaming/locations?'] as $path) {
+                    $response = $this->getJson($path.'max_source_age_hours=1')->assertOk()->assertJsonPath('total', $count);
+                    if ($count === 1) {
+                        $response->assertJsonPath('data.0.catalog_checked_at', '2026-11-15T12:00:00.500000Z')
+                            ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.remote_control', false);
+                    }
+                }
+            }
+        } finally {
+            $this->travelBack();
+            date_default_timezone_set($original);
+            config(['app.timezone' => $originalConfig]);
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_partner_reported_status_and_connector_filter_must_match_one_evse(): void
+    {
+        $f = $this->fixtures();
+        $record = $f['record'];
+        $normalized = $record->normalized;
+        $normalized['connector_standards'] = ['IEC_62196_T2_COMBO', 'CHADEMO'];
+        $normalized['evses'] = [
+            ['uid' => 'available', 'reported_status' => 'AVAILABLE', 'connectors' => [['id' => 'a', 'standard' => 'CHADEMO']]],
+            ['uid' => 'charging', 'reported_status' => 'CHARGING', 'connectors' => [['id' => 'b', 'standard' => 'IEC_62196_T2_COMBO']]],
+        ];
+        $record->update(['normalized' => $normalized]);
+        $url = '/api/roaming/locations?';
+        $this->getJson($url.'reported_evse_status=AVAILABLE&connector_standard=IEC_62196_T2_COMBO')->assertOk()->assertJsonPath('total', 0);
+        $this->getJson($url.'reported_evse_status=AVAILABLE&connector_standard=CHADEMO')->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.remote_control', false);
+        $this->getJson($url.'reported_evse_status=CHARGING&connector_standard=IEC_62196_T2_COMBO')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson($url.'connector_standard=IEC_62196_T2_COMBO')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson($url.'reported_evse_status=AVAILABLE')->assertOk()->assertJsonPath('total', 1);
+        $normalized['evses'] = ['malformed-legacy-value', ['uid' => 'broken', 'reported_status' => 'AVAILABLE', 'connectors' => 'invalid']];
+        $record->update(['normalized' => $normalized]);
+        $this->getJson($url.'reported_evse_status=AVAILABLE&connector_standard=CHADEMO')->assertOk()->assertJsonPath('total', 0);
+        $normalized['evses'] = 'malformed-legacy-value';
+        $record->update(['normalized' => $normalized]);
+        $this->getJson($url.'reported_evse_status=AVAILABLE')->assertOk()->assertJsonPath('total', 0);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('reservations', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_partner_report_age_filter_is_bounded_before_pagination_and_leaves_catalog_unchanged(): void
     {
         $this->travelTo(Carbon::parse('2026-11-15T12:00:00Z'));
