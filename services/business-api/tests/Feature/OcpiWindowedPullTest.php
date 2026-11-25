@@ -199,6 +199,58 @@ class OcpiWindowedPullTest extends TestCase
         $this->assertDatabaseCount('ocpi_records', 0);
     }
 
+    public function test_link_parameter_order_and_multiple_relations_do_not_silently_truncate_source_pages(): void
+    {
+        $provider = $this->provider('https://partner.example/locations?country=NL');
+        $header = '';
+        Http::fake(function ($request) use (&$header) {
+            if (str_contains($request->url(), 'offset=25')) {
+                return Http::response($this->envelope([['id' => 'second']]));
+            }
+
+            return Http::response($this->envelope([['id' => 'first']]), 200, ['Link' => $header]);
+        });
+        foreach ([
+            '<?country=NL&offset=25>; type="application/json"; rel="next"',
+            '<?country=NL&offset=25>; title="records, next page"; rel="alternate next"',
+            '<?country=NL&offset=0>; rel=prev, <?country=NL&offset=25>; REL="NEXT"',
+        ] as $header) {
+            $this->assertSame(['first', 'second'], array_column(app(PartnerClient::class)->pull($provider, 'locations'), 'id'));
+        }
+        Http::assertSentCount(6);
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    public function test_malformed_or_ambiguous_link_cannot_be_treated_as_complete_source(): void
+    {
+        $provider = $this->provider();
+        $header = '';
+        Http::fake(function () use (&$header) {
+            return Http::response($this->envelope([['id' => 'first']]), 200, ['Link' => $header]);
+        });
+        foreach ([
+            '<?offset=1>; type="application/json"; rel=next, <?offset=2>; rel=next',
+            '<?offset=1>; rel=next; rel=prev',
+            '<?offset=1>; anchor="https://other.example/locations"; rel=next',
+            '<?offset=1>; title="unterminated; rel=next',
+            '<?offset=1>; rel=next,',
+            '<?offset=1>; title="missing relation"',
+            '<?offset=1>; rel',
+            '<?offset=1>; rel=""',
+        ] as $header) {
+            try {
+                app(PartnerClient::class)->pull($provider, 'locations');
+                $this->fail('A malformed or ambiguous Link was accepted as a complete source batch.');
+            } catch (OcpiException $error) {
+                $this->assertStringContainsString('pagination', $error->getMessage());
+            }
+        }
+        Http::assertSentCount(8);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_duplicate_partner_next_links_fail_closed_before_any_second_get(): void
     {
         $provider = $this->provider();
