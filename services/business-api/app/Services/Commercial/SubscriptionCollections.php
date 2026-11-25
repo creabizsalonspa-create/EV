@@ -53,6 +53,7 @@ class SubscriptionCollections
     public function authorize(User $user, object $checkout): array
     {
         abort_unless(config('payments.collection_enabled') && config('payments.provider') === 'stripe_test' && ! app()->environment('production'), 503);
+
         // All callers, including the worker's preflight, must use a real
         // transaction. A lock on an autocommit query cannot pin consent.
         return DB::transaction(function () use ($user, $checkout) {
