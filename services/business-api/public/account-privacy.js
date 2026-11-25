@@ -12,6 +12,7 @@ window.EvPrivacyRequests = (() => {
             previews: new Set(),
             secrets: new Set(),
             visibilityVersion: 0,
+            onHide: null,
         },
         admin: {
             root: adminRoot,
@@ -66,6 +67,7 @@ window.EvPrivacyRequests = (() => {
         state.generation++;
         state.controller?.abort();
         state.controller = null;
+        state.onHide = null;
         state.request = null;
         state.pending = null;
         state.submitting = false;
@@ -75,7 +77,8 @@ window.EvPrivacyRequests = (() => {
         return (
             state.request !== null &&
             state.generation === generation &&
-            !controller.signal.aborted
+            !controller.signal.aborted &&
+            !document.hidden
         );
     }
 
@@ -112,7 +115,7 @@ window.EvPrivacyRequests = (() => {
         message.setAttribute("role", "status");
         const results = el("div");
         const reset = button("Start different request / طلب مختلف", () => {
-            if (viewGeneration !== state.generation || !state.request) return;
+            if (viewGeneration !== state.generation || !state.request || document.hidden) return;
             if (state.submitting) {
                 message.textContent = "Wait for the current request to settle before starting a different one. / انتظر اكتمال الطلب الحالي قبل بدء طلب مختلف.";
                 return;
@@ -126,8 +129,19 @@ window.EvPrivacyRequests = (() => {
             refresh(),
         );
         state.root.append(form, reset, reload, message, results);
+        state.onHide = () => {
+            if (viewGeneration !== state.generation || !state.request) return;
+            // Clear the *entire* private result tree, not only export previews.
+            // An aborted GET can otherwise leave old history, withdrawal actions
+            // and a permanent aria-busy indicator in the backgrounded document.
+            results.replaceChildren();
+            results.removeAttribute("aria-busy");
+            details.value = "";
+            message.textContent =
+                "Private request history closed. Return and refresh to verify the current state. / أُغلق سجل الطلبات الخاص. ارجع وحدّث للتحقق من الحالة.";
+        };
         async function refresh(target = 1) {
-            if (!state.request || viewGeneration !== state.generation) return;
+            if (!state.request || viewGeneration !== state.generation || document.hidden) return;
             state.controller?.abort();
             const controller = new AbortController();
             state.controller = controller;
@@ -151,9 +165,41 @@ window.EvPrivacyRequests = (() => {
                 if (!Array.isArray(page?.data) ||
                     !Number.isSafeInteger(page.current_page) ||
                     !Number.isSafeInteger(page.last_page) ||
+                    !Number.isSafeInteger(page.total) ||
+                    page.current_page !== target ||
                     page.current_page < 1 || page.last_page < 1 ||
-                    page.current_page > page.last_page)
+                    page.last_page > 100000 ||
+                    page.current_page > page.last_page ||
+                    page.total < (target - 1) * 25 + page.data.length ||
+                    page.data.length > 25 ||
+                    page.last_page !== Math.max(1, Math.ceil(page.total / 25)))
                     throw Error("Unreadable private request page");
+                const seen = new Set();
+                for (const row of page.data) {
+                    if (!row || typeof row !== "object" ||
+                        Array.isArray(row) ||
+                        !Number.isSafeInteger(row.id) || row.id < 1 ||
+                        seen.has(row.id) ||
+                        !["access", "correction", "erasure"].includes(row.kind) ||
+                        !["pending", "reviewing", "blocked_external",
+                          "closed_review", "withdrawn"].includes(row.status) ||
+                        typeof row.created_at !== "string" ||
+                        row.created_at.length > 80 ||
+                        (row.details != null &&
+                          (typeof row.details !== "string" ||
+                           row.details.length > 2000)) ||
+                        (row.copy != null &&
+                          (typeof row.copy !== "object" ||
+                           Array.isArray(row.copy) ||
+                           !["available", "expired", "revoked"]
+                               .includes(row.copy.status) ||
+                           (row.copy.status === "available" &&
+                             (typeof row.copy.expires_at !== "string" ||
+                              row.copy.expires_at.length > 80))))) {
+                        throw Error("Unverified private request record");
+                    }
+                    seen.add(row.id);
+                }
                 results.replaceChildren();
                 message.textContent = "";
                 for (const row of page.data) {
@@ -372,13 +418,14 @@ window.EvPrivacyRequests = (() => {
         form.onsubmit = async (event) => {
             event.preventDefault();
             if (!state.request || viewGeneration !== state.generation ||
-                state.submitting) return;
+                state.submitting || document.hidden) return;
             if (details.value.trim().length < 10) {
                 message.textContent =
                     "Please explain your request in at least 10 characters.";
                 return;
             }
             const generation = state.generation;
+            const visibilityVersion = state.visibilityVersion;
             const body = { kind: kind.value, details: details.value.trim() };
             if (
                 state.pending &&
@@ -402,9 +449,11 @@ window.EvPrivacyRequests = (() => {
                     "POST",
                     state.pending,
                 );
-                if (generation !== state.generation) return;
+                if (generation !== state.generation ||
+                    visibilityVersion !== state.visibilityVersion || document.hidden) return;
                 const rows = await refresh();
-                if (generation !== state.generation) return;
+                if (generation !== state.generation ||
+                    visibilityVersion !== state.visibilityVersion || document.hidden) return;
                 if (!rows?.some((row) => row.id === receipt.id))
                     throw Error("Request readback unavailable");
                 state.pending = null;
@@ -412,7 +461,8 @@ window.EvPrivacyRequests = (() => {
                 message.textContent =
                     "Request recorded for manual review. No data has been automatically deleted.";
             } catch {
-                if (generation === state.generation) {
+                if (generation === state.generation &&
+                    visibilityVersion === state.visibilityVersion && !document.hidden) {
                     message.textContent =
                         "Request could not be confirmed. Check history or retry the unchanged request safely.";
                 }
@@ -454,6 +504,16 @@ window.EvPrivacyRequests = (() => {
         message.setAttribute("role", "status");
         const results = el("div");
         state.root.append(filters, message, results);
+        const viewGeneration = state.generation;
+        state.onHide = () => {
+            if (viewGeneration !== state.generation || !state.request) return;
+            // Admin queues contain other peoples' identifiers and internal
+            // reviewer notes. A hidden page or BFCache entry must not retain
+            // those records or an actionable prior decision form.
+            results.replaceChildren();
+            message.textContent =
+                "Private review queue closed. Return and apply filters to reload. / أُغلقت قائمة المراجعة الخاصة. ارجع وطبّق المرشحات لإعادة التحميل.";
+        };
 
         const allowed = {
             pending: ["reviewing", "blocked_external"],
@@ -463,7 +523,8 @@ window.EvPrivacyRequests = (() => {
             withdrawn: [],
         };
         async function load(page = 1) {
-            if (!state.request) return;
+            if (!state.request || document.hidden ||
+                viewGeneration !== state.generation) return;
             state.controller?.abort();
             const controller = new AbortController();
             state.controller = controller;
@@ -484,10 +545,45 @@ window.EvPrivacyRequests = (() => {
                     controller.signal,
                 );
                 if (!active(state, generation, controller)) return;
-                const items = Array.isArray(response.data) ? response.data : [];
+                if (!Array.isArray(response?.data) ||
+                    !Number.isSafeInteger(response.current_page) ||
+                    response.current_page !== page ||
+                    !Number.isSafeInteger(response.last_page) ||
+                    response.last_page < page ||
+                    response.last_page > 100000 ||
+                    !Number.isSafeInteger(response.total) ||
+                    response.total < 0 ||
+                    response.last_page !==
+                        Math.max(1, Math.ceil(response.total / 25)) ||
+                    response.data.length > 25 ||
+                    response.data.length > response.total)
+                    throw Error("Unverified Admin privacy queue");
+                const items = response.data;
+                const seen = new Set();
                 for (const record of items) {
-                    const caseId = Number(record.id);
-                    if (!Number.isSafeInteger(caseId) || caseId <= 0) continue;
+                    if (!record || typeof record !== "object" ||
+                        Array.isArray(record) ||
+                        !Number.isSafeInteger(record.id) || record.id < 1 ||
+                        seen.has(record.id) ||
+                        !["access", "correction", "erasure"].includes(record.kind) ||
+                        !["pending", "reviewing", "blocked_external",
+                          "closed_review", "withdrawn"].includes(record.status) ||
+                        typeof record.details !== "string" ||
+                        record.details.length > 2000 ||
+                        (record.owner != null &&
+                            (typeof record.owner !== "object" ||
+                             !Number.isSafeInteger(record.owner.id) ||
+                             record.owner.id < 1 ||
+                             (record.owner.name != null &&
+                              typeof record.owner.name !== "string") ||
+                             (record.owner.email != null &&
+                              typeof record.owner.email !== "string")))) {
+                        throw Error("Unverified Admin privacy record");
+                    }
+                    seen.add(record.id);
+                }
+                for (const record of items) {
+                    const caseId = record.id;
                     const card = el("article");
                     card.append(
                         el(
@@ -574,9 +670,22 @@ window.EvPrivacyRequests = (() => {
                                 );
                                 if (!active(state, generation, controller))
                                     return;
-                                const entries = Array.isArray(response.data)
-                                    ? response.data
-                                    : [];
+                                const entries = response?.data;
+                                if (!Array.isArray(entries) ||
+                                    entries.length > 25 ||
+                                    entries.some((entry) =>
+                                        !entry || typeof entry !== "object" ||
+                                        !Number.isSafeInteger(entry.id) || entry.id < 1 ||
+                                        !["pending", "reviewing", "blocked_external",
+                                          "closed_review", "withdrawn"].includes(entry.from_status) ||
+                                        !["pending", "reviewing", "blocked_external",
+                                          "closed_review", "withdrawn"].includes(entry.to_status) ||
+                                        typeof entry.note !== "string" ||
+                                        entry.note.length > 2000 ||
+                                        typeof entry.created_at !== "string" ||
+                                        entry.created_at.length > 80)) {
+                                    throw Error("Unverified Admin decision history");
+                                }
                                 const list = el("ul");
                                 for (const item of entries) {
                                     list.append(
@@ -633,6 +742,9 @@ window.EvPrivacyRequests = (() => {
                             choices.map((v) => [v, v.replaceAll("_", " ")]),
                         );
                         const note = el("textarea");
+                        // This is an internal private explanation, not a
+                        // durable draft across background/logout transitions.
+                        state.secrets.add(note);
                         note.minLength = 10;
                         note.maxLength = 2000;
                         note.required = true;
@@ -712,6 +824,8 @@ window.EvPrivacyRequests = (() => {
         }
         filters.onsubmit = (event) => {
             event.preventDefault();
+            if (viewGeneration !== state.generation ||
+                document.hidden || !state.request) return;
             load(1);
         };
         load(1);
@@ -724,6 +838,13 @@ window.EvPrivacyRequests = (() => {
         // private-copy reveal, including a response delivered after pageshow.
         states.mine.visibilityVersion++;
         states.admin.visibilityVersion++;
+        // A customer response may arrive after this tab becomes visible again.
+        // Abort its previous read/controller so it cannot restore private
+        // history or withdrawal/export actions without an explicit refresh.
+        states.mine.controller?.abort();
+        states.admin.controller?.abort();
+        states.mine.onHide?.();
+        states.admin.onHide?.();
         wipeSensitive(states.mine);
         wipeSensitive(states.admin);
     }

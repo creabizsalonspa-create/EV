@@ -405,18 +405,26 @@ class SupportViewState extends State<SupportView>
   @override
   void didUpdateWidget(covariant SupportView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.api != widget.api ||
-        oldWidget.accountId != widget.accountId) {
+    final identityChanged =
+        oldWidget.api != widget.api || oldWidget.accountId != widget.accountId;
+    if (identityChanged || !authorized()) {
+      // EvApi can retain object identity while its authenticated session
+      // changes. The old closure has been revoked: discard every private
+      // inbox row, notification preference and pending ticket key first.
       clearPrivate();
       authorized = widget.api.sessionFence();
-      final nextApi = widget.api;
-      final nextId = widget.accountId;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && foreground && authorized() &&
-            identical(widget.api, nextApi) && widget.accountId == nextId) {
-          load();
-        }
-      });
+      if (identityChanged) {
+        final nextApi = widget.api;
+        final nextId = widget.accountId;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && authorized() &&
+              identical(widget.api, nextApi) && widget.accountId == nextId) {
+            load();
+          }
+        });
+      }
+      // A same-object session rotation must NEVER auto-read private history:
+      // the next account chooses explicit Refresh after the secure reset.
     }
   }
 
@@ -484,6 +492,17 @@ class SupportViewState extends State<SupportView>
       );
       if (!current(request, session)) return;
       final result = ApiPage.fromJson(response, (row) => row);
+      // The server paginates both private ticket and notification inboxes
+      // in groups of 25. A wrong-page, duplicate or overlarge payload
+      // must never authorize a stale ticket/navigation/mark-read action.
+      final seenIds = <int>{};
+      if (result.current != page || result.last < page ||
+          result.last > 100000 || result.total < 0 ||
+          result.items.length > 25 ||
+          result.items.any((row) =>
+              row['id'] is! int || !seenIds.add(row['id'] as int))) {
+        throw const FormatException('Unverified private inbox page');
+      }
       // Never render private action targets from an ambiguous or corrupted
       // inbox projection. A malformed row requires a fresh authoritative GET.
       if (result.items.any((row) {
@@ -842,6 +861,10 @@ class SupportViewState extends State<SupportView>
         notifications && freshRead && !loading && foreground &&
         identical(widget.api, navigationApi) &&
         current(navigationGeneration, navigationSession);
+    bool canOpenTicket() =>
+        !notifications && freshRead && !loading && foreground &&
+        identical(widget.api, navigationApi) &&
+        current(navigationGeneration, navigationSession);
     if (!authorized()) {
       return Center(child: Text(s.t('expired')));
     }
@@ -985,7 +1008,7 @@ class SupportViewState extends State<SupportView>
               child: Text(s.t('markCurrentNotificationsRead')),
             ),
           if (loading) const LinearProgressIndicator(),
-          if (!loading && !freshRead && foreground)
+          if (!loading && !freshRead && foreground) ...[
             Semantics(
               liveRegion: true,
               child: Text(
@@ -994,6 +1017,13 @@ class SupportViewState extends State<SupportView>
                     : 'Refresh this account history before taking another action.',
               ),
             ),
+            TextButton.icon(
+              key: const Key('support-manual-refresh'),
+              onPressed: refresh,
+              icon: const Icon(Icons.refresh),
+              label: Text(s.t('refresh')),
+            ),
+          ],
           if (error != null)
             Column(
               children: [
@@ -1232,7 +1262,16 @@ class SupportViewState extends State<SupportView>
                       TextButton(
                         onPressed: loading
                             ? null
-                            : () => open(row['id'] as int),
+                            : () {
+                                // Even if a callback was retained before a
+                                // same-EvApi session rotation, the old ticket
+                                // ID cannot navigate in the new account.
+                                if (!canOpenTicket()) {
+                                  ensureActor();
+                                  return;
+                                }
+                                open(row['id'] as int);
+                              },
                         child: Text(s.t('ticket', {'id': row['id']})),
                       ),
                     ],
@@ -1339,17 +1378,24 @@ class _TicketPageState extends State<TicketPage>
   @override
   void didUpdateWidget(covariant TicketPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.api != widget.api || oldWidget.id != widget.id) {
+    final identityChanged =
+        oldWidget.api != widget.api || oldWidget.id != widget.id;
+    if (identityChanged || !authorized()) {
+      // A retained client can silently rotate credentials while this widget
+      // stays mounted. Clear old messages and unsent/retry reply material.
       clearPrivate();
       authorized = widget.api.sessionFence();
-      final nextApi = widget.api;
-      final nextId = widget.id;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && foreground && authorized() &&
-            identical(widget.api, nextApi) && widget.id == nextId) {
-          load();
-        }
-      });
+      if (identityChanged) {
+        final nextApi = widget.api;
+        final nextId = widget.id;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && authorized() &&
+              identical(widget.api, nextApi) && widget.id == nextId) {
+            load();
+          }
+        });
+      }
+      // Same-object session rotation only re-arms explicit foreground Refresh.
     }
   }
 
@@ -1414,9 +1460,15 @@ class _TicketPageState extends State<TicketPage>
         throw const FormatException('Unverified ticket');
       }
       final list = ApiPage.fromJson(response['messages'], (row) => row);
-      if (list.items.any((row) =>
-          row['body'] is! String ||
-          !knownMessageVisibility(row['internal']))) {
+      // Reply actions must never use an unverified thread page. The
+      // authenticated Laravel message index is bounded to 50 per page.
+      if (list.current != page || list.last < page ||
+          list.last > 100000 || list.total < 0 ||
+          list.items.length > 50 ||
+          list.items.any((row) =>
+              row['body'] is! String ||
+              (row['body'] as String).length > 5000 ||
+              !knownMessageVisibility(row['internal']))) {
         throw const FormatException('Unverified ticket messages');
       }
       if (current(n, session)) {
