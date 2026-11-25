@@ -21,14 +21,30 @@ class PrivacyOwnerAuthorityTest extends TestCase
         $id = DB::table('account_privacy_requests')->value('id');
         $auditCount = DB::table('audit_events')->count();
 
-        DB::table('users')->where('id', $owner->id)->update(['password' => Hash::make('new-owner-password')]);
-        $this->getJson($path)->assertStatus(409)->assertDontSee($payload['details']);
-        $this->postJson($path, $payload)->assertStatus(409);
-        $this->postJson($path, ['kind' => 'access', 'details' => 'Please review retained data.'])->assertStatus(409);
-        $this->postJson($path.'/'.$id.'/withdraw')->assertStatus(409);
-        $this->assertDatabaseCount('account_privacy_requests', 1);
-        $this->assertDatabaseHas('account_privacy_requests', ['id' => $id, 'status' => 'pending']);
-        $this->assertDatabaseCount('audit_events', $auditCount);
+        $original = (array) DB::table('users')->where('id', $owner->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
+        foreach ([
+            ['password' => Hash::make('new-owner-password')],
+            ['auth_epoch' => (int) $original['auth_epoch'] + 1],
+            ['role' => 'vendor'],
+            ['account_status' => 'suspended'],
+        ] as $change) {
+            $this->actingAs($owner, 'web');
+            DB::table('users')->where('id', $owner->id)->update(array_replace($original, $change));
+            $status = isset($change['role']) || isset($change['account_status']) ? 403 : 409;
+            $this->getJson($path)->assertStatus($status)->assertDontSee($payload['details']);
+            $this->postJson($path, $payload)->assertStatus($status);
+            $this->postJson($path, ['kind' => 'access', 'details' => 'Please review retained data.'])->assertStatus($status);
+            $this->postJson($path.'/'.$id.'/withdraw')->assertStatus($status);
+            $this->assertDatabaseCount('account_privacy_requests', 1);
+            $this->assertDatabaseHas('account_privacy_requests', ['id' => $id, 'status' => 'pending']);
+            $this->assertDatabaseCount('audit_events', $auditCount);
+            DB::table('users')->where('id', $owner->id)->update($original);
+        }
+
+        $this->actingAs($owner->fresh(), 'web')->getJson($path.'?page=100001')->assertUnprocessable();
+        $this->getJson($path)->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('data.0.details', $payload['details']);
 
         $this->actingAs($owner->fresh(), 'web')->postJson($path.'/'.$id.'/withdraw')
             ->assertOk()->assertJsonPath('status', 'withdrawn');
