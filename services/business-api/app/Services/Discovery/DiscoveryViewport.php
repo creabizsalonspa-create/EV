@@ -69,6 +69,7 @@ final class DiscoveryViewport
         if ($driver === 'sqlite') {
             SqliteGeoMath::register(DB::connection()->getPdo());
         }
+
         return [$latitude, $longitude];
     }
 }

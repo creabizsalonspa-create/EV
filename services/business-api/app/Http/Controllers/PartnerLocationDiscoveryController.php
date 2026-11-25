@@ -5,9 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Services\Discovery\PartnerCatalogAge;
+use App\Services\Discovery\PartnerCatalogGeo;
 use App\Services\Discovery\PartnerCatalogText;
 use App\Services\Discovery\PartnerCatalogTime;
-use App\Services\Discovery\PartnerCatalogGeo;
 use App\Services\Discovery\PublicPartnerLocation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -37,7 +37,7 @@ final class PartnerLocationDiscoveryController extends Controller
         $authorizedProviders = OcpiProvider::publiclyDiscoverable();
         if ($providerText !== '') {
             $driver = DB::connection()->getDriverName();
-            if (! in_array($driver, ['sqlite', 'pgsql'], true)) {
+            if (in_array($driver, ['sqlite', 'pgsql'], true) === false) {
                 throw new \LogicException('Unsupported partner provider-search database.');
             }
             $operator = $driver === 'pgsql' ? 'ILIKE' : 'LIKE';
@@ -53,7 +53,7 @@ final class PartnerLocationDiscoveryController extends Controller
                 // SQL LIKE wildcards are not the user's search text. Both supported
                 // databases accept an explicit ! escape; every value is bound.
                 $driver = DB::connection()->getDriverName();
-                if (! in_array($driver, ['sqlite', 'pgsql'], true)) {
+                if (in_array($driver, ['sqlite', 'pgsql'], true) === false) {
                     throw new \LogicException('Unsupported partner text-search database.');
                 }
                 $operator = $driver === 'pgsql' ? 'ILIKE' : 'LIKE';
@@ -70,7 +70,7 @@ final class PartnerLocationDiscoveryController extends Controller
                 // charging authority. Do not accept future clocks as fresh.
                 PartnerCatalogTime::within($q, $checkedAt, (int) $filters['max_source_age_hours']);
             })
-            ->when(! empty($filters['reported_evse_status']), function ($q) use ($filters) {
+            ->when(empty($filters['reported_evse_status']) === false, function ($q) use ($filters) {
                 // These are the partner's *reported* EVSE states. This query
                 // never converts AVAILABLE into live charging availability.
                 $standard = $filters['connector_standard'] ?? null;
@@ -78,8 +78,8 @@ final class PartnerLocationDiscoveryController extends Controller
                 // and connector standard on the same EVSE, not sibling EVSEs.
                 PartnerCatalogText::reportedState($q, $filters['reported_evse_status'], $standard);
             })
-            ->when(! empty($filters['country']), fn ($q) => $q->where('normalized->country', $filters['country']))
-            ->when(! empty($filters['connector_standard']), fn ($q) => PartnerCatalogText::standard($q, $filters['connector_standard']));
+            ->when(empty($filters['country']) === false, fn ($q) => $q->where('normalized->country', $filters['country']))
+            ->when(empty($filters['connector_standard']) === false, fn ($q) => PartnerCatalogText::standard($q, $filters['connector_standard']));
 
         $nearby = isset($filters['latitude']);
         if ($nearby) {
