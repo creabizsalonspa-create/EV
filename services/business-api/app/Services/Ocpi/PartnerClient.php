@@ -148,7 +148,7 @@ class PartnerClient
         }
     }
 
-    private function get(OcpiProvider $provider, string $url, string $authority): array
+    private function get(OcpiProvider $provider, string $url, string $authority, ?string $module = null): array
     {
         // An already dispatched read cannot be cancelled, but a revoked or superseded
         // operation cannot dispatch another page or commit a stale result.
@@ -156,6 +156,9 @@ class PartnerClient
         $this->assertReadAuthority($provider, $authority);
         $url = $this->guardedUrl($provider, $url);
         $c = $this->connection($provider);
+        if ($module !== null && ! PartnerReadProfile::allows($c, $module)) {
+            throw new OcpiException('Requested module is outside the approved network read scope.');
+        }
         $this->assertReadAuthority($provider, $authority);
         try {
             $trace = ['X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()];
@@ -458,10 +461,11 @@ REGEX;
         if (! in_array($module, self::MODULES, true) || $provider->version !== '2.2.1' || ! is_string($provider->endpoints[$module] ?? null)) {
             throw new OcpiException('Requested module has not been negotiated.');
         }
+        $authority = $this->readAuthority($provider);
         if (! PartnerReadProfile::allows($this->connection($provider), $module)) {
             throw new OcpiException('Requested module is outside the approved network read scope.');
         }
-        $authority = $this->readAuthority($provider);
+        $this->assertReadAuthority($provider, $authority);
         $window = $this->pullWindow($requestedWindow);
         $url = $this->guardedUrl($provider, $provider->endpoints[$module]);
         $path = parse_url($url, PHP_URL_PATH) ?? '/';
@@ -496,7 +500,7 @@ REGEX;
             if ($consent !== null && ! $consent()) {
                 throw new OcpiException('Source polling consent changed.');
             }
-            $result = $this->get($provider, $url, $authority);
+            $result = $this->get($provider, $url, $authority, $module);
             if ($consent !== null && ! $consent()) {
                 throw new OcpiException('Source polling consent changed.');
             }
