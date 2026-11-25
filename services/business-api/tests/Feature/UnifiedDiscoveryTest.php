@@ -142,6 +142,44 @@ class UnifiedDiscoveryTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 0);
     }
 
+    public function test_reported_state_search_cannot_match_redacted_evse_or_connector(): void
+    {
+        $record = $this->fixtures()['record'];
+        $normalized = $record->normalized;
+        $normalized['connector_standards'] = ['CHADEMO'];
+        $evse = ['uid' => 'valid', 'reported_status' => 'AVAILABLE', 'connectors' => [
+            ['id' => 'valid', 'standard' => 'CHADEMO'],
+        ]];
+        $url = '/api/roaming/locations?reported_evse_status=AVAILABLE';
+        foreach ([null, ['private' => 'hidden'], true, '', str_repeat('x', 65), "bad\nuid"] as $invalid) {
+            $normalized['evses'] = [array_replace($evse, ['uid' => $invalid])];
+            $record->update(['normalized' => $normalized]);
+            $this->getJson($url)->assertOk()->assertJsonPath('total', 0);
+            $normalized['evses'] = [array_replace($evse, ['connectors' => [
+                ['id' => $invalid, 'standard' => 'CHADEMO'],
+            ]])];
+            $record->update(['normalized' => $normalized]);
+            $this->getJson($url.'&connector_standard=CHADEMO')->assertOk()->assertJsonPath('total', 0);
+        }
+        $normalized['evses'] = [...array_fill(0, 100, null), $evse];
+        $record->update(['normalized' => $normalized]);
+        $this->getJson($url)->assertOk()->assertJsonPath('total', 0);
+        $normalized['evses'] = [array_replace($evse, ['connectors' => [
+            ...array_fill(0, 20, null), $evse['connectors'][0],
+        ]])];
+        $record->update(['normalized' => $normalized]);
+        $this->getJson($url.'&connector_standard=CHADEMO')->assertOk()->assertJsonPath('total', 0);
+        $normalized['evses'] = [...array_fill(0, 99, null), array_replace($evse, ['connectors' => [
+            ...array_fill(0, 19, null), $evse['connectors'][0],
+        ]])];
+        $record->update(['normalized' => $normalized]);
+        $this->getJson($url.'&connector_standard=CHADEMO')->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.remote_control', false);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_partner_report_age_filter_is_bounded_before_pagination_and_leaves_catalog_unchanged(): void
     {
         $this->travelTo(Carbon::parse('2026-11-15T12:00:00Z'));

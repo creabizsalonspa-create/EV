@@ -31,4 +31,43 @@ final class PartnerCatalogText
         };
         $query->whereRaw($shape)->whereJsonContains('normalized->connector_standards', $standard);
     }
+
+    /** Only an EVSE/connector visible in the bounded public projection can
+     * establish a reported-state filter match. This is not live availability. */
+    public static function reportedState(Builder $query, string $state, ?string $standard): void
+    {
+        $driver = DB::connection()->getDriverName();
+        if ($driver === 'sqlite') {
+            $evse = "CASE WHEN evse.type = 'object' THEN evse.value ELSE '{}' END";
+            $connector = "CASE WHEN connector.type = 'object' THEN connector.value ELSE '{}' END";
+            $safe = static function (string $object, string $key): string {
+                $value = "json_extract($object, '$.$key')";
+
+                return "json_type($object, '$.$key') = 'text' AND length($value) BETWEEN 1 AND 64 AND instr($value, char(0)) = 0 AND $value NOT GLOB ('*[' || char(1) || '-' || char(31) || char(127) || ']*')";
+            };
+            $uid = $safe($evse, 'uid');
+            $id = $safe($connector, 'id');
+            $type = $safe($connector, 'standard');
+            $sql = "EXISTS (SELECT 1 FROM json_each(CASE WHEN json_type(ocpi_records.normalized, '$.evses') = 'array' THEN json_extract(ocpi_records.normalized, '$.evses') ELSE '[]' END) evse WHERE evse.key < 100 AND $uid AND json_extract($evse, '$.reported_status') = ?";
+            if ($standard !== null) {
+                $sql .= " AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_type($evse, '$.connectors') = 'array' THEN json_extract($evse, '$.connectors') ELSE '[]' END) connector WHERE connector.key < 20 AND $id AND $type AND json_extract($connector, '$.standard') = ?)";
+            }
+        } elseif ($driver === 'pgsql') {
+            $safe = static function (string $object, string $key): string {
+                $value = "$object->>'$key'";
+
+                return "jsonb_typeof($object->'$key') = 'string' AND length($value) BETWEEN 1 AND 64 AND ($value) COLLATE \"C\" !~ ('[' || chr(1) || '-' || chr(31) || chr(127) || ']')";
+            };
+            $uid = $safe('evse.value', 'uid');
+            $id = $safe('connector.value', 'id');
+            $type = $safe('connector.value', 'standard');
+            $sql = "EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(ocpi_records.normalized::jsonb->'evses') = 'array' THEN ocpi_records.normalized::jsonb->'evses' ELSE '[]'::jsonb END) WITH ORDINALITY AS evse(value, ordinal) WHERE evse.ordinal <= 100 AND $uid AND evse.value->>'reported_status' = ?";
+            if ($standard !== null) {
+                $sql .= " AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(evse.value->'connectors') = 'array' THEN evse.value->'connectors' ELSE '[]'::jsonb END) WITH ORDINALITY AS connector(value, ordinal) WHERE connector.ordinal <= 20 AND $id AND $type AND connector.value->>'standard' = ?)";
+            }
+        } else {
+            throw new \LogicException('Unsupported partner EVSE state search database.');
+        }
+        $query->whereRaw($sql.')', $standard === null ? [$state] : [$state, $standard]);
+    }
 }
