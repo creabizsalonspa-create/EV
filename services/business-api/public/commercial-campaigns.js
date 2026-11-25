@@ -6,7 +6,8 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
     let busy = false,
         generation = 0,
         currentPage = 1;
-    const alive = () => container.isConnected && actor()?.id === owner;
+    const alive = () => container.isConnected && actor()?.id === owner &&
+        actor()?.role === role && !abort.signal.aborted;
     const watch = new MutationObserver(() => {
         if (!alive()) {
             generation++;
@@ -104,7 +105,7 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
     function button(parent, en, ar, fn) {
         const b = t("button", en, ar);
         b.type = "button";
-        b.onclick = () => perform(fn);
+        b.onclick = () => { if (b.isConnected && container.contains(b)) return perform(fn); };
         parent.append(b);
         return b;
     }
@@ -113,7 +114,7 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
         f.className = "finance-form";
         let key = crypto.randomUUID();
         for (const field of fields) {
-            const label = t("label", field.en, field.ar),
+            const label = document.createElement("label"),
                 input = document.createElement(
                     field.options
                         ? "select"
@@ -138,7 +139,7 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
                 }
             }
             if (field.value !== undefined) input.value = field.value;
-            label.append(input);
+            label.append(t("span", field.en, field.ar), input);
             f.append(label);
         }
         const submit = t("button", en, ar);
@@ -147,7 +148,8 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
         f.oninput = () => (key = crypto.randomUUID());
         f.onsubmit = (e) => {
             e.preventDefault();
-            perform(() => fn(Object.fromEntries(new FormData(f)), key));
+            if (f.isConnected && alive() && f.reportValidity())
+                perform(() => fn(Object.fromEntries(new FormData(f)), key));
         };
         parent.append(f);
         return f;
@@ -169,6 +171,91 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
         cancelled: ["Cancelled", "ملغى"],
         suspended: ["Suspended by administrator", "معلق بقرار المسؤول"],
     };
+    const positive = value => Number.isSafeInteger(value) && value > 0;
+    const nonnegative = value => Number.isSafeInteger(value) && value >= 0;
+    const revision = value => typeof value === "string" &&
+        /^[1-9][0-9]{0,15}$/.test(value) && positive(Number(value));
+    const terms = ["id", "vendor_id", "invoice_id", "station_id", "budget_units",
+        "title", "title_ar", "description", "description_ar", "country",
+        "region", "placement", "starts_at", "ends_at"];
+    const sameTerms = (a, b) => terms.every(key => a[key] === b[key]);
+    function instant(value) {
+        if (typeof value !== "string") return NaN;
+        return Date.parse(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value)
+            ? value.replace(" ", "T") + "Z" : value);
+    }
+    function verifyCampaign(c, expected = null) {
+        if (!c || !["id", "vendor_id", "invoice_id", "station_id", "budget_units"].every(k => positive(c[k])) ||
+            (expected !== null && c.id !== expected) ||
+            (role === "vendor" && c.vendor_id !== owner) ||
+            c.budget_units > 1000000 || !nonnegative(c.delivered_units) ||
+            !nonnegative(c.verified_server_clicks) || c.delivered_units > c.budget_units ||
+            c.verified_server_clicks > c.delivered_units || !revision(c.control_revision) ||
+            !Object.hasOwn(states, c.status) || !["discovery_banner", "station_detail"].includes(c.placement) ||
+            typeof c.country !== "string" || !/^[A-Z]{2}$/.test(c.country) ||
+            (c.region !== null && (typeof c.region !== "string" || c.region.length > 100)) ||
+            !["title", "title_ar", "description", "description_ar"].every(k =>
+                typeof c[k] === "string" && c[k].trim().length &&
+                c[k].length <= (k.startsWith("title") ? 120 : 500)) ||
+            !(instant(c.ends_at) > instant(c.starts_at)) ||
+            c.unit !== "PREPAID_PACKAGE_DELIVERY_UNIT" || c.sponsored !== true ||
+            c.additional_cash_charge !== false || c.human_impressions_verified !== false ||
+            "request_key" in c || "fingerprint" in c)
+            throw Error("Campaign source cannot be verified.");
+        return c;
+    }
+    function verifyPage(data, page) {
+        if (!positive(page) || page > 100000 || !data || !Array.isArray(data.data) ||
+            data.current_page !== page || data.per_page !== 25 || !nonnegative(data.total) ||
+            data.last_page !== Math.max(1, Math.ceil(data.total / 25)) ||
+            data.data.length !== Math.min(25, Math.max(0, data.total - (page - 1) * 25)))
+            throw Error("Campaign page cannot be verified.");
+    }
+    const transitions = {
+        submit: ["draft", "submitted"], approve: ["submitted", "approved"],
+        reject: ["submitted", "rejected"], pause: ["approved", "paused"],
+        resume: ["paused", "approved"], suspend: ["approved", "suspended"],
+        reinstate: ["suspended", "approved"],
+    };
+    function verifyHistory(events, c) {
+        if (!Array.isArray(events) || !events.length)
+            throw Error("Campaign history cannot be verified.");
+        let previous = 0, status = null;
+        for (const event of events) {
+            if (!event || !positive(event.id) || event.id <= previous ||
+                event.campaign_id !== c.id || !positive(event.actor_id) ||
+                typeof event.reason !== "string" || event.reason.length > 500 ||
+                !Number.isFinite(instant(event.created_at)))
+                throw Error("Invalid campaign history.");
+            if (status === null) {
+                if (event.action !== "created" || event.actor_id !== c.vendor_id)
+                    throw Error("Invalid campaign creation authority.");
+                status = "draft";
+            } else if (event.action === "cancel") {
+                if (!["draft", "submitted", "approved", "paused", "suspended"].includes(status) ||
+                    event.actor_id !== c.vendor_id)
+                    throw Error("Invalid campaign cancellation history.");
+                status = "cancelled";
+            } else {
+                const next = transitions[event.action];
+                if (!next || next[0] !== status ||
+                    (["submit", "pause", "resume"].includes(event.action) && event.actor_id !== c.vendor_id))
+                    throw Error("Invalid campaign control history.");
+                status = next[1];
+            }
+            previous = event.id;
+        }
+        if (previous !== Number(c.control_revision) || status !== c.status)
+            throw Error("Campaign revision does not match history.");
+    }
+    function verifyProgress(old, next) {
+        if (old && (!sameTerms(old, next) ||
+            Number(next.control_revision) < Number(old.control_revision) ||
+            next.delivered_units < old.delivered_units ||
+            next.verified_server_clicks < old.verified_server_clicks ||
+            (old.control_revision === next.control_revision && old.status !== next.status)))
+            throw Error("Campaign evidence regressed.");
+    }
     function state(parent, value) {
         const n = t(
             "p",
@@ -198,15 +285,37 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
             button(content, "Previous page", "الصفحة السابقة", () =>
                 fn(data.current_page - 1),
             );
-        if (data.current_page < data.last_page)
+        if (data.current_page < data.last_page && data.current_page < 100000)
             button(content, "Next page", "الصفحة التالية", () =>
                 fn(data.current_page + 1),
             );
     }
+    function verifyPackages(data, page) {
+        verifyPage(data, page);
+        const ids = new Set();
+        for (const p of data.data) {
+            if (!p || !positive(p.invoice_id) || !positive(p.vendor_id) ||
+                (role === "vendor" && p.vendor_id !== owner) || ids.has(p.invoice_id) ||
+                typeof p.number !== "string" || typeof p.campaign_eligible !== "boolean" ||
+                !/^[A-Z]{3}$/.test(p.currency) || !nonnegative(p.total_minor) ||
+                !Number.isInteger(p.minor_units) || p.minor_units < 0 || p.minor_units > 3 ||
+                !(instant(p.period_end) > instant(p.period_start)) ||
+                typeof p.evidence !== "string" ||
+                (p.campaign_eligible && (!p.entitlements ||
+                    !["campaign_slots", "campaign_units"].every(k =>
+                        positive(p.entitlements[k]) && p.entitlements[k] <= 1000000) ||
+                    p.total_minor === 0 || p.evidence === "UNPAID")))
+                throw Error("Campaign package source cannot be verified.");
+            ids.add(p.invoice_id);
+        }
+    }
     async function packages(page = 1) {
-        const seq = ++generation,
-            data = await request(`commercial/campaign-packages?page=${page}`);
+        const seq = ++generation;
+        content.replaceChildren();
+        nav();
+        const data = await request(`commercial/campaign-packages?page=${page}`);
         if (!alive() || seq !== generation) return;
+        verifyPackages(data, page);
         content.replaceChildren();
         nav();
         for (const p of data.data) {
@@ -232,9 +341,9 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
             const terms = text("p", "");
             terms.append(
                 t("span", "Campaign slots", "عدد الحملات"),
-                text("span", ` · ${p.entitlements.campaign_slots || 0} · `),
+                text("span", ` · ${p.entitlements?.campaign_slots || 0} · `),
                 t("span", "Delivery units", "وحدات التسليم"),
-                text("span", ` · ${p.entitlements.campaign_units || 0}`),
+                text("span", ` · ${p.entitlements?.campaign_units || 0}`),
             );
             row.append(terms);
             content.append(row);
@@ -251,6 +360,8 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
     }
     async function create(packagePage = 1, stationPage = 1) {
         const seq = ++generation;
+        content.replaceChildren();
+        nav();
         const [packages, stations] = await Promise.all([
             request(`commercial/campaign-packages?page=${packagePage}`),
             request(`commercial/campaign-stations?page=${stationPage}`),
@@ -258,6 +369,15 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
         if (!alive() || seq !== generation) return;
         content.replaceChildren();
         nav();
+        verifyPackages(packages, packagePage);
+        verifyPage(stations, stationPage);
+        const stationIds = new Set();
+        for (const station of stations.data) {
+            if (!station || !positive(station.id) || stationIds.has(station.id) ||
+                typeof station.name !== "string" || !/^[A-Z]{2}$/.test(station.country))
+                throw Error("Invalid owned station source.");
+            stationIds.add(station.id);
+        }
         const eligible = packages.data.filter((p) => p.campaign_eligible);
         if (!eligible.length || !stations.data.length) {
             content.append(
@@ -267,6 +387,18 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
                     "يلزم توفر حزمة مدفوعة مؤهلة ومحطة مملوكة. تبقى إدارة الاشتراكات والمحطات مستقلة.",
                 ),
             );
+            if (packages.current_page > 1)
+                button(content, "Previous package choices", "خيارات الحزم السابقة",
+                    () => create(packagePage - 1, stationPage));
+            if (packages.current_page < packages.last_page && packagePage < 100000)
+                button(content, "Next package choices", "خيارات الحزم التالية",
+                    () => create(packagePage + 1, stationPage));
+            if (stations.current_page > 1)
+                button(content, "Previous station choices", "خيارات المحطات السابقة",
+                    () => create(packagePage, stationPage - 1));
+            if (stations.current_page < stations.last_page && stationPage < 100000)
+                button(content, "Next station choices", "خيارات المحطات التالية",
+                    () => create(packagePage, stationPage + 1));
             return;
         }
         content.append(
@@ -370,6 +502,10 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
             "Save campaign draft",
             "حفظ مسودة الحملة",
             async (v, key) => {
+                if (!eligible.some(p => p.invoice_id === Number(v.invoice_id)) ||
+                    !stations.data.some(s => s.id === Number(v.station_id) && s.country === v.country) ||
+                    !positive(Number(v.budget_units)) || Number(v.budget_units) > 1000000)
+                    throw Error("Select the verified package, station and delivery budget.");
                 const result = await request("commercial/campaigns", "POST", {
                     ...v,
                     invoice_id: Number(v.invoice_id),
@@ -378,7 +514,13 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
                     region: v.region || null,
                     idempotency_key: key,
                 });
-                if (alive()) await detail(result.campaign.id);
+                const created = verifyCampaign(result.campaign);
+                if (created.invoice_id !== Number(v.invoice_id) ||
+                    created.station_id !== Number(v.station_id) ||
+                    created.budget_units !== Number(v.budget_units) ||
+                    created.status !== "draft")
+                    throw Error("Campaign creation receipt cannot be verified.");
+                if (alive()) await detail(created.id, 1, created);
             },
         );
         if (packages.current_page > 1)
@@ -411,9 +553,18 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
             );
     }
     async function list(page = 1) {
-        const seq = ++generation,
-            data = await request(`commercial/campaigns?page=${page}`);
+        const seq = ++generation;
+        content.replaceChildren();
+        nav();
+        const data = await request(`commercial/campaigns?page=${page}`);
         if (!alive() || seq !== generation) return;
+        verifyPage(data, page);
+        const ids = new Set();
+        for (const c of data.data) {
+            verifyCampaign(c);
+            if (ids.has(c.id)) throw Error("Duplicate campaign source.");
+            ids.add(c.id);
+        }
         currentPage = page;
         content.replaceChildren();
         nav();
@@ -443,20 +594,34 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
                 text("span", ` · ${c.verified_server_clicks}`),
             );
             row.append(counts);
-            button(row, "Review campaign", "مراجعة الحملة", () => detail(c.id));
+            button(row, "Review campaign", "مراجعة الحملة", () => detail(c.id, 1, c));
             content.append(row);
         }
         pager(data, list);
     }
-    async function detail(id, deliveryPage = 1) {
-        const seq = ++generation,
-            data = await request(
-                `commercial/campaigns/${id}?page=${deliveryPage}`,
-            );
-        if (!alive() || seq !== generation) return;
+    async function detail(id, deliveryPage = 1, previous = null) {
+        const seq = ++generation;
         content.replaceChildren();
         nav();
-        const c = data.campaign;
+        const data = await request(`commercial/campaigns/${id}?page=${deliveryPage}`);
+        if (!alive() || seq !== generation) return;
+        const c = verifyCampaign(data.campaign, id);
+        verifyProgress(previous, c);
+        verifyHistory(data.events, c);
+        verifyPage(data.deliveries, deliveryPage);
+        if (typeof data.currently_eligible !== "boolean" ||
+            (data.currently_eligible && (c.status !== "approved" || c.delivered_units >= c.budget_units)))
+            throw Error("Invalid campaign eligibility.");
+        const deliveredIds = new Set();
+        for (const row of data.deliveries.data) {
+            if (!row || !positive(row.id) || deliveredIds.has(row.id) ||
+                row.campaign_id !== id || !["delivery", "click"].includes(row.kind) ||
+                !Number.isFinite(instant(row.occurred_at)))
+                throw Error("Invalid campaign delivery history.");
+            deliveredIds.add(row.id);
+        }
+        content.replaceChildren();
+        nav();
         content.append(
             creative("h4", c.title, c.title_ar),
             creative("p", c.description, c.description_ar),
@@ -544,12 +709,19 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
                 en,
                 ar,
                 async (v) => {
-                    await request(
+                    if (!v.reason || v.reason.trim().length < 5 || v.reason.length > 500)
+                        throw Error("A decision reason of 5–500 characters is required.");
+                    const result = await request(
                         `commercial/campaigns/${id}/${action}`,
                         "POST",
-                        {...v, expected_control_revision: data.campaign.control_revision},
+                        {...v, expected_control_revision: c.control_revision},
                     );
-                    if (alive()) await detail(id);
+                    const receipt = verifyCampaign(result.campaign, id);
+                    verifyProgress(c, receipt);
+                    if (receipt.status !== (action === "cancel" ? "cancelled" : transitions[action]?.[1]) ||
+                        Number(receipt.control_revision) <= Number(c.control_revision))
+                        throw Error("Campaign decision receipt cannot be verified.");
+                    if (alive()) await detail(id, 1, receipt);
                 },
             );
         content.append(
@@ -621,7 +793,7 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
                 );
                 content.append(line);
             }
-        pager(data.deliveries, (next) => detail(id, next));
+        pager(data.deliveries, (next) => detail(id, next, c));
     }
     if (["vendor", "admin"].includes(role))
         button(

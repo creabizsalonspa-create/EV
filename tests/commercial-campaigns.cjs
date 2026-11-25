@@ -107,6 +107,20 @@ const { chromium } = require("playwright"),
     );
     await v.getByText("Awaiting review", { exact: true }).waitFor();
     const { p: admin, panel: a } = await login("admin");
+    // A stale/forged private detail must not expose an approval form.
+    const detailPattern = new RegExp("/api/commercial/campaigns/" + id + "\\?page=1$");
+    await admin.route(detailPattern, async route => {
+      const response = await route.fetch();
+      const data = await response.json();
+      data.campaign.control_revision = "999999";
+      await route.fulfill({ response, json: data });
+    });
+    await a.locator(`[data-campaign-record="${id}"]`)
+      .getByRole("button", { name: "Review campaign", exact: true }).click();
+    await a.getByText("Campaign revision does not match history.", { exact: true }).waitFor();
+    assert.equal(await a.getByRole("button", { name: "Approve sponsored campaign", exact: true }).count(), 0);
+    await admin.unroute(detailPattern);
+    await a.getByRole("button", { name: "Campaign list", exact: true }).click();
     await a
       .locator(`[data-campaign-record="${id}"]`)
       .getByRole("button", { name: "Review campaign", exact: true })
