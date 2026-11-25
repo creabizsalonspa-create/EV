@@ -165,6 +165,7 @@ final class OcpiCpoAdminAuthorityTest extends TestCase
         DB::table('ocpi_partner_contract_reviews')->insert([
             'provider_id' => $provider->id, 'owner_id' => $owner->id,
             'reviewer_id' => $admin->id, 'revision' => 1,
+            'connection_key' => $provider->connection_key,
             'decision' => 'review', 'reference_id' => 'SYNTHETIC-CPO-001',
             'evidence_sha256' => str_repeat('a', 64),
             'valid_until' => now('UTC')->addDay()->toDateString(),
