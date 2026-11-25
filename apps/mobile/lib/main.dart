@@ -727,7 +727,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
         if (!current()) return;
         if (!reservationReceiptMatches(receipt, ownerId: owner,
             stationId: station.id, mappingId: station.mappingId,
-            vehicleId: vehicleId as int?, startsAtUtc: startsAt,
+            vehicleId: vehicleId, startsAtUtc: startsAt,
             termsVersion: termsVersion as int?, operationKey: intentKey)) {
           throw const FormatException('Reservation receipt not confirmed');
         }
