@@ -183,15 +183,15 @@
     }
   },
   "weighted_percent": {
-    "coded": "61.33",
-    "tested": "61.33",
-    "merged": "61.33",
+    "coded": "61.73",
+    "tested": "61.73",
+    "merged": "61.73",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "1160339/1891890",
-    "tested": "1160339/1891890",
-    "merged": "1160339/1891890",
+    "coded": "2335693/3783780",
+    "tested": "2335693/3783780",
+    "merged": "2335693/3783780",
     "production_accepted": "0"
   },
   "categories": [
@@ -681,9 +681,9 @@
       "requirement": "Owned and network discovery",
       "atoms": 6,
       "counts": {
-        "coded": 3,
-        "tested": 3,
-        "merged": 3,
+        "coded": 4,
+        "tested": 4,
+        "merged": 4,
         "production_accepted": 0
       },
       "details": [
@@ -742,13 +742,13 @@
         {
           "id": "2.5.5",
           "software_atom": "Licensed discovery-provider adapter",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr193",
+          "note": "Open Charge Map is a consent-gated discovery-only adapter with an approved-terms gate, source attribution and bounded quota/cache handling. PR193 passed eight matching jobs and merged with an identical tree. PR197 also verified customer and vendor Flutter discovery over the same adapter.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
