@@ -238,6 +238,7 @@ window.createTariffWorkspace = ({ root, api, ui, actor }) => {
                             idempotency_key: key,
                             expected_minor_units: station.minor_units,
                             expected_currency: station.currency,
+                            expected_active_tariff_id: effective?.id ?? null,
                         });
                         if (
                             epoch === generation &&
