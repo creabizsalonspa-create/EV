@@ -675,15 +675,21 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
             row.append(creative("h4", c.title, c.title_ar));
             state(row, c.status);
             const counts = text("p", "");
+            const deliveries = text("span", `${c.delivered_units}/${c.budget_units}`);
+            deliveries.dataset.campaignDeliveryCount = "true";
+            deliveries.dir = "ltr";
+            const clicks = text("span", c.verified_server_clicks);
+            clicks.dataset.campaignClickCount = "true";
+            clicks.dir = "ltr";
             counts.append(
                 t(
                     "span",
                     "Verified server deliveries",
                     "تسليمات الخادم الموثقة",
                 ),
-                text("span", ` · ${c.delivered_units}/${c.budget_units} · `),
+                text("span", " · "), deliveries, text("span", " · "),
                 t("span", "Attributed server clicks", "نقرات الخادم المنسوبة"),
-                text("span", ` · ${c.verified_server_clicks}`),
+                text("span", " · "), clicks,
             );
             row.append(counts);
             button(row, "Review campaign", "مراجعة الحملة", () => detail(c.id, 1, c));
