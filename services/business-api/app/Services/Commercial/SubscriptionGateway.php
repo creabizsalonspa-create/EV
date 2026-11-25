@@ -70,7 +70,7 @@ class SubscriptionGateway
                 $m = app(PaymentMandates::class)->method($actor, $mandate, true);
                 app(PaymentMandates::class)->credentials($actor, $mandate, $m->version);
                 $extra = ['mandate_id' => $mandate, 'mandate_version' => $m->version, 'policy_version' => $policyVersion];
-                app(SubscriptionCollections::class)->authorize($actor, (object) ($extra + ['subscription_id' => $subscription]));
+                app(SubscriptionCollections::class)->authorize($actor, (object) ($extra + ['subscription_id' => $subscription, 'invoice_id' => $invoice]));
             }
             abort_unless((int) $i->total_minor > 0, 409, 'Zero-price invoices use the explicit no-funds mock settlement flow.');
             abort_if(DB::table('subscription_gateway_checkouts')->where('invoice_id', $invoice)->whereIn('status', ['pending', 'authorized', 'action_required'])->exists(), 409, 'Resolve the outstanding checkout before creating a replacement.');
