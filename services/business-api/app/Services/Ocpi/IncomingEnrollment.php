@@ -55,7 +55,7 @@ class IncomingEnrollment
     {
         $exchange = app(CredentialExchange::class);
         $peer = $exchange->validatePeer($p, $body);
-        abort_unless(EnrollmentProof::current($link) !== null, 401);
+        abort_unless(EnrollmentProof::current($link) !== null && app(ContractReviewGate::class)->current($p), 401);
         // Read-only discovery with the peer's newly offered token B. It cannot
         // modify the peer and is fenced again before local activation.
         $exchange->endpoint($p, base64_encode($peer['token']), $link);
@@ -87,5 +87,7 @@ class IncomingEnrollment
     private function current(OcpiProvider $original, OcpiProvider $current, string $configuration): void
     {
         abort_unless($current->authorized && $current->owner_id === $original->owner_id && $current->connection_key === $original->connection_key && $current->authorization_revision === $original->authorization_revision && $current->authorization_revision < PHP_INT_MAX && User::whereKey($current->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists() && hash_equals($configuration, app(CredentialExchange::class)->configurationHash($current)), 409, 'Partner enrollment authority changed.');
+        abort_unless(app(ContractReviewGate::class)->current($current), 409,
+            'Partner enrollment requires a current internal contract review.');
     }
 }

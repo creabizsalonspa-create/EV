@@ -17,6 +17,8 @@ use App\Services\Discovery\PublicPartnerLocation;
 use App\Services\Discovery\SourceReportFilter;
 use App\Services\Discovery\StationCatalog;
 use App\Services\Discovery\UnifiedCountryFilter;
+use App\Services\Ocpi\ContractReviewGate;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -24,6 +26,11 @@ use Illuminate\Validation\ValidationException;
 /** One database-paginated search over already-published inventory; no provider calls. */
 final class UnifiedDiscoveryController extends Controller
 {
+    private function partnerProviders(): Builder
+    {
+        return app(ContractReviewGate::class)->eligiblePublic(OcpiProvider::query()->where('authorized', true));
+    }
+
     public function index(Request $request)
     {
         $v = $request->validate(['q' => 'nullable|string|max:80', 'operator' => 'nullable|string|max:100', 'address' => 'nullable|string|max:150', 'access' => 'nullable|string|max:150', 'max_rate_per_kwh' => ['nullable', 'required_with:price_currency', 'string', 'regex:/^[0-9]{1,6}(\.[0-9]{1,3})?$/D'], 'price_currency' => 'nullable|required_with:max_rate_per_kwh|string|size:3|uppercase', 'scope' => 'nullable|in:all,catalog,partner', 'country' => 'nullable|in:AE,CA,US', 'min_power_kw' => 'nullable|integer|between:1,1000', 'max_power_kw' => 'nullable|integer|between:1,1000',
@@ -37,7 +44,7 @@ final class UnifiedDiscoveryController extends Controller
         abort_if($request->boolean('saved_only') && $customer === null, 403);
         $catalog = Station::query();
         $partner = OcpiRecord::query()->where('module', 'locations')->where('normalized->publish', true)
-            ->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->select('id'));
+            ->whereIn('ocpi_provider_id', $this->partnerProviders()->select('id'));
         // Explicit market filter uses the charging location's country,
         // never the OCPI partner party's country code.
         if (! empty($v['country'])) {
@@ -83,7 +90,7 @@ final class UnifiedDiscoveryController extends Controller
             };
             $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $value).'%';
             if ($field === 'operator') {
-                $partner->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->whereRaw("name $comparison ? ESCAPE '!'", [$pattern])->select('id'));
+                $partner->whereIn('ocpi_provider_id', $this->partnerProviders()->whereRaw("name $comparison ? ESCAPE '!'", [$pattern])->select('id'));
             } else {
                 $partner->where(function ($query) use ($comparison, $pattern) {
                     foreach (['address', 'city'] as $key) {
@@ -123,7 +130,7 @@ final class UnifiedDiscoveryController extends Controller
                     $column = PartnerCatalogText::field($field);
                     $query->orWhereRaw("$column $operator ? ESCAPE '!'", [$pattern]);
                 }
-                $query->orWhereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->whereRaw("name $operator ? ESCAPE '!'", [$pattern])->select('id'));
+                $query->orWhereIn('ocpi_provider_id', $this->partnerProviders()->whereRaw("name $operator ? ESCAPE '!'", [$pattern])->select('id'));
             });
         }
         if (! empty($v['connector'])) {
@@ -148,9 +155,9 @@ final class UnifiedDiscoveryController extends Controller
         $rows = $page->getCollection();
         $stations = app(StationCatalog::class)->present(Station::whereIn('id', $rows->where('kind', 'catalog')->pluck('id'))->get(), $customer)->keyBy('id');
         $partners = OcpiRecord::whereIn('id', $rows->where('kind', 'partner')->pluck('id'))->where('module', 'locations')->where('normalized->publish', true)
-            ->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->select('id'))
+            ->whereIn('ocpi_provider_id', $this->partnerProviders()->select('id'))
             ->get(['id', 'ocpi_provider_id', 'normalized', 'source_updated_at', 'received_at'])->keyBy('id');
-        $labels = OcpiProvider::publiclyDiscoverable()->whereIn('id', $partners->pluck('ocpi_provider_id'))->pluck('name', 'id');
+        $labels = $this->partnerProviders()->whereIn('id', $partners->pluck('ocpi_provider_id'))->pluck('name', 'id');
         $savedPartners = $customer === null ? collect() : DB::table('partner_location_favorites')->where('user_id', $customer)->whereIn('record_id', $partners->keys())->pluck('record_id')->flip();
         $this->currentActor($request);
         $page->setCollection($rows->map(function ($row) use ($stations, $partners, $labels, $savedPartners, $checkedAt) {

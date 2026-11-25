@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\User;
 use App\Services\Ocpi\CpoCatalogContract;
+use App\Services\Ocpi\ContractReviewGate;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\EnrollmentProof;
 use App\Services\Ocpi\IncomingEnrollment;
@@ -37,6 +38,10 @@ class OcpiProtocolCredentialsController extends Controller
         abort_unless($link->state === 'active' || $provisional || $enrolling, 401);
         $p = OcpiProvider::findOrFail($link->provider_id);
         abort_unless($p->authorized && $p->owner_id === $link->owner_id && User::whereKey($p->owner_id)->where('role', 'vendor')->exists() && ($resource !== 'catalog' || User::whereKey($p->owner_id)->where('account_status', 'active')->exists()) && hash_equals($link->configuration_hash, $exchange->configurationHash($p)), 401);
+
+        // Preserve explicit decommissioning even after review expiry.
+        abort_unless(($r->isMethod('DELETE') && $resource === 'credentials')
+            || app(ContractReviewGate::class)->current($p), 401);
 
         return [$p, $link];
     }
@@ -96,6 +101,7 @@ class OcpiProtocolCredentialsController extends Controller
                     && hash_equals($link->configuration_hash, $active->configuration_hash)
                     && hash_equals($active->configuration_hash, $exchange->configurationHash($current)), 401);
                 if ($peer) {
+                    abort_unless(app(ContractReviewGate::class)->current($current, $owner), 401);
                     abort_unless($active->generation < 2147483647 && $current->authorization_revision < PHP_INT_MAX, 409);
                 }
                 $generation = min(2147483647, $active->generation + 1);

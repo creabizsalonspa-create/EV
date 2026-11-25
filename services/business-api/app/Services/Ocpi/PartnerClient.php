@@ -82,6 +82,9 @@ class PartnerClient
         if (! $current || ! $current->authorized || $current->authorization_revision !== $provider->authorization_revision || $current->connection_key !== $provider->connection_key || $current->owner_id !== $provider->owner_id) {
             throw new OcpiException('Operator authorization changed; stale negotiation or read discarded.');
         }
+        if (! app(ContractReviewGate::class)->current($current)) {
+            throw new OcpiException('Current partner owner requires a fresh internal contract review.');
+        }
         if ($current->version !== $provider->version || $current->endpoints !== $provider->endpoints) {
             throw new OcpiException('Operator connection authority changed; refresh the negotiated endpoints.');
         }
@@ -332,6 +335,9 @@ REGEX;
                 || ! $locked->authorized || $locked->authorization_revision !== $provider->authorization_revision
                 || $locked->connection_key !== $provider->connection_key || $locked->owner_id !== $provider->owner_id) {
                 throw new OcpiException('Operator authorization or owner activity changed; stale negotiation was discarded.');
+            }
+            if (! app(ContractReviewGate::class)->current($locked, $owner)) {
+                throw new OcpiException('Current partner owner contract review expired before negotiation was accepted.');
             }
             $this->assertReadAuthority($locked, $authority);
             if ($locked->authorization_revision >= PHP_INT_MAX) {

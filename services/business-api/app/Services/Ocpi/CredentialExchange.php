@@ -148,6 +148,7 @@ class CredentialExchange
         $current = OcpiProvider::findOrFail($p->id);
         abort_unless($current->authorized && $current->owner_id === $p->owner_id && $current->connection_key === $p->connection_key && $current->authorization_revision === $p->authorization_revision, 409, 'Partner authority changed before transport.');
         if ($peerLink) {
+            abort_unless(app(ContractReviewGate::class)->current($current), 401);
             $currentLink = DB::table('ocpi_credential_links')->where('id', $peerLink->id)->first();
             abort_unless(User::whereKey($p->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists()
                 && $currentLink && $currentLink->owner_id === $p->owner_id
@@ -255,6 +256,9 @@ class CredentialExchange
         $configuration = $this->configurationHash($p);
         $client = app(PartnerClient::class);
         abort_unless($p->authorized && ($v['action'] === 'unregister' || $p->authorization_revision < PHP_INT_MAX) && User::whereKey($p->owner_id)->where('role', 'vendor')->when($v['action'] !== 'unregister', fn ($q) => $q->where('account_status', 'active'))->exists(), 409);
+        // No new registration or rotation may use expired review evidence.
+        abort_unless($v['action'] === 'unregister' || app(ContractReviewGate::class)->current($p), 409,
+            'Partner contract evidence requires renewed internal review.');
         $link = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->first();
         abort_unless($v['action'] !== 'register' || ($c['registration_direction'] ?? 'outbound') === 'outbound', 409, 'This connection requires incoming partner enrollment.');
         $bootstrap = (string) ($c['authorization_token'] ?? '');
@@ -360,6 +364,8 @@ class CredentialExchange
     private function unchanged(OcpiProvider $original, OcpiProvider $current, string $configuration, bool $unregister = false): void
     {
         abort_unless($current->authorized && $current->owner_id === $original->owner_id && $current->connection_key === $original->connection_key && $current->authorization_revision === $original->authorization_revision && ($unregister || $current->authorization_revision < PHP_INT_MAX) && User::whereKey($current->owner_id)->where('role', 'vendor')->when(! $unregister, fn ($q) => $q->where('account_status', 'active'))->exists() && hash_equals($configuration, $this->configurationHash($current)), 409, 'Partner authority changed; exchange was fenced.');
+        abort_unless($unregister || app(ContractReviewGate::class)->current($current), 409,
+            'Partner contract evidence changed before managed credential exchange.');
     }
 
     public function operation(object $row): array
