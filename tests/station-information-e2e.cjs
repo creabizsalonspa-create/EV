@@ -28,6 +28,43 @@ if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposab
   const station=await created.json();assert.ok(Number(station.id)>0);
   const root=page.locator('#station-information-vendor'),form=root.locator('form.station-information-form');
   await form.waitFor({timeout:25000});
+  const blockPath = '/api/stations/' + station.id + '/availability-blocks';
+  const blocks = root.locator('[data-availability-blocks]');
+  const reason = 'Scheduled maintenance ' + name;
+  const utc = (offset) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  await blocks.locator('[name=starts_at]').fill(utc(3_600_000));
+  await blocks.locator('[name=ends_at]').fill(utc(7_200_000));
+  await blocks.locator('[name=reason_en]').fill(reason);
+  await blocks.locator('[name=reason_ar]').fill('صيانة مجدولة');
+  const publication = page.waitForResponse(r => new URL(r.url()).pathname === blockPath
+    && r.request().method() === 'POST');
+  await blocks.getByRole('button', {name: 'Publish station block'}).click();
+  const blockResponse = await publication;
+  assert.equal(blockResponse.status(), 201);
+  const block = await blockResponse.json();
+  assert.equal(block.physical_availability_verified, false);
+  await blocks.getByText(new RegExp('live charger status unknown.*' + reason)).waitFor();
+  const publicInformation = async () => {
+    const response = await fetch(base.origin + '/api/stations/' + station.id + '/information', {
+      headers: { Accept: 'application/json' },
+    });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const visibleBlock = (await publicInformation()).availability_blocks.find(row => row.id === block.id);
+  assert.ok(visibleBlock);
+  assert.equal(visibleBlock.scope, 'STATION_WIDE_OPERATOR_POLICY');
+  assert.equal(visibleBlock.physical_availability_verified, false);
+  assert.equal(visibleBlock.reason_ar, 'صيانة مجدولة');
+  assert.equal(Object.hasOwn(visibleBlock, 'idempotency_key'), false);
+  const cancellation = page.waitForResponse(r => new URL(r.url()).pathname === blockPath + '/' + block.id + '/cancel'
+    && r.request().method() === 'POST');
+  await blocks.getByRole('button', {name: 'Cancel this block'}).click();
+  const cancelled = await cancellation;
+  assert.equal(cancelled.status(), 200);
+  assert.equal((await cancelled.json()).cancelled, true);
+  await blocks.getByText(reason, {exact: false}).waitFor({state: 'hidden'});
+  assert.equal((await publicInformation()).availability_blocks.some(row => row.id === block.id), false);
   await form.locator('[name=description_en]').fill('Entrance at Gate A');
   await form.locator('[name=access_en]').fill('Visitors register at front desk');
   const expiresOn=new Date(Date.now()+30*86400000).toISOString().slice(0,10);
@@ -143,6 +180,6 @@ if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposab
   await page.locator('#logout').click();
   await page.locator('#vendor').waitFor({state:'hidden',timeout:25000});
   assert.equal(await root.locator('form').count(),0);
-  console.log('PASS: vendor-published expiring access notice, persistence/provenance and safe station switching with delayed GET; logout');
+  console.log('PASS: operator block publication, public projection and cancellation; expiring access notice, station switching and logout');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

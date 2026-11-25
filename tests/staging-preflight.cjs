@@ -120,12 +120,12 @@ test('wrong database service or real payment provider cannot enter synthetic sta
 });
 test('all remote charger, partner and collection switches fail closed', () => {
   const flags=['SUBSCRIPTION_COLLECTION_ENABLED','PAYMENT_RECOVERY_PROVIDER_POLL',
-    'PAYOUT_TEST_ENABLED','OCPI_TEST_COMMANDS_ENABLED',
+    'PAYOUT_TEST_ENABLED','OCPI_TEST_COMMANDS_ENABLED','OCPI_CPO_PUSH_ENABLED','OCPI_SCHEDULED_SYNC_ENABLED',
     'CSMS_COMMAND_WORKER_ENABLED','CSMS_REMOTE_AUTHORIZATION_ENABLED',
     'CSMS_SESSION_BRIDGE_ENABLED','CSMS_INGRESS_AUTH_ENABLED',
     'CSMS_INGRESS_ALLOW_LOCAL_HTTP','CSMS_RIDER_AUTH_ENABLED',
     'CSMS_SAFE_RESET_ENABLED','CSMS_SIGNED_FIRMWARE_ENABLED',
-    'CSMS_FIRMWARE_ENABLED','CSMS_DIAGNOSTIC_LOGS_ENABLED',
+    'CSMS_FIRMWARE_ENABLED','CSMS_DIAGNOSTIC_LOGS_ENABLED','CSMS_UPSTREAM_REGISTRATION_ENABLED',
     'CSMS_FAULT_WORKER_ENABLED','CSMS_CONFIGURATION_READ_ENABLED',
     'COMMERCIAL_CAMPAIGNS_ENABLED','DISCOVERY_GEOCODING_ENABLED',
     'DISCOVERY_ROUTING_ENABLED','EV_BATTERY_SIMULATOR_ENABLED'];
@@ -136,7 +136,7 @@ test('all remote charger, partner and collection switches fail closed', () => {
   }
 });
 test('OCPI partner credentials and live PSP keys are barred without disclosure', () => {
-  for (const name of ['OCPI_CONNECTIONS_JSON','OCPI_LOCAL_CREDENTIALS_JSON']) {
+  for (const name of ['OCPI_CONNECTIONS_JSON','OCPI_LOCAL_CREDENTIALS_JSON','OCPI_LOCAL_CREDENTIAL_PROFILES_JSON']) {
     assert.ok(checkValues({...defaults,[name]:'{"partner":"live"}'}).some(x=>x.startsWith(name+':')),name);
     assert.ok(!checkValues({...defaults,[name]:'{}'}).some(x=>x.startsWith(name+':')),name);
   }

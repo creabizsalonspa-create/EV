@@ -15,6 +15,12 @@ class RecoveryApi extends EvApi {
   Map<String, dynamic>? received;
   Object? failure;
   Completer<dynamic>? pending;
+  int authEpoch = 0;
+  @override
+  bool Function() sessionFence() {
+    final captured = authEpoch;
+    return () => captured == authEpoch;
+  }
   @override
   Future<void> csrf() async {
     calls.add('csrf');
@@ -39,7 +45,11 @@ class RecoveryApi extends EvApi {
 Widget screen(RecoveryApi api, {bool arabic = false}) => MaterialApp(
   locale: Locale(arabic ? 'ar' : 'en'),
   supportedLocales: const [Locale('en'), Locale('ar')],
-  localizationsDelegates: GlobalMaterialLocalizations.delegates,
+  localizationsDelegates: const [
+    GlobalMaterialLocalizations.delegate,
+    GlobalWidgetsLocalizations.delegate,
+    GlobalCupertinoLocalizations.delegate,
+  ],
   home: AccountRecoveryView(api: api),
 );
 Future<void> fill(WidgetTester t) async {
@@ -56,6 +66,75 @@ Future<void> fill(WidgetTester t) async {
 }
 
 void main() {
+
+  for (final ar in [false, true]) {
+    testWidgets('first inactive recovery mount masks reset link without requests ($ar)',
+        (tester) async {
+      final api = RecoveryApi();
+      addTearDown(api.close);
+      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pumpWidget(screen(api, arabic: ar));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('recovery-link')), findsNothing);
+      expect(find.byKey(const Key('recovery-password')), findsNothing);
+      expect(api.calls, isEmpty);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('recovery-link')), findsOneWidget);
+      expect(find.byKey(const Key('recovery-password')), findsOneWidget);
+      expect(api.calls, isEmpty, reason: 'No password reset action on OS resume');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('reused recovery API epoch discards another accounts token ($ar)',
+        (tester) async {
+      final api = RecoveryApi();
+      addTearDown(api.close);
+      await tester.pumpWidget(screen(api, arabic: ar));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('recovery-link')), resetLink());
+      await tester.enterText(find.byKey(const Key('recovery-password')),
+          'OldAccountSecretPassword');
+      final link = tester.widget<TextField>(
+          find.byKey(const Key('recovery-link'))).controller!;
+      final password = tester.widget<TextField>(
+          find.byKey(const Key('recovery-password'))).controller!;
+      api.authEpoch++;
+      await tester.pumpWidget(screen(api, arabic: ar));
+      await tester.pumpAndSettle();
+      expect(link.text, isEmpty);
+      expect(password.text, isEmpty);
+      expect(find.byKey(const Key('recovery-done')), findsNothing);
+      expect(api.calls, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('new recovery email prop never inherits prior reset input', (tester) async {
+    final api = RecoveryApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: AccountRecoveryView(api: api, initialEmail:'first@example.test'),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('recovery-link')), resetLink());
+    await tester.enterText(find.byKey(const Key('recovery-password')), 'OldPrivatePassword');
+    await tester.pumpWidget(MaterialApp(
+      home: AccountRecoveryView(api: api, initialEmail:'second@example.test'),
+    ));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(
+        find.byKey(const Key('recovery-email'))).controller!.text,
+        'second@example.test');
+    expect(tester.widget<TextField>(
+        find.byKey(const Key('recovery-link'))).controller!.text,isEmpty);
+    expect(tester.widget<TextField>(
+        find.byKey(const Key('recovery-password'))).controller!.text,isEmpty);
+    expect(api.calls, isEmpty);
+  });
+
   test('strict same-origin reset links preserve email and token', () {
     final parsed = RecoveryLink.parse(
       resetLink(),

@@ -10,6 +10,7 @@ use App\Models\InboxNotification;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Security\AdminTransactionAuthority;
+use App\Security\CurrentFinanceReader;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -54,16 +55,46 @@ class EnterpriseController extends Controller
         });
     }
 
+    public function configureRegionalReviewIntake(Request $r, string $country)
+    {
+        abort_unless($r->user()->role === 'admin', 403);
+        $values = $r->validate(['enabled' => 'required|boolean', 'expected_revision' => 'required|integer|min:0']);
+
+        return DB::transaction(function () use ($r, $country, $values) {
+            AdminTransactionAuthority::requireCurrent($r->user());
+            $row = DB::table('regions')->where('country', $country)->lockForUpdate()->firstOrFail();
+            $enabled = (bool) $values['enabled'];
+            $revision = (int) $row->review_intake_revision;
+            abort_unless($revision === (int) $values['expected_revision'], 409, 'Regional review settings changed. Refresh before deciding.');
+            if ($enabled !== (bool) $row->review_intake_enabled) {
+                $revision++;
+                DB::table('regions')->where('country', $country)->update([
+                    'review_intake_enabled' => $enabled, 'review_intake_revision' => $revision, 'updated_at' => now(),
+                ]);
+                $this->audit($r, $enabled ? 'region.review_intake_enabled' : 'region.review_intake_disabled', $country.':'.$revision);
+            }
+
+            return response()->json(['country' => $country, 'review_intake_enabled' => $enabled, 'review_intake_revision' => $revision])
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
+    }
+
     public function index(Request $r)
     {
         $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
 
-        return response()->json(Fleet::where(function ($query) use ($r) {
-            $query->where('owner_id', $r->user()->id)
-                ->orWhereIn('id', FleetMember::where('user_id', $r->user()->id)
-                    ->where('status', 'active')->select('fleet_id'));
-        })->orderByDesc('id')->paginate(25))
-            ->header('Cache-Control', 'private, no-store');
+        return DB::transaction(function () use ($r) {
+            // A cached signed-in user is not sufficient to view private fleet
+            // membership and vehicles after role, account or epoch revocation.
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+
+            return response()->json(Fleet::where(function ($query) use ($actor) {
+                $query->where('owner_id', $actor->id)
+                    ->orWhereIn('id', FleetMember::where('user_id', $actor->id)
+                        ->where('status', 'active')->select('fleet_id'));
+            })->orderByDesc('id')->paginate(25))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function create(Request $r)
@@ -71,7 +102,8 @@ class EnterpriseController extends Controller
         $v = $r->validate(['name' => 'required|string|max:150', 'country' => ['required', Rule::exists('regions', 'country')]]);
 
         return DB::transaction(function () use ($r, $v) {
-            $f = Fleet::create($v + ['owner_id' => $r->user()->id]);
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $f = Fleet::create($v + ['owner_id' => $actor->id]);
             $this->audit($r, 'fleet.created', (string) $f->id);
 
             return response()->json($f, 201);
@@ -80,10 +112,24 @@ class EnterpriseController extends Controller
 
     public function show(Request $r, Fleet $fleet)
     {
-        $this->member($r, $fleet);
-        $owner = $fleet->owner_id === $r->user()->id;
+        return DB::transaction(function () use ($r, $fleet) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            // Bind the current persisted fleet identity, not a stale route
+            // model whose owner or membership could have changed.
+            $current = Fleet::whereKey($fleet->id)->lockForUpdate()->firstOrFail();
+            $owner = (int) $current->owner_id === (int) $actor->id;
+            abort_unless($owner || FleetMember::where('fleet_id', $current->id)
+                ->where('user_id', $actor->id)->where('status', 'active')->exists(), 404);
 
-        return response()->json(['fleet' => $fleet, 'cost_centers' => CostCenter::where('fleet_id', $fleet->id)->get(), 'members' => $owner ? FleetMember::where('fleet_id', $fleet->id)->get() : [], 'vehicles' => FleetVehicle::where('fleet_id', $fleet->id)->when(! $owner, fn ($q) => $q->whereIn('vehicle_id', Vehicle::where('user_id', $r->user()->id)->select('id')))->get()]);
+            return response()->json([
+                'fleet' => $current,
+                'cost_centers' => CostCenter::where('fleet_id', $current->id)->get(),
+                'members' => $owner ? FleetMember::where('fleet_id', $current->id)->get() : [],
+                'vehicles' => FleetVehicle::where('fleet_id', $current->id)
+                    ->when(! $owner, fn ($q) => $q->whereIn('vehicle_id',
+                        Vehicle::where('user_id', $actor->id)->select('id')))->get(),
+            ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function invite(Request $r, Fleet $fleet)
@@ -128,9 +174,13 @@ class EnterpriseController extends Controller
     {
         $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
 
-        return response()->json(FleetMember::where('user_id', $r->user()->id)
-            ->where('status', 'invited')->orderByDesc('id')->paginate(25))
-            ->header('Cache-Control', 'private, no-store');
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+
+            return response()->json(FleetMember::where('user_id', $actor->id)
+                ->where('status', 'invited')->orderByDesc('id')->paginate(25))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function accept(Request $r, FleetMember $invitation)
