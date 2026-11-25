@@ -156,6 +156,27 @@ class PrivacyAccessExportTest extends TestCase
         $this->assertDatabaseCount('account_privacy_exports', 2);
     }
 
+    public function test_snapshot_builder_rejects_cross_owner_and_non_access_review_before_collecting_rows(): void
+    {
+        [$owner, , $other, $case] = $this->scenario();
+        $exports = app(AccountDataExport::class);
+        foreach ([
+            [$other, $case],
+            [$owner, (clone $case)->forceFill(['kind' => 'erasure'])],
+            [$owner, (clone $case)->forceFill(['status' => 'pending'])],
+        ] as [$actor, $record]) {
+            try {
+                DB::transaction(fn () => $exports->snapshot($actor, $record));
+                $this->fail('Unrelated or unauthorized privacy snapshot was generated.');
+            } catch (\Symfony\Component\HttpKernel\Exception\HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+        $this->assertDatabaseCount('account_privacy_exports', 0);
+        $this->assertDatabaseCount('account_privacy_request_reviews', 0);
+        $this->assertSame('reviewing', $case->fresh()->status);
+    }
+
     public function test_large_requests_never_silently_truncate_and_expired_copies_are_purged(): void
     {
         [$owner, $admin, , $case] = $this->scenario();
