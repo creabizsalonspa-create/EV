@@ -52,7 +52,8 @@ class PaymentMandates
         abort_unless(in_array($user->role, ['customer', 'vendor'], true), 403);
         abort_unless($consent === config('payments.mandate_consent_version'), 409, 'Refresh the current consent terms.');
         $enrollment = DB::transaction(function () use ($user, $key, $consent) {
-            User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $user = app(CurrentFinanceReader::class)->requireSnapshot($user);
+            abort_unless(in_array($user->role, ['customer', 'vendor'], true), 403);
             $account = DB::table('payment_customer_accounts')->where('user_id', $user->id)->first();
             if (! $account) {
                 $id = DB::table('payment_customer_accounts')->insertGetId(['user_id' => $user->id, 'reference' => (string) Str::uuid(), 'created_at' => now(), 'updated_at' => now()]);
@@ -74,27 +75,42 @@ class PaymentMandates
             return $this->enrollmentDto($enrollment);
         }
         $lease = Str::random(48);
-        DB::transaction(function () use ($enrollment, $lease) {
-            $e = DB::table('payment_enrollments')->where('id', $enrollment->id)->lockForUpdate()->first();
+        DB::transaction(function () use ($user, $enrollment, $lease) {
+            app(CurrentFinanceReader::class)->requireSnapshot($user);
+            $e = DB::table('payment_enrollments')->where('id', $enrollment->id)
+                ->where('user_id', $user->id)->lockForUpdate()->firstOrFail();
             abort_if($e->lease_until && CarbonImmutable::parse($e->lease_until)->isFuture(), 409, 'Enrollment is executing; refresh status.');
             abort_unless(CarbonImmutable::parse($e->expires_at)->isFuture(), 409, 'Enrollment expired; inspect its provider outcome before replacing it.');
             DB::table('payment_enrollments')->where('id', $e->id)->update(['lease' => $lease, 'lease_until' => now()->addMinutes(3), 'status' => 'executing', 'updated_at' => now()]);
         });
         try {
-            $a = DB::table('payment_customer_accounts')->find($enrollment->account_id);
-            if (! $a->provider_customer) {
-                $customer = $provider->createCustomer($a->reference);
-                $this->customerEvidence($a, $customer);
-                DB::table('payment_customer_accounts')->where('id', $a->id)->update(['provider_customer' => Crypt::encryptString($customer['id']), 'updated_at' => now()]);
-                $a = DB::table('payment_customer_accounts')->find($a->id);
-            }
-            $customer = Crypt::decryptString($a->provider_customer);
-            $session = $provider->hostedEnrollment($customer, $enrollment->reference, CarbonImmutable::parse($enrollment->expires_at)->timestamp, $return);
-            $this->sessionEvidence($enrollment, $customer, $session);
-            $changed = DB::table('payment_enrollments')->where('id', $enrollment->id)->where('lease', $lease)->update(['provider_session' => Crypt::encryptString($session['id']), 'session_hash' => hash('sha256', $session['id']), 'status' => 'pending', 'lease' => null, 'lease_until' => null, 'updated_at' => now()]);
-            abort_unless($changed, 409, 'Refresh enrollment after a lost lease.');
+            // Keep durable lease acquisition separate from provider I/O.
+            // A revocation committed before this lock must prevent new I/O;
+            // the existing uncertain-state recovery remains the only retry path.
+            return DB::transaction(function () use ($user, $enrollment, $lease, $provider, $return) {
+                app(CurrentFinanceReader::class)->requireSnapshot($user);
+                $current = DB::table('payment_enrollments')->where('id', $enrollment->id)
+                    ->where('user_id', $user->id)->where('lease', $lease)
+                    ->where('status', 'executing')->lockForUpdate()->first();
+                abort_unless($current && CarbonImmutable::parse($current->expires_at)->isFuture()
+                    && CarbonImmutable::parse($current->lease_until)->isFuture(), 409, 'Refresh enrollment after a lost or expired lease.');
+                $a = DB::table('payment_customer_accounts')->where('id', $current->account_id)
+                    ->where('user_id', $user->id)->lockForUpdate()->firstOrFail();
+                if (! $a->provider_customer) {
+                    $customer = $provider->createCustomer($a->reference);
+                    $this->customerEvidence($a, $customer);
+                    DB::table('payment_customer_accounts')->where('id', $a->id)->update(['provider_customer' => Crypt::encryptString($customer['id']), 'updated_at' => now()]);
+                    $a = DB::table('payment_customer_accounts')->find($a->id);
+                }
+                $customer = Crypt::decryptString($a->provider_customer);
+                $session = $provider->hostedEnrollment($customer, $current->reference, CarbonImmutable::parse($current->expires_at)->timestamp, $return);
+                $this->sessionEvidence($current, $customer, $session);
+                $url = $this->hostedUrl($session['url'] ?? null);
+                $changed = DB::table('payment_enrollments')->where('id', $current->id)->where('lease', $lease)->update(['provider_session' => Crypt::encryptString($session['id']), 'session_hash' => hash('sha256', $session['id']), 'status' => 'pending', 'lease' => null, 'lease_until' => null, 'updated_at' => now()]);
+                abort_unless($changed, 409, 'Refresh enrollment after a lost lease.');
 
-            return $this->enrollmentDto(DB::table('payment_enrollments')->find($enrollment->id)) + ['hosted_url' => $this->hostedUrl($session['url'] ?? null)];
+                return $this->enrollmentDto(DB::table('payment_enrollments')->find($current->id)) + ['hosted_url' => $url];
+            });
         } catch (\Throwable $e) {
             DB::table('payment_enrollments')->where('id', $enrollment->id)->where('lease', $lease)->update(['status' => 'uncertain', 'lease' => null, 'lease_until' => null, 'updated_at' => now()]);
             throw $e;
@@ -124,13 +140,25 @@ class PaymentMandates
 
     public function inspect(User $user, int $id): array
     {
-        $e = $this->access($user, $id);
+        return DB::transaction(function () use ($user, $id) {
+            $current = app(CurrentFinanceReader::class)->requireSnapshot($user);
+            abort_unless(in_array($current->role, ['customer', 'vendor'], true), 403);
+
+            return $this->inspectProvider($current, $id);
+        });
+    }
+
+    private function inspectProvider(User $user, int $id): array
+    {
+        $e = DB::table('payment_enrollments')->where('id', $id)->where('user_id', $user->id)
+            ->lockForUpdate()->firstOrFail();
         $provider = $this->provider();
         if ($e->status === 'completed') {
             return $this->enrollmentDto($e);
         }
         abort_if($e->lease_until && CarbonImmutable::parse($e->lease_until)->isFuture(), 409, 'Enrollment is executing; refresh later.');
-        $a = DB::table('payment_customer_accounts')->find($e->account_id);
+        $a = DB::table('payment_customer_accounts')->where('id', $e->account_id)
+            ->where('user_id', $user->id)->lockForUpdate()->firstOrFail();
         if (! $a->provider_customer) {
             $found = $provider->findCustomer($a->reference);
             $matches = array_values(array_filter($found['data'] ?? [], fn ($r) => ($r['metadata']['creabiz_account'] ?? null) === $a->reference));
@@ -161,7 +189,8 @@ class PaymentMandates
                 if ($current->status === 'completed') {
                     return;
                 }
-                abort_unless(CarbonImmutable::parse($current->consent_expires_at)->isFuture(), 409, 'Enrollment consent expired.');
+                abort_unless($current->consent_version === config('payments.mandate_consent_version')
+                    && CarbonImmutable::parse($current->consent_expires_at)->isFuture(), 409, 'Enrollment consent expired or changed.');
                 $hash = hash('sha256', $method['id']);
                 $old = DB::table('payment_mandates')->where('user_id', $user->id)->where('method_hash', $hash)->first();
                 abort_if($old && $old->status === 'revoked' && $old->detach_status !== 'detached', 409, 'Reconcile removal before enrolling that method again.');
@@ -247,18 +276,22 @@ class PaymentMandates
 
     public function detach(User $user, int $id): void
     {
-        $m = $this->method($user, $id);
-        abort_unless($m->status === 'revoked', 409);
-        if ($m->detach_status === 'detached') {
-            return;
-        }
-        $r = $this->provider()->method(Crypt::decryptString($m->provider_method));
-        $a = DB::table('payment_customer_accounts')->find($m->account_id);
-        abort_unless(array_key_exists('customer', $r) && ($r['id'] ?? null) === Crypt::decryptString($m->provider_method) && (($r['customer'] ?? null) === null || $r['customer'] === Crypt::decryptString($a->provider_customer)), 409);
-        if (($r['customer'] ?? null) !== null) {
-            $r = $this->provider()->detachMethod(Crypt::decryptString($m->provider_method), $m->version);
-        }
-        abort_unless(($r['id'] ?? null) === Crypt::decryptString($m->provider_method) && ($r['customer'] ?? null) === null, 409);
-        DB::table('payment_mandates')->where('id', $id)->where('version', $m->version)->where('status', 'revoked')->update(['detach_status' => 'detached', 'updated_at' => now()]);
+        DB::transaction(function () use ($user, $id) {
+            $user = app(CurrentFinanceReader::class)->requireSnapshot($user);
+            $m = $this->method($user, $id, true);
+            abort_unless($m->status === 'revoked', 409);
+            if ($m->detach_status === 'detached') {
+                return;
+            }
+            $a = DB::table('payment_customer_accounts')->where('id', $m->account_id)
+                ->where('user_id', $user->id)->lockForUpdate()->firstOrFail();
+            $r = $this->provider()->method(Crypt::decryptString($m->provider_method));
+            abort_unless(array_key_exists('customer', $r) && ($r['id'] ?? null) === Crypt::decryptString($m->provider_method) && (($r['customer'] ?? null) === null || $r['customer'] === Crypt::decryptString($a->provider_customer)), 409);
+            if (($r['customer'] ?? null) !== null) {
+                $r = $this->provider()->detachMethod(Crypt::decryptString($m->provider_method), $m->version);
+            }
+            abort_unless(($r['id'] ?? null) === Crypt::decryptString($m->provider_method) && ($r['customer'] ?? null) === null, 409);
+            DB::table('payment_mandates')->where('id', $id)->where('version', $m->version)->where('status', 'revoked')->update(['detach_status' => 'detached', 'updated_at' => now()]);
+        });
     }
 }
