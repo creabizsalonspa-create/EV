@@ -174,24 +174,18 @@
       "test_result": "passed",
       "merge_sha": "775b0b8e18f5f285ef613725de2dd60e9d361e36",
       "evidence": "docs/evidence/integrated-checkpoints-20261123/pr205-verified.json"
-    },
-    "pr337favorites": {
-      "source_sha": "37ff9816b6dcd59c0693f3a2d1ed1b8b20e4f422",
-      "test_result": "passed",
-      "merge_sha": "a25e7cf1668a30cc0d98c24bf9449d5de5664525",
-      "evidence": "docs/evidence/integrated-checkpoints-20261125/pr337-favorites.json"
     }
   },
   "weighted_percent": {
-    "coded": "61.73",
-    "tested": "61.73",
-    "merged": "61.73",
+    "coded": "61.46",
+    "tested": "61.46",
+    "merged": "61.46",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "2335693/3783780",
-    "tested": "2335693/3783780",
-    "merged": "2335693/3783780",
+    "coded": "2325683/3783780",
+    "tested": "2325683/3783780",
+    "merged": "2325683/3783780",
     "production_accepted": "0"
   },
   "categories": [
@@ -434,9 +428,9 @@
       "requirement": "Search, maps, routes, favorites, reviews",
       "atoms": 9,
       "counts": {
-        "coded": 6,
-        "tested": 6,
-        "merged": 6,
+        "coded": 5,
+        "tested": 5,
+        "merged": 5,
         "production_accepted": 0
       },
       "details": [
@@ -534,13 +528,13 @@
         {
           "id": "2.3.8",
           "software_atom": "Favorites",
-          "coded": true,
-          "checkpoint": "pr337favorites",
-          "note": "Audited canonical and authorized OCPI partner favorites across Laravel, web and Flutter; typed saved-only union, independent customer ownership, authoritative refresh after uncertain writes, revoked partner redaction and removal. All eight exact-source PR337 jobs passed; merged tree identical. Transient licensed reports are discovery-only; live acceptance excluded.",
+          "coded": false,
+          "checkpoint": null,
+          "note": "Canonical and authorized partner favorites implemented and historically tested through PR337; full acceptance held for retained native callback/session revocation defects identified in PR370. No whole-atom credit pending verified correction.",
           "stages": {
-            "coded": true,
-            "tested": true,
-            "merged": true,
+            "coded": false,
+            "tested": false,
+            "merged": false,
             "production_accepted": false
           }
         },

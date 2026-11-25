@@ -77,5 +77,12 @@
     "browser": "Actual unified Laravel/browser bilingual search and typed favorite writes; real-Laravel partner favorites private save/list/map, provider revocation, no charging authority, public isolation and logout cleanup.",
     "native": "Unified saved places both writers, scoped filtering, unknown-write recovery, unavailable partner redaction/removal, canonical iOS simulator favorites runtime marker. Partner-specific tests are Flutter widget tests, not live partner-device acceptance."
   },
-  "production_accepted": false
+  "production_accepted": false,
+  "acceptance_status": "HISTORICAL_PASS_FULL_ATOM_HELD",
+  "acceptance_hold": {
+    "atom_id": "2.3.8",
+    "pr": 370,
+    "observed_defect": "Retained native favorite row callbacks and detached map/detail session revocation",
+    "required": "Verify and merge correction, then re-evaluate full original scope. Do not use this historical evidence alone for stage credit."
+  }
 }

@@ -25,6 +25,62 @@ Future<void> showTime(
 );
 
 void main() {
+
+  for (final language in ['en', 'ar']) {
+    testWidgets('invalid UTC calendar dates never turn into another reservation day ($language)',
+        (tester) async {
+      for (final invalid in [
+        '2026-02-30 06:00:00',
+        '2026-04-31T10:00:00Z',
+        '2026-11-16T24:30:00+00:00',
+        '2026-11-16T10:61:00Z',
+        '2026-11-16T10:00:60Z',
+      ]) {
+        await showTime(tester, {'starts_at': invalid}, language: language);
+        expect(find.text('—'), findsOneWidget, reason: invalid);
+        expect(find.textContaining('UTC'), findsNothing);
+      }
+      await showTime(tester, {'starts_at': '2028-02-29T06:00:00Z'},
+          language: language);
+      expect(find.textContaining('UTC'), findsOneWidget);
+      if (language == 'en') {
+        expect(find.textContaining('06:00'), findsOneWidget);
+      } else {
+        expect(Directionality.of(tester.element(find.textContaining('UTC'))),
+            TextDirection.rtl);
+      }
+    });
+
+    testWidgets('invalid local station metadata cannot forge a station time ($language)',
+        (tester) async {
+      for (final invalid in [
+        '2026-02-30T10:00:00+04:00',
+        '2026-03-02T10:00:00+14:30',
+        '2026-03-02T24:00:00+04:00',
+      ]) {
+        await showTime(tester, {
+          'starts_at': '2026-03-02T06:00:00Z',
+          'station_timezone': 'Asia/Dubai',
+          'station_times': {'starts_at': invalid},
+        }, language: language);
+        expect(find.textContaining('UTC'), findsOneWidget);
+        expect(find.textContaining('Asia/Dubai'), findsNothing);
+      }
+      await showTime(tester, {
+        'starts_at': '2026-03-02T06:00:00.000000Z',
+        'station_timezone': 'Asia/Dubai',
+        'station_times': {'starts_at': '2026-03-02T10:00:00+04:00'},
+      }, language: language);
+      expect(find.textContaining('Asia/Dubai (UTC+04:00)'), findsOneWidget);
+      if (language == 'en') {
+        expect(find.textContaining('10:00'), findsOneWidget);
+      } else {
+        expect(Directionality.of(tester.element(
+          find.textContaining('Asia/Dubai (UTC+04:00)'))), TextDirection.rtl);
+      }
+    });
+  }
+
   testWidgets(
     'station wall clock honors non-hour UTC offsets and localizes RTL',
     (tester) async {

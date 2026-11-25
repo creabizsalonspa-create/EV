@@ -69,7 +69,31 @@
         // An explicit offset must never be interpreted in the device timezone.
         const utc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
             ? value.replace(" ", "T") + "Z" : value;
-        if (!/(Z|[+-]\d{2}:\d{2})$/i.test(utc)) return null;
+        // Date.parse silently rolls over impossible calendar dates on some
+        // platforms (e.g., February 30 becomes March 2). Never fabricate a
+        // published station time from an invalid source timestamp.
+        const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})$/i.exec(utc);
+        if (!parts) return null;
+        const year = Number(parts[1]), month = Number(parts[2]),
+            day = Number(parts[3]), hour = Number(parts[4]),
+            minute = Number(parts[5]), second = Number(parts[6]);
+        const calendar = new Date(0);
+        calendar.setUTCFullYear(year, month - 1, day);
+        calendar.setUTCHours(hour, minute, second, 0);
+        if (calendar.getUTCFullYear() !== year ||
+            calendar.getUTCMonth() + 1 !== month ||
+            calendar.getUTCDate() !== day ||
+            calendar.getUTCHours() !== hour ||
+            calendar.getUTCMinutes() !== minute ||
+            calendar.getUTCSeconds() !== second) return null;
+        const offset = parts[8];
+        if (offset.toUpperCase() !== "Z") {
+            const offsetHours = Number(offset.slice(1, 3));
+            const offsetMinutes = Number(offset.slice(4, 6));
+            // UTC offsets may be at most 14 hours, with no extra minutes.
+            if (offsetHours > 14 || offsetMinutes > 59 ||
+                (offsetHours === 14 && offsetMinutes !== 0)) return null;
+        }
         const instant = new Date(utc);
         if (Number.isNaN(instant.getTime())) return null;
         return new Intl.DateTimeFormat(language === "ar" ? "ar" : "en-GB", {

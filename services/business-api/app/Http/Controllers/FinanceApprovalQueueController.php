@@ -72,6 +72,26 @@ final class FinanceApprovalQueueController extends Controller
             ->when(isset($filters['currency']), fn ($q) => $q->where('currency', $filters['currency']))
             ->when(isset($filters['vendor_id']), fn ($q) => $q->where('vendor_id', (int) $filters['vendor_id']));
 
+        // Every filtered source must be representable, including records
+        // outside the requested page. Opposite unsafe signed adjustments
+        // must not disappear behind a small, apparently valid net total.
+        $invalid = (clone $filtered)->where(function ($q) {
+            $q->whereNull('amount_minor')
+                ->orWhere('amount_minor', '>', self::MAX_BROWSER_MINOR)
+                ->orWhere('amount_minor', '<', -self::MAX_BROWSER_MINOR)
+                ->orWhere(fn ($q) => $q->where('kind', '!=', 'adjustment')->where('amount_minor', '<', 0))
+                ->orWhereNull('minor_units')->orWhere('minor_units', '<', 0)->orWhere('minor_units', '>', 3)
+                ->orWhere('record_id', '<', 1)->orWhere('record_id', '>', self::MAX_BROWSER_MINOR)
+                ->orWhere('vendor_id', '<', 1)->orWhere('vendor_id', '>', self::MAX_BROWSER_MINOR)
+                ->orWhere(fn ($q) => $q->whereNotNull('invoice_id')
+                    ->where(fn ($q) => $q->where('invoice_id', '<', 1)->orWhere('invoice_id', '>', self::MAX_BROWSER_MINOR)));
+            if (DB::getDriverName() === 'sqlite') {
+                // SQLite integer affinity does not prohibit stored REALs.
+                $q->orWhereRaw("typeof(amount_minor) != 'integer' OR typeof(minor_units) != 'integer'");
+            }
+        })->exists();
+        abort_if($invalid, 409, 'Filtered financial review contains an invalid source.');
+
         // The queue's pageable rows are operational triage, not a balance:
         // preserve distinct kind + currency + minor-unit buckets across
         // ALL currently filtered pending requests, never just this page.
@@ -87,12 +107,16 @@ final class FinanceApprovalQueueController extends Controller
         $groups = $sourceGroups->map(static function ($group): array {
             $amount = self::exactMinor($group->signed_amount_minor);
             $count = self::exactMinor($group->review_count);
-            abort_if($count < 0, 409, 'Financial approval group count is invalid.');
+            $precision = self::exactMinor($group->minor_units);
+            abort_unless($count > 0 && $precision >= 0 && $precision <= 3
+                && preg_match('/\A[A-Z]{3}\z/', $group->currency) === 1
+                && ($group->kind === 'adjustment' || $amount >= 0),
+                409, 'Financial approval group source is invalid.');
 
             return [
                 'kind' => $group->kind,
                 'currency' => $group->currency,
-                'minor_units' => (int) $group->minor_units,
+                'minor_units' => $precision,
                 'review_count' => $count,
                 'signed_amount_minor' => $amount,
                 'basis' => 'PENDING_RECORDS_NOT_FINANCIAL_BALANCE',
@@ -103,18 +127,34 @@ final class FinanceApprovalQueueController extends Controller
             ->orderByDesc('record_id')->orderBy('kind');
         $page = $query->paginate((int) ($filters['per_page'] ?? 20), ['*'], 'page', (int) ($filters['page'] ?? 1));
 
+        $groupCount = 0;
+        foreach ($groups as $group) {
+            $groupCount = self::exactMinor($groupCount + $group['review_count']);
+        }
+        abort_unless($groupCount === $page->total(), 409, 'Financial approval source changed; refresh the review.');
+
         return response()->json([
             'data' => $page->getCollection()->map(static function ($row): array {
                 // Refuse silently rounded JSON amounts in Customer/Vendor/Admin.
                 $amount = self::exactMinor($row->amount_minor);
+                $id = self::exactMinor($row->record_id);
+                $vendor = self::exactMinor($row->vendor_id);
+                $invoice = $row->invoice_id === null ? null : self::exactMinor($row->invoice_id);
+                $precision = self::exactMinor($row->minor_units);
+                abort_unless($id > 0 && $vendor > 0 && ($invoice === null || $invoice > 0)
+                    && ($row->kind === 'refund') === ($invoice !== null)
+                    && $precision >= 0 && $precision <= 3
+                    && preg_match('/\A[A-Z]{3}\z/', $row->currency) === 1
+                    && ($row->kind === 'adjustment' || $amount >= 0),
+                    409, 'Financial approval row source is invalid.');
 
                 return [
                     'kind' => $row->kind,
-                    'record_id' => (int) $row->record_id,
-                    'vendor_id' => (int) $row->vendor_id,
-                    'invoice_id' => $row->invoice_id === null ? null : (int) $row->invoice_id,
+                    'record_id' => $id,
+                    'vendor_id' => $vendor,
+                    'invoice_id' => $invoice,
                     'currency' => $row->currency,
-                    'minor_units' => $row->minor_units === null ? null : (int) $row->minor_units,
+                    'minor_units' => $precision,
                     'amount_minor' => $amount,
                     'status' => $row->status,
                     'created_at' => $row->created_at,
