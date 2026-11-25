@@ -555,6 +555,47 @@ class OcpiCredentialsTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_invalid_bootstrap_clocks_are_not_authority_and_do_not_break_private_status(): void
+    {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('PostgreSQL typed timestamps reject malformed legacy storage.');
+        }
+        [$p, $admin, , $url] = $this->incomingFixture();
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-11-25T12:00:00Z'));
+        $this->actingAs($admin)->postJson($url, $this->intent('prepare_incoming'))->assertOk();
+        $headers = $this->protocol('INCOMING-A-SYNTHETIC');
+        foreach (['tomorrow', '2026-11-31 12:30:00', '2026-11-25 12:30:99', '2026-11-25 12:30:00+04:00'] as $invalid) {
+            DB::table('ocpi_credential_links')->where('provider_id', $p->id)->update(['bootstrap_expires_at' => $invalid]);
+            $this->getJson($url)->assertOk()->assertJsonPath('state', 'enrollment_expired')
+                ->assertJsonPath('bootstrap_expires_at', null)->assertJsonPath('available_actions', []);
+            $this->getJson('/api/roaming-protocol/versions', $headers)->assertUnauthorized();
+            $this->postJson('/api/roaming-protocol/2.2.1/credentials', $this->peer('INCOMING-B'), $headers)->assertUnauthorized();
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_credential_operations', 1);
+        $this->assertDatabaseHas('ocpi_credential_links', ['provider_id' => $p->id, 'state' => 'awaiting_registration']);
+    }
+
+    public function test_changed_bootstrap_expiry_stops_peer_proof_before_second_request(): void
+    {
+        [$p, $admin, , $url] = $this->incomingFixture();
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-11-25T12:00:00Z'));
+        $this->actingAs($admin)->postJson($url, $this->intent('prepare_incoming'))->assertOk();
+        Http::fake(function ($request) use ($p) {
+            $this->assertStringEndsWith('/ocpi/versions', $request->url());
+            DB::table('ocpi_credential_links')->where('provider_id', $p->id)
+                ->update(['bootstrap_expires_at' => now('UTC')->addMinutes(25)]);
+
+            return Http::response($this->envelope([['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]));
+        });
+        $this->postJson('/api/roaming-protocol/2.2.1/credentials', $this->peer('INCOMING-B'),
+            $this->protocol('INCOMING-A-SYNTHETIC'))->assertUnauthorized();
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_credential_operations', 1);
+        $this->assertDatabaseHas('ocpi_credential_links', ['provider_id' => $p->id, 'state' => 'awaiting_registration']);
+        $this->assertDatabaseMissing('ocpi_credential_operations', ['action' => 'peer_register']);
+    }
+
     public function test_existing_outbound_credentials_keep_their_published_fingerprint_after_upgrade(): void
     {
         [$p] = $this->fixture();

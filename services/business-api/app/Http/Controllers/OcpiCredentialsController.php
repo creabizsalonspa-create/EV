@@ -5,10 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\User;
 use App\Services\Ocpi\CredentialExchange;
+use App\Services\Ocpi\EnrollmentExpiry;
 use App\Services\Ocpi\IncomingEnrollment;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerCapabilityMatrix;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -65,7 +65,7 @@ class OcpiCredentialsController extends Controller
             if ($link && $link->owner_id !== $provider->owner_id) {
                 $state = 'ownership_changed';
             }
-            if ($link && $state === 'awaiting_registration' && (! $link->bootstrap_expires_at || CarbonImmutable::parse($link->bootstrap_expires_at)->isPast())) {
+            if ($link && $state === 'awaiting_registration' && ! EnrollmentExpiry::future($link->bootstrap_expires_at, now('UTC'))) {
                 $state = 'enrollment_expired';
             }
             $actions = [];
@@ -110,7 +110,7 @@ class OcpiCredentialsController extends Controller
                 $ownerActive, $receiverModules, $activeReceivers
             );
 
-            return response()->json(['capability_matrix' => $capabilities, 'configured_receiver_modules' => $receiverModules, 'active_receiver_modules' => $activeReceivers, 'configured' => $configured, 'state' => $state, 'generation' => $link->generation ?? 0, 'exchanged_at' => $link->exchanged_at ?? null, 'bootstrap_expires_at' => $link->bootstrap_expires_at ?? null, 'available_actions' => $actions, 'partner_acceptance_verified' => false, 'charging_commands_enabled' => false, 'billing_eligible' => false, 'operations' => DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)->orderByDesc('id')->paginate(25, ['id', 'generation', 'action', 'state', 'attempted_at', 'completed_at', 'created_at'])->toArray()])->header('Cache-Control', 'private, no-store');
+            return response()->json(['capability_matrix' => $capabilities, 'configured_receiver_modules' => $receiverModules, 'active_receiver_modules' => $activeReceivers, 'configured' => $configured, 'state' => $state, 'generation' => $link->generation ?? 0, 'exchanged_at' => $link->exchanged_at ?? null, 'bootstrap_expires_at' => EnrollmentExpiry::parse($link->bootstrap_expires_at ?? null) !== null ? $link->bootstrap_expires_at : null, 'available_actions' => $actions, 'partner_acceptance_verified' => false, 'charging_commands_enabled' => false, 'billing_eligible' => false, 'operations' => DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)->orderByDesc('id')->paginate(25, ['id', 'generation', 'action', 'state', 'attempted_at', 'completed_at', 'created_at'])->toArray()])->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 

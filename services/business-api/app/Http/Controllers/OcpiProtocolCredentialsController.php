@@ -6,9 +6,9 @@ use App\Models\OcpiProvider;
 use App\Models\User;
 use App\Services\Ocpi\CpoCatalogContract;
 use App\Services\Ocpi\CredentialExchange;
+use App\Services\Ocpi\EnrollmentExpiry;
 use App\Services\Ocpi\IncomingEnrollment;
 use App\Services\Ocpi\OcpiMessageHeaders;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -33,7 +33,7 @@ class OcpiProtocolCredentialsController extends Controller
         // read-only discovery, never credentials reads/updates or any modules.
         $provisional = $link->state === 'dispatching' && $r->isMethod('GET') && in_array($resource, ['versions', 'details'], true)
             && DB::table('ocpi_credential_operations')->where('provider_id', $link->provider_id)->where('generation', $link->generation)->where('state', 'dispatching')->whereIn('action', ['register', 'rotate'])->where('attempted_at', '>=', now()->subSeconds(60))->exists();
-        $enrolling = $link->state === 'awaiting_registration' && $link->bootstrap_expires_at && CarbonImmutable::parse($link->bootstrap_expires_at)->isFuture() && (($r->isMethod('GET') && in_array($resource, ['versions', 'details'], true)) || ($r->isMethod('POST') && $resource === 'credentials'));
+        $enrolling = $link->state === 'awaiting_registration' && EnrollmentExpiry::future($link->bootstrap_expires_at, now('UTC')) && (($r->isMethod('GET') && in_array($resource, ['versions', 'details'], true)) || ($r->isMethod('POST') && $resource === 'credentials'));
         abort_unless($link->state === 'active' || $provisional || $enrolling, 401);
         $p = OcpiProvider::findOrFail($link->provider_id);
         abort_unless($p->authorized && $p->owner_id === $link->owner_id && User::whereKey($p->owner_id)->where('role', 'vendor')->exists() && ($resource !== 'catalog' || User::whereKey($p->owner_id)->where('account_status', 'active')->exists()) && hash_equals($link->configuration_hash, $exchange->configurationHash($p)), 401);

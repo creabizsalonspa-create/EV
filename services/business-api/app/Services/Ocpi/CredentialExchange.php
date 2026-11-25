@@ -4,7 +4,6 @@ namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
-use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Crypt;
@@ -155,7 +154,8 @@ class CredentialExchange
                 && $currentLink->state === $peerLink->state && $currentLink->generation === $peerLink->generation
                 && $currentLink->local_token_digest === $peerLink->local_token_digest
                 && ($currentLink->state === 'active' || ($currentLink->state === 'awaiting_registration'
-                    && $currentLink->bootstrap_expires_at && CarbonImmutable::parse($currentLink->bootstrap_expires_at)->isFuture()))
+                    && EnrollmentExpiry::same($peerLink->bootstrap_expires_at, $currentLink->bootstrap_expires_at)
+                    && EnrollmentExpiry::future($currentLink->bootstrap_expires_at, now('UTC'))))
                 && hash_equals($peerLink->configuration_hash, $currentLink->configuration_hash)
                 && hash_equals($peerLink->configuration_hash, $this->configurationHash($current)), 401);
         }
