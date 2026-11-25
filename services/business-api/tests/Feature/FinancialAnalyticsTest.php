@@ -55,6 +55,39 @@ class FinancialAnalyticsTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_matching_aggregate_cannot_hide_invalid_posting_rows_or_journal_denomination(): void
+    {
+        $f = $this->fixture();
+        $before = DB::table('finance_journals')->count();
+        // Historical import simulation: no immutable triggers are disabled.
+        // Opposite posting amounts would disappear into the original 1050
+        // aggregate if the analytics validated only the final sum.
+        foreach ([50, -50] as $index => $amount) {
+            $journal = DB::table('finance_journals')->insertGetId([
+                'invoice_id' => $f['invoice']->id, 'kind' => 'payment',
+                'idempotency_key' => 'analytics-bad-import-'.$index,
+                'fingerprint' => hash('sha256', 'bad-import-'.$index),
+                'currency' => $index === 0 ? 'USD' : 'AED',
+                'amount_minor' => $amount, 'created_at' => now(),
+            ]);
+            DB::table('finance_payments')->insert([
+                'invoice_id' => $f['invoice']->id, 'journal_id' => $journal,
+                'actor_id' => $f['customer']->id, 'amount_minor' => $amount,
+                'evidence' => 'SIMULATED', 'created_at' => now(),
+            ]);
+        }
+
+        foreach ([$f['customer'], $f['vendor'], $f['maker']] as $reader) {
+            $this->actingAs($reader)->getJson('/api/financial/analytics')->assertConflict();
+            $this->get('/api/financial/analytics/export')->assertConflict();
+            $this->get('/api/financial/analytics/pdf')->assertConflict();
+        }
+        $this->actingAs(User::factory()->create())->getJson('/api/financial/analytics')
+            ->assertOk()->assertJsonCount(0, 'groups');
+        $this->assertSame($before + 2, DB::table('finance_journals')->count());
+        Http::assertNothingSent();
+    }
+
     public function test_customer_vendor_and_native_api_scopes_cannot_select_another_actor(): void
     {
         $f = $this->fixture();
@@ -150,6 +183,39 @@ class FinancialAnalyticsTest extends TestCase
         $this->assertSame('overdue_1_30', $this->group($aged, 'corporate_receivable')['state']);
         $service->simulatePayment($s->id, $f['owner']->id, 'aging-pay');
         $this->assertSame([], $this->group(app(FinancialAnalytics::class)->report($f['owner'], ['from' => now()->subDays(50)->toDateString()]), 'corporate_receivable'));
+    }
+
+    public function test_old_invalid_payment_cannot_disappear_from_current_corporate_aging(): void
+    {
+        $this->travelTo(now()->subDays(10));
+        $f = (require base_path('tests/Fixtures/corporate-billing.php'))();
+        $service = app(CorporateBilling::class);
+        $service->issue($f['a']->id, $f['owner']->id, [
+            'period' => now()->format('Y-m'), 'claim_ids' => [$f['claims'][0]->id],
+            'idempotency_key' => 'aging-invalid-import',
+        ]);
+        $invoice = $f['invoices'][0];
+        $journal = DB::table('finance_journals')->insertGetId([
+            'invoice_id' => $invoice->id, 'kind' => 'payment',
+            'idempotency_key' => 'aging-imported-payment',
+            'fingerprint' => hash('sha256', 'aging-imported-payment'),
+            'currency' => 'USD', 'amount_minor' => $invoice->total_minor, 'created_at' => now(),
+        ]);
+        DB::table('finance_payments')->insert([
+            'invoice_id' => $invoice->id, 'journal_id' => $journal,
+            'actor_id' => $f['driver']->id, 'amount_minor' => $invoice->total_minor,
+            'evidence' => 'SIMULATED', 'created_at' => now(),
+        ]);
+        $before = DB::table('finance_journals')->count();
+        $this->travel(10)->days();
+
+        // A fleet owner has no personal ownership of the driver's charging
+        // postings, but must not receive a false settled receivable report.
+        $this->actingAs($f['owner'])->getJson('/api/financial/analytics')->assertConflict();
+        $this->get('/api/financial/analytics/export')->assertConflict();
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('corporate_receipts', 0);
+        Http::assertNothingSent();
     }
 
     public function test_filters_date_bounds_and_private_csv_export_are_fail_closed(): void
