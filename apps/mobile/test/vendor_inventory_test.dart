@@ -162,7 +162,7 @@ void main() {
     await tester.pumpWidget(app(VendorInventoryView(api:api,onExpired:(){})));
     await tester.pumpAndSettle();
     final navigate=tester.widget<FilledButton>(find.widgetWithText(FilledButton,'Sites')).onPressed!;
-    final refresh=tester.widget<IconButton>(find.byTooltip('Refresh')).onPressed!;
+    final refresh=tester.widget<IconButton>(find.byWidgetPredicate((w) => w is IconButton && w.tooltip == 'Refresh')).onPressed!;
     final count=api.requests.length;
     api.rotate();
     await tester.pumpAndSettle();
