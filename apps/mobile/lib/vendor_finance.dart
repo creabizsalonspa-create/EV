@@ -1003,7 +1003,17 @@ class VendorPayableView extends StatefulWidget {
   State<VendorPayableView> createState() => _VendorPayableState();
 }
 
-class _VendorPayableState extends State<VendorPayableView> {
+class _VendorPayableState extends State<VendorPayableView> with WidgetsBindingObserver {
+  late bool Function() authorized;
+  StreamSubscription<int>? sessionEvents;
+  bool foreground = true, retired = false;
+  bool get active => mounted && foreground && !retired && authorized();
+  bool current(int epoch) => active && epoch == generation;
+  bool get top => ModalRoute.of(context)?.isCurrent ?? true;
+  void redact() {
+    statement = null; operation = null; owner = 0;
+    consent = false; done = false; busy = false; error = null;
+  }
   Map<String, dynamic>? statement;
   FinancialOperation? operation;
   int owner = 0, generation = 0;
@@ -1013,12 +1023,41 @@ class _VendorPayableState extends State<VendorPayableView> {
   @override
   void initState() {
     super.initState();
-    load();
+    authorized = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    final api = widget.api;
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (mounted && identical(api,widget.api) && !authorized()) {
+        setState(() { retired = true; redact(); });
+      }
+    });
+    if (active) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant VendorPayableView old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.api,widget.api) || old.currency != widget.currency ||
+        !identical(old.store,widget.store)) {
+      generation++; retired = true; redact();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    final next = state == AppLifecycleState.resumed;
+    if (next == foreground) return;
+    setState(() { foreground = next; generation++; redact(); });
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(sessionEvents?.cancel());
     super.dispose();
   }
 
@@ -1032,29 +1071,35 @@ class _VendorPayableState extends State<VendorPayableView> {
   }
 
   Future<void> load() async {
-    final epoch = ++generation;
+    if (!active || busy) return;
+    final epoch = ++generation, api = widget.api, currency = widget.currency;
     setState(() {
       busy = true;
       error = null;
       statement = null;
+      consent = false;
     });
     try {
-      final me = await widget.api.request('me');
+      final me = await api.request('me');
+      if (!current(epoch)) return;
       if (me['role'] != 'vendor' ||
           me['id'] is! int ||
-          !RegExp(r'^[A-Z]{3}$').hasMatch(widget.currency))
+          me['id'] <= 0 ||
+          !RegExp(r'^[A-Z]{3}$').hasMatch(currency))
         throw const ApiException(403, 'Vendor role required.');
-      owner = me['id'] as int;
+      final actor = me['id'] as int;
+      if (owner != 0 && owner != actor)
+        throw const FormatException('Vendor scope changed.');
       final data = Map<String, dynamic>.from(
-        await widget.api.request(
-              'commercial/vendors/$owner/statement',
-              query: {'currency': widget.currency},
+        await api.request(
+              'commercial/vendors/$actor/statement',
+              query: {'currency': currency},
             )
             as Map,
       );
-      if (!mounted || epoch != generation) return;
-      if (data['vendor_id'] != owner ||
-          data['currency'] != widget.currency ||
+      if (!current(epoch)) return;
+      if (data['vendor_id'] != actor ||
+          data['currency'] != currency ||
           data['real_payout_enabled'] != false ||
           data['evidence'] != 'SIMULATED' ||
           data['eligible_to_request'] is! bool)
@@ -1064,61 +1109,79 @@ class _VendorPayableState extends State<VendorPayableView> {
           operation ??
           FinancialOperation(
             widget.store ?? DeviceFinancialOperationStore(),
-            '${widget.api.base.origin}:$owner:settlement:${widget.currency}',
-            isCurrent: widget.api.sessionFence(),
+            '${api.base.origin}:$actor:settlement:$currency',
+            isCurrent: () => active && identical(api,widget.api),
           );
       if (operation == null) await op.restore();
-      if (!mounted || epoch != generation) return;
+      if (!current(epoch)) return;
+      owner = actor;
       operation = op;
       statement = data;
     } catch (e) {
-      if (mounted && epoch == generation) fail(e);
+      if (current(epoch)) fail(e);
+      else if (mounted && foreground && epoch == generation &&
+          e is ApiException && e.endsCurrentSession) widget.onExpired();
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> submit() async {
-    if (busy || !consent || operation == null || done) return;
+    if (!active || !top || busy || !consent || operation == null || done ||
+        statement == null || (statement!['eligible_to_request'] != true && operation!.pending == null)) return;
+    final epoch = ++generation, api = widget.api, actor = owner, currency = widget.currency,
+        op = operation!, reviewed = statement!;
     setState(() {
       busy = true;
+      consent = false;
       error = null;
     });
     try {
-      final body = await operation!.prepare({'currency': widget.currency});
-      if (!mounted) return;
-      final result = await widget.api.request(
-        'commercial/vendors/$owner/settlements',
+      final body = await op.prepare({'currency': currency});
+      if (!current(epoch) || !top || !identical(op,operation) || !identical(reviewed,statement)) return;
+      final result = await api.request(
+        'commercial/vendors/$actor/settlements',
         method: 'POST',
         body: body,
       );
+      if (!current(epoch)) return;
       if (result is! Map ||
-          result['id'] is! int ||
-          result['vendor_id'] != owner ||
-          result['currency'] != widget.currency ||
+          result['id'] is! int || result['id'] <= 0 ||
+          result['vendor_id'] != actor ||
+          result['currency'] != currency ||
+          result['minor_units'] != reviewed['minor_units'] ||
           result['evidence'] != 'SIMULATED')
         throw const FormatException('Unsupported settlement receipt.');
-      if (!mounted) return;
       nativeFinancialAmount(
         context,
         Map<String, dynamic>.from(result),
         'amount_minor',
       );
-      await operation!.confirmed();
-      if (mounted)
+      await op.confirmed();
+      if (current(epoch))
         setState(() {
           done = true;
           consent = false;
         });
     } catch (e) {
-      if (mounted) fail(e);
+      if (current(epoch)) {
+        fail(e);
+        // The durable original intent remains. A new review is mandatory.
+        statement = null;
+      } else if (mounted && foreground && epoch == generation &&
+          e is ApiException && e.endsCurrentSession) widget.onExpired();
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
+  Widget build(BuildContext c) {
+    final rendered = generation;
+    bool usable() => current(rendered) && top && !busy;
+    if (!active) return Scaffold(appBar:AppBar(title:Text(t('balance'))),
+      body:Center(child:Text(t('notice'))));
+    return Scaffold(
     appBar: AppBar(title: Text(t('balance'))),
     body: ListView(
       padding: const EdgeInsets.all(16),
@@ -1126,7 +1189,7 @@ class _VendorPayableState extends State<VendorPayableView> {
         Text(t('notice')),
         Text(t('requestNotice')),
         OutlinedButton(
-          onPressed: busy ? null : load,
+          onPressed: busy ? null : () { if (usable()) load(); },
           child: Text(t('refresh')),
         ),
         if (busy) const Center(child: CircularProgressIndicator()),
@@ -1143,17 +1206,18 @@ class _VendorPayableState extends State<VendorPayableView> {
                 operation?.pending != null)) ...[
           CheckboxListTile(
             value: consent,
-            onChanged: busy ? null : (v) => setState(() => consent = v!),
+            onChanged: busy ? null : (v) { if (usable()) setState(() => consent = v == true); },
             title: Text(t('requestNotice')),
           ),
           FilledButton(
-            onPressed: busy || !consent || operation == null ? null : submit,
+            onPressed: busy || !consent || operation == null ? null : () { if (usable()) submit(); },
             child: Text(t('requestSettlement')),
           ),
         ],
       ],
     ),
   );
+  }
 }
 
 /// Read-only projection of the canonical settlement service, never a ledger.
