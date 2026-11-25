@@ -242,6 +242,47 @@ class PartnerLocationDiscoveryTest extends TestCase
         $response->assertDontSee('NEVER_PUBLISH_');
     }
 
+    public function test_malformed_allowed_fields_never_publish_nested_private_data_across_discovery_surfaces(): void
+    {
+        $provider = $this->provider();
+        $record = $this->location($provider, 'typed-projection', 25.2, 55.3);
+        $customer = User::factory()->create(['role' => 'customer', 'account_status' => 'active']);
+        $this->actingAs($customer)->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
+        $private = ['credential' => 'NEVER_PUBLISH_MALFORMED_PRIVATE_VALUE'];
+        $record->update(['normalized' => array_replace($record->normalized, [
+            'name' => $private, 'address' => $private, 'latitude' => $private, 'longitude' => true,
+            'connector_standards' => ['IEC_62196_T2_COMBO', $private],
+            'evses' => [
+                ['uid' => $private, 'reported_status' => 'AVAILABLE', 'connectors' => []],
+                ['uid' => 'valid-evse', 'reported_status' => $private, 'connectors' => [
+                    ['id' => $private, 'standard' => 'CHADEMO'],
+                    ['id' => 'bad-standard', 'standard' => $private],
+                    ['id' => 'valid-connector', 'standard' => 'IEC_62196_T2_COMBO'],
+                ]],
+            ],
+        ])]);
+        foreach (['/api/roaming/locations', '/api/discovery/search?scope=partner',
+            '/api/v1/discovery/search?scope=partner', '/api/roaming/favorites'] as $path) {
+            $this->getJson($path)->assertOk()->assertJsonCount(1, 'data')
+                ->assertJsonPath('data.0.location.name', null)
+                ->assertJsonPath('data.0.location.address', null)
+                ->assertJsonPath('data.0.location.latitude', null)
+                ->assertJsonPath('data.0.location.longitude', null)
+                ->assertJsonPath('data.0.location.connector_standards', ['IEC_62196_T2_COMBO'])
+                ->assertJsonCount(1, 'data.0.location.evses')
+                ->assertJsonPath('data.0.location.evses.0.reported_status', 'UNKNOWN')
+                ->assertJsonPath('data.0.location.evses.0.uid', 'valid-evse')
+                ->assertJsonCount(1, 'data.0.location.evses.0.connectors')
+                ->assertJsonPath('data.0.location.evses.0.connectors.0.id', 'valid-connector')
+                ->assertJsonPath('data.0.location.availability', 'unknown')
+                ->assertJsonPath('data.0.location.remote_control', false)
+                ->assertJsonPath('data.0.location.reservable', false)
+                ->assertDontSee('NEVER_PUBLISH_MALFORMED_PRIVATE_VALUE');
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_source_age_filter_rejects_stale_future_and_invalid_values(): void
     {
         $provider = $this->provider();
