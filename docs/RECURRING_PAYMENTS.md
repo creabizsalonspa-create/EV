@@ -16,6 +16,14 @@ SCA authenticates the **existing** PaymentIntent, uses the existing durable reco
 
 Existing immutable day1/3/7 in-app reminders are preserved. Reminder screens themselves do not initiate collection. External email/SMS/push delivery remains a separate adapter requirement.
 
+## Current-account authority and bounded collection
+
+Private recurring payment lists and local consent mutations pin the persisted account identity, status, role, credential hash and authentication epoch inside the transaction. Hosted enrollment commits its durable request and lease first, then rechecks ownership, current consent version and lease before each provider I/O transaction. Confirmed encrypted customer evidence survives a subsequent hosted session timeout; an ambiguous session remains recoverable under the existing enrollment identity. Owner-driven inspection and detachment serialize with account revocation. Suspended accounts and obsolete consent terms cannot activate a new mandate, even through a signed enrollment callback. Historical payment recovery remains separate and does not infer a replacement charge.
+
+The collection scanner excludes suspended/non-payer accounts, mismatched policy owners, future leases, and cancelled or disabled subscriptions with no existing checkout. It retains eligible existing checkout recovery work and never removes historical receipts or policies merely because an account is suspended. Reactivated accounts may resume only under still-current verified consent; suspension is not a contractual cancellation. This is a partial security/availability slice, not production acceptance.
+
+Regression coverage extends SubscriptionRecurringTest and RecurringConsentAuthorityTest for callback suspension/consent change, durable customer evidence after a lost hosted response, stale account reads and actions, no collection while suspended, and bounded scan fairness. A local equivalent SQLite predicate fixture covered 16 invoice conditions (including existing recovery and expired leases), limit-one fairness, and reactivation. The actual Laravel and PostgreSQL application suites remain unexecuted in this session.
+
 ## Configuration and operation
 
 Use `services/business-api/.env.example`; leave collection disabled by default. For an authorized sandbox configure `PAYMENT_PROVIDER=stripe_test`, `STRIPE_TEST_SECRET` (`sk_test_…` only), `STRIPE_TEST_WEBHOOK_SECRET`, an operator-controlled HTTPS `PAYMENT_HOSTED_RETURN_URL`, and explicitly enable `SUBSCRIPTION_COLLECTION_ENABLED=true`. Never place these secrets in Flutter, browser bundles, docs or logs. Provider API endpoint and version remain fixed; redirects are disabled on server HTTP requests. Only `checkout.stripe.com` and `hooks.stripe.com` HTTPS action links are accepted by the clients.
