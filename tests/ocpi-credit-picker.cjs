@@ -110,11 +110,40 @@ withSource(async (f) => {
       ),
       false,
     );
-    await page.locator("#logout").click();
+    // The UI erases private views immediately, before the logout request
+    // completes. Closing the context at that point can cancel server logout.
+    // Wait for the exact same-origin POST acknowledgement, not just hiding.
+    const logoutUrl = new URL("/api/logout", f.base).href;
+    const [logout] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url() === logoutUrl &&
+          response.request().method() === "POST",
+      ),
+      page.locator("#logout").click(),
+    ]);
+    assert.equal(logout.status(), 204, "Browser logout must be acknowledged");
+    const logoutHeaders = await logout.request().allHeaders();
+    const revokedCookie = logoutHeaders.cookie;
+    assert(Boolean(revokedCookie), "Logout must carry the browser session");
     await page.waitForFunction(
-      () => document.querySelector("#commercial-finance").hidden,
+      () =>
+        document.querySelector("#commercial-finance").hidden &&
+        document.querySelector("#logout-retry").hidden &&
+        sessionStorage.getItem("creabiz.logout-pending") !== "1",
     );
     assert.equal(await root.textContent(), "");
+    // Independently replay the exact cookie that was sent on logout.
+    // Assert only the status; never print cookies or private invoice content.
+    const revokedRead = await fetch(
+      new URL(`/api/finance/invoices/${invoice.id}`, f.base),
+      {
+        headers: { Accept: "application/json", Cookie: revokedCookie },
+        redirect: "error",
+        signal: AbortSignal.timeout(30000),
+      },
+    );
+    assert.equal(revokedRead.status, 401, "Logged-out browser cookie must be denied");
     await context.close();
     const owner = new BusinessClient({ base: f.base });
     owner.csrf = (await owner.request("csrf")).token;
