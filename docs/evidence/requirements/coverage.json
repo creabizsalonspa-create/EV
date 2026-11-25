@@ -174,18 +174,24 @@
       "test_result": "passed",
       "merge_sha": "775b0b8e18f5f285ef613725de2dd60e9d361e36",
       "evidence": "docs/evidence/integrated-checkpoints-20261123/pr205-verified.json"
+    },
+    "pr337favorites": {
+      "source_sha": "37ff9816b6dcd59c0693f3a2d1ed1b8b20e4f422",
+      "test_result": "passed",
+      "merge_sha": "a25e7cf1668a30cc0d98c24bf9449d5de5664525",
+      "evidence": "docs/evidence/integrated-checkpoints-20261125/pr337-favorites.json"
     }
   },
   "weighted_percent": {
-    "coded": "61.07",
-    "tested": "61.07",
-    "merged": "61.07",
+    "coded": "61.33",
+    "tested": "61.33",
+    "merged": "61.33",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "577667/945945",
-    "tested": "577667/945945",
-    "merged": "577667/945945",
+    "coded": "1160339/1891890",
+    "tested": "1160339/1891890",
+    "merged": "1160339/1891890",
     "production_accepted": "0"
   },
   "categories": [
@@ -428,9 +434,9 @@
       "requirement": "Search, maps, routes, favorites, reviews",
       "atoms": 9,
       "counts": {
-        "coded": 5,
-        "tested": 5,
-        "merged": 5,
+        "coded": 6,
+        "tested": 6,
+        "merged": 6,
         "production_accepted": 0
       },
       "details": [
@@ -528,13 +534,13 @@
         {
           "id": "2.3.8",
           "software_atom": "Favorites",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Canonical private favorites are merged across Laravel/web/Flutter in PR16; partner favorites remain incomplete. No whole-atom credit.",
+          "coded": true,
+          "checkpoint": "pr337favorites",
+          "note": "Audited canonical and authorized OCPI partner favorites across Laravel, web and Flutter; typed saved-only union, independent customer ownership, authoritative refresh after uncertain writes, revoked partner redaction and removal. All eight exact-source PR337 jobs passed; merged tree identical. Transient licensed reports are discovery-only; live acceptance excluded.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },

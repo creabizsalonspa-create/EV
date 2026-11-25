@@ -8,9 +8,9 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 
 | Stage | Weighted coverage |
 |---|---:|
-| coded | 61.07% |
-| tested | 61.07% |
-| merged | 61.07% |
+| coded | 61.33% |
+| tested | 61.33% |
+| merged | 61.33% |
 | production_accepted | 0.00% |
 
 Production acceptance: 0.00% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.
@@ -19,7 +19,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 |---|---|---:|---:|---:|---:|---:|
 | 2.1 | Identity, verification, 2FA, privacy | 9 | 8/9 | 8/9 | 8/9 | 0/9 |
 | 2.2 | EV garage and driver preferences | 7 | 6/7 | 6/7 | 6/7 | 0/7 |
-| 2.3 | Search, maps, routes, favorites, reviews | 9 | 5/9 | 5/9 | 5/9 | 0/9 |
+| 2.3 | Search, maps, routes, favorites, reviews | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
 | 2.4 | Location/connector details and pricing terms | 8 | 6/8 | 6/8 | 6/8 | 0/8 |
 | 2.5 | Owned and network discovery | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
 | 2.6 | Reservations and occupancy policy | 7 | 6/7 | 6/7 | 6/7 | 0/7 |
@@ -95,7 +95,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `2.3.5` [—] Address/operator/access/price filters (evidence: none).
 - `2.3.6` [—] Supported live availability filters (evidence: none).
 - `2.3.7` [CTM] Routes and navigation (evidence: pr19).
-- `2.3.8` [—] Favorites (evidence: none).
+- `2.3.8` [CTM] Favorites (evidence: pr337favorites).
 - `2.3.9` [CTM] Reviews/ratings and moderation (evidence: pr46).
 
 ### 2.4 Location/connector details and pricing terms
