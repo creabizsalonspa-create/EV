@@ -12,6 +12,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\Support\CreatesUnpaidCreditInvoice;
 use Tests\TestCase;
 
@@ -168,7 +169,7 @@ class PrivacyAccessExportTest extends TestCase
             try {
                 DB::transaction(fn () => $exports->snapshot($actor, $record));
                 $this->fail('Unrelated or unauthorized privacy snapshot was generated.');
-            } catch (\Symfony\Component\HttpKernel\Exception\HttpException $error) {
+            } catch (HttpException $error) {
                 $this->assertSame(409, $error->getStatusCode());
             }
         }
