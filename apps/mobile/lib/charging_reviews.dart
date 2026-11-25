@@ -133,19 +133,92 @@ class _ReviewsState extends State<ChargingReviewsView>
     if (active) load();
   }
 
-  void contract(Map<String, dynamic> row) {
-    if (![
-          'SIMULATED_SOURCE_OBSERVED',
-          'SIMULATED_APP_ONLY',
-        ].contains(row['evidence']) ||
+  static const sources=['SIMULATED_SOURCE_OBSERVED','SIMULATED_APP_ONLY'];
+  static const states=['pending','published','rejected','hidden','withdrawn'];
+  bool positive(dynamic v)=>v is int&&v>0;
+  bool content(dynamic v)=>v is String&&v.trim().length>=3&&v.length<=2000;
+  bool validRating(dynamic v)=>v is int&&v>=1&&v<=5;
+  void contract(Map<String,dynamic> row,{bool private=false}) {
+    if (!sources.contains(row['evidence']) ||
         row['physical_charging_verified'] != false ||
-        row['rating'] is! int ||
-        (row['rating'] as int) < 1 ||
-        (row['rating'] as int) > 5 ||
-        row['body'] is! String)
+        !validRating(row['rating']) || !content(row['body']) ||
+        row['public_id'] is! String || (row['public_id'] as String).trim().isEmpty ||
+        row['created_at'] is! String ||
+        (private&&(!positive(row['id'])||!positive(row['session_id'])||
+          !positive(row['station_id'])||!positive(row['version'])||
+          !positive(row['revision'])||row['revision']>row['version']||
+          !states.contains(row['state'])))) {
       throw const FormatException('Unexpected review evidence');
+    }
   }
-
+  void eligibleContract(Map<String,dynamic> row) {
+    if(!positive(row['session_id'])||row['physical_charging_verified']!=false||
+       row['can_review'] is! bool||
+       (row['evidence']=='INELIGIBLE'?row['can_review']!=false:
+         (!sources.contains(row['evidence'])||!positive(row['station_id'])||
+          row['station_name'] is! String||
+          (row['existing_review_id']!=null&&!positive(row['existing_review_id']))||
+          (row['can_review']==true&&row['existing_review_id']!=null)))) {
+      throw const FormatException('Invalid eligible feedback evidence');
+    }
+  }
+  void historyContract(Map<String,dynamic> row) {
+    final action=row['action'];
+    if(!['create','revise','withdraw','publish','reject','hide'].contains(action)||
+       !positive(row['version'])||!positive(row['revision'])||
+       row['revision']>row['version']||row['created_at'] is! String||
+       (['create','revise'].contains(action)?
+         (!validRating(row['rating'])||!content(row['body'])):
+         (row['rating']!=null||row['body']!=null))||
+       (['publish','reject','hide'].contains(action)?
+          (row['reason'] is! String||(row['reason'] as String).trim().length<5||
+            (row['reason'] as String).length>500):row['reason']!=null)) {
+      throw const FormatException('Invalid feedback history');
+    }
+  }
+  Map<String,dynamic> validatedPage(dynamic raw) {
+    final result=Map<String,dynamic>.from(raw as Map);
+    final rows=result['data'], last=result['last_page'], total=result['total'];
+    if(rows is! List||rows.length>20||!positive(last)||total is! int||
+       total<0||rows.length>total||result['current_page']!=page){
+      throw const FormatException('Invalid feedback page');
+    }
+    if(['mine','eligible'].contains(mode)&&result['terms_version']!='charging-feedback-v1'){
+      throw const FormatException('Unrecognized publication terms');
+    }
+    if(mode=='public'){
+      final groups=result['groups'];
+      if(result['physical_charging_verified']!=false||result['station_name'] is! String||
+         groups is! List||groups.length!=2)throw const FormatException('Invalid public evidence');
+      final seen=<String>{};
+      var countTotal=0;
+      for(final group in groups){
+        if(group is! Map||!sources.contains(group['evidence'])||
+          !seen.add(group['evidence'] as String))throw const FormatException('Invalid public group');
+        final count=group['count'],sum=group['rating_sum'];
+        if(count is! int||count<0||sum is! int||sum<count||sum>count*5){
+          throw const FormatException('Invalid public rating total');
+        }
+        countTotal+=count;
+      }
+      if(countTotal!=total)throw const FormatException('Unreconciled public rating total');
+    }
+    final seen=<dynamic>{};
+    for(final value in rows){
+      final row=Map<String,dynamic>.from(value as Map);
+      if(mode=='eligible'){
+        eligibleContract(row);
+        if(!seen.add(row['session_id']))throw const FormatException('Duplicate session');
+      }else if(mode=='history'){
+        historyContract(row);
+        if(!seen.add(row['version']))throw const FormatException('Duplicate history version');
+      }else{
+        contract(row,private:mode=='mine'||(mode=='operations'&&widget.role=='admin'));
+        if(!seen.add(row['public_id']))throw const FormatException('Duplicate feedback');
+      }
+    }
+    return result;
+  }
   void failed(Object e) {
     message = tr(
       'Feedback unavailable. Refresh before another action.',
@@ -155,6 +228,7 @@ class _ReviewsState extends State<ChargingReviewsView>
     editing = null;
     body.clear();
     consent = false;
+    reviewed = false;
     if (e is ApiException && [401, 419].contains(e.status)) {
       pending = null;
       widget.onExpired();
@@ -175,6 +249,7 @@ class _ReviewsState extends State<ChargingReviewsView>
       body.clear();
       consent = false;
       rating = null;
+      reviewed = false;
       message = '';
     });
     try {
@@ -183,17 +258,9 @@ class _ReviewsState extends State<ChargingReviewsView>
           : mode == 'history'
           ? 'charging-reviews/$historyId/history'
           : 'charging-reviews/$mode';
-      final result = await api.request(path, query: {'page': '$page'});
+      final raw = await api.request(path, query: {'page': '$page'});
       if (!current(epoch,api)) return;
-      if (result['data'] is! List || result['last_page'] is! int)
-        throw const FormatException('Invalid feedback page');
-      if (mode == 'public' && result['physical_charging_verified'] != false)
-        throw const FormatException('Invalid public evidence');
-      if (!['eligible', 'history'].contains(mode)) {
-        for (final row in result['data'] as List) {
-          contract(Map<String, dynamic>.from(row as Map));
-        }
-      }
+      final result=validatedPage(raw);
       setState(() {
         data = result;
         terms = result['terms_version'] as String? ?? terms;
@@ -246,7 +313,15 @@ class _ReviewsState extends State<ChargingReviewsView>
         body: frozen['body'] as Map<String, dynamic>,
       );
       if (!current(epoch,api)) return;
-      contract(row);
+      contract(Map<String,dynamic>.from(row as Map),private:true);
+      final target=int.tryParse((frozen['path'] as String).split('/').last);
+      final method=frozen['method'], submitted=frozen['body'] as Map;
+      if((method=='POST'?row['session_id']!=target:row['id']!=target)||
+         (method!='POST'&&(submitted['expected_version'] is! int||row['version']<=submitted['expected_version']))){
+        throw const FormatException('Feedback acknowledgement identity mismatch');
+      }
+      // The service may return a newer review on idempotent replay. Do not
+      // claim its text/state equals the older submitted content: read source.
       pending = null;
       await load(widget.role == 'customer' ? 'mine' : 'operations');
     } catch (e) {
