@@ -12,6 +12,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class OcpiAuthorizationBoundaryTest extends TestCase
@@ -76,6 +77,51 @@ class OcpiAuthorizationBoundaryTest extends TestCase
         }
         Http::assertSentCount(1);
         $this->assertNull($p->fresh()->version);
+    }
+
+    #[TestWith(['versions_continuation', 1])]
+    #[TestWith(['versions_oversized', 1])]
+    #[TestWith(['details_continuation', 2])]
+    #[TestWith(['details_mapping', 2])]
+    #[TestWith(['details_oversized', 2])]
+    public function test_negotiation_rejects_incomplete_or_unbounded_capability_advertisements(string $kind, int $requests): void
+    {
+        $p = $this->provider();
+        $versions = $this->versions();
+        $details = $this->details();
+        $versionHeaders = [];
+        $detailHeaders = [];
+        if ($kind === 'versions_continuation') {
+            $versionHeaders['Link'] = '<?page=2>; type="application/json"; rel="next"';
+        } elseif ($kind === 'versions_oversized') {
+            for ($i = 0; $i < 20; $i++) {
+                $versions['data'][] = ['version' => '1.'.$i, 'url' => 'https://partner.example/old-'.$i];
+            }
+        } elseif ($kind === 'details_continuation') {
+            $detailHeaders['Link'] = '<?page=2>; rel="next"';
+        } elseif ($kind === 'details_mapping') {
+            $details['data']['endpoints'] = ['locations' => $details['data']['endpoints'][0]];
+        } elseif ($kind === 'details_oversized') {
+            for ($i = 0; $i < 30; $i++) {
+                $details['data']['endpoints'][] = ['identifier' => 'extension'.$i, 'role' => 'SENDER', 'url' => 'https://partner.example/extension'.$i];
+            }
+        }
+        Http::fake([
+            'https://partner.example/ocpi/versions' => Http::response($versions, 200, $versionHeaders),
+            'https://partner.example/details' => Http::response($details, 200, $detailHeaders),
+        ]);
+        try {
+            app(PartnerClient::class)->negotiate($p);
+            $this->fail('Incomplete or unbounded capability advertisement was published.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('Malformed', $error->getMessage());
+        }
+        Http::assertSentCount($requests);
+        $this->assertNull($p->fresh()->version);
+        $this->assertNull($p->fresh()->endpoints);
+        $this->assertSame(0, $p->fresh()->authorization_revision);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_connection_replacement_during_versions_cannot_dispatch_second_read(): void
