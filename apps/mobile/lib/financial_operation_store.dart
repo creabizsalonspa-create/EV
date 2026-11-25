@@ -97,6 +97,9 @@ class FinancialOperation {
       // Retain this screen's original identity even when another screen has already
       // acknowledged it. A stale retry must not silently allocate a fresh request.
       final saved = await store.read(scope);
+      // A revoked caller must not create or re-persist a durable intent after
+      // the independent asynchronous storage read has completed.
+      checkCurrent();
       pending ??= saved == null
           ? null
           : _freezeFinancialValue(saved) as Map<String, dynamic>;
