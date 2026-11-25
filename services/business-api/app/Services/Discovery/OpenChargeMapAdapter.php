@@ -335,12 +335,7 @@ final class OpenChargeMapAdapter
                     throw new LookupFailure('invalid_response');
                 }
             }
-            $json = json_decode($body, true, 48, JSON_THROW_ON_ERROR);
-            if (! is_array($json) || ! array_is_list($json)) {
-                throw new LookupFailure('invalid_response');
-            }
-
-            return $json;
+            return LicensedSourceDocument::records($body);
         } catch (LookupFailure $exception) {
             throw $exception;
         } catch (\Throwable) {

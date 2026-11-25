@@ -477,6 +477,34 @@ class OpenChargeMapDiscoveryTest extends TestCase
         Http::assertSentCount(4);
     }
 
+    public function test_non_list_or_invalid_json_is_not_cached_as_an_empty_licensed_sample(): void
+    {
+        config(['discovery.ocm_quality_enabled' => true]);
+        $point = $this->point();
+        Http::fakeSequence()
+            ->push('{}', 200, ['Content-Type' => 'application/json'])
+            ->push(json_encode((object) [$point], JSON_THROW_ON_ERROR), 200, ['Content-Type' => 'application/json'])
+            ->push('{"private":"NEVER_EXPOSE_PROVIDER_BODY"}', 200, ['Content-Type' => 'application/json'])
+            ->push('[', 200, ['Content-Type' => 'application/json'])
+            ->push(json_encode(array_fill(0, 26, $point), JSON_THROW_ON_ERROR), 200, ['Content-Type' => 'application/json'])
+            ->push('[]', 200, ['Content-Type' => 'application/json']);
+        $identity = LicensedSourceCache::identity(25.2, 55.3, 10, null, 'synthetic-private-ocm-key');
+        for ($i = 0; $i < 5; $i++) {
+            $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+                ->assertStatus(502)->assertJsonPath('reason', 'invalid_response')
+                ->assertDontSee('NEVER_EXPOSE_PROVIDER_BODY');
+            $this->assertNull(Cache::get('ocm-discovery:'.$identity));
+        }
+        $this->postJson('/api/v1/discovery/open-charge-map/search', $this->input())
+            ->assertOk()->assertJsonPath('count', 0);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+            ->assertOk()->assertJsonPath('count', 0);
+        Http::assertSentCount(6);
+        $samples = app(LicensedSourceQuality::class)->report()['samples'];
+        $this->assertSame(5, array_sum(array_column($samples, 'invalid_responses')));
+        $this->assertSame(1, array_sum(array_column($samples, 'successful_fetches')));
+    }
+
     public function test_provider_backoff_covers_other_coordinates_and_both_api_mounts_then_expires(): void
     {
         $this->travelTo(Carbon::parse('2026-11-20T01:00:00Z'));
