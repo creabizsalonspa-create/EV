@@ -132,6 +132,7 @@ void main() {
       expect(api.publications.single['commission_bps'], 0);
       expect(api.publications.single['expected_currency'], 'AED');
       expect(api.publications.single['expected_minor_units'], 2);
+      expect(api.publications.single['expected_active_tariff_id'], 1);
       expect(
         api.publications.single['idempotency_key'],
         matches(RegExp(r'^[a-f0-9]{32}$')),
