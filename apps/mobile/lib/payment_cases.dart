@@ -651,30 +651,132 @@ class CaseEvidenceView extends StatefulWidget {
   State<CaseEvidenceView> createState() => _EvidenceState();
 }
 
-class _EvidenceState extends State<CaseEvidenceView> {
+class _EvidenceState extends State<CaseEvidenceView>
+    with WidgetsBindingObserver {
   FinancialOperation? operation;
   ApiPage<Map<String, dynamic>>? page;
   VendorEvidence? file;
   String kind = 'service_record';
   bool busy = false, consent = false, done = false, canUpload = false;
+  bool choosingFile = false;
   Object? error;
   int generation = 0, target = 1;
+  bool foreground = true;
+  late final bool Function() sessionFence;
+  StreamSubscription<int>? session;
+  bool revoked = false;
+  int targetGeneration = 0;
+  bool authorized() => !revoked && sessionFence();
+  bool currentView(int view) => mounted && foreground && authorized() &&
+      view == generation;
+
   @override
   void initState() {
     super.initState();
-    load();
+    sessionFence = widget.api.sessionFence();
+    session = widget.api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      revoked = true;
+      generation++;
+      targetGeneration++;
+      redactFormerIdentity();
+    });
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    if (foreground) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant CaseEvidenceView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        oldWidget.caseId != widget.caseId ||
+        !identical(oldWidget.store, widget.store)) {
+      generation++;
+      targetGeneration++;
+      if (!identical(oldWidget.api, widget.api)) revoked = true;
+      operation = null;
+      page = null;
+      file = null;
+      kind = 'service_record';
+      busy = false;
+      consent = false;
+      done = false;
+      canUpload = false;
+      choosingFile = false;
+      error = null;
+      target = 1;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    // A system picker may briefly report inactive while retaining the current
+    // authenticated document selection. Hidden/paused/detached is a full
+    // background transition, even when inactive already changed foreground.
+    if (!resumed &&
+        state != AppLifecycleState.inactive &&
+        choosingFile) {
+      generation++;
+      targetGeneration++;
+      choosingFile = false;
+      foreground = false;
+      setState(() {
+        operation = null;
+        page = null;
+        file = null;
+        consent = false;
+        canUpload = false;
+        busy = false;
+        done = false;
+        error = null;
+      });
+      return;
+    }
+    if (foreground == resumed) return;
+    foreground = resumed;
+    if (!resumed) {
+      if (choosingFile) {
+        // System document pickers temporarily inactivate the app. The
+        // foreground guard hides the page without invalidating the picker.
+        // The original account fence still gates the returned file.
+        setState(() {});
+        return;
+      }
+      generation++;
+      targetGeneration++;
+      setState(() {
+        operation = null;
+        page = null;
+        file = null;
+        consent = false;
+        canUpload = false;
+        busy = false;
+        done = false;
+        error = null;
+      });
+    } else {
+      // Private file lists and upload identity require deliberate refresh.
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
     generation++;
+    session?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     file = null;
     super.dispose();
   }
 
   void validate(Map<String, dynamic> r) {
     if (r['id'] is! int ||
-        r['case_id'] != widget.caseId ||
+        r['id'] < 1 || r['id'] > 9007199254740991 ||
+        r['case_id'] is! int || r['case_id'] != widget.caseId ||
+        !['service_record', 'receipt', 'correspondence', 'other'].contains(r['kind']) ||
         r['evidence_status'] != 'PRIVATE_REVIEW_ONLY' ||
         r['provider_submitted'] != false ||
         r['sha256'] is! String ||
@@ -690,6 +792,20 @@ class _EvidenceState extends State<CaseEvidenceView> {
       throw const FormatException('Unsupported private evidence.');
   }
 
+  void redactFormerIdentity() {
+    setState(() {
+      page = null;
+      file = null;
+      operation = null;
+      consent = false;
+      canUpload = false;
+      choosingFile = false;
+      done = false;
+      error = null;
+      busy = false;
+    });
+  }
+
   void fail(Object e) {
     error = e;
     if (e is ApiException && [401, 419].contains(e.status)) {
@@ -701,55 +817,81 @@ class _EvidenceState extends State<CaseEvidenceView> {
   }
 
   Future<void> load({int number = 1}) async {
+    if (!foreground || !authorized() || number < 1 || number > 100000) return;
     final epoch = ++generation;
+    final api = widget.api;
+    final current = authorized;
     setState(() {
       busy = true;
       page = null;
       error = null;
       target = number;
+      canUpload = false;
     });
     try {
-      final me = await widget.api.request('me');
-      if (me['id'] is! int || me['id'] < 1)
+      final me = await api.request('me');
+      if (!mounted || !foreground || epoch != generation || !current() ||
+          !identical(api, widget.api)) return;
+      if (me is! Map || me['id'] is! int || me['id'] < 1 || me['id'] > 9007199254740991)
         throw const ApiException(403, 'Authenticated owner required.');
-      final raw = await widget.api.request(
+      final raw = await api.request(
         'commercial/cases/${widget.caseId}/evidence',
         query: {'page': '$number'},
       );
-      if (raw['can_upload'] is! bool)
+      if (!mounted || !foreground || epoch != generation || !current() ||
+          !identical(api, widget.api)) return;
+      if (raw is! Map || raw['can_upload'] is! bool)
         throw const FormatException('Unsupported case permission.');
       final parsed = ApiPage.fromJson(raw, (r) => r);
       for (final r in parsed.items) validate(r);
-      if (!mounted || epoch != generation) return;
+      final scopeGeneration = targetGeneration;
       final op =
           operation ??
           FinancialOperation(
             widget.store ?? DeviceFinancialOperationStore(),
-            '${widget.api.base.origin}:${me['id']}:case-evidence:${widget.caseId}',
-            isCurrent: widget.api.sessionFence(),
+            '${api.base.origin}:${me['id']}:case-evidence:${widget.caseId}',
+            isCurrent: () => mounted && foreground && current() &&
+                identical(api, widget.api) && scopeGeneration == targetGeneration,
           );
       if (operation == null) await op.restore();
-      if (!mounted || epoch != generation) return;
+      if (!mounted || !foreground || epoch != generation || !current() ||
+          !identical(api, widget.api)) return;
       operation = op;
       if (op.pending != null)
         kind = (op.pending!['body'] as Map)['kind'] as String;
       canUpload = raw['can_upload'] as bool;
       page = parsed;
     } catch (e) {
-      if (mounted && epoch == generation) fail(e);
+      if (mounted && foreground && epoch == generation && current() &&
+          identical(api, widget.api)) fail(e);
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && epoch == generation &&
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else if (foreground) {
+          setState(() => busy = false);
+        }
+      }
     }
   }
 
   Future<void> pick() async {
+    if (busy || !foreground || !authorized() || page == null ||
+        operation == null || (!canUpload && operation!.pending == null)) return;
+    final epoch = ++generation;
+    final api = widget.api;
+    final current = authorized;
     setState(() {
       busy = true;
+      choosingFile = true;
       error = null;
     });
     try {
-      final picked = await (widget.picker ?? pickVendorEvidence)();
-      if (!mounted || picked == null) return;
+      final choose = widget.picker ?? pickVendorEvidence;
+      final picked = await choose();
+      if (!mounted || !foreground || epoch != generation || !current() ||
+          !identical(api, widget.api) || picked == null) return;
       if (picked.bytes.isEmpty ||
           picked.bytes.length > 4 * 1024 * 1024 ||
           vendorEvidenceMime(picked.bytes) != picked.mime)
@@ -767,17 +909,49 @@ class _EvidenceState extends State<CaseEvidenceView> {
             throw const FormatException('Original evidence required.');
         }
       }
-      file = picked;
+      file = VendorEvidence(Uint8List.fromList(picked.bytes), picked.mime);
+      consent = false;
       done = false;
     } catch (e) {
-      if (mounted) fail(e);
+      if (mounted && foreground && epoch == generation && current() &&
+          identical(api, widget.api)) fail(e);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && epoch == generation &&
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else if (foreground) {
+          setState(() {
+            choosingFile = false;
+            busy = false;
+          });
+        } else {
+          // A picker that completes before the app resumes cannot safely
+          // retain former foreground authority or its private selection.
+          generation++;
+          targetGeneration++;
+          setState(() {
+            choosingFile = false;
+            page = null;
+            file = null;
+            operation = null;
+            consent = false;
+            canUpload = false;
+            busy = false;
+          });
+        }
+      }
     }
   }
 
   Future<void> upload() async {
-    if (busy || !consent || file == null || operation == null) return;
+    final api = widget.api;
+    final current = authorized;
+    final pending = operation;
+    if (busy || !foreground || !current() || !consent ||
+        file == null || pending == null || page == null ||
+        (!canUpload && pending.pending == null)) return;
+    final epoch = ++generation;
     setState(() {
       busy = true;
       error = null;
@@ -793,70 +967,106 @@ class _EvidenceState extends State<CaseEvidenceView> {
         'size_bytes': selected.bytes.length,
         'sha256': sha256.convert(selected.bytes).toString(),
       };
-      final saved = await operation!.prepare(metadata);
-      if (!mounted) return;
+      final saved = await pending.prepare(metadata);
+      if (!mounted || !foreground || epoch != generation || !current() ||
+          !identical(api, widget.api)) return;
       final result = Map<String, dynamic>.from(
-        await widget.api.uploadCaseEvidence(
-              widget.caseId,
-              kind: kind,
-              bytes: selected.bytes,
-              mime: selected.mime,
-              key: saved['idempotency_key'] as String,
-            )
-            as Map,
+        await api.uploadCaseEvidence(
+          widget.caseId,
+          kind: kind,
+          bytes: selected.bytes,
+          mime: selected.mime,
+          key: saved['idempotency_key'] as String,
+        ) as Map,
       );
+      if (!mounted || !foreground || epoch != generation || !current() ||
+          !identical(api, widget.api)) return;
       validate(result);
       for (final k in metadata.keys) {
         if (result[k] != metadata[k])
           throw const FormatException('Wrong evidence acknowledgement.');
       }
-      await operation!.confirmed();
-      if (!mounted) return;
+      await pending.confirmed();
+      if (!mounted || !foreground || epoch != generation || !current() ||
+          !identical(api, widget.api)) return;
       file = null;
       consent = false;
       done = true;
       await load(number: target);
     } catch (e) {
-      if (mounted) fail(e);
+      if (mounted && foreground && epoch == generation && current() &&
+          identical(api, widget.api)) fail(e);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && epoch == generation &&
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else if (foreground) {
+          setState(() => busy = false);
+        }
+      }
     }
   }
 
   Future<void> preview(Map<String, dynamic> row) async {
+    if (busy || !foreground || !authorized() ||
+        !(page?.items.any((item) => identical(item, row)) ?? false)) return;
+    final epoch = ++generation;
+    final api = widget.api;
+    final current = authorized;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      final doc = await widget.api.downloadDocument(
+      final doc = await api.downloadDocument(
         'commercial/cases/${widget.caseId}/evidence/${row['id']}',
       );
+      if (!mounted || !foreground || epoch != generation || !current() ||
+          !identical(api, widget.api)) return;
       if (doc.mime != row['mime_type'] ||
           doc.bytes.length != row['size_bytes'] ||
           sha256.convert(doc.bytes).toString() != row['sha256'] ||
           vendorEvidenceMime(doc.bytes) != doc.mime)
         throw const FormatException('Private evidence integrity failed.');
-      if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => VendorDocumentPreview(
+          builder: (_) => currentView(epoch) ? VendorDocumentPreview(
             document: doc,
             title: caseText(context, 'evidence'),
             notice: caseText(context, 'private'),
-          ),
+            revokedSessionEvents: api.sessionEvents,
+          ) : const SizedBox.shrink(),
         ),
       );
     } catch (e) {
-      if (mounted) fail(e);
+      if (mounted && foreground && epoch == generation && current() &&
+          identical(api, widget.api)) fail(e);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && epoch == generation &&
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else if (foreground) {
+          setState(() => busy = false);
+        }
+      }
     }
   }
 
   @override
   Widget build(BuildContext c) {
     String t(String k) => caseText(c, k);
+    if (!foreground || !authorized()) {
+      return Scaffold(
+        appBar: AppBar(title: Text(t('evidence'))),
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(t('notice')),
+        ),
+      );
+    }
+    final view = generation;
     return Scaffold(
       appBar: AppBar(title: Text('${t('evidence')} #${widget.caseId}')),
       body: ListView(
@@ -864,12 +1074,12 @@ class _EvidenceState extends State<CaseEvidenceView> {
         children: [
           Text(t('notice')),
           OutlinedButton(
-            onPressed: busy ? null : () => load(number: target),
+            onPressed: busy ? null : () { if (currentView(view)) load(number: target); },
             child: Text(t('refresh')),
           ),
           if (busy) const Center(child: CircularProgressIndicator()),
           if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
-          if (operation != null &&
+          if (page != null && operation != null &&
               (canUpload || operation!.pending != null)) ...[
             DropdownButtonFormField<String>(
               initialValue: kind,
@@ -886,28 +1096,35 @@ class _EvidenceState extends State<CaseEvidenceView> {
               ],
               onChanged: busy || operation?.pending != null
                   ? null
-                  : (v) => setState(() {
-                      kind = v!;
-                      file = null;
-                      consent = false;
-                    }),
+                  : (v) {
+                      if (!currentView(view)) return;
+                      setState(() {
+                        kind = v!;
+                        file = null;
+                        consent = false;
+                      });
+                    },
             ),
             if (operation?.pending != null) ...[
               Text(t('pending')),
               Text(t('reselect')),
             ],
             OutlinedButton(
-              onPressed: busy ? null : pick,
+              onPressed: busy ? null : () { if (currentView(view)) pick(); },
               child: Text(t('choose')),
             ),
             if (file != null) Text('${file!.mime} · ${file!.bytes.length} B'),
             CheckboxListTile(
               value: consent,
-              onChanged: busy ? null : (v) => setState(() => consent = v!),
+              onChanged: busy ? null : (v) {
+                if (currentView(view)) setState(() => consent = v!);
+              },
               title: Text(t('consent')),
             ),
             FilledButton(
-              onPressed: busy || !consent || file == null ? null : upload,
+              onPressed: busy || !consent || file == null ? null : () {
+                if (currentView(view)) upload();
+              },
               child: Text(t('upload')),
             ),
           ],
@@ -925,7 +1142,7 @@ class _EvidenceState extends State<CaseEvidenceView> {
                       Text(t('private')),
                       Text('${r['created_at']}'),
                       OutlinedButton(
-                        onPressed: busy ? null : () => preview(r),
+                        onPressed: busy ? null : () { if (currentView(view)) preview(r); },
                         child: Text(t('view')),
                       ),
                     ],
@@ -938,14 +1155,14 @@ class _EvidenceState extends State<CaseEvidenceView> {
                 OutlinedButton(
                   onPressed: busy || target <= 1
                       ? null
-                      : () => load(number: target - 1),
+                      : () { if (currentView(view)) load(number: target - 1); },
                   child: Text(t('previous')),
                 ),
                 Text('$target / ${page!.last}'),
                 OutlinedButton(
                   onPressed: busy || target >= page!.last
                       ? null
-                      : () => load(number: target + 1),
+                      : () { if (currentView(view)) load(number: target + 1); },
                   child: Text(t('next')),
                 ),
               ],
