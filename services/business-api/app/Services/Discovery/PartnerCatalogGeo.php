@@ -3,7 +3,6 @@
 namespace App\Services\Discovery;
 
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Great-circle proximity over normalized, already-validated OCPI coordinates.
@@ -44,25 +43,11 @@ final class PartnerCatalogGeo
     public function within(Builder $query, float $latitude, float $longitude, float $radiusKm): void
     {
         $bounds = self::bounds($latitude, $longitude, $radiusKm);
-        // OCPI normalization restricts these JSON values to finite lat/lon.
-        // The expressions below are static and never include user-provided SQL.
-        $connection = DB::connection();
-        $driver = $connection->getDriverName();
-        if ($driver === 'sqlite') {
-            SqliteGeoMath::register($connection->getPdo());
-        }
-        [$lat, $lng] = match ($driver) {
-            'sqlite' => [
-                "CAST(json_extract(ocpi_records.normalized, '$.latitude') AS REAL)",
-                "CAST(json_extract(ocpi_records.normalized, '$.longitude') AS REAL)",
-            ],
-            'pgsql' => [
-                "(ocpi_records.normalized->>'latitude')::double precision",
-                "(ocpi_records.normalized->>'longitude')::double precision",
-            ],
-            default => throw new \LogicException('Partner catalog proximity is supported only on SQLite and PostgreSQL.'),
-        };
+        // Share the exact coordinate admission policy with viewport search.
+        [$lat, $lng] = app(DiscoveryViewport::class)->partnerCoordinates();
 
+        $query->whereRaw("$lat BETWEEN -90 AND 90")
+            ->whereRaw("$lng BETWEEN -180 AND 180");
         $query->whereRaw("$lat BETWEEN ? AND ?", [$bounds['latitude_min'], $bounds['latitude_max']]);
         $query->where(function ($q) use ($lng, $bounds) {
             foreach ($bounds['longitude_ranges'] as [$minimum, $maximum]) {
