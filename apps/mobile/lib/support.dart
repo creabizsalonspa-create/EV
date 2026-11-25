@@ -17,6 +17,18 @@ String supportMessageTime(BuildContext context, dynamic raw) {
   return EvStrings.of(context).arabic?'وقت الرسالة غير متاح':'Message time unavailable';
 }
 
+/// A positive ID alone does not acknowledge the exact public reply.
+bool supportReplyReceiptMatches(dynamic row, int ticketId, String body,
+    {int? accountId}) {
+  if (row is! Map || row['id'] is! int || row['id'] <= 0 ||
+      row['support_ticket_id'] is! int || row['support_ticket_id'] != ticketId ||
+      row['body'] != body || row['author_id'] is! int ||
+      row['author_id'] <= 0 ||
+      (accountId != null && row['author_id'] != accountId)) return false;
+  final visibility = row['internal'];
+  return visibility == false || visibility == 0 || visibility == '0';
+}
+
 String newSupportRequestKey() {
   final random = Random.secure();
   return List.generate(16,
@@ -849,6 +861,7 @@ class SupportViewState extends State<SupportView>
         builder: (_) => TicketPage(
           api: widget.api,
           id: id,
+          accountId: widget.accountId,
           onSessionExpired: widget.onSessionExpired,
         ),
       ),
@@ -1324,11 +1337,13 @@ class SupportViewState extends State<SupportView>
 class TicketPage extends StatefulWidget {
   final EvApi api;
   final int id;
+  final int? accountId;
   final VoidCallback onSessionExpired;
   const TicketPage({
     super.key,
     required this.api,
     required this.id,
+    this.accountId,
     required this.onSessionExpired,
   });
   @override
@@ -1387,7 +1402,8 @@ class _TicketPageState extends State<TicketPage>
   void didUpdateWidget(covariant TicketPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     final identityChanged =
-        oldWidget.api != widget.api || oldWidget.id != widget.id;
+        oldWidget.api != widget.api || oldWidget.id != widget.id ||
+        oldWidget.accountId != widget.accountId;
     if (identityChanged || !authorized()) {
       // A retained client can silently rotate credentials while this widget
       // stays mounted. Clear old messages and unsent/retry reply material.
@@ -1476,6 +1492,9 @@ class _TicketPageState extends State<TicketPage>
           list.items.any((row) =>
               row['body'] is! String ||
               (row['body'] as String).length > 5000 ||
+              (row['support_ticket_id'] != null &&
+                  (row['support_ticket_id'] is! int ||
+                   row['support_ticket_id'] != widget.id)) ||
               !knownMessageVisibility(row['internal']))) {
         throw const FormatException('Unverified ticket messages');
       }
@@ -1495,7 +1514,7 @@ class _TicketPageState extends State<TicketPage>
 
   Future<void> send() async {
     if (loading || !freshRead || !foreground || !authorized() ||
-        !form.currentState!.validate()) return;
+        (pendingReplyKey == null && form.currentState?.validate() != true)) return;
     final session = widget.api.sessionFence();
     final n = ++generation;
     setState(() {
@@ -1503,20 +1522,21 @@ class _TicketPageState extends State<TicketPage>
       error = null;
     });
     try {
-      final text = reply.text.trim();
-      if (pendingReplyKey == null || pendingReplyBody != text) {
-        pendingReplyBody = text;
+      // An uncertain write must keep its original content and key.
+      // A changed draft cannot allocate another request until recovery.
+      if (pendingReplyKey == null) {
+        pendingReplyBody = reply.text.trim();
         pendingReplyKey = newSupportRequestKey();
       }
+      final text = pendingReplyBody!;
       final accepted = await widget.api.request(
         'support/${widget.id}/messages',
         method: 'POST',
         body: {'body': text, 'idempotency_key': pendingReplyKey},
       );
       if (!current(n, session)) return;
-      if (accepted is! Map ||
-          accepted['id'] is! int ||
-          (accepted['id'] as int) <= 0) {
+      if (!supportReplyReceiptMatches(accepted, widget.id, text,
+          accountId: widget.accountId)) {
         throw const FormatException('Support reply not confirmed');
       }
       pendingReplyBody = null;
@@ -1605,20 +1625,20 @@ class _TicketPageState extends State<TicketPage>
                       }),
                     ),
                     TextButton(
-                      onPressed: loading || page.current <= 1
+                      onPressed: loading || pendingReplyKey != null || page.current <= 1
                           ? null
                           : () => load(page: page.current - 1),
                       child: Text(s.t('previous')),
                     ),
                     TextButton(
-                      onPressed: loading || page.current >= page.last
+                      onPressed: loading || pendingReplyKey != null || page.current >= page.last
                           ? null
                           : () => load(page: page.current + 1),
                       child: Text(s.t('next')),
                     ),
                   ],
                 ),
-              if (ticket!['status'] == 'closed')
+              if (ticket!['status'] == 'closed' && pendingReplyKey == null)
                 Text(s.t('closedTicket'))
               else
                 Form(
@@ -1629,7 +1649,7 @@ class _TicketPageState extends State<TicketPage>
                       TextFormField(
                         key: const Key('ticket-reply'),
                         controller: reply,
-                        enabled: !loading,
+                        enabled: !loading && pendingReplyKey == null,
                         maxLength: 5000,
                         minLines: 3,
                         maxLines: 6,

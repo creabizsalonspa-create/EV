@@ -4,6 +4,28 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main(){
+  test('reply receipt matches exact ticket, content, public visibility and actor', () {
+    final valid=<String,dynamic>{
+      'id':42,'support_ticket_id':7,'author_id':9,
+      'body':'Original reply','internal':false,
+    };
+    bool matches(dynamic row)=>supportReplyReceiptMatches(
+      row,7,'Original reply',accountId:9);
+    expect(matches(valid),isTrue);
+    for(final visibility in [false,0,'0']){
+      expect(matches({...valid,'internal':visibility}),isTrue);
+    }
+    for(final invalid in [
+      null, {'id':42}, {...valid,'id':0}, {...valid,'id':'42'},
+      {...valid,'support_ticket_id':8}, {...valid,'support_ticket_id':'7'},
+      {...valid,'author_id':10}, {...valid,'author_id':null},
+      {...valid,'body':'Edited reply'}, {...valid,'internal':true},
+      {...valid,'internal':1}, {...valid,'internal':null},
+      {...valid,'internal':'false'},
+    ]){
+      expect(matches(invalid),isFalse,reason:'Malformed receipt: $invalid');
+    }
+  });
   for(final ar in [false,true]){
     testWidgets('support timestamp uses explicit UTC and rejects invalid source ($ar)',(tester)async{
       late BuildContext context;
