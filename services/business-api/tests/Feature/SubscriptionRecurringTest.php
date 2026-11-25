@@ -283,6 +283,43 @@ class SubscriptionRecurringTest extends TestCase
         $this->assertCount(1, collect($this->sent)->filter(fn ($r) => $r[0] === 'POST' && $r[1] === '/v1/checkout/sessions'));
     }
 
+    public function test_hosted_enrollment_replay_inspects_existing_identity_and_never_reopens_expired_session(): void
+    {
+        $u = User::factory()->create();
+        $base = '/recurring-test/commercial/payment-enrollments';
+        $body = ['consent' => true, 'consent_version' => 'recurring-v1', 'idempotency_key' => 'enroll-replay'];
+        $this->actingAs($u)->postJson($base, $body)->assertCreated()->assertJsonPath('status', 'pending')
+            ->assertJsonPath('hosted_url', 'https://checkout.stripe.com/c/pay/test');
+        $id = DB::table('payment_enrollments')->value('id');
+        $this->postJson($base, $body)->assertCreated()->assertJsonPath('id', $id)->assertJsonPath('status', 'pending')
+            ->assertJsonPath('hosted_url', 'https://checkout.stripe.com/c/pay/test');
+        $this->assertCount(1, collect($this->sent)->filter(fn ($r) => $r[0] === 'POST' && $r[1] === '/v1/checkout/sessions'));
+
+        config(['payments.mandate_consent_version' => 'recurring-v2']);
+        $this->postJson($base.'/'.$id.'/inspect')->assertOk()->assertJsonPath('status', 'pending')
+            ->assertJsonPath('hosted_url', null);
+        $this->postJson($base, $body)->assertConflict();
+        $this->assertDatabaseCount('payment_mandates', 0);
+
+        config(['payments.mandate_consent_version' => 'recurring-v1']);
+        $this->session['status'] = 'unknown';
+        $this->postJson($base.'/'.$id.'/inspect')->assertConflict();
+        $this->assertDatabaseHas('payment_enrollments', ['id' => $id, 'status' => 'pending']);
+        $this->session['status'] = 'expired';
+        $this->postJson($base.'/'.$id.'/inspect')->assertOk()->assertJsonPath('status', 'expired')
+            ->assertJsonPath('hosted_url', null);
+        $before = count($this->sent);
+        $this->session['status'] = 'open';
+        $this->postJson($base, $body)->assertCreated()->assertJsonPath('id', $id)
+            ->assertJsonPath('status', 'expired')->assertJsonPath('hosted_url', null);
+        $this->postJson($base.'/'.$id.'/inspect')->assertOk()->assertJsonPath('status', 'expired')
+            ->assertJsonPath('hosted_url', null);
+        $this->assertCount($before, $this->sent);
+        $this->assertDatabaseCount('payment_enrollments', 1);
+        $this->assertDatabaseCount('payment_mandates', 0);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+    }
+
     public function test_suspended_owner_callback_and_changed_terms_cannot_activate_hosted_mandate(): void
     {
         $u = User::factory()->create();
