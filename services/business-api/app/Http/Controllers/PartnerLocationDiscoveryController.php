@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Services\Discovery\PartnerCatalogAge;
+use App\Services\Discovery\PartnerCatalogText;
 use App\Services\Discovery\PartnerCatalogGeo;
 use App\Services\Discovery\PublicPartnerLocation;
 use Illuminate\Http\Request;
@@ -56,11 +57,9 @@ final class PartnerLocationDiscoveryController extends Controller
                 }
                 $operator = $driver === 'pgsql' ? 'ILIKE' : 'LIKE';
                 $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $text).'%';
-                $query->where(function ($match) use ($driver, $operator, $pattern) {
+                $query->where(function ($match) use ($operator, $pattern) {
                     foreach (['name', 'city', 'address'] as $field) {
-                        $column = $driver === 'pgsql'
-                            ? "(ocpi_records.normalized->>'".$field."')"
-                            : "json_extract(ocpi_records.normalized, '$.".$field."')";
+                        $column = PartnerCatalogText::field($field);
                         $match->orWhereRaw("$column $operator ? ESCAPE '!'", [$pattern]);
                     }
                 });
@@ -89,7 +88,7 @@ final class PartnerLocationDiscoveryController extends Controller
                 $q->whereRaw($sql, $standard === null ? [$filters['reported_evse_status']] : [$filters['reported_evse_status'], $standard]);
             })
             ->when(! empty($filters['country']), fn ($q) => $q->where('normalized->country', $filters['country']))
-            ->when(! empty($filters['connector_standard']), fn ($q) => $q->whereJsonContains('normalized->connector_standards', $filters['connector_standard']));
+            ->when(! empty($filters['connector_standard']), fn ($q) => PartnerCatalogText::standard($q, $filters['connector_standard']));
 
         $nearby = isset($filters['latitude']);
         if ($nearby) {

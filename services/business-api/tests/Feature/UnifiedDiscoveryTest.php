@@ -244,6 +244,32 @@ class UnifiedDiscoveryTest extends TestCase
         $this->getJson('/api/stations?station_id='.$f['station']->id)->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $f['station']->id);
     }
 
+    public function test_partner_text_and_connector_search_cannot_match_nested_private_projection_data(): void
+    {
+        $f = $this->fixtures();
+        $record = $f['record'];
+        $original = $record->normalized;
+        $private = ['private' => 'private-hidden-value'];
+        $record->update(['normalized' => array_replace($original, [
+            'name' => $private, 'address' => $private, 'city' => $private,
+            'connector_standards' => ['private' => 'IEC_62196_T2_COMBO'],
+        ])]);
+        foreach (['/api/discovery/search?scope=partner&', '/api/v1/discovery/search?scope=partner&'] as $path) {
+            $this->getJson($path.'q=private-hidden-value')->assertOk()->assertJsonPath('total', 0);
+            $this->getJson($path.'address=private-hidden-value')->assertOk()->assertJsonPath('total', 0);
+            $this->getJson($path.'connector=CCS2')->assertOk()->assertJsonPath('total', 0);
+        }
+        $this->getJson('/api/roaming/locations?q=private-hidden-value')->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/roaming/locations?connector_standard=IEC_62196_T2_COMBO')->assertOk()->assertJsonPath('total', 0);
+        $record->update(['normalized' => array_replace($original, ['connector_standards' => 'IEC_62196_T2_COMBO'])]);
+        $this->getJson('/api/discovery/search?scope=partner&connector=CCS2')->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/roaming/locations?connector_standard=IEC_62196_T2_COMBO')->assertOk()->assertJsonPath('total', 0);
+        $record->update(['normalized' => $original]);
+        $this->getJson('/api/discovery/search?scope=partner&q=Shared&connector=CCS2')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson('/api/roaming/locations?q=Shared&connector_standard=IEC_62196_T2_COMBO')->assertOk()->assertJsonPath('total', 1);
+        Http::assertNothingSent();
+    }
+
     public function test_unified_saved_places_use_only_the_current_customers_existing_preferences(): void
     {
         $f = $this->fixtures();

@@ -11,6 +11,7 @@ use App\Services\Discovery\CatalogPriceFilter;
 use App\Services\Discovery\CatalogTextFilters;
 use App\Services\Discovery\DiscoveryViewport;
 use App\Services\Discovery\PartnerCatalogAge;
+use App\Services\Discovery\PartnerCatalogText;
 use App\Services\Discovery\PublicPartnerLocation;
 use App\Services\Discovery\SourceReportFilter;
 use App\Services\Discovery\StationCatalog;
@@ -83,9 +84,9 @@ final class UnifiedDiscoveryController extends Controller
             if ($field === 'operator') {
                 $partner->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->whereRaw("name $comparison ? ESCAPE '!'", [$pattern])->select('id'));
             } else {
-                $partner->where(function ($query) use ($driver, $comparison, $pattern) {
+                $partner->where(function ($query) use ($comparison, $pattern) {
                     foreach (['address', 'city'] as $key) {
-                        $column = $driver === 'pgsql' ? "(ocpi_records.normalized->>'$key')" : "json_extract(ocpi_records.normalized, '$.$key')";
+                        $column = PartnerCatalogText::field($key);
                         $query->orWhereRaw("$column $comparison ? ESCAPE '!'", [$pattern]);
                     }
                 });
@@ -116,9 +117,9 @@ final class UnifiedDiscoveryController extends Controller
                 default => throw new \LogicException('Unsupported discovery database.'),
             };
             $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $text).'%';
-            $partner->where(function ($query) use ($driver, $operator, $pattern) {
+            $partner->where(function ($query) use ($operator, $pattern) {
                 foreach (['name', 'address', 'city'] as $field) {
-                    $column = $driver === 'pgsql' ? "(ocpi_records.normalized->>'$field')" : "json_extract(ocpi_records.normalized, '$.$field')";
+                    $column = PartnerCatalogText::field($field);
                     $query->orWhereRaw("$column $operator ? ESCAPE '!'", [$pattern]);
                 }
                 $query->orWhereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->whereRaw("name $operator ? ESCAPE '!'", [$pattern])->select('id'));
@@ -131,7 +132,7 @@ final class UnifiedDiscoveryController extends Controller
                     ->orWhere(fn ($legacy) => $legacy->whereNotExists(fn ($sub) => $sub->selectRaw('1')->from('charging_connector_mappings as m')->whereColumn('m.station_id', 'stations.id'))->where('connector_type', $v['connector']));
             });
             $standards = ['CCS2' => 'IEC_62196_T2_COMBO', 'Type2' => 'IEC_62196_T2', 'CHAdeMO' => 'CHADEMO'];
-            $partner->whereJsonContains('normalized->connector_standards', $standards[$v['connector']]);
+            PartnerCatalogText::standard($partner, $standards[$v['connector']]);
         }
         if (($v['scope'] ?? 'all') === 'catalog') {
             $partner->whereRaw('1 = 0');
