@@ -7,6 +7,7 @@ import 'financial_documents.dart';
 import 'financial_operation_store.dart';
 import 'vendor_earnings_csv.dart';
 import 'vendor_revenue_cohorts.dart';
+import 'invoice_reconciliation.dart';
 
 const vendorFinanceEn = {
   'title': 'Vendor finance',
@@ -513,6 +514,23 @@ class _VendorFinanceState extends State<VendorFinanceView>
                           Localizations.localeOf(c).languageCode == 'ar'
                               ? 'إيرادات الفواتير التفصيلية'
                               : 'Itemized invoice earnings',
+                        ),
+                      ),
+                      OutlinedButton(
+                        key: ValueKey('vendor-reconciliation-${row['currency']}'),
+                        onPressed: () => openForActor(
+                          MaterialPageRoute<void>(
+                            builder: (_) => InvoiceReconciliationView(
+                              api: widget.api,
+                              onExpired: widget.onExpired,
+                              currency: row['currency'] as String,
+                            ),
+                          ),
+                        ),
+                        child: Text(
+                          Localizations.localeOf(c).languageCode == 'ar'
+                              ? 'تدقيق تسوية الفواتير الداخلية'
+                              : 'Internal invoice reconciliation',
                         ),
                       ),
                       OutlinedButton(

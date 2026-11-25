@@ -40,3 +40,27 @@ test('receipt freshness changes after120 seconds and heartbeat/device time canno
  const report=presentConnectorObservation(source(),c,{now});
  assert.equal(report.freshness,'stale');assert.equal(report.receiptAgeSeconds,121);
 });
+
+
+test('OCPP1.6 inconsistent fault receipts fail closed instead of showing healthy status',()=>{
+ const c=charger();
+ for(const errorCode of ['GroundFailure','HighTemperature','PowerSwitchFailure',
+    'OtherError','<script>alert(1)</script>','garbage',42,true,{}]){
+   c.connectors['0_2']={...row(),status:'Available',errorCode};
+   assert.equal(presentConnectorObservation(source(),c,{now}),null,
+     'A healthy status must not conceal an unverified or active fault');
+ }
+ c.connectors['0_2']={...row(),status:'Available'};
+ assert.equal(presentConnectorObservation(source(),c,{now}),null);
+ c.connectors['0_2']={...row(),status:'Available',errorCode:'NoError'};
+ assert.equal(presentConnectorObservation(source(),c,{now}).status,'Available');
+ c.connectors['0_2']={...row(),status:'Faulted',errorCode:'NoError'};
+ assert.equal(presentConnectorObservation(source(),c,{now}),null);
+ c.connectors['0_2']={...row(),status:'Faulted',errorCode:'GroundFailure'};
+ assert.equal(presentConnectorObservation(source(),c,{now}).status,'Faulted');
+ assert.equal('availability' in presentConnectorObservation(source(),c,{now}),false);
+ c.connectors['0_2']={...row(),status:'Faulted',errorCode:'UnknownCode'};
+ assert.equal(presentConnectorObservation(source(),c,{now}),null);
+ const v201=charger('ocpp2.0.1');
+ assert.equal(presentConnectorObservation(source('ocpp2.0.1'),v201,{now}).status,'Faulted');
+});

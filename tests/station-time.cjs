@@ -45,6 +45,40 @@ test("published station timezone renders a precise UTC instant in EN/AR; unknown
     assert.equal(displayStationTime("2026-11-16T06:00:00", "Asia/Dubai"), null);
 });
 
+test("published time rejects impossible calendar days, clocks and UTC offsets without rollover", () => {
+    const { displayStationTime } = subject();
+    for (const invalid of [
+        "2026-02-30 06:00:00",
+        "2026-04-31T10:00:00+04:00",
+        "2026-11-16T24:30:00Z",
+        "2026-11-16T10:61:00Z",
+        "2026-11-16T10:00:60Z",
+        "2026-11-16T10:00:00+14:30",
+        "2026-11-16T10:00:00-15:00",
+        "2026-11-16T10:00:00Zbogus",
+        "2026-11-16T10:00:00",
+    ]) {
+        assert.equal(displayStationTime(invalid, "Asia/Dubai"), null, invalid);
+    }
+});
+
+test("verified UTC and explicit-offset source instants display the same station-local clock in EN/AR", () => {
+    const { displayStationTime } = subject();
+    for (const language of ["en", "ar"]) {
+        const original = displayStationTime("2026-11-16T06:00:00Z", "Asia/Dubai", language);
+        assert.ok(original);
+        for (const equivalent of [
+            "2026-11-16T10:00:00+04:00",
+            "2026-11-16T06:00:00.123456Z",
+        ]) {
+            const shown = displayStationTime(equivalent, "Asia/Dubai", language);
+            assert.ok(shown && shown.includes("Asia/Dubai"), equivalent);
+            // Fractional seconds are not displayed: exact wall-clock minute.
+            assert.equal(shown, original);
+        }
+    }
+});
+
 test("station-local time errors respect current English/Arabic language without mixed bilingual alerts", () => {
     const english = subject("en"), arabic = subject("ar");
     const message = (fn) => {
