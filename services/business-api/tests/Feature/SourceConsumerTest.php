@@ -780,6 +780,7 @@ class SourceConsumerTest extends TestCase
                 if ($repoint) {
                     DB::table('charging_connector_mappings')->where('id', $map->id)->update(['source_connector_number' => 8]);
                 }
+
                 return Http::response(['data' => ['MeterValues' => [[
                     'id' => 1, 'timestamp' => $at->addSeconds(2)->toIso8601String(),
                     'sampledValue' => [[
