@@ -346,37 +346,50 @@ class PartnerClient
         }
     }
 
-    /** Refuse a peer pagination link that silently broadens an explicit source window. */
-    private function verifyWindowNext(string $url, array $window): void
+    /** Parse scalar query parameters without PHP's duplicate/key alias coercion. */
+    private function sourceQuery(string $url): array
     {
-        if ($window === []) {
-            return;
-        }
         $parts = parse_url($url);
         if (! is_array($parts)) {
             throw new OcpiException('Malformed OCPI source-window pagination link.');
         }
-        $observed = [];
+        $query = [];
         foreach (explode('&', $parts['query'] ?? '') as $pair) {
             if ($pair === '') {
                 continue;
             }
             [$name, $value] = array_pad(explode('=', $pair, 2), 2, '');
-            $name = rawurldecode($name);
-            if (! in_array($name, ['date_from', 'date_to'], true)) {
-                continue;
+            // Reject ambiguous names and separators before any upstream GET.
+            // Bracket notation, dots, spaces and case aliases can collapse
+            // into different parameters in partner framework query parsers.
+            if (preg_match('/%(?![a-fA-F0-9]{2})/', $pair) || str_contains($pair, ';')) {
+                throw new OcpiException('Ambiguous OCPI source-window pagination parameters.');
             }
-            if (array_key_exists($name, $observed)) {
-                throw new OcpiException('Ambiguous OCPI source-window pagination link.');
+            $name = urldecode($name);
+            $value = urldecode($value);
+            if (! preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,63}$/D', $name)
+                || array_key_exists(strtolower($name), $query)
+                || preg_match('/[\x00-\x1f\x7f]/', $value)) {
+                throw new OcpiException('Ambiguous OCPI source-window pagination parameters.');
             }
-            $observed[$name] = rawurldecode($value);
+            $query[strtolower($name)] = [$name, $value];
         }
-        if (count($observed) !== count($window)) {
-            throw new OcpiException('OCPI source-window pagination lost its bounds.');
+
+        return $query;
+    }
+
+    /** Only continuation controls may change, never negotiated query scope. */
+    private function verifySourceNext(string $url, array $scope): void
+    {
+        $observed = $this->sourceQuery($url);
+        foreach ($scope as $key => $pair) {
+            if (($observed[$key] ?? null) !== $pair) {
+                throw new OcpiException('OCPI source-window pagination changed its negotiated query scope.');
+            }
         }
-        foreach ($window as $field => $value) {
-            if (! isset($observed[$field]) || ! hash_equals($value, $observed[$field])) {
-                throw new OcpiException('OCPI source-window pagination changed its bounds.');
+        foreach ($observed as $key => $pair) {
+            if (! array_key_exists($key, $scope) && ! in_array($pair[0], ['offset', 'limit', 'page', 'cursor'], true)) {
+                throw new OcpiException('OCPI source-window pagination introduced an unapproved query parameter.');
             }
         }
     }
@@ -391,13 +404,14 @@ class PartnerClient
         $window = $this->pullWindow($requestedWindow);
         $url = $this->guardedUrl($provider, $provider->endpoints[$module]);
         $path = parse_url($url, PHP_URL_PATH) ?? '/';
+        $existing = $this->sourceQuery($url);
         if ($window !== []) {
-            parse_str((string) (parse_url($url, PHP_URL_QUERY) ?? ''), $existing);
             if (array_key_exists('date_from', $existing) || array_key_exists('date_to', $existing)) {
                 throw new OcpiException('Negotiated endpoint already contains source-window bounds.');
             }
             $url .= (str_contains($url, '?') ? '&' : '?').http_build_query($window, '', '&', PHP_QUERY_RFC3986);
         }
+        $scope = array_filter($this->sourceQuery($url), fn ($pair) => ! in_array($pair[0], ['offset', 'limit', 'page', 'cursor'], true));
         $records = [];
         $seen = [];
         for ($page = 0; $page < (int) config('ocpi.max_pages', 20); $page++) {
@@ -443,7 +457,7 @@ class PartnerClient
             if (str_starts_with($next, '?')) {
                 $next = explode('?', $url, 2)[0].$next;
             }
-            $this->verifyWindowNext($next, $window);
+            $this->verifySourceNext($next, $scope);
             $url = $next;
         }
         throw new OcpiException('Operator pagination exceeded the configured page limit.');
