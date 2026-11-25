@@ -226,13 +226,15 @@ class OcpiOwnerEligibilityTest extends TestCase
         $request = Request::create('/api/ocpi/providers/'.$provider->id, 'GET');
         $request->setUserResolver(static fn () => $owner);
         $controller = app(OcpiController::class);
-        $attempts = [
-            static fn () => $controller->negotiate($request, $provider, app(PartnerClient::class)),
-            static fn () => $controller->sync($request, $provider, 'locations',
+        $remote = [
+            'negotiate' => static fn () => $controller->negotiate($request, $provider, app(PartnerClient::class)),
+            'sync' => static fn () => $controller->sync($request, $provider, 'locations',
                 app(PartnerClient::class), app(RecordSynchronizer::class)),
-            static fn () => $controller->billingReconciliation($request, $provider,
+        ];
+        $billing = [
+            'reconcile' => static fn () => $controller->billingReconciliation($request, $provider,
                 app(PartnerBillingReconciliation::class)),
-            static fn () => $controller->billingExport($request, $provider,
+            'export' => static fn () => $controller->billingExport($request, $provider,
                 app(PartnerBillingReconciliation::class), app(PartnerBillingExport::class), 'csv'),
         ];
 
@@ -249,12 +251,13 @@ class OcpiOwnerEligibilityTest extends TestCase
             [['password' => 'rotated-synthetic-password-hash'], 409],
         ] as [$change, $status]) {
             DB::table('users')->where('id', $owner->id)->update(array_replace($initial, $change));
-            foreach ($attempts as $attempt) {
+            foreach ($remote + $billing as $action => $attempt) {
                 try {
                     $attempt();
                     $this->fail('Revoked partner account reached a private remote/finance operation.');
                 } catch (HttpException $e) {
-                    $this->assertSame($status, $e->getStatusCode());
+                    // Private financial reads use the shared current-reader contract.
+                    $this->assertSame(isset($billing[$action]) ? 409 : $status, $e->getStatusCode(), $action);
                 }
             }
         }
@@ -265,12 +268,12 @@ class OcpiOwnerEligibilityTest extends TestCase
         DB::table('ocpi_providers')->where('id', $provider->id)->update([
             'owner_id' => $other->id,
         ]);
-        foreach ($attempts as $attempt) {
+        foreach ($remote + $billing as $action => $attempt) {
             try {
                 $attempt();
                 $this->fail('A stale provider model exposed its replacement tenant.');
             } catch (HttpException $e) {
-                $this->assertSame(409, $e->getStatusCode());
+                $this->assertSame(isset($billing[$action]) ? 404 : 409, $e->getStatusCode(), $action);
             }
         }
         Http::assertNothingSent();
