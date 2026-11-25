@@ -104,6 +104,7 @@ class PaymentMandates
                     DB::table('payment_customer_accounts')->where('id', $a->id)->update(['provider_customer' => Crypt::encryptString($customer['id']), 'updated_at' => now()]);
                 }
             });
+
             return DB::transaction(function () use ($user, $enrollment, $lease, $provider, $return) {
                 [$current, $a] = $this->lockedEnrollmentLease($user, $enrollment->id, $lease);
                 abort_unless($a->provider_customer, 409, 'Provider customer requires reconciliation.');
