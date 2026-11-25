@@ -22,7 +22,7 @@ final class VendorEarningsCsv {
   /// Parse strict RFC-style double quotes and comma-delimited rows.
   /// Every untrusted cell must equal the source snapshot already verified
   /// for the logged-in vendor, currency and exact page.
-  static List<List<String>> _parse(String source) {
+  static List<List<String>> parseBounded(String source) {
     final rows = <List<String>>[];
     var row = <String>[];
     var cell = StringBuffer();
@@ -114,7 +114,7 @@ final class VendorEarningsCsv {
       throw const FormatException('Untrusted private earnings export.');
     }
     final text = utf8.decode(document.bytes, allowMalformed: false);
-    final data = _parse(text);
+    final data = parseBounded(text);
     if (data.length != rows.length + 1 ||
         data.isEmpty ||
         data.first.length != headers.length) {
