@@ -347,4 +347,33 @@ void main() {
     await tester.pumpAndSettle();
     expect(expirations, 1);
   });
+  for (final arabic in [false,true]) {
+    testWidgets('withdrawn sponsored pages retain an explicit way back ($arabic)',(tester)async{
+      final api=PromotionApi();
+      addTearDown(api.close);
+      var withdrawn=false;
+      api.overridePage=(query){
+        final page=int.parse(query['page']!);
+        return withdrawn?placementPage(page,1,[],total:0,perPage:1):
+          placementPage(page,2,[sponsored(page)],total:2,perPage:1);
+      };
+      await tester.pumpWidget(sponsorApp(api,arabic:arabic));
+      await tester.pumpAndSettle();
+      final next=find.widgetWithText(TextButton,arabic?'العروض التالية':'Next promotions');
+      final stale=tester.widget<TextButton>(next).onPressed!;
+      withdrawn=true;
+      await tester.tap(next);await tester.pumpAndSettle();
+      expect(find.text(arabic?'لا توجد عروض في هذه الصفحة':'No promotions on this page'),findsOneWidget);
+      final previous=find.text(arabic?'العروض السابقة':'Previous promotions');
+      expect(previous,findsOneWidget);
+      stale();await tester.pumpAndSettle();
+      expect(api.calls.length,2);
+      await tester.tap(previous);await tester.pumpAndSettle();
+      expect(api.calls.map((q)=>q['page']),['1','2','1']);
+      expect(previous,findsNothing);
+      expect(find.text(arabic?'عرض رقم 1':'Offer #1'),findsNothing);
+      expect(tester.takeException(),isNull);
+    });
+  }
+
 }
