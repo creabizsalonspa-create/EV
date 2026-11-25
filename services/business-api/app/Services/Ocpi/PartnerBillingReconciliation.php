@@ -48,6 +48,10 @@ class PartnerBillingReconciliation
 
     private function lineage(OcpiProvider $provider, OcpiRecord $cdr): array
     {
+        $integrity = app(StoredSourceIntegrity::class);
+        if ($cdr->module !== 'cdrs' || $cdr->ocpi_provider_id !== $provider->id || ! $integrity->consistent($cdr)) {
+            return ['status' => 'source_requires_review'];
+        }
         $credit = ($cdr->normalized['credit'] ?? false) === true;
         $original = $cdr;
         if ($credit) {
@@ -56,6 +60,10 @@ class PartnerBillingReconciliation
             if (! $original || ($original->normalized['credit'] ?? false) === true || $original->id === $cdr->id) {
                 return ['status' => 'original_requires_review'];
             }
+        }
+        if ($credit && (! $integrity->consistent($original)
+            || ($original->normalized['currency'] ?? null) !== ($cdr->normalized['currency'] ?? null))) {
+            return ['status' => 'source_requires_review'];
         }
         $receipt = DB::table('ocpi_test_invoice_receipts')->where('source_cdr_record_id', $original->id)->first();
         if (! $receipt) {
@@ -69,7 +77,7 @@ class PartnerBillingReconciliation
         $session = OcpiRecord::find($receipt->source_session_record_id);
         $normalizer = app(RecordNormalizer::class);
         try {
-            $verified = $session && $session->ocpi_provider_id === $provider->id && $original->ocpi_provider_id === $provider->id
+            $verified = $session && $session->module === 'sessions' && $integrity->consistent($session) && $session->ocpi_provider_id === $provider->id && $original->ocpi_provider_id === $provider->id
                 && $session->country_code === $original->country_code && $session->party_id === $original->party_id
                 && hash_equals($receipt->source_cdr_hash, $original->content_hash) && hash_equals($receipt->source_session_hash, $session->content_hash)
                 && hash_equals($receipt->source_cdr_hash, $normalizer->hash($original->payload)) && hash_equals($receipt->source_session_hash, $normalizer->hash($session->payload))
