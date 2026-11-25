@@ -161,11 +161,30 @@ class OpenChargeMapDiscoveryTest extends TestCase
         $cached = Cache::get($key);
         $cached['results'][0]['longitude'] = 56.0;
         Cache::put($key, $cached, 300);
-        $this->postJson('/api/v1/discovery/open-charge-map/search', $input)->assertStatus(503)->assertJsonPath('reason', 'invalid_response');
+        $this->postJson('/api/v1/discovery/open-charge-map/search', $input)->assertStatus(502)->assertJsonPath('reason', 'invalid_response');
         $report = app(LicensedCoverageAudit::class)->report();
         $this->assertSame(0, $report['observed_areas']);
         $this->assertSame('unverified_cache', $report['areas'][0]['state']);
         Http::assertSentCount(1);
+    }
+
+    public function test_malformed_cache_envelope_is_rejected_without_refetch_or_private_error(): void
+    {
+        config(['discovery.ocm_quality_enabled' => true]);
+        Http::fake(fn () => Http::response([$this->point()], 200, ['Content-Type' => 'application/json']));
+        $input = $this->input();
+        $this->postJson('/api/discovery/open-charge-map/search', $input)->assertOk();
+        $key = 'ocm-discovery:'.LicensedSourceCache::identity(25.2, 55.3, 10, null, 'synthetic-private-ocm-key');
+        foreach (['synthetic-private-malformed-value', 42, true, [], [['private' => 'synthetic-private-malformed-value']]] as $invalid) {
+            Cache::put($key, $invalid, 300);
+            $this->postJson('/api/v1/discovery/open-charge-map/search', $input)
+                ->assertStatus(502)->assertJsonPath('reason', 'invalid_response')
+                ->assertHeader('Cache-Control', 'no-store, private')
+                ->assertDontSee('synthetic-private-malformed-value');
+        }
+        Http::assertSentCount(1);
+        $report = app(LicensedSourceQuality::class)->report();
+        $this->assertSame(1, $report['samples'][0]['successful_fetches']);
     }
 
     public function test_disabled_source_is_invisible_to_network_and_never_exposes_key(): void
