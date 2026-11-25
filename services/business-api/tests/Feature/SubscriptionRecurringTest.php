@@ -10,6 +10,7 @@ use App\Services\Commercial\SubscriptionGateway;
 use App\Services\Commercial\SubscriptionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
@@ -250,11 +251,56 @@ class SubscriptionRecurringTest extends TestCase
         $body = ['consent' => true, 'consent_version' => 'recurring-v1', 'idempotency_key' => 'enroll'];
         $this->postJson('/recurring-test/commercial/payment-enrollments', $body)->assertStatus(503);
         $this->assertDatabaseHas('payment_enrollments', ['status' => 'uncertain']);
+        $this->assertSame('cus_Contract', Crypt::decryptString(DB::table('payment_customer_accounts')->value('provider_customer')));
+        $this->assertNull(DB::table('payment_enrollments')->value('lease'));
+        $this->assertDatabaseCount('payment_mandates', 0);
         $this->postJson('/recurring-test/commercial/payment-enrollments', array_replace($body, ['idempotency_key' => 'replacement']))->assertConflict();
         $this->session['status'] = 'complete';
         $this->session['setup_intent'] = ['id' => 'seti_Contract', 'livemode' => false, 'customer' => 'cus_Contract', 'status' => 'succeeded', 'usage' => 'off_session', 'metadata' => $this->session['metadata'], 'payment_method' => 'pm_Contract'];
         $this->postJson('/recurring-test/commercial/payment-enrollments/'.DB::table('payment_enrollments')->value('id').'/inspect')->assertOk()->assertJsonPath('status', 'completed');
         $this->assertCount(1, collect($this->sent)->filter(fn ($r) => $r[0] === 'POST' && $r[1] === '/v1/checkout/sessions'));
+    }
+
+    public function test_suspended_owner_callback_and_changed_terms_cannot_activate_hosted_mandate(): void
+    {
+        $u = User::factory()->create();
+        $this->actingAs($u)->postJson('/recurring-test/commercial/payment-enrollments', [
+            'consent' => true, 'consent_version' => 'recurring-v1', 'idempotency_key' => 'enroll',
+        ])->assertCreated();
+        $id = DB::table('payment_enrollments')->value('id');
+        $this->session['status'] = 'complete';
+        $this->session['setup_intent'] = ['id' => 'seti_Contract', 'livemode' => false,
+            'customer' => 'cus_Contract', 'status' => 'succeeded', 'usage' => 'off_session',
+            'metadata' => $this->session['metadata'], 'payment_method' => 'pm_Contract'];
+        $event = ['id' => 'evt_SuspendedOwner', 'livemode' => false, 'type' => 'checkout.session.completed', 'data' => ['object' => $this->session]];
+        $send = function () use ($event) {
+            $raw = json_encode($event, JSON_THROW_ON_ERROR);
+            $time = time();
+
+            return $this->call('POST', '/recurring-test/callback', [], [], [], [
+                'CONTENT_TYPE' => 'application/json',
+                'HTTP_STRIPE_SIGNATURE' => 't='.$time.',v1='.hash_hmac('sha256', $time.'.'.$raw, config('payments.stripe_test_webhook_secret')),
+            ], $raw);
+        };
+        $before = count($this->sent);
+        DB::table('users')->where('id', $u->id)->update(['account_status' => 'suspended']);
+        $send()->assertConflict();
+        $this->assertCount($before, $this->sent);
+        $this->assertDatabaseCount('payment_mandates', 0);
+        $this->assertDatabaseHas('payment_enrollments', ['id' => $id, 'status' => 'pending']);
+
+        DB::table('users')->where('id', $u->id)->update(['account_status' => 'active']);
+        config(['payments.mandate_consent_version' => 'recurring-v2']);
+        $send()->assertConflict();
+        $this->assertDatabaseCount('payment_mandates', 0);
+        $this->assertDatabaseHas('payment_enrollments', ['id' => $id, 'status' => 'pending']);
+        $this->assertSame(0, DB::table('recurring_payment_events')->where('kind', 'provider_callback_verified')->count());
+
+        config(['payments.mandate_consent_version' => 'recurring-v1']);
+        $send()->assertOk()->assertJsonPath('duplicate', false);
+        $send()->assertOk()->assertJsonPath('duplicate', true);
+        $this->assertDatabaseCount('payment_mandates', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
     }
 
     public function test_signed_enrollment_callback_duplicate_replay_and_session_binding(): void
