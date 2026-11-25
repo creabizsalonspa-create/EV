@@ -72,12 +72,22 @@ class RevenueApi extends FixtureApi {
   final queries = <Map<String, String>>[];
   dynamic malformed;
   bool tamperCsv = false;
+  bool expireCsv = false;
+  Completer<PrivateDocument>? pendingCsv;
+  Completer<void>? expiryDelay;
   @override
   Future<PrivateDocument> downloadVendorRevenueCohort(
     int vendorId, {required String currency, required String from, required String to}
   ) async {
     expect(vendorId, 1);
     expect(queries.last, {'currency':currency,'from':from,'to':to});
+    if (expireCsv) {
+      await forgetSession();
+      final invalidated = sessionFence();
+      if (expiryDelay != null) await expiryDelay!.future;
+      throw ApiException(401, 'Expired export', expirationIsCurrent: invalidated);
+    }
+    if (pendingCsv != null) return pendingCsv!.future;
     final data = cohort(from:from,to:to,currency:currency);
     if (tamperCsv) data['data'][0]['paid_minor'] = 1;
     return cohortDocument(data);
@@ -181,6 +191,74 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('revenue-cohort-csv')),findsNothing);
     expect(find.byKey(const Key('revenue-cohort-error')),findsOneWidget);
+    expect(find.byKey(const Key('revenue-cohort-total-issued')),findsNothing);
+    expect(button,findsNothing);
+  });
+
+  test('self-consistent totals cannot conceal an economically impossible day', () {
+    for (final changed in <Map<String,int>>[
+      {'paid_minor': 1100, 'net_collected_minor': 900},
+      {'refunded_minor': 1100, 'net_collected_minor': -1},
+      {'unpaid_credited_minor': 1},
+      {'vendor_refunded_minor': 201, 'net_vendor_allocated_minor': 798},
+      {'invoice_count': 0},
+    ]) {
+      final raw = cohort();
+      (raw['data'][0] as Map).addAll(changed);
+      (raw['totals'] as Map).addAll(changed);
+      expect(() => VendorRevenueCohortSnapshot.parse(raw,
+        vendorId:1,currency:'AED',from:'2026-11-01',to:'2026-11-03'),
+        throwsFormatException);
+    }
+  });
+
+  testWidgets('late CSV cannot restore a backgrounded revenue report', (tester) async {
+    final api = RevenueApi()..pendingCsv = Completer<PrivateDocument>();
+    addTearDown(api.close);
+    await open(tester,api);
+    final button = find.byKey(const Key('revenue-cohort-export'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pump();
+    final q = api.queries.last;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    api.pendingCsv!.complete(cohortDocument(cohort(from:q['from']!,to:q['to']!)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('revenue-cohort-csv')),findsNothing);
+    expect(button,findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+  });
+
+  testWidgets('current CSV expiry signals logout after session invalidation', (tester) async {
+    final api = RevenueApi()..expireCsv = true;
+    addTearDown(api.close);
+    var expires = 0;
+    await open(tester,api,onExpired:()=>expires++);
+    final button = find.byKey(const Key('revenue-cohort-export'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(expires,1);
+    expect(find.byKey(const Key('revenue-cohort-csv')),findsNothing);
+    expect(button,findsNothing);
+  });
+
+  testWidgets('superseded CSV expiry cannot sign out the replacement session', (tester) async {
+    final api = RevenueApi()..expireCsv = true..expiryDelay = Completer<void>();
+    addTearDown(api.close);
+    var expires = 0;
+    await open(tester,api,onExpired:()=>expires++);
+    final button = find.byKey(const Key('revenue-cohort-export'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pump();
+    await api.forgetSession();
+    api.expiryDelay!.complete();
+    await tester.pumpAndSettle();
+    expect(expires,0);
+    expect(find.byKey(const Key('revenue-cohort-csv')),findsNothing);
   });
 
   testWidgets('already painted vendor cohort income is instantly cleared on account logout',

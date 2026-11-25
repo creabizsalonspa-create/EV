@@ -49,6 +49,27 @@ class VendorRevenueCohortSnapshot {
     return value;
   }
 
+  static void verifyEconomics(Map<String, dynamic> row) {
+    final issued = exact(row['invoiced_minor']);
+    final paid = exact(row['paid_minor']);
+    final refunded = exact(row['refunded_minor']);
+    final credited = exact(row['unpaid_credited_minor']);
+    final vendor = exact(row['vendor_allocated_minor']);
+    final commission = exact(row['commission_allocated_minor']);
+    final vendorRefund = exact(row['vendor_refunded_minor']);
+    final vendorCredit = exact(row['vendor_credited_minor']);
+    // Subtraction comparisons avoid overflowing the safe browser integer
+    // domain when a forged response contains individually valid operands.
+    if (paid > issued || credited > issued - paid ||
+        refunded > paid || vendor > issued || commission > issued - vendor ||
+        vendorRefund > refunded || vendorCredit > credited ||
+        vendorRefund > vendor || vendorCredit > vendor - vendorRefund ||
+        (exact(row['invoice_count']) == 0 &&
+            fields.any((key) => exact(row[key]) != 0))) {
+      throw const FormatException('Impossible invoice cohort economics.');
+    }
+  }
+
   static VendorRevenueCohortSnapshot parse(
     dynamic raw, {
     required int vendorId,
@@ -103,6 +124,7 @@ class VendorRevenueCohortSnapshot {
         }
         aggregate[field] = aggregate[field]! + amount;
       }
+      verifyEconomics(day);
       if (exact(day['net_collected_minor'], signed: true) !=
               day['paid_minor'] - day['refunded_minor'] ||
           exact(day['net_vendor_allocated_minor'], signed: true) !=
@@ -120,6 +142,7 @@ class VendorRevenueCohortSnapshot {
         throw const FormatException('Unreconciled invoice cohort.');
       }
     }
+    verifyEconomics(total);
     if (exact(total['net_collected_minor'], signed: true) !=
             aggregate['paid_minor']! - aggregate['refunded_minor']! ||
         exact(total['net_vendor_allocated_minor'], signed: true) !=
@@ -305,6 +328,7 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
     if (!foreground) return;
     final attempt = ++generation;
     final api = widget.api;
+    final currency = widget.currency;
     final session = api.sessionFence();
     currentAuthority = session;
     setState(() {
@@ -316,6 +340,7 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
       cleared = false;
     });
     bool active() => mounted && foreground &&
+        identical(api, widget.api) && currency == widget.currency &&
         generation == attempt && session();
 
     try {
@@ -325,7 +350,7 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
       if (days < 1 || days > 93 ||
           end.compareTo(DateTime.now().toUtc()
               .toIso8601String().substring(0, 10)) > 0 ||
-          !RegExp(r'^[A-Z]{3}$').hasMatch(widget.currency)) {
+          !RegExp(r'^[A-Z]{3}$').hasMatch(currency)) {
         throw const FormatException('Invalid cohort filters.');
       }
 
@@ -340,13 +365,13 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
 
       final raw = await api.request(
         'commercial/vendors/${account['id']}/revenue-cohorts',
-        query: {'currency': widget.currency, 'from': start, 'to': end},
+        query: {'currency': currency, 'from': start, 'to': end},
       );
       if (!active()) return;
       final parsed = VendorRevenueCohortSnapshot.parse(
         raw,
         vendorId: account['id'] as int,
-        currency: widget.currency,
+        currency: currency,
         from: start,
         to: end,
       );
@@ -400,7 +425,14 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
         widget.onExpired();
         return;
       }
-      if (active()) setState(() { csvPreview = null; error = e; });
+      if (active()) setState(() {
+        // A conflicting export proves the displayed snapshot cannot be
+        // revalidated. Require a fresh authorized JSON read before retry.
+        csvPreview = null;
+        report = null;
+        exporting = false;
+        error = e;
+      });
     } finally {
       if (active()) setState(() => exporting = false);
     }

@@ -5,3 +5,5 @@ The current Vendor Revenue by invoice date view requests the existing authentica
 The preview clears on filter edit, refresh, session invalidation, client replacement and background transition. Current-session expiry uses the canonical generation-aware predicate. Existing earnings/audit CSV row caps remain unchanged by default.
 
 Pure parser, Flutter widget and local Laravel contract regressions added. Partial 3.6.2/3.5.9/7.1.10, no bank/PSP acceptance. Agent 5 owns integration; coordinate native with Agent 4. Exact-head validation pending.
+
+Follow-up: daily and total economics are independently checked for collection, reversal, vendor/commission allocation and zero-invoice consistency using exact subtraction comparisons. A conflicting export removes the previously accepted report and requires a fresh JSON read. Additional parser and lifecycle widget regressions cover internally consistent forged sums, backgrounded CSV, real current credential expiry and superseded expiry. These are candidate checks, not a hosted test pass.
