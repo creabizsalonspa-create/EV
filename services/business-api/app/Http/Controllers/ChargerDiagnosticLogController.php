@@ -272,7 +272,7 @@ class ChargerDiagnosticLogController extends Controller
                         abort_unless($b->protocol === '1.6' || ($event['payload']['requestId'] ?? null) === (int) $op->id,
                             409, 'Diagnostic status belongs to a different request.');
                         $state = $event['payload']['status'] ?? null;
-                        if (! in_array($state, ['Uploading', 'Uploaded', 'UploadFailed', 'UploadFailure', 'BadMessage', 'NotSupportedOperation', 'PermissionDenied'], true)) {
+                        if (in_array($state, ['Uploading', 'Uploaded', 'UploadFailed', 'UploadFailure', 'BadMessage', 'NotSupportedOperation', 'PermissionDenied'], true) === false) {
                             continue;
                         }
                         // OCPP1.6 does not include a requestId in this notification.
