@@ -325,6 +325,49 @@ class SubscriptionRecurringTest extends TestCase
         $this->assertSame(1, DB::table('recurring_payment_events')->where('kind', 'provider_callback_verified')->count());
     }
 
+    public function test_suspended_owner_cannot_start_collection_but_valid_consent_can_resume_after_reactivation(): void
+    {
+        $u = User::factory()->create();
+        $method = $this->enroll($u);
+        [$subscription, $invoice] = $this->subscription($u);
+        $collections = app(SubscriptionCollections::class);
+        $collections->policy($u, $subscription, true, $method, 0);
+        $before = count($this->sent);
+        DB::table('users')->where('id', $u->id)->update(['account_status' => 'suspended']);
+        $collections->collect($invoice);
+        $this->assertSame(0, $collections->scan(1));
+        $this->assertCount($before, $this->sent);
+        $this->assertDatabaseCount('subscription_collections', 0);
+        $this->assertDatabaseCount('subscription_gateway_checkouts', 0);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+
+        DB::table('users')->where('id', $u->id)->update(['account_status' => 'active']);
+        $this->assertSame(1, $collections->scan(1));
+        $this->assertDatabaseHas('subscription_collections', ['invoice_id' => $invoice, 'state' => 'collected', 'attempts' => 1]);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+    }
+
+    public function test_cancelled_unattempted_invoice_cannot_starve_next_subscription_in_bounded_scan(): void
+    {
+        $u = User::factory()->create();
+        $method = $this->enroll($u);
+        [$old, $oldInvoice] = $this->subscription($u);
+        $collections = app(SubscriptionCollections::class);
+        $service = app(SubscriptionService::class);
+        $collections->policy($u, $old, true, $method, 0);
+        $service->change($u, $old, 'cancel_now', null, 'cancel-first');
+        $plan = DB::table('commercial_subscriptions')->where('id', $old)->value('plan_id');
+        $new = $service->subscribe($u, $plan, 'new-subscription');
+        $invoice = $new['invoices']->first()->id;
+        $collections->policy($u, $new['subscription']->id, true, $method, 0);
+
+        $this->assertSame(1, $collections->scan(1));
+        $this->assertDatabaseMissing('subscription_collections', ['invoice_id' => $oldInvoice]);
+        $this->assertDatabaseHas('subscription_collections', ['invoice_id' => $invoice, 'state' => 'collected', 'attempts' => 1]);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->assertDatabaseHas('commercial_subscription_receipts', ['invoice_id' => $invoice]);
+    }
+
     public function test_cancelled_subscription_cannot_be_collected(): void
     {
         $u = User::factory()->create();
