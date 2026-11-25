@@ -9,6 +9,7 @@ use App\Security\PrivacyOwnerAuthority;
 use App\Services\Identity\AccountSecondFactor;
 use App\Services\Privacy\AccountDataExport;
 use App\Services\Privacy\PrivateCopyIntegrity;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -80,7 +81,7 @@ class PrivacyAccessExportController extends Controller
             $factor->consume($owner, $v['second_factor_code'] ?? '');
             try {
                 $body = Crypt::decryptString($copy->payload_encrypted);
-            } catch (\Illuminate\Contracts\Encryption\DecryptException) {
+            } catch (DecryptException) {
                 abort(409, 'Private copy integrity failed.');
             }
             PrivateCopyIntegrity::verify($body, (int) $copy->byte_length, $copy->sha256, (int) $owner->id, (int) $case->id);
