@@ -43,6 +43,11 @@ class CommandReconciler
             }
             $session = ChargingSession::findOrFail($link->charging_session_id);
             $end = $command->action === 'stop';
+            if ($end && ! OcppTransactionId::matchesStop(
+                $link->protocol, $command->payload['transaction_id'] ?? null, $link->transaction_id
+            )) {
+                return false;
+            }
             if ($end && ($link->ended_at === null || $session->status !== 'stopped' || $session->stopped_at === null)) {
                 return false;
             }

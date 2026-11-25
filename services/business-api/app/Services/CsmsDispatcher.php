@@ -39,6 +39,14 @@ class CsmsDispatcher
             || ($command->action === 'start' ? $link->start_command_id : $link->stop_command_id) !== $command->id)) {
             return false;
         }
+        // The transport payload is frozen at stop request time. A changed
+        // canonical transaction cannot authorize stopping its former ID.
+        if ($link && $command->action === 'stop'
+            && (! $link->started_at || ! OcppTransactionId::matchesStop(
+                $link->protocol, $command->payload['transaction_id'] ?? null, $link->transaction_id
+            ))) {
+            return false;
+        }
         if (! $link && $command->action === 'stop'
             && ((int) $command->actor_id !== (int) $station->vendor_id
                 || ! User::whereKey($command->actor_id)->where('role', 'vendor')
