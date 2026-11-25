@@ -16,6 +16,7 @@ return new class extends Migration
             $table->foreignId('provider_id')->constrained('ocpi_providers')->restrictOnDelete();
             $table->foreignId('owner_id')->constrained('users')->restrictOnDelete();
             $table->foreignId('reviewer_id')->constrained('users')->restrictOnDelete();
+            $table->string('connection_key', 80);
             $table->unsignedInteger('revision');
             $table->string('decision', 16);
             $table->string('reference_id', 120)->nullable();
