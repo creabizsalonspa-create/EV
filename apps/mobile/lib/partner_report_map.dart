@@ -675,9 +675,10 @@ class _PartnerReportMapState extends State<PartnerReportMap>
                             label: clustered
                                 ? t('${group.length} separate published locations, availability unverified',
                                     '${group.length} مواقع منشورة منفصلة، التوفر غير مؤكد')
-                                : point.name + (point.platformCatalog
-                                    ? ' — platform catalog, availability unverified'
-                                    : ' — unverified partner report'),
+                                : t(
+                                    '${point.name} — ${point.platformCatalog ? 'platform catalog, availability unverified' : 'unverified partner report'}',
+                                    '${point.name} — ${point.platformCatalog ? 'كتالوج المنصة، التوفر غير مؤكد' : 'تقرير شريك غير مؤكد'}',
+                                  ),
                             button: true,
                             child: IconButton(
                               key: ValueKey(clustered

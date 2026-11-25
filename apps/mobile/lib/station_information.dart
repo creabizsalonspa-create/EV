@@ -55,6 +55,7 @@ class StationInformationPanel extends StatelessWidget {
     final info = information ?? <String, dynamic>{};
     final ar = stationInfoArabic(context);
     final published = info['source_label'] == 'VENDOR_REPORTED_UNVERIFIED';
+    final availabilityBlocks = info['availability_blocks'];
     final weekly = info['weekly_hours'] is Map
         ? info['weekly_hours'] as Map
         : <String, dynamic>{};
@@ -75,11 +76,28 @@ class StationInformationPanel extends StatelessWidget {
         childrenPadding: const EdgeInsets.all(16),
         expandedCrossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (info['availability_blocks'] is List)
-            for (final block in (info['availability_blocks'] as List).whereType<Map>()) ...[
-              Text('${block['starts_at']} → ${block['ends_at']} (UTC)', textDirection: TextDirection.ltr),
-              Text(stationInfoT(context, 'Operator block: ${block['reason_en']}', 'حجب من المشغل: ${block['reason_ar']}')),
-            ],
+          if (availabilityBlocks is List)
+            for (final block in availabilityBlocks)
+              if (block case {
+                'scope': 'STATION_WIDE_OPERATOR_POLICY',
+                'physical_availability_verified': false,
+                'starts_at': final String startsAt,
+                'ends_at': final String endsAt,
+                'reason_en': final String reasonEn,
+                'reason_ar': final String reasonAr,
+              }) ...[
+                Text(
+                  '$startsAt → $endsAt (UTC)',
+                  textDirection: TextDirection.ltr,
+                ),
+                Text(
+                  stationInfoT(
+                    context,
+                    'Operator block (live charger status unknown): $reasonEn',
+                    'حجب من المشغل (حالة الشاحن المباشرة غير معروفة): $reasonAr',
+                  ),
+                ),
+              ],
           if (!published)
             Text(
               stationInfoT(

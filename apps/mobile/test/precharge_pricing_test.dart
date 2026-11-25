@@ -5,18 +5,35 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/precharge_pricing.dart';
 import 'test_support.dart';
 
-final price = <String,dynamic>{'version':1,'evidence':'SIMULATED','currency':'KWD','minor_units':3,'energy_wh':1500,'rate_minor_per_kwh':'251','tax_bps':500,'subtotal_minor':'377','tax_minor':'19','total_minor':'396','session_fee_minor':'0','idle_fee_minor':'0','external_fees_included':false,'automatic_stop':false,'final_total_depends_on_meter':true,'expires_at':'2026-11-18T10:35:00.000000Z'};
+String quoteExpiry(int secondsFromNow) =>
+  DateTime.now().toUtc().add(Duration(seconds:secondsFromNow))
+    .toIso8601String().replaceFirst(RegExp(r'\.\d+Z$'),'.000000Z');
+
+final price = <String,dynamic>{'version':1,'evidence':'SIMULATED','currency':'KWD','minor_units':3,'energy_wh':1500,'rate_minor_per_kwh':'251','tax_bps':500,'subtotal_minor':'377','tax_minor':'19','total_minor':'396','session_fee_minor':'0','idle_fee_minor':'0','external_fees_included':false,'automatic_stop':false,'final_total_depends_on_meter':true,'expires_at':quoteExpiry(300)};
 class PricingApi extends FixtureApi {
   final writes = <Map<String,dynamic>>[];
   Completer<dynamic>? pending;
   int epoch = 0;
+  bool expiredQuote = false, malformedReceipt = false, mismatchedReceipt = false, sqlReplay = false;
   @override
   bool Function() sessionFence() { final captured = epoch; return () => captured == epoch; }
   @override
   Future<dynamic> request(String path,{String method='GET',Map<String,dynamic>? body,Map<String,String> query=const {}}) async {
     calls.add(path);
-    if (path.endsWith('price-estimate')) return pending == null ? {'estimate':price,'quote_token':'synthetic-private-token'} : pending!.future;
-    writes.add(body!); return {'id':7};
+    if (path.endsWith('price-estimate')) return pending == null
+      ? {'estimate':{...price,if(expiredQuote)'expires_at':quoteExpiry(-60)},
+         'quote_token':'synthetic-private-token'}
+      : pending!.future;
+    writes.add(body!);
+    if (malformedReceipt) return {'id':0,'accepted_at':'invalid','valid_until':'not-a-date'};
+    if (mismatchedReceipt) return {'id':99,'accepted_at':DateTime.now().toUtc().toIso8601String(), 'valid_until':quoteExpiry(600)};
+    return {
+      'id':7,
+      'accepted_at':DateTime.now().toUtc().toIso8601String(),
+      'valid_until':sqlReplay
+        ? (price['expires_at'] as String).substring(0,19).replaceFirst('T',' ')
+        : price['expires_at'],
+    };
   }
 }
 Widget app(PricingApi api,{bool arabic=false}) => MaterialApp(
@@ -25,10 +42,152 @@ Widget app(PricingApi api,{bool arabic=false}) => MaterialApp(
   home:Builder(builder:(context)=>Scaffold(body:TextButton(onPressed:()=>reviewPrechargePricing(context,api,7),child:const Text('Review')))),
 );
 void main() {
+
+  for(final ar in [false,true]){
+    testWidgets('expired charging price is never displayed or accepted ($ar)',(tester) async {
+      final api=PricingApi()..expiredQuote=true;
+      addTearDown(api.close);
+      await tester.pumpWidget(app(api,arabic:ar));
+      await tester.tap(find.text('Review'));await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField),'1500');
+      await tester.tap(find.text(ar?'عرض التقدير':'Get estimate'));
+      await tester.pumpAndSettle();
+      expect(api.calls.where((c)=>c.contains('price-estimate')).length,1);
+      expect(api.writes,isEmpty);
+      expect(find.textContaining('KWD 0.396'),findsNothing);
+      expect(tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton,ar?'قبول السعر':'Accept price'))
+        .onPressed,isNull);
+      expect(tester.takeException(),isNull);
+    });
+    testWidgets('malformed consent receipt never closes dialog as success ($ar)',(tester) async {
+      final api=PricingApi()..malformedReceipt=true;
+      addTearDown(api.close);
+      await tester.pumpWidget(app(api,arabic:ar));
+      await tester.tap(find.text('Review'));await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField),'1500');
+      await tester.tap(find.text(ar?'عرض التقدير':'Get estimate'));await tester.pumpAndSettle();
+      await tester.tap(find.text(ar?'قبول السعر':'Accept price'));await tester.pumpAndSettle();
+      expect(api.writes,hasLength(1));
+      expect(find.byType(PrechargePricingDialog),findsOneWidget);
+      expect(tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton,ar?'قبول السعر':'Accept price'))
+        .onPressed,isNull);
+      expect(api.calls.where((c)=>c.contains('price-consent')).length,1,
+        reason:'An uncertain consent must never be automatically replayed');
+      expect(tester.takeException(),isNull);
+    });
+    testWidgets('initially inactive price dialog does not submit a private request ($ar)',
+        (tester) async {
+      final api=PricingApi();
+      addTearDown(api.close);
+      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pumpWidget(app(api,arabic:ar));
+      await tester.tap(find.text('Review'));await tester.pumpAndSettle();
+      expect(tester.widget<TextButton>(
+          find.widgetWithText(TextButton,ar?'عرض التقدير':'Get estimate'))
+        .onPressed,isNull);
+      expect(api.calls,isEmpty);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(api.calls,isEmpty,reason:'Resume must not automatically quote or approve');
+      expect(tester.widget<TextButton>(
+          find.widgetWithText(TextButton,ar?'عرض التقدير':'Get estimate'))
+        .onPressed,isNotNull);
+      expect(tester.takeException(),isNull);
+    });
+  }
+
+  test('verified receipt accepts exact PostgreSQL fractional UTC without rollover',() {
+    final exp=price['expires_at'] as String;
+    final receipt=<String,dynamic>{
+      'id':77,
+      'accepted_at':DateTime.now().toUtc().toIso8601String(),
+      'valid_until':exp.substring(0,19).replaceFirst('T',' ')+'.000000',
+    };
+    expect(confirmedPrechargeReceipt(receipt,price),true);
+    expect(confirmedPrechargeReceipt({...receipt,'id':0},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'valid_until':'2026-02-30 10:00:00'},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'valid_until':'not-a-timestamp'},price),false);
+  });
+
+
+  for(final ar in [false,true]){
+    testWidgets('well-formed but wrong-price consent receipt cannot report success ($ar)',(tester)async{
+      final api=PricingApi()..mismatchedReceipt=true;
+      addTearDown(api.close);
+      await tester.pumpWidget(app(api,arabic:ar));
+      await tester.tap(find.text('Review'));await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField),'1500');
+      await tester.tap(find.text(ar?'عرض التقدير':'Get estimate'));await tester.pumpAndSettle();
+      await tester.tap(find.text(ar?'قبول السعر':'Accept price'));await tester.pumpAndSettle();
+      expect(api.writes,hasLength(1));
+      expect(find.byType(PrechargePricingDialog),findsOneWidget);
+      expect(find.textContaining('KWD 0.396'),findsNothing);
+      expect(api.calls.where((c)=>c.contains('price-consent')).length,1);
+      expect(tester.takeException(),isNull);
+    });
+    testWidgets('same retained native dialog switches reservation without inheriting quote ($ar)',(tester)async{
+      final api=PricingApi();
+      addTearDown(api.close);
+      Widget form(int reservation) => MaterialApp(
+        locale:Locale(ar?'ar':'en'),
+        supportedLocales:const[Locale('en'),Locale('ar')],
+        localizationsDelegates:const[
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home:PrechargePricingDialog(
+          key:const ValueKey('retained-price-dialog'),
+          api:api,reservation:reservation),
+      );
+      await tester.pumpWidget(form(7));await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField),'1500');
+      await tester.tap(find.text(ar?'عرض التقدير':'Get estimate'));await tester.pumpAndSettle();
+      expect(find.textContaining('KWD 0.396'),findsOneWidget);
+      final reads=api.calls.length;
+      api.epoch++;
+      await tester.pumpWidget(form(8));await tester.pumpAndSettle();
+      expect(api.calls.length,reads,reason:'A changed account must explicitly request new quote');
+      expect(find.textContaining('KWD 0.396'),findsNothing);
+      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,'10000');
+      expect(tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton,ar?'قبول السعر':'Accept price'))
+        .onPressed,isNull);
+      expect(api.writes,isEmpty);
+      expect(tester.takeException(),isNull);
+    });
+  }
+
+  testWidgets('SQL UTC replay receipt preserves verified price acceptance', (tester) async {
+    final api=PricingApi()..sqlReplay=true;
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api));
+    await tester.tap(find.text('Review'));await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField),'1500');
+    await tester.tap(find.text('Get estimate'));await tester.pumpAndSettle();
+    await tester.tap(find.text('Accept price'));await tester.pumpAndSettle();
+    expect(api.writes,hasLength(1));
+    expect(find.byType(PrechargePricingDialog),findsNothing);
+    expect(tester.takeException(),isNull);
+  });
+
   test('exact estimate rounding and supported price/fee scope agree with Laravel', () {
     expect(validPrechargeEstimate(price),true);
     expect(prechargeAmount('396',3),'0.396');expect(prechargeAmount('396',0),'396');
-    for(final update in <Map<String,dynamic>>[{'total_minor':'395'},{'tax_minor':'20'},{'external_fees_included':true},{'automatic_stop':true},{'minor_units':4},{'energy_wh':0},{'rate_minor_per_kwh':'1000001'}]) expect(validPrechargeEstimate({...price,...update}),false);
+    for(final update in <Map<String,dynamic>>[
+      {'total_minor':'395'},{'tax_minor':'20'},
+      {'external_fees_included':true},{'automatic_stop':true},
+      {'minor_units':4},{'energy_wh':0},{'rate_minor_per_kwh':'1000001'},
+      {'expires_at':'2026-02-30T10:35:00.000000Z'},
+      {'expires_at':'2026-04-31T10:35:00.000000Z'},
+      {'expires_at':'2026-11-18T24:00:00.000000Z'},
+      {'expires_at':'2026-11-18T10:61:00.000000Z'},
+      {'expires_at':'2026-11-18T10:35:60.000000Z'},
+    ]) expect(validPrechargeEstimate({...price,...update}),false);
     expect(prechargeText(price,true),contains('KWD 0.396'));
     expect(prechargeText(price,false),contains('not a spending cap'));
   });
