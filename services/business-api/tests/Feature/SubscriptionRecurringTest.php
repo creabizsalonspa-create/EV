@@ -320,6 +320,30 @@ class SubscriptionRecurringTest extends TestCase
         $this->assertDatabaseCount('commercial_subscription_receipts', 0);
     }
 
+    public function test_inspection_resolves_expired_execution_lease_without_reissuing_hosted_session(): void
+    {
+        $u = User::factory()->create();
+        $base = '/recurring-test/commercial/payment-enrollments';
+        $body = ['consent' => true, 'consent_version' => 'recurring-v1', 'idempotency_key' => 'abandoned-lease'];
+        $this->actingAs($u)->postJson($base, $body)->assertCreated();
+        $id = DB::table('payment_enrollments')->value('id');
+        DB::table('payment_enrollments')->where('id', $id)->update([
+            'status' => 'executing', 'lease' => str_repeat('l', 48), 'lease_until' => now()->addMinute(),
+        ]);
+        $before = count($this->sent);
+        $this->postJson($base.'/'.$id.'/inspect')->assertConflict();
+        $this->assertCount($before, $this->sent);
+        $this->travel(2)->minutes();
+        $this->postJson($base.'/'.$id.'/inspect')->assertOk()->assertJsonPath('status', 'pending')
+            ->assertJsonPath('hosted_url', 'https://checkout.stripe.com/c/pay/test');
+        $this->assertDatabaseHas('payment_enrollments', [
+            'id' => $id, 'status' => 'pending', 'lease' => null, 'lease_until' => null,
+        ]);
+        $this->assertCount(1, collect($this->sent)->filter(fn ($r) => $r[0] === 'POST' && $r[1] === '/v1/checkout/sessions'));
+        $this->assertDatabaseCount('payment_mandates', 0);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+    }
+
     public function test_suspended_owner_callback_and_changed_terms_cannot_activate_hosted_mandate(): void
     {
         $u = User::factory()->create();
