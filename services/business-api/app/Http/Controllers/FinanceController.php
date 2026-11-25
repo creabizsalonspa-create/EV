@@ -35,13 +35,27 @@ class FinanceController extends Controller
     {
         return DB::transaction(function () use ($r, $station) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            // Route binding precedes this transaction. Re-read the station
+            // under the same lock used by tariff publishers before disclosure.
+            $station = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
             abort_unless($actor->role === 'admin'
                 || ($actor->role === 'vendor' && $station->vendor_id === $actor->id), 404);
             $region = DB::table('regions')->where('country', $station->country)
-                ->where('currency', $station->currency)->first();
+                ->where('currency', $station->currency)->lockForUpdate()->first();
+            $asOf = now();
+            $active = $station->source === 'simulator'
+                ? app(FinanceService::class)->activeTariff($station, $asOf) : null;
+            // History ordering is not effective-price ordering. Return the
+            // independently selected version even when it is on another page.
+            $matchesContext = $active !== null && $region !== null
+                && $active->currency === $station->currency
+                && (int) $active->minor_units === (int) $region->minor_units;
 
             return response()->json(TariffVersion::where('station_id', $station->id)
                 ->orderByDesc('id')->paginate(25)->toArray() + [
+                    'tariff_as_of' => $asOf->toISOString(),
+                    'active_tariff' => $active,
+                    'active_tariff_context_matches' => $matchesContext,
                     'pricing_context' => [
                         'currency' => $station->currency,
                         'minor_units' => $region ? (int) $region->minor_units : null,
