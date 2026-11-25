@@ -167,6 +167,7 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
       'idempotency_key': key,
       'expected_minor_units': pricingContext!['minor_units'],
       'expected_currency': pricingContext!['currency'],
+      'expected_active_tariff_id': effectiveTariff?['id'],
     };
     setState(() {
       busy = true;
