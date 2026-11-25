@@ -92,8 +92,54 @@ async function supportReceiptRegression() {
   console.log("PASS exact support reply/status recovery: frozen request, duplicate denial, receipt validation and retired-account refresh");
 }
 
+async function supportCreateReceiptRegression() {
+  const source = require("node:fs").readFileSync("services/business-api/public/platform.js","utf8");
+  const start=source.indexOf('el("support-create").onsubmit = async (e) => {');
+  const end=source.indexOf('\nel("verify-email")',start);
+  assert(start>=0 && end>start);
+  const subject={value:"  Original issue  "}, body={value:"  Original message  "}, submit={};
+  const form={isConnected:true,elements:{namedItem:n=>n==="subject"?subject:body},
+    querySelector:()=>submit,reset(){subject.value=body.value="";}};
+  const client={sessionEpoch:1}, user={id:7,role:"customer"}, posts=[];
+  let settle,finishRefresh,refreshes=0,notices=0,opened=0;
+  new Function("el","client","user","crypto","api","support","ticketDetail","notice",
+    "let pendingTicketCreate=null,ticketCreatePending=false,ticketCreateGeneration=0,supportPage=1;\n"+
+    source.slice(start,end))(()=>form,client,user,{randomUUID},
+      async (path,method,payload)=>{
+        assert.equal(path,"support");assert.equal(method,"POST");
+        posts.push({...payload});
+        if(posts.length===1)return new Promise(resolve=>{settle=resolve;});
+        return {id:42,user_id:7,subject:payload.subject,status:"open"};
+      },()=>{refreshes++;return new Promise(resolve=>{finishRefresh=resolve;});},
+      ()=>{opened++;},()=>{notices++;});
+  const event={target:form,preventDefault(){}};
+  const first=form.onsubmit(event);
+  await form.onsubmit(event);
+  assert.equal(posts.length,1);
+  settle({id:42,user_id:8,subject:"Original issue",status:"open"});
+  await first;
+  assert.equal(notices,1);
+  assert.equal(subject.readOnly,true);
+  subject.value="Modified issue";body.value="Modified message";
+  const retry=form.onsubmit(event);
+  await Promise.resolve();await Promise.resolve();
+  assert.deepEqual(posts[0],posts[1]);
+  assert.equal(posts[1].subject,"Original issue");
+  assert.equal(posts[1].body,"Original message");
+  assert.equal(refreshes,1);
+  client.sessionEpoch++;
+  finishRefresh();
+  await retry;
+  assert.equal(opened,0);
+  form.isConnected=false;
+  await form.onsubmit(event);
+  assert.equal(posts.length,2);
+  console.log("PASS support creation exact owner/subject, frozen retry and session-bound refresh");
+}
+
 (async () => {
   await supportReceiptRegression();
+  await supportCreateReceiptRegression();
   const browser = await chromium.launch({
     headless: true,
     executablePath: process.env.EV_CHROMIUM_PATH || undefined,

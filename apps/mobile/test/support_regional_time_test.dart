@@ -4,6 +4,18 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main(){
+  test('ticket creation receipt matches owner, exact subject and valid state', () {
+    final valid=<String,dynamic>{'id':42,'user_id':9,'subject':'Support','status':'open'};
+    bool matches(dynamic row)=>supportTicketReceiptMatches(row,'Support',accountId:9);
+    for(final status in ['open','in_progress','resolved','closed']){
+      expect(matches({...valid,'status':status}),isTrue);
+    }
+    for(final row in [null,{'id':42},{...valid,'id':0},
+      {...valid,'user_id':10},{...valid,'user_id':'9'},
+      {...valid,'subject':'Other'},{...valid,'status':'unknown'}]){
+      expect(matches(row),isFalse,reason:'Malformed receipt: $row');
+    }
+  });
   test('reply receipt matches exact ticket, content, public visibility and actor', () {
     final valid=<String,dynamic>{
       'id':42,'support_ticket_id':7,'author_id':9,

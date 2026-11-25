@@ -2135,6 +2135,10 @@ function resetCustomerMutationState() {
         const submit = el(id).querySelector("button");
         if (submit) submit.disabled = false;
     }
+    for (const field of ["subject","body"]) {
+        const input = el("support-create").elements.namedItem(field);
+        if (input) input.readOnly = false;
+    }
 }
 async function garage(page = garagePage, showNewest = false) {
     if (!user || !Number.isSafeInteger(page) || page < 1) return;
@@ -3173,34 +3177,44 @@ async function ticketDetail(id, page = 1, showNewest = false) {
 }
 el("support-create").onsubmit = async (e) => {
     e.preventDefault();
-    if (!user || ticketCreatePending) return;
-    const epoch = client.sessionEpoch, actor = user.id;
-    const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const form = e.target;
+    if (!user || ticketCreatePending || form !== el("support-create") || !form.isConnected) return;
+    const epoch = client.sessionEpoch, actor = user.id, role = user.role;
     const token = ++ticketCreateGeneration;
-    const submit = e.target.querySelector("button");
-    const payload = Object.fromEntries(new FormData(e.target));
-    const signature = JSON.stringify(payload);
-    if (!pendingTicketCreate || pendingTicketCreate.signature !== signature ||
-        pendingTicketCreate.actor !== actor || pendingTicketCreate.epoch !== epoch) {
-        pendingTicketCreate = {
-            signature, actor, epoch,
-            key: crypto.randomUUID().replace(/-/g, ""),
-        };
+    const active = () => token === ticketCreateGeneration &&
+        epoch === client.sessionEpoch && actor === user?.id && role === user?.role &&
+        form.isConnected && form === el("support-create");
+    const submit = form.querySelector("button");
+    const subject = form.elements.namedItem("subject");
+    const body = form.elements.namedItem("body");
+    if (!subject || !body) return;
+    if (!pendingTicketCreate || pendingTicketCreate.actor !== actor ||
+        pendingTicketCreate.epoch !== epoch || pendingTicketCreate.role !== role) {
+        const payload = {subject:subject.value.trim(),body:body.value.trim()};
+        if (!payload.subject || payload.subject.length > 150 || !payload.body || payload.body.length > 5000) return;
+        pendingTicketCreate = {payload, actor, epoch, role,
+            key: crypto.randomUUID().replace(/-/g, "")};
     }
     const request = pendingTicketCreate;
+    // Restore the exact uncertain intent even if a stale callback changed the DOM.
+    subject.value = request.payload.subject;
+    body.value = request.payload.body;
+    subject.readOnly = body.readOnly = true;
     ticketCreatePending = true;
     if (submit) submit.disabled = true;
     try {
         const t = await api("support", "POST", {
-            ...payload,
+            ...request.payload,
             idempotency_key: request.key,
         });
         if (!active()) return;
-        if (!Number.isSafeInteger(t?.id) || t.id <= 0) {
+        if (!Number.isSafeInteger(t?.id) || t.id <= 0 ||
+            t.user_id !== actor || t.subject !== request.payload.subject ||
+            !["open","in_progress","resolved","closed"].includes(t.status)) {
             throw new Error("Ticket creation was not confirmed");
         }
         if (pendingTicketCreate === request) pendingTicketCreate = null;
-        e.target.reset();
+        form.reset();
         supportPage = 1;
         await support();
         if (active()) await ticketDetail(t.id);
@@ -3209,7 +3223,10 @@ el("support-create").onsubmit = async (e) => {
     } finally {
         if (token === ticketCreateGeneration) {
             ticketCreatePending = false;
-            if (submit?.isConnected) submit.disabled = false;
+            if (active()) {
+                subject.readOnly = body.readOnly = pendingTicketCreate !== null;
+                if (submit) submit.disabled = false;
+            }
         }
     }
 };

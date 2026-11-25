@@ -29,6 +29,15 @@ bool supportReplyReceiptMatches(dynamic row, int ticketId, String body,
   return visibility == false || visibility == 0 || visibility == '0';
 }
 
+/// The create endpoint returns a ticket, not its private initial message.
+/// Laravel validates the original body when replaying the same request key.
+bool supportTicketReceiptMatches(dynamic row, String subject, {int? accountId}) =>
+    row is Map && row['id'] is int && row['id'] > 0 &&
+    row['user_id'] is int && row['user_id'] > 0 &&
+    (accountId == null || row['user_id'] == accountId) &&
+    row['subject'] == subject &&
+    const {'open','in_progress','resolved','closed'}.contains(row['status']);
+
 String newSupportRequestKey() {
   final random = Random.secure();
   return List.generate(16,
@@ -265,8 +274,9 @@ int? operationalCaseTarget(Map<String, dynamic> notice) {
 class _NewSupportTicketDialog extends StatefulWidget {
   final String? initialSubject;
   final String? initialBody;
+  final bool recovering;
 
-  const _NewSupportTicketDialog({this.initialSubject, this.initialBody});
+  const _NewSupportTicketDialog({this.initialSubject, this.initialBody, this.recovering = false});
 
   @override
   State<_NewSupportTicketDialog> createState() => _NewSupportTicketDialogState();
@@ -305,6 +315,7 @@ class _NewSupportTicketDialogState extends State<_NewSupportTicketDialog> {
               TextFormField(
                 key: const Key('support-new-subject'),
                 controller: subjectInput,
+                readOnly: widget.recovering,
                 maxLength: 150,
                 decoration: InputDecoration(labelText: strings.t('subject')),
                 validator: (value) => value == null || value.trim().isEmpty
@@ -313,6 +324,7 @@ class _NewSupportTicketDialogState extends State<_NewSupportTicketDialog> {
               TextFormField(
                 key: const Key('support-new-body'),
                 controller: bodyInput,
+                readOnly: widget.recovering,
                 maxLength: 5000,
                 minLines: 3,
                 maxLines: 5,
@@ -338,7 +350,7 @@ class _NewSupportTicketDialogState extends State<_NewSupportTicketDialog> {
               'body': bodyInput.text.trim(),
             });
           },
-          child: Text(strings.t('openTicket')),
+          child: Text(strings.t(widget.recovering ? 'retry' : 'openTicket')),
         ),
       ],
     );
@@ -591,13 +603,12 @@ class SupportViewState extends State<SupportView>
       builder: (_) => _NewSupportTicketDialog(
         initialSubject: pendingTicketSubject,
         initialBody: pendingTicketBody,
+        recovering: pendingTicketKey != null,
       ),
     );
     if (desired == null || !current(dialogGeneration, dialogSession) ||
         !identical(widget.api, dialogApi)) return;
-    if (pendingTicketKey == null ||
-        pendingTicketSubject != desired['subject'] ||
-        pendingTicketBody != desired['body']) {
+    if (pendingTicketKey == null) {
       pendingTicketKey = newSupportRequestKey();
       pendingTicketSubject = desired['subject'];
       pendingTicketBody = desired['body'];
@@ -612,12 +623,12 @@ class SupportViewState extends State<SupportView>
       final accepted = await widget.api.request(
         'support',
         method: 'POST',
-        body: {...desired, 'idempotency_key': pendingTicketKey},
+        body: {'subject': pendingTicketSubject, 'body': pendingTicketBody,
+          'idempotency_key': pendingTicketKey},
       );
       if (!current(request, session)) return;
-      if (accepted is! Map ||
-          accepted['id'] is! int ||
-          (accepted['id'] as int) <= 0) {
+      if (!supportTicketReceiptMatches(accepted, pendingTicketSubject!,
+          accountId: widget.accountId)) {
         throw const FormatException('Support ticket creation not confirmed');
       }
       pendingTicketSubject = null;
