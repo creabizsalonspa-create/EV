@@ -701,11 +701,17 @@ void main(){
    final opener=find.byKey(const Key('unified-map-open'));
    await tester.ensureVisible(opener);await tester.tap(opener);await tester.pumpAndSettle();
    expect(tiles.requests,0);
-   api.epoch++;
-   await tester.tap(find.byKey(const Key('partner-map-enable')));
+   final enable = tester.widget<FilledButton>(
+     find.byKey(const Key('partner-map-enable')),
+   ).onPressed!;
+   api.rotate();
+   enable();
    await tester.pumpAndSettle();
-   final submit=find.byKey(const Key('unified-native-viewport-search'));
-   await tester.ensureVisible(submit);await tester.tap(submit);await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-native-viewport-search')), findsNothing);
+   expect(find.textContaining('Private map hidden.'), findsOneWidget);
+   expect(tiles.requests, 0, reason: 'Revocation must precede tile access');
+   await tester.pageBack();
+   await tester.pumpAndSettle();
    expect(api.calls.length,1,reason:'A stale map must never query under the new account');
    expect(find.text('Synthetic catalog'),findsNothing,
       reason:'Old customer location metadata must not survive epoch change');
