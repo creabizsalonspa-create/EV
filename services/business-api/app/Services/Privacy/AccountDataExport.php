@@ -90,7 +90,14 @@ final class AccountDataExport
 
     public function metadata(int $case): ?array
     {
-        $record = DB::table('account_privacy_exports')->where('privacy_request_id', $case)->first(['id', 'expires_at', 'purged_at', 'revoked_at', 'byte_length', 'created_at']);
+        // An inconsistent imported receipt must never disclose another owner's
+        // metadata through a privacy case. Match both immutable associations.
+        $record = DB::table('account_privacy_exports as e')
+            ->join('account_privacy_requests as r', 'r.id', '=', 'e.privacy_request_id')
+            ->whereColumn('e.user_id', 'r.user_id')
+            ->where('r.kind', 'access')->where('r.status', 'closed_review')
+            ->where('e.privacy_request_id', $case)
+            ->first(['e.id', 'e.expires_at', 'e.purged_at', 'e.revoked_at', 'e.byte_length', 'e.created_at']);
         if (! $record) {
             return null;
         }
