@@ -41,3 +41,11 @@ page 2; no refund, approval, settlement, external PSP call or canonical
 financial journal is created by read. This remains read-only simulated
 triage, not banking reconciliation or final finance approval governance.
 Exact-head CI and Agent 5 integration remain pending.
+
+## Web review filter and atomic private-page acceptance
+
+The Admin browser now supports optional currency and vendor filters alongside kind. The exact applied query is used for list, pagination and one-page CSV. Editing filters clears previous private records and links; hiding the page also clears filter values. The client validates returned pagination, unique typed row identities, filtered vendor/currency/kind, immutable invoice linkage and source-group counts before committing any new private DOM. No approval or payment action is added. The real browser acceptance test exercises scoped list/CSV and a forged page response; existing Laravel access checks remain authoritative.
+
+## Whole-filter source bounds
+
+Before returning a grouped review or its single-page CSV, the controller checks all filtered source rows for unsafe signed amounts, invalid source identities and missing or out-of-range precision. Opposite invalid signed values cannot cancel into an apparently exact aggregate even when both are outside the visible page. SQLite REAL-affinity source amounts/precision are rejected, and group counts must reconcile with the requested pagination count. Unknown precision is rejected instead of silently becoming zero decimal places. This is read-only source validation; no historical source or journal is modified.

@@ -216,8 +216,22 @@ const fs = require("node:fs");
     await c.reload();
     await c.locator('a[href="#commercial-finance"]').click();
     await c.waitForTimeout(Math.max(0, 61000 - (Date.now() - reloadedAt)));
-    await customerRewards.getByRole("button", { name: "Check partner reward receipt", exact: true }).click();
+    // The first claim actually committed. Resolve it via the new server
+    // cancellation control instead of discarding the saved key locally.
+    await customerRewards.getByRole("button", { name: "Check partner reward receipt", exact: true }).waitFor();
+    c.once("dialog", (dialog) => dialog.accept());
+    const cancelled = c.waitForResponse((response) =>
+      response.url().endsWith("/commercial/partner-rewards/claim-intents/cancel") &&
+      response.request().method() === "POST");
+    await customerRewards.getByRole("button", { name: "Cancel saved partner reward claim", exact: true }).click();
+    const resolution = await cancelled;
+    assert.equal(resolution.status(), 200, await resolution.text());
+    const resolved = await resolution.json();
+    assert.equal(resolved.state, "accepted");
+    assert.equal(resolved.claim.id, receipt.id);
     await customerRewards.getByText("#" + receipt.id, { exact: true }).waitFor();
+    await customerRewards.getByRole("button", { name: "Retry partner reward claim", exact: true }).waitFor({ state: "hidden" });
+    await customerRewards.getByRole("button", { name: "Cancel saved partner reward claim", exact: true }).waitFor({ state: "hidden" });
     await c.locator("#language").click();
     await customerRewards.getByText("بانتظار التسليم اليدوي", { exact: true }).waitFor();
     checks++;

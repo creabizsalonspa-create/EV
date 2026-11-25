@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
@@ -12,10 +13,18 @@ class BatteryApi extends FixtureApi {
     'threshold_percent': 20,
     'version': 1,
     'can_simulate': true,
+    'telemetry_source':'SIMULATOR_ONLY',
   };
   final observations = <Map<String, dynamic>>[];
   Map<String, dynamic>? saved;
-  bool loseFirst = false;
+  bool loseFirst = false, corruptReceipt = false;
+  int epoch=0, reads=0;
+  final changes=StreamController<int>.broadcast(sync:true);
+  @override
+  Stream<int> get sessionEvents=>changes.stream;
+  @override
+  bool Function() sessionFence(){final original=epoch;return ()=>epoch==original;}
+  void rotate(){epoch++;changes.add(epoch);}
   @override
   Future<dynamic> request(
     String path, {
@@ -32,14 +41,19 @@ class BatteryApi extends FixtureApi {
       observations.add(Map.from(body!));
       if (loseFirst && observations.length == 1)
         throw const ApiException(503, 'Unknown observation result');
+      final alerted=prefs['alerts_enabled']==true &&
+          (body['battery_percent'] as int)<=(prefs['threshold_percent'] as int);
       return {
-        'source': 'simulator',
-        'alerted':
-            prefs['alerts_enabled'] == true &&
-            (body['battery_percent'] as int) <=
-                (prefs['threshold_percent'] as int),
+        'source': corruptReceipt?'vehicle_api':'simulator',
+        'battery_percent':body['battery_percent'],
+        'threshold_percent':prefs['threshold_percent'],
+        'alerts_enabled':prefs['alerts_enabled'],
+        'preferences_version':prefs['version'],
+        'notification_id':alerted?42:null,
+        'alerted':alerted,
       };
     }
+    reads++;
     return prefs;
   }
 }
@@ -115,4 +129,59 @@ void main() {
       expect(find.text('Save battery preferences'), findsOneWidget);
     },
   );
+  testWidgets('inactive battery widget requires explicit foreground refresh',(tester) async {
+    final api=BatteryApi();
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    addTearDown(()=>tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    await tester.pumpWidget(page(api));
+    await tester.pumpAndSettle();
+    expect(api.reads,0);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.reads,0);
+    await tester.tap(find.text('Refresh preferences'));
+    await tester.pumpAndSettle();
+    expect(api.reads,1);
+  });
+  testWidgets('account rotation erases pending simulation and blocks stale retry',(tester) async {
+    final api=BatteryApi()..loseFirst=true;
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await tester.pumpWidget(page(api));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Record simulator observation'));
+    await tester.tap(find.text('Record simulator observation'));
+    await tester.pumpAndSettle();
+    final retry=find.widgetWithText(TextButton,'Retry same simulator observation');
+    final stale=tester.widget<TextButton>(retry).onPressed!;
+    api.rotate();
+    await tester.pumpAndSettle();
+    expect(retry,findsNothing);
+    stale();
+    await tester.pumpWidget(page(api));
+    await tester.pumpAndSettle();
+    expect(api.observations.length,1);
+    expect(api.reads,1);
+    expect(find.text('Find compatible chargers'),findsNothing);
+  });
+  testWidgets('mismatched simulation source retains identical retry and never claims alert',(tester) async {
+    final api=BatteryApi()..corruptReceipt=true;
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await tester.pumpWidget(page(api));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Record simulator observation'));
+    await tester.tap(find.text('Record simulator observation'));
+    await tester.pumpAndSettle();
+    expect(find.text('Simulated alert saved in Notifications.'),findsNothing);
+    api.corruptReceipt=false;
+    await tester.ensureVisible(find.text('Retry same simulator observation'));
+    await tester.tap(find.text('Retry same simulator observation'));
+    await tester.pumpAndSettle();
+    expect(api.observations.length,2);
+    expect(api.observations[0],api.observations[1]);
+    expect(find.text('Simulated alert saved in Notifications.'),findsOneWidget);
+  });
 }
