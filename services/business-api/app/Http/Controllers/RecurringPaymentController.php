@@ -32,6 +32,7 @@ class RecurringPaymentController extends Controller
         return DB::transaction(function () use ($r, $m) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
             $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+
             return response()->json(DB::table('payment_enrollments')->where('user_id', $actor->id)->orderByDesc('id')->paginate(25)->through(fn ($e) => $m->enrollmentDto($e)))->header('Cache-Control', 'private, no-store');
         }, 3);
     }
@@ -84,6 +85,7 @@ class RecurringPaymentController extends Controller
         return DB::transaction(function () use ($r) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
             $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+
             return response()->json(DB::table('commercial_subscriptions as s')->where('s.user_id', $actor->id)->orderByDesc('s.id')->paginate(25)->through(function ($s) {
                 $s->collection_policy = DB::table('subscription_collection_policies')->where('subscription_id', $s->id)->first();
                 $s->latest_collection = DB::table('subscription_collections')->where('subscription_id', $s->id)->orderByDesc('id')->first(['id', 'invoice_id', 'checkout_id', 'attempts', 'state', 'failure_code', 'next_attempt_at', 'updated_at']);
@@ -115,6 +117,7 @@ class RecurringPaymentController extends Controller
         return DB::transaction(function () use ($r) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
             $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+
             return response()->json(DB::table('recurring_payment_events')->where('user_id', $actor->id)->select(['id', 'subject', 'kind', 'created_at'])->orderByDesc('id')->paginate(25))->header('Cache-Control', 'private, no-store');
         }, 3);
     }
