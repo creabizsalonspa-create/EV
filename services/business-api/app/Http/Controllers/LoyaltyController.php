@@ -165,7 +165,33 @@ class LoyaltyController extends Controller
                 ->whereColumn('currency', 'reward.currency')->where('effective_from', '<=', $now)
                 ->orderByDesc('effective_from')->orderByDesc('id')->limit(1);
         }, '=', true);
-        if (! config('loyalty.enabled') || app()->environment('production') || $account['redemption_hold'] || $account['balance_points'] < 0) {
+        $activation = app(NoncashActivation::class);
+        $mode = $activation->mode();
+        if ($mode === 'sandbox') {
+            // Pre-activation rows are legacy sandbox evidence only. Reviewed
+            // coupons must never become sandbox commitments after a flag change.
+            $query->whereNotExists(fn ($e) => $e->selectRaw('1')
+                ->from('loyalty_coupon_activation_evidence as e')
+                ->whereColumn('e.coupon_id', 'coupon.id')
+                ->where('e.activation_mode', '!=', 'sandbox'));
+        } elseif ($mode === 'reviewed_manual') {
+            // Match the same immutable approval and terms required by claim().
+            $query->whereExists(fn ($e) => $e->selectRaw('1')
+                ->from('loyalty_coupon_activation_evidence as e')
+                ->whereColumn('e.coupon_id', 'coupon.id')
+                ->where('e.activation_mode', 'reviewed_manual')
+                ->where('e.approval_reference', config('loyalty.noncash.approval_reference'))
+                ->where('e.terms_sha256', config('loyalty.noncash.terms_sha256')));
+            if (DB::table('loyalty_awards')->where('user_id', $user)->exists()
+                || DB::table('loyalty_ledger')->where('user_id', $user)->where('points', '!=', 0)->exists()) {
+                $query->whereRaw('1 = 0');
+            }
+        } else {
+            $query->whereRaw('1 = 0');
+        }
+        // Claim reconciles refundable/expired point lots before checking debt.
+        // The read projection must not advertise a benefit against pending debt.
+        if ($account['redemption_hold'] || $account['balance_points'] < $account['pending_reconciliation_points']) {
             $query->whereRaw('1 = 0');
         }
 
