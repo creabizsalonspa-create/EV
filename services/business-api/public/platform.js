@@ -1373,11 +1373,32 @@ async function simulations(page = simulationPage) {
     }
 }
 async function regions() {
+    const epoch = client.sessionEpoch;
     const rows = await api("regions");
+    if (epoch !== client.sessionEpoch) return;
     const root = el("region-list");
     root.replaceChildren();
     for (const region of rows) {
         root.append(ui("p", "{country} · {currency} · {timezone} · commerce disabled", region));
+        if (user?.role === "admin" && Number.isSafeInteger(region.configuration_revision) &&
+            region.configuration_revision >= 1) {
+            const edit = batteryNode("button", "Edit reviewed regional settings", "تعديل إعدادات المنطقة التي تمت مراجعتها");
+            edit.type = "button";
+            edit.dataset.access = "admin";
+            edit.dataset.regionConfigurationEdit = region.country;
+            edit.onclick = () => {
+                if (!edit.isConnected || epoch !== client.sessionEpoch || user?.role !== "admin") return;
+                const form = el("region-config");
+                for (const key of ["country", "currency", "minor_units", "timezone", "tax_bps"]) {
+                    form.elements.namedItem(key).value = region[key] ?? "";
+                }
+                form.dataset.expectedCountry = region.country;
+                form.dataset.expectedRevision = String(region.configuration_revision);
+                form.dataset.expectedEpoch = String(epoch);
+                form.elements.namedItem("currency").focus();
+            };
+            root.append(edit);
+        }
         const enabled = Boolean(region.review_intake_enabled);
         const button = enabled
             ? batteryNode("button", "Pause new charging feedback", "إيقاف استقبال ملاحظات الشحن الجديدة")
@@ -1823,18 +1844,45 @@ el("fleet-create").onsubmit = async (e) => {
         }
     }
 };
+let regionalConfigBusy = false;
 el("region-config").onsubmit = async (e) => {
     e.preventDefault();
+    if (regionalConfigBusy || user?.role !== "admin") return;
+    const form = e.target, epoch = client.sessionEpoch;
+    const submit = form.querySelector("button");
+    regionalConfigBusy = true;
+    submit.disabled = true;
     try {
-        let v = Object.fromEntries(new FormData(e.target)),
-            country = v.country;
+        const v = Object.fromEntries(new FormData(form)), country = v.country;
         delete v.country;
-        if (!v.tax_bps) v.tax_bps = null;
-        await api("regions/" + encodeURIComponent(country), "PUT", v);
+        v.tax_bps = v.tax_bps === "" ? null : v.tax_bps;
+        v.expected_revision = form.dataset.expectedCountry === country &&
+            form.dataset.expectedEpoch === String(epoch) ? Number(form.dataset.expectedRevision) : 0;
+        const saved = await api("regions/" + encodeURIComponent(country), "PUT", v);
+        if (epoch !== client.sessionEpoch || user?.role !== "admin") return;
+        if (saved?.country !== country || !Number.isSafeInteger(saved.configuration_revision) ||
+            saved.configuration_revision < 1 ||
+            ![false, 0].includes(saved.commerce_enabled))
+            throw Error("Regional configuration receipt cannot be verified.");
+        form.dataset.expectedCountry = country;
+        form.dataset.expectedRevision = String(saved.configuration_revision);
+        form.dataset.expectedEpoch = String(epoch);
         await regions();
-        notice("Configuration saved. Commercial activation remains disabled.");
-    } catch (e) {
-        notice(e);
+        if (epoch === client.sessionEpoch)
+            notice("Configuration saved. Commercial activation remains disabled.");
+    } catch (error) {
+        if (epoch !== client.sessionEpoch) return;
+        notice(error);
+        if (error.status === 409) {
+            delete form.dataset.expectedRevision;
+            delete form.dataset.expectedCountry;
+            delete form.dataset.expectedEpoch;
+            await regions().catch(notice);
+        }
+    } finally {
+        regionalConfigBusy = false;
+        if (epoch === client.sessionEpoch) submit.disabled = false;
+        else if (submit.isConnected) submit.disabled = false;
     }
 };
 el("account").onsubmit = async (e) => {
