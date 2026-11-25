@@ -13,6 +13,22 @@ use Throwable;
 /** Customer/source lineage only. No reservation, invoice, collection or settlement writes. */
 class RoamingReconciler
 {
+    /** Persisted database instants must not accept relative dates or rolled-over calendar values. */
+    private static function storedInstant(mixed $value): ?CarbonImmutable
+    {
+        if (! is_string($value)
+            || ! preg_match('/^(\d{4})-(\d{2})-(\d{2})[ T]([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.(\d{1,6}))?Z?$/D', $value, $parts)
+            || ! checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1])) {
+            return null;
+        }
+
+        try {
+            return CarbonImmutable::parse($value, 'UTC')->utc();
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
     private function review(object $row): object
     {
         DB::table('ocpi_roaming_orders')->where('id', $row->id)->update(['reconciliation_state' => 'requires_review', 'updated_at' => now()]);
@@ -69,7 +85,8 @@ class RoamingReconciler
             $records = OcpiRecord::where('ocpi_provider_id', $p->id)->where('module', 'sessions')->where('country_code', $target['country_code'])->where('party_id', $target['party_id'])->where('id', '>', $row->source_record_floor)->orderByDesc('id')->limit(1001)->get();
             abort_if($records->count() > 1000, 409, 'Partner history needs bounded manual review.');
             $attempt = $this->attemptedIntent($row, $target, $local, $uid);
-            if (! $attempt && ($records->isNotEmpty() || $row->source_session_record_id !== null)) {
+            $attemptedAt = self::storedInstant($attempt?->attempted_at);
+            if ($attemptedAt === null && ($records->isNotEmpty() || $row->source_session_record_id !== null)) {
                 return $this->review($row);
             }
             try {
@@ -77,7 +94,7 @@ class RoamingReconciler
             } catch (Throwable) {
                 return $this->review($row);
             }
-            if ($matches->count() !== 1 || ! $attempt) {
+            if ($matches->count() !== 1 || $attemptedAt === null) {
                 if ($matches->count() > 1 || ($matches->isEmpty() && $row->source_session_record_id !== null)) {
                     DB::table('ocpi_roaming_orders')->where('id', $row->id)->update(['reconciliation_state' => 'requires_review', 'updated_at' => now()]);
                 }
@@ -86,8 +103,8 @@ class RoamingReconciler
             }
             $session = $matches->first();
             $integrity = app(StoredSourceIntegrity::class);
-            if (! $integrity->consistent($session) || $session->received_at === null
-                || $session->received_at->lt(CarbonImmutable::parse($attempt->attempted_at, 'UTC'))) {
+            $sessionReceived = self::storedInstant($session->getRawOriginal('received_at'));
+            if (! $integrity->consistent($session) || $sessionReceived === null || $sessionReceived->lt($attemptedAt)) {
                 return $this->review($row);
             }
             $n = $session->normalized;
@@ -130,7 +147,7 @@ class RoamingReconciler
                 $values['state'] = 'source_completed';
                 $values['active_target_key'] = null;
                 if (($row->intent_kind ?? 'start') === 'reservation' && $row->reservation_closed_at === null) {
-                    $values['reservation_closed_at'] = $session->received_at;
+                    $values['reservation_closed_at'] = $sessionReceived;
                 }
             }
             if ($n['status'] === 'INVALID') {
@@ -152,8 +169,8 @@ class RoamingReconciler
                 $values['reconciliation_state'] = 'requires_review';
             } elseif ($claims->count() === 1) {
                 $cdr = $claims->first();
-                if (! $integrity->consistent($cdr) || $cdr->received_at === null
-                    || $cdr->received_at->lt(CarbonImmutable::parse($attempt->attempted_at, 'UTC'))) {
+                $cdrReceived = self::storedInstant($cdr->getRawOriginal('received_at'));
+                if (! $integrity->consistent($cdr) || $cdrReceived === null || $cdrReceived->lt($attemptedAt)) {
                     $review = true;
                 } else {
                     $comparison = app(CdrReconciler::class)->inspect($p, $cdr);

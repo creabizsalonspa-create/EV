@@ -49,6 +49,40 @@ class OcpiRoamingSourceIntegrityTest extends TestCase
         $this->assertDatabaseCount('charging_sessions', 0);
     }
 
+    public function test_malformed_legacy_receipt_or_attempt_clock_requires_review(): void
+    {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('PostgreSQL timestamp columns reject malformed legacy clock strings.');
+        }
+        [, $driver, , $provider, $location] = $this->fixture();
+        [$id] = $this->start($driver, $location);
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        $raw = $this->sourceSessionFixture($provider, $order, $this->writes[0]['body'], 'COMPLETED');
+        app(RecordSynchronizer::class)->ingest($provider, 'sessions', [$raw]);
+        $session = OcpiRecord::where('module', 'sessions')->firstOrFail();
+        $command = DB::table('ocpi_roaming_commands')->where('order_id', $id)->first();
+        $url = '/api/roaming/sandbox-orders/'.$id.'/reconcile';
+        foreach ([
+            ['ocpi_roaming_commands', $command->id, 'attempted_at', $command->attempted_at],
+            ['ocpi_records', $session->id, 'received_at', $session->getRawOriginal('received_at')],
+        ] as [$table, $key, $field, $original]) {
+            foreach (['not-a-clock', 'yesterday', '2026-02-30 12:00:00'] as $invalid) {
+                DB::table($table)->where('id', $key)->update([$field => $invalid]);
+                $this->postJson($url)->assertOk()->assertJsonPath('state', 'start_accepted')
+                    ->assertJsonPath('reconciliation_state', 'requires_review');
+                $held = DB::table('ocpi_roaming_orders')->find($id);
+                $this->assertNotNull($held->active_target_key);
+                $this->assertNull($held->source_session_record_id);
+            }
+            DB::table($table)->where('id', $key)->update([$field => $original]);
+        }
+        $this->postJson($url)->assertOk()->assertJsonPath('state', 'source_completed');
+        $this->assertNull(DB::table('ocpi_roaming_orders')->find($id)->active_target_key);
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
     public function test_backward_source_lifecycle_cannot_replace_observed_active_state(): void
     {
         [, $driver, , $provider, $location] = $this->fixture();
