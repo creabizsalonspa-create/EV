@@ -175,8 +175,13 @@ void main() {
     await tester.tap(button);
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('revenue-cohort-csv')),findsOneWidget);
-    await tester.ensureVisible(find.byKey(const Key('revenue-cohort-from')));
-    await tester.enterText(find.byKey(const Key('revenue-cohort-from')),'2026-11-01');
+    final from = find.byKey(const Key('revenue-cohort-from'));
+    // The private CSV extends the lazy ListView, so the input may not be
+    // built until we scroll back. Exercise the real scroll interaction.
+    await tester.scrollUntilVisible(from, -250,
+      scrollable: find.descendant(of: find.byType(ListView),
+        matching: find.byType(Scrollable)).first);
+    await tester.enterText(from,'2026-11-01');
     await tester.pump();
     expect(find.byKey(const Key('revenue-cohort-csv')),findsNothing);
     expect(button,findsNothing);
