@@ -223,6 +223,28 @@ class SubscriptionRecurringTest extends TestCase
         $this->assertCount(1, collect($this->sent)->filter(fn ($r) => $r[0] === 'POST' && $r[1] === '/v1/payment_intents'));
     }
 
+    public function test_previously_returned_sca_operation_cannot_disclose_another_action_url_after_policy_disabled(): void
+    {
+        $u = User::factory()->create();
+        $method = $this->enroll($u);
+        [$subscription, $invoice] = $this->subscription($u);
+        $collections = app(SubscriptionCollections::class);
+        $collections->policy($u, $subscription, true, $method, 0);
+        $this->outcome = 'requires_action';
+        $collections->scan(25);
+        $checkout = DB::table('subscription_gateway_checkouts')->first();
+        $path = '/recurring-test/commercial/subscription-checkouts/'.$checkout->id.'/authentication';
+        $this->postJson($path)->assertOk()->assertJsonPath('hosted_action_supported', true);
+        $collections->policy($u, $subscription, false, null, 1);
+        $posts = collect($this->sent)->filter(fn ($r) => $r[0] === 'POST')->count();
+
+        $this->postJson($path)->assertConflict()->assertJsonMissingPath('hosted_url');
+        $this->assertSame($posts, collect($this->sent)->filter(fn ($r) => $r[0] === 'POST')->count());
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+        $this->assertDatabaseCount('subscription_gateway_checkouts', 1);
+        $this->assertDatabaseHas('subscription_collections', ['invoice_id' => $invoice, 'attempts' => 1]);
+    }
+
     public function test_wrong_provider_owner_and_expired_or_changed_consent_never_enable_collection(): void
     {
         $u = User::factory()->create();
