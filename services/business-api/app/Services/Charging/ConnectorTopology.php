@@ -35,8 +35,14 @@ class ConnectorTopology
         $binding = $evse->binding_id ? DB::table('csms_bindings')->where('id', $evse->binding_id)->when($lock, fn ($q) => $q->lockForUpdate())->first() : null;
         if ($evse->mode === 'csms') {
             abort_unless($binding && $binding->station_id === $station->id && $binding->vendor_charger_id === $charger->id && $binding->protocol === $charger->ocpp_protocol && preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/D', $binding->identifier) && $map->source_connector_number >= 1 && ($binding->protocol === '1.6' ? $evse->source_evse_number === 0 : $evse->source_evse_number >= 1), 409, 'Canonical simulator source is unavailable.');
+            abort_unless(SourceTargetIdentity::matches(
+                $binding->protocol, $binding->id, $evse->source_evse_number,
+                $map->source_connector_number, $map->source_target_key
+            ), 409, 'Canonical connector target identity changed.');
         } else {
-            abort_unless($evse->mode === 'application' && $binding === null, 409);
+            abort_unless($evse->mode === 'application' && $binding === null
+                && $evse->binding_id === null && $evse->source_evse_number === 0
+                && $map->source_connector_number === null && $map->source_target_key === null, 409);
         }
 
         return compact('map', 'evse', 'connector', 'charger', 'site', 'company', 'binding');
@@ -50,6 +56,9 @@ class ConnectorTopology
         $target = null;
         try {
             $target = $this->target($station, $map->id);
+            $map = $target['map'];
+            $evse = $target['evse'];
+            $connector = $target['connector'];
             app(MaintenancePolicy::class)->requireAvailable($connector->id);
         } catch (HttpException $e) {
             $ready = false;
