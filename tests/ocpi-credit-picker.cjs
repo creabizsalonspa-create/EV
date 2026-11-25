@@ -110,18 +110,36 @@ withSource(async (f) => {
       ),
       false,
     );
+    // Private UI is cleared immediately, before asynchronous logout is
+    // acknowledged. Observe the actual authenticated POST and its completion,
+    // not just the optimistic redaction. Probe the exact outgoing cookie,
+    // rather than the fixture client's potentially superseded cookie jar.
+    stage = "logout-session-revocation";
+    const loggedOut = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/logout" &&
+        response.request().method() === "POST",
+    );
     await page.locator("#logout").click();
+    const logoutResponse = await loggedOut;
+    assert.equal(logoutResponse.ok(), true, "Logout must be acknowledged");
+    await logoutResponse.finished();
+    const sentCookie = (await logoutResponse.request().allHeaders()).cookie;
+    assert.ok(sentCookie, "Logout must carry authenticated session cookies");
     await page.waitForFunction(
       () => document.querySelector("#commercial-finance").hidden,
     );
     assert.equal(await root.textContent(), "");
     await context.close();
-    // The browser imported the driver's exact session cookie. Logout must
-    // revoke that session for the original API client as well.
-    stage = "logout-session-revocation";
+    const retired = new BusinessClient({ base: f.base });
+    for (const pair of sentCookie.split(";")) {
+      const entry = pair.trim(), index = entry.indexOf("=");
+      assert.ok(index > 0, "Invalid synthetic session cookie");
+      retired.cookies.set(entry.slice(0, index), entry.slice(index + 1));
+    }
     await assert.rejects(
-      () => f.driverClient.request(`finance/invoices/${invoice.id}`),
+      () => retired.request(`finance/invoices/${invoice.id}`),
       /failed \(401\)/,
+      "The exact acknowledged logout session must be rejected",
     );
     stage = "vendor-review";
     const owner = new BusinessClient({ base: f.base });
@@ -191,7 +209,7 @@ withSource(async (f) => {
 }).catch((e) => {
   console.error(
     ["AssertionError", "TimeoutError"].includes(e.name)
-      ? e.message
+      ? `Source credit picker assertion at ${stage}: ${e.message}`
       : `Isolated source credit picker proof failed at ${stage} (${e.name}); private fixture details withheld.`,
   );
   process.exitCode = 1;
