@@ -3,6 +3,7 @@
 namespace App\Services\Commercial;
 
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Payments\StripeSandboxProvider;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Crypt;
@@ -218,7 +219,7 @@ class PaymentMandates
     public function setDefault(User $user, int $id, int $expected): void
     {
         DB::transaction(function () use ($user, $id, $expected) {
-            User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $user = app(CurrentFinanceReader::class)->requireSnapshot($user);
             $m = $this->method($user, $id, true);
             $this->credentials($user, $id, $m->version);
             $a = DB::table('payment_customer_accounts')->where('id', $m->account_id)->lockForUpdate()->first();
@@ -231,7 +232,7 @@ class PaymentMandates
     public function revoke(User $user, int $id, int $expected): void
     {
         DB::transaction(function () use ($user, $id, $expected) {
-            User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $user = app(CurrentFinanceReader::class)->requireSnapshot($user);
             $m = $this->method($user, $id, true);
             if ($m->status === 'revoked') {
                 return;
