@@ -355,16 +355,28 @@ void main() {
     addTearDown(api.close);
     addTearDown(api.changes.close);
     await tester.pumpWidget(scopedArrival(api,7));
-    final stale=tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton,'Check in')).onPressed!;
+    // Finish initial Navigator layout before the first real user gesture.
+    await tester.pumpAndSettle();
+    final checkIn = find.widgetWithText(FilledButton,'Check in');
+    final stale=tester.widget<FilledButton>(checkIn).onPressed!;
+    await tester.tap(checkIn);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog),findsOneWidget);
+    // Simulate callbacks retained before the disabled button was rebuilt.
     stale();
     stale();
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog),findsOneWidget);
-    await tester.tap(find.text('Confirm'));
+    expect(api.writes,0);
+    final confirm = find.descendant(of:find.byType(AlertDialog),
+      matching:find.widgetWithText(FilledButton,'Confirm'));
+    expect(confirm,findsOneWidget);
+    await tester.tap(confirm);
     await tester.pumpAndSettle();
     expect(api.writes,1);
+    expect(api.paths,['reservations/7/check-in']);
     expect(find.byType(AlertDialog),findsNothing);
+    expect(tester.takeException(),isNull);
   });
 
 }
