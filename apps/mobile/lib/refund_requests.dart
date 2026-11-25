@@ -144,6 +144,21 @@ List<Widget> _sourceCreditEvidence(BuildContext context, Map row) {
   ];
 }
 
+Map<String, dynamic> nativeRefundHistoryRecord(Map<String, dynamic> row) {
+  final amount = row['amount_minor'];
+  final reason = row['reason'];
+  final credit = row['ocpi_credit_record_id'];
+  if (!_refundId(row['id']) ||
+      !_refundId(row['invoice_id']) ||
+      amount is! int || amount < 1 || amount > 2000000000 ||
+      reason is! String || reason.trim().isEmpty || reason.length > 500 ||
+      !['pending', 'approved', 'rejected'].contains(row['status']) ||
+      (credit != null && !_refundId(credit))) {
+    throw const FormatException('Invalid private refund history.');
+  }
+  return row;
+}
+
 class RefundRequestsView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
@@ -174,6 +189,8 @@ class _RefundListState extends State<RefundRequestsView>
   void initState() {
     super.initState();
     ownsSession = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     session = widget.api.sessionEvents.listen((_) {
       if (mounted) setState(() {
@@ -233,7 +250,7 @@ class _RefundListState extends State<RefundRequestsView>
           'finance/refund-requests',
           query: {'page': '$number'},
         ),
-        (r) => r,
+        nativeRefundHistoryRecord,
       );
       if (current(epoch)) setState(() => page = result);
     } catch (e) {
@@ -248,7 +265,9 @@ class _RefundListState extends State<RefundRequestsView>
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
+  Widget build(BuildContext c) {
+    final view = generation;
+    return Scaffold(
     appBar: AppBar(title: Text(t('title'))),
     body: ListView(
       padding: const EdgeInsets.all(16),
@@ -256,7 +275,9 @@ class _RefundListState extends State<RefundRequestsView>
         Text(t('notice')),
         if (visible) ...[
         OutlinedButton(
-          onPressed: busy ? null : () => load(number: target),
+          onPressed: busy ? null : () {
+            if (current(view)) load(number: target);
+          },
           child: Text(t('refresh')),
         ),
         if (busy) const Center(child: CircularProgressIndicator()),
@@ -289,16 +310,18 @@ class _RefundListState extends State<RefundRequestsView>
                         onPressed: busy
                             ? null
                             : () async {
+                                if (!current(view)) return;
+                                final api = widget.api;
                                 await Navigator.of(c).push(
                                   MaterialPageRoute<void>(
                                     builder: (_) => RefundDecisionView(
-                                      api: widget.api,
+                                      api: api,
                                       onExpired: widget.onExpired,
                                       requestId: row['id'] as int,
                                     ),
                                   ),
                                 );
-                                if (mounted && visible) load(number: target);
+                                if (current(view)) load(number: target);
                               },
                         child: Text(t('review')),
                       ),
@@ -312,14 +335,14 @@ class _RefundListState extends State<RefundRequestsView>
               OutlinedButton(
                 onPressed: busy || page!.current <= 1
                     ? null
-                    : () => load(number: page!.current - 1),
+                    : () { if (current(view)) load(number: page!.current - 1); },
                 child: Text(t('previous')),
               ),
               Text('${page!.current} / ${page!.last}'),
               OutlinedButton(
                 onPressed: busy || page!.current >= page!.last
                     ? null
-                    : () => load(number: page!.current + 1),
+                    : () { if (current(view)) load(number: page!.current + 1); },
                 child: Text(t('next')),
               ),
             ],
@@ -328,7 +351,8 @@ class _RefundListState extends State<RefundRequestsView>
         ],
       ],
     ),
-  );
+    );
+  }
 }
 
 class RefundRequestView extends StatefulWidget {
