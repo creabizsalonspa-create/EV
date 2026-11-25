@@ -77,6 +77,12 @@ final class PartnerCapabilityMatrix
                 'partner_sender_negotiated' => $outbound && $this->approvedEndpoint($provider, $module),
                 'local_receiver_configured' => in_array($module, $configuredReceivers, true),
                 'local_receiver_active' => in_array($module, $activeReceivers, true),
+                // Active credential reception can precede version negotiation.
+                // Keep that backward-compatible flag distinct from request readiness.
+                'local_receiver_request_ready' => $configured && $provider->authorized
+                    && $provider->version === '2.2.1' && in_array($module, $activeReceivers, true)
+                    && in_array($module, $configuredReceivers, true)
+                    && $this->approvedEndpoint($provider, $module),
                 'local_sender_configured' => in_array($module, $cpoModules, true),
                 'local_sender_active' => $senderCurrent && in_array($module, $cpoModules, true),
                 'sandbox_delivery_software_enabled' => $sandbox && $senderCurrent
