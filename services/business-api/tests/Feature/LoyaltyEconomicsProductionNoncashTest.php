@@ -108,6 +108,31 @@ class LoyaltyEconomicsProductionNoncashTest extends TestCase
         app(LoyaltyService::class)->earn($f['invoice']->id, $f['customer']->id);
     }
 
+    public function test_listed_discovery_excludes_legacy_sandbox_and_obsolete_review_terms_before_pagination(): void
+    {
+        $f = $this->fixture();
+        $sandbox = $this->action($f['maker'], 'publishCoupon', $this->payload($f, 'SB') + ['listed' => true])->assertCreated()->json('id');
+        $this->action($f['customer'], 'discoverCoupons', [], true)->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $sandbox);
+        $this->reviewedProduction();
+        $this->action($f['customer'], 'discoverCoupons', [], true)->assertOk()->assertJsonPath('total', 0);
+        $old = $this->action($f['maker'], 'publishCoupon', $this->payload($f, 'OLD') + ['listed' => true])->assertCreated()->json('id');
+        config(['loyalty.noncash.terms_sha256' => hash('sha256', 'Synthetic rotated review terms')]);
+        $current = $this->action($f['maker'], 'publishCoupon', $this->payload($f, 'NEW') + ['listed' => true])->assertCreated()->json('id');
+        $this->action($f['maker'], 'publishCoupon', $this->payload($f, 'PRIVATE'))->assertCreated();
+        $response = $this->action($f['customer'], 'discoverCoupons', [], true)->assertOk()
+            ->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $current)
+            ->assertJsonMissingPath('data.0.code_hash')->assertJsonMissingPath('data.0.approval_reference');
+        $this->assertNotContains($old, array_column($response->json('data'), 'id'));
+        $cash = DB::table('finance_journals')->orderBy('id')->get()->toJson();
+        $this->assertDatabaseCount('loyalty_coupon_claims', 0);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $claim = $this->action($f['customer'], 'claimCoupon', ['code' => $this->payload($f, 'NEW')['code'], 'idempotency_key' => 'reviewed-discovery'], true)->assertOk();
+        $claim->assertJsonPath('claim.coupon_id', $current)->assertJsonPath('claim.points_cost', 0);
+        config(['loyalty.noncash.fulfillment_reviewed' => false]);
+        $this->action($f['customer'], 'discoverCoupons', [], true)->assertOk()->assertJsonPath('total', 0);
+        $this->assertSame($cash, DB::table('finance_journals')->orderBy('id')->get()->toJson());
+    }
+
     public function test_production_configuration_never_relabels_or_honors_a_legacy_sandbox_coupon_as_reviewed(): void
     {
         $f = $this->fixture();
