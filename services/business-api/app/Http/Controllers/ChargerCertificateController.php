@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\ChargerCertificates;
+use App\Services\Charging\MaintenanceActor;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -18,7 +19,8 @@ class ChargerCertificateController extends Controller
 
         return DB::transaction(function () use ($r, $company, $charger, $service) {
             $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
-            $actor = User::findOrFail($r->user()->id);
+            app(MaintenanceActor::class)->check($r->user());
+            $actor = User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
             $charger = VendorCharger::findOrFail($charger->id);
             $service->scope($actor, $company, $charger);
             $p = AdmissionProfile::where('charger_id', $charger->id)->firstOrFail();

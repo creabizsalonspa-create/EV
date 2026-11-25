@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:creabiz_ev/financial_operation_store.dart';
 import 'package:creabiz_ev/referrals.dart';
 import 'package:flutter/material.dart';
@@ -132,6 +133,33 @@ class ReferralApi extends FixtureApi {
   }
 }
 
+class PausedReferralApi extends ReferralApi {
+  PausedReferralApi(super.owner);
+  Completer<dynamic>? pendingMe;
+  int epoch = 0;
+
+  @override
+  bool Function() sessionFence() {
+    final captured = epoch;
+    return () => epoch == captured;
+  }
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path == 'me' && pendingMe != null) {
+      final waiting = pendingMe!;
+      pendingMe = null;
+      return waiting.future;
+    }
+    return super.request(path, method: method, body: body, query: query);
+  }
+}
+
 Widget referralApp(
   ReferralApi api,
   ReferralStore store,
@@ -230,4 +258,64 @@ void main() {
       expect(api.writes, isEmpty);
     },
   );
+  testWidgets('in-place API replacement clears original customer form and rejects retained referral acceptance', (tester) async {
+    final first = ReferralApi(1), next = ReferralApi(2), store = ReferralStore();
+    await tester.pumpWidget(referralApp(first, store, 91));
+    await tester.pumpAndSettle();
+    await tap(tester, 'Test programme');
+    await tester.enterText(input('Referral code'), invitation);
+    await tap(tester, 'I accept the programme terms shown above.');
+    final oldAccept = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Accept referral'),
+    ).onPressed!;
+    expect(find.text('Exact published terms'), findsOneWidget);
+    await tester.pumpWidget(referralApp(next, store, 91));
+    await tester.pumpAndSettle();
+    expect(find.text('Test programme'), findsOneWidget);
+    expect(find.text('Exact published terms'), findsNothing);
+    expect(find.text(invitation), findsNothing);
+    expect(find.text('Accept referral'), findsNothing);
+    oldAccept();
+    await tester.pumpAndSettle();
+    expect(first.writes, isEmpty);
+    expect(next.writes, isEmpty);
+    expect(store.entries, isEmpty);
+  });
+
+  testWidgets('late original-account me response cannot restore its data onto another customer', (tester) async {
+    final first = PausedReferralApi(1), next = ReferralApi(2), store = ReferralStore();
+    final waiting = Completer<dynamic>();
+    first.pendingMe = waiting;
+    await tester.pumpWidget(referralApp(first, store, 92));
+    await tester.pump();
+    await tester.pumpWidget(referralApp(next, store, 92));
+    await tester.pumpAndSettle();
+    waiting.complete({
+      'id': 1, 'role': 'customer', 'email_verified_at': '2026-01-01',
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('Test programme'), findsOneWidget);
+    expect(find.text('Retry saved request'), findsNothing);
+    expect(first.writes, isEmpty);
+    expect(next.writes, isEmpty);
+    expect(store.entries, isEmpty);
+  });
+
+  testWidgets('same API credential generation switch clears private draft without reposting', (tester) async {
+    final api = PausedReferralApi(1), store = ReferralStore();
+    await tester.pumpWidget(referralApp(api, store, 93));
+    await tester.pumpAndSettle();
+    await tap(tester, 'Test programme');
+    await tester.enterText(input('Referral code'), invitation);
+    expect(find.text('Exact published terms'), findsOneWidget);
+    api.epoch++;
+    await tester.pumpWidget(referralApp(api, store, 93));
+    await tester.pumpAndSettle();
+    expect(find.text('Test programme'), findsOneWidget);
+    expect(find.text('Exact published terms'), findsNothing);
+    expect(find.text('Accept referral'), findsNothing);
+    expect(api.writes, isEmpty);
+    expect(store.entries, isEmpty);
+  });
+
 }

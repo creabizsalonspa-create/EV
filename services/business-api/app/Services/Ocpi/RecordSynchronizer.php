@@ -34,6 +34,10 @@ class RecordSynchronizer
             if (! $locked->authorized || $locked->version !== '2.2.1' || $locked->authorization_revision !== $provider->authorization_revision || $locked->owner_id !== $provider->owner_id || $locked->connection_key !== $provider->connection_key) {
                 throw new OcpiException('Provider authorization changed.');
             }
+            // A location/tariff response can arrive after the owning vendor
+            // was suspended. Do not mutate a catalog that may later reappear
+            // upon reactivation. Existing sessions/CDRs remain eligible for
+            // explicitly admin-authorized historical financial reconciliation.
             if (in_array($module, ['locations', 'tariffs'], true)
                 && ! User::whereKey($locked->owner_id)->where('role', 'vendor')
                     ->where('account_status', 'active')->exists()) {
@@ -91,6 +95,11 @@ class RecordSynchronizer
                 }
             }
             $locked->update(['last_synced_at' => now()]);
+            if ($module === 'locations' && ($counts['created'] + $counts['updated']) > 0) {
+                // The whole quality observation commits or rolls back together
+                // with the canonical normalized source batch.
+                app(CatalogQualityHistory::class)->capture($locked);
+            }
 
             return $counts;
         });
