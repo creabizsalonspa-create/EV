@@ -3,7 +3,8 @@ const { randomUUID } = require("node:crypto");
 const { promisify } = require("node:util");
 const execFile = promisify(require("node:child_process").execFile);
 const { BusinessClient } = require("./helpers/business-client.cjs");
-const { graph, poll, SimulatedCharger } = require("./helpers/csms-local.cjs");
+const { graph, poll } = require("./helpers/csms-local.cjs");
+const { SimulatedCharger } = require("./helpers/csms-local.cjs");
 async function businessAccount(role) {
   const client = await new BusinessClient().register(role);
   if (
