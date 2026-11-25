@@ -241,9 +241,6 @@ class FaultReminderEscalator
                     return ['reminded' => false, 'escalated' => false,
                         'closed' => $updated === 1];
                 }
-                if ($occurredAt->greaterThan($cutoff)) {
-                    return false;
-                }
                 // A 60+ minute unresolved *simulator* fault can also notify
                 // an explicitly designated, currently authorized Admin. The
                 // vendor's optional reminder opt-out never controls this
@@ -284,6 +281,12 @@ class FaultReminderEscalator
                             $escalatedNow = true;
                         }
                     }
+                }
+                // The scanner's configurable minimum applies to optional
+                // owner reminders only. The separately enabled 60-minute
+                // Admin policy must not be postponed by a longer owner cutoff.
+                if ($occurredAt->greaterThan($cutoff)) {
+                    return ['reminded' => false, 'escalated' => $escalatedNow];
                 }
                 // Closure evidence and Admin oversight remain eligible even
                 // if the vendor is suspended. Suppress only the *new owner*
