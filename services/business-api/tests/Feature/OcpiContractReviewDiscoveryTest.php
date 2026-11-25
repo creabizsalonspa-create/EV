@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
+use App\Services\Ocpi\ContractReviewGate;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -144,21 +146,21 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
         $this->getJson('/api/roaming/favorites')->assertOk()
             ->assertJsonPath('data.0.location_available', false)
             ->assertJsonPath('data.0.location', null);
-        $this->assertFalse(app(\App\Services\Ocpi\ContractReviewGate::class)->current($provider));
+        $this->assertFalse(app(ContractReviewGate::class)->current($provider));
         $this->actingAs($admin)->getJson('/api/ocpi/providers/'.$provider->id.'/contract-review')
             ->assertOk()->assertJsonPath('state', 'missing')
             ->assertJsonPath('review_valid_for_current_owner', false)
             ->assertJsonPath('revision', 1)
             ->assertDontSee('contract-discovery-rebound');
         $this->approve($admin, $provider, 1);
-        $this->assertTrue(app(\App\Services\Ocpi\ContractReviewGate::class)->current($provider));
+        $this->assertTrue(app(ContractReviewGate::class)->current($provider));
         $this->actingAs($customer);
         $this->expectPartnerCount(1);
 
         // An older matching review never overrides the newest decision.
         $provider->update(['connection_key' => 'contract-discovery-test']);
         $this->expectPartnerCount(0);
-        $this->assertFalse(app(\App\Services\Ocpi\ContractReviewGate::class)->current($provider));
+        $this->assertFalse(app(ContractReviewGate::class)->current($provider));
         $this->assertDatabaseCount('ocpi_partner_contract_reviews', 2);
         $this->assertDatabaseCount('finance_payments', 0);
         Http::assertNothingSent();
@@ -166,7 +168,7 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
 
     public function test_invalid_stored_review_dates_never_grant_public_or_runtime_authority(): void
     {
-        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-11-25T12:00:00Z'));
+        $this->travelTo(CarbonImmutable::parse('2026-11-25T12:00:00Z'));
         [$customer, $owner, $admin, $provider, $record] = $this->fixture();
         config(['ocpi.contract_review_required' => true]);
         $this->approve($admin, $provider);
@@ -174,7 +176,7 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
         $this->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
 
         $review = DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id);
-        $gate = app(\App\Services\Ocpi\ContractReviewGate::class);
+        $gate = app(ContractReviewGate::class);
         $invalid = ['2026-11-24', '2030-11-25'];
         if (DB::connection()->getDriverName() === 'sqlite') {
             array_push($invalid, '2027-02-30', '2027-02-29', '2027-01-01T00:00:00', 'not-a-date');
