@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:crypto/crypto.dart';
@@ -13,6 +14,7 @@ const caseEn = {
       'Internal invoice disputes and private review evidence. These records do not create a card-network chargeback, submit evidence to a payment provider or prove a refund. Only authorized reviewers resolve cases.',
   'new': 'Open invoice dispute',
   'amount': 'Disputed amount',
+  'amountMinor': 'Disputed amount (minor units)',
   'reason': 'Reason',
   'confirm': 'Confirm saved request',
   'consent':
@@ -54,6 +56,7 @@ const caseAr = {
       'نزاعات داخلية للفواتير وأدلة مراجعة خاصة. لا تنشئ هذه السجلات اعتراضاً لدى شبكة بطاقات ولا ترسل الأدلة لمزود الدفع ولا تثبت استرداداً. المراجعون المصرح لهم فقط يبتون في النزاعات.',
   'new': 'فتح نزاع على الفاتورة',
   'amount': 'المبلغ المتنازع عليه',
+  'amountMinor': 'المبلغ المتنازع عليه (وحدات نقدية صغرى)',
   'reason': 'السبب',
   'confirm': 'تأكيد الطلب المحفوظ',
   'consent':
@@ -105,24 +108,78 @@ class PaymentCasesView extends StatefulWidget {
   State<PaymentCasesView> createState() => _CasesState();
 }
 
-class _CasesState extends State<PaymentCasesView> {
+class _CasesState extends State<PaymentCasesView>
+    with WidgetsBindingObserver {
   ApiPage<Map<String, dynamic>>? page;
   Object? error;
-  bool busy = false;
+  bool busy = false, foreground = true;
+  late final bool Function() authorized;
+  StreamSubscription<int>? session;
+  bool revoked = false;
+  bool get visible => foreground && !revoked && authorized();
+  bool current(int view) => mounted && visible && view == generation;
   int generation = 0, target = 1;
   @override
   void initState() {
     super.initState();
-    load();
+    authorized = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    session = widget.api.sessionEvents.listen((_) {
+      if (mounted) setState(() {
+        revoked = true;
+        generation++;
+        page = null;
+        error = null;
+        busy = false;
+        target = 1;
+      });
+    });
+    if (foreground) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant PaymentCasesView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api) {
+      generation++;
+      revoked = true;
+      page = null;
+      error = null;
+      busy = false;
+      target = 1;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (foreground == resumed) return;
+    foreground = resumed;
+    if (!resumed) {
+      generation++;
+      setState(() {
+        page = null;
+        error = null;
+        busy = false;
+      });
+    } else {
+      // Explicit refresh is required after returning to private case history.
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
     generation++;
+    session?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   Future<void> load({int number = 1}) async {
+    if (!visible || number < 1 || number > 100000) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -140,26 +197,46 @@ class _CasesState extends State<PaymentCasesView> {
       );
       for (final r in raw.items) {
         if (r['id'] is! int ||
+            r['id'] < 1 || r['id'] > 9007199254740991 ||
             r['invoice_id'] is! int ||
+            r['invoice_id'] < 1 || r['invoice_id'] > 9007199254740991 ||
+            r['amount_minor'] is! int ||
+            r['amount_minor'] < 1 ||
+            r['amount_minor'] > 2000000000 ||
+            r['reason'] is! String ||
+            (r['reason'] as String).trim().isEmpty ||
+            (r['reason'] as String).length > 500 ||
+            r['status'] is! String ||
+            !['open', 'approved', 'rejected'].contains(r['status']) ||
             r['real_money_moved'] != false ||
             !['MOCK_PROVIDER', 'STRIPE_TEST_CONTRACT'].contains(r['evidence']))
           throw const FormatException('Unsupported case evidence.');
       }
-      if (mounted && epoch == generation) page = raw;
+      if (current(epoch)) {
+        page = raw;
+      }
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (current(epoch)) {
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch)) {
+        setState(() => busy = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext c) {
     String t(String k) => caseText(c, k);
+    final view = generation;
+    final visible = this.visible;
+    final currentPage = visible ? page : null;
+    final currentError = visible ? error : null;
+    final boundApi = widget.api;
+    final boundFence = boundApi.sessionFence();
     return Scaffold(
       appBar: AppBar(title: Text(t('title'))),
       body: ListView(
@@ -167,14 +244,21 @@ class _CasesState extends State<PaymentCasesView> {
         children: [
           Text(t('notice')),
           OutlinedButton(
-            onPressed: busy ? null : () => load(number: target),
+            onPressed: busy || !visible
+                ? null
+                : () {
+                    if (current(view) && identical(boundApi, widget.api) && boundFence()) {
+                      load(number: target);
+                    }
+                  },
             child: Text(t('refresh')),
           ),
-          if (busy) const Center(child: CircularProgressIndicator()),
-          if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
-          if (page != null) ...[
-            if (page!.items.isEmpty) Text(t('empty')),
-            for (final r in page!.items)
+          if (busy && visible) const Center(child: CircularProgressIndicator()),
+          if (currentError != null)
+            Text(EvStrings.of(c).t(errorKey(currentError))),
+          if (currentPage != null) ...[
+            if (currentPage.items.isEmpty) Text(t('empty')),
+            for (final r in currentPage.items)
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -183,23 +267,31 @@ class _CasesState extends State<PaymentCasesView> {
                     children: [
                       Text('#${r['id']} · ${t('${r['status']}')}'),
                       Text('${t('invoice')}: #${r['invoice_id']}'),
+                      Text('${t('amountMinor')}: ${r['amount_minor']}'),
                       Text('${r['reason']}'),
                       if (r['resolution'] != null)
                         Text('${t('resolution')}: ${r['resolution']}'),
                       OutlinedButton(
-                        onPressed: busy
+                        onPressed: busy || !visible
                             ? null
                             : () async {
+                                if (!current(view) ||
+                                    !boundFence() ||
+                                    !identical(boundApi, widget.api)) return;
                                 await Navigator.of(c).push(
                                   MaterialPageRoute<void>(
                                     builder: (_) => CaseEvidenceView(
-                                      api: widget.api,
+                                      api: boundApi,
                                       onExpired: widget.onExpired,
                                       caseId: r['id'] as int,
                                     ),
                                   ),
                                 );
-                                if (mounted) load(number: target);
+                                if (current(view) &&
+                                    boundFence() &&
+                                    identical(boundApi, widget.api)) {
+                                  load(number: target);
+                                }
                               },
                         child: Text(t('evidence')),
                       ),
@@ -211,16 +303,16 @@ class _CasesState extends State<PaymentCasesView> {
               spacing: 8,
               children: [
                 OutlinedButton(
-                  onPressed: busy || target <= 1
+                  onPressed: busy || !visible || target <= 1
                       ? null
-                      : () => load(number: target - 1),
+                      : () { if (current(view)) load(number: target - 1); },
                   child: Text(t('previous')),
                 ),
-                Text('$target / ${page!.last}'),
+                Text('$target / ${currentPage.last}'),
                 OutlinedButton(
-                  onPressed: busy || target >= page!.last
+                  onPressed: busy || !visible || target >= currentPage.last
                       ? null
-                      : () => load(number: target + 1),
+                      : () { if (current(view)) load(number: target + 1); },
                   child: Text(t('next')),
                 ),
               ],
