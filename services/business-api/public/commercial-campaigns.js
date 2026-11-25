@@ -12,6 +12,7 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
         if (!alive()) {
             generation++;
             abort.abort();
+            pendingCreation = null;
             watch.disconnect();
         }
     });
@@ -264,6 +265,79 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
         n.dataset.campaignState = value;
         parent.append(n);
     }
+    // Keep only an opaque actor-scoped creation identity in tab storage.
+    // Creative, package details and other private values stay in memory.
+    // A remounted tab can recover the receipt or cancel the unused key,
+    // never silently generate a replacement request.
+    const intentSlot = "ev.campaign.creation.v1." + owner;
+    const validKey = key => typeof key === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(key);
+    let pendingCreation = null;
+    function savedKey() {
+        const key = sessionStorage.getItem(intentSlot);
+        if (key !== null && !validKey(key))
+            throw Error("Saved campaign identity requires assisted review.");
+        return key;
+    }
+    function recoverableCreation() {
+        const key = savedKey();
+        if (key === null) {
+            pendingCreation = null;
+            return null;
+        }
+        if (!pendingCreation || pendingCreation.key !== key)
+            pendingCreation = {key, payload: null};
+        return pendingCreation;
+    }
+    function verifyCreated(c, payload) {
+        if (payload && (!["invoice_id", "station_id", "budget_units", "title",
+            "title_ar", "description", "description_ar", "country", "region",
+            "placement"].every(k => c[k] === payload[k]) ||
+            Math.floor(instant(c.starts_at) / 1000) !== Math.floor(instant(payload.starts_at) / 1000) ||
+            Math.floor(instant(c.ends_at) / 1000) !== Math.floor(instant(payload.ends_at) / 1000)))
+            throw Error("Campaign creation receipt cannot be verified.");
+        return c;
+    }
+    function finishCreation(intent) {
+        if (!alive() || savedKey() !== intent.key)
+            throw Error("Saved campaign identity changed.");
+        sessionStorage.removeItem(intentSlot);
+        pendingCreation = null;
+    }
+    async function sendCreation(intent, resolve = false) {
+        if (role !== "vendor" || !alive() || savedKey() !== intent.key)
+            throw Error("Saved campaign identity changed.");
+        if (!resolve && !intent.payload)
+            throw Error("Recover the saved creation before starting another.");
+        const result = resolve
+            ? await request("commercial/campaign-intents/cancel", "POST", {idempotency_key: intent.key})
+            : await request("commercial/campaigns", "POST", intent.payload);
+        if (resolve && result.cancelled === true && result.campaign === null) {
+            finishCreation(intent);
+            await create();
+            status.textContent = "Unused campaign creation intent cancelled.";
+            return;
+        }
+        if (resolve && result.cancelled !== false)
+            throw Error("Campaign recovery receipt cannot be verified.");
+        const created = verifyCreated(verifyCampaign(result.campaign), intent.payload);
+        finishCreation(intent);
+        await detail(created.id, 1, created);
+    }
+    function recoveryView(intent) {
+        content.replaceChildren();
+        nav();
+        content.append(
+            t("h4", "Unresolved campaign creation", "طلب إنشاء حملة غير محسوم"),
+            t("p", "Do not start another campaign until the saved request is resolved. Recovery does not cancel an already created campaign.",
+                "لا تبدأ حملة أخرى حتى تتم معالجة الطلب المحفوظ. لا تؤدي المعالجة إلى إلغاء حملة أُنشئت بالفعل."),
+        );
+        if (intent.payload)
+            button(content, "Retry exact campaign creation", "إعادة طلب إنشاء الحملة نفسه",
+                () => sendCreation(intent));
+        button(content, "Recover or cancel unused creation", "استعادة الطلب أو إلغاء الإنشاء غير المستخدم",
+            () => sendCreation(intent, true));
+    }
     function nav() {
         button(content, "Campaign list", "قائمة الحملات", () => list());
         button(
@@ -359,6 +433,12 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
         pager(data, packages);
     }
     async function create(packagePage = 1, stationPage = 1) {
+        if (role !== "vendor") return;
+        const saved = recoverableCreation();
+        if (saved) {
+            recoveryView(saved);
+            return;
+        }
         const seq = ++generation;
         content.replaceChildren();
         nav();
@@ -506,21 +586,26 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
                     !stations.data.some(s => s.id === Number(v.station_id) && s.country === v.country) ||
                     !positive(Number(v.budget_units)) || Number(v.budget_units) > 1000000)
                     throw Error("Select the verified package, station and delivery budget.");
-                const result = await request("commercial/campaigns", "POST", {
+                if (recoverableCreation())
+                    throw Error("Resolve the saved campaign creation first.");
+                if (!validKey(key)) throw Error("Invalid campaign creation identity.");
+                const payload = Object.freeze({
                     ...v,
+                    title: v.title.trim(), title_ar: v.title_ar.trim(),
+                    description: v.description.trim(), description_ar: v.description_ar.trim(),
                     invoice_id: Number(v.invoice_id),
                     station_id: Number(v.station_id),
                     budget_units: Number(v.budget_units),
-                    region: v.region || null,
+                    region: v.region.trim() || null,
                     idempotency_key: key,
                 });
-                const created = verifyCampaign(result.campaign);
-                if (created.invoice_id !== Number(v.invoice_id) ||
-                    created.station_id !== Number(v.station_id) ||
-                    created.budget_units !== Number(v.budget_units) ||
-                    created.status !== "draft")
-                    throw Error("Campaign creation receipt cannot be verified.");
-                if (alive()) await detail(created.id, 1, created);
+                // Fail closed if storage is unavailable. The identity must be
+                // saved before the first potentially committing POST.
+                sessionStorage.setItem(intentSlot, key);
+                if (savedKey() !== key) throw Error("Could not save campaign identity.");
+                pendingCreation = {key, payload};
+                recoveryView(pendingCreation);
+                await sendCreation(pendingCreation);
             },
         );
         if (packages.current_page > 1)
@@ -553,6 +638,13 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
             );
     }
     async function list(page = 1) {
+        if (role === "vendor") {
+            const saved = recoverableCreation();
+            if (saved) {
+                recoveryView(saved);
+                return;
+            }
+        }
         const seq = ++generation;
         content.replaceChildren();
         nav();

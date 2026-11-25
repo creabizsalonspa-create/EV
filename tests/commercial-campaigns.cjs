@@ -79,18 +79,44 @@ const { chromium } = require("playwright"),
       .fill("اختبار حزمة مدفوعة دون إثبات مشاهدة بشرية");
     await v.locator("[name=placement]").selectOption("station_detail");
     await v.locator("[name=budget_units]").fill("3");
-    const created = vendor.waitForResponse(
-      (r) =>
-        r.url().endsWith("/commercial/campaigns") &&
-        r.request().method() === "POST",
-    );
-    await v
-      .getByRole("button", { name: "Save campaign draft", exact: true })
-      .click();
-    const body = await (await created).json();
-    assert(body.campaign);
-    const id = body.campaign.id;
+    const attempts = [], receipts = [];
+    const createPath = "**/api/commercial/campaigns";
+    await vendor.route(createPath, async route => {
+      if (route.request().method() !== "POST") return route.continue();
+      attempts.push(route.request().postDataJSON());
+      const response = await route.fetch();
+      assert.equal(response.status(), 201);
+      receipts.push(await response.json());
+      await route.abort("failed");
+    });
+    await v.getByRole("button", { name: "Save campaign draft", exact: true }).click();
+    const retryCreation = v.getByRole("button", { name: "Retry exact campaign creation", exact: true });
+    await retryCreation.waitFor();
+    await retryCreation.click();
+    await vendor.waitForFunction(() => !document.querySelector("[data-commercial-campaigns]").inert);
+    assert.equal(attempts.length, 2);
+    assert.deepEqual(attempts[0], attempts[1]);
+    assert.equal(receipts[0].campaign.id, receipts[1].campaign.id);
+    const body = receipts[0], id = body.campaign.id;
     assert.equal(body.campaign.additional_cash_charge, false);
+    assert.equal(await v.locator("[name=title]").count(), 0);
+    const saved = await vendor.evaluate(() => Object.entries(sessionStorage)
+      .filter(([k]) => k.startsWith("ev.campaign.creation.v1.")));
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0][1], attempts[0].idempotency_key);
+    await vendor.unroute(createPath);
+    // Reload loses private payload, not the saved opaque recovery identity.
+    await vendor.reload();
+    if (!(await v.isVisible())) await vendor.locator('a[href="#commercial-finance"]').click();
+    await v.getByRole("button", { name: "Open commercial campaigns", exact: true }).click();
+    await v.getByText("Unresolved campaign creation", { exact: true }).waitFor();
+    assert.equal(await retryCreation.count(), 0);
+    await v.getByRole("button", { name: "Recover or cancel unused creation", exact: true }).click();
+    await v.getByRole("button", { name: "Submit for review", exact: true }).waitFor();
+    assert.equal(await vendor.evaluate(() => Object.keys(sessionStorage)
+      .filter(k => k.startsWith("ev.campaign.creation.v1.")).length), 0);
+    const scoped = await vendor.request.get(base + "/api/commercial/campaigns");
+    assert.equal((await scoped.json()).data.filter(c => c.id === id).length, 1);
     assert.equal(await v.locator("img").count(), 0);
     async function decision(panel, p, button, reason) {
       const form = panel

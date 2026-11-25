@@ -20,3 +20,7 @@ Partial requirements 3.7.5, 3.7.7, 4.4.4, 4.4.5 and 7.1.9; standalone cash
 advertising billing and legally authorized live publishing remain outside
 this batch. Agent 5 integration and fresh exact-head CI required. No
 production acceptance.
+
+## Uncertain campaign creation recovery
+
+Before the first creation POST, the browser saves only its actor-scoped opaque UUID in sessionStorage and freezes the exact request in memory. On an uncertain transport result the original form is removed, replacement creation is blocked, and the operator may retry the exact payload or explicitly recover the created receipt/cancel the unused intent through the existing canonical endpoint. Reload retains only the UUID, allowing recovery without retaining campaign creative, pricing or station data in browser storage. A valid receipt or authoritative unused-intent cancellation clears the UUID; storage failure blocks new creation. The storage is tab-scoped, not cross-device or durable after tab closure; the canonical campaign list remains the source of truth. Connected browser regression drops two actual successful responses, checks identical payload and single campaign ID, reloads, and recovers the original receipt. No new billing path.
