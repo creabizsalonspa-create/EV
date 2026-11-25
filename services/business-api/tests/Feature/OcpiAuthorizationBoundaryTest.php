@@ -81,8 +81,12 @@ class OcpiAuthorizationBoundaryTest extends TestCase
 
     #[TestWith(['versions_continuation', 1])]
     #[TestWith(['versions_oversized', 1])]
+    #[TestWith(['versions_object', 1])]
+    #[TestWith(['versions_scalar_entry', 1])]
     #[TestWith(['details_continuation', 2])]
     #[TestWith(['details_mapping', 2])]
+    #[TestWith(['details_numeric_object', 2])]
+    #[TestWith(['details_array_entry', 2])]
     #[TestWith(['details_oversized', 2])]
     public function test_negotiation_rejects_incomplete_or_unbounded_capability_advertisements(string $kind, int $requests): void
     {
@@ -97,10 +101,18 @@ class OcpiAuthorizationBoundaryTest extends TestCase
             for ($i = 0; $i < 20; $i++) {
                 $versions['data'][] = ['version' => '1.'.$i, 'url' => 'https://partner.example/old-'.$i];
             }
+        } elseif ($kind === 'versions_object') {
+            $versions['data'] = (object) $versions['data'];
+        } elseif ($kind === 'versions_scalar_entry') {
+            $versions['data'][] = 'invalid-version';
         } elseif ($kind === 'details_continuation') {
             $detailHeaders['Link'] = '<?page=2>; rel="next"';
         } elseif ($kind === 'details_mapping') {
             $details['data']['endpoints'] = ['locations' => $details['data']['endpoints'][0]];
+        } elseif ($kind === 'details_numeric_object') {
+            $details['data']['endpoints'] = (object) $details['data']['endpoints'];
+        } elseif ($kind === 'details_array_entry') {
+            $details['data']['endpoints'][] = [];
         } elseif ($kind === 'details_oversized') {
             for ($i = 0; $i < 30; $i++) {
                 $details['data']['endpoints'][] = ['identifier' => 'extension'.$i, 'role' => 'SENDER', 'url' => 'https://partner.example/extension'.$i];
@@ -274,6 +286,31 @@ class OcpiAuthorizationBoundaryTest extends TestCase
         $this->assertSame(['one', 'two'], array_column(app(PartnerClient::class)->pull($p, 'locations'), 'id'));
         Http::assertSentCount(2);
         $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    #[TestWith(['{}'])]
+    #[TestWith(['{"0":{"id":"one"}}'])]
+    #[TestWith(['[[]]'])]
+    #[TestWith(['[null]'])]
+    public function test_invalid_collection_shape_cannot_finish_or_continue_a_catalog_pull(string $invalid): void
+    {
+        $p = $this->provider();
+        $p->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        $body = '{"status_code":1000,"timestamp":'.json_encode(now()->toISOString(), JSON_THROW_ON_ERROR).',"data":'.$invalid.'}';
+        Http::fake([
+            'https://partner.example/locations' => Http::response($this->envelope([['id' => 'one']]), 200, ['Link' => '<?page=2>; rel="next"']),
+            'https://partner.example/locations?page=2' => Http::response($body, 200, ['Content-Type' => 'application/json', 'Link' => '<?page=3>; rel="next"']),
+        ]);
+        try {
+            app(PartnerClient::class)->pull($p, 'locations');
+            $this->fail('A malformed source collection was treated as a valid catalog page.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('Malformed', $error->getMessage());
+        }
+        Http::assertSentCount(2);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertNull($p->fresh()->last_synced_at);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_endpoint_replacement_without_revision_change_discards_current_read(): void

@@ -147,7 +147,7 @@ class PartnerClient
         }
     }
 
-    private function get(OcpiProvider $provider, string $url, string $authority): array
+    private function get(OcpiProvider $provider, string $url, string $authority, string $kind): array
     {
         // An already dispatched read cannot be cancelled, but a revoked or superseded
         // operation cannot dispatch another page or commit a stale result.
@@ -179,6 +179,7 @@ class PartnerClient
                 throw new OcpiException('Operator response exceeded the accepted size.');
             }
             $this->verifyTrace($response, $trace);
+            OcpiReadDocument::assertShape($text, $kind);
             $body = json_decode($text, true, flags: JSON_THROW_ON_ERROR);
             if (! is_array($body) || ($body['status_code'] ?? null) !== 1000 || ! array_key_exists('data', $body) || ! $this->validEnvelopeTimestamp($body['timestamp'] ?? null)) {
                 throw new OcpiException('Operator OCPI response was unsuccessful or malformed.');
@@ -267,7 +268,7 @@ REGEX;
         $c = $this->connection($provider);
         // Versions and version details are single-response OCPI discovery
         // resources. A continuation cannot establish a complete capability set.
-        $versionReply = $this->get($provider, $c['versions_path'] ?? '/ocpi/versions', $authority);
+        $versionReply = $this->get($provider, $c['versions_path'] ?? '/ocpi/versions', $authority, 'versions');
         $versions = $versionReply['data'];
         if ($versionReply['next'] !== null || ! is_array($versions) || ! array_is_list($versions) || count($versions) > 20) {
             throw new OcpiException('Malformed operator versions response.');
@@ -284,7 +285,7 @@ REGEX;
         if (! $selected || ! is_string($selected['url'] ?? null)) {
             throw new OcpiException('Operator does not advertise OCPI 2.2.1.');
         }
-        $detailsReply = $this->get($provider, $selected['url'], $authority);
+        $detailsReply = $this->get($provider, $selected['url'], $authority, 'details');
         $details = $detailsReply['data'];
         if ($detailsReply['next'] !== null || ! is_array($details) || ($details['version'] ?? null) !== '2.2.1'
             || ! is_array($details['endpoints'] ?? null) || ! array_is_list($details['endpoints']) || count($details['endpoints']) > 30) {
@@ -492,7 +493,7 @@ REGEX;
             if ($consent !== null && ! $consent()) {
                 throw new OcpiException('Source polling consent changed.');
             }
-            $result = $this->get($provider, $url, $authority);
+            $result = $this->get($provider, $url, $authority, 'records');
             if ($consent !== null && ! $consent()) {
                 throw new OcpiException('Source polling consent changed.');
             }
