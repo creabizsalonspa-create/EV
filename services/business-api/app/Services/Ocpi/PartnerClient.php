@@ -76,13 +76,13 @@ class PartnerClient
         return $url;
     }
 
-    private function assertCurrent(OcpiProvider $provider): void
+    private function assertCurrent(OcpiProvider $provider, bool $requireReview = true): void
     {
         $current = OcpiProvider::find($provider->id);
         if (! $current || ! $current->authorized || $current->authorization_revision !== $provider->authorization_revision || $current->connection_key !== $provider->connection_key || $current->owner_id !== $provider->owner_id) {
             throw new OcpiException('Operator authorization changed; stale negotiation or read discarded.');
         }
-        if (! app(ContractReviewGate::class)->current($current)) {
+        if ($requireReview && ! app(ContractReviewGate::class)->current($current)) {
             throw new OcpiException('Current partner owner requires a fresh internal contract review.');
         }
         if ($current->version !== $provider->version || $current->endpoints !== $provider->endpoints) {
@@ -562,7 +562,8 @@ REGEX;
         if (! in_array([$module, $method], [['tokens_receiver', 'PUT'], ['commands_receiver', 'POST']], true)) {
             throw new OcpiException('Unsupported sandbox protocol write.');
         }
-        $this->assertCurrent($provider);
+        $requireReview = ! RoamingReviewPolicy::decommissioning($module, $method, $segments, $body);
+        $this->assertCurrent($provider, $requireReview);
         $c = $this->connection($provider);
         if (! app()->environment(['local', 'testing']) || ! config('ocpi.test_commands_enabled') || ($c['test_commands'] ?? false) !== true || ($c['environment'] ?? null) !== 'sandbox' || ! is_string($provider->endpoints[$module] ?? null)) {
             throw new OcpiException('Approved sandbox command adapter is unavailable.');
@@ -577,7 +578,7 @@ REGEX;
         }
         $url = $this->guardedUrl($provider, rtrim($provider->endpoints[$module], '/').'/'.implode('/', array_map('rawurlencode', $segments)));
 
-        return $this->sendProtocol($provider, $method, $url, $body, $c['authorization_token'], []);
+        return $this->sendProtocol($provider, $method, $url, $body, $c['authorization_token'], [], requireReview: $requireReview);
     }
 
     public function cpoCatalogRequest(OcpiProvider $provider, string $module, string $method, array $payload, int $generation, bool $allowMissing = false, ?string $cdrReceipt = null): array
@@ -644,7 +645,9 @@ REGEX;
         bool $strictTrace = false,
         int $maxResponseBytes = self::PROTOCOL_RESPONSE_BYTES,
         bool $requireCdrReceipt = false,
+        bool $requireReview = true,
     ): array {
+        $this->assertCurrent($provider, $requireReview);
         try {
             $trace = ['X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()];
             $r = Http::connectTimeout(5)->timeout(20)->withoutRedirecting()->withOptions(['stream' => true])
@@ -678,7 +681,7 @@ REGEX;
             if (! is_array($response) || ($response['status_code'] ?? null) !== $expected || ! $this->validEnvelopeTimestamp($response['timestamp'] ?? null)) {
                 throw new OcpiException('Partner protocol outcome requires reconciliation.');
             }
-            $this->assertCurrent($provider);
+            $this->assertCurrent($provider, $requireReview);
             $this->connection($provider);
 
             return $response;

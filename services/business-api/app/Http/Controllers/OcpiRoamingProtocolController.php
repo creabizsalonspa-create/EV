@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\ContractReviewGate;
 use App\Services\Ocpi\CredentialExchange;
+use App\Services\Ocpi\RoamingReviewPolicy;
 use App\Services\Ocpi\OcpiMessageHeaders;
 use App\Services\Ocpi\SandboxRoaming;
 use Carbon\CarbonImmutable;
@@ -24,9 +26,10 @@ class OcpiRoamingProtocolController extends Controller
         return response()->json(['status_code' => $code, 'timestamp' => now()->toISOString(), 'data' => $data], $http)->header('Cache-Control', 'private, no-store')->header('X-Request-ID', $ids['X-Request-ID'])->header('X-Correlation-ID', $ids['X-Correlation-ID']);
     }
 
-    private function peer(Request $r): array
+    private function peer(Request $r, bool $cleanupCallback = false): array
     {
-        [$p,$link] = app(OcpiProtocolCredentialsController::class)->authenticate($r, app(CredentialExchange::class), 'roaming');
+        [$p,$link] = app(OcpiProtocolCredentialsController::class)->authenticate($r, app(CredentialExchange::class),
+            $cleanupCallback ? 'roaming_cleanup_callback' : 'roaming');
         app(SandboxRoaming::class)->policy($p);
 
         return [$p, $link];
@@ -91,21 +94,23 @@ class OcpiRoamingProtocolController extends Controller
     public function callback(Request $r, string $key)
     {
         try {
-            [$p,$link] = $this->peer($r);
+            [$p,$link] = $this->peer($r, true);
             abort_unless(strlen($r->getContent()) <= 65536, 413);
             $body = $r->json()->all();
             $result = $body['result'] ?? null;
             abort_unless(in_array($result, ['ACCEPTED', 'REJECTED', 'EVSE_OCCUPIED', 'EVSE_INOPERATIVE', 'FAILED', 'NOT_SUPPORTED', 'TIMEOUT', 'UNKNOWN_SESSION', 'UNKNOWN_RESERVATION', 'CANCELED_RESERVATION'], true), 400);
             $command = DB::table('ocpi_roaming_commands as c')->join('ocpi_roaming_orders as o', 'o.id', '=', 'c.order_id')->where('o.provider_id', $p->id)->where('c.callback_key', $key)->whereIn('c.action', ['START_SESSION', 'STOP_SESSION', 'RESERVE_NOW', 'CANCEL_RESERVATION'])->select('c.*')->first();
             abort_unless($command && $command->attempted_at, 404);
+            abort_unless(RoamingReviewPolicy::cleanupCommand($command->action) || app(ContractReviewGate::class)->current($p), 401);
             abort_unless($result !== 'CANCELED_RESERVATION' || $command->action === 'RESERVE_NOW', 400);
             abort_unless($result !== 'UNKNOWN_RESERVATION' || $command->action === 'CANCEL_RESERVATION', 400);
             $hash = hash('sha256', json_encode($body, JSON_THROW_ON_ERROR));
             DB::transaction(function () use ($r, $p, $link, $command, $key, $result, $hash) {
                 OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
                 DB::table('ocpi_credential_links')->where('id', $link->id)->lockForUpdate()->firstOrFail();
-                [$current,$active] = $this->peer($r);
+                [$current,$active] = $this->peer($r, true);
                 abort_unless($current->id === $p->id && $active->id === $link->id && $active->generation === $link->generation, 401);
+                abort_unless(RoamingReviewPolicy::cleanupCommand($command->action) || app(ContractReviewGate::class)->current($current), 401);
                 $order = DB::table('ocpi_roaming_orders')->where('id', $command->order_id)->lockForUpdate()->firstOrFail();
                 app(SandboxRoaming::class)->current($order);
                 $row = DB::table('ocpi_roaming_commands')->where('id', $command->id)->lockForUpdate()->firstOrFail();

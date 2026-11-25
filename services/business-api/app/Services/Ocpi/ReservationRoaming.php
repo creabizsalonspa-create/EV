@@ -23,6 +23,7 @@ final class ReservationRoaming
     public function policy(OcpiProvider $p): array
     {
         $policy = app(SandboxRoaming::class)->policy($p);
+        abort_unless(app(ContractReviewGate::class)->current($p), 409, 'Current internal partner review is required for a new reservation.');
         $c = $policy[0];
         abort_unless(($c['test_reservations'] ?? false) === true && is_string($c['test_reservation_contract'] ?? null) && preg_match('/^[A-Za-z0-9_-]{1,80}$/D', $c['test_reservation_contract']), 409, 'Explicit approved sandbox reservation contract is required.');
 

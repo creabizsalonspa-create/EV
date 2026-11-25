@@ -3,12 +3,14 @@
 namespace Tests\Feature;
 
 use App\Models\OcpiRecord;
+use App\Models\User;
 use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\SandboxRoaming;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -52,6 +54,55 @@ class SandboxRoamingTest extends TestCase
             // Republished content never revives the original withdrawn consent.
             $this->withHeaders($headers)->postJson($path, $body)->assertOk()->assertJsonPath('data.allowed', 'NOT_ALLOWED');
         }
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_expired_internal_review_blocks_new_grants_but_preserves_owned_stop_and_cleanup_receipt(): void
+    {
+        [$owner, $driver, $other, $p, $location] = $this->fixture();
+        config(['ocpi.contract_review_required' => true]);
+        $url = '/api/roaming/locations/'.$location->id;
+        $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->assertJsonCount(0, 'offers');
+        $this->assertSame([], $this->writes);
+
+        $reviewer = User::factory()->create(['role' => 'admin']);
+        $review = DB::table('ocpi_partner_contract_reviews')->insertGetId([
+            'provider_id' => $p->id, 'owner_id' => $owner->id, 'reviewer_id' => $reviewer->id,
+            'connection_key' => $p->connection_key, 'revision' => 1, 'decision' => 'review',
+            'reference_id' => 'synthetic-review', 'evidence_sha256' => str_repeat('a', 64),
+            'valid_until' => now('UTC')->addDay()->toDateString(), 'idempotency_key' => 'synthetic-review-1',
+            'payload_hash' => str_repeat('b', 64), 'reason_ciphertext' => Crypt::encryptString('Synthetic internal evidence'),
+            'created_at' => now(),
+        ]);
+        [$id, $intent] = $this->start($driver, $location);
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        $token = $this->writes[0]['body'];
+        $this->withHeaders($this->peer())->putJson('/api/roaming-protocol/2.2.1/sessions/NL/ABC/S1',
+            $this->sourceSessionFixture($p, $order, $token))->assertCreated();
+        $this->withHeaders(['Authorization' => ''])->postJson('/api/roaming/sandbox-orders/'.$id.'/reconcile')
+            ->assertOk()->assertJsonPath('state', 'source_active');
+        DB::table('ocpi_partner_contract_reviews')->where('id', $review)
+            ->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+
+        $this->actingAs($other)->getJson($url.'/sandbox-offers')->assertOk()->assertJsonCount(0, 'offers');
+        $intent['request_key'] = (string) Str::uuid();
+        $this->postJson($url.'/sandbox-orders', $intent)->assertConflict();
+        $this->assertCount(2, $this->writes);
+        $this->withHeaders($this->peer())->postJson('/api/roaming-protocol/2.2.1/tokens/'.$token['uid'].'/authorize?type=APP_USER',
+            ['location_id' => 'L1', 'evse_uids' => ['E1']])->assertUnauthorized();
+        $this->withHeaders(['Authorization' => ''])->actingAs($driver)
+            ->getJson('/api/roaming/sandbox-orders/'.$id)->assertOk()->assertJsonPath('can_stop', true)
+            ->assertJsonPath('start_consent_current', false);
+        $this->postJson('/api/roaming/sandbox-orders/'.$id.'/stop', ['request_key' => (string) Str::uuid()])->assertOk();
+        $this->assertCount(3, $this->writes);
+        $this->assertSame('S1', $this->writes[2]['body']['session_id']);
+        $stopCallback = parse_url($this->writes[2]['body']['response_url'], PHP_URL_PATH);
+        $startCallback = parse_url($this->writes[1]['body']['response_url'], PHP_URL_PATH);
+        $this->withHeaders($this->peer())->postJson($startCallback, ['result' => 'ACCEPTED'])->assertUnauthorized();
+        $this->withHeaders($this->peer())->postJson($stopCallback, ['result' => 'ACCEPTED'])->assertOk();
+        $this->assertDatabaseHas('ocpi_roaming_commands', ['order_id' => $id, 'action' => 'STOP_SESSION', 'callback_result' => 'ACCEPTED']);
+        $this->assertDatabaseCount('ocpi_roaming_orders', 1);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charging_sessions', 0);
     }

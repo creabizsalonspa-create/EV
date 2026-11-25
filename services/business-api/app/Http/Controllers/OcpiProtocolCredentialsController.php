@@ -41,6 +41,7 @@ class OcpiProtocolCredentialsController extends Controller
 
         // Preserve explicit decommissioning even after review expiry.
         abort_unless(($r->isMethod('DELETE') && $resource === 'credentials')
+            || ($r->isMethod('POST') && $resource === 'roaming_cleanup_callback' && $link->state === 'active')
             || app(ContractReviewGate::class)->current($p), 401);
 
         return [$p, $link];
