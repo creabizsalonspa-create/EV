@@ -186,6 +186,7 @@ class SubscriptionGateway
                 return DB::table('subscription_gateway_checkouts')->find($c->id);
             }));
         }
+
         return DB::transaction(function () use ($actor, $initial, $id, $return) {
             $actor = app(CurrentFinanceReader::class)->requireSnapshot($actor);
             $this->subscriptions->access($actor, $initial->subscription_id, true);
