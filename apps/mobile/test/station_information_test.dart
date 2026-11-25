@@ -215,6 +215,71 @@ void main() {
     },
   );
 
+  for (final language in ['en', 'ar']) {
+    testWidgets(
+      'station block notice preserves provenance without station metadata ($language)',
+      (tester) async {
+        const block = {
+          'scope': 'STATION_WIDE_OPERATOR_POLICY',
+          'physical_availability_verified': false,
+          'starts_at': '2026-11-25T12:00:00+00:00',
+          'ends_at': '2026-11-25T14:00:00+00:00',
+          'reason_en': 'Scheduled maintenance',
+          'reason_ar': 'صيانة مجدولة',
+        };
+        final arabic = language == 'ar';
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: Locale(language),
+            supportedLocales: const [Locale('en'), Locale('ar')],
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            home: Scaffold(
+              body: StationInformationPanel(
+                timezone: 'UTC',
+                information: {
+                  'availability_blocks': [
+                    block,
+                    {
+                      ...block,
+                      'physical_availability_verified': true,
+                      'reason_en': 'Unsupported source',
+                      'reason_ar': 'مصدر غير مدعوم',
+                    },
+                    {...block, 'scope': 'UNKNOWN_SCOPE'},
+                    {...block, 'starts_at': null},
+                  ],
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.tap(
+          find.text(
+            arabic
+                ? 'ساعات العمل والدخول والمرافق'
+                : 'Hours, access & facilities',
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining(
+            arabic
+                ? 'حالة الشاحن المباشرة غير معروفة): صيانة مجدولة'
+                : 'live charger status unknown): Scheduled maintenance',
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('12:00:00+00:00'), findsOneWidget);
+        expect(find.textContaining('Unsupported source'), findsNothing);
+        expect(find.textContaining('مصدر غير مدعوم'), findsNothing);
+      },
+    );
+  }
+
   testWidgets(
     'Arabic customer view preserves an explicit unknown availability warning',
     (tester) async {

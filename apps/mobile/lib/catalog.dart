@@ -117,6 +117,7 @@ class CatalogViewState extends State<CatalogView> {
   final form = GlobalKey<FormState>();
   String connector = '';
   String sourceStatus = '';
+  bool invalidFilter = false;
   final favoriteBusy = <int>{};
   final favoriteErrors = <int, Object>{};
   int confirmedFavoriteRead = -1;
@@ -147,6 +148,7 @@ class CatalogViewState extends State<CatalogView> {
     if (!['CCS2', 'Type2', 'CHAdeMO'].contains(type)) return;
     setState(() {
       connector = type;sourceStatus='';
+      invalidFilter = false;
       for (final field in [
         search,
         address,
@@ -167,7 +169,10 @@ class CatalogViewState extends State<CatalogView> {
   }
 
   void apply() {
-    if (form.currentState!.validate())
+    if (!mounted || controller.loading || widget.busy) return;
+    final valid = form.currentState?.validate() ?? false;
+    setState(() => invalidFilter = !valid);
+    if (valid)
       controller.load(
         filter: CatalogFilter(
           search: search.text,
@@ -179,12 +184,27 @@ class CatalogViewState extends State<CatalogView> {
           priceCurrency: priceCurrency.text,
           country: country.text,
           connector: connector,
-          minimumPower: int.tryParse(power.text),
+          minimumPower: int.tryParse(vendorDigits(power.text.trim())),
           latitude: double.tryParse(vendorDigits(latitude.text.trim())),
           longitude: double.tryParse(vendorDigits(longitude.text.trim())),
           radiusKm: double.tryParse(vendorDigits(radius.text.trim())),
         ),
       );
+  }
+
+  void clearFilters() {
+    if (!mounted || controller.loading || widget.busy) return;
+    form.currentState?.reset();
+    for (final field in [search, address, operatorName, access, maximumRate,
+      priceCurrency, country, power, latitude, longitude, radius]) {
+      field.clear();
+    }
+    setState(() {
+      connector = '';
+      sourceStatus = '';
+      invalidFilter = false;
+    });
+    controller.load(filter: const CatalogFilter());
   }
 
   Future<void> favorite(Station station) async {
@@ -380,17 +400,19 @@ class CatalogViewState extends State<CatalogView> {
                           TextFormField(
                             key: const Key('catalog-power'),
                             controller: power,
+                            textDirection: TextDirection.ltr,
                             keyboardType: TextInputType.number,
                             decoration: InputDecoration(
                               labelText: s.t('minimumPower'),
                             ),
-                            validator: (v) =>
-                                v!.isNotEmpty &&
-                                    (int.tryParse(v) == null ||
-                                        int.parse(v) < 1 ||
-                                        int.parse(v) > 1000)
-                                ? s.t('invalidPower')
-                                : null,
+                            validator: (v) {
+                              final normalized = vendorDigits(v?.trim() ?? '');
+                              if (normalized.isEmpty) return null;
+                              final n = int.tryParse(normalized);
+                              return !RegExp(r'^[0-9]{1,4}$').hasMatch(normalized) ||
+                                  n == null || n < 1 || n > 1000
+                                  ? s.t('invalidPower') : null;
+                            },
                           ),
                           ExpansionTile(
                             key: const PageStorageKey(
@@ -435,7 +457,10 @@ class CatalogViewState extends State<CatalogView> {
                                         : null;
                                   },
                                 ),
-                              ExpansionTile(
+                            ],
+                          ),
+                          ExpansionTile(
+                                key: const PageStorageKey('catalog-advanced-expansion'),
                                 title: Text(s.arabic ? 'العنوان والمشغل والسعر' : 'Address, operator and price'),
                                 maintainState: true,
                                 children: [
@@ -455,6 +480,7 @@ for (final field in [
                           TextFormField(
                             key: const Key('catalog-maximum-rate'),
                             controller: maximumRate,
+                            textDirection: TextDirection.ltr,
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             maxLength: 10,
                             decoration: InputDecoration(labelText: s.t('maximumSimulatedRate')),
@@ -468,6 +494,7 @@ for (final field in [
                           TextFormField(
                             key: const Key('catalog-price-currency'),
                             controller: priceCurrency,
+                            textDirection: TextDirection.ltr,
                             maxLength: 3,
                             textCapitalization: TextCapitalization.characters,
                             decoration: InputDecoration(labelText: s.t('priceCurrency')),
@@ -479,32 +506,28 @@ for (final field in [
                           ),
                                 ],
                               ),
-                            ],
-                          ),
+                          if (invalidFilter)
+                            Semantics(
+                              key: const Key('catalog-invalid-filter-summary'),
+                              liveRegion: true,
+                              child: Text(s.arabic
+                                ? 'راجع المرشحات الأساسية والمتقدمة ومرشحات الموقع قبل البحث.'
+                                : 'Review basic, advanced and location filters before searching.',
+                                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                              ),
+                            ),
                           const SizedBox(height: 16),
                           Wrap(
                             spacing: 8,
                             children: [
                               FilledButton(
-                                onPressed: controller.loading ? null : apply,
+                                onPressed: controller.loading || widget.busy ? null : apply,
                                 child: Text(s.t('applyFilters')),
                               ),
                               TextButton(
-                                onPressed: controller.loading
+                                onPressed: controller.loading || widget.busy
                                     ? null
-                                    : () {
-                                        form.currentState!.reset();
-                                        search.clear();
-                                        country.clear();
-                                        power.clear();
-                                        latitude.clear();
-                                        longitude.clear();
-                                        radius.clear();
-                                        setState(() => connector = '');
-                                        controller.load(
-                                          filter: const CatalogFilter(),
-                                        );
-                                      },
+                                    : clearFilters,
                                 child: Text(s.t('clearFilters')),
                               ),
                             ],

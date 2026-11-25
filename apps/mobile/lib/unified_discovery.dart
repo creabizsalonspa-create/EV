@@ -92,9 +92,21 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     try{
       final data=await api.request('discovery/search',query:{...submittedAdvanced,...submittedViewport,'q':submitted,'scope':submittedScope,if(submittedCountry.isNotEmpty)'country':submittedCountry,'connector':submittedConnector,'page':'$target','saved_only':submittedSaved?'1':'0',if(submittedSourceStatus.isNotEmpty)'recent_source_status':submittedSourceStatus,if(submittedSourceAge.isNotEmpty)'max_source_age_hours':submittedSourceAge});
       if(!active())return;
-      if(data is! Map||data['data'] is! List||data['current_page'] is! int||data['last_page'] is! int||data['total'] is! int)throw const FormatException('Invalid search page');
+      if(data is! Map||data['data'] is! List||
+          (data['data'] as List).length>25||
+          data['current_page'] is! int||data['current_page']!=target||
+          data['last_page'] is! int||data['last_page']<1||
+          data['last_page']>1000000||
+          data['total'] is! int||data['total']<0||
+          data['total']<(data['data'] as List).length||
+          (target>data['last_page']&&(data['data'] as List).isNotEmpty))
+        throw const FormatException('Unverified private discovery page');
       final parsed=(data['data'] as List).map((row)=>Map<String,dynamic>.from(row as Map)).toList();
+      final keys=<String>{};
       for(final row in parsed){
+        final key=row['key'];
+        if(key is! String||!keys.add(key))
+          throw const FormatException('Duplicate discovery identity');
         if(row['kind']=='catalog'){
           if(row['station'] is! Map)throw const FormatException('Invalid catalog payload');
           final raw=Map<String,dynamic>.from(row['station'] as Map);
@@ -257,10 +269,31 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       Wrap(children:[if(page>1)TextButton(onPressed:busy||writing?null:()=>load(page-1),child:Text(tr('Previous','السابق'))),Text('$page / $last'),if(page<last)TextButton(onPressed:busy||writing?null:()=>load(page+1),child:Text(tr('Next','التالي')))]),
     ]),
   );
+  // A partner's map pin or saved-place action needs explicit *read-only*
+  // provenance from the server, not just plausible coordinates/record IDs.
+  // The standard PartnerMapPoint helper is also used by other catalog views,
+  // so this stricter union-source authorization lives at this boundary.
+  bool trustedPartner(Map<String,dynamic> row) {
+    final location=row['location'];
+    return row['kind']=='partner' &&
+      row['evidence']=='PARTNER_REPORTED_UNVERIFIED' &&
+      row['availability']=='unknown' &&
+      row['remote_control']==false && row['reservable']==false &&
+      row['location_available']!=false &&
+      location is Map &&
+      location['availability']=='unknown' &&
+      location['remote_control']==false &&
+      location['reservable']==false;
+  }
   List<PartnerMapPoint> mapPoints()=>[
     for(final row in rows)
-      if(row['kind']=='catalog') PartnerMapPoint.fromPublishedCatalog(Map<String,dynamic>.from(row['station'] as Map))
-      else PartnerMapPoint.fromPublishedLocation(Map<String,dynamic>.from(row['location'] as Map),providerLabel: row['provider_label'] is String ? row['provider_label'] as String : null),
+      if(row['kind']=='catalog' &&
+          completePublishedStation(Map<String,dynamic>.from(row['station'] as Map)))
+        PartnerMapPoint.fromPublishedCatalog(Map<String,dynamic>.from(row['station'] as Map))
+      else if(trustedPartner(row))
+        PartnerMapPoint.fromPublishedLocation(
+          Map<String,dynamic>.from(row['location'] as Map),
+          providerLabel: row['provider_label'] is String ? row['provider_label'] as String : null),
   ].whereType<PartnerMapPoint>().toList();
   void openCatalog(Station station){
     // The button closure may have been built under an earlier account epoch.
@@ -300,7 +333,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     final address=[location['address'],location['city'],location['country']]
       .whereType<String>().where((value)=>value.trim().isNotEmpty).join(' · ');
     final locationCanMap=PartnerMapPoint.fromPublishedLocation(location)!=null;
-    return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(safeName),if(widget.customer)favoriteButton(row),Text(provider),Text(address.isNotEmpty?address:tr('Address details unavailable','تفاصيل العنوان غير متاحة')),if(!locationCanMap)Text(tr('Map coordinates unavailable; this record can only be inspected in the list.','إحداثيات الخريطة غير متاحة؛ يمكن عرض هذا السجل في القائمة فقط.')),Text(tr('Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد')),Text(tr('Reported source time: ${row['source_updated_at']??'unknown'}','وقت المصدر المبلغ عنه: ${row['source_updated_at']??'غير معروف'}')),Text(partnerCatalogAgeLabel(row,Localizations.localeOf(context).languageCode=='ar')),Text(partnerCatalogPolicyText(row['catalog_age_policy'],Localizations.localeOf(context).languageCode=='ar')),Text(tr('Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'))])));
+    return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(safeName),if(widget.customer&&trustedPartner(row))favoriteButton(row),Text(provider),Text(address.isNotEmpty?address:tr('Address details unavailable','تفاصيل العنوان غير متاحة')),if(!locationCanMap)Text(tr('Map coordinates unavailable; this record can only be inspected in the list.','إحداثيات الخريطة غير متاحة؛ يمكن عرض هذا السجل في القائمة فقط.')),Text(tr('Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد')),Text(tr('Reported source time: ${row['source_updated_at']??'unknown'}','وقت المصدر المبلغ عنه: ${row['source_updated_at']??'غير معروف'}')),Text(partnerCatalogAgeLabel(row,Localizations.localeOf(context).languageCode=='ar')),Text(partnerCatalogPolicyText(row['catalog_age_policy'],Localizations.localeOf(context).languageCode=='ar')),Text(tr('Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'))])));
   }
   Widget favoriteButton(Map<String,dynamic> row)=>TextButton(
     key:ValueKey('unified-favorite-${row['key']}'),
@@ -309,6 +342,9 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   );
   Future<void> favorite(Map<String,dynamic> row)async{
     if(!foreground||writing||busy||uncertain||!widget.customer||!ownSession())return;
+    if(row['kind']=='partner'&&!trustedPartner(row))return;
+    if(row['kind']=='catalog'&&!completePublishedStation(
+        Map<String,dynamic>.from(row['station'] as Map)))return;
     final api=widget.api;final turn=generation;final fence=api.sessionFence();
     bool active()=>mounted&&foreground&&turn==generation&&ownSession()&&fence();
     final desired=row['is_favorite']!=true;
