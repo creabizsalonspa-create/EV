@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'money_input.dart';
+import 'vendor_earnings_csv.dart';
 
 /// Read-only issuance-cohort projection from the existing canonical invoice ledger.
 /// This is NOT recognized revenue, cashflow, settlement eligibility or bank proof.
@@ -151,6 +153,45 @@ class VendorRevenueCohortSnapshot {
   }
 }
 
+/// Compare every cell to the previously accepted immutable source.
+class VendorRevenueCohortCsv {
+  static const headers = [
+    'date_utc',
+    ...VendorRevenueCohortSnapshot.fields,
+    'net_collected_minor',
+    'net_vendor_allocated_minor',
+  ];
+
+  static String verifiedText(PrivateDocument document, VendorRevenueCohortSnapshot snapshot) {
+    if (document.mime != 'text/csv' || document.bytes.isEmpty ||
+        document.bytes.length > 65536) {
+      throw const FormatException('Invalid private revenue export.');
+    }
+    final text = utf8.decode(document.bytes, allowMalformed: false);
+    final rows = VendorEarningsCsv.parseBounded(text, maxRows: 94);
+    if (rows.length != snapshot.days.length + 1 || rows.first.length != headers.length) {
+      throw const FormatException('Revenue CSV page differs from source.');
+    }
+    for (var j = 0; j < headers.length; j++) {
+      if (rows.first[j] != headers[j]) {
+        throw const FormatException('Invalid revenue CSV header.');
+      }
+    }
+    for (var i = 0; i < snapshot.days.length; i++) {
+      final cells = rows[i + 1];
+      if (cells.length != headers.length) {
+        throw const FormatException('Incomplete revenue CSV row.');
+      }
+      for (var j = 0; j < headers.length; j++) {
+        if (cells[j] != '${snapshot.days[i][headers[j]]}') {
+          throw const FormatException('Revenue CSV differs from accepted source.');
+        }
+      }
+    }
+    return text;
+  }
+}
+
 class VendorRevenueCohortView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
@@ -173,6 +214,8 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
   final from = TextEditingController();
   final to = TextEditingController();
   VendorRevenueCohortSnapshot? report;
+  String? csvPreview;
+  bool exporting = false;
   bool Function()? currentAuthority;
   StreamSubscription<int>? sessionEvents;
 
@@ -239,6 +282,8 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
   void invalidate() {
     generation++;
     report = null;
+    csvPreview = null;
+    exporting = false;
     error = null;
     busy = false;
     cleared = true;
@@ -259,10 +304,13 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
   Future<void> load() async {
     if (!foreground) return;
     final attempt = ++generation;
-    final session = widget.api.sessionFence();
+    final api = widget.api;
+    final session = api.sessionFence();
     currentAuthority = session;
     setState(() {
       report = null;
+      csvPreview = null;
+      exporting = false;
       error = null;
       busy = true;
       cleared = false;
@@ -281,7 +329,7 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
         throw const FormatException('Invalid cohort filters.');
       }
 
-      final account = await widget.api.request('me');
+      final account = await api.request('me');
       if (!active()) return;
       if (account is! Map ||
           account['role'] != 'vendor' ||
@@ -290,7 +338,7 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
         throw const ApiException(403, 'Vendor role required.');
       }
 
-      final raw = await widget.api.request(
+      final raw = await api.request(
         'commercial/vendors/${account['id']}/revenue-cohorts',
         query: {'currency': widget.currency, 'from': start, 'to': end},
       );
@@ -304,13 +352,57 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
       );
       setState(() => report = parsed);
     } catch (e) {
+      if (mounted && identical(api, widget.api) &&
+          e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+        return;
+      }
       if (!active()) return;
       setState(() => error = e);
-      if (e is ApiException && [401, 419].contains(e.status)) {
-        widget.onExpired();
-      }
     } finally {
       if (active()) setState(() => busy = false);
+    }
+  }
+
+  Future<void> exportCsv() async {
+    final accepted = report;
+    final session = currentAuthority;
+    if (accepted == null || session == null || !session() ||
+        !foreground || busy || exporting) return;
+    final api = widget.api;
+    final attempt = generation;
+    bool active() => mounted && foreground && identical(api, widget.api) &&
+        generation == attempt && identical(report, accepted) && session();
+    setState(() {
+      csvPreview = null;
+      error = null;
+      exporting = true;
+    });
+    try {
+      final account = await api.request('me');
+      if (!active()) return;
+      if (account is! Map || account['role'] != 'vendor' ||
+          account['id'] != accepted.source['vendor_id']) {
+        throw const FormatException('Revenue export account changed.');
+      }
+      final document = await api.downloadVendorRevenueCohort(
+        accepted.source['vendor_id'] as int,
+        currency: accepted.source['currency'] as String,
+        from: accepted.source['from'] as String,
+        to: accepted.source['to'] as String,
+      );
+      if (!active()) return;
+      final verified = VendorRevenueCohortCsv.verifiedText(document, accepted);
+      setState(() => csvPreview = verified);
+    } catch (e) {
+      if (mounted && identical(api, widget.api) &&
+          e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+        return;
+      }
+      if (active()) setState(() { csvPreview = null; error = e; });
+    } finally {
+      if (active()) setState(() => exporting = false);
     }
   }
 
@@ -390,6 +482,14 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
                 ),
               ),
             ),
+            OutlinedButton(
+              key: const Key('revenue-cohort-export'),
+              onPressed: exporting ? null : exportCsv,
+              child: Text(t('View verified private CSV', 'عرض CSV الخاص المتحقق منه')),
+            ),
+            if (exporting) const LinearProgressIndicator(),
+            if (csvPreview != null)
+              SelectableText(csvPreview!, key: const Key('revenue-cohort-csv')),
             if (data.totals['invoice_count'] == 0)
               Text(t('No invoices for this period.', 'لا توجد فواتير في هذه الفترة.')),
             for (final day in data.days)

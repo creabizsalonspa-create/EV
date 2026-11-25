@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -69,6 +71,17 @@ class RevenueApi extends FixtureApi {
   RevenueApi({super.role = 'vendor'});
   final queries = <Map<String, String>>[];
   dynamic malformed;
+  bool tamperCsv = false;
+  @override
+  Future<PrivateDocument> downloadVendorRevenueCohort(
+    int vendorId, {required String currency, required String from, required String to}
+  ) async {
+    expect(vendorId, 1);
+    expect(queries.last, {'currency':currency,'from':from,'to':to});
+    final data = cohort(from:from,to:to,currency:currency);
+    if (tamperCsv) data['data'][0]['paid_minor'] = 1;
+    return cohortDocument(data);
+  }
   Completer<dynamic>? stalled;
   @override
   Future<dynamic> request(
@@ -79,7 +92,12 @@ class RevenueApi extends FixtureApi {
   }) async {
     calls.add('$method $path');
     expect(method, 'GET');
-    if (expired) throw const ApiException(401, 'expired-private-provider-details');
+    if (expired) {
+      await forgetSession();
+      final invalidated = sessionFence();
+      throw ApiException(401, 'expired-private-provider-details',
+        expirationIsCurrent: invalidated);
+    }
     if (path == 'me') {
       return {'id': 1, 'role': role, 'name': 'Synthetic vendor'};
     }
@@ -115,7 +133,56 @@ Future<void> open(
   await tester.pumpAndSettle();
 }
 
+PrivateDocument cohortDocument(Map<String,dynamic> source) {
+  final headers = VendorRevenueCohortCsv.headers;
+  final text = [
+    headers.join(','),
+    for (final row in source['data'])
+      headers.map((field) => '${row[field]}').join(','),
+  ].join('\n');
+  return PrivateDocument(Uint8List.fromList(utf8.encode(text)), 'text/csv');
+}
+
 void main() {
+  test('verified cohort CSV accepts 93 days but rejects altered cells and MIME', () {
+    final raw = cohort(from:'2026-08-01',to:'2026-11-01');
+    final snapshot = VendorRevenueCohortSnapshot.parse(raw,
+      vendorId:1,currency:'AED',from:'2026-08-01',to:'2026-11-01');
+    expect(snapshot.days.length,93);
+    final document = cohortDocument(raw);
+    expect(VendorRevenueCohortCsv.verifiedText(document,snapshot), contains('2026-11-01'));
+    raw['data'][0]['paid_minor'] = 1;
+    expect(() => VendorRevenueCohortCsv.verifiedText(cohortDocument(raw),snapshot), throwsFormatException);
+    expect(() => VendorRevenueCohortCsv.verifiedText(
+      PrivateDocument(document.bytes,'application/pdf'),snapshot), throwsFormatException);
+  });
+
+  testWidgets('verified cohort CSV is cleared on filter edit', (tester) async {
+    final api = RevenueApi();
+    await open(tester,api);
+    final button = find.byKey(const Key('revenue-cohort-export'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('revenue-cohort-csv')),findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('revenue-cohort-from')));
+    await tester.enterText(find.byKey(const Key('revenue-cohort-from')),'2026-11-01');
+    await tester.pump();
+    expect(find.byKey(const Key('revenue-cohort-csv')),findsNothing);
+    expect(button,findsNothing);
+  });
+
+  testWidgets('mismatching cohort CSV is never displayed', (tester) async {
+    final api = RevenueApi()..tamperCsv = true;
+    await open(tester,api);
+    final button = find.byKey(const Key('revenue-cohort-export'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('revenue-cohort-csv')),findsNothing);
+    expect(find.byKey(const Key('revenue-cohort-error')),findsOneWidget);
+  });
+
   testWidgets('already painted vendor cohort income is instantly cleared on account logout',
       (tester) async {
     final api = RevenueApi();
