@@ -283,6 +283,61 @@ class PartnerLocationDiscoveryTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_catalog_age_never_normalizes_corrupt_dates_or_rounds_up_partial_minutes(): void
+    {
+        config(['partner_catalog.max_age_seconds' => 3600]);
+        $at = \Carbon\CarbonImmutable::parse('2026-11-25T12:01:00.100000Z');
+        $record = new OcpiRecord;
+        foreach (['yesterday', '2026-02-30 12:00:00', '2026-11-25 24:00:00',
+            '2026-11-25 12:00:00.1234567', '2026-11-25 12:00:00+04:00', null] as $invalid) {
+            $record->setRawAttributes(['source_updated_at' => $invalid, 'received_at' => $invalid]);
+            $age = \App\Services\Discovery\PartnerCatalogAge::present($record, $at);
+            $this->assertNull($age['source_updated_at']);
+            $this->assertNull($age['received_at']);
+            $this->assertNull($age['reported_source_age_minutes']);
+            $this->assertNull($age['received_age_minutes']);
+            $this->assertSame('SOURCE_TIMESTAMP_UNKNOWN', $age['source_clock_evidence']);
+            $this->assertSame('unknown', $age['catalog_age_policy']['state']);
+        }
+        $record->setRawAttributes(['source_updated_at' => '2026-11-25 12:00:00.100001',
+            'received_at' => '2026-11-25 12:00:00.100000']);
+        $age = \App\Services\Discovery\PartnerCatalogAge::present($record, $at);
+        $this->assertSame(0, $age['reported_source_age_minutes']);
+        $this->assertSame(1, $age['received_age_minutes']);
+        $this->assertSame('within_policy', $age['catalog_age_policy']['state']);
+        $record->setRawAttributes(['source_updated_at' => '2026-11-25 12:01:00.100001',
+            'received_at' => '2026-11-25 12:01:00.100000']);
+        $age = \App\Services\Discovery\PartnerCatalogAge::present($record, $at);
+        $this->assertNull($age['reported_source_age_minutes']);
+        $this->assertSame('PARTNER_CLOCK_AHEAD', $age['source_clock_evidence']);
+        $this->assertSame('unknown', $age['catalog_age_policy']['state']);
+    }
+
+    public function test_legacy_sqlite_bad_source_timestamps_do_not_break_public_discovery(): void
+    {
+        if (\Illuminate\Support\Facades\DB::getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('Typed PostgreSQL timestamp columns reject malformed legacy storage.');
+        }
+        config(['partner_catalog.max_age_seconds' => 3600]);
+        $record = $this->location($this->provider(), 'invalid-clock', 25.2, 55.3);
+        $customer = User::factory()->create(['role' => 'customer', 'account_status' => 'active']);
+        $this->actingAs($customer)->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
+        \Illuminate\Support\Facades\DB::table('ocpi_records')->where('id', $record->id)->update([
+            'source_updated_at' => '2026-02-30 12:00:00',
+            'received_at' => 'invalid-private-clock',
+        ]);
+        foreach (['/api/roaming/locations', '/api/discovery/search?scope=partner',
+            '/api/v1/discovery/search?scope=partner', '/api/roaming/favorites'] as $path) {
+            $this->getJson($path)->assertOk()->assertJsonCount(1, 'data')
+                ->assertJsonPath('data.0.source_updated_at', null)
+                ->assertJsonPath('data.0.received_at', null)
+                ->assertJsonPath('data.0.reported_source_age_minutes', null)
+                ->assertJsonPath('data.0.catalog_age_policy.state', 'unknown')
+                ->assertJsonPath('data.0.availability', 'unknown')
+                ->assertDontSee('invalid-private-clock');
+        }
+    }
+
     public function test_source_age_filter_rejects_stale_future_and_invalid_values(): void
     {
         $provider = $this->provider();
