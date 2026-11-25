@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class SubscriptionRecurringTest extends TestCase
@@ -423,7 +424,7 @@ class SubscriptionRecurringTest extends TestCase
         try {
             $collections->authorize($u, $checkout);
             $this->fail('A future invoice must not authorize saved collection.');
-        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $error) {
+        } catch (HttpException $error) {
             $this->assertSame(409, $error->getStatusCode());
         }
         $this->travel(1)->seconds();
@@ -433,7 +434,7 @@ class SubscriptionRecurringTest extends TestCase
         try {
             $collections->authorize($u, $checkout);
             $this->fail('A subscription scheduled to stop must not authorize saved collection.');
-        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $error) {
+        } catch (HttpException $error) {
             $this->assertSame(409, $error->getStatusCode());
         }
         $this->assertCount($before, $this->sent);
