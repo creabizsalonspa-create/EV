@@ -169,6 +169,59 @@ class NotificationEmailTest extends TestCase
         Mail::assertSent(GenericInboxNotice::class, fn ($mail) => $mail->hasTo($user->email));
     }
 
+    public function test_cancelled_receipt_keys_cannot_starve_other_recipients_or_replay_the_same_tuple(): void
+    {
+        $this->freezeTime();
+        $first = $this->fixture();
+        $this->enable($first);
+        $blockedNotice = $this->notice($first);
+        $service = app(EmailNotices::class);
+        $this->assertSame(1, $service->prepare(1));
+        $receipt = DB::table('notification_email_outbox')->where('user_id', $first->id)->first();
+        $before = DB::table('notification_email_preferences')->where('user_id', $first->id)->first();
+        DB::table('notification_email_outbox')->where('id', $receipt->id)
+            ->update(['recipient_hash' => str_repeat('0', 64)]);
+        $this->assertSame('cancelled', $service->deliver($receipt->id));
+        $this->assertSame(0, $service->prepare(1));
+        $this->assertSame('not_attempted', $service->deliver($receipt->id));
+        Mail::assertNothingSent();
+
+        // Even with a candidate budget of one, the old cancelled key must
+        // not monopolize the scan. The second owner has independent consent.
+        $second = User::factory()->create();
+        $this->enable($second);
+        $fresh = $this->notice($second);
+        $this->assertSame(1, $service->prepare(1));
+        $queued = DB::table('notification_email_outbox')->where('state', 'queued')->first();
+        $this->assertSame($second->id, (int) $queued->user_id);
+        $this->assertSame($fresh->id, (int) $queued->through_notification_id);
+        $this->assertSame('handed_off', $service->deliver($queued->id));
+        $this->assertSame(0, $service->prepare(1));
+        $this->assertDatabaseHas('notification_email_preferences', [
+            'user_id' => $first->id, 'after_notification_id' => $before->after_notification_id,
+            'last_attempted_at' => null, 'revision' => $before->revision,
+        ]);
+        $this->assertDatabaseHas('notification_email_outbox', [
+            'id' => $receipt->id, 'through_notification_id' => $blockedNotice->id,
+            'state' => 'cancelled', 'claimed_at' => null,
+        ]);
+
+        // New activity is still eligible; no replacement/reopening of the
+        // cancelled row and no cooldown charged for its invalid claim.
+        $next = $this->notice($first);
+        $this->assertSame(1, $service->prepare(1));
+        $queued = DB::table('notification_email_outbox')->where('state', 'queued')->first();
+        $this->assertSame($first->id, (int) $queued->user_id);
+        $this->assertSame($next->id, (int) $queued->through_notification_id);
+        $this->assertSame('handed_off', $service->deliver($queued->id));
+        Mail::assertSent(GenericInboxNotice::class, 2);
+        Mail::assertSent(GenericInboxNotice::class, fn ($mail) => $mail->hasTo($first->email));
+        Mail::assertSent(GenericInboxNotice::class, fn ($mail) => $mail->hasTo($second->email));
+        $this->assertDatabaseCount('notification_email_outbox', 3);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_configuration_change_while_locking_candidate_does_not_disable_consent_or_queue_stale_handoff(): void
     {
         $user = $this->fixture();
