@@ -16,9 +16,19 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const submit=form=>form.onsubmit({preventDefault(){}});
 function input(form,name){return find(form,n=>n.name===name)[0];}
 function button(ui,label){return find(ui.root,n=>n.tag==='button'&&n.textContent===label)[0];}
-test('public blocks are text only and carry explicit operator scope',()=>{
- const ui=fixture();ui.show(ui.root,[{scope:'STATION_WIDE_OPERATOR_POLICY',starts_at:'2026-11-17T09:00:00Z',ends_at:'2026-11-17T10:00:00Z',reason_en:'<script>untrusted</script>',reason_ar:'صيانة'}]);
- assert.match(ui.root.textContent,/<script>untrusted/);assert.equal(find(ui.root,n=>n.tag==='script').length,0);
+test('public blocks are plain text and preserve unknown live status in both languages', () => {
+ const row = {
+   scope: 'STATION_WIDE_OPERATOR_POLICY', physical_availability_verified: false,
+   starts_at: '2026-11-17T09:00:00Z', ends_at: '2026-11-17T10:00:00Z',
+   reason_en: '<script>untrusted</script>', reason_ar: 'صيانة',
+ };
+ for (const [arabic, text] of [[false, /live charger status unknown.*<script>untrusted/], [true, /حالة الشاحن المباشرة غير معروفة.*صيانة/]]) {
+   const ui = fixture(arabic);
+   ui.show(ui.root, [row, null, {...row, scope: 'OTHER'}, {...row, reason_en: null}, {...row, physical_availability_verified: true}]);
+   assert.match(ui.root.textContent, text);
+   assert.equal(ui.root.children.length, 1);
+   assert.equal(find(ui.root, node => node.tag === 'script').length, 0);
+ }
 });
 test('uncertain publication retries the same frozen station request; refresh only reads',async()=>{
  const ui=fixture(),calls=[];let writes=0;

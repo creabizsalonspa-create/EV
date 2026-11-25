@@ -3,9 +3,10 @@ window.EvStationBlocks = (() => {
     const text = (tag, en, ar) => { const node = document.createElement(tag); node.dataset.en = en; node.dataset.ar = ar; node.textContent = document.documentElement.lang === 'ar' ? ar : en; return node; };
     function show(root, rows) {
         for (const row of Array.isArray(rows) ? rows : []) {
-            if (row.scope !== 'STATION_WIDE_OPERATOR_POLICY') continue;
-            root.append(text('p', 'Operator block (UTC): ' + row.starts_at + ' → ' + row.ends_at + ' — ' + row.reason_en,
-                'حجب من المشغل (UTC): ' + row.starts_at + ' ← ' + row.ends_at + ' — ' + row.reason_ar));
+            if (row?.scope !== 'STATION_WIDE_OPERATOR_POLICY' || row.physical_availability_verified !== false
+                || ![row.starts_at, row.ends_at, row.reason_en, row.reason_ar].every(value => typeof value === 'string')) continue;
+            root.append(text('p', 'Operator block (live charger status unknown, UTC): ' + row.starts_at + ' → ' + row.ends_at + ' — ' + row.reason_en,
+                'حجب من المشغل (حالة الشاحن المباشرة غير معروفة، UTC): ' + row.starts_at + ' ← ' + row.ends_at + ' — ' + row.reason_ar));
         }
     }
     function mount(root, {api, stationId, current, initialRows = null}) {
