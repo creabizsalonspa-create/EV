@@ -243,14 +243,21 @@ class LoyaltyController extends Controller
     public function cancelCouponIntent(Request $r, LoyaltyService $service)
     {
         abort_unless($r->user()->role === 'customer', 403);
-        $v = $r->validate(['code' => ['required', 'string', 'regex:/^[A-Z0-9-]{12,40}$/D'], 'idempotency_key' => 'required|string|max:100']);
-        $result = $service->cancelCouponIntent($r->user()->id, $v['code'], $v['idempotency_key']);
+        $v = $r->validate([
+            'code' => ['required_without:coupon_id', 'prohibits:coupon_id', 'string', 'regex:/^[A-Z0-9-]{12,40}$/D'],
+            'coupon_id' => 'required_without:code|prohibits:code|integer|min:1',
+            'idempotency_key' => 'required|string|max:100',
+        ]);
+        $coupon = isset($v['coupon_id']) ? (int) $v['coupon_id'] : null;
+        $result = $service->cancelCouponIntent($r->user()->id, $v['code'] ?? null, $v['idempotency_key'], $coupon);
         $request = hash('sha256', 'coupon-claim:'.$r->user()->id.':'.$v['idempotency_key']);
+        $binding = $coupon === null ? hash('sha256', hash('sha256', $v['code']).':'.$request)
+            : hash('sha256', 'coupon-cancel-v1:'.$coupon.':'.$request);
 
         return response()->json(['state' => $result['state'],
-            'request_binding' => hash('sha256', hash('sha256', $v['code']).':'.$request),
+            'request_binding' => $binding,
             'claim' => $result['claim'] ? $this->couponReceipt($result['claim']) : null,
-        ])->header('Cache-Control', 'private, no-store');
+        ] + ($coupon === null ? [] : ['coupon_id' => $coupon]))->header('Cache-Control', 'private, no-store');
     }
 
     private function couponReceipt(object $row): array
