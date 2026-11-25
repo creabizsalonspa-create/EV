@@ -616,7 +616,7 @@ class _VendorRecordsState extends State<VendorRecordsView> with WidgetsBindingOb
     try {
       final receipt = await api.request(path,method:'PATCH',body:{
         'expected_version':row['invitation_version'],
-        'permissions':[for(final permission in vendorPermissions) if(decision!.contains(permission)) permission],
+        'permissions':[for(final permission in vendorPermissions) if(decision.contains(permission)) permission],
       });
       if (!current(epoch)) return;
       if (!staffPermissionChangeReceipt(row,decision,receipt))
