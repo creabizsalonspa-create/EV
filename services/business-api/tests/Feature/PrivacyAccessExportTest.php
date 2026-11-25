@@ -103,6 +103,59 @@ class PrivacyAccessExportTest extends TestCase
         $this->assertDatabaseCount('account_privacy_exports', 1);
     }
 
+    public function test_valid_ciphertext_and_digest_from_another_case_never_disclose_private_data(): void
+    {
+        [$owner, $admin, $other, $case] = $this->scenario();
+        $second = AccountPrivacyRequest::create([
+            'user_id' => $other->id, 'kind' => 'access', 'status' => 'reviewing',
+            'request_details_encrypted' => Crypt::encryptString('Please provide the other personal account copy.'),
+        ]);
+        $this->actingAs($admin)->postJson('/api/admin/privacy-requests/'.$case->id.'/access-copy',
+            ['password' => 'password', 'request_key' => 'identity-original-copy'])->assertCreated();
+        $this->postJson('/api/admin/privacy-requests/'.$second->id.'/access-copy',
+            ['password' => 'password', 'request_key' => 'identity-foreign-copy'])->assertCreated();
+        $original = DB::table('account_privacy_exports')->where('privacy_request_id', $case->id)->first();
+        $foreign = DB::table('account_privacy_exports')->where('privacy_request_id', $second->id)->first();
+        $path = '/api/account/privacy-requests/'.$case->id.'/access-copy';
+        $this->actingAs($owner);
+        $replace = function (string $body) use ($case) {
+            DB::table('account_privacy_exports')->where('privacy_request_id', $case->id)->update([
+                'payload_encrypted' => Crypt::encryptString($body), 'byte_length' => strlen($body),
+                'sha256' => hash('sha256', $body),
+            ]);
+        };
+        // Synthetic inconsistent import: ciphertext and its digest agree but
+        // identify another owner and case. Never return foreign plaintext.
+        DB::table('account_privacy_exports')->where('privacy_request_id', $case->id)->update([
+            'payload_encrypted' => $foreign->payload_encrypted,
+            'byte_length' => $foreign->byte_length, 'sha256' => $foreign->sha256,
+        ]);
+        $this->postJson($path, ['password' => 'password'])->assertConflict()
+            ->assertDontSee('OTHER PRIVATE VEHICLE');
+        $body = Crypt::decryptString($original->payload_encrypted);
+        $document = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+        foreach ([
+            ['request_id' => $second->id], ['owner_id' => $other->id],
+            ['schema_version' => 2], ['scope' => 'unrecognized'],
+            ['sections' => null],
+        ] as $change) {
+            $replace(json_encode(array_replace($document, $change), JSON_THROW_ON_ERROR));
+            $this->postJson($path, ['password' => 'password'])->assertConflict()->assertDontSee('Own private vehicle');
+        }
+        $replace('{malformed-json');
+        $this->postJson($path, ['password' => 'password'])->assertConflict();
+        DB::table('account_privacy_exports')->where('privacy_request_id', $case->id)->update(['payload_encrypted' => 'invalid-ciphertext']);
+        $this->postJson($path, ['password' => 'password'])->assertConflict();
+        $this->assertSame(0, DB::table('audit_events')->where('action', 'privacy.copy.viewed')->count());
+
+        $replace($body);
+        $this->postJson($path, ['password' => 'password'])->assertOk()
+            ->assertJsonPath('owner_id', $owner->id)->assertJsonPath('request_id', $case->id)
+            ->assertDontSee('OTHER PRIVATE VEHICLE');
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'privacy.copy.viewed')->count());
+        $this->assertDatabaseCount('account_privacy_exports', 2);
+    }
+
     public function test_large_requests_never_silently_truncate_and_expired_copies_are_purged(): void
     {
         [$owner, $admin, , $case] = $this->scenario();
