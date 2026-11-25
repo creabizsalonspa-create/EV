@@ -162,13 +162,19 @@ void main() {
             .onPressed,
         isNull,
       );
-      await tester.ensureVisible(find.text('تحديث سجل التسعير'));
-      await tester.tap(find.text('تحديث سجل التسعير'));
+      final refresh = find.text('تحديث سجل التسعير');
+      await tester.scrollUntilVisible(refresh, -250,
+        scrollable: find.descendant(of: find.byType(ListView),
+          matching: find.byType(Scrollable)).first);
+      await tester.tap(refresh);
       await tester.pumpAndSettle();
       expect(find.text('2.75 AED / kWh'), findsOneWidget);
       expect(api.publications.length, 1);
       api.expired = true;
-      await tester.tap(find.text('تحديث سجل التسعير'));
+      await tester.scrollUntilVisible(refresh, -250,
+        scrollable: find.descendant(of: find.byType(ListView),
+          matching: find.byType(Scrollable)).first);
+      await tester.tap(refresh);
       await tester.pumpAndSettle();
       expect(expired, isTrue);
       expect(find.text('2.75 AED / kWh'), findsNothing);
