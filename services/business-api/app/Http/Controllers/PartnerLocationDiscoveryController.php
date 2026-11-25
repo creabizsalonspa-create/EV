@@ -6,6 +6,7 @@ use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Services\Discovery\PartnerCatalogAge;
 use App\Services\Discovery\PartnerCatalogText;
+use App\Services\Discovery\PartnerCatalogTime;
 use App\Services\Discovery\PartnerCatalogGeo;
 use App\Services\Discovery\PublicPartnerLocation;
 use Illuminate\Http\Request;
@@ -67,10 +68,7 @@ final class PartnerLocationDiscoveryController extends Controller
             ->when(isset($filters['max_source_age_hours']), function ($q) use ($filters, $checkedAt) {
                 // A source update timestamp is not telemetry, occupancy or
                 // charging authority. Do not accept future clocks as fresh.
-                $q->whereBetween('source_updated_at', [
-                    $checkedAt->copy()->subHours((int) $filters['max_source_age_hours'])->format('Y-m-d H:i:s.u'),
-                    $checkedAt->format('Y-m-d H:i:s.u'),
-                ]);
+                PartnerCatalogTime::within($q, $checkedAt, (int) $filters['max_source_age_hours']);
             })
             ->when(! empty($filters['reported_evse_status']), function ($q) use ($filters) {
                 // These are the partner's *reported* EVSE states. This query

@@ -80,6 +80,36 @@ class UnifiedDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_sqlite_source_age_filters_reject_malformed_storage_and_keep_exact_boundaries(): void
+    {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('PostgreSQL uses a typed source timestamp.');
+        }
+        $this->travelTo(Carbon::parse('2026-11-15T12:00:00.500000Z'));
+        $record = $this->fixtures()['record'];
+        foreach ([
+            ['2026-11-15 11:30:99', 0],
+            ['2026-11-15 11:30:00.invalid', 0],
+            ['2026-11-15 11:30:00.1234567', 0],
+            ['2026-11-15 11:30:00+04:00', 0],
+            ['2026-11-15 11:30:00', 1],
+            ['2026-11-15T11:30:00Z', 1],
+            ['2026-11-15 12:00:00.5', 1],
+            ['2026-11-15 12:00:00.500001', 0],
+            ['2026-11-15T11:00:00.500000Z', 1],
+            ['2026-11-15 11:00:00.499999', 0],
+        ] as [$source, $count]) {
+            DB::table('ocpi_records')->where('id', $record->id)->update(['source_updated_at' => $source]);
+            foreach (['/api/discovery/search?scope=partner&', '/api/v1/discovery/search?scope=partner&', '/api/roaming/locations?'] as $path) {
+                $this->getJson($path.'max_source_age_hours=1')->assertOk()->assertJsonPath('total', $count)
+                    ->assertJsonCount($count, 'data');
+            }
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_partner_age_filter_uses_utc_even_on_non_utc_application_host(): void
     {
         $original = date_default_timezone_get();
