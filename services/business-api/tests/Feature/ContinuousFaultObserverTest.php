@@ -769,6 +769,33 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_cli_fault_review_classification_redacts_exception_text_and_preserves_failure(): void
+    {
+        $f = $this->fixture('1.6');
+        $events = $this->events(1, 2);
+        $events[0]['errorCode'] = null;
+        $this->source($f, $events, newest: 2);
+        $this->artisan('csms:observe-faults', ['--once' => true, '--binding' => $f['binding']])
+            ->expectsOutput('Binding '.$f['binding'].' requires source/access review. No command sent. [review:protocol_receipt]')
+            ->assertFailed();
+        $this->assertDatabaseHas('charging_fault_cursors', ['binding_id' => $f['binding'], 'last_event_id' => 0, 'state' => 'requires_review']);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $command = \App\Console\Commands\ObserveChargerFaults::class;
+        foreach ([
+            [503, 'Malformed source component identity.', 'component_identity'],
+            [503, 'Conflicting same-time source status receipts.', 'same_time_conflict'],
+            [503, 'Source status chronology regressed.', 'source_chronology'],
+            [503, 'PRIVATE-TRANSPORT-SECRET', 'source_unavailable'],
+            [409, 'PRIVATE-MAPPING-DETAIL', 'scope_or_lineage'],
+        ] as [$status, $message, $expected]) {
+            $this->assertSame($expected, $command::reviewCode(new HttpException($status, $message)));
+        }
+        $this->assertSame('worker_internal_failure', $command::reviewCode(new \RuntimeException('PRIVATE-DATABASE-CREDENTIAL')));
+    }
+
     public function test_disabled_or_production_worker_cannot_read_source(): void
     {
         $f = $this->fixture();
