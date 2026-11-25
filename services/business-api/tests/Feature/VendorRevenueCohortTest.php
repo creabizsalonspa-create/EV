@@ -122,6 +122,56 @@ class VendorRevenueCohortTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
+    public function test_as_of_excludes_future_postings_and_invoices_in_the_selected_utc_day(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 08:00:00', 'UTC'));
+        $invoice = $this->invoice(100, 'asof-first', false);
+        $this->travelTo(Carbon::parse('2026-11-10 10:00:00', 'UTC'));
+        app(FinanceService::class)->pay($invoice, $this->customer->id, 100, 'asof-later-payment');
+        $this->invoice(200, 'asof-future', true);
+        $base = '/revenue-test/commercial/vendors/'.$this->vendor->id.'/revenue-cohorts';
+        $scope = '?currency=AED&from=2026-11-10&to=2026-11-10';
+        $before = DB::table('finance_journals')->count();
+
+        $this->travelTo(Carbon::parse('2026-11-10 09:00:00', 'UTC'));
+        $this->actingAs($this->vendor)->getJson($base.$scope)->assertOk()
+            ->assertJsonPath('totals.invoice_count', 1)->assertJsonPath('totals.invoiced_minor', 100)
+            ->assertJsonPath('totals.paid_minor', 0);
+        $csv = $this->get($base.'/export'.$scope)->assertOk()->streamedContent();
+        $this->assertStringContainsString('2026-11-10,1,100,100,0,0,', $csv);
+        $this->travelTo(Carbon::parse('2026-11-10 11:00:00', 'UTC'));
+        $this->getJson($base.$scope)->assertOk()
+            ->assertJsonPath('totals.invoice_count', 2)->assertJsonPath('totals.paid_minor', 300);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
+    public function test_wrong_journal_currency_or_overpayment_is_not_hidden_in_a_cohort_total(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
+        $invoice = $this->invoice(100, 'bad-import', true);
+        $journal = DB::table('finance_journals')->insertGetId([
+            'invoice_id' => $invoice->id, 'kind' => 'payment',
+            'idempotency_key' => 'cohort-import-invalid',
+            'fingerprint' => hash('sha256', 'cohort-import-invalid'),
+            'currency' => 'USD', 'amount_minor' => 1, 'created_at' => now(),
+        ]);
+        DB::table('finance_payments')->insert([
+            'invoice_id' => $invoice->id, 'journal_id' => $journal,
+            'actor_id' => $this->customer->id, 'amount_minor' => 1,
+            'evidence' => 'SIMULATED', 'created_at' => now(),
+        ]);
+        $base = '/revenue-test/commercial/vendors/'.$this->vendor->id.'/revenue-cohorts';
+        $scope = '?currency=AED&from=2026-11-10&to=2026-11-10';
+        $before = DB::table('finance_journals')->count();
+        foreach ([$this->vendor, $this->admin] as $reader) {
+            $this->actingAs($reader)->getJson($base.$scope)->assertConflict();
+            $this->get($base.'/export'.$scope)->assertConflict();
+        }
+        $this->getJson($base.'?currency=AED&from=2026-11-09&to=2026-11-09')
+            ->assertOk()->assertJsonPath('totals.invoice_count', 0);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
     public function test_owner_only_scope_validation_and_no_financial_writes(): void
     {
         $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
