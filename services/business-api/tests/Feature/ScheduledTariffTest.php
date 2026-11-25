@@ -57,9 +57,15 @@ class ScheduledTariffTest extends TestCase
         config(['charging_tariffs.scheduled_enabled' => false]);
         $this->actingAs($f['admin'])->postJson($f['path'], $f['body'])->assertServiceUnavailable();
         config(['charging_tariffs.scheduled_enabled' => true]);
+        // Leaving the testing environment also enables real CSRF checks.
+        // Supply a matching session token so the POST reaches the production
+        // feature guard rather than failing earlier in middleware.
+        $csrf = Str::random(40);
+        $this->withSession(['_token' => $csrf]);
         $this->app->instance('env', 'production');
         try {
-            $this->postJson($f['path'], $f['body'])->assertServiceUnavailable();
+            $this->getJson($f['path'])->assertServiceUnavailable();
+            $this->postJson($f['path'], $f['body'], ['X-CSRF-TOKEN' => $csrf])->assertServiceUnavailable();
         } finally {
             $this->app->instance('env', 'testing');
         }
