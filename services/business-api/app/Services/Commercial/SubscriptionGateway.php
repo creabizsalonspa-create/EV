@@ -161,8 +161,14 @@ class SubscriptionGateway
 
     public function authenticate(User $actor, int $id): array
     {
-        $initial = $this->access($actor, $id);
-        abort_unless($initial->user_id === $actor->id && $initial->mandate_id && preg_match('/^pi_[A-Za-z0-9]+$/D', $initial->provider_reference), 404);
+        $initial = DB::transaction(function () use ($actor, $id) {
+            $current = app(CurrentFinanceReader::class)->requireSnapshot($actor);
+            $checkout = $this->access($current, $id);
+            abort_unless($checkout->user_id === $current->id && $checkout->mandate_id
+                && preg_match('/^pi_[A-Za-z0-9]+$/D', $checkout->provider_reference), 404);
+
+            return $checkout;
+        });
         $return = app(PaymentMandates::class)->returnUrl();
         if ($initial->status === 'action_required') {
             app(PaymentRecovery::class)->run('subscription', $initial, $actor->id, 'authenticate', 'authenticate:'.$id, ['authenticate', (int) $initial->amount_minor, $initial->mandate_id, $initial->mandate_version], fn () => DB::transaction(function () use ($actor, $initial, $return) {
@@ -180,22 +186,29 @@ class SubscriptionGateway
                 return DB::table('subscription_gateway_checkouts')->find($c->id);
             }));
         }
-        $c = $this->access($actor, $id);
-        $credentials = app(PaymentMandates::class)->credentials($actor, $c->mandate_id, $c->mandate_version);
-        $r = (new StripeSandboxProvider)->authenticateSaved($c->provider_reference, (int) $c->amount_minor, $c->currency, $credentials['method'], $credentials['customer'], $return, false);
-        if (in_array($r['status'] ?? '', ['requires_capture', 'requires_payment_method', 'succeeded'], true)) {
-            $type = match ($r['status']) {
-                'requires_capture' => 'payment_intent.amount_capturable_updated',
-                'succeeded' => 'payment_intent.succeeded',
-                default => 'payment_intent.payment_failed',
-            };
-            $event = ['id' => 'sca_inspection_'.hash('sha256', json_encode([$id, $r], JSON_THROW_ON_ERROR)), 'type' => $type, 'data' => ['object' => $r]];
-            $this->applyProviderEvidence($event, json_encode($event, JSON_THROW_ON_ERROR));
-            $c = $this->access($actor, $id);
-        }
-        $url = ($r['next_action']['type'] ?? null) === 'redirect_to_url' ? app(PaymentMandates::class)->hostedUrl($r['next_action']['redirect_to_url']['url'] ?? null) : null;
+        return DB::transaction(function () use ($actor, $initial, $id, $return) {
+            $actor = app(CurrentFinanceReader::class)->requireSnapshot($actor);
+            $this->subscriptions->access($actor, $initial->subscription_id, true);
+            $c = DB::table('subscription_gateway_checkouts')->where('id', $id)
+                ->where('user_id', $actor->id)->lockForUpdate()->firstOrFail();
+            abort_unless($c->subscription_id === $initial->subscription_id
+                && $c->mandate_id === $initial->mandate_id && $c->mandate_version === $initial->mandate_version, 409);
+            $credentials = app(PaymentMandates::class)->credentials($actor, $c->mandate_id, $c->mandate_version);
+            $r = (new StripeSandboxProvider)->authenticateSaved($c->provider_reference, (int) $c->amount_minor, $c->currency, $credentials['method'], $credentials['customer'], $return, false);
+            if (in_array($r['status'] ?? '', ['requires_capture', 'requires_payment_method', 'succeeded'], true)) {
+                $type = match ($r['status']) {
+                    'requires_capture' => 'payment_intent.amount_capturable_updated',
+                    'succeeded' => 'payment_intent.succeeded',
+                    default => 'payment_intent.payment_failed',
+                };
+                $event = ['id' => 'sca_inspection_'.hash('sha256', json_encode([$id, $r], JSON_THROW_ON_ERROR)), 'type' => $type, 'data' => ['object' => $r]];
+                $this->applyProviderEvidence($event, json_encode($event, JSON_THROW_ON_ERROR));
+                $c = $this->access($actor, $id);
+            }
+            $url = ($r['next_action']['type'] ?? null) === 'redirect_to_url' ? app(PaymentMandates::class)->hostedUrl($r['next_action']['redirect_to_url']['url'] ?? null) : null;
 
-        return ['checkout_id' => $id, 'status' => $c->status, 'hosted_url' => $url, 'hosted_action_supported' => $url !== null, 'evidence' => 'STRIPE_TEST_CONTRACT', 'external_provider_verified' => false];
+            return ['checkout_id' => $id, 'status' => $c->status, 'hosted_url' => $url, 'hosted_action_supported' => $url !== null, 'evidence' => 'STRIPE_TEST_CONTRACT', 'external_provider_verified' => false];
+        });
     }
 
     public function stripeWebhook(string $raw, string $signature): array
