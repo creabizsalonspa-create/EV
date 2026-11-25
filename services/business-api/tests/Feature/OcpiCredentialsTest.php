@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\Ocpi\IncomingEnrollment;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerClient;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Crypt;
@@ -561,7 +562,7 @@ class OcpiCredentialsTest extends TestCase
             $this->markTestSkipped('PostgreSQL typed timestamps reject malformed legacy storage.');
         }
         [$p, $admin, , $url] = $this->incomingFixture();
-        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-11-25T12:00:00Z'));
+        $this->travelTo(CarbonImmutable::parse('2026-11-25T12:00:00Z'));
         $this->actingAs($admin)->postJson($url, $this->intent('prepare_incoming'))->assertOk();
         $headers = $this->protocol('INCOMING-A-SYNTHETIC');
         foreach (['tomorrow', '2026-11-31 12:30:00', '2026-11-25 12:30:99', '2026-11-25 12:30:00+04:00'] as $invalid) {
@@ -579,7 +580,7 @@ class OcpiCredentialsTest extends TestCase
     public function test_changed_bootstrap_expiry_stops_peer_proof_before_second_request(): void
     {
         [$p, $admin, , $url] = $this->incomingFixture();
-        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-11-25T12:00:00Z'));
+        $this->travelTo(CarbonImmutable::parse('2026-11-25T12:00:00Z'));
         $this->actingAs($admin)->postJson($url, $this->intent('prepare_incoming'))->assertOk();
         Http::fake(function ($request) use ($p) {
             $this->assertStringEndsWith('/ocpi/versions', $request->url());
@@ -599,7 +600,7 @@ class OcpiCredentialsTest extends TestCase
     public function test_incoming_bootstrap_cannot_outlive_or_bypass_its_prepared_proof(): void
     {
         [$p, $admin, , $url] = $this->incomingFixture();
-        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-11-25T12:00:00Z'));
+        $this->travelTo(CarbonImmutable::parse('2026-11-25T12:00:00Z'));
         $this->actingAs($admin)->postJson($url, $this->intent('prepare_incoming'))->assertOk();
         $headers = $this->protocol('INCOMING-A-SYNTHETIC');
         $link = DB::table('ocpi_credential_links')->where('provider_id', $p->id);
