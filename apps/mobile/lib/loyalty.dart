@@ -1024,156 +1024,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
         !(coupon is int && coupon > 0 && codeHash == null ||
             coupon == null && codeHash is String)) return;
     if (coupon == null &&
-        (!RegExp(r'^[A-Z0-9-]{12,40}
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!foreground || !ownsSession()) return const Scaffold();
-    final api = widget.api;
-    final fence = ownsSession;
-    bool same() => scoped(api, fence);
-    void guardedRun(String action, {int number = 1, int? coupon}) {
-      if (same()) run(action, number: number, coupon: coupon);
-    }
-    return Scaffold(
-    appBar: AppBar(title: Text(label('Reward coupons', 'قسائم المكافآت'))),
-    body: ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text(
-          label(
-            'Enter a code you received to claim a noncash reward.',
-            'أدخل الرمز الذي تلقيته للمطالبة بمكافأة غير نقدية.',
-          ),
-        ),
-        if (capability?.enabled == false)
-          Text(
-            label(
-              'New coupon claims are disabled. Existing receipts remain available.',
-              'المطالبات الجديدة بالقسائم معطلة. تبقى الإيصالات الموجودة متاحة.',
-            ),
-          ),
-        if (capability == null && !busy)
-          TextButton(
-            onPressed: () {
-              if (same()) loadCapability();
-            },
-            child: Text(
-              label(
-                'Retry coupon availability',
-                'إعادة التحقق من توفر القسائم',
-              ),
-            ),
-          ),
-        TextField(
-          controller: code,
-          enabled:
-              !busy && capability?.enabled == true && draft?['coupon'] == null,
-          maxLength: 40,
-          textCapitalization: TextCapitalization.characters,
-          textDirection: TextDirection.ltr,
-          decoration: InputDecoration(
-            labelText: label('Coupon code', 'رمز القسيمة'),
-          ),
-        ),
-        FilledButton(
-          onPressed:
-              busy || capability?.enabled != true || draft?['coupon'] != null
-              ? null
-              : () => guardedRun('claim'),
-          child: Text(label('Claim coupon', 'المطالبة بالقسيمة')),
-        ),
-        if (pending != null)
-          TextButton(
-            onPressed: busy ? null : () => guardedRun('claim-receipt'),
-            child: Text(
-              label('Check last claim receipt', 'التحقق من إيصال المطالبة'),
-            ),
-          ),
-        if (pending != null)
-          TextButton(
-            onPressed: busy ? null : () {
-              if (same()) clearDraft();
-            },
-            child: Text(label('Clear coupon draft', 'مسح مسودة القسيمة')),
-          ),
-        TextButton(
-          onPressed: busy ? null : () => guardedRun('claims'),
-          child: Text(label('Refresh coupon history', 'تحديث سجل القسائم')),
-        ),
-        TextButton(
-          onPressed: busy ? null : () => guardedRun('eligible'),
-          child: Text(label('Browse eligible coupons', 'تصفح القسائم المؤهلة')),
-        ),
-        if (hasHistory && receipts.isEmpty && !busy)
-          Text(label('No coupon claims', 'لا توجد مطالبات بالقسائم')),
-        if (browsing && offers.isEmpty && !busy)
-          Text(label('No eligible coupons', 'لا توجد قسائم مؤهلة')),
-        for (final offer in offers)
-          ListTile(
-            title: Text(
-              label('${offer['reward_name']}', '${offer['reward_name_ar']}'),
-            ),
-            subtitle: Text('${offer['ends_at']} UTC'),
-            trailing: TextButton(
-              onPressed:
-                  busy ||
-                      capability?.enabled != true ||
-                      offer['id'] is! int ||
-                      (pending != null && draft?['coupon'] != offer['id'])
-                  ? null
-                  : () => guardedRun('claim', coupon: offer['id'] as int),
-              child: Text(label('Claim', 'مطالبة')),
-            ),
-          ),
-        if (busy) const LinearProgressIndicator(),
-        if (message != null) Semantics(liveRegion: true, child: Text(message!)),
-        for (final row in receipts)
-          ListTile(
-            title: Text(
-              label(
-                row['reward_name'] as String,
-                row['reward_name_ar'] as String,
-              ),
-            ),
-            subtitle: Text(
-              [
-                '${row['claimed_at']} · #${row['id']}',
-                row['receipt_mode'] == 'reviewed_manual'
-                    ? label(
-                        'Reviewed manual noncash record',
-                        'سجل غير نقدي يدوي مراجع',
-                      )
-                    : label('Sandbox test record', 'سجل تجريبي'),
-              ].join('\n'),
-            ),
-            trailing: Text(switch (row['status']) {
-              'fulfilled' => label('Fulfilled', 'تم التسليم'),
-              'rejected' => label('Rejected', 'مرفوض'),
-              _ => label('Pending fulfillment', 'بانتظار التسليم'),
-            }),
-          ),
-        if (page > 1)
-          TextButton(
-            onPressed: busy
-                ? null
-                : () => guardedRun(browsing ? 'eligible' : 'claims', number: page - 1),
-            child: Text(label('Previous', 'السابق')),
-          ),
-        if (page < last)
-          TextButton(
-            onPressed: busy
-                ? null
-                : () => guardedRun(browsing ? 'eligible' : 'claims', number: page + 1),
-            child: Text(label('Next', 'التالي')),
-          ),
-      ],
-    ),
-  );
-  }
-}
-).hasMatch(entered) ||
+        (!RegExp(r'^[A-Z0-9-]{12,40}$').hasMatch(entered) ||
             digest(entered) != codeHash)) {
       setState(() => message = label(
         'Re-enter the original code to cancel the saved claim.',
@@ -1183,7 +1034,10 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
     }
     final epoch = ++generation;
     bool current() => generation == epoch && scoped(api, fence);
-    setState(() { busy = true; message = null; });
+    setState(() {
+      busy = true;
+      message = null;
+    });
     try {
       final request = digest('coupon-claim:$ownerId:$key');
       final binding = digest(coupon == null
@@ -1199,15 +1053,17 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           (coupon != null && result['coupon_id'] != coupon)) {
         throw const FormatException('Invalid coupon cancellation binding');
       }
-      Map<String, dynamic>? accepted;
+      final Map<String, dynamic>? accepted;
       if (result['state'] == 'accepted') {
         accepted = receipt(result['claim']);
         if ((coupon != null && accepted['coupon_id'] != coupon) ||
             (coupon == null && accepted['request_binding'] != binding)) {
           throw const FormatException('Invalid accepted coupon identity');
         }
-      } else if (result['state'] != 'cancelled' ||
-          result['claim'] != null || !result.containsKey('claim')) {
+      } else if (result['state'] == 'cancelled' &&
+          result.containsKey('claim') && result['claim'] == null) {
+        accepted = null;
+      } else {
         throw const FormatException('Invalid coupon cancellation state');
       }
       await op.confirmed();
@@ -1287,7 +1143,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
         TextField(
           controller: code,
           enabled:
-              !busy && capability?.enabled == true && draft?['coupon'] == null,
+              !busy && (capability?.enabled == true || draft?['code_hash'] != null) && draft?['coupon'] == null,
           maxLength: 40,
           textCapitalization: TextCapitalization.characters,
           textDirection: TextDirection.ltr,
