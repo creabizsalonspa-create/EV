@@ -97,6 +97,65 @@ class ConnectorTopologyTest extends TestCase
         $this->postJson('/api/reservations', $this->book($f, 2, 'suspended'))->assertConflict();
     }
 
+    #[DataProvider('protocols')]
+    public function test_corrupted_source_mapping_digest_cannot_advertise_freshness_or_admit_reservation(string $protocol): void
+    {
+        $f = $this->topology($protocol);
+        $this->freezeTime();
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $evse = $protocol === '1.6' ? 0 : 5;
+        $mapId = $f['maps'][0]['id'];
+        $digest = hash('sha256', $binding->id.':'.$evse.':7');
+        DB::table('charging_status_observations')->insert([
+            'binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding),
+            'source_event_id' => 1, 'fingerprint' => str_repeat('c', 64),
+            'evse_number' => $evse, 'connector_number' => 7,
+            'status' => 'Available', 'error_code' => 'NoError',
+            'occurred_at' => now(), 'created_at' => now(),
+        ]);
+        $path = '/api/stations/'.$f['station']->id.'/connectors';
+        $this->getJson($path)->assertOk()->assertJsonPath('data.0.reservable', true)
+            ->assertJsonPath('data.0.status_freshness.state', 'recent');
+        foreach ([null, str_repeat('f', 64), strtoupper($digest)] as $invalid) {
+            DB::table('charging_connector_mappings')->where('id', $mapId)
+                ->update(['source_target_key' => $invalid]);
+            $this->getJson($path)->assertOk()->assertJsonPath('data.0.reservable', false)
+                ->assertJsonPath('data.0.status_freshness.state', 'unknown')
+                ->assertJsonPath('data.0.status_freshness.reported_status', null);
+            $this->postJson('/api/reservations', $this->book($f, 0, 'digest-recovery'))->assertConflict();
+            $this->assertDatabaseCount('reservations', 0);
+        }
+        DB::table('charging_connector_mappings')->where('id', $mapId)
+            ->update(['source_target_key' => $digest]);
+        $this->getJson($path)->assertOk()->assertJsonPath('data.0.reservable', true)
+            ->assertJsonPath('data.0.status_freshness.state', 'recent');
+        $this->postJson('/api/reservations', $this->book($f, 0, 'digest-recovery'))->assertCreated();
+        $this->assertDatabaseCount('reservations', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_application_mapping_cannot_carry_csms_target_metadata(): void
+    {
+        $f = $this->topology();
+        $mapId = $f['maps'][0]['id'];
+        $path = '/api/stations/'.$f['station']->id.'/connectors';
+        foreach ([
+            ['source_connector_number' => 7, 'source_target_key' => null],
+            ['source_connector_number' => null, 'source_target_key' => str_repeat('a', 64)],
+        ] as $metadata) {
+            DB::table('charging_connector_mappings')->where('id', $mapId)->update($metadata);
+            $this->getJson($path)->assertOk()->assertJsonPath('data.0.reservable', false)
+                ->assertJsonPath('data.0.status_freshness.state', 'unknown');
+            $this->postJson('/api/reservations', $this->book($f, 0, 'application-lineage'))->assertConflict();
+        }
+        DB::table('charging_connector_mappings')->where('id', $mapId)
+            ->update(['source_connector_number' => null, 'source_target_key' => null]);
+        $this->postJson('/api/reservations', $this->book($f, 0, 'application-lineage'))->assertCreated();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_application_sessions_are_parallel_across_evses_but_unresolved_prior_slot_blocks_same_evse(): void
     {
         $f = $this->topology();
