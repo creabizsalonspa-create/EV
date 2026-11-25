@@ -51,7 +51,7 @@ class ChargerAdmissionTest extends TestCase
         $p = AdmissionProfile::firstOrFail();
         $body = json_encode(array_replace(['identity' => $p->identity, 'protocol' => $p->protocol, 'tls' => true, 'certificate_sha256' => null], $extra), JSON_THROW_ON_ERROR);
         $auth = 'Basic '.base64_encode($p->identity.':'.$secret);
-        $ts = (string) time();
+        $ts = (string) now()->timestamp;
         $nonce ??= (string) Str::uuid();
         $headers = ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTPS' => $secure ? 'on' : 'off', 'HTTP_AUTHORIZATION' => $auth, 'HTTP_X_EV_INGRESS_TIME' => $ts, 'HTTP_X_EV_INGRESS_NONCE' => $nonce, 'HTTP_X_EV_INGRESS_SIGNATURE' => hash_hmac('sha256', $ts."\n".$nonce."\n".$auth."\n".$body, $key ?? self::KEY)];
 
@@ -272,6 +272,58 @@ class ChargerAdmissionTest extends TestCase
         $this->assertDatabaseCount('charger_admission_events', 2);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_ingress_rejects_signed_request_that_expires_during_certificate_verification(string $protocol): void
+    {
+        [, , , , $secret] = $this->fixture($protocol);
+        $this->freezeTime();
+        $service = app(ChargerCertificates::class);
+        $mock = Mockery::mock($service);
+        $mock->shouldReceive('usable')->once()->andReturnUsing(function () {
+            $this->travel(61)->seconds();
+
+            return null;
+        });
+        $this->app->instance(ChargerCertificates::class, $mock);
+        try {
+            $this->admission($secret)->assertUnauthorized();
+        } finally {
+            $this->app->instance(ChargerCertificates::class, $service);
+            $this->travelBack();
+        }
+        $this->admission($secret)->assertNoContent();
+        $this->assertDatabaseCount('charger_admission_events', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_ingress_rejects_credential_that_expires_during_certificate_verification(string $protocol): void
+    {
+        [, , , , $secret] = $this->fixture($protocol);
+        $this->freezeTime();
+        $profile = AdmissionProfile::firstOrFail();
+        $profile->update(['expires_at' => now()->addSeconds(2)]);
+        $service = app(ChargerCertificates::class);
+        $mock = Mockery::mock($service);
+        $mock->shouldReceive('usable')->once()->andReturnUsing(function () {
+            $this->travel(2)->seconds();
+
+            return null;
+        });
+        $this->app->instance(ChargerCertificates::class, $mock);
+        try {
+            $this->admission($secret)->assertUnauthorized();
+            $this->assertSame(1, $profile->fresh()->credential_version);
+            $this->assertDatabaseCount('charger_admission_events', 2);
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        } finally {
+            $this->app->instance(ChargerCertificates::class, $service);
+            $this->travelBack();
+        }
     }
 
     public function test_replayed_or_spoofed_ingress_tls_protocol_and_expiry_are_rejected(): void

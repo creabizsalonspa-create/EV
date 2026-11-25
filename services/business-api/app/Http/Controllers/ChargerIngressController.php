@@ -32,7 +32,7 @@ class ChargerIngressController extends Controller
         $nonce = $r->header('X-EV-Ingress-Nonce', '');
         $signature = $r->header('X-EV-Ingress-Signature', '');
         $authorization = $r->header('Authorization', '');
-        abort_unless(ctype_digit($ts) && abs(time() - (int) $ts) <= 60 && preg_match('/^[a-f0-9-]{36}$/', $nonce) && strlen($signature) === 64 && hash_equals(hash_hmac('sha256', $ts."\n".$nonce."\n".$authorization."\n".$r->getContent(), $key), $signature), 401);
+        abort_unless(ctype_digit($ts) && abs(now()->timestamp - (int) $ts) <= 60 && preg_match('/^[a-f0-9-]{36}$/', $nonce) && strlen($signature) === 64 && hash_equals(hash_hmac('sha256', $ts."\n".$nonce."\n".$authorization."\n".$r->getContent(), $key), $signature), 401);
         abort_unless(Cache::add('charger-ingress:'.hash('sha256', $nonce), true, 125), 401);
         $v = $r->validate(['identity' => 'required|string|max:100', 'protocol' => 'required|in:1.6,2.0.1', 'tls' => 'required|accepted', 'certificate_sha256' => ['nullable', 'regex:/^[a-f0-9]{64}$/']]);
         $hint = AdmissionProfile::where('identity', $v['identity'])->first();
@@ -43,7 +43,7 @@ class ChargerIngressController extends Controller
 
         // Serialize admission with certificate enrollment/revocation and
         // credential rotation. The initial lookup is only a lock-order hint.
-        DB::transaction(function () use ($hint, $chargerHint, $v, $parts, $key, $r) {
+        DB::transaction(function () use ($hint, $chargerHint, $v, $parts, $key, $r, $ts) {
             $company = VendorCompany::whereKey($chargerHint->company_id)->lockForUpdate()->first();
             abort_unless($company, 401);
             $owner = User::whereKey($company->owner_id)->lockForUpdate()->first();
@@ -65,6 +65,11 @@ class ChargerIngressController extends Controller
             } catch (\Throwable) {
                 abort(401);
             }
+            // A signed request can wait for row locks or certificate validation.
+            // Recheck the signed clock and credential deadline at the last
+            // authorization boundary; a formerly valid receipt is not current.
+            abort_unless(abs(now()->timestamp - (int) $ts) <= 60
+                && $p->expires_at?->isFuture(), 401);
             abort_unless(config('csms.ingress_enabled')
                 && hash_equals($key, (string) config('csms.ingress_secret'))
                 && ($r->isSecure() || (config('csms.ingress_allow_local_http')
