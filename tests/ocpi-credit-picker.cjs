@@ -116,6 +116,14 @@ withSource(async (f) => {
     );
     assert.equal(await root.textContent(), "");
     await context.close();
+    // The browser imported the driver's exact session cookie. Logout must
+    // revoke that session for the original API client as well.
+    stage = "logout-session-revocation";
+    await assert.rejects(
+      () => f.driverClient.request(`finance/invoices/${invoice.id}`),
+      /failed \(401\)/,
+    );
+    stage = "vendor-review";
     const owner = new BusinessClient({ base: f.base });
     owner.csrf = (await owner.request("csrf")).token;
     await owner.request("login", "POST", {
@@ -137,13 +145,30 @@ withSource(async (f) => {
     await review
       .locator("[name=note]")
       .fill("Reviewed synthetic captured funds and scoped CPO reference");
+    const reviewResponse = vendor.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/finance/refund-requests/${created.id}/review` &&
+        response.request().method() === "POST",
+    );
     await review
       .getByRole("button", { name: "Review refund", exact: true })
       .click();
+    assert.equal((await reviewResponse).ok(), true, "Vendor review must succeed");
     await vendor.waitForFunction(
       () => !document.querySelector("#commercial-finance").inert,
     );
-    const final = await f.driverClient.request(
+    // Read the final canonical receipt through a fresh, normally
+    // authenticated customer session, never the revoked cookie.
+    stage = "fresh-customer-receipt";
+    const customer = new BusinessClient({ base: f.base });
+    customer.csrf = (await customer.request("csrf")).token;
+    await customer.request("login", "POST", {
+      email: f.driver,
+      password: f.password,
+    });
+    customer.csrf = (await customer.request("csrf")).token;
+    const final = await customer.request(
       `finance/invoices/${invoice.id}`,
     );
     assert.equal(final.refunds.length, 1);

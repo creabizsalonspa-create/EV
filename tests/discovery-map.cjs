@@ -342,6 +342,17 @@ const assert = require("node:assert/strict");
             latitude: 25.2, longitude: 55.3, reservable: true },
         },
         {
+          key: "catalog:8", kind: "catalog",
+          station: { id: 8, name: "Missing connector metadata", evidence: "SIMULATED",
+            latitude: 25.2, longitude: 55.3, power_kw: 50, reservable: false },
+        },
+        {
+          key: "catalog:9", kind: "catalog",
+          station: { id: 9, name: "Malformed advertised power", evidence: "SIMULATED",
+            latitude: 25.2, longitude: 55.3, connector_type: "CCS2",
+            power_kw: "50", reservable: false },
+        },
+        {
           key: "partner:6", kind: "partner", record_id: 6,
           evidence: "PARTNER_REPORTED_UNVERIFIED",
           availability: "available", reservable: true, remote_control: false,
@@ -363,6 +374,78 @@ const assert = require("node:assert/strict");
     )));
     assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1,
       "Valid published source remains visible after a rejected map payload");
+    assert.equal(viewportRequests.length, requestCountBeforeMalformedMap);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("unified-map-clear")));
+    assert.equal(await page.locator(".station-map-pin").count(), 0,
+      "Revoking a unified map removes its prior account pins");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("unified-map-clear")));
+    assert.equal(await page.locator(".station-map-pin").count(), 0);
+    assert.equal(await page.locator("#station-map").isHidden(), true,
+      "Old-account map revocation must release tile consent and hide viewport");
+    await page.getByRole("button", {name: "تفعيل الخريطة التفاعلية"}).click();
+    assert.equal(await page.locator("#station-map").isVisible(), true,
+      "A new explicit map enable is required after account revocation");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent(
+      "catalog-map-data", { detail: [{
+        id: 1, name: "Independent source", latitude: 25.2, longitude: 55.3,
+        evidence: "SIMULATED", reservable: false,
+      }] },
+    )));
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("unified-map-clear")));
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1,
+      "Stale unified clear cannot erase another source's map markers");
+    // A separate roaming page may supersede the *partner* source but not the
+    // unified catalog source. Revoking the old actor removes only its pins.
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent(
+      "unified-map-data", { detail: [{
+        key: "catalog:7", kind: "catalog",
+        station: { id: 7, name: "Former account station", evidence: "SIMULATED",
+          latitude: 25.2, longitude: 55.3, connector_type: "CCS2", power_kw: 50 },
+      }] },
+    )));
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent(
+      "roaming-map-data", { detail: [{
+        id: 19, evidence: "PARTNER_REPORTED_UNVERIFIED", availability: "unknown",
+        remote_control: false, reservable: false,
+        location: { name: "Independent partner", latitude: 25.21, longitude: 55.31,
+          availability: "unknown", reservable: false, remote_control: false },
+        reported_source_age_minutes: 10, source_clock_evidence: "PARTNER_REPORTED_TIME",
+      }] },
+    )));
+    assert.equal(await page.locator(".partner-map-pin").count(), 1);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("unified-map-clear")));
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 0);
+    assert.equal(await page.locator(".partner-map-pin").count(), 1,
+      "Old unified catalog pin revoked while newer independent partner survives");
+    assert.equal(await page.locator("#station-map").isVisible(), true);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("catalog-map-clear")));
+    // A retained old UI instance may emit a late clear after a different
+    // mounted instance has published its own results. The publication
+    // identity, not just the source label, must fence this revocation.
+    await page.evaluate(() => {
+      const owner = {};
+      window.__ownedUnifiedPublication = owner;
+      const published = new CustomEvent("unified-map-data", { detail: [{
+        key: "catalog:7", kind: "catalog",
+        station: { id: 7, name: "Current customer station",
+          latitude: 25.2, longitude: 55.3, evidence: "SIMULATED",
+          connector_type: "CCS2", power_kw: 50 },
+      }] });
+      published.evUnifiedPublication = owner;
+      window.dispatchEvent(published);
+      window.dispatchEvent(new CustomEvent("unified-map-clear", {
+        detail: { stale: "retired previous customer" },
+      }));
+    });
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1,
+      "Previous UI instance cannot revoke current actor's map publication");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent(
+      "unified-map-clear", {detail:window.__ownedUnifiedPublication},
+    )));
+    assert.equal(await page.locator(".station-map-pin").count(), 0);
+    assert.equal(await page.locator("#station-map").isHidden(), true);
     assert.equal(viewportRequests.length, requestCountBeforeMalformedMap);
     assert.deepEqual(errors, []);
     console.log(
