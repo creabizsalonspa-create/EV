@@ -130,6 +130,40 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_rebound_connection_requires_its_own_review_before_publication(): void
+    {
+        [$customer, $owner, $admin, $provider, $record] = $this->fixture();
+        config(['ocpi.contract_review_required' => true]);
+        $this->approve($admin, $provider);
+        $this->actingAs($customer);
+        $this->expectPartnerCount(1);
+        $this->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
+
+        $provider->update(['connection_key' => 'contract-discovery-rebound']);
+        $this->expectPartnerCount(0);
+        $this->getJson('/api/roaming/favorites')->assertOk()
+            ->assertJsonPath('data.0.location_available', false)
+            ->assertJsonPath('data.0.location', null);
+        $this->assertFalse(app(\App\Services\Ocpi\ContractReviewGate::class)->current($provider));
+        $this->actingAs($admin)->getJson('/api/ocpi/providers/'.$provider->id.'/contract-review')
+            ->assertOk()->assertJsonPath('state', 'missing')
+            ->assertJsonPath('review_valid_for_current_owner', false)
+            ->assertJsonPath('revision', 1)
+            ->assertDontSee('contract-discovery-rebound');
+        $this->approve($admin, $provider, 1);
+        $this->assertTrue(app(\App\Services\Ocpi\ContractReviewGate::class)->current($provider));
+        $this->actingAs($customer);
+        $this->expectPartnerCount(1);
+
+        // An older matching review never overrides the newest decision.
+        $provider->update(['connection_key' => 'contract-discovery-test']);
+        $this->expectPartnerCount(0);
+        $this->assertFalse(app(\App\Services\Ocpi\ContractReviewGate::class)->current($provider));
+        $this->assertDatabaseCount('ocpi_partner_contract_reviews', 2);
+        $this->assertDatabaseCount('finance_payments', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_later_revocation_cannot_be_hidden_by_an_earlier_approved_review(): void
     {
         [$customer, $owner, $admin, $provider, $record] = $this->fixture();
