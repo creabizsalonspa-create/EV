@@ -8,9 +8,9 @@ class Element{
  set textContent(value){this.text=String(value);this.children=[];}
  get textContent(){return this.text+this.children.map(x=>x.textContent||'').join('');}
 }
-const sample={data:[{key:'catalog:7',kind:'catalog',station:{id:7,name:'<b>Catalog</b>',evidence:'SIMULATED',connector_type:'CCS2',power_kw:50}},{key:'partner:7',kind:'partner',record_id:7,provider_label:'Private operator label',location:{name:'<img src=x>',address:'Synthetic',country:'ARE'},availability:'unknown',remote_control:false,reservable:false}],current_page:1,last_page:2,total:3};
+const sample={data:[{key:'catalog:7',kind:'catalog',station:{id:7,name:'<b>Catalog</b>',evidence:'SIMULATED',connector_type:'CCS2',power_kw:50}},{key:'partner:7',kind:'partner',record_id:7,provider_label:'Private operator label',location:{name:'<img src=x>',address:'Synthetic',country:'ARE',availability:'unknown',remote_control:false,reservable:false},evidence:'PARTNER_REPORTED_UNVERIFIED',availability:'unknown',remote_control:false,reservable:false}],current_page:1,last_page:2,total:3};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-function fixture(lang='en',api=async()=>sample){const events=[],listeners=new Map(),window={addEventListener(type,fn){listeners.set(type,[...(listeners.get(type)||[]),fn]);},dispatchEvent(event){events.push(event);for(const fn of listeners.get(event.type)||[])fn(event);}},document={getElementById:()=>null,documentElement:{lang},createElement:tag=>new Element(tag)};vm.runInNewContext(fs.readFileSync('services/business-api/public/partner-catalog-policy.js','utf8'),{window});vm.runInNewContext(fs.readFileSync('services/business-api/public/unified-discovery.js','utf8'),{window,document,URLSearchParams,CustomEvent:class{constructor(type,data){this.type=type;this.detail=data.detail;}}});const root=new Element('section'),chosen=[],calls=[];const control=window.EvUnifiedDiscovery.install(root,async(...args)=>{calls.push(args);return api(...args);},id=>chosen.push(id));return{root,chosen,calls,control,events,emit:(type,detail)=>window.dispatchEvent({type,detail}),form:root.children[2],list:root.children[4],nav:root.children[5]};}
+function fixture(lang='en',api=async()=>sample){const events=[],listeners=new Map(),window={addEventListener(type,fn){listeners.set(type,[...(listeners.get(type)||[]),fn]);},dispatchEvent(event){events.push(event);for(const fn of listeners.get(event.type)||[])fn(event);}},document={visibilityState:'visible',addEventListener:(type,fn)=>window.addEventListener('document:'+type,fn),getElementById:()=>null,documentElement:{lang},createElement:tag=>new Element(tag)};vm.runInNewContext(fs.readFileSync('services/business-api/public/partner-catalog-policy.js','utf8'),{window});vm.runInNewContext(fs.readFileSync('services/business-api/public/unified-discovery.js','utf8'),{window,document,URLSearchParams,CustomEvent:class{constructor(type,data={}){this.type=type;this.detail=data.detail??null;}}});const root=new Element('section'),chosen=[],calls=[];const control=window.EvUnifiedDiscovery.install(root,async(...args)=>{calls.push(args);return api(...args);},id=>chosen.push(id));return{root,document,chosen,calls,control,events,emit:(type,detail)=>window.dispatchEvent({type,detail}),form:root.children[2],list:root.children[4],nav:root.children[5]};}
 for(const lang of ['en','ar'])test('actual unified DOM query, typed identities and safe source text '+lang,async()=>{
  const f=fixture(lang);assert.equal(f.calls.length,0);f.form.children[0].children.find(n=>n.tag==='input').value='100%_hub';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls[0][0].split('?')[1]).get('q'),'100%_hub');assert.equal(f.list.children.length,2);assert.match(f.list.textContent,/<img src=x>/);assert.equal(f.list.children[1].children.some(n=>n.tag==='button'),false);f.list.children[0].children.find(n=>n.tag==='button').onclick();assert.deepEqual(f.chosen,[7]);assert.equal(f.list.children[0].children[0].innerHTML,undefined);assert.match(f.list.textContent,lang==='ar'?/التوفر غير معروف/:/availability unknown/);f.nav.children.find(n=>n.tag==='button').onclick();await tick();assert.equal(new URLSearchParams(f.calls[1][0].split('?')[1]).get('page'),'2');assert(f.calls.every(args=>args.length===1));
 });
@@ -21,6 +21,152 @@ test('partner authority claims never render an actionable card',async()=>{
  const f=fixture('en',async()=>({...sample,data:[{...sample.data[1],reservable:true}]}));f.form.onsubmit({preventDefault(){}});await tick();assert.equal(f.list.children.length,0);assert.deepEqual(f.chosen,[]);
 });
 
+
+for(const language of ['en','ar'])test('forged catalog evidence is never sent to map or favorite writer '+language,async()=>{
+ const forged={...sample.data[0],station:{...sample.data[0].station,
+   evidence:'LIVE_VERIFIED',latitude:25.2,longitude:55.3}};
+ const f=fixture(language,async()=>({...sample,data:[forged,sample.data[1]]}));
+ let writes=0;
+ f.control.setContext({owner:'customer',customer:true,favorite:async()=>{writes++;return true;}});
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.list.children.length,2,'Untrusted station remains readable, never actionable');
+ assert.equal(f.list.children[0].children.some(c=>c.tag==='button'),false);
+ assert.equal(f.root.children[6].disabled,false);
+ f.root.children[6].onclick();
+ assert.deepEqual(Array.from(f.events[0].detail,row=>row.key),['partner:7']);
+ assert.equal(writes,0);
+});
+for(const language of ['en','ar'])test('unverified partner map provenance is list-only with no saved action '+language,async()=>{
+ const forged={...sample.data[1],evidence:'LIVE_PROVIDER_VERIFIED',
+   location:{...sample.data[1].location,latitude:25.3,longitude:55.5}};
+ const f=fixture(language,async()=>({...sample,data:[sample.data[0],forged]}));
+ let writes=0;
+ f.control.setContext({owner:'customer',customer:true,favorite:async()=>{writes++;return true;}});
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.list.children.length,2);
+ assert.equal(f.list.children[1].children.some(c=>c.dataset.favoriteKind),false);
+ f.root.children[6].onclick();
+ assert.deepEqual(Array.from(f.events[0].detail,row=>row.key),['catalog:7']);
+ assert.equal(writes,0);
+});
+test('bad discovery page identity, source count and pagination never leak partial cards or map pins',async()=>{
+ const rows=[sample.data[0],sample.data[1]];
+ for(const response of [
+  {...sample,current_page:2},
+  {...sample,data:[...rows,rows[0]],total:3},
+  {...sample,data:[...Array(26)].map((_,i)=>({...rows[0],key:'catalog:'+i,station:{...rows[0].station,id:i}})),total:26},
+  {...sample,data:[rows[0],null],total:2},
+  {...sample,data:rows,total:1},
+ ]) {
+  const f=fixture('en',async()=>response);
+  f.form.onsubmit({preventDefault(){}});await tick();
+  assert.equal(f.list.children.length,0);
+  assert.equal(f.nav.children.length,0);
+  assert.equal(f.root.children[6].disabled,true);
+  assert.match(f.root.textContent,/Search failed/);
+  assert.equal(f.events.length,0);
+ }
+});
+
+for(const language of ['en','ar'])test('contradictory discovery-only booking and coordinates cannot create map/favorite authority '+language,async()=>{
+ const bogus={...sample.data[0],station:{...sample.data[0].station,
+   evidence:'DISCOVERY_ONLY',reservable:true,latitude:25.2,longitude:55.3}};
+ const f=fixture(language,async()=>({...sample,data:[bogus,sample.data[1]]}));
+ let writes=0;
+ f.control.setContext({owner:'customer',customer:true,favorite:async()=>{writes++;return true;}});
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.list.children.length,2);
+ assert.equal(f.list.children[0].children.some(x=>x.tag==='button'),false);
+ f.root.children[6].onclick();
+ assert.deepEqual(Array.from(f.events[0].detail,row=>row.key),['partner:7']);
+ assert.deepEqual(f.chosen,[]);
+ assert.equal(writes,0);
+});
+
+for(const lang of ['en','ar'])test('mapped old account or role clears pins and old map click is invalid '+lang,async()=>{
+ const f=fixture(lang);
+ f.control.setContext({owner:'old',customer:true});
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const map=f.root.children[6],oldClick=map.onclick;
+ assert.equal(f.events.length,0);
+ oldClick();
+ assert.equal(f.events.length,1);
+ assert.equal(f.events[0].type,'unified-map-data');
+ assert.deepEqual(Array.from(f.events[0].detail,row=>row.key),['catalog:7','partner:7']);
+ f.control.setContext({owner:'new',customer:true});
+ assert.equal(f.events.length,2);
+ assert.equal(f.events[1].type,'unified-map-clear');
+ assert.equal(map.disabled,true);
+ assert.equal(f.list.children.length,0);
+ const prior=f.calls.length;oldClick();
+ assert.equal(f.events.length,2,'stale callbacks cannot restore the former account map');
+ assert.equal(f.calls.length,prior);
+ f.control.setContext({owner:'new',customer:false});
+ assert.equal(f.events.length,2,'clear without published map does not touch another source');
+});
+
+for(const language of ['en','ar'])test('map revoke retains its exact instance publication token '+language,async()=>{
+ const f=fixture(language);
+ f.control.setContext({owner:'customer',customer:true});
+ f.form.onsubmit({preventDefault(){}});await tick();
+ f.root.children[6].onclick();
+ const published=f.events.at(-1);
+ assert.equal(published.type,'unified-map-data');
+ assert.ok(published.evUnifiedPublication);
+ f.control.clear();
+ const revoke=f.events.at(-1);
+ assert.equal(revoke.type,'unified-map-clear');
+ assert.equal(revoke.detail,published.evUnifiedPublication);
+ assert.equal(f.list.children.length,0);
+ assert.equal(f.root.children[6].disabled,true);
+});
+test('a fresh search revokes old map pins without implicit replot',async()=>{
+ const f=fixture();
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const map=f.root.children[6];map.onclick();const before=f.events.length;
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.events.length,before+1);
+ assert.equal(f.events.at(-1).type,'unified-map-clear');
+ assert.equal(map.disabled,false,'New page requires another explicit map click');
+ assert.equal(f.calls.length,2);
+});
+test('pagehide clears mapped private query and recent history without network',async()=>{
+ const f=fixture();f.control.setContext({owner:'customer',customer:true});
+ const q=f.form.children[0].children.find(x=>x.tag==='input');
+ q.value='Private previous customer address';
+ f.form.onsubmit({preventDefault(){}});await tick();f.root.children[6].onclick();
+ const before=f.calls.length;
+ f.emit('pagehide');
+ assert.equal(q.value,'');
+ assert.equal(f.list.children.length,0);
+ assert.equal(f.root.children[6].disabled,true);
+ assert.equal(f.root.children[7].hidden,true);
+ assert.equal(f.events.at(-1).type,'unified-map-clear');
+ assert.equal(f.calls.length,before);
+});
+
+for(const lang of ['en','ar'])test('background tab purges private mapped search and refuses stale results '+lang,async()=>{
+ const f=fixture(lang);
+ f.control.setContext({owner:'customer',customer:true});
+ const q=f.form.children[0].children.find(node=>node.tag==='input');
+ q.value='Former private location';
+ f.form.onsubmit({preventDefault(){}});await tick();
+ f.root.children[6].onclick();
+ assert.match(f.root.textContent,/Former private location/);
+ const sent=f.calls.length;
+ f.document.visibilityState='hidden';
+ f.emit('document:visibilitychange');
+ assert.equal(q.value,'');
+ assert.equal(f.list.children.length,0);
+ assert.equal(f.root.children[6].disabled,true);
+ assert.equal(f.root.children[7].hidden,true);
+ assert.equal(f.events.at(-1).type,'unified-map-clear');
+ f.document.visibilityState='visible';
+ f.emit('document:visibilitychange');
+ await tick();
+ assert.equal(f.calls.length,sent,'Foreground alone cannot perform a private discovery lookup');
+ assert.equal(f.list.children.length,0);
+});
 test('mapping the mixed page is explicit, preserves typed sources and performs no lookup',async()=>{
  const f=fixture();assert.equal(f.events.length,0);f.form.onsubmit({preventDefault(){}});await tick();assert.equal(f.events.length,0);f.root.children[6].onclick();assert.equal(f.events.length,1);assert.equal(f.events[0].type,'unified-map-data');assert.deepEqual(Array.from(f.events[0].detail,row=>row.key),['catalog:7','partner:7']);assert.equal(f.calls.length,1);f.control.clear();assert.equal(f.root.children[6].disabled,true);
 });

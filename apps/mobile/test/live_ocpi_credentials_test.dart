@@ -82,22 +82,37 @@ void main() {
       }
       expect(before['state'], 'active');
       expect(jsonEncode(before).contains(f['local_token']), false);
-      final rotated = await protocol(
+      final offered = <String, dynamic>{
+        'token': 'SYNTHETIC-NATIVE-C',
+        'url': 'https://partner.example/ocpi/versions',
+        'roles': [
+          {
+            'role': 'CPO',
+            'country_code': 'NL',
+            'party_id': 'ABC',
+            'business_details': {'name': 'Synthetic native peer'},
+          },
+        ],
+      };
+      // Unknown proof is deterministically rejected by the isolated local
+      // fixture; no real HTTPS connection or credential fallback is needed.
+      final rejected = await protocol(
         'PUT',
         f['local_token'],
-        body: {
-          'token': 'SYNTHETIC-NATIVE-C',
-          'url': 'https://partner.example/ocpi/versions',
-          'roles': [
-            {
-              'role': 'CPO',
-              'country_code': 'NL',
-              'party_id': 'ABC',
-              'business_details': {'name': 'Synthetic native peer'},
-            },
-          ],
-        },
+        expected: 400,
+        body: {...offered, 'token': 'SYNTHETIC-UNPROVEN-PEER'},
       );
+      expect(rejected['status_code'], 2000);
+      expect(rejected['data'], isNull);
+      await protocol('GET', f['local_token']);
+      final unchanged = await api.request(endpoint);
+      expect(unchanged['generation'], before['generation']);
+      expect(
+        (unchanged['operations']['data'] as List)
+            .any((row) => row['action'] == 'peer_rotate'),
+        false,
+      );
+      final rotated = await protocol('PUT', f['local_token'], body: offered);
       final token = rotated['data']['token'] as String;
       expect(token.length, 64);
       expect(token != f['local_token'], true);
