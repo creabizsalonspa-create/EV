@@ -164,6 +164,48 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_invalid_stored_review_dates_never_grant_public_or_runtime_authority(): void
+    {
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-11-25T12:00:00Z'));
+        [$customer, $owner, $admin, $provider, $record] = $this->fixture();
+        config(['ocpi.contract_review_required' => true]);
+        $this->approve($admin, $provider);
+        $this->actingAs($customer);
+        $this->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
+
+        $review = DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id);
+        $gate = app(\App\Services\Ocpi\ContractReviewGate::class);
+        $invalid = ['2026-11-24', '2030-11-25'];
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            array_push($invalid, '2027-02-30', '2027-02-29', '2027-01-01T00:00:00', 'not-a-date');
+        }
+        foreach ($invalid as $value) {
+            $review->update(['valid_until' => $value]);
+            $this->assertFalse($gate->current($provider));
+            $this->expectPartnerCount(0);
+            $this->getJson('/api/roaming/favorites')->assertOk()
+                ->assertJsonPath('data.0.location_available', false)
+                ->assertJsonPath('data.0.location', null);
+            $this->actingAs($admin)->getJson('/api/ocpi/providers/'.$provider->id.'/contract-review')
+                ->assertOk()->assertJsonPath('review_valid_for_current_owner', false);
+            $this->actingAs($customer);
+        }
+        foreach (['2026-11-25', '2028-02-29', '2029-11-25'] as $valid) {
+            $review->update(['valid_until' => $valid]);
+            $this->assertTrue($gate->current($provider));
+            $this->expectPartnerCount(1);
+            $this->getJson('/api/roaming/favorites')->assertOk()
+                ->assertJsonPath('data.0.location_available', true);
+            $this->actingAs($admin)->getJson('/api/ocpi/providers/'.$provider->id.'/contract-review')
+                ->assertOk()->assertJsonPath('review_valid_for_current_owner', true);
+            $this->actingAs($customer);
+        }
+        $this->assertDatabaseCount('ocpi_partner_contract_reviews', 1);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_later_revocation_cannot_be_hidden_by_an_earlier_approved_review(): void
     {
         [$customer, $owner, $admin, $provider, $record] = $this->fixture();

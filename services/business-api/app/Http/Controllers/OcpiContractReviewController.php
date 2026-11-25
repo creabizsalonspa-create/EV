@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\ContractReviewGate;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -61,8 +62,7 @@ final class OcpiContractReviewController extends Controller
             && $review->connection_key === $provider->connection_key
             && $review->decision === 'review'
             && $owner->role === 'vendor' && $owner->account_status === 'active'
-            && is_string($review->valid_until)
-            && $review->valid_until >= CarbonImmutable::now('UTC')->toDateString();
+            && ContractReviewGate::validUntil($review->valid_until, CarbonImmutable::now('UTC'));
     }
 
     private static function status(?object $review, User $owner, OcpiProvider $provider): array
