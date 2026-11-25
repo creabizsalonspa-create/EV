@@ -27,11 +27,14 @@ class ReportApi extends FixtureApi {
 
   Map<String, dynamic> fixture() => {
     'as_of': '2026-11-15T10:00:00Z',
-    'fleet': {'name': 'Private company'},
+    'fleet': {'id': 7, 'name': 'Private company'},
+    'basis': 'approved_claims_submitted_in_period',
+    'physical_charging_verified': false,
     'period': {
       'from': '2026-11-01',
       'through': '2026-11-15',
       'timezone': 'Asia/Dubai',
+      'cost_center_id': 9,
     },
     'current_inventory': {
       'active_members': 2,
@@ -42,6 +45,7 @@ class ReportApi extends FixtureApi {
     'approved_claims': 1,
     'groups': [
       {
+        'cost_center_id': 9,
         'code': 'OPS',
         'name': '=PRIVATE()',
         'currency': 'AED',
@@ -60,6 +64,20 @@ Widget screen(ReportApi api, {bool ar = false}) => MaterialApp(
   home: FleetReportView(api: api, fleetId: 7, onExpired: () {}),
 );
 void main() {
+  test('fleet report rejects incorrect scope, precision, totals and evidence', () {
+    final api = ReportApi();
+    final filters = {'from':'2026-11-01','through':'2026-11-15','cost_center_id':'9'};
+    expect(verifyFleetReport(api.fixture(),7,filters)['approved_claims'],1);
+    for (final raw in [
+      {...api.fixture(), 'physical_charging_verified': true},
+      {...api.fixture(), 'approved_claims': 2},
+      {...api.fixture(), 'fleet': {'id': 8, 'name': 'Foreign'}},
+      {...api.fixture(), 'groups': [{...api.fixture()['groups'][0], 'minor_units': 4}]},
+    ]) {
+      expect(() => verifyFleetReport(raw,7,filters),throwsFormatException);
+    }
+    expect(() => verifyFleetReport(api.fixture(),7,{...filters,'cost_center_id':'10'}),throwsFormatException);
+  });
   for (final ar in [false, true]) {
     testWidgets(
       'fleet report explicit filtered read, exact money and private CSV ($ar)',

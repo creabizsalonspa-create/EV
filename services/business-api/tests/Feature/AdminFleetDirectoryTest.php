@@ -157,6 +157,16 @@ class AdminFleetDirectoryTest extends TestCase
         $this->assertSame($before, DB::table('finance_journals')->count());
     }
 
+    public function test_fleet_report_csv_neutralizes_unicode_format_character_before_formula(): void
+    {
+        $owner = User::factory()->create();
+        $fleet = Fleet::create(['owner_id' => $owner->id, 'name' => "\u{200B}=PRIVATE()", 'country' => 'AE']);
+        $this->actingAs($owner)->get('/api/fleets/'.$fleet->id.'/report?from=2026-11-01&through=2026-11-15&format=csv')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertSee("'\u{200B}=PRIVATE()", false);
+        $this->assertDatabaseCount('corporate_statements', 0);
+    }
+
     public function test_fleet_owner_directory_rejects_bad_filters_and_revoked_admin(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

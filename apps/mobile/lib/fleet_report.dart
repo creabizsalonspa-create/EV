@@ -1,6 +1,42 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 
+Map<String, dynamic> verifyFleetReport(dynamic raw, int fleetId, Map<String, String> filters) {
+  bool count(dynamic v) => v is int && v >= 0 && v <= 9007199254740991;
+  if (raw is! Map || raw['basis'] != 'approved_claims_submitted_in_period' ||
+      raw['physical_charging_verified'] != false || raw['fleet'] is! Map ||
+      raw['fleet']['id'] != fleetId || raw['fleet']['name'] is! String ||
+      raw['period'] is! Map || raw['period']['from'] != filters['from'] ||
+      raw['period']['through'] != filters['through'] ||
+      raw['period']['cost_center_id'] != int.tryParse(filters['cost_center_id'] ?? '') ||
+      raw['period']['timezone'] is! String || raw['as_of'] is! String ||
+      DateTime.tryParse(raw['as_of']) == null || raw['current_inventory'] is! Map ||
+      !['active_members','invited_members','assigned_vehicles','cost_centers'].every(
+        (key) => count(raw['current_inventory'][key])) ||
+      !count(raw['approved_claims']) || raw['approved_claims'] > 2500 ||
+      raw['groups'] is! List || raw['groups'].length > 2500) {
+    throw const FormatException('Invalid fleet report scope.');
+  }
+  final keys = <(int,String,String,String,int)>{};
+  var claims = 0;
+  for (final g in raw['groups']) {
+    if (g is! Map || !count(g['cost_center_id']) || g['cost_center_id'] == 0 ||
+        (filters.containsKey('cost_center_id') &&
+          g['cost_center_id'] != int.tryParse(filters['cost_center_id']!)) ||
+        g['code'] is! String || g['name'] is! String || g['currency'] is! String ||
+        !RegExp(r'^[A-Z]{3}$').hasMatch(g['currency']) ||
+        g['minor_units'] is! int || g['minor_units'] < 0 || g['minor_units'] > 3 ||
+        g['amount_minor'] is! String || !RegExp(r'^(0|[1-9][0-9]{0,22})$').hasMatch(g['amount_minor']) ||
+        !count(g['claims']) || g['claims'] == 0 ||
+        !keys.add((g['cost_center_id'],g['code'],g['name'],g['currency'],g['minor_units']))) {
+      throw const FormatException('Invalid fleet report group.');
+    }
+    claims += g['claims'] as int;
+  }
+  if (claims != raw['approved_claims']) throw const FormatException('Invalid fleet report total.');
+  return Map<String,dynamic>.from(raw);
+}
+
 class FleetReportView extends StatefulWidget {
   final EvApi api;
   final int fleetId;
@@ -41,6 +77,8 @@ class _FleetReportState extends State<FleetReportView>
   void initState() {
     super.initState();
     authorized = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     final today = DateTime.now().toUtc().toIso8601String().substring(0, 10);
     from.text = '${today.substring(0, 8)}01';
@@ -59,12 +97,14 @@ class _FleetReportState extends State<FleetReportView>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     foreground = state == AppLifecycleState.resumed;
-    if (mounted && !foreground) setState(clear);
+    if (mounted) setState(() { if (!foreground) clear(); });
   }
 
   Future<void> load() async {
     if (!foreground || !authorized()) return;
     final n = ++generation;
+    final api = widget.api;
+    final fleetId = widget.fleetId;
     setState(() {
       report = null;
       csv = false;
@@ -77,16 +117,20 @@ class _FleetReportState extends State<FleetReportView>
       if (center.text.trim().isNotEmpty) 'cost_center_id': center.text.trim(),
     };
     try {
-      final data = await widget.api.request(
-        'fleets/${widget.fleetId}/report',
+      final data = await api.request(
+        'fleets/$fleetId/report',
         query: filters,
       );
-      if (current(n)) setState(() => report = Map<String, dynamic>.from(data));
-    } catch (e) {
       if (current(n)) {
-        if (e is ApiException && [401, 419].contains(e.status))
-          widget.onExpired();
-        if (current(n))
+        final verified = verifyFleetReport(data, fleetId, filters);
+        setState(() => report = verified);
+      }
+    } catch (e) {
+      if (mounted && identical(api, widget.api) && e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+        return;
+      }
+      if (current(n)) {
           setState(
             () => error = t(
               'Report unavailable. Check dates, access and cost center.',
@@ -115,7 +159,7 @@ class _FleetReportState extends State<FleetReportView>
   String export(Map d) {
     String cell(Object? v) {
       final s = '$v';
-      return '"${RegExp(r'^[\s\uFEFF]*[=+@-]').hasMatch(s) ? "'" : ''}${s.replaceAll('"', '""')}"';
+      return '"${RegExp(r'^[\p{Z}\p{Cc}\p{Cf}]*[=+@-]', unicode: true).hasMatch(s) ? "'" : ''}${s.replaceAll('"', '""')}"';
     }
 
     final p = d['period'] as Map;
@@ -189,11 +233,12 @@ class _FleetReportState extends State<FleetReportView>
           ])
             TextField(
               controller: pair.$1,
-              enabled: !busy,
+              enabled: !busy && foreground && authorized(),
+              onChanged: (_) => setState(clear),
               decoration: InputDecoration(labelText: pair.$2),
             ),
           FilledButton(
-            onPressed: busy ? null : load,
+            onPressed: busy || !foreground || !authorized() ? null : load,
             child: Text(t('Read report', 'قراءة التقرير')),
           ),
           if (busy) const LinearProgressIndicator(),
