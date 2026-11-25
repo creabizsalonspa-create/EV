@@ -269,8 +269,11 @@ REGEX;
     {
         $authority = $this->readAuthority($provider);
         $c = $this->connection($provider);
-        $versions = $this->get($provider, $c['versions_path'] ?? '/ocpi/versions', $authority)['data'];
-        if (! is_array($versions) || ! array_is_list($versions)) {
+        // Versions and version details are single-response OCPI discovery
+        // resources. A continuation cannot establish a complete capability set.
+        $versionReply = $this->get($provider, $c['versions_path'] ?? '/ocpi/versions', $authority);
+        $versions = $versionReply['data'];
+        if ($versionReply['next'] !== null || ! is_array($versions) || ! array_is_list($versions) || count($versions) > 20) {
             throw new OcpiException('Malformed operator versions response.');
         }
         $selected = null;
@@ -285,8 +288,10 @@ REGEX;
         if (! $selected || ! is_string($selected['url'] ?? null)) {
             throw new OcpiException('Operator does not advertise OCPI 2.2.1.');
         }
-        $details = $this->get($provider, $selected['url'], $authority)['data'];
-        if (! is_array($details) || ($details['version'] ?? null) !== '2.2.1' || ! is_array($details['endpoints'] ?? null)) {
+        $detailsReply = $this->get($provider, $selected['url'], $authority);
+        $details = $detailsReply['data'];
+        if ($detailsReply['next'] !== null || ! is_array($details) || ($details['version'] ?? null) !== '2.2.1'
+            || ! is_array($details['endpoints'] ?? null) || ! array_is_list($details['endpoints']) || count($details['endpoints']) > 30) {
             throw new OcpiException('Malformed OCPI 2.2.1 details.');
         }
         $endpoints = [];
