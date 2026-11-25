@@ -194,6 +194,65 @@ class PayableApi extends FixtureApi {
 }
 
 void main() {
+  testWidgets('recipient consent cannot dispatch after logout during durable prepare', (t) async {
+    final api = VendorFinancialApi(), store = PausedVendorStore();
+    addTearDown(api.close);
+    await t.pumpWidget(vendorApp(PayoutRecipientActionView(
+      api:api,onExpired:(){},account:api.account,action:'consent',store:store)));
+    await t.pumpAndSettle();
+    await t.tap(find.byType(CheckboxListTile));
+    await t.pumpAndSettle();
+    await t.ensureVisible(find.byType(FilledButton));
+    await t.tap(find.byType(FilledButton));
+    await t.pump();
+    expect(store.entered.isCompleted,isTrue);
+    await api.forgetSession();
+    store.release.complete();
+    await t.pumpAndSettle();
+    expect(api.posts,0);
+    expect(store.values.length,1);
+    expect(find.byType(CheckboxListTile),findsNothing);
+    expect(find.byType(FilledButton),findsNothing);
+  });
+
+  testWidgets('retained hosted recipient link cannot launch after logout', (t) async {
+    final api = VendorFinancialApi(), store = VendorOperationStore();
+    addTearDown(api.close);
+    int launches = 0;
+    await t.pumpWidget(vendorApp(PayoutRecipientActionView(
+      api:api,onExpired:(){},account:{...api.account,'provider':'stripe_test'},
+      action:'onboarding',store:store,launch:(_) async { launches++; return true; })));
+    await t.pumpAndSettle();
+    await recipientConfirm(t,'Hosted recipient enrollment');
+    final button = find.widgetWithText(OutlinedButton,'Open Stripe TEST enrollment');
+    final old = t.widget<OutlinedButton>(button).onPressed!;
+    await api.forgetSession();
+    await t.pumpAndSettle();
+    old();
+    await t.pumpAndSettle();
+    expect(launches,0);
+    expect(button,findsNothing);
+  });
+
+  testWidgets('background invalidates reviewed recipient consent without resending', (t) async {
+    final api = VendorFinancialApi();
+    addTearDown(api.close);
+    await t.pumpWidget(vendorApp(PayoutRecipientActionView(
+      api:api,onExpired:(){},account:api.account,action:'consent',store:VendorOperationStore())));
+    await t.pumpAndSettle();
+    await t.tap(find.byType(CheckboxListTile));
+    await t.pumpAndSettle();
+    final old = t.widget<FilledButton>(find.byType(FilledButton)).onPressed!;
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await t.pump();
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await t.pumpAndSettle();
+    old();
+    await t.pumpAndSettle();
+    expect(api.posts,0);
+    expect(find.byType(CheckboxListTile),findsNothing);
+  });
+
   testWidgets('vendor payable cannot dispatch after revocation during durable preparation', (t) async {
     final api = PayableApi(), store = PausedVendorStore();
     addTearDown(api.close);
