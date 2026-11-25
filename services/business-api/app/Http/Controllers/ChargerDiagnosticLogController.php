@@ -284,6 +284,7 @@ class ChargerDiagnosticLogController extends Controller
                         }
                         if ($terminal !== null) {
                             abort_unless($state === $terminal, 409, 'Conflicting terminal diagnostic source status.');
+
                             continue;
                         }
                         $updates['device_status'] = $state;
