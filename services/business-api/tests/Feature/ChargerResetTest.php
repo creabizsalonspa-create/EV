@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ChargerCommand;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
@@ -281,6 +282,97 @@ class ChargerResetTest extends TestCase
                 $this->assertDatabaseCount('charger_commands', 0);
                 $this->assertDatabaseCount('finance_invoices', 0);
             }
+        }
+    }
+
+    public function test_unresolved_station_commands_block_reset_even_without_session_links(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $this->source($f);
+            $command = ChargerCommand::create([
+                'actor_id' => $f['owner']->id, 'station_id' => $f['station']->id,
+                'action' => 'start', 'idempotency_key' => 'legacy-hold-'.$protocol,
+                'payload_hash' => str_repeat('a', 64), 'payload' => [],
+            ]);
+            $body = ['reason' => 'Review unresolved station command safely',
+                'idempotency_key' => 'blocked-reset-'.$protocol];
+            foreach (['pending', 'dispatching', 'submitted', 'outcome_unknown'] as $status) {
+                $command->update(['status' => $status]);
+                $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertConflict();
+                $this->assertDatabaseCount('csms_session_links', 0);
+                $this->assertSame(0, DB::table('charger_reset_operations')
+                    ->where('binding_id', $f['binding'])->count());
+                $this->assertSame($status, $command->fresh()->status);
+                Http::assertNothingSent();
+            }
+            // A terminal rejected command does not create an unresolved hold.
+            $command->update(['status' => 'rejected']);
+            $this->postJson($f['path'], $body)->assertCreated()
+                ->assertJsonPath('status', 'transport_submitted')
+                ->assertJsonPath('capacity_released', false);
+            $this->assertSame('rejected', $command->fresh()->status);
+            $this->assertDatabaseCount('finance_invoices', 0);
+            $this->assertDatabaseCount('charging_sessions', 0);
+        }
+    }
+
+    public function test_new_command_hold_during_source_read_prevents_reset_and_review(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $command = ChargerCommand::create([
+                'actor_id' => $f['owner']->id, 'station_id' => $f['station']->id,
+                'action' => 'start', 'idempotency_key' => 'source-read-hold-'.$protocol,
+                'payload_hash' => str_repeat('b', 64), 'payload' => [], 'status' => 'rejected',
+            ]);
+            $body = ['reason' => 'Check current command hold after source read',
+                'idempotency_key' => 'source-read-reset-'.$protocol];
+            $race = function () use ($f, $command): void {
+                Http::swap(new Factory);
+                Http::preventStrayRequests();
+                Http::fake(function ($request) use ($f, $command) {
+                    if (str_contains($request['query'], 'ChargingStations')) {
+                        return Http::response(['data' => ['ChargingStations' => [
+                            ['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']],
+                        ]]]);
+                    }
+                    // Simulate a retained command becoming uncertain during
+                    // the read. The enclosing rejected transaction rolls
+                    // back this synthetic change, never an actual wire send.
+                    $command->update(['status' => 'outcome_unknown']);
+
+                    return Http::response(['data' => [
+                        'Transactions' => [], 'Connectors' => [['id' => 7]],
+                        'StatusNotifications' => [[
+                            'connectorDatabaseId' => 7, 'connectorStatus' => 'Available',
+                            'errorCode' => 'NoError', 'timestamp' => now()->toISOString(),
+                        ]],
+                    ]]);
+                });
+            };
+            $race();
+            $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertConflict();
+            Http::assertSentCount(2);
+            $this->assertSame(0, DB::table('charger_reset_operations')
+                ->where('binding_id', $f['binding'])->count());
+            $this->assertSame('rejected', $command->fresh()->status);
+
+            $this->source($f);
+            $id = $this->postJson($f['path'], $body)->assertCreated()->json('id');
+            $this->travel(21)->seconds();
+            $race();
+            $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Do not release unresolved source command hold'])
+                ->assertConflict();
+            Http::assertSentCount(2);
+            $this->assertDatabaseHas('charger_reset_operations', [
+                'id' => $id, 'reviewed_at' => null, 'status' => 'transport_submitted',
+            ]);
+            $this->assertSame('rejected', $command->fresh()->status);
+            $this->source($f);
+            $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Current idle source and no unresolved command'])
+                ->assertOk()->assertJsonPath('charging_sessions_closed', false);
+            $this->assertDatabaseCount('finance_invoices', 0);
         }
     }
 

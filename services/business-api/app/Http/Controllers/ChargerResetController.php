@@ -47,10 +47,21 @@ class ChargerResetController extends Controller
         abort_unless(config('csms.safe_reset_enabled') && config('csms.session_bridge_enabled') && app()->environment(['local', 'testing']) && strlen((string) config('csms.graphql_secret')) >= 32, 503, 'Local reset adapter is disabled.');
     }
 
-    public function idle(object $b, ?string $after = null): void
+    private function requireLocalIdle(object $b): void
     {
         abort_if(SessionLink::where('binding_id', $b->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists(), 409, 'An unresolved charging session owns this charger.');
         abort_if(Reservation::where('station_id', $b->station_id)->where('status', 'confirmed')->where('starts_at', '<', now()->addMinutes(5))->where('starts_at', '>', now()->subMinutes(30))->exists(), 409, 'A current or imminent reservation owns this station.');
+        // A submitted or uncertain station command may still reach the
+        // source after an idle snapshot. A pending legacy start may have
+        // no session link at all. Treat all unresolved commands as holds.
+        abort_if(DB::table('charger_commands')->where('station_id', $b->station_id)
+            ->whereIn('status', ['pending', 'dispatching', 'submitted', 'outcome_unknown'])
+            ->exists(), 409, 'An unresolved charging command owns this station.');
+    }
+
+    public function idle(object $b, ?string $after = null): void
+    {
+        $this->requireLocalIdle($b);
         try {
             $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol} }', 'variables' => ['name' => $b->identifier]]);
             $rows = $r->json('data.ChargingStations');
@@ -113,6 +124,9 @@ class ChargerResetController extends Controller
                 $at = SourceStatusTime::parse($status['timestamp']);
                 abort_unless($at->gte(now()->subMinutes(2)) && $at->lte(now()) && ($after === null || $at->gt(CarbonImmutable::parse($after))), 409, 'Fresh connector evidence after the operation is required.');
             }
+            // The source reads can take seconds. Do not reuse a local
+            // idle decision if a charging hold appeared during observation.
+            $this->requireLocalIdle($b);
         } catch (HttpExceptionInterface $e) {
             throw $e;
         } catch (Throwable) {
