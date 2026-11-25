@@ -41,8 +41,9 @@ final class OcpiContractReviewController extends Controller
             ? $actor : User::whereKey($snapshot->owner_id)->lockForUpdate()->first();
         abort_unless($owner, 409, 'Provider owner no longer exists.');
         $current = OcpiProvider::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
-        abort_unless((int) $owner->id === (int) $current->owner_id, 409,
-            'Provider owner changed. Reload the current contract review.');
+        abort_unless((int) $owner->id === (int) $current->owner_id
+            && $snapshot->connection_key === $current->connection_key, 409,
+            'Provider owner or connection changed. Reload the current contract review.');
         abort_unless($actor->role === 'admin' || (int) $actor->id === (int) $current->owner_id, 404);
 
         return [$owner, $current];
@@ -54,23 +55,25 @@ final class OcpiContractReviewController extends Controller
             ->orderByDesc('revision')->first();
     }
 
-    private static function effective(?object $review, User $owner): bool
+    private static function effective(?object $review, User $owner, OcpiProvider $provider): bool
     {
         return $review && $review->owner_id === $owner->id
+            && $review->connection_key === $provider->connection_key
             && $review->decision === 'review'
             && $owner->role === 'vendor' && $owner->account_status === 'active'
             && is_string($review->valid_until)
             && $review->valid_until >= CarbonImmutable::now('UTC')->toDateString();
     }
 
-    private static function status(?object $review, User $owner): array
+    private static function status(?object $review, User $owner, OcpiProvider $provider): array
     {
-        $currentOwner = $review && (int) $review->owner_id === (int) $owner->id;
+        $currentOwner = $review && (int) $review->owner_id === (int) $owner->id
+            && $review->connection_key === $provider->connection_key;
 
         return [
             'state' => $currentOwner ? ($review->decision === 'review' ? 'internally_reviewed' : 'revoked') : 'missing',
             'revision' => (int) ($review->revision ?? 0),
-            'review_valid_for_current_owner' => self::effective($review, $owner),
+            'review_valid_for_current_owner' => self::effective($review, $owner, $provider),
             'valid_until' => $currentOwner && $review->decision === 'review' ? $review->valid_until : null,
             'source' => 'INTERNAL_MANUAL_DOCUMENT_DIGEST_ONLY',
             'external_partner_acceptance_verified' => false,
@@ -87,7 +90,7 @@ final class OcpiContractReviewController extends Controller
             $actor = $this->actor($request);
             [$owner, $current] = $this->provider($provider, $actor);
 
-            return self::status(self::last($current), $owner);
+            return self::status(self::last($current), $owner, $current);
         }, 3);
 
         return response()->json($payload)->header('Cache-Control', 'private, no-store');
@@ -168,11 +171,12 @@ final class OcpiContractReviewController extends Controller
             $last = self::last($current);
             if ($prior) {
                 abort_unless((int) $prior->owner_id === (int) $owner->id
+                    && $prior->connection_key === $current->connection_key
                     && (int) $prior->reviewer_id === (int) $actor->id
                     && hash_equals($prior->payload_hash, $hash), 409,
                     'Contract review idempotency identity is already bound.');
 
-                return [self::status($last, $owner) + ['idempotent_replay' => true], false];
+                return [self::status($last, $owner, $current) + ['idempotent_replay' => true], false];
             }
             abort_unless((int) ($last->revision ?? 0) === (int) $v['expected_revision'], 409,
                 'Contract review revision changed. Reload before submitting.');
@@ -188,6 +192,7 @@ final class OcpiContractReviewController extends Controller
                     422, 'Review validity must be within the next three years.');
             } else {
                 abort_unless($last && $last->owner_id === $owner->id
+                    && $last->connection_key === $current->connection_key
                     && $last->decision === 'review', 409,
                     'Only a current internal review can be revoked.');
                 abort_if($current->authorized && config('ocpi.contract_review_required') === true,
@@ -199,6 +204,7 @@ final class OcpiContractReviewController extends Controller
                 'provider_id' => $current->id,
                 'owner_id' => $owner->id,
                 'reviewer_id' => $actor->id,
+                'connection_key' => $current->connection_key,
                 'revision' => $revision,
                 'decision' => $v['decision'],
                 'reference_id' => $v['reference_id'] ?? null,
@@ -217,7 +223,7 @@ final class OcpiContractReviewController extends Controller
             ]);
             $fresh = self::last($current);
 
-            return [self::status($fresh, $owner) + ['idempotent_replay' => false], true];
+            return [self::status($fresh, $owner, $current) + ['idempotent_replay' => false], true];
         }, 3);
 
         return response()->json($payload, $created ? 201 : 200)
