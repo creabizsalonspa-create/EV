@@ -1063,8 +1063,15 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             return card;
         }
         const say = (en, ar) => feedback.replaceChildren(t("span", en, ar));
+        let couponBusy = false;
         function couponButton(parent, en, ar, action, operation = "read") {
             return button(parent, en, ar, async () => {
+                // Claim, cancellation and receipt recovery share a single
+                // draft. Serialize all controls in this mounted workspace,
+                // not only repeated clicks on an individual button.
+                if (couponBusy || !alive()) return;
+                couponBusy = true;
+                panel.setAttribute("aria-busy", "true");
                 feedback.replaceChildren();
                 try {
                     await action();
@@ -1081,6 +1088,9 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                         say("Coupon request could not be confirmed. Check the receipt or retry the same request.",
                             "تعذر تأكيد طلب القسيمة. تحقق من الإيصال أو أعد الطلب نفسه.");
                     }
+                } finally {
+                    couponBusy = false;
+                    if (alive()) panel.removeAttribute("aria-busy");
                 }
             });
         }
