@@ -139,7 +139,14 @@ final class EmailNotices
             $count += DB::transaction(function () use ($candidate, $configuration) {
                 $user = User::whereKey($candidate->user_id)->lockForUpdate()->first();
                 $preference = DB::table('notification_email_preferences')->where('user_id', $candidate->user_id)->lockForUpdate()->first();
-                if (! $user || ! $this->eligible($user, $preference, $configuration)) {
+                // The candidate scan's configuration is a hint, not authority.
+                // Do not invalidate current consent or queue against a changed
+                // transport while waiting for the user/preference locks.
+                $currentConfiguration = $this->configuration();
+                if (! $currentConfiguration || ! hash_equals($configuration['hash'], $currentConfiguration['hash'])) {
+                    return 0;
+                }
+                if (! $user || ! $this->eligible($user, $preference, $currentConfiguration)) {
                     if ($preference && $preference->enabled) {
                         DB::table('notification_email_preferences')->where('user_id', $candidate->user_id)->update(['enabled' => false, 'disabled_reason' => 'consent_invalidated',
                             'revision' => (int) $preference->revision < PHP_INT_MAX ? (int) $preference->revision + 1 : $preference->revision, 'updated_at' => now()]);
@@ -166,6 +173,14 @@ final class EmailNotices
         return $count;
     }
 
+    private function visibleUnread(User $user, object $receipt): bool
+    {
+        return InboxNotification::visibleTo($user)
+            ->where('id', '>', $receipt->after_notification_id)->where('id', '<=', $receipt->through_notification_id)
+            ->where('created_at', '>=', now()->subDay())->where('created_at', '<=', now())
+            ->whereNull('read_at')->exists();
+    }
+
     public function deliver(string $id): string
     {
         $row = DB::table('notification_email_outbox')->where('id', $id)->first();
@@ -180,7 +195,12 @@ final class EmailNotices
                 return 'not_attempted';
             }
             $configuration = $this->configuration();
-            if (! $this->eligible($user, $preference, $configuration) || (int) $current->consent_revision !== (int) $preference->revision) {
+            // Reject a stale or malformed queue receipt before consuming the
+            // user's cursor or cooldown. Visibility is rechecked again before
+            // the one-shot handoff, not merely at the earlier prepare stage.
+            if (! $this->eligible($user, $preference, $configuration)
+                || ! EmailNoticeReceipt::matches($current, $preference, hash('sha256', $user->email), $configuration['hash'], false)
+                || ! $this->visibleUnread($user, $current)) {
                 DB::table('notification_email_outbox')->where('id', $row->id)->update(['state' => 'cancelled', 'failure_code' => 'consent_or_visibility_changed', 'completed_at' => now(), 'updated_at' => now()]);
 
                 return 'cancelled';
@@ -204,9 +224,9 @@ final class EmailNotices
                 $preference = DB::table('notification_email_preferences')->where('user_id', $row->user_id)->lockForUpdate()->first();
                 $current = DB::table('notification_email_outbox')->where('id', $row->id)->lockForUpdate()->firstOrFail();
                 $configuration = $this->configuration();
-                $notice = InboxNotification::visibleTo($user)->where('id', '>', $current->after_notification_id)->where('id', '<=', $current->through_notification_id)->where('created_at', '>=', now()->subDay())->where('created_at', '<=', now())->whereNull('read_at')->exists();
-                if ($current->state !== 'claimed' || ! $this->eligible($user, $preference, $configuration) || ! $notice
-                    || (int) $current->consent_revision !== (int) $preference->revision || ! hash_equals($current->recipient_hash, hash('sha256', $user->email)) || ! hash_equals($current->configuration_hash, $configuration['hash'])) {
+                if ($current->state !== 'claimed' || ! $this->eligible($user, $preference, $configuration)
+                    || ! EmailNoticeReceipt::matches($current, $preference, hash('sha256', $user->email), $configuration['hash'], true)
+                    || ! $this->visibleUnread($user, $current)) {
                     DB::table('notification_email_outbox')->where('id', $row->id)->update(['state' => 'cancelled', 'failure_code' => 'consent_or_visibility_changed', 'completed_at' => now(), 'updated_at' => now()]);
 
                     return 'cancelled';

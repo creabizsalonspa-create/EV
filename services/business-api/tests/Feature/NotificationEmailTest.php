@@ -98,6 +98,71 @@ class NotificationEmailTest extends TestCase
         Mail::assertNothingSent();
     }
 
+    public function test_invalid_queued_authority_and_read_activity_never_consume_cursor_or_cooldown(): void
+    {
+        foreach (['recipient_hash', 'configuration_hash', 'consent_revision', 'read_activity'] as $change) {
+            $user = $this->fixture();
+            $this->enable($user);
+            $notice = $this->notice($user);
+            $service = app(EmailNotices::class);
+            $this->assertSame(1, $service->prepare());
+            $row = DB::table('notification_email_outbox')->where('user_id', $user->id)->first();
+            $before = DB::table('notification_email_preferences')->where('user_id', $user->id)->first();
+            if ($change === 'read_activity') {
+                $notice->update(['read_at' => now()]);
+            } else {
+                DB::table('notification_email_outbox')->where('id', $row->id)->update([
+                    $change => $change === 'consent_revision' ? $row->consent_revision + 1 : str_repeat('0', 64),
+                ]);
+            }
+            $this->assertSame('cancelled', $service->deliver($row->id), $change);
+            $this->assertSame('not_attempted', $service->deliver($row->id));
+            $after = DB::table('notification_email_preferences')->where('user_id', $user->id)->first();
+            $this->assertSame($before->after_notification_id, $after->after_notification_id);
+            $this->assertSame($before->last_attempted_at, $after->last_attempted_at);
+            $this->assertSame($before->revision, $after->revision);
+            $this->assertDatabaseHas('notification_email_outbox', ['id' => $row->id, 'claimed_at' => null, 'state' => 'cancelled']);
+            Mail::assertNothingSent();
+
+            // The next genuinely new activity is still eligible immediately.
+            $this->notice($user);
+            $this->assertSame(1, $service->prepare());
+            $new = DB::table('notification_email_outbox')->where('user_id', $user->id)->where('state', 'queued')->first();
+            $this->assertNotSame($row->id, $new->id);
+            $this->assertSame('handed_off', $service->deliver($new->id));
+            Mail::assertSent(GenericInboxNotice::class, 1);
+            DB::table('notification_email_preferences')->where('user_id', $user->id)->update(['enabled' => false]);
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
+    public function test_configuration_change_while_locking_candidate_does_not_disable_consent_or_queue_stale_handoff(): void
+    {
+        $user = $this->fixture();
+        $this->enable($user);
+        $this->notice($user);
+        $changed = false;
+        DB::listen(function ($query) use (&$changed) {
+            if (! $changed && str_contains(strtolower($query->sql), 'select') &&
+                str_contains($query->sql, '"notification_email_preferences"') &&
+                ! str_contains($query->sql, '"inbox_notifications"')) {
+                $changed = true;
+                config(['mail.from.address' => 'replacement@example.test']);
+            }
+        });
+        $service = app(EmailNotices::class);
+        $this->assertSame(0, $service->prepare());
+        $this->assertTrue($changed);
+        $this->assertDatabaseCount('notification_email_outbox', 0);
+        $this->assertDatabaseHas('notification_email_preferences', ['user_id' => $user->id, 'enabled' => true, 'revision' => 1]);
+        Mail::assertNothingSent();
+        config(['mail.from.address' => 'notices@example.test']);
+        $this->assertSame(1, $service->prepare());
+        $this->assertDatabaseCount('notification_email_outbox', 1);
+        Mail::assertNothingSent();
+    }
+
     public function test_unknown_transport_outcome_is_never_retried_or_reported_as_delivery(): void
     {
         $user = $this->fixture();
