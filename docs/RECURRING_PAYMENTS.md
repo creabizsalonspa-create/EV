@@ -26,6 +26,12 @@ Regression coverage extends SubscriptionRecurringTest and RecurringConsentAuthor
 
 A locally executed equivalent SQLite predicate fixture passed 23/23 invoice-selection conditions plus reactivation and limit-one fairness (2026-11-25; scanner implementation through `38e6782261f984f5dbe0eae0f2076623b7f9628c`). This is a manually translated SQL predicate with synthetic rows, not execution of the Laravel query builder, provider or PostgreSQL application. The newly authored due-time/cancellation and SCA revocation regression tests still require full application CI.
 
+### Enrollment replay and action-link boundary
+
+Once the enrollment has a known pending, completed or expired provider identity, repeated initiation inspects the original identity rather than creating another session. The transaction acquiring an execution lease rechecks that status. Completed and provider-confirmed expired enrollments return their terminal receipt without any hosted action URL. Only a confirmed open session with unexpired current consent may expose a hosted URL; unknown provider statuses are reconciliation failures. An expired execution lease can be resolved by locked provider inspection; an active lease still blocks inspection. These rules do not cancel a provider session merely because the local consent version changed, and do not infer a new mandate from an open session. Provider verification remains a test contract.
+
+Added regression cases for pending replay, changed terms, unknown provider state, terminal expiry and abandoned lease recovery. Full application execution remains pending.
+
 ## Configuration and operation
 
 Use `services/business-api/.env.example`; leave collection disabled by default. For an authorized sandbox configure `PAYMENT_PROVIDER=stripe_test`, `STRIPE_TEST_SECRET` (`sk_test_…` only), `STRIPE_TEST_WEBHOOK_SECRET`, an operator-controlled HTTPS `PAYMENT_HOSTED_RETURN_URL`, and explicitly enable `SUBSCRIPTION_COLLECTION_ENABLED=true`. Never place these secrets in Flutter, browser bundles, docs or logs. Provider API endpoint and version remain fixed; redirects are disabled on server HTTP requests. Only `checkout.stripe.com` and `hooks.stripe.com` HTTPS action links are accepted by the clients.
