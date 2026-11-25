@@ -205,7 +205,13 @@ class SubscriptionGateway
                 $this->applyProviderEvidence($event, json_encode($event, JSON_THROW_ON_ERROR));
                 $c = $this->access($actor, $id);
             }
-            $url = ($r['next_action']['type'] ?? null) === 'redirect_to_url' ? app(PaymentMandates::class)->hostedUrl($r['next_action']['redirect_to_url']['url'] ?? null) : null;
+            $url = null;
+            if (($r['status'] ?? null) === 'requires_action' && ($r['next_action']['type'] ?? null) === 'redirect_to_url') {
+                // A provider read may reconcile historical evidence, but an
+                // actionable SCA redirect requires still-current collection consent.
+                app(SubscriptionCollections::class)->authorize($actor, $c);
+                $url = app(PaymentMandates::class)->hostedUrl($r['next_action']['redirect_to_url']['url'] ?? null);
+            }
 
             return ['checkout_id' => $id, 'status' => $c->status, 'hosted_url' => $url, 'hosted_action_supported' => $url !== null, 'evidence' => 'STRIPE_TEST_CONTRACT', 'external_provider_verified' => false];
         });
