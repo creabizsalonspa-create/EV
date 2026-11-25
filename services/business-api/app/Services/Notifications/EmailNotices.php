@@ -133,6 +133,13 @@ final class EmailNotices
             ->where('p.enabled', true)->whereColumn('n.id', '>', 'p.after_notification_id')->whereNull('n.read_at')->where('n.created_at', '>=', now()->subDay())->where('n.created_at', '<=', now())
             ->where(fn ($q) => $q->whereNull('p.last_attempted_at')->orWhere('p.last_attempted_at', '<=', now()->subMinutes(15)))
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('notification_email_outbox as o')->whereColumn('o.user_id', 'p.user_id')->where('o.state', 'queued'))
+            // A cancelled pre-claim receipt deliberately leaves the cursor
+            // unchanged, but its unique tuple is permanently reserved. Do
+            // not let that same notice occupy a bounded candidate slot forever.
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('notification_email_outbox as recorded')
+                ->whereColumn('recorded.user_id', 'n.user_id')
+                ->whereColumn('recorded.through_notification_id', 'n.id')
+                ->whereColumn('recorded.consent_revision', 'p.revision'))
             ->groupBy('n.user_id')->orderByRaw('MIN(n.id)')->limit(min(100, max(1, $maximum)))->get(['n.user_id', DB::raw('MAX(n.id) as through_id')]);
         $count = 0;
         foreach ($candidates as $candidate) {
@@ -158,9 +165,26 @@ final class EmailNotices
                     || DB::table('notification_email_outbox')->where('user_id', $user->id)->where('state', 'queued')->exists()) {
                     return 0;
                 }
-                $notice = InboxNotification::visibleTo($user)->where('id', '>', $preference->after_notification_id)->where('created_at', '>=', now()->subDay())->where('created_at', '<=', now())->whereNull('read_at')->orderByDesc('id')->first();
+                // Reapply the exact immutable receipt-key exclusion under
+                // current user/preference locks. Never resurrect an existing
+                // receipt or allow its key to hide a genuinely fresh notice.
+                $unrecorded = static fn ($q) => $q->selectRaw('1')->from('notification_email_outbox as recorded')
+                    ->whereColumn('recorded.user_id', 'inbox_notifications.user_id')
+                    ->whereColumn('recorded.through_notification_id', 'inbox_notifications.id')
+                    ->where('recorded.consent_revision', $preference->revision);
+                $notice = InboxNotification::visibleTo($user)->where('id', '>', $preference->after_notification_id)->where('created_at', '>=', now()->subDay())->where('created_at', '<=', now())->whereNull('read_at')
+                    ->whereNotExists($unrecorded)->orderByDesc('id')->first();
                 if (! $notice) {
-                    DB::table('notification_email_preferences')->where('user_id', $user->id)->update(['after_notification_id' => max((int) $preference->after_notification_id, (int) $candidate->through_id), 'updated_at' => now()]);
+                    // Only skip a currently unrecorded, unread, in-window
+                    // candidate that was not visible. A receipt recorded
+                    // since the scan cannot consume a cursor via this path.
+                    $through = DB::table('inbox_notifications')->where('user_id', $user->id)
+                        ->where('id', '>', $preference->after_notification_id)->where('id', '<=', $candidate->through_id)
+                        ->where('created_at', '>=', now()->subDay())->where('created_at', '<=', now())
+                        ->whereNull('read_at')->whereNotExists($unrecorded)->max('id');
+                    if ($through !== null) {
+                        DB::table('notification_email_preferences')->where('user_id', $user->id)->update(['after_notification_id' => $through, 'updated_at' => now()]);
+                    }
 
                     return 0;
                 }
