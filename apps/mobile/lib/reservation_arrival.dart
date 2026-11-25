@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
@@ -27,6 +28,16 @@ class _ReservationArrivalButtonState extends State<ReservationArrivalButton>
   Object? error;
   int generation = 0;
   late bool Function() authorized;
+  StreamSubscription<int>? sessionSubscription;
+  bool confirming = false;
+  void subscribeSession() {
+    final api = widget.api;
+    sessionSubscription = api.sessionEvents.listen((_) {
+      if (mounted && identical(widget.api,api) && !authorized()) {
+        setState(() { busy = false; error = null; confirming = false; });
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -35,6 +46,7 @@ class _ReservationArrivalButtonState extends State<ReservationArrivalButton>
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
+    subscribeSession();
   }
 
   @override
@@ -44,8 +56,13 @@ class _ReservationArrivalButtonState extends State<ReservationArrivalButton>
         widget.reservationId != oldWidget.reservationId ||
         !authorized()) {
       generation++;
-      authorized = widget.api.sessionFence();
+      if (!identical(oldWidget.api,widget.api)) {
+        unawaited(sessionSubscription?.cancel());
+        authorized = widget.api.sessionFence();
+        subscribeSession();
+      }
       busy = false;
+      confirming = false;
       error = null;
     }
   }
@@ -59,6 +76,7 @@ class _ReservationArrivalButtonState extends State<ReservationArrivalButton>
     if (mounted) {
       setState(() {
         busy = false;
+        confirming = false;
         error = null;
       });
     }
@@ -68,6 +86,7 @@ class _ReservationArrivalButtonState extends State<ReservationArrivalButton>
   void dispose() {
     generation++;
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(sessionSubscription?.cancel());
     super.dispose();
   }
 
@@ -86,7 +105,8 @@ class _ReservationArrivalButtonState extends State<ReservationArrivalButton>
     final onChanged = widget.onChanged;
     final onExpired = widget.onExpired;
     bool consentValid() => scoped(api, fence, reservation, confirmationEpoch);
-    if (widget.disabled || busy || !consentValid()) return;
+    if (widget.disabled || busy || confirming || !consentValid()) return;
+    setState(() => confirming = true);
     final yes = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -107,22 +127,23 @@ class _ReservationArrivalButtonState extends State<ReservationArrivalButton>
     // Explicit approval belongs to the exact original reservation and
     // authenticated customer, never an account that replaced the widget
     // while the operating-system dialog or Flutter route was open.
-    if (yes != true) return;
     if (!consentValid()) {
-      // The active account may rotate while its confirmation dialog is open.
-      // Rebuild the original widget closed, without executing a stale POST or
-      // touching a replacement reservation/API bound to this route.
-      if (mounted && foreground && identical(widget.api, api) &&
+      if (mounted && generation == confirmationEpoch &&
+          identical(widget.api, api) && identical(authorized, fence) &&
           widget.reservationId == reservation && !fence()) {
+        // Repaint the retired button after a credential change without
+        // granting the replacement account access to the former consent.
         setState(() {
           generation++;
           busy = false;
+          confirming = false;
           error = null;
         });
       }
       return;
     }
-    if (widget.disabled || busy) return;
+    setState(() => confirming = false);
+    if (yes != true || widget.disabled || busy) return;
     final operationEpoch = ++generation;
     bool current() => scoped(api, fence, reservation, operationEpoch);
     setState(() {
@@ -142,6 +163,10 @@ class _ReservationArrivalButtonState extends State<ReservationArrivalButton>
         if (e is ApiException && [401, 419].contains(e.status)) {
           onExpired();
         }
+      } else if (mounted && foreground && generation == operationEpoch &&
+          identical(widget.api,api) && identical(authorized,fence) &&
+          widget.reservationId == reservation && e is ApiException && e.endsCurrentSession) {
+        onExpired();
       }
     } finally {
       if (current()) setState(() => busy = false);
@@ -159,7 +184,7 @@ class _ReservationArrivalButtonState extends State<ReservationArrivalButton>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         FilledButton.tonal(
-          onPressed: busy || widget.disabled ? null : () {
+          onPressed: busy || confirming || widget.disabled ? null : () {
             if (scoped(api, fence, reservation, epoch)) checkIn();
           },
           child: Text(arrivalText(context, 'title')),

@@ -26,7 +26,51 @@ void main() {
     expect(validSessionCost(cost),true);expect(sessionCostText(cost,false),contains('KWD 0.396'));expect(sessionCostText({...cost,'minor_units':0,'currency':'JPY'},true),contains('JPY 396'));
     for(final change in <Map<String,dynamic>>[{'total_minor':'395'},{'tax_minor':'20'},{'real_payment_processed':true},{'physical_charging_verified':true},{'spending_cap':true},{'as_of':'today'},{'scope':'OTHER'},{'state':'invoiced'}])expect(validSessionCost({...cost,...change}),false);
     expect(sessionCostText({...cost,'state':'invoiced','invoice_id':7},false),contains('Simulated invoice total'));
-    expect(sessionCostText({...cost,'meter_freshness_at_read':'STALE'},true),contains('قديم عند القراءة'));
+    expect(sessionCostText({...cost,'meter_freshness_at_read':'STALE','source_meter_at':'2026-11-14T05:55:00.000000Z'},true),contains('قديم عند القراءة'));
+  });
+
+  test('canonical cost timestamps fail closed across English and Arabic', () {
+    final invalid = <Map<String, dynamic>>[
+      {'as_of': '2026-02-29T06:00:00.000000Z'},
+      {'as_of': '2026-11-14T06:00:00.000000Z\n'},
+      {'as_of': '1900-02-29T06:00:00.000000Z'},
+      {'as_of': '2026-04-31T06:00:00.000000Z'},
+      {'as_of': '2026-11-14T24:00:00.000000Z'},
+      {'as_of': '2026-11-14T06:60:00.000000Z'},
+      {'as_of': '2026-11-14T06:00:60.000000Z'},
+      {'source_meter_at': '2026-11-14T05:59:59.000000Z'},
+      {'meter_freshness_at_read': 'RECENT'},
+      {'meter_freshness_at_read': 'STALE'},
+      {
+        'meter_freshness_at_read': 'RECENT',
+        'source_meter_at': '2026-11-14T06:00:00.000001Z',
+      },
+      {
+        'meter_freshness_at_read': 'STALE',
+        'source_meter_at': '2026-02-30T05:00:00.000000Z',
+      },
+      {
+        'meter_freshness_at_read': 'UNKNOWN',
+        'source_meter_at': 'untrusted source',
+      },
+    ];
+    for (final update in invalid) {
+      final value = {...cost, ...update};
+      expect(validSessionCost(value), isFalse, reason: '$update');
+      for (final arabic in [false, true]) {
+        final label = sessionCostText(value, arabic);
+        expect(label, isNot(contains('KWD 0.396')));
+        expect(label, isNot(contains('untrusted source')));
+      }
+    }
+    expect(validSessionCost({...cost, 'as_of': '2000-02-29T06:00:00.000000Z'}), isTrue);
+    expect(validSessionCost({
+      ...cost, 'meter_freshness_at_read': 'RECENT', 'source_meter_at': cost['as_of'],
+    }), isTrue);
+    expect(validSessionCost({
+      ...cost, 'meter_freshness_at_read': 'UNKNOWN',
+      'source_meter_at': '2026-11-14T06:00:00.000001Z',
+    }), isTrue);
   });
   for(final arabic in [false,true]) {
     testWidgets('session screen shows the recorded cost including tax ($arabic)',(tester) async {
@@ -43,10 +87,7 @@ void main() {
   testWidgets('old account denial cannot reveal prices or sign out a newer account',(tester) async {
     final api=CostApi()..pending=Completer<dynamic>();var expired=0;addTearDown(api.close);await tester.pumpWidget(app(api,onExpired:()=>expired++));await tester.pump();api.epoch++;
     api.pending!.completeError(const ApiException(401,'old session'));await tester.pumpAndSettle();expect(expired,0);expect(find.textContaining('KWD 0.396'),findsNothing);
-    // Revoked credentials must hide stale controls, not offer a refresh
-    // capable of reading the replacement account from an old widget.
-    expect(find.text('Refresh'), findsNothing);
-    expect(api.reads, 1);
+    expect(find.text('Refresh'),findsNothing);expect(find.byType(LinearProgressIndicator),findsNothing);expect(api.reads,1);
   });
   testWidgets('a stop confirmation opened before background cannot send an old command',(tester) async {
     final api=CostApi();addTearDown(api.close);await tester.pumpWidget(app(api));await tester.pumpAndSettle();
