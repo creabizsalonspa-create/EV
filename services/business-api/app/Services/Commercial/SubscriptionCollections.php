@@ -53,10 +53,28 @@ class SubscriptionCollections
     public function authorize(User $user, object $checkout): array
     {
         abort_unless(config('payments.collection_enabled') && config('payments.provider') === 'stripe_test' && ! app()->environment('production'), 503);
-        $p = DB::table('subscription_collection_policies')->where('subscription_id', $checkout->subscription_id)->where('user_id', $user->id)->lockForUpdate()->first();
-        abort_unless($p && $p->enabled && $p->version === $checkout->policy_version && $p->mandate_id === $checkout->mandate_id, 409, 'Recurring consent changed; reconcile the existing checkout.');
+        // All callers, including the worker's preflight, must use a real
+        // transaction. A lock on an autocommit query cannot pin consent.
+        return DB::transaction(function () use ($user, $checkout) {
+            $user = app(CurrentFinanceReader::class)->requireSnapshot($user);
+            abort_unless(in_array($user->role, ['customer', 'vendor'], true), 403);
+            $subscription = DB::table('commercial_subscriptions')->where('id', $checkout->subscription_id)
+                ->where('user_id', $user->id)->lockForUpdate()->first();
+            abort_unless($subscription && $subscription->status !== 'cancelled'
+                && ! $subscription->cancel_at_period_end, 409, 'Subscription is no longer eligible for automatic collection.');
+            $invoice = DB::table('commercial_subscription_invoices')->where('id', $checkout->invoice_id)
+                ->where('subscription_id', $subscription->id)->first();
+            abort_unless($invoice && (int) $invoice->cycle_number === (int) $subscription->cycle_number + 1
+                && (int) $invoice->total_minor > 0 && ! CarbonImmutable::parse($invoice->period_start)->isFuture()
+                && ! DB::table('commercial_subscription_receipts')->where('invoice_id', $invoice->id)->exists(),
+                409, 'Invoice is no longer eligible for automatic collection.');
+            $p = DB::table('subscription_collection_policies')->where('subscription_id', $subscription->id)
+                ->where('user_id', $user->id)->lockForUpdate()->first();
+            abort_unless($p && $p->enabled && $p->version === $checkout->policy_version
+                && $p->mandate_id === $checkout->mandate_id, 409, 'Recurring consent changed; reconcile the existing checkout.');
 
-        return app(PaymentMandates::class)->credentials($user, $checkout->mandate_id, $checkout->mandate_version);
+            return app(PaymentMandates::class)->credentials($user, $checkout->mandate_id, $checkout->mandate_version);
+        });
     }
 
     private function finish(int $id, string $lease, string $state, ?string $failure = null, ?int $delay = null): void
@@ -219,6 +237,7 @@ class SubscriptionCollections
     public function scan(int $limit): int
     {
         abort_unless(config('payments.collection_enabled') && config('payments.provider') === 'stripe_test' && ! app()->environment('production'), 503);
+        abort_unless($limit >= 1 && $limit <= 1000, 422, 'Collection batch limit must be between 1 and 1000.');
         $days = config('payments.collection_retry_days');
         abort_unless(is_array($days) && count($days) <= 5 && count($days) > 0 && collect($days)->every(fn ($n) => is_int($n) && $n >= 1 && $n <= 30), 503, 'Configure bounded retry days.');
         $subscriptions = DB::table('subscription_collection_policies as p')->join('commercial_subscriptions as s', 's.id', '=', 'p.subscription_id')->where('p.enabled', true)->where('s.status', '!=', 'cancelled')->whereNotNull('s.period_end')->where('s.period_end', '<=', now())->whereNotExists(fn ($q) => $q->selectRaw('1')->from('commercial_subscription_invoices as next')->whereColumn('next.subscription_id', 's.id')->whereColumn('next.cycle_number', DB::raw('s.cycle_number + 1')))->orderBy('s.id')->limit($limit)->pluck('s.id');
