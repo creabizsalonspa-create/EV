@@ -22,6 +22,9 @@ final class SqliteGeoMath
             if ((! is_string($value) && ! is_int($value) && ! is_float($value)) || ! is_numeric($value)) {
                 return null;
             }
+            if (is_string($value) && preg_match('/^[+-]?([0-9]{1,40}([.][0-9]{0,40})?|[.][0-9]{1,40})([eE][+-]?[0-9]{1,2})?$/D', trim($value, ' ')) !== 1) {
+                return null;
+            }
             $number = (float) $value;
 
             return is_finite($number) ? $number : null;
