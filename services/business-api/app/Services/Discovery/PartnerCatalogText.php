@@ -15,8 +15,8 @@ final class PartnerCatalogText
         }
 
         return match (DB::connection()->getDriverName()) {
-            'pgsql' => "CASE WHEN json_typeof(ocpi_records.normalized->'$field') = 'string' AND length(ocpi_records.normalized->>'$field') <= 255 THEN ocpi_records.normalized->>'$field' ELSE NULL END",
-            'sqlite' => "CASE WHEN json_type(ocpi_records.normalized, '$.$field') = 'text' AND length(json_extract(ocpi_records.normalized, '$.$field')) <= 255 THEN json_extract(ocpi_records.normalized, '$.$field') ELSE NULL END",
+            'pgsql' => "CASE WHEN json_typeof(ocpi_records.normalized->'$field') = 'string' AND length(ocpi_records.normalized->>'$field') BETWEEN 1 AND 255 AND (ocpi_records.normalized->>'$field') COLLATE \"C\" !~ ('[' || chr(1) || '-' || chr(31) || chr(127) || ']') THEN ocpi_records.normalized->>'$field' ELSE NULL END",
+            'sqlite' => "CASE WHEN json_type(ocpi_records.normalized, '$.$field') = 'text' AND length(json_extract(ocpi_records.normalized, '$.$field')) BETWEEN 1 AND 255 AND instr(json_extract(ocpi_records.normalized, '$.$field'), char(0)) = 0 AND json_extract(ocpi_records.normalized, '$.$field') NOT GLOB ('*[' || char(1) || '-' || char(31) || char(127) || ']*') THEN json_extract(ocpi_records.normalized, '$.$field') ELSE NULL END",
             default => throw new \LogicException('Unsupported partner catalog search database.'),
         };
     }
