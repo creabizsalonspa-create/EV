@@ -17,7 +17,9 @@ class RecurringConsentAuthorityTest extends TestCase
 
     public function test_stale_account_cannot_read_billing_or_change_collection_consent(): void
     {
+        Http::fake();
         Http::preventStrayRequests();
+        config(['payments.provider' => 'stripe_test', 'payments.hosted_return_url' => 'https://example.test/return']);
         Route::middleware(['web', 'auth'])->prefix('recurring-authority-test')->group(base_path('routes/recurring_payments.php'));
         $owner = User::factory()->create();
         $admin = User::factory()->create(['role' => 'admin']);
@@ -46,6 +48,10 @@ class RecurringConsentAuthorityTest extends TestCase
             $this->putJson($policy, ['enabled' => false, 'expected_version' => 1])->assertConflict();
             $this->postJson($base.'payment-methods/999/default', [])->assertConflict();
             $this->deleteJson($base.'payment-methods/999', [])->assertConflict();
+            $this->postJson($base.'payment-enrollments', [
+                'consent' => true, 'consent_version' => config('payments.mandate_consent_version'),
+                'idempotency_key' => 'revoked-enrollment',
+            ])->assertConflict();
             $this->postJson($base.'payment-enrollments/999/inspect')->assertConflict();
             $this->postJson($base.'payment-methods/999/detach')->assertConflict();
             $this->postJson($base.'subscription-checkouts/999/authentication')->assertConflict();
@@ -56,6 +62,8 @@ class RecurringConsentAuthorityTest extends TestCase
         $this->assertDatabaseHas('subscription_collection_policies', ['subscription_id' => $id, 'version' => 1, 'enabled' => false]);
         $this->assertDatabaseCount('recurring_payment_events', $before);
         $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+        $this->assertDatabaseCount('payment_enrollments', 0);
+        $this->assertDatabaseCount('payment_customer_accounts', 0);
         $this->actingAs(User::factory()->create(), 'web')->putJson($policy, [])->assertNotFound();
         $this->actingAs($admin, 'web')->putJson($policy, [])->assertNotFound();
         Http::assertNothingSent();
