@@ -185,11 +185,31 @@ const { chromium } = require("playwright"),
       { data: JSON.parse(signed.raw) },
     );
     assert.equal(forged.status(), 401);
+    // Verify the exact response used by the UI and the rendered counters
+    // separately. An API discrepancy and a rendering failure must not be
+    // collapsed into a generic text-locator timeout.
+    const refreshed = vendor.waitForResponse(r =>
+      new URL(r.url()).pathname === "/api/commercial/campaigns" &&
+      r.request().method() === "GET" &&
+      new URL(r.url()).searchParams.get("page") === "1");
     await v.getByRole("button", { name: "Campaign list", exact: true }).click();
-    await v
-      .locator(`[data-campaign-record="${id}"]`)
-      .getByText(/1\/3/)
-      .waitFor();
+    const listResponse = await refreshed;
+    assert.equal(listResponse.status(), 200, "Campaign list refresh must succeed");
+    const listed = (await listResponse.json()).data.find(c => c.id === id);
+    assert(listed, "Refreshed campaign list must include the exact campaign");
+    assert.equal(listed.delivered_units, 1, "Signed delivery must appear in canonical list count");
+    assert.equal(listed.budget_units, 3);
+    assert.equal(listed.verified_server_clicks, 0);
+    await vendor.waitForFunction(() => !document.querySelector("[data-commercial-campaigns]").inert);
+    const record = v.locator(`[data-campaign-record="${id}"]`);
+    assert.equal(await record.count(), 1, "Verified list must render the exact campaign");
+    const deliveryCount = record.locator("[data-campaign-delivery-count]");
+    assert.equal(await deliveryCount.count(), 1);
+    assert(await deliveryCount.isVisible());
+    assert.equal(await deliveryCount.textContent(), "1/3");
+    const clickCount = record.locator("[data-campaign-click-count]");
+    assert(await clickCount.isVisible());
+    assert.equal(await clickCount.textContent(), "0");
     await v
       .locator(`[data-campaign-record="${id}"]`)
       .getByRole("button", { name: "Review campaign", exact: true })
