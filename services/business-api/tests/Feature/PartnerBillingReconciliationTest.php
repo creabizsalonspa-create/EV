@@ -180,6 +180,40 @@ class PartnerBillingReconciliationTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_corrupted_source_projections_cannot_certify_invoice_lineage_in_json_or_csv(): void
+    {
+        [$owner, , , $invoice, $credit, , $original, $provider] = $this->scenario();
+        $path = '/api/ocpi/providers/'.$provider->id.'/billing-reconciliation';
+        $receipt = DB::table('ocpi_test_invoice_receipts')->where('invoice_id', $invoice->id)->first();
+        $this->actingAs($owner)->getJson($path.'?kind=credits')->assertOk()
+            ->assertJsonPath('data.0.billing.status', 'test_invoice_linked');
+        $before = DB::table('finance_journals')->count();
+
+        foreach ([$credit->id, $original->id, $receipt->source_session_record_id] as $id) {
+            $row = DB::table('ocpi_records')->where('id', $id)->first();
+            $normalized = json_decode($row->normalized, true, flags: JSON_THROW_ON_ERROR);
+            $normalized['currency'] = 'USD';
+            DB::table('ocpi_records')->where('id', $id)->update([
+                'normalized' => json_encode($normalized, JSON_THROW_ON_ERROR),
+            ]);
+            $this->getJson($path.'?kind=credits')->assertOk()
+                ->assertJsonPath('data.0.billing.status', 'source_requires_review')
+                ->assertJsonMissingPath('data.0.billing.invoice')
+                ->assertDontSee($invoice->number);
+            $this->get($path.'/csv?kind=credits')->assertOk()
+                ->assertSee('source_requires_review')->assertDontSee($invoice->number);
+            $this->get($path.'/pdf?kind=credits')->assertOk();
+            DB::table('ocpi_records')->where('id', $id)->update(['normalized' => $row->normalized]);
+            $this->getJson($path.'?kind=credits')->assertOk()
+                ->assertJsonPath('data.0.billing.invoice.id', $invoice->id);
+        }
+
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('finance_journals', $before);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_private_exports_preserve_exact_units_filters_and_credit_references_without_collection(): void
     {
         [$owner, $driver, $other, $invoice, $credit, $intent, , $provider] = $this->scenario('KWD', 3, '0.251', 251, 500);
