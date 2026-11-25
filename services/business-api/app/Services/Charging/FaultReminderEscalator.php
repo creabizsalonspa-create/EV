@@ -121,6 +121,8 @@ class FaultReminderEscalator
                     ->where('id', $binding->station_id)->lockForUpdate()->first();
                 if (! $site || ! $station || $site->company_id !== $company->id
                     || $site->station_id !== $station->id
+                    || $site->country !== $company->country
+                    || $station->country !== $company->country
                     || $station->vendor_id !== $company->owner_id
                     || $station->source !== 'simulator'
                     || $charger->source !== 'simulator'
@@ -144,6 +146,13 @@ class FaultReminderEscalator
                         FaultMonitor::generation($binding),
                         (string) $observation->source_generation
                     )) {
+                    return false;
+                }
+                // A retained alert link alone is not evidence of a fault.
+                // Match FaultMonitor's original alert classification before
+                // emitting reminders or closing a historical escalation.
+                if ($observation->status !== 'Faulted'
+                    && in_array($observation->error_code, [null, 'NoError'], true)) {
                     return false;
                 }
                 $occurredAt = self::sourceTimestamp($observation->occurred_at);

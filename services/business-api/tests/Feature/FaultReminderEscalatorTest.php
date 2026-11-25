@@ -12,6 +12,7 @@ use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\FaultReminderEscalator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class FaultReminderEscalatorTest extends TestCase
@@ -754,6 +755,74 @@ class FaultReminderEscalatorTest extends TestCase
             ->update(['identifier' => 'ev-test-reassigned']);
         $this->assertSame(0, app(FaultReminderEscalator::class)->scan()['reminded']);
         $this->assertDatabaseCount('inbox_notifications', 0);
+    }
+
+    public static function faultReminderProtocols(): array
+    {
+        return [['1.6'], ['2.0.1']];
+    }
+
+    #[DataProvider('faultReminderProtocols')]
+    public function test_reminders_and_escalation_closure_require_matching_country_lineage_and_fault_evidence(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        $observation = DB::table('charging_status_observations')->where('id', $f['observation']);
+        $observation->update(['occurred_at' => now()->subMinutes(65)]);
+        $worker = app(FaultReminderEscalator::class);
+
+        foreach ([
+            ['vendor_sites', $f['charger']->site_id],
+            ['stations', $f['station']->id],
+            ['vendor_companies', $f['company']->id],
+        ] as [$table, $id]) {
+            DB::table($table)->where('id', $id)->update(['country' => 'US']);
+            $scan = $worker->scan();
+            $this->assertSame(0, $scan['reminded']);
+            $this->assertSame(0, $scan['escalated']);
+            $this->assertDatabaseCount('inbox_notifications', 0);
+            DB::table($table)->where('id', $id)->update(['country' => 'AE']);
+        }
+
+        // A retained alert pointing at a healthy observation cannot itself
+        // establish a fault, even if all the source ownership IDs agree.
+        foreach ([null, 'NoError'] as $errorCode) {
+            $observation->update(['status' => 'Available', 'error_code' => $errorCode]);
+            $scan = $worker->scan();
+            $this->assertSame(0, $scan['reminded']);
+            $this->assertSame(0, $scan['escalated']);
+            $this->assertDatabaseCount('inbox_notifications', 0);
+        }
+        $this->assertDatabaseCount('charging_fault_reminders', 0);
+        $this->assertDatabaseCount('charging_fault_admin_escalations', 0);
+
+        $observation->update(['status' => 'Faulted', 'error_code' => 'GroundFailure']);
+        $scan = $worker->scan();
+        $this->assertSame(1, $scan['reminded']);
+        $this->assertSame(1, $scan['escalated']);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        DB::table('charging_fault_alerts')->where('id', $f['alert'])
+            ->update(['acknowledged_at' => now(), 'acknowledged_by' => $f['owner']->id]);
+
+        // Existing incident history cannot be closed on mismatched country
+        // or a corrupted original observation either.
+        DB::table('vendor_sites')->where('id', $f['charger']->site_id)->update(['country' => 'US']);
+        $this->assertSame(0, $worker->scan()['closed']);
+        DB::table('vendor_sites')->where('id', $f['charger']->site_id)->update(['country' => 'AE']);
+        $observation->update(['status' => 'Available', 'error_code' => 'NoError']);
+        $this->assertSame(0, $worker->scan()['closed']);
+        $this->assertDatabaseHas('charging_fault_admin_escalations', [
+            'alert_id' => $f['alert'], 'resolved_at' => null,
+        ]);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+
+        $observation->update(['status' => 'Faulted', 'error_code' => 'GroundFailure']);
+        $this->assertSame(1, $worker->scan()['closed']);
+        $this->assertSame(0, $worker->scan()['closed']);
+        $this->assertDatabaseCount('inbox_notifications', 3);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_worker_is_disabled_in_production_and_rejects_unbounded_scan_arguments(): void
