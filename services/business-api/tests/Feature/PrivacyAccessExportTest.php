@@ -78,6 +78,31 @@ class PrivacyAccessExportTest extends TestCase
         $this->assertSame(1, DB::table('audit_events')->where('action', 'privacy.copy.discarded')->count());
     }
 
+    public function test_stale_owner_and_mismatched_copy_association_cannot_discard_or_disclose(): void
+    {
+        [$owner, $admin, $other, $case] = $this->scenario();
+        $this->actingAs($admin)->postJson('/api/admin/privacy-requests/'.$case->id.'/access-copy',
+            ['password' => 'password', 'request_key' => 'privacy-owner-fence'])->assertCreated();
+        $path = '/api/account/privacy-requests/'.$case->id.'/access-copy';
+        $this->actingAs($owner, 'web');
+        DB::table('users')->where('id', $owner->id)->update(['password' => Hash::make('rotated-owner-password')]);
+        $this->postJson($path.'/revoke')->assertStatus(409);
+        $this->assertNotNull(DB::table('account_privacy_exports')->value('payload_encrypted'));
+        $this->assertNull(DB::table('account_privacy_exports')->value('revoked_at'));
+
+        $this->actingAs($owner->fresh(), 'web');
+        DB::table('account_privacy_exports')->where('privacy_request_id', $case->id)->update(['user_id' => $other->id]);
+        $this->getJson('/api/account/privacy-requests')->assertOk()->assertJsonPath('data.0.copy', null);
+        $this->postJson($path.'/revoke')->assertNotFound();
+        $this->postJson($path, ['password' => 'rotated-owner-password'])->assertNotFound();
+        $this->assertSame(0, DB::table('audit_events')->where('action', 'privacy.copy.discarded')->count());
+        $this->assertNotNull(DB::table('account_privacy_exports')->value('payload_encrypted'));
+
+        $this->actingAs($admin)->postJson('/api/admin/privacy-requests/'.$case->id.'/access-copy',
+            ['password' => 'password', 'request_key' => 'privacy-owner-fence'])->assertConflict();
+        $this->assertDatabaseCount('account_privacy_exports', 1);
+    }
+
     public function test_large_requests_never_silently_truncate_and_expired_copies_are_purged(): void
     {
         [$owner, $admin, , $case] = $this->scenario();
