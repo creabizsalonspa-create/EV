@@ -2984,10 +2984,32 @@ async function ticketDetail(id, page = 1, showNewest = false) {
             status: { translate: j.ticket.status },
         }),
     );
-    if (!messages.data.length) d.append(batteryNode("p",
+    // Support clocks are server UTC, not the browser timezone or station
+    // wall clock. Keep an unavailable clock separate from the message body.
+    // Non-admin clients never display an internal or unknown visibility row,
+    // even if a malformed upstream page unexpectedly includes it.
+    const visible = messages.data.filter(m => m && typeof m.body === "string" &&
+        m.body.length <= 5000 &&
+        (m.support_ticket_id == null || m.support_ticket_id === id) &&
+        ([false, 0, "0"].includes(m.internal) ||
+            (user.role === "admin" && [true, 1, "1"].includes(m.internal))));
+    if (!visible.length) d.append(batteryNode("p",
         "No visible messages on this page.", "لا توجد رسائل ظاهرة في هذه الصفحة."));
-    for (const m of messages.data)
-        d.append(node("p", (m.internal ? "INTERNAL · " : "") + m.body));
+    for (const m of visible) {
+        const item = document.createElement("div");
+        item.dataset.supportMessage = "true";
+        if ([true, 1, "1"].includes(m.internal))
+            item.append(batteryNode("p", "Internal note", "ملاحظة داخلية"));
+        item.append(node("p", m.body));
+        const clock = batteryNode("small",
+            window.EvStationTime.displayStationTime(m.created_at, "UTC", "en") ||
+                "Message time unavailable",
+            window.EvStationTime.displayStationTime(m.created_at, "UTC", "ar") ||
+                "وقت الرسالة غير متاح");
+        clock.dataset.supportMessageTime = "true";
+        item.append(clock);
+        d.append(item);
+    }
     const pager = document.createElement("nav");
     pager.className = "pagination";
     pager.dataset.supportMessagePagination = "true";
