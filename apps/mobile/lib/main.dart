@@ -728,7 +728,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
         if (!reservationReceiptMatches(receipt, ownerId: owner,
             stationId: station.id, mappingId: station.mappingId,
             vehicleId: vehicleId, startsAtUtc: startsAt,
-            termsVersion: termsVersion as int?, operationKey: intentKey)) {
+            termsVersion: termsVersion, operationKey: intentKey)) {
           throw const FormatException('Reservation receipt not confirmed');
         }
         // The booking is acknowledged independently of the follow-up list read.
