@@ -29,6 +29,10 @@ class ArrivalApi extends FixtureApi {
 
 class BoundArrivalApi extends FixtureApi {
   int epoch = 0;
+  final changes = StreamController<int>.broadcast(sync:true);
+  @override
+  Stream<int> get sessionEvents => changes.stream;
+  void rotate() { epoch++; changes.add(epoch); }
   int writes = 0;
   final paths = <String>[];
   Completer<void>? pending;
@@ -328,5 +332,39 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('arrival event retires controls immediately and rejects retained button',(tester) async {
+    final api=BoundArrivalApi();
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await tester.pumpWidget(scopedArrival(api,7));
+    await tester.pumpAndSettle();
+    final stale=tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton,'Check in')).onPressed!;
+    api.rotate();
+    await tester.pumpAndSettle();
+    expect(find.text('Check in'),findsNothing);
+    stale();
+    await tester.pumpWidget(scopedArrival(api,8));
+    await tester.pumpAndSettle();
+    expect(find.text('Check in'),findsNothing);
+    expect(api.writes,0);
+  });
+  testWidgets('duplicate retained arrival action opens only one consent dialog',(tester) async {
+    final api=BoundArrivalApi();
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await tester.pumpWidget(scopedArrival(api,7));
+    final stale=tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton,'Check in')).onPressed!;
+    stale();
+    stale();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog),findsOneWidget);
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    expect(api.writes,1);
+    expect(find.byType(AlertDialog),findsNothing);
+  });
 
 }
