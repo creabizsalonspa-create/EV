@@ -660,10 +660,51 @@ function sponsorPanel(stations, placement, catalogRequest, identity) {
             : text("summary", "Sponsored promotions", "العروض المموّلة"),
         content,
     );
-    let revision = 0;
+    let revision = 0, pending = false;
+    const authorized = () => panel.isConnected && (banner || panel.open) &&
+        !catalogRequest.signal.aborted && identity === client.sessionEpoch &&
+        stationIds.size > 0 && stationIds.size <= 25 &&
+        stationIds.size === stations.length &&
+        [...stationIds].every(id => Number.isSafeInteger(id) && id > 0) &&
+        (banner || (stations.length === 1 && /^[A-Z]{2}$/.test(stations[0].country)));
+    function checked(result, page) {
+        if (!result || result.current_page !== page ||
+            !Number.isSafeInteger(result.last_page) || result.last_page < 1 ||
+            result.last_page > 100000 ||
+            result.ranking_basis !== "SPONSORED_ID_ORDER_NOT_PERFORMANCE" ||
+            result.client_telemetry_billable !== false ||
+            !Array.isArray(result.placements) || result.placements.length > 25 ||
+            (page > result.last_page && result.placements.length))
+            throw new Error("Invalid sponsored page");
+        if ("total" in result || "per_page" in result) {
+            const {total, per_page: size} = result;
+            if (!Number.isSafeInteger(total) || total < 0 || total > 1000 ||
+                !Number.isSafeInteger(size) || size < 1 || size > 25 ||
+                result.last_page !== Math.max(1, Math.ceil(total / size)) ||
+                result.placements.length !== Math.max(0, Math.min(size, total - (page - 1) * size)))
+                throw new Error("Inconsistent sponsored page");
+        }
+        const ids = new Set();
+        for (const item of result.placements) {
+            if (!item || !Number.isSafeInteger(item.campaign_id) ||
+                item.campaign_id < 1 || ids.has(item.campaign_id) ||
+                !stationIds.has(item.station_id) || item.sponsored !== true ||
+                item.availability_verified !== false || item.compatibility_verified !== false ||
+                item.capability_override !== false ||
+                !["title", "title_ar", "description", "description_ar"].every(key =>
+                    typeof item[key] === "string" && item[key].trim().length &&
+                    item[key].length <= (key.startsWith("title") ? 120 : 500)))
+                throw new Error("Invalid sponsored placement");
+            ids.add(item.campaign_id);
+        }
+        return result;
+    }
 
     async function load(page = 1) {
+        if (!authorized() || pending || !Number.isSafeInteger(page) || page < 1 || page > 100000) return;
         const current = ++revision;
+        pending = true;
+        panel.hidden = false;
         content.replaceChildren(text("p", "Loading promotions…", "جارٍ تحميل العروض…"));
         const params = new URLSearchParams({ placement, page });
         if (banner) {
@@ -672,36 +713,42 @@ function sponsorPanel(stations, placement, catalogRequest, identity) {
             params.set("country", stations[0].country);
             params.set("station_id", stations[0].id);
         }
-        const alive = () => current === revision && panel.isConnected &&
-            (banner || panel.open) && !catalogRequest.signal.aborted &&
-            identity === client.sessionEpoch;
+        const alive = () => current === revision && authorized();
+        const button = (target, en, ar) => {
+            const control = text("button", en, ar);
+            control.type = "button";
+            control.onclick = () => {
+                if (alive() && !pending && content.contains(control)) load(target);
+            };
+            return control;
+        };
         try {
-            const result = await api("commercial/campaign-placements?" + params, "GET",
+            const raw = await api("commercial/campaign-placements?" + params, "GET",
                 undefined, catalogRequest.signal);
             if (!alive()) return;
+            const result = checked(raw, page);
             content.replaceChildren();
+            if (result.placements.length)
+                content.append(text("p", "Paid placement, not verified availability or compatibility.",
+                    "إعلان مدفوع، وليس تأكيداً للتوفر أو التوافق."));
             for (const item of result.placements) {
-                if (!stationIds.has(item.station_id) || item.sponsored !== true ||
-                    item.availability_verified !== false || item.compatibility_verified !== false ||
-                    item.capability_override !== false) continue;
                 content.append(text("h4", item.title, item.title_ar),
                     text("p", item.description, item.description_ar));
             }
-            if (banner) panel.hidden = !content.childElementCount && result.last_page === 1;
-            if (!content.childElementCount)
+            if (banner) panel.hidden = !result.placements.length && page === 1 && result.last_page === 1;
+            if (!result.placements.length)
                 content.append(text("p", "No promotions on this page.", "لا توجد عروض في هذه الصفحة."));
-            for (const [allowed, target, en, ar] of [
-                [result.current_page > 1, result.current_page - 1, "Previous promotions", "العروض السابقة"],
-                [result.current_page < result.last_page, result.current_page + 1, "Next promotions", "العروض التالية"],
-            ]) {
-                if (!allowed) continue;
-                const button = text("button", en, ar);
-                button.type = "button";
-                button.onclick = () => load(target);
-                content.append(button);
-            }
+            if (page > 1)
+                content.append(button(Math.min(page - 1, result.last_page), "Previous promotions", "العروض السابقة"));
+            if (page < result.last_page)
+                content.append(button(page + 1, "Next promotions", "العروض التالية"));
         } catch {
-            if (alive()) content.replaceChildren(text("p", "Promotions unavailable. Reopen to retry.", "العروض غير متاحة. أعد فتح القسم للمحاولة."));
+            if (alive()) {
+                content.replaceChildren(text("p", "Promotions unavailable.", "العروض غير متاحة."),
+                    button(page, "Retry promotions", "إعادة تحميل العروض"));
+            }
+        } finally {
+            if (current === revision) pending = false;
         }
     }
 
@@ -710,6 +757,7 @@ function sponsorPanel(stations, placement, catalogRequest, identity) {
         if (panel.open) load();
         else {
             revision++;
+            pending = false;
             content.replaceChildren();
         }
     };
