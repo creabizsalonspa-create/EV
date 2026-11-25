@@ -5,6 +5,7 @@ namespace App\Models;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Crypt;
 
 class OcpiRecord extends Model
 {
@@ -16,7 +17,17 @@ class OcpiRecord extends Model
 
     protected function casts(): array
     {
-        return ['payload' => 'encrypted:array', 'normalized' => 'array', 'source_updated_at' => 'immutable_datetime', 'received_at' => 'immutable_datetime'];
+        return ['normalized' => 'array', 'source_updated_at' => 'immutable_datetime', 'received_at' => 'immutable_datetime'];
+    }
+
+    /** The digest distinguishes JSON 1.0 from 1. Keep the encrypted JSON
+     * representation consistent with the canonical digest on new writes. */
+    protected function payload(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => $value === null ? null : json_decode(Crypt::decryptString($value), true, flags: JSON_THROW_ON_ERROR),
+            set: fn ($value) => $value === null ? null : Crypt::encryptString(json_encode($value, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)),
+        );
     }
 
     /**

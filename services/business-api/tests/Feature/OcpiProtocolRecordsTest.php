@@ -6,9 +6,11 @@ use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Ocpi\CredentialExchange;
+use App\Services\Ocpi\RecordNormalizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class OcpiProtocolRecordsTest extends TestCase
@@ -34,6 +36,139 @@ class OcpiProtocolRecordsTest extends TestCase
     private function cdr(array $s): array
     {
         return ['country_code' => 'NL', 'party_id' => 'ABC', 'id' => 'cdr-1', 'session_id' => $s['id'], 'last_updated' => $s['last_updated'], 'start_date_time' => $s['start_date_time'], 'end_date_time' => $s['end_date_time'], 'currency' => $s['currency'], 'total_energy' => $s['kwh'], 'total_time' => '1', 'total_cost' => $s['total_cost'], 'cdr_location' => ['id' => $s['location_id'], 'evse_uid' => $s['evse_uid'], 'connector_id' => $s['connector_id']], 'cdr_token' => ['uid' => 'PRIVATE-SOURCE-TAG']];
+    }
+
+    public function test_managed_pull_rejects_foreign_party_in_any_page_without_partial_ingestion(): void
+    {
+        [$provider] = $this->context();
+        $session = $this->sessionPayload();
+        $owner = User::findOrFail($provider->owner_id);
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://partner.example/sessions' => Http::response([
+                'status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => [$session],
+            ], 200, ['Link' => '<https://partner.example/sessions?page=2>; rel="next"']),
+            'https://partner.example/sessions?page=2' => Http::response([
+                'status_code' => 1000, 'timestamp' => now()->toISOString(),
+                'data' => [array_replace($session, ['party_id' => 'BAD', 'id' => 'foreign-session'])],
+            ]),
+        ]);
+        $this->actingAs($owner)->postJson('/api/ocpi/providers/'.$provider->id.'/sync/sessions')->assertConflict();
+        Http::assertSentCount(2);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('ocpi_session_meter_history', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertNull($provider->fresh()->last_synced_at);
+    }
+
+    public function test_managed_cdr_pull_rejects_foreign_country_and_preserves_accepted_session(): void
+    {
+        [$provider, $headers] = $this->context();
+        $session = $this->sessionPayload();
+        $this->putJson('/api/roaming-protocol/2.2.1/sessions/NL/ABC/session-1', $session, $headers)->assertCreated();
+        Http::preventStrayRequests();
+        $cdr = $this->cdr($session);
+        Http::fake([
+            'https://partner.example/cdrs' => Http::response([
+                'status_code' => 1000, 'timestamp' => now()->toISOString(),
+                'data' => [$cdr, array_replace($cdr, ['country_code' => 'AE', 'id' => 'foreign-cdr'])],
+            ]),
+        ]);
+        $this->actingAs(User::findOrFail($provider->owner_id))->withHeaders(['Authorization' => ''])
+            ->postJson('/api/ocpi/providers/'.$provider->id.'/sync/cdrs')->assertConflict();
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 1);
+        $this->assertSame('sessions', OcpiRecord::firstOrFail()->module);
+        $this->assertDatabaseCount('ocpi_record_receipts', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_corrupted_stored_session_cannot_be_returned_patched_or_acknowledged_as_duplicate(): void
+    {
+        [, $headers] = $this->context();
+        $path = '/api/roaming-protocol/2.2.1/sessions/NL/ABC/session-1';
+        $session = array_replace($this->sessionPayload(), ['status' => 'ACTIVE', 'end_date_time' => null]);
+        $this->putJson($path, $session, $headers)->assertCreated();
+        $record = OcpiRecord::firstOrFail();
+        DB::table('ocpi_records')->where('id', $record->id)->update([
+            'normalized' => json_encode(array_replace($record->normalized, ['energy_kwh' => '99']), JSON_THROW_ON_ERROR),
+        ]);
+        $this->getJson($path, $headers)->assertConflict()->assertJsonPath('data', null);
+        $this->patchJson($path, ['last_updated' => now()->subMinute()->toISOString(), 'kwh' => '15'], $headers)->assertConflict();
+        $this->putJson($path, $session, $headers)->assertConflict();
+        $this->assertDatabaseCount('ocpi_record_receipts', 1);
+        $this->assertSame($record->content_hash, $record->fresh()->content_hash);
+        DB::table('ocpi_records')->where('id', $record->id)->update(['normalized' => $record->getRawOriginal('normalized')]);
+        $this->getJson($path, $headers)->assertOk()->assertJsonPath('data.kwh', '12.34');
+        $this->patchJson($path, ['last_updated' => now()->subMinute()->toISOString(), 'kwh' => '15'], $headers)->assertOk();
+        $this->assertDatabaseCount('ocpi_record_receipts', 2);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_corrupted_cdr_cannot_be_returned_or_acknowledged_by_exact_replay(): void
+    {
+        [, $headers] = $this->context();
+        $path = '/api/roaming-protocol/2.2.1/cdrs';
+        $cdr = $this->cdr($this->sessionPayload());
+        $this->postJson($path, $cdr, $headers)->assertCreated();
+        $record = OcpiRecord::firstOrFail();
+        DB::table('ocpi_records')->where('id', $record->id)->update([
+            'payload' => Crypt::encryptString(json_encode(array_replace($cdr, ['total_energy' => '99']), JSON_THROW_ON_ERROR)),
+        ]);
+        $this->getJson($path.'/cdr-1', $headers)->assertConflict()->assertJsonPath('data', null);
+        $this->postJson($path, $cdr, $headers)->assertConflict();
+        $this->assertDatabaseCount('ocpi_record_receipts', 1);
+        DB::table('ocpi_records')->where('id', $record->id)->update(['payload' => $record->getRawOriginal('payload')]);
+        $this->postJson($path, $cdr, $headers)->assertOk();
+        $this->getJson($path.'/cdr-1', $headers)->assertOk()->assertJsonPath('data.total_energy', '12.34');
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_exact_numeric_zero_fraction_survives_encrypted_source_and_receipt_replay(): void
+    {
+        [$provider, $headers] = $this->context();
+        $session = array_replace($this->sessionPayload(), ['kwh' => 12.0]);
+        $path = '/api/roaming-protocol/2.2.1/sessions/NL/ABC/session-1';
+        $this->call('PUT', $path, [], [], [], [
+            'CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json',
+            'HTTP_AUTHORIZATION' => $headers['Authorization'],
+        ], json_encode($session, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION))->assertCreated();
+        $record = OcpiRecord::where('ocpi_provider_id', $provider->id)->firstOrFail();
+        $this->assertSame(12.0, $record->payload['kwh']);
+        $this->assertSame('12', $record->normalized['energy_kwh']);
+        $this->assertSame($record->content_hash, app(RecordNormalizer::class)->hash($record->payload));
+        $this->call('PUT', $path, [], [], [], [
+            'CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json',
+            'HTTP_AUTHORIZATION' => $headers['Authorization'],
+        ], json_encode($session, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION))->assertOk();
+        $this->getJson($path, $headers)->assertOk();
+        $this->assertDatabaseCount('ocpi_record_receipts', 1);
+        $this->assertDatabaseCount('ocpi_session_meter_history', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_managed_sync_cannot_acknowledge_or_replace_corrupt_existing_source(): void
+    {
+        [$provider, $headers] = $this->context();
+        $session = array_replace($this->sessionPayload(), ['status' => 'ACTIVE', 'end_date_time' => null]);
+        $this->putJson('/api/roaming-protocol/2.2.1/sessions/NL/ABC/session-1', $session, $headers)->assertCreated();
+        $record = OcpiRecord::firstOrFail();
+        DB::table('ocpi_records')->where('id', $record->id)->update(['content_hash' => str_repeat('a', 64)]);
+        $before = DB::table('ocpi_records')->where('id', $record->id)->first();
+        Http::preventStrayRequests();
+        Http::fake(fn () => Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(),
+            'data' => [array_replace($session, ['id' => 'candidate']), $session]]));
+        $url = '/api/ocpi/providers/'.$provider->id.'/sync/sessions';
+        $this->actingAs(User::findOrFail($provider->owner_id))->withHeaders(['Authorization' => ''])->postJson($url)->assertConflict();
+        Http::assertSentCount(1);
+        $this->assertEquals($before, DB::table('ocpi_records')->where('id', $record->id)->first());
+        $this->assertDatabaseCount('ocpi_records', 1);
+        $this->assertDatabaseCount('ocpi_session_meter_history', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        DB::table('ocpi_records')->where('id', $record->id)->update(['content_hash' => $record->content_hash]);
+        $this->postJson($url)->assertOk()->assertJsonPath('counts.created', 1)->assertJsonPath('counts.duplicate', 1);
+        $this->assertDatabaseCount('ocpi_records', 2);
+        $this->assertDatabaseCount('ocpi_session_meter_history', 2);
     }
 
     public function test_authenticated_session_and_cdr_delivery_is_idempotent_and_visible_to_owned_operations(): void

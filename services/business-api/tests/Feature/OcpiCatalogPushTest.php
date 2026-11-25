@@ -76,6 +76,49 @@ class OcpiCatalogPushTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_receiver_cannot_read_write_or_withdraw_after_negotiated_endpoint_changes_inside_request(): void
+    {
+        [$provider, , $headers, $path] = $this->context();
+        $this->putJson($path, $this->location(), $headers)->assertCreated();
+        $tariffPath = '/api/roaming-protocol/2.2.1/tariffs/NL/ABC/tariff-fence';
+        $tariff = ['country_code' => 'NL', 'party_id' => 'ABC', 'id' => 'tariff-fence',
+            'last_updated' => now()->subMinute()->toISOString(), 'currency' => 'EUR',
+            'elements' => [['price_components' => [['type' => 'ENERGY', 'price' => '0.45', 'step_size' => 1]]]]];
+        $this->putJson($tariffPath, $tariff, $headers)->assertCreated();
+
+        // Inject a same-revision endpoint change after the initial peer lookup
+        // and at the exact credential-link row acquisition. The refused
+        // request rolls back this synthetic change with all source writes.
+        $armed = false;
+        $module = 'locations';
+        $hits = 0;
+        DB::listen(function ($query) use ($provider, &$armed, &$module, &$hits) {
+            if ($armed && str_contains(strtolower($query->sql), 'select * from "ocpi_credential_links" where "id" =')) {
+                $armed = false;
+                $hits++;
+                $endpoints = $provider->endpoints;
+                $endpoints[$module] = 'https://partner.example/changed';
+                DB::table('ocpi_providers')->where('id', $provider->id)->update(['endpoints' => json_encode($endpoints, JSON_THROW_ON_ERROR)]);
+            }
+        });
+        $armed = true;
+        $this->getJson($path, $headers)->assertForbidden()->assertJsonPath('data', null);
+        $armed = true;
+        $this->patchJson($path, ['name' => 'Unauthorized change', 'last_updated' => now()->toISOString()], $headers)->assertForbidden();
+        $module = 'tariffs';
+        $armed = true;
+        $this->deleteJson($tariffPath, [], $headers)->assertForbidden();
+        $this->assertSame(3, $hits);
+        $this->assertDatabaseCount('ocpi_record_receipts', 2);
+        $this->assertDatabaseCount('ocpi_catalog_retirements', 0);
+        $this->assertSame('Pushed partner station', OcpiRecord::where('module', 'locations')->firstOrFail()->normalized['name']);
+        $this->assertSame($provider->endpoints, $provider->fresh()->endpoints);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->getJson($path, $headers)->assertOk();
+        $this->getJson($tariffPath, $headers)->assertOk();
+        Http::assertNothingSent();
+    }
+
     public function test_nested_location_updates_preserve_other_components_and_reject_stale_conflicting_or_ambiguous_data(): void
     {
         [, , $headers, $path] = $this->context();
