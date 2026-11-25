@@ -347,17 +347,72 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
   String currency = '';
   bool busy = true, consent = false, done = false, noFunds = false;
   Object? error;
+  int generation = 0, targetGeneration = 0;
+  late final bool Function() sessionFence;
+  StreamSubscription<int>? session;
+  bool revoked = false;
+  bool authorized() => !revoked && sessionFence();
+
   @override
   void initState() {
     super.initState();
+    sessionFence = widget.api.sessionFence();
+    session = widget.api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      revoked = true;
+      generation++;
+      redactFormerIdentity();
+    });
     initialize();
   }
 
   @override
+  void didUpdateWidget(covariant CreatePaymentCaseView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        oldWidget.invoiceId != widget.invoiceId ||
+        !identical(oldWidget.store, widget.store)) {
+      generation++;
+      targetGeneration++;
+      if (!identical(oldWidget.api, widget.api)) revoked = true;
+      amount.clear();
+      reason.clear();
+      operation = null;
+      owner = 0;
+      digits = 0;
+      maximum = 0;
+      currency = '';
+      busy = true;
+      consent = false;
+      done = false;
+      noFunds = false;
+      error = null;
+      if (authorized()) initialize();
+    }
+  }
+
+  @override
   void dispose() {
+    generation++;
+    session?.cancel();
     amount.dispose();
     reason.dispose();
     super.dispose();
+  }
+
+  void redactFormerIdentity() {
+    // Do not preserve the prior owner's invoice information on this route.
+    amount.clear();
+    reason.clear();
+    operation = null;
+    owner = 0;
+    maximum = 0;
+    currency = '';
+    consent = false;
+    noFunds = false;
+    done = false;
+    error = null;
+    setState(() => busy = false);
   }
 
   void fail(Object e) {
@@ -369,56 +424,89 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
   }
 
   Future<void> initialize() async {
+    final epoch = ++generation;
+    final api = widget.api;
+    final current = authorized;
+    if (!current()) return;
     try {
-      final me = await widget.api.request('me');
-      final result = await widget.api.request(
+      final me = await api.request('me');
+      if (!mounted || epoch != generation || !current() ||
+          !identical(api, widget.api)) return;
+      if (me is! Map || me['id'] is! int || me['id'] < 1 ||
+          me['id'] > 9007199254740991 ||
+          me['role'] != 'customer') {
+        throw const ApiException(403, 'Customer invoice ownership required.');
+      }
+      final actorId = me['id'] as int;
+      final result = await api.request(
         'finance/invoices/${widget.invoiceId}',
       );
+      if (!mounted || epoch != generation || !current() ||
+          !identical(api, widget.api)) return;
+      if (result is! Map) {
+        throw const FormatException('Unsupported invoice record.');
+      }
       final invoice = result['invoice'];
       if (invoice is! Map ||
           invoice['id'] != widget.invoiceId ||
-          invoice['user_id'] != me['id'] ||
+          invoice['user_id'] != actorId ||
           invoice['minor_units'] is! int ||
           invoice['minor_units'] < 0 ||
           invoice['minor_units'] > 3 ||
           invoice['currency'] is! String ||
-          result['real_payment_processed'] != false)
+          result['real_payment_processed'] != false) {
         throw const ApiException(403, 'Own invoice required.');
-      owner = me['id'] as int;
-      digits = invoice['minor_units'] as int;
-      currency = invoice['currency'] as String;
-      if (!RegExp(r'^[A-Z]{3}$').hasMatch(currency) ||
-          result['net_collected_minor'] is! int ||
-          result['net_collected_minor'] < 0)
+      }
+      final parsedCurrency = invoice['currency'] as String;
+      final captured = result['net_collected_minor'];
+      if (!RegExp(r'^[A-Z]{3}$').hasMatch(parsedCurrency) ||
+          captured is! int || captured < 0 || captured > 2000000000) {
         throw const FormatException('Unsupported captured balance.');
-      maximum = result['net_collected_minor'] as int;
-      if (!mounted) return;
-      operation = FinancialOperation(
+      }
+      final target = targetGeneration;
+      final pending = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
-        '${widget.api.base.origin}:$owner:case:${widget.invoiceId}',
-        isCurrent: widget.api.sessionFence(),
+        '${api.base.origin}:$actorId:case:${widget.invoiceId}',
+        isCurrent: () => mounted && current() &&
+            identical(api, widget.api) && target == targetGeneration,
       );
-      await operation!.restore();
-      if (!mounted) return;
-      if (operation!.pending == null && maximum == 0) {
+      await pending.restore();
+      if (!mounted || epoch != generation || !current() ||
+          !identical(api, widget.api)) return;
+      owner = actorId;
+      digits = invoice['minor_units'] as int;
+      currency = parsedCurrency;
+      maximum = captured;
+      operation = pending;
+      if (pending.pending == null && maximum == 0) {
         noFunds = true;
         operation = null;
-        return;
-      }
-      if (operation!.pending != null) {
-        final body = operation!.pending!['body'] as Map;
+      } else if (pending.pending != null) {
+        final body = pending.pending!['body'] as Map;
         amount.text = minorDecimal(body['amount_minor'] as int, digits);
         reason.text = body['reason'] as String;
       }
     } catch (e) {
-      if (mounted) fail(e);
+      if (mounted && epoch == generation && current() &&
+          identical(api, widget.api)) fail(e);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && epoch == generation &&
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else {
+          setState(() => busy = false);
+        }
+      }
     }
   }
 
   Future<void> submit() async {
-    if (busy || operation == null || !consent) return;
+    final api = widget.api;
+    final current = authorized;
+    final pending = operation;
+    if (!mounted || busy || pending == null || !consent || !current()) return;
+    final epoch = ++generation;
     setState(() {
       busy = true;
       error = null;
@@ -427,44 +515,72 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
       final parsed = decimalMinor(amount.text, digits, maximum: 2000000000);
       if (parsed == null ||
           parsed < 1 ||
-          (operation!.pending == null && parsed > maximum) ||
+          (pending.pending == null && parsed > maximum) ||
           reason.text.trim().isEmpty ||
-          reason.text.trim().length > 500)
+          reason.text.trim().length > 500) {
         throw const FormatException('Invalid dispute fields.');
-      final body = await operation!.prepare({
+      }
+      final body = await pending.prepare({
         'invoice_id': widget.invoiceId,
         'kind': 'dispute',
         'amount_minor': parsed,
         'reason': reason.text.trim(),
       });
-      if (!mounted) return;
-      final row = await widget.api.request(
+      if (!mounted || epoch != generation || !current() ||
+          !identical(api, widget.api)) return;
+      final row = await api.request(
         'commercial/cases',
         method: 'POST',
         body: body,
       );
+      if (!mounted || epoch != generation || !current() ||
+          !identical(api, widget.api)) return;
       if (row is! Map ||
           row['id'] is! int ||
-          row['user_id'] != owner ||
-          row['invoice_id'] != widget.invoiceId ||
-          row['amount_minor'] != parsed ||
+          row['id'] < 1 || row['id'] > 9007199254740991 ||
+          row['user_id'] is! int || row['user_id'] != owner ||
+          row['invoice_id'] is! int || row['invoice_id'] != widget.invoiceId ||
+          row['amount_minor'] is! int || row['amount_minor'] != parsed ||
           row['reason'] != body['reason'] ||
           row['kind'] != 'dispute' ||
+          row['status'] != 'open' ||
           row['real_money_moved'] != false ||
-          !['MOCK_PROVIDER', 'STRIPE_TEST_CONTRACT'].contains(row['evidence']))
+          !['MOCK_PROVIDER', 'STRIPE_TEST_CONTRACT'].contains(row['evidence'])) {
         throw const FormatException('Unsupported case receipt.');
-      await operation!.confirmed();
-      if (mounted) setState(() => done = true);
+      }
+      await pending.confirmed();
+      if (mounted && epoch == generation && current() &&
+          identical(api, widget.api)) {
+        setState(() => done = true);
+      }
     } catch (e) {
-      if (mounted) fail(e);
+      if (mounted && epoch == generation && current() &&
+          identical(api, widget.api)) fail(e);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && epoch == generation &&
+          identical(api, widget.api)) {
+        if (!current()) {
+          redactFormerIdentity();
+        } else {
+          setState(() => busy = false);
+        }
+      }
     }
   }
 
   @override
   Widget build(BuildContext c) {
     String t(String k) => caseText(c, k);
+    if (!authorized()) {
+      return Scaffold(
+        appBar: AppBar(title: Text(t('new'))),
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(t('notice')),
+        ),
+      );
+    }
+    final view = generation;
     final locked = busy || operation?.pending != null || done;
     return Scaffold(
       appBar: AppBar(title: Text(t('new'))),
@@ -497,11 +613,17 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
               value: consent,
               onChanged: busy || operation == null
                   ? null
-                  : (v) => setState(() => consent = v!),
+                  : (v) {
+                      if (mounted && authorized() && view == generation) {
+                        setState(() => consent = v!);
+                      }
+                    },
               title: Text(t('submitConsent')),
             ),
             FilledButton(
-              onPressed: busy || !consent || operation == null ? null : submit,
+              onPressed: busy || !consent || operation == null ? null : () {
+                if (mounted && authorized() && view == generation) submit();
+              },
               child: Text(t('confirm')),
             ),
           ],
