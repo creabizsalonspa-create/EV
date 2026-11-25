@@ -28,8 +28,11 @@ final class AccountDataExport
 
     public function snapshot(User $owner, AccountPrivacyRequest $case): string
     {
+        abort_unless(DB::transactionLevel() > 0 && (int) $case->user_id === (int) $owner->id
+            && $case->kind === 'access' && $case->status === 'reviewing',
+            409, 'Privacy copy requires its authorized review transaction.');
         $this->bytes = 0;
-        $id = $owner->id;
+        $id = (int) $owner->id;
         $owned = fn ($table) => DB::table($table)->where('user_id', $id);
         $reservations = fn () => DB::table('reservations')->where('user_id', $id)->select('id');
         $invoices = fn () => DB::table('finance_invoices')->where('user_id', $id)->select('id');
@@ -77,7 +80,7 @@ final class AccountDataExport
             }
         }
         $body = json_encode([
-            'schema_version' => 1, 'request_id' => $case->id, 'owner_id' => $id, 'generated_at' => now()->toIso8601String(),
+            'schema_version' => 1, 'request_id' => (int) $case->id, 'owner_id' => $id, 'generated_at' => now()->toIso8601String(),
             'scope' => 'self_service_account_copy',
             'notice' => 'Personal account copy. Financial amounts are decimal strings of integer minor units; invoice currency and precision apply. This is not a payment or legal invoice. Retained source, financial and audit records are not deleted.',
             'excluded' => ['Passwords, session cookies, bearer tokens, MFA secrets and recovery codes', 'Other people, organization/vendor records, private reviewer notes and source credentials', 'Private evidence files, provider payloads and internal operational/security records require separate assisted review'],
