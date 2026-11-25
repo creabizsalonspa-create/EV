@@ -184,7 +184,7 @@ class SessionBridge
             'start_command' => ChargerCommand::whereKey($link->start_command_id)->first(['id', 'status', 'failure_code']), 'stop_command' => $link->stop_command_id ? ChargerCommand::whereKey($link->stop_command_id)->first(['id', 'status', 'failure_code']) : null, 'evidence' => 'SIMULATED_CSMS', 'physical_charging_verified' => false];
     }
 
-    public function ingest(array $v): array
+    public function ingest(array $v, ?callable $authorize = null): array
     {
         $this->enabled();
         try {
@@ -201,7 +201,7 @@ class SessionBridge
         }
         $hash = hash('sha256', json_encode($identity, JSON_THROW_ON_ERROR));
 
-        $result = DB::transaction(function () use ($v, $at, $hash) {
+        $result = DB::transaction(function () use ($v, $at, $hash, $authorize) {
             // Lock the station ahead of the session link: signed event data
             // alone cannot authorize a previously bound but now reparented
             // source, and source rebinding must not race invoice issuance.
@@ -258,6 +258,10 @@ class SessionBridge
                     'Canonical source target mismatch.');
             }
             abort_unless($link->closed_without_dispatch_at === null, 409, 'This request was closed before dispatch; unexpected source activity requires reconciliation.');
+            // Even an idempotent duplicate is private authenticated evidence.
+            if ($authorize !== null) {
+                $authorize();
+            }
             $old = DB::table('csms_inbox_events')->where('event_id', $v['event_id'])->first();
             if ($old) {
                 abort_unless($old->link_id === $link->id && hash_equals($old->fingerprint, $hash), 409, 'Event identity payload conflict.');
@@ -275,6 +279,11 @@ class SessionBridge
             abort_unless($link->transaction_id === null || $link->transaction_id === $v['transaction_id'], 409, 'Transaction identity conflict.');
             $s = ChargingSession::whereKey($link->charging_session_id)->lockForUpdate()->firstOrFail();
             $r = Reservation::findOrFail($s->reservation_id);
+            // The final session lock can also wait; revalidate before
+            // applying energy, writing a receipt or issuing an invoice.
+            if ($authorize !== null) {
+                $authorize();
+            }
             if ($sequence <= $link->last_sequence) {
                 $outcome = 'stale';
             } else {

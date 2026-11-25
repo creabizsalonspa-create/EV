@@ -52,7 +52,7 @@ class CsmsSessionBridgeTest extends TestCase
     private function send(array $event, ?string $timestamp = null, ?string $key = null)
     {
         $raw = json_encode($event, JSON_THROW_ON_ERROR);
-        $ts = $timestamp ?? (string) time();
+        $ts = $timestamp ?? (string) now()->timestamp;
 
         return $this->call('POST', '/api/internal/csms/events', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTP_X_EV_TIMESTAMP' => $ts, 'HTTP_X_EV_SIGNATURE' => hash_hmac('sha256', $ts.'.'.$raw, $key ?? self::KEY)], $raw);
     }
@@ -151,7 +151,7 @@ class CsmsSessionBridgeTest extends TestCase
         $id = ChargingSession::first()->id;
         $started = $this->event($id, 'started', 0, 1000);
         $this->send($started, key: 'wrong-key')->assertUnauthorized();
-        $this->send($started, timestamp: (string) (time() - 301))->assertUnauthorized();
+        $this->send($started, timestamp: (string) (now()->timestamp - 301))->assertUnauthorized();
         $this->send($started + [], key: self::KEY)->assertOk();
         $this->send($this->event($id, 'meter', 1, 2000, ['identifier' => 'ev-test-different']))->assertConflict();
         $this->send($this->event($id, 'meter', 1, 2000, ['transaction_id' => '456']))->assertConflict();
@@ -276,6 +276,55 @@ class CsmsSessionBridgeTest extends TestCase
         $this->send($event)->assertOk()->assertJsonPath('outcome', 'applied');
         $this->assertSame(1000, (int) $session->fresh()->energy_wh);
         $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[TestWith(['1.6', 'expire'])]
+    #[TestWith(['2.0.1', 'expire'])]
+    #[TestWith(['1.6', 'rotate'])]
+    #[TestWith(['2.0.1', 'rotate'])]
+    public function test_signed_terminal_receipt_rechecks_authority_after_session_lock(string $protocol, string $change): void
+    {
+        [, $customer, , $reservation] = $this->fixture($protocol);
+        $this->actingAs($customer)->postJson('/api/reservations/'.$reservation->id.'/csms-start')->assertAccepted();
+        $session = ChargingSession::firstOrFail();
+        $this->send($this->event($session->id, 'started', 0, 1000))->assertOk();
+        $end = $this->event($session->id, 'ended', 1, 3500);
+        $mutated = false;
+        $sessionReads = 0;
+        DB::listen(function ($query) use (&$mutated, &$sessionReads, $change) {
+            // The third charging_sessions SELECT is the final session lock:
+            // hint, link-correlated read, then the write-boundary lock.
+            if (! $mutated && str_contains(strtolower($query->sql), 'select')
+                && str_contains($query->sql, 'charging_sessions')
+                && ++$sessionReads === 3) {
+                $mutated = true;
+                if ($change === 'expire') {
+                    $this->travel(301)->seconds();
+                } else {
+                    config(['csms.event_secret' => str_repeat('r', 64)]);
+                }
+            }
+        });
+        try {
+            $this->send($end)->assertUnauthorized();
+            $this->assertTrue($mutated, 'The simulated lock-boundary change must occur.');
+            $this->assertDatabaseCount('csms_inbox_events', 1);
+            $this->assertDatabaseCount('finance_invoices', 0);
+            $this->assertSame('charging', $session->fresh()->status);
+            $this->assertSame(0, (int) $session->fresh()->energy_wh);
+
+            // The unchanged receipt can be signed afresh by current authority.
+            $key = $change === 'rotate' ? str_repeat('r', 64) : self::KEY;
+            $this->send($end, key: $key)->assertOk()->assertJsonPath('outcome', 'applied');
+            $this->send($end, key: $key)->assertOk()->assertJsonPath('outcome', 'duplicate');
+            $this->assertDatabaseCount('finance_invoices', 1);
+            $this->assertDatabaseCount('csms_inbox_events', 2);
+            $this->assertSame(2500, (int) $session->fresh()->energy_wh);
+            $this->assertSame('stopped', $session->fresh()->status);
+        } finally {
+            config(['csms.event_secret' => self::KEY]);
+            $this->travelBack();
+        }
     }
 
     public function test_disabled_or_production_bridge_never_accepts_events(): void
