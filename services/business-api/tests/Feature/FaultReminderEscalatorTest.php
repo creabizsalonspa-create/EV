@@ -158,6 +158,9 @@ class FaultReminderEscalatorTest extends TestCase
             'now',
             '2020-02-30 10:00:00',
             '2020-01-01 24:00:00',
+            '2020-01-01T10:00:00+24:00',
+            '2020-01-01T10:00:00-24:00',
+            '2020-01-01T10:00:00+04:99',
         ];
         foreach ($invalidTimes as $untrusted) {
             DB::table('charging_status_observations')
@@ -362,6 +365,7 @@ class FaultReminderEscalatorTest extends TestCase
         $invalidTimes = [
             '', '   ', 'now', 'today',
             '2020-02-30 10:00:00', '2020-01-01 24:00:00',
+            now()->copy()->addDay()->format('Y-m-d H:i:s').'+24:00',
         ];
         foreach ($invalidTimes as $invalidTime) {
             DB::table('charging_status_observations')->where('id', $bad)
