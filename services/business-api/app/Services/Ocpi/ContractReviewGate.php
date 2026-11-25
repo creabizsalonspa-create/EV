@@ -35,6 +35,7 @@ final class ContractReviewGate
             $evidence->selectRaw('1')->from('ocpi_partner_contract_reviews as review')
                 ->whereColumn('review.provider_id', 'ocpi_providers.id')
                 ->whereColumn('review.owner_id', 'ocpi_providers.owner_id')
+                ->whereColumn('review.connection_key', 'ocpi_providers.connection_key')
                 ->where('review.decision', 'review')
                 ->where('review.valid_until', '>=', now('UTC')->toDateString())
                 ->whereNotExists(function ($later) {
@@ -59,6 +60,7 @@ final class ContractReviewGate
             ->where('provider_id', $provider->id)->orderByDesc('revision')->first();
 
         return $latest && (int) $latest->owner_id === (int) $owner->id
+            && $latest->connection_key === $provider->connection_key
             && $latest->decision === 'review'
             && is_string($latest->valid_until)
             && $latest->valid_until >= now('UTC')->toDateString();
