@@ -191,7 +191,7 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
       await matrix.getByText(`${f.version}: Signed source match`, { exact: true }).waitFor();
       await o.p.locator("#language").click();
       await matrix.getByRole("heading", { name: "لقطة مصدر موثقة", exact: true }).waitFor();
-      await matrix.getByText(`${f.version}: تطابق مصدر موقع`, { exact: true }).waitFor();
+      await matrix.getByText(`الإصدار ${f.version}: تطابق مصدر موقع`, { exact: true }).waitFor();
       await o.p.locator("#language").click();
       await matrix.getByRole("heading", { name: "Authenticated source snapshot", exact: true }).waitFor();
       const compatibilityPath = `**/api/vendor-ops/companies/${f.company_id}/chargers/${f.charger_id}/firmware-compatibility`;
