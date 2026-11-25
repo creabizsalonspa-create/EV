@@ -352,6 +352,41 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_owner_global_reminder_age_cannot_delay_explicit_sixty_minute_admin_escalation(): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(60)->addSecond()]);
+        $service = app(FaultReminderEscalator::class);
+        $early = $service->scan(50, 0, 120);
+        $this->assertSame(0, $early['escalated']);
+        $this->assertSame(0, $early['reminded']);
+        $this->travel(1)->seconds();
+        $atBoundary = $service->scan(50, 0, 120);
+        $this->assertSame(1, $atBoundary['escalated']);
+        $this->assertSame(0, $atBoundary['reminded']);
+        $this->assertDatabaseHas('charging_fault_admin_escalations', [
+            'alert_id' => $f['alert'], 'admin_user_id' => $admin->id,
+        ]);
+        $this->assertDatabaseCount('charging_fault_reminders', 0);
+        $this->assertDatabaseCount('inbox_notifications', 1);
+        $repeat = $service->scan(50, 0, 120);
+        $this->assertSame(0, $repeat['escalated']);
+        $this->assertSame(0, $repeat['reminded']);
+        $this->travel(60)->minutes();
+        $ownerDue = $service->scan(50, 0, 120);
+        $this->assertSame(1, $ownerDue['reminded']);
+        $this->assertSame(0, $ownerDue['escalated']);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->assertDatabaseCount('charging_fault_admin_escalations', 1);
+        $this->assertDatabaseCount('charging_fault_reminders', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_suspended_vendor_does_not_block_authenticated_admin_escalation_closure(): void
     {
         $f = $this->fixture();
