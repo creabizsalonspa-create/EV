@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\Ocpi\PartnerClient;
+use App\Services\Ocpi\PartnerReadProfile;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
@@ -22,7 +23,7 @@ class OcpiProvider extends Model
 
     public function getReadableModulesAttribute(): array
     {
-        return $this->authorized && $this->version === '2.2.1' ? array_values(array_filter(PartnerClient::MODULES, fn ($m) => is_string($this->endpoints[$m] ?? null))) : [];
+        return $this->authorized && $this->version === '2.2.1' ? array_values(array_filter(PartnerClient::MODULES, fn ($m) => PartnerReadProfile::allows(config('ocpi.connections.'.$this->connection_key), $m) && is_string($this->endpoints[$m] ?? null))) : [];
     }
 
     public function getCommandsEnabledAttribute(): bool

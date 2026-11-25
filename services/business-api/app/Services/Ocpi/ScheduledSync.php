@@ -38,6 +38,7 @@ final class ScheduledSync
             && is_string($provider->endpoints[$module] ?? null), 409);
         $client = app(PartnerClient::class);
         $configuration = $client->connection($provider);
+        abort_unless(PartnerReadProfile::allows($configuration, $module), 409, 'Module is outside the approved network read scope.');
         $client->guardedUrl($provider, $provider->endpoints[$module]);
         $link = ($configuration['managed_credentials'] ?? false)
             ? DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first()
@@ -74,7 +75,8 @@ final class ScheduledSync
     {
         return ['module' => $module, 'enabled' => (bool) ($plan->enabled ?? false), 'revision' => (string) ($plan->revision ?? 0),
             'interval_minutes' => (int) ($plan->interval_minutes ?? 60), 'consent_current' => $plan ? $this->currentConsent($plan, $provider) : false,
-            'negotiated' => is_string($provider->endpoints[$module] ?? null), 'next_run_at' => $plan->next_run_at ?? null,
+            'negotiated' => PartnerReadProfile::allows(config('ocpi.connections.'.$provider->connection_key), $module)
+                && is_string($provider->endpoints[$module] ?? null), 'next_run_at' => $plan->next_run_at ?? null,
             'running' => ($plan->active_run ?? null) !== null, 'stopped_reason' => $plan->stopped_reason ?? null];
     }
 

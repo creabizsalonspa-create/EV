@@ -29,6 +29,7 @@ class PartnerClient
         if (! is_array($c) || ! is_string($c['origin'] ?? null)) {
             throw new OcpiException('Approved operator connection is not configured.');
         }
+        PartnerReadProfile::modules($c);
         $incoming = ($c['managed_credentials'] ?? false) && ($c['registration_direction'] ?? 'outbound') === 'incoming';
         $configuredCredential = $incoming ? ($c['inbound_authorization_token'] ?? null) : ($c['authorization_token'] ?? null);
         if (! is_string($configuredCredential) || $configuredCredential === '') {
@@ -286,6 +287,7 @@ REGEX;
             throw new OcpiException('Malformed OCPI 2.2.1 details.');
         }
         $endpoints = [];
+        $readModules = PartnerReadProfile::modules($c);
         $cpo = app(CpoCatalogContract::class)->modules($provider);
         foreach ($details['endpoints'] as $endpoint) {
             if (! is_array($endpoint) || ! is_string($endpoint['identifier'] ?? null) || ! is_string($endpoint['url'] ?? null) || ! in_array($endpoint['role'] ?? null, ['SENDER', 'RECEIVER'], true)) {
@@ -306,14 +308,18 @@ REGEX;
                 }
                 $endpoints[$name] = $url;
             }
-            if (in_array($endpoint['identifier'], self::MODULES, true) && $endpoint['role'] === 'SENDER') {
+            if (in_array($endpoint['identifier'], $readModules, true) && $endpoint['role'] === 'SENDER') {
                 if (isset($endpoints[$endpoint['identifier']])) {
                     throw new OcpiException('Ambiguous duplicate operator module endpoint.');
                 }
                 $endpoints[$endpoint['identifier']] = $url;
             }
         }
-        if (! isset($endpoints['locations']) && ! ($cpo && isset($endpoints['locations_receiver'], $endpoints['tariffs_receiver']))) {
+        // Preserve the historical default locations requirement. Explicit
+        // restricted profiles may negotiate another approved sender instead.
+        $hasReader = in_array('locations', $readModules, true)
+            ? isset($endpoints['locations']) : array_intersect($readModules, array_keys($endpoints)) !== [];
+        if (! $hasReader && ! ($cpo && isset($endpoints['locations_receiver'], $endpoints['tariffs_receiver']))) {
             throw new OcpiException('Operator lacks the approved OCPI catalog modules.');
         }
         DB::transaction(function () use ($provider, $endpoints, $authority) {
@@ -451,6 +457,9 @@ REGEX;
         $this->assertCurrent($provider);
         if (! in_array($module, self::MODULES, true) || $provider->version !== '2.2.1' || ! is_string($provider->endpoints[$module] ?? null)) {
             throw new OcpiException('Requested module has not been negotiated.');
+        }
+        if (! PartnerReadProfile::allows($this->connection($provider), $module)) {
+            throw new OcpiException('Requested module is outside the approved network read scope.');
         }
         $authority = $this->readAuthority($provider);
         $window = $this->pullWindow($requestedWindow);

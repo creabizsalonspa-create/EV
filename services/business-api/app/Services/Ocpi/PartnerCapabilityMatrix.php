@@ -59,7 +59,7 @@ final class PartnerCapabilityMatrix
         foreach (self::MODULES as $module) {
             $modules[] = [
                 'module' => $module,
-                'partner_sender_negotiated' => $outbound && is_string($provider->endpoints[$module] ?? null),
+                'partner_sender_negotiated' => $outbound && PartnerReadProfile::allows($connection, $module) && is_string($provider->endpoints[$module] ?? null),
                 'local_receiver_configured' => in_array($module, $configuredReceivers, true),
                 'local_receiver_active' => in_array($module, $activeReceivers, true),
                 'local_sender_configured' => in_array($module, $cpoModules, true),
