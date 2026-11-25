@@ -2,10 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\StationInformationController;
 use App\Models\Station;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\TestWith;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class StationInformationTest extends TestCase
@@ -173,6 +177,42 @@ class StationInformationTest extends TestCase
         $this->getJson($route)->assertOk()->assertJsonPath('notice_active', false);
         $this->travelBack();
         $this->assertSame('simulator', $station->fresh()->source);
+    }
+
+    #[TestWith(['auth_epoch', 3, 409])]
+    #[TestWith(['role', 'customer', 409])]
+    #[TestWith(['account_status', 'suspended', 403])]
+    #[TestWith(['password', 'changed-synthetic-password-hash', 409])]
+    public function test_captured_vendor_login_cannot_replace_operating_hours_or_notices(string $field, mixed $value, int $status): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($owner);
+        $route = '/api/stations/'.$station->id.'/information';
+        $this->actingAs($owner)->putJson($route, $this->details() + [
+            'notice_en' => 'Original public notice',
+            'notice_ar' => 'إشعار',
+            'notice_until' => now('UTC')->addDay()->toDateString(),
+        ])->assertOk();
+        $request = Request::create($route, 'PUT', $this->details(1) + [
+            'enforce_operating_hours' => true,
+            'notice_en' => 'Unauthorized replacement',
+            'notice_ar' => 'تغيير',
+            'notice_until' => now('UTC')->addDays(2)->toDateString(),
+        ]);
+        $request->setUserResolver(fn () => $owner);
+        DB::table('users')->where('id', $owner->id)->update([$field => $value]);
+        try {
+            app(StationInformationController::class)->save($request, $station);
+            $this->fail('A captured stale login published station policy.');
+        } catch (HttpException $error) {
+            $this->assertSame($status, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('station_information', [
+            'station_id' => $station->id, 'revision' => 1,
+            'notice_en' => 'Original public notice', 'enforce_operating_hours' => false,
+        ]);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'station.information.updated')->count());
+        $this->assertDatabaseCount('charger_commands', 0);
     }
 
     public function test_invalid_or_partial_notice_never_changes_existing_station_information(): void
