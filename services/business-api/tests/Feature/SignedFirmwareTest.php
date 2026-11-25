@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Http\Controllers\ChargerFirmwareController;
 use App\Http\Controllers\ChargerResetController;
+use App\Models\ChargerCommand;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
@@ -448,6 +449,42 @@ class SignedFirmwareTest extends TestCase
         $this->get('/api/internal/firmware/'.$raw)->assertNotFound();
         $this->assertStringNotContainsString($raw, $this->getJson($f['path'])->assertOk()->getContent());
         $this->assertStringNotContainsString('Signed simulator deployment', DB::table('charger_firmware_operations')->find($id)->reason);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_signed_firmware_cannot_be_claimed_with_unresolved_legacy_station_commands(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source($f);
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approve independently verified synthetic firmware',
+        ])->assertCreated()->json('id');
+        $stationId = DB::table('vendor_sites')->where('id', $f['charger']->site_id)->value('station_id');
+        $command = ChargerCommand::create([
+            'actor_id' => $f['owner']->id, 'station_id' => $stationId,
+            'action' => 'start', 'payload' => [],
+            'payload_hash' => str_repeat('a', 64), 'idempotency_key' => 'legacy-firmware-hold',
+        ]);
+        $body = [
+            'release_id' => $release, 'reason' => 'Keep firmware idle admission safe',
+            'idempotency_key' => 'hold-before-firmware',
+        ];
+        foreach (['pending', 'dispatching', 'submitted', 'outcome_unknown'] as $status) {
+            $command->update(['status' => $status]);
+            $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertConflict();
+            $this->assertDatabaseCount('charger_firmware_operations', 0);
+            $this->assertDatabaseCount('csms_session_links', 0);
+            $this->assertSame($status, $command->fresh()->status);
+            Http::assertNothingSent();
+        }
+        $command->update(['status' => 'rejected']);
+        $this->postJson($f['path'], $body)->assertCreated()
+            ->assertJsonPath('status', 'transport_submitted')
+            ->assertJsonPath('physical_execution_verified', false);
+        $this->assertDatabaseCount('charger_firmware_operations', 1);
+        $this->assertSame('rejected', $command->fresh()->status);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public static function malformedFirmwareReviewEvidence(): array
