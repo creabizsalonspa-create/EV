@@ -648,6 +648,48 @@ class OcpiCredentialsTest extends TestCase
         $this->assertDatabaseHas('ocpi_credential_links', ['provider_id' => $p->id, 'state' => 'awaiting_registration']);
     }
 
+    #[TestWith(['versions-link', 1])]
+    #[TestWith(['versions-object', 1])]
+    #[TestWith(['versions-malformed-entry', 1])]
+    #[TestWith(['details-link', 2])]
+    #[TestWith(['details-object', 2])]
+    #[TestWith(['details-malformed-entry', 2])]
+    public function test_partial_or_malformed_credential_metadata_never_dispatches_mutation(string $case, int $reads): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        Http::fake(function ($request) use ($case) {
+            $this->assertSame('GET', $request->method());
+            if (str_ends_with($request->url(), '/ocpi/versions')) {
+                $data = [['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']];
+                if ($case === 'versions-object') {
+                    $data = (object) $data;
+                } elseif ($case === 'versions-malformed-entry') {
+                    $data[] = 'malformed';
+                }
+
+                return Http::response($this->envelope($data), 200, $case === 'versions-link'
+                    ? ['Link' => '<https://partner.example/ocpi/versions?offset=1>; rel="next"'] : []);
+            }
+            $this->assertStringEndsWith('/ocpi/2.2.1', $request->url());
+            $endpoints = [['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => 'https://partner.example/ocpi/2.2.1/credentials']];
+            if ($case === 'details-object') {
+                $endpoints = (object) $endpoints;
+            } elseif ($case === 'details-malformed-entry') {
+                $endpoints[] = ['identifier' => 'locations', 'role' => ['private' => 'malformed'], 'url' => 'https://partner.example/locations'];
+            }
+
+            return Http::response($this->envelope(['version' => '2.2.1', 'endpoints' => $endpoints]), 200, $case === 'details-link'
+                ? ['Link' => '<https://partner.example/ocpi/2.2.1?offset=1>; rel="next"'] : []);
+        });
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertConflict();
+        Http::assertSentCount($reads);
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        $this->assertDatabaseCount('ocpi_credential_links', 0);
+        $this->assertNull($provider->fresh()->version);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_existing_outbound_credentials_keep_their_published_fingerprint_after_upgrade(): void
     {
         [$p] = $this->fixture();

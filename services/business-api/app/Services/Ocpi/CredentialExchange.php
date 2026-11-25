@@ -143,7 +143,7 @@ class CredentialExchange
         }
     }
 
-    private function wire(OcpiProvider $p, string $url, string $encodedToken, string $method = 'GET', ?array $body = null, ?object $peerLink = null): array
+    private function wire(OcpiProvider $p, string $url, string $encodedToken, string $method = 'GET', ?array $body = null, ?object $peerLink = null, ?string $metadata = null): array
     {
         $current = OcpiProvider::findOrFail($p->id);
         abort_unless($current->authorized && $current->owner_id === $p->owner_id && $current->connection_key === $p->connection_key && $current->authorization_revision === $p->authorization_revision, 409, 'Partner authority changed before transport.');
@@ -177,6 +177,9 @@ class CredentialExchange
             }
             abort_unless(strlen($text) <= 65536, 503);
             $this->verifyCredentialTrace($response, $trace);
+            if ($metadata !== null && ! CredentialDiscoveryMetadata::complete($text, $metadata, $response->toPsrResponse()->hasHeader('Link'))) {
+                throw new OcpiException('Incomplete or malformed peer credential metadata.');
+            }
             $reply = json_decode($text, true, flags: JSON_THROW_ON_ERROR);
             abort_unless(is_array($reply) && ($reply['status_code'] ?? null) === 1000 && $this->validPeerTimestamp($reply['timestamp'] ?? null) && ($method === 'DELETE' || array_key_exists('data', $reply)), 503);
 
@@ -192,18 +195,18 @@ class CredentialExchange
         if ($guard !== null) {
             $guard();
         }
-        $versions = $this->wire($p, $c['versions_path'] ?? '/ocpi/versions', $token, peerLink: $peerLink)['data'];
+        $versions = $this->wire($p, $c['versions_path'] ?? '/ocpi/versions', $token, peerLink: $peerLink, metadata: 'versions')['data'];
         if ($guard !== null) {
             $guard();
         }
         abort_unless(is_array($versions) && array_is_list($versions) && count($versions) <= 20, 409, 'Invalid peer versions.');
         $v = array_values(array_filter($versions, fn ($x) => is_array($x) && ($x['version'] ?? null) === '2.2.1'));
         abort_unless(count($v) === 1 && is_string($v[0]['url'] ?? null), 409, 'A unique OCPI2.2.1 advertisement is required.');
-        $details = $this->wire($p, $v[0]['url'], $token, peerLink: $peerLink)['data'];
+        $details = $this->wire($p, $v[0]['url'], $token, peerLink: $peerLink, metadata: 'details')['data'];
         if ($guard !== null) {
             $guard();
         }
-        abort_unless(is_array($details) && ($details['version'] ?? null) === '2.2.1' && is_array($details['endpoints'] ?? null) && count($details['endpoints']) <= 30, 409);
+        abort_unless(is_array($details) && ($details['version'] ?? null) === '2.2.1' && is_array($details['endpoints'] ?? null) && array_is_list($details['endpoints']) && count($details['endpoints']) <= 30, 409);
         $endpoints = array_values(array_filter($details['endpoints'], fn ($e) => is_array($e) && ($e['identifier'] ?? null) === 'credentials' && ($e['role'] ?? null) === 'RECEIVER'));
         abort_unless(count($endpoints) === 1 && is_string($endpoints[0]['url'] ?? null), 409, 'Unique peer credentials receiver is required.');
 
