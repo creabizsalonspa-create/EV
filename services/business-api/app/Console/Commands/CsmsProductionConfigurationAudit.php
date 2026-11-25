@@ -26,6 +26,18 @@ final class CsmsProductionConfigurationAudit extends Command
             && (! isset($parts['port']) || ($parts['port'] >= 1 && $parts['port'] <= 65535));
     }
 
+    private function graphqlEndpoint(mixed $value): bool
+    {
+        // Match the authenticated GraphQL transport's nonempty path contract.
+        // A bare HTTPS origin is not a configured GraphQL endpoint.
+        if (! $this->https($value) || strlen($value) > 512) {
+            return false;
+        }
+        $path = parse_url($value, PHP_URL_PATH);
+
+        return is_string($path) && strlen($path) >= 2 && str_starts_with($path, '/');
+    }
+
     private function independentSecrets(): bool
     {
         $secrets = [config('csms.graphql_secret'), config('csms.event_secret'), config('csms.ingress_secret'), config('csms.operations_oauth_client_secret')];
@@ -62,16 +74,30 @@ final class CsmsProductionConfigurationAudit extends Command
     private function pinsConfigured(): bool
     {
         $pins = config('csms.certificate_issuer_pins');
-        if (! is_array($pins) || count($pins) < 1 || count($pins) > 64) {
+        if (! is_array($pins) || ! array_is_list($pins) || count($pins) < 1 || count($pins) > 64) {
             return false;
         }
         foreach ($pins as $pin) {
-            if (! is_string($pin) || ! preg_match('/^[a-fA-F0-9]{64}$/D', $pin)) {
+            if (! is_string($pin) || ! preg_match('/^[a-f0-9]{64}$/D', $pin)) {
                 return false;
             }
         }
 
-        return count(array_unique(array_map('strtolower', $pins))) === count($pins);
+        // ChargerCertificateVerifier compares lowercase fingerprints exactly
+        // and excludes locally denied issuers. A configured but completely
+        // denied trust set cannot pass even this configuration-only audit.
+        $denied = config('csms.certificate_denied_issuers', []);
+        if (! is_array($denied) || ! array_is_list($denied)) {
+            return false;
+        }
+        foreach ($denied as $pin) {
+            if (! is_string($pin) || ! preg_match('/^[a-f0-9]{64}$/D', $pin)) {
+                return false;
+            }
+        }
+
+        return count(array_unique($pins)) === count($pins)
+            && array_diff($pins, $denied) !== [];
     }
 
     private function schemaConfigured(): bool
@@ -99,8 +125,9 @@ final class CsmsProductionConfigurationAudit extends Command
             'simulator_and_local_http_disabled' => ! config('csms.simulator_enabled')
                 && ! config('csms.session_bridge_enabled') && ! config('csms.ingress_allow_local_http')
                 && ! config('csms.upstream_registration_allow_local_http'),
-            'source_https' => $this->https(config('csms.graphql_url')),
-            'operations_https_and_audience' => $this->https($base) && $base === config('csms.operations_oauth_audience'),
+            'source_https' => $this->graphqlEndpoint(config('csms.graphql_url')),
+            'operations_https_and_audience' => $this->https($base)
+                && $base === rtrim($base, '/') && $base === config('csms.operations_oauth_audience'),
             'oauth_https_and_identity' => config('csms.operations_auth_mode') === 'oauth2'
                 && $this->https(config('csms.operations_oauth_token_url')) && $this->https(config('csms.operations_oauth_issuer'))
                 && is_string($client) && preg_match('/^[A-Za-z0-9._-]{1,200}$/D', $client) === 1

@@ -37,6 +37,7 @@ class CsmsProductionConfigurationAuditTest extends TestCase
             'csms.ingress_secret' => str_repeat('c', 64),
             'csms.operations_oauth_client_secret' => str_repeat('d', 64),
             'csms.certificate_issuer_pins' => [str_repeat('e', 64)],
+            'csms.certificate_denied_issuers' => [],
         ]);
         $this->assertSame(1, Artisan::call('csms:production-config-audit'));
         $this->assertFalse(json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR)['checks']['production_environment']);
@@ -57,6 +58,9 @@ class CsmsProductionConfigurationAuditTest extends TestCase
                 ['csms.session_bridge_enabled', true, 'simulator_and_local_http_disabled'],
                 ['csms.ingress_allow_local_http', true, 'simulator_and_local_http_disabled'],
                 ['csms.graphql_url', 'http://source.example.test/v1/graphql', 'source_https'],
+                ['csms.graphql_url', 'https://source.example.test', 'source_https'],
+                ['csms.graphql_url', 'https://source.example.test/', 'source_https'],
+                ['csms.graphql_url', 'https://source.example.test/'.str_repeat('x', 512), 'source_https'],
                 ['csms.graphql_url', 'https://user:PRIVATE-PASSWORD@source.example.test/v1/graphql', 'source_https'],
                 ['csms.operations_oauth_audience', 'https://other.example.test', 'operations_https_and_audience'],
                 ['csms.operations_auth_mode', 'development', 'oauth_https_and_identity'],
@@ -64,6 +68,11 @@ class CsmsProductionConfigurationAuditTest extends TestCase
                 ['csms.event_secret', str_repeat('a', 64), 'independent_service_secrets'],
                 ['csms.operations_oauth_public_keys', ['current' => 'PRIVATE-INVALID-KEY'], 'pinned_rsa_public_keys'],
                 ['csms.certificate_issuer_pins', [str_repeat('e', 64), str_repeat('E', 64)], 'certificate_issuer_pins_configured'],
+                ['csms.certificate_issuer_pins', [str_repeat('E', 64)], 'certificate_issuer_pins_configured'],
+                ['csms.certificate_issuer_pins', [str_repeat('e', 64), str_repeat('e', 64)], 'certificate_issuer_pins_configured'],
+                ['csms.certificate_issuer_pins', ['named' => str_repeat('e', 64)], 'certificate_issuer_pins_configured'],
+                ['csms.certificate_denied_issuers', [str_repeat('e', 64)], 'certificate_issuer_pins_configured'],
+                ['csms.certificate_denied_issuers', [['PRIVATE-INVALID-PIN']], 'certificate_issuer_pins_configured'],
             ] as [$field, $value, $check]) {
                 $original = config($field);
                 config([$field => $value]);
@@ -77,6 +86,22 @@ class CsmsProductionConfigurationAuditTest extends TestCase
                 $this->assertStringNotContainsString(str_repeat('a', 64), $output);
                 config([$field => $original]);
             }
+            // A matching but trailing-slash audience is also incompatible:
+            // operations callers remove the slash before obtaining a token.
+            config([
+                'csms.operations_base_url' => 'https://operations.example.test/',
+                'csms.operations_oauth_audience' => 'https://operations.example.test/',
+            ]);
+            $this->assertSame(1, Artisan::call('csms:production-config-audit'));
+            $this->assertFalse(json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR)['checks']['operations_https_and_audience']);
+            config([
+                'csms.operations_base_url' => 'https://operations.example.test',
+                'csms.operations_oauth_audience' => 'https://operations.example.test',
+                'csms.certificate_issuer_pins' => [str_repeat('e', 64), str_repeat('f', 64)],
+                'csms.certificate_denied_issuers' => [str_repeat('e', 64)],
+            ]);
+            $this->assertSame(0, Artisan::call('csms:production-config-audit'));
+            $this->assertTrue(json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR)['checks']['certificate_issuer_pins_configured']);
         } finally {
             app()->detectEnvironment(fn () => $prior);
         }
