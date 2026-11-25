@@ -90,6 +90,59 @@ class FinanceReconciliationAuditTest extends TestCase
         $this->assertDatabaseCount('finance_refunds', 0);
     }
 
+    public function test_raw_invoice_snapshot_cannot_hide_fractional_amount_or_precision_behind_eloquent_cast(): void
+    {
+        [$vendor, $customer, $invoice] = $this->fixture();
+        $audit = app(InvoiceReconciliationAudit::class);
+        $raw = $invoice->getRawOriginal();
+        $before = DB::table('finance_journals')->count();
+
+        foreach ([
+            ['total_minor' => 100.5],
+            ['minor_units' => 2.5],
+            ['minor_units' => 4],
+            ['total_minor' => '9007199254740992'],
+        ] as $change) {
+            // Hydrate the malformed snapshot in memory; never disable the
+            // immutable database triggers to fabricate historical damage.
+            $snapshot = $invoice->newFromBuilder(array_replace($raw, $change));
+            try {
+                $audit->inspect($snapshot);
+                $this->fail('Inexact raw invoice source was accepted.');
+            } catch (HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
+        }
+        $this->assertSame('reconciled', $audit->inspect($invoice)['status']);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_invoices', 1);
+    }
+
+    public function test_zero_payment_source_is_flagged_even_when_journal_totals_balance(): void
+    {
+        [$vendor, $customer, $invoice] = $this->fixture();
+        $journal = DB::table('finance_journals')->insertGetId([
+            'invoice_id' => $invoice->id, 'kind' => 'payment',
+            'idempotency_key' => 'audit-zero-payment-'.$invoice->id,
+            'fingerprint' => str_repeat('c', 64), 'currency' => $invoice->currency,
+            'amount_minor' => 0, 'created_at' => now(),
+        ]);
+        DB::table('finance_payments')->insert([
+            'invoice_id' => $invoice->id, 'journal_id' => $journal,
+            'actor_id' => $customer->id, 'amount_minor' => 0,
+            'evidence' => 'SIMULATED', 'created_at' => now(),
+        ]);
+        $this->actingAs($vendor)->getJson($this->url())->assertOk()
+            ->assertJsonPath('data.0.status', 'attention_required')
+            ->assertJsonPath('data.0.issues', ['collection_out_of_bounds'])
+            ->assertJsonPath('data.0.paid_minor', 0);
+        $csv = $this->get($this->url().'/export')->assertOk()->streamedContent();
+        $this->assertStringContainsString('attention_required,collection_out_of_bounds', $csv);
+        $this->assertDatabaseCount('finance_journals', 2);
+        $this->assertDatabaseCount('finance_payments', 1);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_balanced_invoice_capture_refund_and_read_only_audit(): void
     {
         [$vendor, $customer, $invoice] = $this->fixture();
