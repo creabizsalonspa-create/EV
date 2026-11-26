@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Services\Charging\ContinuousFaultObserver;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
 class ObserveChargerFaults extends Command
@@ -13,10 +14,50 @@ class ObserveChargerFaults extends Command
 
     protected $description = 'Continuously ingest bounded source fault/recovery events with durable per-mapping cursors; never send device commands';
 
+    /**
+     * Fixed review categories only. Never print arbitrary exception messages,
+     * response bodies, URLs, database errors or transport credentials.
+     */
+    public static function reviewCode(Throwable $error): string
+    {
+        if (! $error instanceof HttpExceptionInterface) {
+            return 'worker_internal_failure';
+        }
+
+        return match ($error->getMessage()) {
+            'Fault source authority changed during observation.',
+            'Authenticated CSMS source transport is not approved.' => 'source_authority',
+            'Status source cursor lacks durable clock evidence.' => 'cursor_evidence',
+            'Malformed source station projection.',
+            'Malformed source station row.' => 'station_projection',
+            'Malformed source status page or newest-event projection.',
+            'Source reported newer events but returned an empty page.',
+            'Source event page exceeds reported newest event.' => 'page_watermark',
+            'Unsupported source connector status.',
+            'Invalid OCPP 1.6 status.',
+            'Invalid OCPP 2.0.1 status.',
+            'Invalid or inconsistent OCPP 1.6 fault receipt.' => 'protocol_receipt',
+            'Source event timestamp is invalid.',
+            'Invalid source status time.',
+            'Source status time is in the future.' => 'source_timestamp',
+            'Source status chronology regressed.' => 'source_chronology',
+            'Malformed source component identity.',
+            'Invalid source component.' => 'component_identity',
+            'Conflicting same-time source status receipts.',
+            'Conflicting same-time status crosses the durable cursor.' => 'same_time_conflict',
+            'Changed source event requires reconciliation.' => 'event_replay_conflict',
+            default => match ($error->getStatusCode()) {
+                401, 403, 404, 409 => 'scope_or_lineage',
+                503 => 'source_unavailable',
+                default => 'worker_internal_failure',
+            },
+        };
+    }
+
     public function handle(ContinuousFaultObserver $observer): int
     {
         if (! config('csms.fault_worker_enabled') || ! config('csms.session_bridge_enabled') || ! app()->environment(['local', 'testing'])) {
-            $this->error('Explicit local source fault worker configuration is required.');
+            $this->error('Explicit local source fault worker configuration is required. [review:worker_disabled]');
 
             return self::FAILURE;
         }
@@ -27,7 +68,7 @@ class ObserveChargerFaults extends Command
         }
         $lock = fopen(storage_path('framework/csms-fault-worker.lock'), 'c');
         if (! $lock || ! flock($lock, LOCK_EX | LOCK_NB)) {
-            $this->error('A local fault observer already owns the lock.');
+            $this->error('A local fault observer already owns the lock. [review:worker_lock]');
 
             return self::FAILURE;
         }
@@ -38,9 +79,9 @@ class ObserveChargerFaults extends Command
                 foreach ($bindings as $binding) {
                     try {
                         $this->line(json_encode($observer->observe($binding->id) + ['evidence' => 'SIMULATED_SOURCE'], JSON_THROW_ON_ERROR));
-                    } catch (Throwable) {
+                    } catch (Throwable $error) {
                         $failed++;
-                        $this->error('Binding '.$binding->id.' requires source/access review. No command sent.');
+                        $this->error('Binding '.$binding->id.' requires source/access review. No command sent. [review:'.self::reviewCode($error).']');
                     }
                 }
                 if ($this->option('once')) {

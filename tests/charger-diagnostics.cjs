@@ -50,14 +50,40 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
       assert.equal(report.commands_sent, false);
       assert.equal(report.physical_charging_verified, false);
       const faultPath = path.replace("/source-diagnostics", "/fault-alerts");
-      const runObserver = () =>
-        JSON.parse(
-          execFileSync(
-            "./scripts/csms-observe-faults",
-            ["--once", `--binding=${f.binding_id}`],
-            { encoding: "utf8" },
-          ).trim(),
-        );
+      const runObserver = () => {
+        try {
+          return JSON.parse(
+            execFileSync(
+              "./scripts/csms-observe-faults",
+              ["--once", "--binding=" + f.binding_id],
+              { encoding: "utf8", timeout: 60000, maxBuffer: 262144 },
+            ).trim(),
+          );
+        } catch (error) {
+          // execFileSync's message discards stdout review codes. Print only
+          // allowlisted categories, never stdout/stderr or a raw source row.
+          const allowed = new Set([
+            "worker_disabled", "worker_lock", "worker_internal_failure",
+            "source_authority", "cursor_evidence", "station_projection",
+            "page_watermark", "protocol_receipt", "source_timestamp",
+            "source_chronology", "component_identity", "same_time_conflict",
+            "event_replay_conflict", "scope_or_lineage", "source_unavailable",
+          ]);
+          const output = [error?.stdout, error?.stderr]
+            .filter((value) => typeof value === "string")
+            .map((value) => value.slice(0, 262144))
+            .join("\n");
+          const codes = [...new Set(
+            [...output.matchAll(/\[review:([a-z_]{1,40})\]/g)]
+              .map((match) => match[1])
+              .filter((code) => allowed.has(code)),
+          )].sort();
+          const status = Number.isInteger(error?.status) ? error.status : null;
+          const protocol = f.protocol === "1.6" ? "1.6" : "2.0.1";
+          throw Error("Fault observer failed (no retry): " +
+            JSON.stringify({ protocol, status, review: codes.length ? codes : ["unknown"] }));
+        }
+      };
       assert(runObserver().alerts_created >= 1);
       assert.equal(runObserver().alerts_created, 0);
       const monitored = await client.request(path);
