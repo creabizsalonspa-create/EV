@@ -24,7 +24,7 @@ class FaultReminderEscalator
     {
         if (! is_string($raw)
             || preg_match(
-                '/\\A\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}(?::?\\d{2})?)?\\z/',
+                '/\\A\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-](?:[01]\\d|2[0-3])(?::?[0-5]\\d)?)?\\z/',
                 $raw
             ) !== 1) {
             return null;
@@ -121,6 +121,8 @@ class FaultReminderEscalator
                     ->where('id', $binding->station_id)->lockForUpdate()->first();
                 if (! $site || ! $station || $site->company_id !== $company->id
                     || $site->station_id !== $station->id
+                    || $site->country !== $company->country
+                    || $station->country !== $company->country
                     || $station->vendor_id !== $company->owner_id
                     || $station->source !== 'simulator'
                     || $charger->source !== 'simulator'
@@ -146,8 +148,15 @@ class FaultReminderEscalator
                     )) {
                     return false;
                 }
+                // A retained alert link alone is not evidence of a fault.
+                // Match FaultMonitor's original alert classification before
+                // emitting reminders or closing a historical escalation.
+                if ($observation->status !== 'Faulted'
+                    && in_array($observation->error_code, [null, 'NoError'], true)) {
+                    return false;
+                }
                 $occurredAt = self::sourceTimestamp($observation->occurred_at);
-                if ($occurredAt === null) {
+                if ($occurredAt === null || $occurredAt->greaterThan(now())) {
                     return false;
                 }
                 // An on-call escalation is a historical incident record.
@@ -176,12 +185,22 @@ class FaultReminderEscalator
                             $recovered->evse_number === $observation->evse_number &&
                             $recovered->connector_number === $observation->connector_number &&
                             $recovered->status === 'Available' &&
-                            in_array($recovered->error_code, [null, 'NoError'], true)) {
+                            ($binding->protocol === '1.6'
+                                ? $recovered->error_code === 'NoError'
+                                : in_array($recovered->error_code, [null, 'NoError'], true))) {
                             $resolution = 'source_recovered';
                         }
                     }
                     if ($resolution === null && $alert->acknowledged_at !== null) {
-                        $resolution = 'operator_acknowledged';
+                        $acknowledgedAt = self::sourceTimestamp($alert->acknowledged_at);
+                        // An acknowledgement is a historical operator receipt,
+                        // not a source recovery. Never close on an orphaned,
+                        // future or pre-fault acknowledgement.
+                        if ($alert->acknowledged_by !== null && $acknowledgedAt !== null
+                            && $acknowledgedAt->greaterThanOrEqualTo($occurredAt)
+                            && $acknowledgedAt->lessThanOrEqualTo(now())) {
+                            $resolution = 'operator_acknowledged';
+                        }
                     }
                     if ($resolution === null) {
                         return false;
@@ -221,9 +240,6 @@ class FaultReminderEscalator
 
                     return ['reminded' => false, 'escalated' => false,
                         'closed' => $updated === 1];
-                }
-                if ($occurredAt->greaterThan($cutoff)) {
-                    return false;
                 }
                 // A 60+ minute unresolved *simulator* fault can also notify
                 // an explicitly designated, currently authorized Admin. The
@@ -265,6 +281,12 @@ class FaultReminderEscalator
                             $escalatedNow = true;
                         }
                     }
+                }
+                // The scanner's configurable minimum applies to optional
+                // owner reminders only. The separately enabled 60-minute
+                // Admin policy must not be postponed by a longer owner cutoff.
+                if ($occurredAt->greaterThan($cutoff)) {
+                    return ['reminded' => false, 'escalated' => $escalatedNow];
                 }
                 // Closure evidence and Admin oversight remain eligible even
                 // if the vendor is suspended. Suppress only the *new owner*
