@@ -21,6 +21,18 @@ Map<String, dynamic> page({int number = 1, int total = 1}) {
     'data': [for (var i = first; i < total && i < first + 20; i++) row(i + 1)],
     'current_page': number, 'last_page': total == 0 ? 1 : ((total - 1) ~/ 20) + 1,
     'total': total, 'per_page': 20,
+    'summary': {
+      'scope': 'ALL_CURRENT_FILTERED_PENDING_RECORDS_NOT_PAGE',
+      'currency_and_precision_isolated': true,
+      'not_a_payment_or_payout_authority': true,
+      'groups': [
+        if (total > 0) {
+          'kind': 'adjustment', 'currency': 'KWD', 'minor_units': 3,
+          'review_count': total, 'signed_amount_minor': -1250 * total,
+          'basis': 'PENDING_RECORDS_NOT_FINANCIAL_BALANCE',
+        },
+      ],
+    },
   };
 }
 
@@ -82,6 +94,8 @@ void main() {
     expect(accepted.rows.single.amountLabel, 'KWD -1.250');
     expect(() => accepted.rows.clear(), throwsUnsupportedError);
     expect(accepted.total, 1);
+    expect(accepted.groups.single.amountLabel, 'KWD -1.250');
+    expect(() => accepted.groups.clear(), throwsUnsupportedError);
     final missingPrecision = row(1)..['minor_units'] = null;
     expect(FinanceReviewRow.parse(missingPrecision).precision, isNull);
   });
@@ -106,6 +120,43 @@ void main() {
     }
     expect(() => FinanceReviewPage.parse(page(), {...query, 'vendor_id': '10'}), throwsFormatException);
     expect(() => FinanceReviewPage.parse(page(), {...query, 'kind': 'refund'}), throwsFormatException);
+  });
+  test('all filtered summary is independently scoped and never a page balance', () {
+    final raw = page(number: 2, total: 21);
+    final accepted = FinanceReviewPage.parse(raw, {...query, 'page': '2'});
+    expect(accepted.rows.length, 1);
+    expect(accepted.groups.single.count, 21);
+    expect(accepted.groups.single.amountLabel, 'KWD -26.250');
+    for (final change in <void Function(Map<String, dynamic>)>[
+      (r) => r['summary']['scope'] = 'CURRENT_PAGE',
+      (r) => r['summary']['currency_and_precision_isolated'] = false,
+      (r) => r['summary']['groups'][0]['review_count'] = 1,
+      (r) => r['summary']['groups'][0]['currency'] = 'AED',
+      (r) => r['summary']['groups'][0]['signed_amount_minor'] = 9007199254740992,
+      (r) => r['summary']['groups'][0]['minor_units'] = 4,
+      (r) => r['summary']['groups'].add(Map<String, Object>.from(r['summary']['groups'][0] as Map)),
+    ]) {
+      final invalid = page(number: 2, total: 21);
+      change(invalid);
+      expect(() => FinanceReviewPage.parse(invalid, {...query, 'page': '2'}), throwsFormatException);
+    }
+    final legacy = page();
+    legacy['data'][0]['minor_units'] = null;
+    expect(FinanceReviewPage.parse(legacy, query).groups, isEmpty);
+  });
+  testWidgets('Admin can review whole filtered scope without financial action authority', (t) async {
+    final api = ReviewApi()..total = 21;
+    addTearDown(api.close);
+    await open(t, api);
+    final tile = find.text('Filtered pending records by scope');
+    await t.ensureVisible(tile);
+    await t.tap(tile);
+    await t.pumpAndSettle();
+    expect(find.text('Not a balance or payout amount'), findsOneWidget);
+    await t.ensureVisible(find.text('KWD -26.250'));
+    expect(find.text('KWD -26.250'), findsOneWidget);
+    expect(find.text('Records: 21'), findsOneWidget);
+    expect(api.calls, ['me', 'finance/approval-queue']);
   });
   testWidgets('Admin sees signed money in Arabic dark mode and no action authority', (t) async {
     final api = ReviewApi();
