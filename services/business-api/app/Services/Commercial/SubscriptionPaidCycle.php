@@ -8,6 +8,18 @@ use Illuminate\Support\Facades\DB;
 /** A mutable active flag alone does not authorize paid-cycle entitlements. */
 final class SubscriptionPaidCycle
 {
+    /** Never let a fractional or out-of-range persisted amount grant access. */
+    private static function exactMinor(mixed $value): int
+    {
+        abort_unless(is_int($value) || (is_string($value) && preg_match('/^(0|[1-9][0-9]*)$/D', $value)),
+            409, 'Subscription amount requires reconciliation.');
+        $amount = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($amount !== false && $amount >= 0 && $amount <= 9_007_199_254_740_991,
+            409, 'Subscription amount requires reconciliation.');
+
+        return $amount;
+    }
+
     public static function current(object $s): bool
     {
         if ($s->status !== 'active' || ! $s->period_start || ! $s->period_end) {
@@ -22,24 +34,25 @@ final class SubscriptionPaidCycle
         if (! $r) {
             return false;
         }
-        abort_unless((int) $i->total_minor >= 0
-            && (int) $r->amount_minor === (int) $i->total_minor && $r->currency === $i->currency
+        $total = self::exactMinor($i->total_minor);
+        $received = self::exactMinor($r->amount_minor);
+        abort_unless($received === $total && $r->currency === $i->currency
             && in_array($r->evidence, ['MOCK_PROVIDER', 'STRIPE_TEST_CONTRACT'], true),
             409, 'Subscription receipt requires reconciliation.');
         $refunded = 0;
         foreach (DB::table('subscription_credits')->where('invoice_id', $i->id)->get() as $credit) {
-            $amount = (int) $credit->amount_minor;
+            $amount = self::exactMinor($credit->amount_minor);
             abort_unless((int) $credit->receipt_id === (int) $r->id
                 && (int) $credit->subscription_id === (int) $s->id
                 && $credit->currency === $i->currency && (int) $credit->minor_units === (int) $i->minor_units
                 && $credit->evidence === $r->evidence && $amount > 0
-                && $amount <= (int) $r->amount_minor - $refunded,
+                && $amount <= $received - $refunded,
                 409, 'Subscription credit requires reconciliation.');
             $refunded += $amount;
         }
         $clock = CarbonImmutable::now();
 
-        return ((int) $i->total_minor === 0 || $refunded < (int) $r->amount_minor)
+        return ($total === 0 || $refunded < $received)
             && (int) $i->plan_id === (int) $s->plan_id
             && CarbonImmutable::parse($i->period_start)->equalTo(CarbonImmutable::parse($s->period_start))
             && CarbonImmutable::parse($i->period_end)->equalTo(CarbonImmutable::parse($s->period_end))
