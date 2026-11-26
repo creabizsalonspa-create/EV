@@ -147,26 +147,11 @@ class ContinuousFaultObserver
                 // The source observation, fault alert and vendor-only in-app
                 // notification commit atomically under the verified ownership lock.
                 // Historical replay never emits a second notification.
-                $notify = function (int $alertId, string $kind) use ($current, $ownerId, $companyId): void {
-                    InboxNotification::create([
-                        'user_id' => $ownerId,
-                        'kind' => $kind,
-                        'metadata' => [
-                            'source' => 'simulator',
-                            'evidence' => 'SIMULATED_SOURCE_OBSERVED',
-                            'station_id' => $current->station_id,
-                            'company_id' => $companyId,
-                            'charger_id' => $current->vendor_charger_id,
-                            'alert_id' => $alertId,
-                            'physical_verification' => false,
-                        ],
-                    ]);
-                };
-                $created = app(FaultMonitor::class)->ingest(
+                $created = app(FaultMonitor::class)->ingestForOwner(
                     $current,
                     ['source_generation' => $generation, 'events' => $events],
-                    fn (int $alertId) => $notify($alertId, 'charging.fault.simulated'),
-                    fn (int $alertId) => $notify($alertId, 'charging.fault.recovered.simulated'),
+                    $companyId,
+                    $ownerId,
                 );
                 // A previous monitor review state has cleared only when an
                 // authenticated source page catches up, never on a mere poll.

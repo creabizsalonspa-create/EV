@@ -286,6 +286,56 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    #[DataProvider('protocols')]
+    public function test_manual_and_automatic_fault_notices_share_first_transition_and_never_duplicate(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $this->travelTo(now()->startOfSecond());
+        $events = $this->events(1, 2);
+        if ($protocol === '1.6') {
+            $events[0]['evseId'] = null;
+            $events[1]['evseId'] = null;
+        }
+        $url = '/api/vendor-ops/companies/'.$f['company']->id.'/chargers/'.$f['charger']->id.'/fault-alerts/inspect';
+        $inspect = function (array $page) use ($f, $url) {
+            Http::swap(new Factory);
+            Http::preventStrayRequests();
+            Http::fakeSequence()
+                ->push(['data' => ['ChargingStations' => [['id' => 42, 'protocol' => $f['protocol'], 'isOnline' => true]]]])
+                ->push(['data' => ['StatusNotifications' => $page]]);
+
+            return $this->actingAs($f['owner'])->postJson($url);
+        };
+
+        // Manual or legacy CLI inspection can discover the fault before the
+        // continuous cursor. The worker must not emit a duplicate on replay.
+        $inspect([$events[0]])->assertOk()->assertJsonPath('alerts_created', 1);
+        $notice = InboxNotification::where('kind', 'charging.fault.simulated')->sole();
+        $this->assertSame($f['owner']->id, $notice->user_id);
+        $this->assertFalse($notice->metadata['physical_verification']);
+        $this->source($f, [$events[0]], newest: 1);
+        app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertDatabaseCount('inbox_notifications', 1);
+
+        // A manual inspection may also observe the terminal recovery before
+        // the worker. Both transitions must remain owner-scoped and durable.
+        $inspect([$events[1]])->assertOk()->assertJsonPath('alerts_created', 0);
+        $recovery = InboxNotification::where('kind', 'charging.fault.recovered.simulated')->sole();
+        $this->assertSame($notice->user_id, $recovery->user_id);
+        $this->assertSame($notice->metadata['alert_id'], $recovery->metadata['alert_id']);
+        $this->assertSame($f['company']->id, $recovery->metadata['company_id']);
+        $this->assertSame($f['charger']->id, $recovery->metadata['charger_id']);
+        $this->assertFalse($recovery->metadata['physical_verification']);
+        $inspect([$events[1], $events[0]])->assertOk()->assertJsonPath('alerts_created', 0);
+        $this->source($f, [$events[1]], newest: 2);
+        app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_unparseable_source_timestamp_returns_review_required_without_event_loss(): void
     {
         $f = $this->fixture();

@@ -109,14 +109,15 @@ class ChargerDiagnosticsController extends Controller
         app(VendorAccess::class)->require($r->user(), $company, 'inventory.write');
         // Source reads happen before the transaction; the source generation and
         // current authorization are fenced again while holding the binding lock.
+        $ownerId = (int) $company->owner_id;
         $snapshot = $this($r, $company, $charger)->getData(true);
 
-        return DB::transaction(function () use ($r, $company, $charger, $snapshot, $monitor) {
+        return DB::transaction(function () use ($r, $company, $charger, $snapshot, $monitor, $ownerId) {
             $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             app(VendorAccess::class)->require($r->user(), $company, 'inventory.write');
             $b = $this->binding($r, $company, VendorCharger::findOrFail($charger->id));
             $b = DB::table('csms_bindings')->where('id', $b->id)->lockForUpdate()->firstOrFail();
-            $created = $monitor->ingest($b, $snapshot);
+            $created = $monitor->ingestForOwner($b, $snapshot, (int) $company->id, $ownerId);
 
             return response()->json(['alerts_created' => $created, 'next_before' => $snapshot['next_before'], 'commands_sent' => false, 'capacity_changed' => false])->header('Cache-Control', 'private, no-store');
         }, 3);

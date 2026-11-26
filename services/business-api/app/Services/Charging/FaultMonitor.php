@@ -2,6 +2,7 @@
 
 namespace App\Services\Charging;
 
+use App\Models\InboxNotification;
 use Illuminate\Support\Facades\DB;
 
 /** Caller holds the canonical binding lock and has rechecked current access. */
@@ -47,6 +48,52 @@ class FaultMonitor
                 'Available', 'Occupied', 'Reserved', 'Unavailable', 'Faulted',
             ], true), 503, 'Invalid OCPP 2.0.1 status.');
         }
+    }
+
+    /**
+     * All operational ingestion paths must announce the same first-created
+     * fault and first-linked recovery. Caller holds company and binding
+     * locks in its existing transaction; never notify a transferred owner.
+     */
+    public function ingestForOwner(object $binding, array $snapshot, int $companyId, int $ownerId): int
+    {
+        abort_unless(DB::transactionLevel() > 0, 409, 'Fault notification requires a source transaction.');
+        $company = DB::table('vendor_companies')->where('id', $companyId)->lockForUpdate()->first();
+        $charger = DB::table('vendor_chargers')->where('id', $binding->vendor_charger_id)->lockForUpdate()->first();
+        $site = $charger ? DB::table('vendor_sites')->where('id', $charger->site_id)->lockForUpdate()->first() : null;
+        $station = DB::table('stations')->where('id', $binding->station_id)->lockForUpdate()->first();
+        $owner = DB::table('users')->where('id', $ownerId)->lockForUpdate()->first();
+        abort_unless($company && $charger && $site && $station && $owner
+            && $company->owner_id === $ownerId && $station->vendor_id === $ownerId
+            && $owner->role === 'vendor' && $owner->account_status === 'active'
+            && $charger->company_id === $companyId && $site->company_id === $companyId
+            && $site->station_id === $station->id
+            && $station->country === $site->country && $site->country === $company->country
+            && $charger->source === 'simulator' && $station->source === 'simulator'
+            && $charger->ocpp_protocol === $binding->protocol
+            && DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->count() === 1
+            && DB::table('csms_bindings')->where('identifier', $binding->identifier)->count() === 1,
+            409, 'Fault notification owner or source changed.');
+
+        $notify = static function (int $alertId, string $kind) use ($binding, $companyId, $ownerId): void {
+            InboxNotification::create([
+                'user_id' => $ownerId,
+                'kind' => $kind,
+                'metadata' => [
+                    'source' => 'simulator',
+                    'evidence' => 'SIMULATED_SOURCE_OBSERVED',
+                    'station_id' => $binding->station_id,
+                    'company_id' => $companyId,
+                    'charger_id' => $binding->vendor_charger_id,
+                    'alert_id' => $alertId,
+                    'physical_verification' => false,
+                ],
+            ]);
+        };
+
+        return $this->ingest($binding, $snapshot,
+            fn (int $alertId) => $notify($alertId, 'charging.fault.simulated'),
+            fn (int $alertId) => $notify($alertId, 'charging.fault.recovered.simulated'));
     }
 
     public function ingest(object $binding, array $snapshot, ?callable $onAlertCreated = null, ?callable $onAlertRecovered = null): int
