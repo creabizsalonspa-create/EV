@@ -46,6 +46,6 @@ DB::table('admin_second_factors')->insert(['user_id' => $admin->id, 'encrypted_s
 $company = VendorCompany::create(['owner_id' => $owner->id, 'legal_name' => 'Source registration '.$run, 'country' => 'AE', 'trade_license_number' => 'SOURCE-FIXTURE-'.$run, 'license_expires_on' => now()->addYear(), 'status' => 'approved']);
 $chargers = [];
 foreach (['1.6' => '16', '2.0.1' => '201'] as $protocol => $suffix) {
-    $chargers[] = ['protocol' => $protocol, 'asset' => 'SOURCE-'.$suffix.'-'.$run, 'identity' => 'CB-REG-'.$run.'-'.$suffix];
+    $chargers[] = ['protocol' => $protocol, 'asset' => 'SOURCE-'.$suffix.'-'.$run, 'identity' => (($argv[4] ?? '') === 'diagnostic' ? 'ev-test-diag-' : 'CB-REG-').$run.'-'.$suffix];
 }
 echo json_encode(['fixture_only' => true, 'admin_email' => $admin->email, 'owner_email' => $owner->email, 'company_id' => $company->id, 'company_name' => $company->legal_name, 'chargers' => $chargers], JSON_THROW_ON_ERROR);

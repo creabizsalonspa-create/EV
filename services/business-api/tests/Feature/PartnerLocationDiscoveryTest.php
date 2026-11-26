@@ -5,8 +5,11 @@ namespace Tests\Feature;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
+use App\Services\Discovery\PartnerCatalogAge;
 use App\Services\Discovery\PartnerCatalogGeo;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class PartnerLocationDiscoveryTest extends TestCase
@@ -251,6 +254,102 @@ class PartnerLocationDiscoveryTest extends TestCase
             ->assertJsonMissingPath('data.0.location.evses.0.operator_secret')
             ->assertJsonMissingPath('data.0.location.evses.0.connectors.0.private_token');
         $response->assertDontSee('NEVER_PUBLISH_');
+    }
+
+    public function test_malformed_allowed_fields_never_publish_nested_private_data_across_discovery_surfaces(): void
+    {
+        $provider = $this->provider();
+        $record = $this->location($provider, 'typed-projection', 25.2, 55.3);
+        $customer = User::factory()->create(['role' => 'customer', 'account_status' => 'active']);
+        $this->actingAs($customer)->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
+        $private = ['credential' => 'NEVER_PUBLISH_MALFORMED_PRIVATE_VALUE'];
+        $record->update(['normalized' => array_replace($record->normalized, [
+            'name' => $private, 'address' => $private, 'latitude' => $private, 'longitude' => true,
+            'connector_standards' => ['IEC_62196_T2_COMBO', $private],
+            'evses' => [
+                ['uid' => $private, 'reported_status' => 'AVAILABLE', 'connectors' => []],
+                ['uid' => 'valid-evse', 'reported_status' => $private, 'connectors' => [
+                    ['id' => $private, 'standard' => 'CHADEMO'],
+                    ['id' => 'bad-standard', 'standard' => $private],
+                    ['id' => 'valid-connector', 'standard' => 'IEC_62196_T2_COMBO'],
+                ]],
+            ],
+        ])]);
+        foreach (['/api/roaming/locations', '/api/discovery/search?scope=partner',
+            '/api/v1/discovery/search?scope=partner', '/api/roaming/favorites'] as $path) {
+            $this->getJson($path)->assertOk()->assertJsonCount(1, 'data')
+                ->assertJsonPath('data.0.location.name', null)
+                ->assertJsonPath('data.0.location.address', null)
+                ->assertJsonPath('data.0.location.latitude', null)
+                ->assertJsonPath('data.0.location.longitude', null)
+                ->assertJsonPath('data.0.location.connector_standards', ['IEC_62196_T2_COMBO'])
+                ->assertJsonCount(1, 'data.0.location.evses')
+                ->assertJsonPath('data.0.location.evses.0.reported_status', 'UNKNOWN')
+                ->assertJsonPath('data.0.location.evses.0.uid', 'valid-evse')
+                ->assertJsonCount(1, 'data.0.location.evses.0.connectors')
+                ->assertJsonPath('data.0.location.evses.0.connectors.0.id', 'valid-connector')
+                ->assertJsonPath('data.0.location.availability', 'unknown')
+                ->assertJsonPath('data.0.location.remote_control', false)
+                ->assertJsonPath('data.0.location.reservable', false)
+                ->assertDontSee('NEVER_PUBLISH_MALFORMED_PRIVATE_VALUE');
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
+    public function test_catalog_age_never_normalizes_corrupt_dates_or_rounds_up_partial_minutes(): void
+    {
+        config(['partner_catalog.max_age_seconds' => 3600]);
+        $at = CarbonImmutable::parse('2026-11-25T12:01:00.100000Z');
+        $record = new OcpiRecord;
+        foreach (['yesterday', '2026-02-30 12:00:00', '2026-11-25 24:00:00',
+            '2026-11-25 12:00:00.1234567', '2026-11-25 12:00:00+04:00', null] as $invalid) {
+            $record->setRawAttributes(['source_updated_at' => $invalid, 'received_at' => $invalid]);
+            $age = PartnerCatalogAge::present($record, $at);
+            $this->assertNull($age['source_updated_at']);
+            $this->assertNull($age['received_at']);
+            $this->assertNull($age['reported_source_age_minutes']);
+            $this->assertNull($age['received_age_minutes']);
+            $this->assertSame('SOURCE_TIMESTAMP_UNKNOWN', $age['source_clock_evidence']);
+            $this->assertSame('unknown', $age['catalog_age_policy']['state']);
+        }
+        $record->setRawAttributes(['source_updated_at' => '2026-11-25 12:00:00.100001',
+            'received_at' => '2026-11-25 12:00:00.100000']);
+        $age = PartnerCatalogAge::present($record, $at);
+        $this->assertSame(0, $age['reported_source_age_minutes']);
+        $this->assertSame(1, $age['received_age_minutes']);
+        $this->assertSame('within_policy', $age['catalog_age_policy']['state']);
+        $record->setRawAttributes(['source_updated_at' => '2026-11-25 12:01:00.100001',
+            'received_at' => '2026-11-25 12:01:00.100000']);
+        $age = PartnerCatalogAge::present($record, $at);
+        $this->assertNull($age['reported_source_age_minutes']);
+        $this->assertSame('PARTNER_CLOCK_AHEAD', $age['source_clock_evidence']);
+        $this->assertSame('unknown', $age['catalog_age_policy']['state']);
+    }
+
+    public function test_legacy_sqlite_bad_source_timestamps_do_not_break_public_discovery(): void
+    {
+        if (DB::getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('Typed PostgreSQL timestamp columns reject malformed legacy storage.');
+        }
+        config(['partner_catalog.max_age_seconds' => 3600]);
+        $record = $this->location($this->provider(), 'invalid-clock', 25.2, 55.3);
+        $customer = User::factory()->create(['role' => 'customer', 'account_status' => 'active']);
+        $this->actingAs($customer)->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
+        DB::table('ocpi_records')->where('id', $record->id)->update([
+            'source_updated_at' => '2026-02-30 12:00:00',
+            'received_at' => 'invalid-private-clock',
+        ]);
+        foreach (['/api/roaming/locations', '/api/discovery/search?scope=partner',
+            '/api/v1/discovery/search?scope=partner', '/api/roaming/favorites'] as $path) {
+            $this->getJson($path)->assertOk()->assertJsonCount(1, 'data')
+                ->assertJsonPath('data.0.source_updated_at', null)
+                ->assertJsonPath('data.0.received_at', null)
+                ->assertJsonPath('data.0.reported_source_age_minutes', null)
+                ->assertJsonPath('data.0.catalog_age_policy.state', 'unknown')
+                ->assertJsonPath('data.0.availability', 'unknown')
+                ->assertDontSee('invalid-private-clock');
+        }
     }
 
     public function test_source_age_filter_rejects_stale_future_and_invalid_values(): void
