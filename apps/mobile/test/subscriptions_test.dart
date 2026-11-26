@@ -151,7 +151,15 @@ void main() {
     expect(api.writes, 1);
     expect(api.bodies.single, {'expected_cycle_number': 1});
     expect(api.calls.where((c) => c == 'POST commercial/subscriptions/4/renew').length, 1);
+    // A successful check refreshes the source, not just the local button.
+    expect(api.calls.where((c) => c == 'GET commercial/subscriptions/4').length, 2);
+    expect(api.calls.where((c) => c == 'GET commercial/subscriptions/4/events').length, 2);
+    // ensureVisible(renew) scrolled the lazy ListView away from the summary.
+    // Return to its start before asserting the server-confirmed benefit label.
+    t.state<ScrollableState>(find.byType(Scrollable).first).position.jumpTo(0);
+    await t.pumpAndSettle();
     expect(find.text('Benefits are not active'), findsOneWidget);
+    expect(find.text('Server-confirmed active benefits'), findsNothing);
     await t.ensureVisible(find.text('Refresh'));
     await t.tap(find.text('Refresh'));
     await t.pumpAndSettle();
