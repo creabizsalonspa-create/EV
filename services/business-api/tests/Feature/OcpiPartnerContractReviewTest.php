@@ -330,14 +330,15 @@ final class OcpiPartnerContractReviewTest extends TestCase
                 $this->assertStringContainsString('internal contract review', $error->getMessage());
             }
         }
-        $this->postJson($path, $this->review(1, 'replacement-contract-review-001'))->assertCreated()
-            ->assertJsonPath('review_valid_for_current_owner', true);
-        config(['ocpi.connections.contract-test' => $original]);
+        $this->postJson($path, $this->review(1, 'replacement-contract-review-001'))->assertConflict();
+        config(['ocpi.contract_review_required' => false]);
         $this->assertFalse($gate->current($provider->fresh()));
+        config(['ocpi.contract_review_required' => true, 'ocpi.connections.contract-test' => $original]);
+        $this->assertTrue($gate->current($provider->fresh()));
         DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
-            ->where('revision', 2)->update(['counterparty_hash' => null]);
+            ->where('revision', 1)->update(['counterparty_hash' => null]);
         $this->assertFalse($gate->current($provider->fresh()));
-        $this->assertDatabaseCount('ocpi_partner_contract_reviews', 2);
+        $this->assertDatabaseCount('ocpi_partner_contract_reviews', 1);
         Http::assertNothingSent();
     }
 

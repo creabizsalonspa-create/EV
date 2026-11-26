@@ -25,6 +25,28 @@ final class ContractReviewGate
             && $value <= $checkedAt->copy()->addYears(3)->toDateString();
     }
 
+    /** A reviewed provider identity may never be recycled for a different counterparty. */
+    public function sourceBindingAllows(OcpiProvider $provider, ?string $identity): bool
+    {
+        $bound = DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+            ->whereNotNull('counterparty_hash');
+
+        return $identity === null ? ! $bound->exists()
+            : ! $bound->where('counterparty_hash', '!=', $identity)->exists();
+    }
+
+    /** First review cannot retrospectively attest an existing, unbound source archive. */
+    public function canReviewSource(OcpiProvider $provider, string $identity): bool
+    {
+        if (! $this->sourceBindingAllows($provider, $identity)) {
+            return false;
+        }
+        $bound = DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+            ->where('counterparty_hash', $identity)->exists();
+
+        return $bound || ! DB::table('ocpi_records')->where('ocpi_provider_id', $provider->id)->exists();
+    }
+
     /**
      * Gate source-labelled public discovery at SQL selection time, before
      * pagination and before hydration. An old owner or revoked latest review
@@ -38,11 +60,21 @@ final class ContractReviewGate
         // PR #232 active-vendor visibility always applies, even when
         // the optional internal contract-review gate is disabled.
         $providers->publiclyDiscoverable();
+        $fingerprints = ContractCounterpartyIdentity::configuredFingerprints();
+        // A permanent source binding survives policy-off mode. This prevents
+        // data from one operator becoming another operator's catalog.
+        $providers->whereNotExists(function ($binding) use ($fingerprints) {
+            $binding->selectRaw('1')->from('ocpi_partner_contract_reviews as source_binding')
+                ->whereColumn('source_binding.provider_id', 'ocpi_providers.id')
+                ->whereNotNull('source_binding.counterparty_hash');
+            if ($fingerprints !== []) {
+                $binding->whereNotIn('source_binding.counterparty_hash', $fingerprints);
+            }
+        });
         if (config('ocpi.contract_review_required') !== true) {
             return $providers;
         }
 
-        $fingerprints = ContractCounterpartyIdentity::configuredFingerprints();
         if ($fingerprints === []) {
             return $providers->whereRaw('1 = 0');
         }
@@ -70,6 +102,10 @@ final class ContractReviewGate
 
     public function current(OcpiProvider $provider, ?User $owner = null): bool
     {
+        $identity = ContractCounterpartyIdentity::current($provider->connection_key);
+        if (! $this->sourceBindingAllows($provider, $identity)) {
+            return false;
+        }
         if (config('ocpi.contract_review_required') !== true) {
             return true;
         }
@@ -80,8 +116,6 @@ final class ContractReviewGate
         }
         $latest = DB::table('ocpi_partner_contract_reviews')
             ->where('provider_id', $provider->id)->orderByDesc('revision')->first();
-
-        $identity = ContractCounterpartyIdentity::current($provider->connection_key);
 
         return $identity !== null && $latest && $latest->counterparty_hash === $identity
             && (int) $latest->owner_id === (int) $owner->id

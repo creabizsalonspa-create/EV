@@ -61,7 +61,8 @@ final class OcpiContractReviewController extends Controller
     {
         $identity = ContractCounterpartyIdentity::current($provider->connection_key);
 
-        return $identity !== null && $review && $review->counterparty_hash === $identity
+        return $identity !== null && app(ContractReviewGate::class)->sourceBindingAllows($provider, $identity)
+            && $review && $review->counterparty_hash === $identity
             && (int) $review->owner_id === (int) $owner->id
             && $review->connection_key === $provider->connection_key
             && $review->decision === 'review'
@@ -192,6 +193,8 @@ final class OcpiContractReviewController extends Controller
                 'Contract review revision exhausted.');
 
             if ($v['decision'] === 'review') {
+                abort_unless(app(ContractReviewGate::class)->canReviewSource($current, $identity),
+                    409, 'Existing source evidence cannot be reassigned. Provision a separate provider for a new counterparty.');
                 abort_unless($owner->role === 'vendor' && $owner->account_status === 'active',
                     409, 'Only active vendor ownership can receive a new review.');
                 $until = CarbonImmutable::parse($v['valid_until'], 'UTC');

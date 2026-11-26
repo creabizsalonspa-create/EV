@@ -35,7 +35,7 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
             'connection_key' => 'contract-discovery-test', 'authorized' => true,
             'version' => '2.2.1',
         ]);
-        $record = OcpiRecord::create([
+        $record = new OcpiRecord([
             'ocpi_provider_id' => $provider->id, 'module' => 'locations',
             'country_code' => 'AE', 'party_id' => 'TST', 'external_id' => 'station-contract-001',
             'content_hash' => str_repeat('a', 64),
@@ -53,7 +53,7 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
         return [$customer, $owner, $admin, $provider, $record];
     }
 
-    private function approve(User $admin, OcpiProvider $provider, int $revision = 0): void
+    private function approve(User $admin, OcpiProvider $provider, int $revision = 0, int $status = 201): void
     {
         $this->actingAs($admin)->postJson(
             '/api/ocpi/providers/'.$provider->id.'/contract-review',
@@ -66,7 +66,11 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
                 'idempotency_key' => 'review-contract-source-'.str_pad((string) $revision, 5, '0', STR_PAD_LEFT),
                 'reason' => 'Synthetic internal reviewer recorded only a manual document digest.',
             ]
-        )->assertCreated()->assertJsonPath('external_partner_acceptance_verified', false);
+        )->assertStatus($status);
+        if ($status === 201) {
+            $this->assertTrue(app(ContractReviewGate::class)->canReviewSource(
+                $provider->fresh(), \App\Services\Ocpi\ContractCounterpartyIdentity::current($provider->connection_key)));
+        }
     }
 
     private function expectPartnerCount(int $count): void
@@ -89,15 +93,12 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
     {
         [$customer, $owner, $admin, $provider, $record] = $this->fixture();
         $this->actingAs($customer);
-        // Legacy software remains unchanged until the operator explicitly
-        // enables the policy and has installed its audit schema.
-        $this->expectPartnerCount(1);
         config(['ocpi.contract_review_required' => true]);
         $this->expectPartnerCount(0);
-        $this->putJson('/api/roaming/favorites/'.$record->id)->assertNotFound();
         $this->assertDatabaseCount('partner_location_favorites', 0);
 
         $this->approve($admin, $provider);
+        $record->save();
         $this->actingAs($customer);
         $this->expectPartnerCount(1);
         $this->putJson('/api/roaming/favorites/'.$record->id)->assertOk()
@@ -141,6 +142,7 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
         [$customer, $owner, $admin, $provider, $record] = $this->fixture();
         config(['ocpi.contract_review_required' => true]);
         $this->approve($admin, $provider);
+        $record->save();
         $this->actingAs($customer);
         $this->expectPartnerCount(1);
         $this->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
@@ -156,16 +158,16 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
             ->assertJsonPath('review_valid_for_current_owner', false)
             ->assertJsonPath('revision', 1)
             ->assertDontSee('contract-discovery-rebound');
-        $this->approve($admin, $provider, 1);
-        $this->assertTrue(app(ContractReviewGate::class)->current($provider));
-        $this->actingAs($customer);
-        $this->expectPartnerCount(1);
-
-        // An older matching review never overrides the newest decision.
-        $provider->update(['connection_key' => 'contract-discovery-test']);
-        $this->expectPartnerCount(0);
+        $this->approve($admin, $provider, 1, 409);
         $this->assertFalse(app(ContractReviewGate::class)->current($provider));
-        $this->assertDatabaseCount('ocpi_partner_contract_reviews', 2);
+        $this->actingAs($customer);
+        $this->expectPartnerCount(0);
+
+        // A rejected change did not overwrite the original approval or archive.
+        $provider->update(['connection_key' => 'contract-discovery-test']);
+        $this->expectPartnerCount(1);
+        $this->assertTrue(app(ContractReviewGate::class)->current($provider));
+        $this->assertDatabaseCount('ocpi_partner_contract_reviews', 1);
         $this->assertDatabaseCount('finance_payments', 0);
         Http::assertNothingSent();
     }
@@ -175,6 +177,7 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
         [$customer, $owner, $admin, $provider, $record] = $this->fixture();
         config(['ocpi.contract_review_required' => true]);
         $this->approve($admin, $provider);
+        $record->save();
         $this->actingAs($customer);
         $this->expectPartnerCount(1);
         $this->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
@@ -185,13 +188,32 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
             ->assertJsonPath('data.0.location_available', false)
             ->assertJsonPath('data.0.location', null);
         $this->putJson('/api/roaming/favorites/'.$record->id)->assertNotFound();
-        $this->approve($admin, $provider, 1);
+        $this->approve($admin, $provider, 1, 409);
         $this->actingAs($customer);
-        $this->expectPartnerCount(1);
-        config(['ocpi.connections.contract-discovery-test' => null]);
+        $this->expectPartnerCount(0);
+        config(['ocpi.contract_review_required' => false]);
+        $this->expectPartnerCount(0);
+        $this->assertFalse(app(ContractReviewGate::class)->current($provider));
+        config(['ocpi.contract_review_required' => true, 'ocpi.connections.contract-discovery-test' => null]);
         $this->expectPartnerCount(0);
         $this->getJson('/api/roaming/favorites')->assertOk()
             ->assertJsonPath('data.0.location_available', false);
+        Http::assertNothingSent();
+    }
+
+    public function test_legacy_archive_is_not_retroactively_bound_to_todays_counterparty(): void
+    {
+        [$customer, $owner, $admin, $provider, $record] = $this->fixture();
+        $record->save();
+        $this->actingAs($customer);
+        $this->expectPartnerCount(1);
+        config(['ocpi.contract_review_required' => true]);
+        $this->expectPartnerCount(0);
+        $this->approve($admin, $provider, 0, 409);
+        $this->assertDatabaseCount('ocpi_partner_contract_reviews', 0);
+        $this->assertDatabaseCount('ocpi_records', 1);
+        $this->actingAs($customer);
+        $this->expectPartnerCount(0);
         Http::assertNothingSent();
     }
 
@@ -201,6 +223,7 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
         [$customer, $owner, $admin, $provider, $record] = $this->fixture();
         config(['ocpi.contract_review_required' => true]);
         $this->approve($admin, $provider);
+        $record->save();
         $this->actingAs($customer);
         $this->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
 
@@ -241,6 +264,7 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
     {
         [$customer, $owner, $admin, $provider, $record] = $this->fixture();
         $this->approve($admin, $provider);
+        $record->save();
         $this->actingAs($customer);
         config(['ocpi.contract_review_required' => true]);
         $this->expectPartnerCount(1);
