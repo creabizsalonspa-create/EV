@@ -2698,6 +2698,18 @@ window.EV_MESSAGES = {
         en: "Signed firmware releases",
         ar: "إصدارات البرامج الثابتة الموقعة",
     },
+    "Manage station availability blocks": {
+        en: "Manage station availability blocks",
+        ar: "إدارة فترات حجب المحطة",
+    },
+    "Close station availability blocks": {
+        en: "Close station availability blocks",
+        ar: "إغلاق إدارة فترات حجب المحطة",
+    },
+    "Station blocks unavailable": {
+        en: "Station blocks unavailable",
+        ar: "فترات حجب المحطة غير متاحة",
+    },
     "Signed firmware operations": {
         en: "Signed firmware operations",
         ar: "عمليات البرامج الثابتة الموقعة",
@@ -3057,9 +3069,17 @@ window.EV_MESSAGES = {
         ar: "مسح النموذج المعلق بعد مراجعة سجل الإصلاح",
     },
     "Diagnostic files": { en: "Diagnostic files", ar: "ملفات التشخيص" },
+    "Registered diagnostic source": {
+        en: "Registered source diagnostics; physical device unverified.",
+        ar: "تشخيص مصدر مسجل؛ الجهاز الفعلي غير متحقق.",
+    },
+    "Simulated diagnostic source": {
+        en: "Simulator source diagnostics; no physical acceptance.",
+        ar: "تشخيص مصدر محاكي؛ لا اعتماد لجهاز فعلي.",
+    },
     "Diagnostic files privacy notice": {
-        en: "Private simulator logs. Uploads expire after 15 minutes; stored content after 24 hours. OCPP 1.6 upload-status notifications have no request ID and remain unattributed. Exported files remain under your device control.",
-        ar: "سجلات محاكي خاصة. تنتهي صلاحية الرفع بعد ١٥ دقيقة والمحتوى المخزن بعد ٢٤ ساعة. إشعارات رفع OCPP 1.6 بلا معرّف طلب وتبقى غير منسوبة. الملفات المصدرة تحت تحكم جهازك.",
+        en: "Private diagnostic logs. Physical device acceptance is unverified. Uploads expire after 15 minutes; stored content after 24 hours. OCPP 1.6 upload-status notifications have no request ID and remain unattributed. Exported files remain under your device control.",
+        ar: "سجلات تشخيص خاصة. اعتماد الجهاز الفعلي غير متحقق. تنتهي صلاحية الرفع بعد ١٥ دقيقة والمحتوى المخزن بعد ٢٤ ساعة. إشعارات رفع OCPP 1.6 بلا معرّف طلب وتبقى غير منسوبة. الملفات المصدرة تحت تحكم جهازك.",
     },
     "Refresh diagnostic history": {
         en: "Refresh diagnostic history",
@@ -3208,6 +3228,10 @@ window.EV_MESSAGES = {
     "Reported fault seconds": {
         en: "Reported fault seconds",
         ar: "ثواني الأعطال المبلغ عنها",
+    },
+    "Reported unavailable seconds without a fault": {
+        en: "Reported unavailable seconds without a fault",
+        ar: "ثواني عدم التوفر المبلغ عنها دون عطل",
     },
     "Maximum observed session interval average (W)": {
         en: "Maximum observed session interval average (W)",

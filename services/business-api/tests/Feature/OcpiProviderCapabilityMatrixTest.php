@@ -185,6 +185,25 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
         $this->assertDatabaseCount('ocpi_credential_links', 1);
     }
 
+    public function test_capability_matrix_does_not_advertise_unusable_or_foreign_negotiated_endpoints(): void
+    {
+        [, $admin, $provider, $path] = $this->fixture();
+        $this->actingAs($admin);
+        foreach (['', 'http://peer.example/locations', 'https://foreign.example/locations',
+            'https://peer.example:8443/locations', 'https://peer.example/locations#secret',
+            '//foreign.example/locations'] as $invalid) {
+            $provider->update(['endpoints' => ['locations' => $invalid, 'tariffs' => 'https://peer.example/tariffs']]);
+            $this->getJson($path)->assertOk()
+                ->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', false)
+                ->assertJsonPath('capability_matrix.modules.1.partner_sender_negotiated', true)
+                ->assertJsonPath('capability_matrix.live_roaming_verified', false)
+                ->assertDontSee('https://peer.example');
+        }
+        $provider->update(['endpoints' => ['locations' => 'https://peer.example/locations']]);
+        $this->getJson($path)->assertOk()->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', true);
+        Http::assertNothingSent();
+    }
+
     public function test_cpo_sender_requires_current_generation_and_sandbox_delivery_remains_nonlive(): void
     {
         [$owner, $admin, $provider, $path] = $this->fixture();
@@ -214,6 +233,17 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
             ->assertJsonPath('capability_matrix.modules.1.local_sender_active', true)
             ->assertJsonPath('capability_matrix.modules.2.local_sender_configured', false)
             ->assertJsonPath('capability_matrix.live_roaming_verified', false);
+        foreach (['https://foreign.example/locations', 'https://peer.example/locations?secret=private'] as $invalidReceiver) {
+            $provider->update(['endpoints' => [
+                'locations_receiver' => $invalidReceiver,
+                'tariffs_receiver' => 'https://peer.example/tariffs',
+            ]]);
+            $this->getJson($path)->assertOk()
+                ->assertJsonPath('capability_matrix.modules.0.local_sender_active', true)
+                ->assertJsonPath('capability_matrix.modules.0.sandbox_delivery_software_enabled', false)
+                ->assertJsonPath('capability_matrix.modules.1.sandbox_delivery_software_enabled', true)
+                ->assertDontSee('secret=private');
+        }
         DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->update(['generation' => 2, 'state' => 'revoked']);
         $this->getJson($path)->assertOk()
             ->assertJsonPath('capability_matrix.credentials_current', false)

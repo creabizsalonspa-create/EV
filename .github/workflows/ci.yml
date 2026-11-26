@@ -105,12 +105,16 @@ jobs:
           ./scripts/charger-source-registration-setup
           EV_SOURCE_REGISTRATION_PACE=1 node tests/charger-source-registration.cjs
           node --test tests/charger-source-registration-ui.cjs
+      - name: Verify registered diagnostic files over verified TLS and both OCPP protocols
+        run: EV_RUN_REGISTERED_DIAGNOSTICS_TESTS=1 node tests/registered-diagnostic-files.cjs
       - run: node tests/charging-session.cjs
       - run: node tests/charging-business.cjs
       - run: node tests/charging-client.cjs
       - name: Verify continuous source ingestion and restart
         run: EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs
       - run: npm run test:vendor
+      - name: Verify real vendor station policy and charger operations via Laravel
+        run: node tests/charger-operations.cjs
       - run: EV_ROAMING_VERIFY_RATE_LIMIT=1 npm run test:roaming
       - run: npm run test:ocpi-provisioning
       - name: Financial browser workflows

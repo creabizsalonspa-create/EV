@@ -326,7 +326,9 @@ Only the owning vendor can `POST .../availability-blocks` with UUID `idempotency
 
 `POST .../availability-blocks/{uuid}/cancel` requires the known revision. Natural cancellation replay is safe and does not reactivate the policy. Records/audits are retained; migration rollback refuses data loss. Station-row locks serialize publication/cancellation with existing reservation/start/pre-dispatch gates. Half-open blocks `[start,end)` apply even when weekly operating hours are advisory or unpublished. New overlapping bookings and starts fail closed; existing accepted booking receipts remain replayable/cancellable, and active charging can stop. This does not automatically cancel bookings, trigger refunds, change tariffs or send charger commands. Connector-specific blocks and wider live availability remain separate unfinished scope.
 
-Vendor web and Flutter publish/retry/cancel against the canonical APIs. Uncertain retries retain the same frozen request identity. Customer web/Flutter display the public intervals, labeled operator policy rather than a live availability guarantee. Read refreshes do not mutate policy. No hardware acceptance or production credit is inferred.
+Vendor web and Flutter publish/retry/cancel against the canonical APIs. The **owner-only navigation** is Vendor Operations → Company Inventory → linked Site → **Manage station availability blocks** on web, and Vendor Inventory → Company → linked Site → **Manage station availability blocks** on Flutter. The UI uses the site's actual `station_id` and refuses to show a station editor for an unlinked site, delegated inventory staff, or a non-vendor account. Server writes independently recheck current owner role, active credentials, and current `auth_epoch` inside the transaction, even if a browser still holds an old page. An invalid or failed source refresh clears old cancellation buttons; typed source receipts must identify the same station and `STATION_WIDE_OPERATOR_POLICY` with `physical_availability_verified=false`.
+
+Uncertain retries retain the same frozen request identity, including after a transient network failure; changing station or authenticated API invalidates that old pending identity. Flutter backgrounding clears visible policy rows; HTTP 401/419 clears private rows and notifies its parent to expire the session. Customer web/Flutter display the public intervals, labeled operator policy rather than a live availability guarantee. Read refreshes do not mutate policy. No hardware acceptance or production credit is inferred.
 
 ### Shared account sign-in budget
 
@@ -415,6 +417,13 @@ instantaneous peak or grid-meter demand measurement. `physical_site_demand_verif
 is always false and `billing_authority` remains false. EN/AR web, PDF and native
 views preserve these distinctions. No ledger writes or provider calls occur.
 Oversized exact-number sums return409 rather than rounding or overflowing.
+
+The operational report separately exposes `reported_non_fault_unavailable_seconds`.
+It counts accepted simulator connector `Unavailable` time without an error
+code, bounded by the next observation and the existing 300-second freshness
+window. Reported fault time is counted separately. Conflicting observations
+and stale gaps contribute to unknown time. These metrics do not establish
+physical downtime, uptime, or operational availability.
 
 ### Private Admin platform operations map
 

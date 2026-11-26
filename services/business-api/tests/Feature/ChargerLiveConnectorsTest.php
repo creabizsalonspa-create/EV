@@ -436,6 +436,8 @@ class ChargerLiveConnectorsTest extends TestCase
         $this->source($f);
         foreach ([
             'http://source.test/graphql',
+            'http://charging-graphql:8080/other-path',
+            'http://charging-graphql.evil.test:8080/v1/graphql',
             'http://user:secret@source.test/graphql',
             'https://user:secret@source.test/graphql',
             'https://source.test/graphql?secret=unsafe',

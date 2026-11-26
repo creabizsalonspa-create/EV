@@ -27,7 +27,8 @@ final class CpoCatalogPublisher
     private function admin(User $actor): void
     {
         $current = User::whereKey($actor->id)->lockForUpdate()->first();
-        abort_unless($current && $current->role === 'admin' && $current->account_status === 'active' && $current->auth_epoch === $actor->auth_epoch, 403);
+        abort_unless($current && $current->role === 'admin' && $current->account_status === 'active' && $current->auth_epoch === $actor->auth_epoch
+            && hash_equals((string) $current->password, (string) $actor->password), 403);
     }
 
     private function authority(OcpiProvider $provider): array
@@ -86,10 +87,45 @@ final class CpoCatalogPublisher
 
     private function decode(object $record): array
     {
+        abort_if($record->payload_digest !== null && ! $this->payloadIntact($record), 409, 'Stored publication requires integrity review.');
         $payload = in_array($record->module, CpoCatalogContract::SESSION_MODULES, true)
             ? Crypt::decryptString($record->payload) : $record->payload;
 
         return json_decode($payload, true, flags: JSON_THROW_ON_ERROR);
+    }
+
+    private function payloadIntact(object $row): bool
+    {
+        return is_string($row->payload_digest) && hash_equals($row->payload_digest, hash('sha256', $row->payload));
+    }
+
+    private function deliveryDigest(object $row): string
+    {
+        return hash('sha256', json_encode([
+            (string) $row->id, (string) $row->provider_id, (string) $row->owner_id,
+            (string) $row->generation, (string) $row->authorization_revision, $row->configuration_hash,
+            $row->module, (string) $row->source_id, $row->published_at, (bool) $row->withdrawn,
+            $row->source_hash, hash('sha256', $row->payload),
+        ], JSON_THROW_ON_ERROR));
+    }
+
+    private function deliveryMatches(object $row, object $operation): bool
+    {
+        return $this->payloadIntact($row) && is_string($operation->publication_digest)
+            && hash_equals($operation->publication_digest, $this->deliveryDigest($row));
+    }
+
+    /** Match the exact publication snapshot across a transport boundary. */
+    private function samePublication(OcpiProvider $provider, object $link, object $snapshot): bool
+    {
+        $row = $this->bound($provider, $link)->where('id', $snapshot->id)->lockForUpdate()->first();
+
+        return $row !== null && $this->payloadIntact($row) && $row->module === $snapshot->module
+            && $row->source_id === $snapshot->source_id
+            && $row->published_at === $snapshot->published_at
+            && (bool) $row->withdrawn === (bool) $snapshot->withdrawn
+            && hash_equals($snapshot->source_hash, $row->source_hash)
+            && hash_equals($snapshot->payload, $row->payload);
     }
 
     private function sourcePayload(OcpiProvider $provider, array $contract, string $module, int $source): array
@@ -170,6 +206,9 @@ final class CpoCatalogPublisher
 
             abort_if($withdraw && ! $previous, 404);
             abort_if($previous && $module === 'tariffs' && $previous->withdrawn && ! $withdraw, 409, 'Publish a new source tariff version after withdrawal.');
+            abort_if($previous && $previous->payload_digest !== null && ! $this->payloadIntact($previous), 409, 'Stored publication requires integrity review.');
+            // A historical snapshot without a digest cannot establish a new
+            // delivery receipt. A new explicit publication must bind its bytes.
             $priorPayload = $previous ? $this->decode($previous) : null;
             $payload = $withdraw ? $priorPayload : $this->sourcePayload($provider, $contract, $module, $source);
             $role = $this->credentials->localConfiguration($provider)['roles'][0];
@@ -182,23 +221,24 @@ final class CpoCatalogPublisher
                 $location = (clone $bound)->where(['module' => 'locations', 'source_id' => (int) $contract['session_exports'][$source]['site_id'], 'withdrawn' => false])->first();
                 $evse = $payload['evse_uid'] ?? $payload['cdr_location']['evse_uid'];
                 $connector = $payload['connector_id'] ?? $payload['cdr_location']['connector_id'];
-                $publishedEvse = $location ? collect($this->decode($location)['evses'])->firstWhere('uid', $evse) : null;
+                $publishedEvse = $location && $this->payloadIntact($location) ? collect($this->decode($location)['evses'])->firstWhere('uid', $evse) : null;
                 abort_unless($publishedEvse && $publishedEvse['status'] !== 'REMOVED' && collect($publishedEvse['connectors'])->contains('id', $connector),
                     409, 'Publish the approved session location and connector first.');
                 if ($module === 'cdrs') {
                     $sessionHash = $this->normalizer->hash($this->sourcePayload($provider, $contract, 'sessions', $source));
-                    abort_unless((clone $bound)->where(['module' => 'sessions', 'source_id' => $source, 'source_hash' => $sessionHash])->exists(),
-                        409, 'Publish the matching final session first.');
+                    $session = (clone $bound)->where(['module' => 'sessions', 'source_id' => $source, 'source_hash' => $sessionHash])->first();
+                    abort_unless($session && $this->payloadIntact($session), 409, 'Publish the matching final session first.');
                 }
             }
-            if ($previous && $previous->source_hash === $sourceHash && (bool) $previous->withdrawn === $withdraw && (clone $bound)->where('id', $previous->id)->exists()) {
+            if ($previous && $this->payloadIntact($previous) && $previous->source_hash === $sourceHash && (bool) $previous->withdrawn === $withdraw && (clone $bound)->where('id', $previous->id)->exists()) {
                 return ['id' => $payload['id'], 'published_at' => $previous->published_at, 'withdrawn' => $withdraw];
             }
             abort_unless($previous?->published_at === $expected, 409, 'Refresh the current publication before changing it.');
             abort_if($previous && DB::table(self::OPERATIONS)->where('publication_id', $previous->id)->whereIn('state', ['dispatching', 'unknown'])->exists(), 409, 'Earlier delivery requires reconciliation.');
             if ($module === 'locations' && ! $withdraw) {
                 foreach ($this->tariffReferences($payload) as $tariff) {
-                    abort_unless((clone $bound)->where(['module' => 'tariffs', 'source_id' => (int) substr($tariff, 1), 'withdrawn' => false])->exists(), 409, 'Publish referenced tariffs first.');
+                    $publishedTariff = (clone $bound)->where(['module' => 'tariffs', 'source_id' => (int) substr($tariff, 1), 'withdrawn' => false])->first();
+                    abort_unless($publishedTariff && $this->payloadIntact($publishedTariff), 409, 'Publish referenced tariffs first.');
                 }
                 if ($sameIdentity) {
                     $payload = $this->includeRemovedEvses($payload, $priorPayload);
@@ -217,10 +257,11 @@ final class CpoCatalogPublisher
             $this->normalizer->normalize($module, $payload);
             $encoded = json_encode($payload, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
             abort_if(strlen($encoded) > CpoCatalogContract::MAX_RECORD_BYTES, 409, 'Publication exceeds the maximum record size.');
+            $stored = $sessionRecord ? Crypt::encryptString($encoded) : $encoded;
             DB::table(self::TABLE)->updateOrInsert($key, [
                 'owner_id' => $provider->owner_id, 'actor_id' => $actor->id, 'generation' => $link->generation,
                 'authorization_revision' => $provider->authorization_revision, 'configuration_hash' => $link->configuration_hash,
-                'source_hash' => $sourceHash, 'payload' => $sessionRecord ? Crypt::encryptString($encoded) : $encoded, 'withdrawn' => $withdraw, 'published_at' => $timestamp,
+                'source_hash' => $sourceHash, 'payload' => $stored, 'payload_digest' => hash('sha256', $stored), 'withdrawn' => $withdraw, 'published_at' => $timestamp,
             ]);
             DB::table('audit_events')->insert([
                 'actor_id' => $actor->id, 'action' => 'ocpi.cpo_'.$operation,
@@ -247,6 +288,8 @@ final class CpoCatalogPublisher
                 $row = $query->where('source_id', $source)->first();
                 abort_unless($row, 404);
 
+                abort_unless($this->payloadIntact($row), 409, 'Stored publication requires integrity review.');
+
                 return [$this->decode($row), 1];
             }
             if (isset($window['date_from'])) {
@@ -265,6 +308,7 @@ final class CpoCatalogPublisher
                 if ($bytes > 1_900_000) {
                     break;
                 }
+                abort_unless($this->payloadIntact($record), 409, 'Stored publication requires integrity review.');
                 $payloads[] = $this->decode($record);
             }
 
@@ -287,11 +331,14 @@ final class CpoCatalogPublisher
             abort_unless($this->pushEnabled($current) && is_string($current->endpoints[$module.'_receiver'] ?? null), 409, 'Approved sandbox receiver is unavailable.');
             $row = $this->bound($current, $link)->where(['module' => $module, 'source_id' => $source, 'published_at' => $publishedAt])->first();
             abort_unless($row, 409, 'Refresh the current publication before sending it.');
+            abort_unless($this->payloadIntact($row), 409, 'Publication bytes require integrity review or explicit republication.');
             $payload = $this->decode($row);
             $operation = DB::table(self::OPERATIONS)->where('operation_key', $key)->first();
             abort_if($operation && ($operation->publication_id !== $row->id || $operation->published_at !== $publishedAt), 409);
             $operation ??= DB::table(self::OPERATIONS)->where(['publication_id' => $row->id, 'published_at' => $publishedAt])->first();
             if ($operation) {
+                abort_unless($this->deliveryMatches($row, $operation), 409, 'Existing delivery has no matching immutable receipt evidence.');
+
                 return [$current, $row, $payload, $operation->state];
             }
             abort_if($module === 'cdrs' && DB::table(self::OPERATIONS)->where('publication_id', $row->id)->exists(),
@@ -302,7 +349,7 @@ final class CpoCatalogPublisher
             }
             DB::table(self::OPERATIONS)->insert([
                 'publication_id' => $row->id, 'actor_id' => $actor->id, 'operation_key' => $key,
-                'published_at' => $publishedAt, 'state' => 'dispatching', 'created_at' => now(), 'updated_at' => now(),
+                'published_at' => $publishedAt, 'publication_digest' => $this->deliveryDigest($row), 'state' => 'dispatching', 'created_at' => now(), 'updated_at' => now(),
             ]);
 
             return [$current, $row, $payload, null];
@@ -315,15 +362,26 @@ final class CpoCatalogPublisher
         $state = DB::transaction(function () use ($actor, $provider, $row, $module, $source, $payload, $publishedAt, $key) {
             $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
             $claim = DB::table(self::OPERATIONS)->where('operation_key', $key);
-            $currentState = (clone $claim)->lockForUpdate()->value('state');
-            if ($currentState !== 'dispatching') {
-                return $currentState;
+            $operation = (clone $claim)->lockForUpdate()->first();
+            abort_unless($operation && $operation->publication_id === $row->id
+                && $operation->actor_id === $actor->id && $operation->published_at === $publishedAt, 409);
+            if ($operation->state !== 'dispatching') {
+                return $operation->state;
+            }
+            // Keep a durable claim when its bytes no longer match; deleting
+            // the claim would permit a replacement send of altered content.
+            $stored = DB::table(self::TABLE)->where('id', $row->id)->lockForUpdate()->first();
+            if (! $stored || ! $this->deliveryMatches($stored, $operation)
+                || ! hash_equals($this->deliveryDigest($row), $this->deliveryDigest($stored))) {
+                $claim->update(['state' => 'unknown', 'updated_at' => now()]);
+
+                return null;
             }
             try {
                 $this->admin($actor);
                 [$contract, $link] = $this->authority($current);
                 abort_unless($this->pushEnabled($current) && is_string($current->endpoints[$module.'_receiver'] ?? null)
-                    && $this->bound($current, $link)->where(['id' => $row->id, 'published_at' => $publishedAt])->exists(), 409);
+                    && $this->samePublication($current, $link, $row), 409);
                 if (! $row->withdrawn) {
                     $fresh = $this->sourcePayload($current, $contract, $module, $source);
                     abort_unless(hash_equals($row->source_hash, $this->normalizer->hash($fresh)), 409);
@@ -345,7 +403,24 @@ final class CpoCatalogPublisher
             } catch (OcpiException|HttpExceptionInterface) {
                 $state = 'unknown';
             }
-            $claim->update(['state' => $state, 'updated_at' => now()]);
+            // A successful envelope does not certify changed local evidence.
+            // Recheck the actual claim and publication before marking delivery.
+            $receiptClaim = (clone $claim)->lockForUpdate()->first();
+            if (! $receiptClaim || $receiptClaim->id !== $operation->id
+                || $receiptClaim->publication_id !== $row->id || $receiptClaim->actor_id !== $actor->id
+                || $receiptClaim->published_at !== $publishedAt || $receiptClaim->state !== 'dispatching') {
+                return null;
+            }
+            try {
+                $this->admin($actor);
+                $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+                [, $receiptLink] = $this->authority($current);
+                abort_unless($this->samePublication($current, $receiptLink, $row)
+                    && $this->deliveryMatches($row, $receiptClaim), 409);
+            } catch (OcpiException|HttpExceptionInterface) {
+                $state = 'unknown';
+            }
+            $claim->where('id', $operation->id)->where('state', 'dispatching')->update(['state' => $state, 'updated_at' => now()]);
 
             return $state;
         });
@@ -365,6 +440,7 @@ final class CpoCatalogPublisher
             abort_unless($row, 409, 'Refresh the current publication before reconciling it.');
             $operation = DB::table(self::OPERATIONS)->where(['publication_id' => $row->id, 'published_at' => $publishedAt])->lockForUpdate()->first();
             abort_unless($operation, 404);
+            abort_unless($this->deliveryMatches($row, $operation), 409, 'Original delivery bytes are unavailable or changed.');
             abort_if($operation->state === 'dispatching' && CarbonImmutable::parse($operation->created_at, 'UTC')->greaterThan(now()->subMinute()), 409, 'Delivery is still within its response window.');
 
             return [$current, $row, $operation];
@@ -389,7 +465,13 @@ final class CpoCatalogPublisher
             $provider = OcpiProvider::whereKey($current->id)->lockForUpdate()->firstOrFail();
             $this->admin($actor);
             [, $link] = $this->authority($provider);
-            abort_unless($this->bound($provider, $link)->where(['id' => $row->id, 'published_at' => $publishedAt])->exists(), 409);
+            abort_unless($this->samePublication($provider, $link, $row), 409);
+            $currentOperation = DB::table(self::OPERATIONS)->where('id', $operation->id)->lockForUpdate()->first();
+            abort_unless($currentOperation && $currentOperation->publication_id === $row->id
+                && $currentOperation->operation_key === $operation->operation_key
+                && $currentOperation->actor_id === $operation->actor_id
+                && $currentOperation->published_at === $publishedAt
+                && $this->deliveryMatches($row, $currentOperation), 409);
             $updated = DB::table(self::OPERATIONS)->where('id', $operation->id)->whereIn('state', ['dispatching', 'unknown'])
                 ->update(['state' => $verified ? 'reconciled' : 'unknown', 'updated_at' => now()]);
             if ($verified && $updated === 1) {

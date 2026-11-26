@@ -793,6 +793,48 @@ window.createVendorWorkspace = ({
                     button(row, "Open chargers", () =>
                         chargers(company, site, row, operational, epoch),
                     );
+                    // The station-wide policy belongs to the actual station
+                    // owner, not an invited staff member or an Admin reviewer.
+                    // Display it from the linked station ID only; never infer
+                    // a station from site coordinates or charger identifiers.
+                    if (
+                        caps.owner === true &&
+                        Number.isSafeInteger(site.station_id) &&
+                        site.station_id > 0
+                    ) {
+                        button(row, "Manage station availability blocks", () => {
+                            if (
+                                !current() ||
+                                !row.isConnected ||
+                                actor()?.role !== "vendor" ||
+                                actor()?.id !== company.owner_id
+                            ) return;
+                            row.querySelector("[data-station-block-editor]")?.remove();
+                            const shell = document.createElement("section");
+                            shell.dataset.stationBlockEditor = "";
+                            const editor = document.createElement("div");
+                            button(shell, "Close station availability blocks", () => {
+                                shell.remove();
+                            });
+                            shell.append(editor);
+                            row.append(shell);
+                            if (typeof window.EvStationBlocks?.mount !== "function") {
+                                editor.append(ui("p", "Station blocks unavailable"));
+                                return;
+                            }
+                            window.EvStationBlocks.mount(editor, {
+                                stationId: site.station_id,
+                                api: (path, method, body) =>
+                                    api(path, method || "GET", body, controller?.signal),
+                                current: () =>
+                                    current() &&
+                                    !document.hidden &&
+                                    shell.isConnected &&
+                                    actor()?.role === "vendor" &&
+                                    actor()?.id === company.owner_id,
+                            });
+                        });
+                    }
                     p.append(row);
                 },
                 1,
@@ -995,6 +1037,10 @@ window.createVendorWorkspace = ({
                 button(row, "Source diagnostics", () =>
                     diagnostics(company, charger, row, epoch),
                 );
+                if (charger.source === "direct_unverified")
+                    button(row, "Diagnostic files", () =>
+                        diagnosticFiles(company, charger, row, epoch),
+                    );
                 button(row, "Device operating settings", () =>
                     configurationReads(company, charger, row, epoch),
                 );
@@ -1716,6 +1762,7 @@ window.createVendorWorkspace = ({
             status_known_seconds: "Fresh status evidence seconds",
             status_unknown_seconds: "Unknown connector seconds",
             reported_fault_seconds: "Reported fault seconds",
+            reported_non_fault_unavailable_seconds: "Reported unavailable seconds without a fault",
             maximum_session_interval_average_w:
                 "Maximum observed session interval average (W)",
             maximum_observed_site_interval_average_w:
@@ -1807,12 +1854,22 @@ window.createVendorWorkspace = ({
                 }
                 content.append(links);
                 for (const row of data.sites) {
+                    if (Object.hasOwn(row, "reported_non_fault_unavailable_seconds") &&
+                        (!Number.isSafeInteger(row.status_known_seconds) ||
+                            !Number.isSafeInteger(row.reported_fault_seconds) ||
+                            !Number.isSafeInteger(row.reported_non_fault_unavailable_seconds) ||
+                            row.reported_non_fault_unavailable_seconds < 0 ||
+                            row.reported_non_fault_unavailable_seconds >
+                                row.status_known_seconds - row.reported_fault_seconds))
+                        throw Error("Inconsistent source coverage.");
                     const card = document.createElement("article");
                     card.append(raw("h4", row.name + " · #" + row.site_id));
                     for (const [key, title] of Object.entries(metrics)) {
                         const unknown =
-                            key === "maximum_observed_site_interval_average_w" &&
-                            row[key] === null;
+                            (key === "maximum_observed_site_interval_average_w" &&
+                                row[key] === null) ||
+                            (key === "reported_non_fault_unavailable_seconds" &&
+                                !Object.hasOwn(row, key));
                         if (!unknown && (!Number.isSafeInteger(row[key]) || row[key] < 0))
                             throw Error("Inexact source metric.");
                         card.append(
@@ -2144,11 +2201,21 @@ window.createVendorWorkspace = ({
             if (
                 typeof result.can_request !== "boolean" ||
                 typeof result.can_manage !== "boolean" ||
-                result.evidence !== "SIMULATED_SOURCE" ||
+                !["SIMULATED_SOURCE", "AUTHENTICATED_SOURCE"].includes(
+                    result.evidence,
+                ) ||
                 result.maximum_file_bytes !== 524288 ||
                 result.charging_capacity_changed !== false
             )
                 throw Error("Unexpected diagnostic capability.");
+            history.append(
+                ui(
+                    "p",
+                    result.evidence === "AUTHENTICATED_SOURCE"
+                        ? "Registered diagnostic source"
+                        : "Simulated diagnostic source",
+                ),
+            );
             if (pending) {
                 history.append(
                     ui(
@@ -2229,7 +2296,7 @@ window.createVendorWorkspace = ({
             };
             for (const row of result.data) {
                 if (
-                    row.evidence !== "SIMULATED_SOURCE" ||
+                    row.evidence !== result.evidence ||
                     row.physical_device_verified !== false ||
                     typeof row.can_download !== "boolean"
                 )

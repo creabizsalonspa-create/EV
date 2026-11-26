@@ -8,6 +8,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\FaultMonitor;
 use App\Services\VendorOps\VendorAccess;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +24,52 @@ class ChargingRepairController extends Controller
     private function alerts(object $binding)
     {
         return DB::table('charging_fault_alerts as a')->join('charging_status_observations as o', 'o.id', '=', 'a.observation_id')->where('o.source_generation', FaultMonitor::generation($binding));
+    }
+
+    private function sourceRecoveryCurrent(object $binding, object $alert): bool
+    {
+        if ($alert->recovery_observation_id === null) {
+            return false;
+        }
+        $generation = FaultMonitor::generation($binding);
+        $fault = DB::table('charging_status_observations')
+            ->where('id', $alert->observation_id)->where('source_generation', $generation)->first();
+        $recovery = DB::table('charging_status_observations')
+            ->where('id', $alert->recovery_observation_id)->where('source_generation', $generation)->first();
+        if (! $fault || ! $recovery
+            || $fault->status !== 'Faulted'
+                && in_array($fault->error_code, [null, 'NoError'], true)
+            || (int) $recovery->evse_number !== (int) $fault->evse_number
+            || (int) $recovery->connector_number !== (int) $fault->connector_number
+            || (int) $recovery->source_event_id <= (int) $fault->source_event_id
+            || $recovery->occurred_at <= $fault->occurred_at
+            || $recovery->status !== 'Available'
+            || ($binding->protocol === '1.6'
+                ? $recovery->error_code !== 'NoError'
+                : ! in_array($recovery->error_code, [null, 'NoError'], true))) {
+            return false;
+        }
+        $source = DB::table('charging_status_observations')
+            ->where('source_generation', $generation)
+            ->where('evse_number', $fault->evse_number)
+            ->where('connector_number', $fault->connector_number);
+        $latest = (clone $source)->orderByDesc('source_event_id')->first();
+        $latestByTime = (clone $source)->orderByDesc('occurred_at')
+            ->orderByDesc('source_event_id')->first();
+
+        // Historical recovery can be documented, but a newer fault, stale
+        // observation or out-of-order source clock is not proof that review
+        // can be marked closed. Never unblock physical charger capacity.
+        return $latest && $latestByTime
+            && (int) $latest->id === (int) $latestByTime->id
+            && (int) $latest->source_event_id >= (int) $recovery->source_event_id
+            && $latest->occurred_at >= $recovery->occurred_at
+            && CarbonImmutable::parse($latest->occurred_at, 'UTC')->lte(now())
+            && CarbonImmutable::parse($latest->occurred_at, 'UTC')->gt(now()->subMinutes(5))
+            && $latest->status === 'Available'
+            && ($binding->protocol === '1.6'
+                ? $latest->error_code === 'NoError'
+                : in_array($latest->error_code, [null, 'NoError'], true));
     }
 
     private function reply(mixed $data)
@@ -99,7 +146,8 @@ class ChargingRepairController extends Controller
             abort_unless($order ? in_array($v['state'], $allowed[$order->state], true) : $v['state'] === 'open', 409);
             // Closure documents operator review of canonical source recovery only.
             // No physical repair, fault clearance or connector availability is inferred.
-            abort_if($v['state'] === 'closed' && $alert->recovery_observation_id === null, 409, 'Observe source recovery before closing repair review.');
+            abort_if($v['state'] === 'closed' && ! $this->sourceRecoveryCurrent($locked, $alert), 409,
+                'A complete, current source recovery is required before closing repair review.');
             $version = ($order->version ?? 0) + 1;
             $values = ['state' => $v['state'], 'version' => $version, 'updated_at' => now()];
             if ($order) {

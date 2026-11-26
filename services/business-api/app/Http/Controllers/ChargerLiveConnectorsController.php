@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Services\Charging\CsmsGraphqlTransport;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SourceStatusTime;
 use Closure;
@@ -16,37 +17,13 @@ use Illuminate\Support\Facades\DB;
  */
 final class ChargerLiveConnectorsController extends Controller
 {
-    private function approvedSourceEndpoint(mixed $url): bool
-    {
-        if (! is_string($url) || strlen($url) > 512) {
-            return false;
-        }
-        $parts = parse_url($url);
-        if (! is_array($parts) ||
-            ! in_array($parts['scheme'] ?? null, ['http', 'https'], true) ||
-            ! is_string($parts['host'] ?? null) || $parts['host'] === '' ||
-            isset($parts['user']) || isset($parts['pass']) ||
-            isset($parts['query']) || isset($parts['fragment'])) {
-            return false;
-        }
-
-        // Never deliver a privileged Hasura secret over plaintext to a
-        // hostname other than a fixed local loopback / sandbox service.
-        return $parts['scheme'] === 'https' ||
-            in_array(strtolower($parts['host']), [
-                'localhost', '127.0.0.1', '[::1]',
-                'citrine', 'hasura', 'citrine-hasura', 'ev-hasura',
-                'charging-graphql',
-            ], true);
-    }
-
     private function sourceAuthority(): array
     {
         $endpoint = config('csms.graphql_url');
         $secret = config('csms.graphql_secret');
         abort_unless(app()->environment(['local', 'testing']) &&
             config('csms.session_bridge_enabled') &&
-            $this->approvedSourceEndpoint($endpoint) &&
+            app(CsmsGraphqlTransport::class)->approved($endpoint) &&
             is_string($secret) && strlen($secret) >= 32, 503,
             'Local source connector monitoring is disabled.');
 
