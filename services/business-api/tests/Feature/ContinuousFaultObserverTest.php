@@ -234,6 +234,58 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    #[DataProvider('protocols')]
+    public function test_manual_fault_inspection_cannot_bypass_worker_protocol_receipt_validation(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $this->travelTo(now()->startOfSecond());
+        $url = '/api/vendor-ops/companies/'.$f['company']->id.'/chargers/'.$f['charger']->id.'/fault-alerts/inspect';
+        $inspect = function (array $events) use ($f, $url) {
+            Http::swap(new Factory);
+            Http::preventStrayRequests();
+            Http::fakeSequence()
+                ->push(['data' => ['ChargingStations' => [['id' => 42, 'protocol' => $f['protocol'], 'isOnline' => true]]]])
+                ->push(['data' => ['StatusNotifications' => $events]]);
+
+            return $this->actingAs($f['owner'])->postJson($url);
+        };
+        $events = $this->events(1, 3);
+        $inspect([$events[0]])->assertOk()->assertJsonPath('alerts_created', 1);
+        $alert = DB::table('charging_fault_alerts')->firstOrFail();
+        $this->assertNull($alert->recovery_observation_id);
+
+        $invalid = $protocol === '1.6'
+            ? [
+                ['connectorStatus' => 'Occupied'],
+                ['errorCode' => null],
+                ['errorCode' => 'VendorDefinedFault'],
+                ['errorCode' => 'GroundFailure'],
+                ['connectorStatus' => 'Faulted', 'errorCode' => 'NoError'],
+            ]
+            : [
+                ['connectorStatus' => 'Preparing'],
+                ['connectorStatus' => 'Charging'],
+                ['connectorStatus' => 'VendorDefinedState'],
+            ];
+        foreach ($invalid as $patch) {
+            // The newest row is valid recovery, but the older invalid
+            // row must invalidate the complete manual inspection batch.
+            $inspect([$events[2], array_replace($events[1], $patch)])
+                ->assertServiceUnavailable();
+            $this->assertDatabaseCount('charging_status_observations', 1);
+            $this->assertDatabaseCount('charging_fault_alerts', 1);
+            $this->assertNull(DB::table('charging_fault_alerts')->where('id', $alert->id)->value('recovery_observation_id'));
+        }
+        $inspect([$events[2], $events[1]])->assertOk()->assertJsonPath('alerts_created', 0);
+        $this->assertDatabaseCount('charging_status_observations', 3);
+        $this->assertNotNull(DB::table('charging_fault_alerts')->where('id', $alert->id)->value('recovery_observation_id'));
+        $inspect([$events[2], $events[1]])->assertOk()->assertJsonPath('alerts_created', 0);
+        $this->assertDatabaseCount('charging_status_observations', 3);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_unparseable_source_timestamp_returns_review_required_without_event_loss(): void
     {
         $f = $this->fixture();

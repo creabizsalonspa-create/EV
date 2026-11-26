@@ -12,11 +12,55 @@ class FaultMonitor
         return hash('sha256', json_encode([$binding->id, $binding->station_id, $binding->vendor_charger_id, $binding->identifier, $binding->protocol], JSON_THROW_ON_ERROR));
     }
 
+    /** Both manual inspection and continuous observation must use the same protocol receipt contract. */
+    public static function requireProtocolReceipt(string $protocol, array $event): void
+    {
+        abort_unless(in_array($protocol, ['1.6', '2.0.1'], true), 503, 'Unsupported source protocol.');
+        abort_unless(is_string($event['connectorStatus'] ?? null) &&
+            (! isset($event['errorCode']) || (is_string($event['errorCode']) &&
+                strlen($event['errorCode']) <= 80)), 503, 'Malformed source status receipt.');
+        // All status observations must belong to the canonical OCPP
+        // status vocabulary. Unknown vendor states are not evidence
+        // of availability, faults or recovery and must not advance
+        // the durable cursor beyond an unread source event.
+        abort_unless(in_array($event['connectorStatus'], ConnectorFreshness::STATUSES, true), 503, 'Unsupported source connector status.');
+        // A 1.6 StatusNotification includes an explicit fault
+        // errorCode. Do not persist a healthy/status cursor from
+        // a partial, contradictory or non-1.6 projection.
+        if ($protocol === '1.6') {
+            abort_unless(in_array($event['connectorStatus'], [
+                'Available', 'Preparing', 'Charging', 'SuspendedEVSE',
+                'SuspendedEV', 'Finishing', 'Reserved', 'Unavailable',
+                'Faulted',
+            ], true), 503, 'Invalid OCPP 1.6 status.');
+            $code = $event['errorCode'] ?? null;
+            abort_unless(is_string($code) && in_array($code, [
+                'NoError', 'ConnectorLockFailure', 'EVCommunicationError',
+                'GroundFailure', 'HighTemperature', 'InternalError',
+                'LocalListConflict', 'OtherError', 'OverCurrentFailure',
+                'OverVoltage', 'PowerMeterFailure', 'PowerSwitchFailure',
+                'ReaderFailure', 'ResetFailure', 'UnderVoltage', 'WeakSignal',
+            ], true) && (($event['connectorStatus'] === 'Faulted') === ($code !== 'NoError')),
+                503, 'Invalid or inconsistent OCPP 1.6 fault receipt.');
+        } else {
+            abort_unless(in_array($event['connectorStatus'], [
+                'Available', 'Occupied', 'Reserved', 'Unavailable', 'Faulted',
+            ], true), 503, 'Invalid OCPP 2.0.1 status.');
+        }
+    }
+
     public function ingest(object $binding, array $snapshot, ?callable $onAlertCreated = null, ?callable $onAlertRecovered = null): int
     {
         $generation = self::generation($binding);
         abort_unless(hash_equals($generation, $snapshot['source_generation'] ?? ''), 409, 'Source mapping changed; inspect again.');
         $created = 0;
+        // Validate the complete batch before accepting any new observation
+        // or invoking an alert callback, including the manual inspection path.
+        foreach ($snapshot['events'] as $event) {
+            abort_unless(is_array($event) && is_int($event['id'] ?? null) &&
+                $event['id'] > 0 && $event['id'] <= 2147483647, 503, 'Malformed source status receipt.');
+            self::requireProtocolReceipt($binding->protocol, $event);
+        }
         foreach ($snapshot['events'] as $event) {
             $time = SourceStatusTime::parse($event['timestamp'] ?? null)->format('Y-m-d H:i:s.u');
             $values = ['binding_id' => $binding->id, 'source_generation' => $generation, 'source_event_id' => $event['id'], 'evse_number' => $event['evseId'] ?? 0, 'connector_number' => $event['connectorId'] ?? 0, 'status' => $event['connectorStatus'], 'error_code' => $event['errorCode'] ?? null, 'occurred_at' => $time];
