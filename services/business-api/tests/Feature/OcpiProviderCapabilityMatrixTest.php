@@ -101,7 +101,7 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
             ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', false)
             ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
         $provider->update(['endpoints' => $endpoints]);
-        $owner->update(['account_status' => 'suspended']);
+        $owner->forceFill(['account_status' => 'suspended'])->save();
         $this->actingAs($admin)->getJson($path)->assertOk()
             ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', false)
             ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
