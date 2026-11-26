@@ -246,7 +246,18 @@ class ConnectorTopologyTest extends TestCase
             'source_event_id' => 3, 'status' => 'Available', 'occurred_at' => now()->subSecond(),
         ]);
         $check(1);
-        $this->actingAs($f['customer'])->getJson('/api/stations?recent_source_status=Available')->assertOk()
+        // Source event IDs are global to a binding, not to a connector.
+        // A newer sibling event must not invalidate an independent component.
+        DB::table('charging_status_observations')->insert(array_replace($row, [
+            'source_event_id' => 4, 'connector_number' => 8, 'status' => 'Unavailable', 'occurred_at' => now(),
+        ]));
+        $check(1);
+        $this->actingAs($f['customer'])->getJson('/api/stations/'.$f['station']->id.'/connectors')->assertOk()
+            ->assertJsonPath('data.0.status_freshness.state', 'recent')
+            ->assertJsonPath('data.0.status_freshness.reported_status', 'Available')
+            ->assertJsonPath('data.1.status_freshness.reported_status', 'Unavailable')
+            ->assertJsonPath('data.0.status_freshness.physical_availability_verified', false);
+        $this->getJson('/api/stations?recent_source_status=Available')->assertOk()
             ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.remote_control', false);
         $this->assertDatabaseCount('reservations', 0);
         $this->assertDatabaseCount('charger_commands', 0);
