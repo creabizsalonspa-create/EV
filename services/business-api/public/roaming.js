@@ -1425,6 +1425,13 @@ window.createRoamingWorkspace = ({
             "local_receiver_active", "local_sender_configured",
             "local_sender_active", "sandbox_delivery_software_enabled",
         ];
+        const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+        const extended = matrix != null && typeof matrix === "object" && (
+            own(matrix, "sandbox_token_and_command_policy_ready") ||
+            own(matrix, "sandbox_reservation_policy_ready") ||
+            (Array.isArray(matrix.modules) && matrix.modules.some(m =>
+                m && typeof m === "object" && own(m, "local_receiver_request_ready")))
+        );
         const safeMatrix = matrix == null || (
             typeof matrix === "object" &&
             matrix.evidence === "NEGOTIATED_AND_CONFIGURED_SOFTWARE_ONLY" &&
@@ -1433,12 +1440,22 @@ window.createRoamingWorkspace = ({
             matrix.partner_conformance_verified === false &&
             matrix.payment_authority === false &&
             typeof matrix.credentials_current === "boolean" &&
+            (!extended || (
+                typeof matrix.sandbox_token_and_command_policy_ready === "boolean" &&
+                typeof matrix.sandbox_reservation_policy_ready === "boolean" &&
+                (!matrix.sandbox_token_and_command_policy_ready || matrix.credentials_current) &&
+                (!matrix.sandbox_reservation_policy_ready || matrix.sandbox_token_and_command_policy_ready)
+            )) &&
             (matrix.peer_role === null || ["CPO", "EMSP"].includes(matrix.peer_role)) &&
             Array.isArray(matrix.modules) && matrix.modules.length === 4 &&
             matrix.modules.every((m, index) =>
                 m && typeof m === "object" && m.module === modules[index] &&
                 booleans.every(key => typeof m[key] === "boolean") &&
                 (!m.local_receiver_active || m.local_receiver_configured) &&
+                (!extended || (
+                    typeof m.local_receiver_request_ready === "boolean" &&
+                    (!m.local_receiver_request_ready || (m.local_receiver_active && m.local_receiver_configured))
+                )) &&
                 (!m.local_sender_active || (m.local_sender_configured && matrix.credentials_current)) &&
                 (!m.sandbox_delivery_software_enabled || m.local_sender_active)
             )
@@ -1458,16 +1475,25 @@ window.createRoamingWorkspace = ({
             target.append(raw("p", ar
                 ? "وحدات الشريك المُهيأة أو المتفاوض عليها فقط؛ لا تمثل موافقة للتجوال الفعلي أو صلاحية للشحن."
                 : "Configured or negotiated modules only — not live roaming approval or charging authority."));
+            if (extended) {
+                for (const [key, label] of [
+                    ["sandbox_token_and_command_policy_ready", ar ? "سياسة الرموز والأوامر التجريبية" : "Sandbox token/command policy"],
+                    ["sandbox_reservation_policy_ready", ar ? "سياسة الحجز التجريبية" : "Sandbox reservation policy"],
+                ]) {
+                    target.append(raw("p", `${label}: ${matrix[key] ? (ar ? "جاهزة" : "ready") : (ar ? "غير جاهزة" : "not ready")}`));
+                }
+            }
             for (const capability of matrix.modules) {
                 if (!["locations", "tariffs", "sessions", "cdrs"].includes(capability.module)) continue;
                 const labels = [
                     ["partner_sender_negotiated", ar ? "قراءة الشريك" : "Partner read"],
                     ["local_receiver_active", ar ? "استقبال محلي" : "Local receive"],
+                    ["local_receiver_request_ready", ar ? "جاهزية طلب الاستقبال" : "Receive request readiness"],
                     ["local_sender_active", ar ? "إرسال محلي" : "Local send"],
                     ["sandbox_delivery_software_enabled", ar ? "إرسال تجريبي" : "Sandbox delivery"],
                 ];
                 target.append(raw("p", `${capability.module}: ${labels.map(([key, label]) =>
-                    `${label} ${capability[key] === true ? (ar ? "نعم" : "yes") : (ar ? "لا" : "no")}`).join(" · ")}`));
+                    `${label} ${capability[key] === undefined ? (ar ? "غير معروفة" : "unknown") : (capability[key] === true ? (ar ? "نعم" : "yes") : (ar ? "لا" : "no"))}`).join(" · ")}`));
             }
         }
         if (result.bootstrap_expires_at)

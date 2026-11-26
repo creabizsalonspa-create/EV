@@ -14,6 +14,7 @@ class CredentialsApi extends FixtureApi {
   bool Function() sessionFence() =>
       () => active;
   bool lost = false, expired = false, incoming = false, forgedCapability = false;
+  bool forgedReadiness = false;
   Map<String, dynamic>? intent;
   @override
   Future<dynamic> request(
@@ -59,6 +60,8 @@ class CredentialsApi extends FixtureApi {
         'physical_availability_verified': false,
         'partner_conformance_verified': false,
         'payment_authority': false,
+        'sandbox_token_and_command_policy_ready': !lost && !incoming,
+        'sandbox_reservation_policy_ready': !lost && !incoming,
         'modules': [
           for (final module in ['locations', 'tariffs', 'sessions', 'cdrs'])
             {
@@ -66,6 +69,8 @@ class CredentialsApi extends FixtureApi {
               'partner_sender_negotiated': module == 'locations' && !lost,
               'local_receiver_configured': module != 'tariffs',
               'local_receiver_active': module != 'tariffs' && !lost,
+              'local_receiver_request_ready': forgedReadiness && module == 'tariffs' ||
+                  module == 'locations' && !lost && !incoming,
               'local_sender_configured': false,
               'local_sender_active': forgedCapability && module == 'locations',
               'sandbox_delivery_software_enabled': false,
@@ -110,6 +115,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining(ar ? 'وحدات المصدر المهيأة' : 'Configured/negotiated source modules only'), findsOneWidget);
       expect(find.textContaining(ar ? 'قراءة الشريك نعم' : 'Partner read yes'), findsOneWidget);
+      expect(find.textContaining(ar ? 'جاهزية طلب الاستقبال نعم' : 'Receive request readiness yes'), findsOneWidget);
+      expect(find.textContaining(ar ? 'سياسة الحجز التجريبية: جاهزة' : 'Sandbox reservation policy: ready'), findsOneWidget);
       expect(find.textContaining('SYNTHETIC-PEER-BOOTSTRAP'), findsNothing);
       expect(api.writes, 0);
     });
@@ -125,6 +132,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Partner credentials unavailable.'), findsOneWidget);
     expect(find.text('Credentials active'), findsNothing);
+    expect(find.text('Rotate partner credentials'), findsNothing);
+    expect(api.writes, 0);
+  });
+
+  testWidgets('contradictory request readiness removes credential actions', (tester) async {
+    final api = CredentialsApi();
+    await tester.pumpWidget(MaterialApp(home: OcpiCredentialsView(api: api, providerId: 7, onExpired: () {})));
+    await tester.pumpAndSettle();
+    api.forgedReadiness = true;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Partner credentials unavailable.'), findsOneWidget);
     expect(find.text('Rotate partner credentials'), findsNothing);
     expect(api.writes, 0);
   });

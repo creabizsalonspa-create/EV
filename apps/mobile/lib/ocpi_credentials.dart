@@ -112,6 +112,19 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView>
             (matrix['modules'] as List).length != 4) {
           throw const FormatException('Invalid partner capability evidence');
         }
+        final extended = matrix.containsKey('sandbox_token_and_command_policy_ready') ||
+            matrix.containsKey('sandbox_reservation_policy_ready') ||
+            (matrix['modules'] as List).any((item) =>
+                item is Map && item.containsKey('local_receiver_request_ready'));
+        if (extended &&
+            (matrix['sandbox_token_and_command_policy_ready'] is! bool ||
+                matrix['sandbox_reservation_policy_ready'] is! bool ||
+                (matrix['sandbox_token_and_command_policy_ready'] == true &&
+                    matrix['credentials_current'] != true) ||
+                (matrix['sandbox_reservation_policy_ready'] == true &&
+                    matrix['sandbox_token_and_command_policy_ready'] != true))) {
+          throw const FormatException('Invalid sandbox policy evidence');
+        }
         final seen = <String>{};
         for (final item in matrix['modules'] as List) {
           if (item is! Map ||
@@ -128,8 +141,14 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView>
               ].any((key) => item[key] is! bool) ||
               (item['local_receiver_active'] == true &&
                   item['local_receiver_configured'] != true) ||
+              (extended &&
+                  (item['local_receiver_request_ready'] is! bool ||
+                      (item['local_receiver_request_ready'] == true &&
+                          (item['local_receiver_active'] != true ||
+                              item['local_receiver_configured'] != true)))) ||
               (item['local_sender_active'] == true &&
-                  item['local_sender_configured'] != true) ||
+                  (item['local_sender_configured'] != true ||
+                      matrix['credentials_current'] != true)) ||
               (item['sandbox_delivery_software_enabled'] == true &&
                   item['local_sender_active'] != true)) {
             throw const FormatException('Invalid module capability evidence');
@@ -309,10 +328,19 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView>
                 'Configured/negotiated source modules only. No live roaming, charging or payment approval.',
                 'وحدات المصدر المهيأة أو المتفاوض عليها فقط، دون موافقة على التجوال أو الشحن أو الدفع الفعلي.',
               )),
+              if (status!['capability_matrix'].containsKey('sandbox_token_and_command_policy_ready')) ...[
+                Text(
+                  '${tr('Sandbox token/command policy', 'سياسة الرموز والأوامر التجريبية')}: ${status!['capability_matrix']['sandbox_token_and_command_policy_ready'] == true ? tr('ready', 'جاهزة') : tr('not ready', 'غير جاهزة')}',
+                ),
+                Text(
+                  '${tr('Sandbox reservation policy', 'سياسة الحجز التجريبية')}: ${status!['capability_matrix']['sandbox_reservation_policy_ready'] == true ? tr('ready', 'جاهزة') : tr('not ready', 'غير جاهزة')}',
+                ),
+              ],
               for (final row in status!['capability_matrix']['modules'] as List)
                 Text(
                   '${row['module']}: ${tr('Partner read', 'قراءة الشريك')} ${row['partner_sender_negotiated'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '
                   '${tr('Local receive', 'استقبال محلي')} ${row['local_receiver_active'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '
+                  '${tr('Receive request readiness', 'جاهزية طلب الاستقبال')} ${row['local_receiver_request_ready'] == null ? tr('unknown', 'غير معروفة') : (row['local_receiver_request_ready'] == true ? tr('yes', 'نعم') : tr('no', 'لا'))} · '
                   '${tr('Local send', 'إرسال محلي')} ${row['local_sender_active'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '
                   '${tr('Sandbox delivery', 'إرسال تجريبي')} ${row['sandbox_delivery_software_enabled'] == true ? tr('yes', 'نعم') : tr('no', 'لا')}',
                 ),
