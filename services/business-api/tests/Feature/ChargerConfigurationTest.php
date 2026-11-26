@@ -291,6 +291,21 @@ class ChargerConfigurationTest extends TestCase
         Http::assertNotSent(fn ($r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), '/dev/token'));
     }
 
+    public function test_even_another_approved_operations_origin_cannot_receive_the_configuration_token(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $this->source($protocol, duringToken: fn () => config(['csms.operations_base_url' => 'http://citrine:8080']));
+            $body = ['idempotency_key' => 'origin-drift-'.$protocol, 'reason' => 'Inspect source configuration authority'];
+            $id = $this->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'not_dispatched')->json('id');
+            config(['csms.operations_base_url' => 'http://127.0.0.1:8080']);
+            $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id);
+            Http::assertSentCount(2);
+            Http::assertNotSent(fn ($r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), 'citrine:8080'));
+            $this->assertDatabaseHas('charger_configuration_reads', ['id' => $id, 'status' => 'not_dispatched']);
+        }
+    }
+
     public function test_current_role_recheck_blocks_dispatch_after_service_token_discovery(): void
     {
         $f = $this->fixture();

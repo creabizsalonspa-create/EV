@@ -92,12 +92,16 @@ class ChargerAvailabilityCommandTest extends TestCase
 
     #[TestWith(['revocation'])]
     #[TestWith(['global_expiry'])]
+    #[TestWith(['individual_expiry'])]
     public function test_mobile_authority_is_current_when_observation_commits(string $change): void
     {
         config(['sanctum.expiration' => 10]);
         $fixture = $this->fixture('2.0.1');
         $token = $fixture['owner']->createToken('mobile');
-        $token->accessToken->forceFill(['created_at' => now()->subMinutes(9)])->save();
+        $token->accessToken->forceFill([
+            'created_at' => $change === 'individual_expiry' ? now() : now()->subMinutes(9),
+            'expires_at' => $change === 'individual_expiry' ? now()->addMinute() : null,
+        ])->save();
         $this->source($fixture, ['operationalStatus' => 'Inoperative'], onConfirmation: function () use ($token, $change) {
             if ($change === 'revocation') {
                 $token->accessToken->delete();
