@@ -77,7 +77,7 @@ final class StoredSourceIntegrity
         ];
     }
 
-    /** Bounded single-record check for decisions that reuse stored evidence. */
+    /** Reuse the canonical stored-source check at a bounded reconciliation decision. */
     public function consistent(OcpiRecord $row): bool
     {
         return in_array($row->module, PartnerClient::MODULES, true) && $this->findings($row, $row->module) === [];

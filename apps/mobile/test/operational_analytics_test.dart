@@ -8,6 +8,7 @@ import 'test_support.dart';
 class OpsApi extends FixtureApi {
   bool unsafe = false, fail = false, unsafeFeedback = false, unknownDemand = false;
   bool wrongPeriod = false, inconsistentCoverage = false;
+  bool forgedUnavailable = false;
   Completer<dynamic>? held;
   final applied = <Map<String, String>>[];
   @override
@@ -55,7 +56,9 @@ class OpsApi extends FixtureApi {
           for (final key in operationalLabels.keys)
             key: key == 'maximum_observed_site_interval_average_w' && unknownDemand
                 ? null
-                : key == 'completed_energy_wh'
+                : key == 'reported_non_fault_unavailable_seconds' && forgedUnavailable
+                    ? 1
+                    : key == 'completed_energy_wh'
                     ? 1250
                     : key == 'status_known_seconds' && inconsistentCoverage
                         ? 10
@@ -97,6 +100,30 @@ void main() {
       expect(find.text('Mapped connectors: 0'), findsOneWidget);
       expect(find.textContaining('Physical availability confirmed'),
           findsNothing);
+    },
+  );
+  testWidgets(
+    'reported unavailable seconds remain separate from fault evidence',
+    (tester) async {
+      await tester.pumpWidget(app(OpsApi(), () {}));
+      await tester.pumpAndSettle();
+      final metric = find.text(
+        'Reported unavailable seconds without a fault: 0',
+      );
+      await tester.scrollUntilVisible(
+        metric,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(metric, findsOneWidget);
+    },
+  );
+  testWidgets('unavailable seconds cannot exceed remaining known coverage',
+    (tester) async {
+      await tester.pumpWidget(app(OpsApi()..forgedUnavailable = true, () {}));
+      await tester.pumpAndSettle();
+      expect(find.text('View private report PDF'), findsNothing);
+      expect(find.textContaining('Completed energy (Wh): 1250'), findsNothing);
     },
   );
   testWidgets(

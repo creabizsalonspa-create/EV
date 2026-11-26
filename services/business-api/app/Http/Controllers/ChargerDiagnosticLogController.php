@@ -6,8 +6,10 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\ConfigurationProbe;
+use App\Services\Charging\DiagnosticAuthority;
 use App\Services\Charging\DiagnosticLogSource;
 use App\Services\Charging\FaultMonitor;
+use App\Services\Charging\OperationsCredentials;
 use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
@@ -18,9 +20,9 @@ use Throwable;
 
 class ChargerDiagnosticLogController extends Controller
 {
-    private function scope(Request $r, VendorCompany $company, VendorCharger $charger, bool $write = false): object
+    private function scope(Request $r, VendorCompany $company, VendorCharger $charger, bool $write = false, bool $upload = false): object
     {
-        return app(ChargerResetController::class)->scope($r, $company->fresh(), $charger->fresh(), $write);
+        return app(DiagnosticAuthority::class)->binding($r, $company, $charger, $write, $upload);
     }
 
     private function record(object $b, int $id): object
@@ -38,7 +40,7 @@ class ChargerDiagnosticLogController extends Controller
 
     private function present(object $row, bool $private): array
     {
-        return ['id' => $row->id, 'repair_order_id' => $row->repair_order_id, 'protocol' => $row->protocol, 'dispatch_state' => $row->dispatch_state, 'created_at' => $row->created_at, 'expires_at' => $row->expires_at, 'expired' => now()->gte(CarbonImmutable::parse($row->expires_at)), 'cancelled_at' => $row->cancelled_at, 'device_status' => $row->device_status, 'accepted_at' => $row->accepted_at, 'source_status_at' => $row->source_status_at, 'file_received_at' => $row->file_received_at, 'file_expires_at' => $row->file_expires_at, 'file_size' => $row->file_size, 'file_sha256' => $row->file_sha256, 'content_removed_at' => $row->content_removed_at, 'can_download' => $private && $row->accepted_at !== null && $row->source_request_id !== null && $row->source_reply_id !== null && $row->source_reply_digest !== null && $row->cancelled_at === null && $row->file_ciphertext !== null && now()->lt(CarbonImmutable::parse($row->file_expires_at)), 'evidence' => 'SIMULATED_SOURCE', 'physical_device_verified' => false];
+        return ['id' => $row->id, 'repair_order_id' => $row->repair_order_id, 'protocol' => $row->protocol, 'dispatch_state' => $row->dispatch_state, 'created_at' => $row->created_at, 'expires_at' => $row->expires_at, 'expired' => now()->gte(CarbonImmutable::parse($row->expires_at)), 'cancelled_at' => $row->cancelled_at, 'device_status' => $row->device_status, 'accepted_at' => $row->accepted_at, 'source_status_at' => $row->source_status_at, 'file_received_at' => $row->file_received_at, 'file_expires_at' => $row->file_expires_at, 'file_size' => $row->file_size, 'file_sha256' => $row->file_sha256, 'content_removed_at' => $row->content_removed_at, 'can_download' => $private && $row->accepted_at !== null && $row->source_request_id !== null && $row->source_reply_id !== null && $row->source_reply_digest !== null && $row->cancelled_at === null && $row->file_ciphertext !== null && now()->lt(CarbonImmutable::parse($row->file_expires_at)), 'evidence' => $row->consent_registration_id !== null ? 'AUTHENTICATED_SOURCE' : 'SIMULATED_SOURCE', 'physical_device_verified' => false];
     }
 
     private function json(mixed $data, int $status = 200)
@@ -62,22 +64,24 @@ class ChargerDiagnosticLogController extends Controller
         $page = DB::table('charger_diagnostic_logs')->where('binding_id', $b->id)->where('source_generation', FaultMonitor::generation($b))->when(isset($filter['repair_order_id']), fn ($q) => $q->where('repair_order_id', $filter['repair_order_id']))->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->present($row, $private))->toArray();
         $enabled = false;
         try {
-            app(DiagnosticLogSource::class)->enabled();
+            app(DiagnosticLogSource::class)->enabled($b);
+            app(DiagnosticAuthority::class)->dispatchable($b);
             app(VendorAccess::class)->operational($company->fresh());
             $enabled = true;
         } catch (Throwable) {
         }
 
-        return $this->json($page + ['can_request' => $private && $enabled, 'can_manage' => $private, 'maximum_file_bytes' => DiagnosticLogSource::LIMIT, 'upload_lifetime_seconds' => 900, 'file_retention_seconds' => 86400, 'evidence' => 'SIMULATED_SOURCE', 'charging_capacity_changed' => false]);
+        return $this->json($page + ['can_request' => $private && $enabled, 'can_manage' => $private, 'maximum_file_bytes' => DiagnosticLogSource::LIMIT, 'upload_lifetime_seconds' => 900, 'file_retention_seconds' => 86400, 'evidence' => app(DiagnosticAuthority::class)->evidence($b), 'charging_capacity_changed' => false]);
     }
 
     public function create(Request $r, VendorCompany $company, VendorCharger $charger, DiagnosticLogSource $source, ConfigurationProbe $probe)
     {
-        $source->enabled();
         $b = $this->scope($r, $company, $charger, true);
+        $authority = $source->authority($b);
+        app(DiagnosticAuthority::class)->dispatchable($b);
         $v = $r->validate(['request_key' => 'required|uuid', 'reason' => 'required|string|min:10|max:500', 'repair_order_id' => 'sometimes|nullable|integer|min:1']);
         $hash = hash('sha256', json_encode([FaultMonitor::generation($b), $v['reason'], $v['repair_order_id'] ?? null], JSON_THROW_ON_ERROR));
-        $op = DB::transaction(function () use ($r, $company, $charger, $b, $v, $hash, $source) {
+        $op = DB::transaction(function () use ($r, $company, $charger, $b, $v, $hash, $source, $authority) {
             VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
             $current = $this->scope($r, $company, $charger, true);
@@ -96,9 +100,11 @@ class ChargerDiagnosticLogController extends Controller
                 $this->repair($locked, $v['repair_order_id']);
             }
             $cap = bin2hex(random_bytes(32));
-            $id = DB::table('charger_diagnostic_logs')->insertGetId(['binding_id' => $b->id, 'actor_id' => $r->user()->id, 'repair_order_id' => $v['repair_order_id'] ?? null, 'request_key' => $v['request_key'], 'intent_hash' => $hash, 'source_generation' => FaultMonitor::generation($b), 'protocol' => $b->protocol, 'reason_ciphertext' => Crypt::encryptString($v['reason']), 'upload_token_digest' => hash('sha256', $cap), 'dispatch_state' => 'requested', 'expires_at' => now()->addMinutes(15), 'created_at' => now(), 'updated_at' => now()]);
+            $source->requireAuthority($current, $authority);
+            app(DiagnosticAuthority::class)->dispatchable($current);
+            $id = DB::table('charger_diagnostic_logs')->insertGetId(app(DiagnosticAuthority::class)->capture($r->user(), $current) + ['binding_id' => $b->id, 'actor_id' => $r->user()->id, 'repair_order_id' => $v['repair_order_id'] ?? null, 'request_key' => $v['request_key'], 'intent_hash' => $hash, 'source_generation' => FaultMonitor::generation($b), 'protocol' => $b->protocol, 'reason_ciphertext' => Crypt::encryptString($v['reason']), 'upload_token_digest' => hash('sha256', $cap), 'dispatch_state' => 'requested', 'expires_at' => now()->addMinutes(15), 'created_at' => now(), 'updated_at' => now()]);
             abort_if($id > 2147483647, 409);
-            DB::table('charger_diagnostic_logs')->where('id', $id)->update(['payload_ciphertext' => Crypt::encryptString(json_encode($source->payload($b->protocol, $id, $cap), JSON_THROW_ON_ERROR))]);
+            DB::table('charger_diagnostic_logs')->where('id', $id)->update(['payload_ciphertext' => Crypt::encryptString(json_encode($source->payload($b->protocol, $id, $cap, $current), JSON_THROW_ON_ERROR))]);
             app(VendorAccess::class)->audit($r->user(), 'diagnostic_log.requested', $id);
 
             return ['row' => DB::table('charger_diagnostic_logs')->find($id), 'created' => true];
@@ -108,17 +114,28 @@ class ChargerDiagnosticLogController extends Controller
             $sent = false;
             $state = 'not_dispatched';
             try {
-                $probe->station($b);
-                $token = $probe->serviceToken();
-                $current = $this->scope($r, $company, $charger, true);
-                app(VendorAccess::class)->operational($company->fresh());
-                $source->enabled();
-                abort_unless(hash_equals(FaultMonitor::generation($b), FaultMonitor::generation($current)), 409);
-                $fresh = $this->record($current, $row->id);
-                abort_unless($fresh->cancelled_at === null && now()->lt(CarbonImmutable::parse($fresh->expires_at)), 409);
-                $payload = json_decode(Crypt::decryptString($fresh->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
-                $sent = true;
-                $state = $source->submit($current, $token, $payload) ? 'transport_submitted' : 'outcome_unknown';
+                $source->requireAuthority($b, $authority);
+                $stationId = $probe->station($b);
+                $source->requireAuthority($b, $authority);
+                abort_unless(empty($b->diagnostic_direct) || $stationId === $b->diagnostic_source_station_id, 409, 'Registered source station identity changed.');
+                $token = app(OperationsCredentials::class)->token($authority[0]);
+                $source->requireAuthority($b, $authority);
+                $state = DB::transaction(function () use ($r, $company, $charger, $b, $row, $source, $token, $authority, &$sent) {
+                    VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+                    User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
+                    $current = $this->scope($r, $company, $charger, true);
+                    app(VendorAccess::class)->operational($company->fresh());
+                    $source->requireAuthority($current, $authority);
+                    app(DiagnosticAuthority::class)->dispatchable($current);
+                    abort_unless(hash_equals(FaultMonitor::generation($b), FaultMonitor::generation($current)), 409);
+                    $fresh = $this->record($current, $row->id);
+                    abort_unless($fresh->cancelled_at === null && now()->lt(CarbonImmutable::parse($fresh->expires_at)), 409);
+                    app(DiagnosticAuthority::class)->uploadConsent($fresh, $r->user(), $current);
+                    $payload = json_decode(Crypt::decryptString($fresh->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
+                    $sent = true;
+
+                    return $source->submit($current, $token, $payload, $authority) ? 'transport_submitted' : 'outcome_unknown';
+                }); // One attempt only: a network write must never be transaction-retried.
             } catch (Throwable) {
                 $state = $sent ? 'outcome_unknown' : 'not_dispatched';
             }
@@ -129,9 +146,10 @@ class ChargerDiagnosticLogController extends Controller
         return $this->json($this->present($this->record($b, $row->id), true), $op['created'] ? 201 : 200);
     }
 
-    public function upload(Request $r, int $operation, DiagnosticLogSource $source)
+    public function upload(Request $r, int $operation, DiagnosticLogSource $source, ?string $filename = null)
     {
-        $source->enabled();
+        abort_unless($r->isSecure() || app()->environment(['local', 'testing']), 503, 'HTTPS diagnostic upload is required.');
+        abort_unless($filename === null || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/D', $filename), 404);
         $token = $r->getPassword();
         abort_unless($r->getUser() === 'diagnostic' && is_string($token) && preg_match('/^[a-f0-9]{64}$/D', $token), 404);
         abort_unless(in_array(strtolower(explode(';', (string) $r->header('Content-Type'))[0]), ['application/octet-stream', 'text/plain'], true), 415);
@@ -148,7 +166,9 @@ class ChargerDiagnosticLogController extends Controller
             $company = VendorCompany::whereKey($charger->company_id)->lockForUpdate()->firstOrFail();
             $actor = User::whereKey($row->actor_id)->lockForUpdate()->firstOrFail();
             $r->setUserResolver(fn () => $actor);
-            $b = $this->scope($r, $company, $charger, true);
+            $b = $this->scope($r, $company, $charger, true, true);
+            app(DiagnosticLogSource::class)->enabled($b);
+            app(DiagnosticAuthority::class)->uploadConsent($row, $actor, $b);
             $lockedBinding = DB::table('csms_bindings')->where('id', $b->id)->lockForUpdate()->firstOrFail();
             $op = DB::table('charger_diagnostic_logs')->where('id', $row->id)->lockForUpdate()->firstOrFail();
             abort_unless(hash_equals($op->source_generation, FaultMonitor::generation($lockedBinding)) && $op->cancelled_at === null && now()->lt(CarbonImmutable::parse($op->expires_at)) && $op->upload_token_digest === $row->upload_token_digest && ! in_array($op->dispatch_state, ['not_dispatched', 'requested', 'device_rejected'], true), 404);
@@ -202,13 +222,15 @@ class ChargerDiagnosticLogController extends Controller
 
     public function observe(Request $r, VendorCompany $company, VendorCharger $charger, int $operation, ConfigurationProbe $probe, DiagnosticLogSource $source)
     {
-        $source->enabled();
         $b = $this->scope($r, $company, $charger);
+        $source->enabled($b);
+        app(DiagnosticAuthority::class)->currentSource($b);
         $op = $this->record($b, $operation);
         if (! $op->attempted_at || ! $op->payload_ciphertext || $op->cancelled_at !== null || $op->dispatch_state === 'not_dispatched') {
             return $this->json($this->present($op, $this->privileged($r, $company)));
         }
         $station = $probe->station($b, false);
+        abort_unless(empty($b->diagnostic_direct) || $station === $b->diagnostic_source_station_id, 409, 'Registered source station identity changed.');
         $action = $b->protocol === '1.6' ? 'GetDiagnostics' : 'GetLog';
         $payload = json_decode(Crypt::decryptString($op->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
         $requests = $probe->messages($probe->graph('query($station:Int!,$action:String!,$after:timestamptz!,$until:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"csms"},type:{_eq:2},action:{_eq:$action},createdAt:{_gte:$after,_lte:$until},payload:{_eq:$match}},limit:2){id createdAt}}', ['station' => $station, 'action' => $action, 'after' => CarbonImmutable::parse($op->attempted_at)->toISOString(), 'until' => CarbonImmutable::parse($op->attempted_at)->addSeconds(30)->toISOString(), 'match' => $payload]), false);
@@ -240,14 +262,22 @@ class ChargerDiagnosticLogController extends Controller
                     $events = $probe->graph('query($station:Int!,$action:String!,$after:timestamptz!,$until:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},action:{_eq:$action},createdAt:{_gte:$after,_lte:$until},payload:{_contains:$match}},order_by:{id:asc},limit:51){id payload createdAt}}', ['station' => $station, 'action' => $name, 'after' => $reply['createdAt'], 'until' => CarbonImmutable::parse($op->expires_at)->toISOString(), 'match' => $match])['OCPPMessages'] ?? null;
                     abort_unless(is_array($events) && array_is_list($events) && count($events) <= 50,
                         503, 'Malformed or unbounded diagnostic source status history.');
+                    $lastId = $reply['id'];
+                    $lastAt = $at;
                     foreach ($events as $event) {
-                        abort_unless(is_array($event) && is_int($event['id'] ?? null) && $event['id'] > $reply['id']
+                        abort_unless(is_array($event) && is_int($event['id'] ?? null) && $event['id'] > $lastId && $event['id'] <= 2147483647
                             && is_array($event['payload'] ?? null) && is_string($event['createdAt'] ?? null),
                             503, 'Malformed diagnostic source status.');
                         $statusAt = SourceStatusTime::parse($event['createdAt'], 300);
-                        abort_unless($statusAt->gte($at)
-                            && $statusAt->lte(CarbonImmutable::parse($op->expires_at, 'UTC')), 409,
-                            'Diagnostic status clock requires review.');
+                        abort_unless($statusAt->gte($lastAt)
+                            && $statusAt->lte(CarbonImmutable::parse($op->expires_at, 'UTC'))
+                            && ($b->protocol === '1.6' || (is_int($event['payload']['requestId'] ?? null) && $event['payload']['requestId'] === (int) $op->id)), 409,
+                            'Diagnostic event identity or chronology requires review.');
+                        $lastId = $event['id'];
+                        $lastAt = $statusAt;
+                    }
+                    foreach ($events as $event) {
+                        $statusAt = SourceStatusTime::parse($event['createdAt'], 300);
                         $state = $event['payload']['status'] ?? null;
                         if (! in_array($state, ['Uploading', 'Uploaded', 'UploadFailed', 'UploadFailure', 'BadMessage', 'NotSupportedOperation', 'PermissionDenied'], true)) {
                             continue;
@@ -272,6 +302,7 @@ class ChargerDiagnosticLogController extends Controller
         }
         DB::transaction(function () use ($r, $company, $charger, $op, $updates) {
             $current = $this->scope($r, $company, $charger);
+            app(DiagnosticAuthority::class)->currentSource($current);
             $locked = DB::table('csms_bindings')->where('id', $current->id)->lockForUpdate()->firstOrFail();
             abort_unless(hash_equals($op->source_generation, FaultMonitor::generation($locked)), 409);
             $row = DB::table('charger_diagnostic_logs')->where('id', $op->id)->lockForUpdate()->firstOrFail();

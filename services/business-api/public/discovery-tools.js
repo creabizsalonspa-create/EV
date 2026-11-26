@@ -33,6 +33,75 @@
     };
     const coordinate = (p) =>
         `${p.latitude.toFixed(6)},${p.longitude.toFixed(6)}`;
+    // All energy values are explicit driver assumptions, never vehicle telemetry.
+    function energyInputs(raw) {
+        const limits = {capacity:[1,250], soc:[0,100], reserve:[0,100], consumption:[1,100]};
+        const values = {};
+        for (const [key,[min,max]] of Object.entries(limits)) {
+            if (typeof raw?.[key] !== "string") return null;
+            const text = digits(raw[key].trim());
+            if (!/^[0-9]{1,3}(?:\.[0-9]{1,2})?$/.test(text)) return null;
+            const n = Number(text);
+            if (n < min || n > max) return null;
+            values[key] = n;
+        }
+        if (values.reserve >= values.soc) return null;
+        return values;
+    }
+    function straightKm(a,b) {
+        if (!a || !b) return null;
+        const rad = Math.PI / 180, dlat = (b.latitude-a.latitude)*rad,
+            dlng = (b.longitude-a.longitude)*rad;
+        const h = Math.sin(dlat/2)**2 + Math.cos(a.latitude*rad)*Math.cos(b.latitude*rad)*Math.sin(dlng/2)**2;
+        return 6371*2*Math.asin(Math.sqrt(Math.min(1,Math.max(0,h))));
+    }
+    // A shortlist of current-page published locations, not a road itinerary.
+    // Nearest straight-line distance first. Never infer available charging.
+    function energyCandidates(raw, origin, stations, connector = "") {
+        const v = energyReview(raw, null, null, null);
+        if (!v || !origin || !Array.isArray(stations) || stations.length > 25 ||
+            !["","CCS2","Type2","CHAdeMO"].includes(connector)) return [];
+        const start = point(origin.latitude,origin.longitude);
+        if (!start) return [];
+        const counts = new Map();
+        for(const row of stations) if(Number.isSafeInteger(row?.id)) counts.set(row.id,(counts.get(row.id)||0)+1);
+        const rows = [];
+        for (const s of stations) {
+            if (!s || !Number.isSafeInteger(s.id) || s.id < 1 || counts.get(s.id)!==1 ||
+                typeof s.name !== "string" || !s.name.trim() ||
+                !["SIMULATED","DISCOVERY_ONLY"].includes(s.evidence) ||
+                !["CCS2","Type2","CHAdeMO"].includes(s.connector_type) ||
+                (connector && s.connector_type!==connector) ||
+                !Number.isInteger(s.power_kw) || s.power_kw < 1 || s.power_kw > 1000 ||
+                s.latitude == null || s.longitude == null ||
+                !["string","number"].includes(typeof s.latitude) ||
+                !["string","number"].includes(typeof s.longitude)) continue;
+            const p = point(s.latitude,s.longitude);
+            if(!p) continue;
+            const km = straightKm(start,p);
+            if(km > v.km+1e-9) continue;
+            rows.push({id:s.id,name:s.name,connector:s.connector_type,evidence:s.evidence,power:s.power_kw,km});
+        }
+        return rows.sort((a,b)=>a.km-b.km || a.id-b.id).slice(0,5);
+    }
+    function energyReview(raw, routeMeters, origin, firstStop) {
+        const v = energyInputs(raw);
+        if (!v) return null;
+        const budget = v.capacity * (v.soc-v.reserve)/100;
+        const km = budget / v.consumption * 100;
+        let firstKm = null;
+        if (origin && firstStop) {
+            const a = point(origin.latitude,origin.longitude), b = point(firstStop.latitude,firstStop.longitude);
+            if (a && b) {
+                firstKm = straightKm(a,b);
+            }
+        }
+        const needed = Number.isFinite(routeMeters) && routeMeters >= 0 && routeMeters <= 40000000
+            ? routeMeters/1000*v.consumption/100 : null;
+        return {budget,km,needed,firstKm,
+            totalExceeds: needed === null ? null : needed > budget+1e-9,
+            firstExceeds: firstKm === null ? null : firstKm > km+1e-9};
+    }
     function addressSearch(request, onSelected) {
         const root = document.createElement("fieldset"),
             legend = label("legend", "Find an address", "البحث عن عنوان");
@@ -303,6 +372,7 @@
             epoch++;
             routeAbort?.abort();
             estimate = null;
+            renderEnergy();
             // Consent was for the exact reviewed itinerary. Editing stops,
             // coordinates or connector filters requires a new explicit opt-in.
             if (revokeConsent) routeConsent.checked = false;
@@ -390,9 +460,9 @@
                         result.traffic_verified !== false ||
                         result.charging_time_included !== false ||
                         !Number.isFinite(result.distance_meters) ||
-                        result.distance_meters < 0 ||
+                        result.distance_meters < 0 || result.distance_meters > 40000000 ||
                         !Number.isFinite(result.duration_seconds) ||
-                        result.duration_seconds < 0 ||
+                        result.duration_seconds < 0 || result.duration_seconds > 31536000 ||
                         !Array.isArray(result.segments) ||
                         !result.segments.length ||
                         result.segments.some(
@@ -406,6 +476,7 @@
                     )
                         throw Error("Invalid route evidence");
                     estimate = result;
+                    renderEnergy();
                     routeState.replaceChildren();
                     const total = label(
                         "strong",
@@ -602,6 +673,92 @@
             ),
             choices,
         );
+        const energy = document.createElement("details");
+        energy.id = "journey-energy-review";
+        energy.append(label("summary","Review estimated battery energy","مراجعة طاقة البطارية التقديرية"));
+        const energyFields = {};
+        const energyForm = document.createElement("fieldset");
+        energyForm.append(label("legend","Driver-entered assumptions only","افتراضات يُدخلها السائق فقط"));
+        for (const [key,en,ar] of [
+            ["capacity","Usable battery capacity (kWh)","سعة البطارية القابلة للاستخدام (كيلوواط ساعة)"],
+            ["soc","Starting charge (%)","الشحن عند البداية (%)"],
+            ["reserve","Minimum reserve (%)","الاحتياطي الأدنى (%)"],
+            ["consumption","Assumed consumption (kWh/100 km)","الاستهلاك المفترض (كيلوواط ساعة/١٠٠ كم)"],
+        ]) {
+            const wrap = document.createElement("label"), input = document.createElement("input");
+            wrap.append(label("span",en,ar),input);
+            input.name = "energy_"+key;
+            input.type = "text";
+            input.inputMode = "decimal";
+            input.maxLength = 6;
+            input.dir = "ltr";
+            input.autocomplete = "off";
+            input.oninput = () => renderEnergy();
+            energyFields[key] = input;
+            energyForm.append(wrap);
+        }
+        const energyState = document.createElement("div");
+        energyState.setAttribute("role","status");
+        const showEnergy = (en,ar) => energyState.append(label("p",en,ar));
+        function renderEnergy() {
+            energyState.replaceChildren();
+            const raw = Object.fromEntries(Object.entries(energyFields).map(([k,v])=>[k,v.value]));
+            if (Object.values(raw).every(v=>!v.trim())) return;
+            const start = point(origin.values.latitude.value,origin.values.longitude.value);
+            const first = stops.length ? stops[0].point : null;
+            const review = energyReview(raw,estimate?.distance_meters,start,first);
+            if (!review) {
+                showEnergy("Enter capacity 1–250, charge and reserve 0–100 (reserve below charge), and consumption 1–100; up to two decimals.",
+                    "أدخل السعة ١–٢٥٠ والشحن والاحتياطي ٠–١٠٠ (الاحتياطي أقل من الشحن) والاستهلاك ١–١٠٠؛ حتى منزلتين عشريتين.");
+                return;
+            }
+            const fmt=(n,lang)=>new Intl.NumberFormat(lang,{maximumFractionDigits:1,minimumFractionDigits:1}).format(n);
+            const pair=(n)=>[fmt(n,"en"),fmt(n,"ar")];
+            const [budget,budgetAr]=pair(review.budget), [km,kmAr]=pair(review.km);
+            showEnergy(`Estimated energy above reserve: ${budget} kWh · assumed range: ${km} km`,
+                `الطاقة التقديرية فوق الاحتياطي: ${budgetAr} كيلوواط ساعة · المدى المفترض: ${kmAr} كم`);
+            if(review.firstKm !== null) {
+                const [d,dAr]=pair(review.firstKm);
+                showEnergy(`First stop straight-line distance: ${d} km`,`المسافة الجوية إلى أول توقف: ${dAr} كم`);
+                showEnergy(review.firstExceeds
+                    ? "First stop exceeds the assumed range even in a straight line."
+                    : "First stop not ruled out by straight-line distance; road reachability is unverified.",
+                    review.firstExceeds ? "أول توقف يتجاوز المدى المفترض حتى بخط مستقيم." : "لا تستبعد المسافة الجوية أول توقف؛ الوصول عبر الطريق غير مؤكد.");
+            }
+            if(review.needed !== null) {
+                const [n,nAr]=pair(review.needed);
+                showEnergy(`Whole-route assumed energy: ${n} kWh`,`الطاقة المفترضة للمسار الكامل: ${nAr} كيلوواط ساعة`);
+                showEnergy(review.totalExceeds ? "Whole-route estimate exceeds starting energy above reserve. Charging may be needed." : "Whole-route estimate is within the assumed starting energy. This is not a reachability guarantee.",
+                    review.totalExceeds ? "يتجاوز تقدير المسار الكامل الطاقة عند البداية فوق الاحتياطي. قد يلزم الشحن." : "تقدير المسار الكامل ضمن طاقة البداية المفترضة. لا يضمن ذلك الوصول.");
+            } else showEnergy("Preview a provider route for a whole-route energy estimate.","عاين مسار المزود لتقدير طاقة المسار الكامل.");
+            if (start) {
+                const candidates = energyCandidates(raw,start,stations,requiredConnector);
+                showEnergy("First-stop candidates from this result page (nearest straight-line distance first). Review a candidate in the existing charging-stop selector; nothing is selected automatically.",
+                    "مرشحات التوقف الأول من صفحة النتائج الحالية (الأقرب بالمسافة الجوية أولاً). راجع المرشح في محدد توقفات الشحن؛ لا يُختار شيء تلقائياً.");
+                if (!candidates.length) showEnergy("No supported candidate on this page within the assumed straight-line range. Search another area or revise your assumptions.",
+                    "لا يوجد مرشح مدعوم في هذه الصفحة ضمن المدى الجوي المفترض. ابحث في منطقة أخرى أو راجع افتراضاتك.");
+                else {
+                    const list = document.createElement("ul");
+                    list.id = "energy-first-stop-candidates";
+                    for (const candidate of candidates) {
+                        const li = document.createElement("li");
+                        const name = document.createElement("strong");
+                        name.textContent = candidate.name;
+                        const [distance,distanceAr] = pair(candidate.km);
+                        li.append(name,label("span",
+                            ` · ${distance} km straight line · ${candidate.connector} · ${candidate.power} kW advertised · ${candidate.evidence}`,
+                            ` · ${distanceAr} كم جواً · ${candidate.connector} · ${candidate.power} كيلوواط معلنة · ${candidate.evidence}`));
+                        list.append(li);
+                    }
+                    energyState.append(list);
+                    showEnergy("Candidates are not verified reachable by road, compatible, available or reservable.",
+                        "لم يتم التحقق من إمكانية الوصول إلى المرشحات عبر الطريق أو توافقها أو توفرها أو قابليتها للحجز.");
+                }
+            }
+        }
+        energy.append(energyForm,label("p",
+            "Local arithmetic only. Not live vehicle SOC, verified range, station availability, road reachability or charging advice. Weather, terrain and charging losses are excluded. No recharge is assumed. These inputs are never sent to the provider.",
+            "حساب محلي فقط. لا يمثل شحن المركبة الفعلي أو مدى مؤكداً أو توفر المحطات أو إمكانية الوصول أو نصيحة شحن. لا يشمل الطقس أو التضاريس أو خسائر الشحن. لا يفترض إعادة الشحن. لا تُرسل المدخلات إلى المزود."),energyState);
         form.append(
             origin.fieldset,
             destination.fieldset,
@@ -616,6 +773,7 @@
             preview,
             navigation,
             routeState,
+            energy,
         );
         connectorFilter.onchange = () => {
             requiredConnector = connectorFilter.value;
@@ -676,6 +834,7 @@
             update(data) {
                 stations = data;
                 renderStops();
+                renderEnergy();
             },
             addStop,
             clear() {
@@ -703,6 +862,9 @@
                     box.addresses.clear();
                 }
                 search.clear();
+                for(const input of Object.values(energyFields)) input.value = "";
+                energyState.replaceChildren();
+                energy.open = false;
                 routeConsent.checked = false;
                 routeState.replaceChildren();
                 onRoute([]);
@@ -730,5 +892,5 @@
         window.addEventListener("pagehide", onPageHide);
         return controls;
     }
-    window.EvGeoTools = { install, point, navigationCoordinate: coordinate };
+    window.EvGeoTools = { install, point, navigationCoordinate: coordinate, energyReview, energyCandidates };
 })();
