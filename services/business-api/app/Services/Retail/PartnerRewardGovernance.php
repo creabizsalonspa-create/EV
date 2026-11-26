@@ -158,7 +158,8 @@ final class PartnerRewardGovernance
             $query->whereRaw('1 = 0');
         }
 
-        return $query->orderByDesc('pr.id')->paginate(25, [
+        return $query
+            ->orderByDesc('pr.id')->paginate(25, [
                 'pr.id as review_id', 'version.display_name as partner_name', 'version.display_name_ar as partner_name_ar',
                 'reward.name', 'reward.name_ar', 'reward.description', 'reward.description_ar', 'reward.currency',
                 'reward.starts_at', 'reward.ends_at',
