@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'invoice.dart';
 import 'strings.dart';
+import 'reservation_times.dart';
 
 class InvoiceHistoryView extends StatefulWidget {
   final EvApi api;
@@ -120,8 +121,7 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
             number is! String ||
             number.isEmpty ||
             number.length > 100 ||
-            date is! String ||
-            DateTime.tryParse(date) == null ||
+            invoiceUtcInstant(date) == null ||
             currency is! String ||
             !RegExp(r'^[A-Z]{3}$').hasMatch(currency) ||
             total is! int ||
@@ -270,7 +270,8 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
                           '${invoice['number']}',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
-                        Text('${invoice['created_at']}'),
+                        Text(invoiceUtcTime(context, invoice['created_at']),
+                            key: const Key('invoice-history-time')),
                         Text(
                           s.t('invoiceLine', {
                             'label': s.t('total'),

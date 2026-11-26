@@ -10,6 +10,28 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
         n.textContent = value ?? "—";
         return n;
     };
+    function invoiceClock(value) {
+        // Ledger timestamps are UTC, never station or browser local time.
+        if (typeof value !== "string" ||
+            !/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)?$/.test(value) ||
+            value.startsWith("0000") ||
+            (value.includes("T") && !/(?:Z|\+00:00)$/.test(value))) return null;
+        const utc = value.replace(" ", "T") + (/(?:Z|\+00:00)$/.test(value) ? "" : "Z");
+        const en = window.EvStationTime?.displayStationTime(utc, "UTC", "en");
+        const ar = window.EvStationTime?.displayStationTime(utc, "UTC", "ar");
+        return en && ar ? { en, ar } : null;
+    }
+    function clockNode(value) {
+        const clock = invoiceClock(value) || {
+            en: "Transaction time unavailable",
+            ar: "وقت المعاملة غير متاح",
+        };
+        const n = raw("p", window.EvLocale.language === "ar" ? clock.ar : clock.en);
+        n.dataset.en = clock.en;
+        n.dataset.ar = clock.ar;
+        n.dataset.invoiceTime = "";
+        return n;
+    }
     function clear() {
         generation++;
         detailVersion++;
@@ -97,7 +119,7 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
                 signal,
             );
             if (epoch !== generation || signal.aborted) return;
-            if (result.data.some((row) => row.evidence !== "SIMULATED"))
+            if (result.data.some((row) => row.evidence !== "SIMULATED" || !invoiceClock(row.created_at)))
                 throw new Error("Unsupported finance evidence.");
             state.replaceChildren();
             const detail = document.createElement("div");
@@ -107,7 +129,7 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
                 card.className = "station-card";
                 card.append(
                     raw("h3", invoice.number),
-                    raw("p", invoice.created_at),
+                    clockNode(invoice.created_at),
                 );
                 amount(card, "Total", invoice.total_minor, invoice.currency);
                 button(card, "View invoice", () =>
@@ -331,7 +353,7 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
                     const card = document.createElement("article");
                     card.className = "station-card";
                     amount(card, label, row.amount_minor, invoice.currency);
-                    card.append(raw("p", row.created_at));
+                    card.append(clockNode(row.created_at));
                     if (key === "refunds") card.append(raw("p", row.reason));
                     target.append(card);
                 }

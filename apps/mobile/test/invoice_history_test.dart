@@ -10,6 +10,7 @@ class HistoryApi extends FixtureApi {
   final queries = <Map<String, String>>[];
   bool failSecond = true, expired = false, malformedList = false;
   final methods = <String>[];
+  String invoiceTime = '2026-10-27T00:00:00Z';
   @override
   Future<dynamic> request(
     String path, {
@@ -24,7 +25,7 @@ class HistoryApi extends FixtureApi {
       'id': 7,
       'number': 'SIM-HISTORY-7',
       'evidence': 'SIMULATED',
-      'created_at': '2026-10-27T00:00:00Z',
+      'created_at': invoiceTime,
       'total_minor': 329,
       'subtotal_minor': 313,
       'tax_minor': 16,
@@ -104,8 +105,8 @@ class DelayedHistoryApi extends HistoryApi {
   }
 }
 
-Widget app(HistoryApi api, VoidCallback expired) => MaterialApp(
-  locale: const Locale('ar'),
+Widget app(HistoryApi api, VoidCallback expired, {String language = 'ar'}) => MaterialApp(
+  locale: Locale(language),
   supportedLocales: const [Locale('en'), Locale('ar')],
   localizationsDelegates: const [
     GlobalMaterialLocalizations.delegate,
@@ -115,6 +116,28 @@ Widget app(HistoryApi api, VoidCallback expired) => MaterialApp(
   home: InvoiceHistoryView(api: api, onExpired: expired),
 );
 void main() {
+  for (final language in ['en', 'ar']) {
+    testWidgets('invoice UTC clock rejects rollover and renders fractional SQL time ($language)', (tester) async {
+      final api = HistoryApi()..invoiceTime = '2026-02-30T00:00:00Z';
+      addTearDown(api.close);
+      await tester.pumpWidget(app(api, () {}, language: language));
+      await tester.pumpAndSettle();
+      expect(find.text('SIM-HISTORY-7'), findsNothing);
+      final retry = find.text(language == 'ar' ? 'إعادة المحاولة' : 'Retry');
+      await tester.ensureVisible(retry);
+      api.invoiceTime = '2026-10-27 00:00:00.123456';
+      await tester.tap(retry);
+      await tester.pumpAndSettle();
+      final clock = find.byKey(const Key('invoice-history-time'));
+      await tester.scrollUntilVisible(clock, 250,
+          scrollable: find.byType(Scrollable).first);
+      expect(tester.widget<Text>(clock).data, contains('UTC'));
+      expect(tester.widget<Text>(clock).data, isNot(contains(api.invoiceTime)));
+      expect(Directionality.of(tester.element(clock)),
+          language == 'ar' ? TextDirection.rtl : TextDirection.ltr);
+    });
+  }
+
   testWidgets('late old-account invoice list is discarded and new actor gets fresh data', (
     tester,
   ) async {

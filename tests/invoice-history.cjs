@@ -62,6 +62,9 @@ const assert = require("node:assert/strict");
     await root.locator("[name=q]").fill(invoice.number);
     await root.getByRole("button", { name: "Search", exact: true }).click();
     await root.getByText("Page 1 of 1 · 1 records", { exact: true }).waitFor();
+    const listClock = root.locator("article [data-invoice-time]").first();
+    assert.match(await listClock.textContent(), /\(UTC\)$/);
+    assert.equal(await listClock.textContent(), await listClock.getAttribute("data-en"));
     await root
       .getByRole("button", { name: "View invoice", exact: true })
       .click();
@@ -73,6 +76,11 @@ const assert = require("node:assert/strict");
       .getByText("Literal <img src=x onerror=alert(1)>", { exact: true })
       .waitFor();
     assert.equal(await detail.locator("img").count(), 0);
+    const transactionClocks = detail.locator("[data-invoice-time]");
+    assert((await transactionClocks.count()) >= 2);
+    for (const clock of await transactionClocks.all()) {
+      assert.match(await clock.textContent(), /\(UTC\)$/);
+    }
     assert.equal(
       await detail.getByRole("button", { name: /pay|refund|capture/i }).count(),
       0,
@@ -83,6 +91,9 @@ const assert = require("node:assert/strict");
     );
     await customer.locator("#language").click();
     await customer.setViewportSize({ width: 390, height: 844 });
+    await customer.waitForFunction(() => [...document.querySelectorAll("#invoice-history [data-invoice-time]")].every(n => n.textContent === n.dataset.ar));
+    assert.equal(await listClock.textContent(), await listClock.getAttribute("data-ar"));
+    assert.equal(await listClock.textContent() === await listClock.getAttribute("data-en"), false);
     await root
       .getByRole("heading", { name: "سجل الفواتير", exact: true })
       .waitFor();

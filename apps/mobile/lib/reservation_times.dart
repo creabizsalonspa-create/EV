@@ -42,6 +42,32 @@ bool _validStationClock(String raw) {
       (hours != 14 || minutes == 0);
 }
 
+/// Parse the API's UTC timestamps without calendar rollover or device timezone.
+DateTime? parseServerUtc(Object? raw) {
+  if (raw is! String || !_wireUtc.hasMatch(raw) ||
+      !_validCalendarClock(raw) || raw.startsWith('0000')) return null;
+  return DateTime.tryParse(
+    raw.endsWith('Z') || raw.endsWith('+00:00') ? raw : '${raw}Z',
+  )?.toUtc();
+}
+
+/// Financial history accepts explicit UTC or the SQL UTC wire format.
+/// An offsetless ISO T timestamp is not established financial evidence.
+DateTime? invoiceUtcInstant(Object? raw) {
+  if (raw is! String || (raw.contains('T') &&
+      !raw.endsWith('Z') && !raw.endsWith('+00:00'))) return null;
+  return parseServerUtc(raw);
+}
+
+String invoiceUtcTime(BuildContext context, Object? raw) {
+  final instant = invoiceUtcInstant(raw);
+  if (instant == null) {
+    return Localizations.localeOf(context).languageCode == 'ar'
+        ? 'وقت المعاملة غير متاح' : 'Transaction time unavailable';
+  }
+  return reservationTime(context, {'time': instant.toIso8601String()}, 'time');
+}
+
 /// Formats the station's existing instant without relying on device timezone.
 /// Older rows and inconsistent display metadata fall back to UTC.
 String reservationTime(
@@ -49,13 +75,7 @@ String reservationTime(
   Map<String, dynamic> row,
   String field,
 ) {
-  final raw = row[field];
-  if (raw is! String ||
-      !_wireUtc.hasMatch(raw) ||
-      !_validCalendarClock(raw)) return '—';
-  final instant = DateTime.tryParse(
-    raw.endsWith('Z') || raw.endsWith('+00:00') ? raw : '${raw}Z',
-  );
+  final instant = parseServerUtc(row[field]);
   if (instant == null) return '—';
 
   var display = instant;
