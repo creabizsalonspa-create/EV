@@ -25,6 +25,53 @@ let stage='fixture';
   advancedRead=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/discovery/search');await root.getByRole('button',{name:'Search all sources',exact:true}).click();assert.equal((await (await advancedRead).json()).total,0);
   await root.locator('input[name=access]').fill('');await root.locator('input[name=max_rate_per_kwh]').fill('١٫٥٠');await root.locator('input[name=price_currency]').fill('aed');
   advancedRead=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/discovery/search');await root.getByRole('button',{name:'Search all sources',exact:true}).click();advancedReply=await advancedRead;assert.equal(advancedReply.status(),200);assert.equal(new URL(advancedReply.url()).searchParams.get('max_rate_per_kwh'),'1.50');assert.equal(new URL(advancedReply.url()).searchParams.get('price_currency'),'AED');assert.equal((await advancedReply.json()).total,0);
+  // Requirement 2.3.5: positive intersection on actual canonical metadata
+  // and current simulated tariff, not only exclusion of unknown partner prices.
+  stage='advanced-positive-fixture';
+  const publisher=new BusinessClient({base:c.base});
+  publisher.csrf=(await publisher.request('csrf')).token;
+  await publisher.request('login','POST',{email:'canonical-owner-'+run+'@example.test',password});
+  publisher.csrf=(await publisher.request('csrf')).token;
+  const metadata=await publisher.request('stations/'+f.station_id+'/information','PUT',{
+   revision:0,operator_name:'Canonical filter '+run,address_en:'100%_hub '+run,
+   address_ar:'دبي '+run,description_en:null,description_ar:null,
+   access_en:'Visitors canonical',access_ar:'للزوار',
+   weekly_hours:Object.fromEntries(['mon','tue','wed','thu','fri','sat','sun'].map(day=>[day,{open:null,close:null}])),
+   closed_dates:[],amenities:[],accessibility:[]
+  });
+  assert.equal(metadata.revision,1);
+  const tariff=await publisher.request('stations/'+f.station_id+'/tariffs','POST',{
+   rate_minor_per_kwh:150,tax_bps:500,commission_bps:0,
+   expected_currency:'AED',expected_minor_units:2,idempotency_key:'unified-filter-'+run
+  });
+  assert.equal(Number(tariff.rate_minor_per_kwh),150);
+  assert.equal(tariff.currency,'AED');
+  stage='advanced-positive-intersection';
+  const filterInput=key=>root.locator('input[name='+key+']');
+  const exactFilters={operator:'Canonical filter '+run,address:'100%_hub',access:'للزوار',max_rate_per_kwh:'١٫٥٠',price_currency:'aed'};
+  for(const [key,value] of Object.entries(exactFilters))await filterInput(key).fill(value);
+  async function searchCombined(){
+   const pending=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/discovery/search');
+   await root.getByRole('button',{name:'Search all sources',exact:true}).click();
+   const reply=await pending;assert.equal(reply.status(),200);return{reply,data:await reply.json()};
+  }
+  let combined=await searchCombined();
+  const sent=new URL(combined.reply.url()).searchParams;
+  for(const [key,value] of Object.entries({...exactFilters,max_rate_per_kwh:'1.50',price_currency:'AED'}))assert.equal(sent.get(key),value);
+  assert.equal(combined.data.total,1,'All four filters must intersect on the same canonical station');
+  assert.equal(combined.data.last_page,1);
+  assert.equal(combined.data.data[0].key,'catalog:'+f.station_id);
+  await root.locator('[data-discovery-key="catalog:'+f.station_id+'"]').waitFor();
+  assert.equal(await root.locator('article').count(),1);
+  for(const [key,wrong] of Object.entries({operator:'Unmatched operator '+run,address:'100XXhub',access:'Unmatched access '+run,max_rate_per_kwh:'1.49'})){
+   await filterInput(key).fill(wrong);
+   combined=await searchCombined();
+   assert.equal(combined.data.total,0,'Changing only '+key+' must exclude the otherwise matching station');
+   await filterInput(key).fill(exactFilters[key]);
+  }
+  combined=await searchCombined();
+  assert.equal(combined.data.total,1,'Restoring the exact filters must restore the canonical result');
+  assert.equal(combined.data.data[0].key,'catalog:'+f.station_id);
   for(const key of ['operator','address','access','max_rate_per_kwh','price_currency'])await root.locator('input[name='+key+']').fill('');
   stage='published-power';await root.locator('input[name=min_power_kw]').fill('١');
   await root.locator('input[name=max_power_kw]').fill('١٠٠');
