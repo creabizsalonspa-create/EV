@@ -421,6 +421,40 @@ void main() {
     expect(expired, 1);
     expect(find.byKey(const Key('vendor-earnings-overall')), findsNothing);
   });
+  test('signed refund-debt reservation remains exact in native JSON and CSV', () {
+    final raw = snapshot();
+    final row = (raw['data'] as List).single as Map<String, dynamic>;
+    row['pending_reserved_minor'] = -450;
+    row['completed_settlement_minor'] = 900;
+    row['available_minor'] = 0;
+    raw['overall_available_minor'] = 0;
+    final report = VendorEarningsSnapshot.parse(
+      raw, vendorId: 3, currency: 'KWD', page: 1,
+    );
+    expect(report.rows.single['pending_reserved_minor'], -450);
+    expect(report.rows.single['completed_settlement_minor'], 900);
+    PrivateDocument document(Map<String, dynamic> values) {
+      final text = [
+        VendorEarningsCsv.headers.join(','),
+        VendorEarningsCsv.headers.map((field) => field == 'invoice_number'
+            ? VendorEarningsCsv.literalNumber(values[field] as String)
+            : '${values[field]}').join(','),
+      ].join('\n') + '\n';
+      return PrivateDocument(Uint8List.fromList(utf8.encode(text)), 'text/csv');
+    }
+
+    String verify(PrivateDocument csv) => VendorEarningsCsv.verifiedText(
+      csv, vendorId: 3, currency: 'KWD', page: 1,
+      source: report.source, rows: report.rows,
+    );
+    final accepted = verify(document(row));
+    final cells = VendorEarningsCsv.parseBounded(accepted)[1];
+    expect(cells[VendorEarningsCsv.headers.indexOf('pending_reserved_minor')],
+        '-450');
+    row['pending_reserved_minor'] = 450;
+    expect(() => verify(document(row)), throwsFormatException);
+    expect(report.rows.single['pending_reserved_minor'], -450);
+  });
   final corruptions = <String, void Function(Map<String, dynamic>)>{
     'foreign vendor': (r) => r['vendor_id'] = 4,
     'wrong currency': (r) => r['currency'] = 'AED',
