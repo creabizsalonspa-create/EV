@@ -8,9 +8,9 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 
 | Stage | Weighted coverage |
 |---|---:|
-| coded | 61.07% |
-| tested | 61.07% |
-| merged | 61.07% |
+| coded | 61.46% |
+| tested | 61.46% |
+| merged | 61.46% |
 | production_accepted | 0.00% |
 
 Production acceptance: 0.00% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.
@@ -21,7 +21,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 2.2 | EV garage and driver preferences | 7 | 6/7 | 6/7 | 6/7 | 0/7 |
 | 2.3 | Search, maps, routes, favorites, reviews | 9 | 5/9 | 5/9 | 5/9 | 0/9 |
 | 2.4 | Location/connector details and pricing terms | 8 | 6/8 | 6/8 | 6/8 | 0/8 |
-| 2.5 | Owned and network discovery | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
+| 2.5 | Owned and network discovery | 6 | 4/6 | 4/6 | 4/6 | 0/6 |
 | 2.6 | Reservations and occupancy policy | 7 | 6/7 | 6/7 | 6/7 | 0/7 |
 | 2.7 | Remote charging and monitoring | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
 | 2.8 | Checkout, wallet, invoices, disputes | 10 | 6/10 | 6/10 | 6/10 | 0/10 |
@@ -115,7 +115,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `2.5.2` [CTM] Read-only normalized partner discovery web/native (evidence: main638).
 - `2.5.3` [CTM] Fail-closed remote capability labels (evidence: main638).
 - `2.5.4` [—] Unified provider search (evidence: none).
-- `2.5.5` [—] Licensed discovery-provider adapter (evidence: none).
+- `2.5.5` [CTM] Licensed discovery-provider adapter (evidence: pr193).
 - `2.5.6` [—] Authorized actionable roaming (evidence: none).
 
 ### 2.6 Reservations and occupancy policy
