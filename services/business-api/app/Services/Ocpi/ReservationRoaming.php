@@ -433,6 +433,9 @@ final class ReservationRoaming
                 return $row;
             }
             $location = OcpiRecord::findOrFail($row->location_record_id);
+            if (! app(StoredSourceIntegrity::class)->consistent($location) || $location->received_at->gt(now())) {
+                return $row;
+            }
             $target = json_decode(Crypt::decryptString($row->target_ciphertext), true, flags: JSON_THROW_ON_ERROR);
             if ($location->ocpi_provider_id !== $row->provider_id || $location->module !== 'locations' || $location->country_code !== $target['country_code'] || $location->party_id !== $target['party_id'] || $location->external_id !== $target['location_id'] || ($location->normalized['publish'] ?? false) !== true) {
                 return $row;

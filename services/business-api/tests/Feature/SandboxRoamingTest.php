@@ -56,6 +56,38 @@ class SandboxRoamingTest extends TestCase
         $this->assertDatabaseCount('charging_sessions', 0);
     }
 
+    public function test_corrupt_offer_and_stop_source_identity_cannot_grant_partner_actions(): void
+    {
+        [, $driver, , $provider, $location] = $this->fixture();
+        $offers = '/api/roaming/locations/'.$location->id.'/sandbox-offers';
+        $tariff = OcpiRecord::where('module', 'tariffs')->firstOrFail();
+        $this->actingAs($driver)->getJson($offers)->assertOk()->assertJsonCount(1, 'offers');
+        foreach ([$location, $tariff] as $record) {
+            DB::table('ocpi_records')->where('id', $record->id)->update(['content_hash' => str_repeat('a', 64)]);
+            $this->getJson($offers)->assertOk()->assertJsonCount(0, 'offers');
+            DB::table('ocpi_records')->where('id', $record->id)->update(['content_hash' => $record->content_hash]);
+        }
+        $this->assertCount(0, $this->writes);
+        [$id] = $this->start($driver, $location->fresh());
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        app(RecordSynchronizer::class)->ingest($provider, 'sessions', [$this->sourceSessionFixture($provider, $order, $this->writes[0]['body'])]);
+        $url = '/api/roaming/sandbox-orders/'.$id;
+        $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('can_stop', true);
+        $source = OcpiRecord::where('module', 'sessions')->firstOrFail();
+        DB::table('ocpi_records')->where('id', $source->id)->update(['external_id' => 'FOREIGN-SESSION']);
+        $this->getJson($url)->assertOk()->assertJsonPath('can_stop', false);
+        $this->postJson($url.'/stop', ['request_key' => (string) Str::uuid()])->assertConflict();
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('ocpi_roaming_commands', 1);
+        DB::table('ocpi_records')->where('id', $source->id)->update(['external_id' => $source->external_id]);
+        $this->getJson($url)->assertOk()->assertJsonPath('can_stop', true);
+        $this->postJson($url.'/stop', ['request_key' => (string) Str::uuid()])->assertOk();
+        $this->assertCount(3, $this->writes);
+        $this->assertSame('S1', $this->writes[2]['body']['session_id']);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
     public function test_explicit_sandbox_consent_registers_never_offline_token_and_dispatches_once_without_financial_writes(): void
     {
         [$owner,$driver,$other,$p,$location] = $this->fixture();

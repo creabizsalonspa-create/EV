@@ -39,6 +39,8 @@ class SandboxRoaming
     {
         $p = OcpiProvider::findOrFail($location->ocpi_provider_id);
         [$c,$local,$link] = $this->policy($p);
+        $integrity = app(StoredSourceIntegrity::class);
+        abort_unless($integrity->consistent($location), 409, 'Partner location source requires review.');
         abort_unless(User::whereKey($p->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(), 409, 'Partner owner is unavailable for new charging.');
         abort_unless($location->module === 'locations' && $location->country_code === $c['party_country'] && $location->party_id === $c['party_id'] && ($location->normalized['publish'] ?? false) === true && $location->source_updated_at->betweenIncluded(now()->subMinutes(5), now()), 409, 'Refresh the approved partner location before requesting a test session.');
         abort_if(OcpiRecord::where('ocpi_provider_id', $p->id)->where('module', 'sessions')->where('normalized->location_id', $location->external_id)->where('normalized->evse_uid', $evseUid)->where('normalized->status', 'ACTIVE')->exists(), 409, 'An active source session contradicts new availability.');
@@ -53,6 +55,7 @@ class SandboxRoaming
         $connectors = array_values(array_filter($evses[0]['connectors'] ?? [], fn ($x) => is_array($x) && ($x['id'] ?? null) === $connectorId));
         abort_unless(count($connectors) === 1 && in_array($tariffId, $connectors[0]['tariff_ids'] ?? [], true), 409, 'An advertised connector tariff is required.');
         $tariff = OcpiRecord::where('ocpi_provider_id', $p->id)->where('module', 'tariffs')->where('country_code', $c['party_country'])->where('party_id', $c['party_id'])->where('external_id', $tariffId)->firstOrFail();
+        abort_unless($integrity->consistent($tariff), 409, 'Partner tariff source requires review.');
         abort_if(DB::table('ocpi_catalog_retirements')->where('record_id', $tariff->id)->where('content_hash', $tariff->content_hash)->exists(), 409, 'The reported tariff was withdrawn; review a fresh offer.');
         abort_unless($tariff->source_updated_at->betweenIncluded(now()->subMinutes(5), now()), 409, 'Refresh the reported tariff before consent.');
         $rawTariff = $tariff->payload;
@@ -227,7 +230,7 @@ class SandboxRoaming
         try {
             $this->current($order);
             $source = $order->source_session_record_id ? OcpiRecord::find($order->source_session_record_id) : null;
-            $canStop = $driver && $order->state === 'source_active' && $source && ($source->normalized['status'] ?? null) === 'ACTIVE' && $this->ownsSourceSession($order, $source) && ! $this->stopPending($order->id);
+            $canStop = $driver && $order->state === 'source_active' && $source && app(StoredSourceIntegrity::class)->consistent($source) && ($source->normalized['status'] ?? null) === 'ACTIVE' && $this->ownsSourceSession($order, $source) && ! $this->stopPending($order->id);
         } catch (\Throwable) {
         }
 
