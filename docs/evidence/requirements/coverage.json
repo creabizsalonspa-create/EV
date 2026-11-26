@@ -177,15 +177,15 @@
     }
   },
   "weighted_percent": {
-    "coded": "61.07",
-    "tested": "61.07",
-    "merged": "61.07",
+    "coded": "61.46",
+    "tested": "61.46",
+    "merged": "61.46",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "577667/945945",
-    "tested": "577667/945945",
-    "merged": "577667/945945",
+    "coded": "2325683/3783780",
+    "tested": "2325683/3783780",
+    "merged": "2325683/3783780",
     "production_accepted": "0"
   },
   "categories": [
@@ -530,7 +530,7 @@
           "software_atom": "Favorites",
           "coded": false,
           "checkpoint": null,
-          "note": "Canonical private favorites are merged across Laravel/web/Flutter in PR16; partner favorites remain incomplete. No whole-atom credit.",
+          "note": "Canonical and authorized partner favorites implemented and historically tested through PR337; full acceptance held for retained native callback/session revocation defects identified in PR370. No whole-atom credit pending verified correction.",
           "stages": {
             "coded": false,
             "tested": false,
@@ -675,9 +675,9 @@
       "requirement": "Owned and network discovery",
       "atoms": 6,
       "counts": {
-        "coded": 3,
-        "tested": 3,
-        "merged": 3,
+        "coded": 4,
+        "tested": 4,
+        "merged": 4,
         "production_accepted": 0
       },
       "details": [
@@ -736,13 +736,13 @@
         {
           "id": "2.5.5",
           "software_atom": "Licensed discovery-provider adapter",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr193",
+          "note": "Open Charge Map is a consent-gated discovery-only adapter with an approved-terms gate, source attribution and bounded quota/cache handling. PR193 passed eight matching jobs and merged with an identical tree. PR197 also verified customer and vendor Flutter discovery over the same adapter.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },

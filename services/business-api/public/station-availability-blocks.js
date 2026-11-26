@@ -12,10 +12,26 @@ window.EvStationBlocks = (() => {
     function mount(root, {api, stationId, current, initialRows = null}) {
         let rows = [], busy = false, pending = null, renderVersion = 0;
         const path = 'stations/' + stationId + '/availability-blocks';
+        const validReceipt = (row, cancelled) => row && typeof row === 'object' &&
+            row.station_id === stationId &&
+            typeof row.id === 'string' &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.id) &&
+            typeof row.starts_at === 'string' &&
+            typeof row.ends_at === 'string' &&
+            typeof row.reason_en === 'string' &&
+            typeof row.reason_ar === 'string' &&
+            Number.isSafeInteger(row.revision) && row.revision > 0 &&
+            row.scope === 'STATION_WIDE_OPERATOR_POLICY' &&
+            row.cancelled === cancelled &&
+            row.physical_availability_verified === false;
+        const validatedRows = data => data?.station_id === stationId &&
+            Array.isArray(data.data) && data.data.length <= 50 &&
+            data.data.every(row => validReceipt(row, false)) &&
+            new Set(data.data.map(row => row.id)).size === data.data.length;
         async function read() {
             const data = await api(path);
             if (!current()) return;
-            if (data?.station_id !== stationId || !Array.isArray(data.data)) throw Error('Invalid station block response');
+            if (!validatedRows(data)) throw Error('Invalid station block response');
             rows = data.data; render();
         }
         function render() {
@@ -29,14 +45,32 @@ window.EvStationBlocks = (() => {
             async function act(task) {
                 if (busy || !current() || view !== renderVersion) return; busy = true; root.querySelectorAll('button').forEach(b => b.disabled = true);
                 try { await task(); }
-                catch (error) { if (current()) { if (error.status === 422) { pending = null; root.querySelectorAll('input').forEach(input => input.disabled = false); } else if (pending) render(); root.prepend(text('p', 'Action not confirmed. Refresh status or retry the same request.', 'لم يتأكد الإجراء. حدّث الحالة أو أعد محاولة الطلب نفسه.')); } }
+                catch (error) {
+                    if (current()) {
+                        // A failed source read or rejected write makes previous
+                        // cancel targets uncertain. Never retain them as live.
+                        rows = [];
+                        if (error.status === 422) pending = null;
+                        render();
+                        root.prepend(text('p',
+                            'Action not confirmed. Refresh status or retry the same request.',
+                            'لم يتأكد الإجراء. حدّث الحالة أو أعد محاولة الطلب نفسه.'));
+                    }
+                }
                 finally { if (current()) { busy = false; root.querySelectorAll('button').forEach(b => b.disabled = false); } }
             }
             const refresh = text('button', 'Refresh station blocks', 'تحديث فترات الحجب'); refresh.type = 'button'; refresh.onclick = () => act(read); root.append(refresh);
             for (const row of rows) {
                 const item = document.createElement('div'); show(item, [row]);
                 const cancel = text('button', 'Cancel this block', 'إلغاء فترة الحجب'); cancel.type = 'button';
-                cancel.onclick = () => act(async () => { await api(path + '/' + encodeURIComponent(row.id) + '/cancel', 'POST', {revision:row.revision}); if (current()) await read(); });
+                cancel.onclick = () => act(async () => {
+                    const result = await api(path + '/' + encodeURIComponent(row.id) + '/cancel', 'POST', {revision:row.revision});
+                    if (!current()) return;
+                    if (!validReceipt(result, true) || result.id !== row.id || result.revision !== row.revision + 1 ||
+                        result.starts_at !== row.starts_at || result.ends_at !== row.ends_at ||
+                        result.reason_en !== row.reason_en || result.reason_ar !== row.reason_ar) throw Error('Invalid cancellation receipt');
+                    await read();
+                });
                 item.append(cancel); root.append(item);
             }
             const form = document.createElement('form'), fields = {};
@@ -49,13 +83,25 @@ window.EvStationBlocks = (() => {
                 pending ??= {idempotency_key:crypto.randomUUID(), ...Object.fromEntries(Object.entries(fields).map(([key,input]) => [key,input.value.trim()]))};
                 Object.values(fields).forEach(input => input.disabled = true);
                 act(async () => { const result = await api(path, 'POST', pending); if (!current()) return;
-                    if (result?.station_id !== stationId || typeof result.id !== 'string') throw Error('Invalid block receipt');
+                    if (!validReceipt(result, result?.cancelled === true) ||
+                        result.revision !== (result.cancelled ? 2 : 1) ||
+                        Date.parse(result.starts_at) !== Date.parse(pending.starts_at) ||
+                        Date.parse(result.ends_at) !== Date.parse(pending.ends_at) ||
+                        result.reason_en !== pending.reason_en || result.reason_ar !== pending.reason_ar) throw Error('Invalid block receipt');
                     pending = null; await read(); });
             };
             root.append(form);
         }
-        if (Array.isArray(initialRows)) { rows = initialRows; render(); }
-        else read().catch(() => { if (current()) root.replaceChildren(text('p', 'Station blocks are unavailable. Refresh the station before editing.', 'فترات الحجب غير متاحة. حدّث المحطة قبل التعديل.')); });
+        if (Array.isArray(initialRows) && validatedRows({ station_id: stationId, data: initialRows })) {
+            rows = initialRows;
+            render();
+        } else {
+            read().catch(() => {
+                if (current()) root.replaceChildren(text('p',
+                    'Station blocks are unavailable. Refresh the station before editing.',
+                    'فترات الحجب غير متاحة. حدّث المحطة قبل التعديل.'));
+            });
+        }
     }
     return {show, mount};
 })();
