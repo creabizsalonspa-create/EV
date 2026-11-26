@@ -140,6 +140,7 @@ void main() {
     await t.tap(button);
     await t.pumpAndSettle();
     expect(api.writes, 0);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
     await t.tap(find.text('Not now'));
     await t.pumpAndSettle();
     expect(api.writes, 0);
@@ -151,6 +152,7 @@ void main() {
     expect(api.bodies.single, {'expected_cycle_number': 1});
     expect(api.calls.where((c) => c == 'POST commercial/subscriptions/4/renew').length, 1);
     expect(find.text('Benefits are not active'), findsOneWidget);
+    await t.ensureVisible(find.text('Refresh'));
     await t.tap(find.text('Refresh'));
     await t.pumpAndSettle();
     expect(api.writes, 1);
@@ -198,6 +200,7 @@ void main() {
     expect(api.writes, 1);
     expect(button, findsNothing);
     expect(find.text('Benefits are not active'), findsNothing);
+    await t.ensureVisible(find.text('Refresh'));
     await t.tap(find.text('Refresh'));
     await t.pumpAndSettle();
     expect(button, findsOneWidget);

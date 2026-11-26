@@ -901,11 +901,13 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
         error = null;
         currentSession = null;
         busy = false;
+        renewalConsentOpen = false;
         hidden = true;
       });
     });
   }
   bool busy = false, foreground = true, hidden = false;
+  bool renewalConsentOpen = false;
   bool get current => foreground && (currentSession?.call() ?? false);
   Object? error;
   String t(String k) => subscriptionText(context, k);
@@ -932,6 +934,7 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
       currentSession = null;
       hidden = true;
       busy = false;
+      renewalConsentOpen = false;
       if (foreground) {
         final api = widget.api, id = widget.id;
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -953,6 +956,7 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
         events = null;
         error = null;
         busy = false;
+        renewalConsentOpen = false;
         hidden = true;
       }
     });
@@ -977,6 +981,7 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
         epoch == generation && session();
     setState(() {
       busy = true;
+      renewalConsentOpen = false;
       summary = null;
       events = null;
       error = null;
@@ -1078,13 +1083,18 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
     if (busy || !current || hidden || source == null ||
         !subscriptionCanCheckRenewal(source['subscription'])) return;
     final sub = source['subscription'] as Map;
-    final id = widget.id, owner = sub['user_id'] as int;
+    final id = widget.id, owner = sub['user_id'];
+    if (owner is! int) return;
     final cycle = sub['cycle_number'] as int;
     final api = widget.api, session = currentSession!, epoch = generation;
     bool active() => mounted && foreground && !hidden &&
         epoch == generation && session() &&
         identical(api, widget.api) && id == widget.id;
-    setState(() { busy = true; error = null; });
+    setState(() {
+      busy = true;
+      renewalConsentOpen = true;
+      error = null;
+    });
     try {
       final agreed = await showDialog<bool>(
         context: context,
@@ -1105,6 +1115,7 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
         ),
       );
       if (!active() || agreed != true) return;
+      setState(() => renewalConsentOpen = false);
       final account = await api.request('me');
       if (!active()) return;
       if (account is! Map || account['id'] is! int ||
@@ -1139,7 +1150,12 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
         widget.onExpired();
       }
     } finally {
-      if (active()) setState(() => busy = false);
+      if (active()) {
+        setState(() {
+          busy = false;
+          renewalConsentOpen = false;
+        });
+      }
     }
   }
 
@@ -1154,7 +1170,10 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
           onPressed: busy ? null : () => load(number: page),
           child: Text(t('refresh')),
         ),
-        if (busy) const Center(child: CircularProgressIndicator()),
+        // Consent is not an in-flight network operation. Do not animate a
+        // progress spinner behind the modal while waiting for the user.
+        if (busy && !renewalConsentOpen)
+          const Center(child: CircularProgressIndicator()),
         if (error != null && current)
           Text(EvStrings.of(c).t(errorKey(error!))),
         if (hidden || !current) Text(t('privateCleared')),
