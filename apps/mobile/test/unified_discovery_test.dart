@@ -10,12 +10,16 @@ import 'package:creabiz_ev/partner_report_map.dart';
 import 'test_support.dart';
 
 Map<String,dynamic> catalogRow()=>{'key':'catalog:7','kind':'catalog','station':{'id':7,'name':'Synthetic catalog','connector_type':'CCS2','power_kw':50,'evidence':'SIMULATED','reservable':false}};
-Map<String,dynamic> partnerRow()=>{'key':'partner:7','kind':'partner','record_id':7,'provider_label':'Synthetic operator','location':{'name':'Synthetic partner','address':'<img src=x>','country':'ARE'},'evidence':'PARTNER_REPORTED_UNVERIFIED','availability':'unknown','reservable':false,'remote_control':false};
+Map<String,dynamic> partnerRow()=>{'key':'partner:7','kind':'partner','record_id':7,'provider_label':'Synthetic operator','location':{'name':'Synthetic partner','address':'<img src=x>','country':'ARE','availability':'unknown','remote_control':false,'reservable':false},'evidence':'PARTNER_REPORTED_UNVERIFIED','availability':'unknown','reservable':false,'remote_control':false};
 class UnifiedApi extends FixtureApi {
   Completer<dynamic>? pending;
   bool invalid=false;
-  bool mapFixtures=false;
+  bool mapFixtures=false, forgedMapAuthority=false, duplicateIdentity=false;
   int epoch=0;
+  final changes=StreamController<int>.broadcast(sync:true);
+  @override
+  Stream<int> get sessionEvents=>changes.stream;
+  void rotate(){epoch++;changes.add(epoch);}
   @override
   bool Function() sessionFence(){final capture=epoch;return()=>capture==epoch;}
   @override
@@ -23,10 +27,11 @@ class UnifiedApi extends FixtureApi {
     calls.add('$method $path');queries.add(query);
     if(pending!=null)return pending!.future;
     return {'data':int.parse(query['page']!)==1?[
-      if(mapFixtures) {...catalogRow(),'station':{...Map<String,dynamic>.from(catalogRow()['station'] as Map),'latitude':25.2,'longitude':55.3}}
+      if(mapFixtures) {...catalogRow(),'station':{...Map<String,dynamic>.from(catalogRow()['station'] as Map),'latitude':25.2,'longitude':55.3,if(forgedMapAuthority)'evidence':'LIVE_VERIFIED'}}
       else catalogRow(),
-      if(mapFixtures) {...partnerRow(),'location':{...Map<String,dynamic>.from(partnerRow()['location'] as Map),'latitude':'25.25','longitude':'55.35'}}
+      if(mapFixtures) {...partnerRow(),if(forgedMapAuthority)'evidence':'LIVE_PROVIDER_VERIFIED','location':{...Map<String,dynamic>.from(partnerRow()['location'] as Map),'latitude':'25.25','longitude':'55.35'}}
       else {...partnerRow(),if(invalid)'reservable':true},
+      if(duplicateIdentity) catalogRow(),
     ]:[partnerRow()],'current_page':int.parse(query['page']!),'last_page':2,'total':3};
   }
 }
@@ -132,6 +137,42 @@ class ForgedPublishedApi extends UnifiedApi {
 
 void roomy(WidgetTester tester){tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);}
 void main(){
+
+  for (final ar in [false, true]) {
+    testWidgets('unverified union source cannot grant a map pin or saved-place action ($ar)', (tester) async {
+      roomy(tester);
+      final api=UnifiedApi()..mapFixtures=true..forgedMapAuthority=true;
+      addTearDown(api.close);
+      await tester.pumpWidget(app(api, (_)=>fail('Unverified booking'), ar:ar, customer:true));
+      await tester.ensureVisible(find.byType(FilledButton));
+      await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+      expect(find.text('Synthetic catalog'),findsOneWidget);
+      expect(find.text('Synthetic partner'),findsOneWidget);
+      expect(find.byKey(const ValueKey('unified-favorite-catalog:7')), findsNothing);
+      expect(find.byKey(const ValueKey('unified-favorite-partner:7')), findsNothing);
+      final open=find.byKey(const Key('unified-map-open'));
+      await tester.ensureVisible(open);await tester.tap(open);await tester.pumpAndSettle();
+      final map=tester.widget<PartnerReportMap>(find.byType(PartnerReportMap));
+      expect(map.points,isEmpty,reason:'No falsified live or provider location may produce a pin');
+      expect(api.calls,['GET discovery/search']);
+      expect(tester.takeException(),isNull);
+    });
+
+    testWidgets('duplicate typed source identity rejects entire native page ($ar)', (tester) async {
+      roomy(tester);
+      final api=UnifiedApi()..duplicateIdentity=true;
+      addTearDown(api.close);
+      await tester.pumpWidget(app(api, (_)=>fail('Untrusted map/booking'), ar:ar, customer:true));
+      await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+      expect(find.text('Synthetic catalog'),findsNothing);
+      expect(find.text('Synthetic partner'),findsNothing);
+      expect(find.text(ar?'تعذر البحث. أعد المحاولة صراحةً.':'Search failed. Retry explicitly.'),findsOneWidget);
+      expect(find.byKey(const ValueKey('unified-favorite-partner:7')),findsNothing);
+      expect(api.calls,['GET discovery/search']);
+      expect(tester.takeException(),isNull);
+    });
+  }
+
  testWidgets('same API object changing account epoch hides all previous native search data and private drafts',(tester)async{
    roomy(tester);
    final api=UnifiedApi(),next=UnifiedApi();
@@ -660,11 +701,17 @@ void main(){
    final opener=find.byKey(const Key('unified-map-open'));
    await tester.ensureVisible(opener);await tester.tap(opener);await tester.pumpAndSettle();
    expect(tiles.requests,0);
-   api.epoch++;
-   await tester.tap(find.byKey(const Key('partner-map-enable')));
+   final enable = tester.widget<FilledButton>(
+     find.byKey(const Key('partner-map-enable')),
+   ).onPressed!;
+   api.rotate();
+   enable();
    await tester.pumpAndSettle();
-   final submit=find.byKey(const Key('unified-native-viewport-search'));
-   await tester.ensureVisible(submit);await tester.tap(submit);await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-native-viewport-search')), findsNothing);
+   expect(find.textContaining('Private map hidden.'), findsOneWidget);
+   expect(tiles.requests, 0, reason: 'Revocation must precede tile access');
+   await tester.pageBack();
+   await tester.pumpAndSettle();
    expect(api.calls.length,1,reason:'A stale map must never query under the new account');
    expect(find.text('Synthetic catalog'),findsNothing,
       reason:'Old customer location metadata must not survive epoch change');
@@ -764,5 +811,51 @@ void main(){
    expect(find.byKey(const Key('unified-recent-0')),findsNothing);
   });
  }
+
+  testWidgets('retired favorite and catalog callbacks cannot act on successor page',(tester)async{
+    roomy(tester);
+    final old=SavedUnifiedApi(),next=SavedUnifiedApi();
+    addTearDown(old.close);addTearDown(next.close);
+    addTearDown(old.changes.close);addTearDown(next.changes.close);
+    var launches=0;
+    await tester.pumpWidget(app(old,(_)=>launches++,customer:true));
+    await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+    final star=tester.widget<TextButton>(find.byKey(const ValueKey('unified-favorite-catalog:7'))).onPressed!;
+    final station=tester.widget<TextButton>(find.widgetWithText(TextButton,'View station and booking options')).onPressed!;
+    await tester.pumpWidget(app(next,(_)=>launches++,customer:true));
+    await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+    star();station();await tester.pumpAndSettle();
+    expect(old.writes,isEmpty);expect(next.writes,isEmpty);expect(launches,0);
+    await tester.tap(find.byKey(const ValueKey('unified-favorite-catalog:7')));
+    await tester.pumpAndSettle();
+    expect(next.writes,['PUT favorites/7']);
+  });
+  for(final ar in [false,true]){
+    testWidgets('revoked unified map hides loaded pins and an open details sheet ($ar)',(tester)async{
+      roomy(tester);
+      final api=UnifiedApi()..mapFixtures=true;
+      addTearDown(api.close);addTearDown(api.changes.close);
+      final tiles=UnifiedFixtureTiles();
+      await tester.pumpWidget(app(api,(_)=>fail('Unexpected booking'),ar:ar,customer:true,tileProvider:tiles));
+      await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('unified-map-open')));
+      await tester.tap(find.byKey(const Key('unified-map-open')));await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('partner-map-enable')));await tester.pumpAndSettle();
+      final viewport=find.byKey(const Key('unified-native-viewport-search'));
+      final stale=tester.widget<OutlinedButton>(viewport).onPressed!;
+      final listRow=find.widgetWithText(ListTile,'Synthetic partner');
+      await tester.scrollUntilVisible(listRow,200,scrollable:find.byType(Scrollable).first);
+      await tester.tap(listRow);await tester.pumpAndSettle();
+      expect(find.byKey(const Key('partner-report-details-close')),findsOneWidget);
+      expect(find.text('25.250000, 55.350000'),findsOneWidget);
+      api.rotate();await tester.pumpAndSettle();
+      expect(find.text('25.250000, 55.350000'),findsNothing);
+      expect(find.text('Synthetic partner'),findsNothing);
+      expect(find.byType(FlutterMap),findsNothing);
+      stale();await tester.pumpAndSettle();
+      expect(api.calls.length,1);
+      expect(tester.takeException(),isNull);
+    });
+  }
 
 }

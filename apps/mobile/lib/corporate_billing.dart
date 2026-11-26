@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
 import 'money_input.dart';
 import 'financial_operation_store.dart';
 import 'financial_documents.dart';
+import 'corporate_cycle_review.dart';
 import 'hosted_checkout.dart';
 import 'vendor_finance.dart' show nativeFinancialAmount;
 
@@ -139,20 +141,47 @@ class _CorporateRootState extends State<CorporateBillingView> {
   bool canManage = false, busy = false;
   int generation = 0, target = 1;
   Object? error;
+  late final bool Function() ownsSession;
+  StreamSubscription<int>? session;
+  bool revoked = false;
+  bool get currentSession => !revoked && ownsSession();
   String t(String k) => corporateText(context, k);
   @override
   void initState() {
     super.initState();
+    ownsSession = widget.api.sessionFence();
+    session = widget.api.sessionEvents.listen((_) {
+      if (mounted) setState(revoke);
+    });
     load();
+  }
+
+  void revoke() {
+    revoked = true;
+    generation++;
+    fleets = null;
+    agreements = null;
+    selected = null;
+    canManage = false;
+    busy = false;
+    error = null;
+  }
+
+  @override
+  void didUpdateWidget(covariant CorporateBillingView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api)) revoke();
   }
 
   @override
   void dispose() {
     generation++;
+    session?.cancel();
     super.dispose();
   }
 
   Future<void> load({int page = 1}) async {
+    if (!currentSession) return;
     final epoch = ++generation;
     target = page;
     setState(() {
@@ -168,7 +197,7 @@ class _CorporateRootState extends State<CorporateBillingView> {
           await widget.api.request('fleets', query: {'page': '$page'}),
           (r) => r,
         );
-        if (mounted && generation == epoch) fleets = data;
+        if (mounted && currentSession && generation == epoch) fleets = data;
       } else {
         final result = await widget.api.request(
           'commercial/corporate',
@@ -178,7 +207,7 @@ class _CorporateRootState extends State<CorporateBillingView> {
             result['can_manage'] is! bool ||
             result['agreements'] is! List)
           throw const FormatException('Unsupported corporate evidence.');
-        if (!mounted || generation != epoch) return;
+        if (!mounted || !currentSession || generation != epoch) return;
         final rows = (result['agreements'] as List)
             .map((r) => Map<String, dynamic>.from(r as Map))
             .toList();
@@ -191,7 +220,7 @@ class _CorporateRootState extends State<CorporateBillingView> {
         canManage = result['can_manage'] as bool;
       }
     } catch (e) {
-      if (mounted && generation == epoch) {
+      if (mounted && currentSession && generation == epoch) {
         error = e;
         agreements = null;
         fleets = null;
@@ -200,11 +229,12 @@ class _CorporateRootState extends State<CorporateBillingView> {
           widget.onExpired();
       }
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (mounted && currentSession && generation == epoch) setState(() => busy = false);
     }
   }
 
   Future<void> action(Map<String, dynamic> row, String kind) async {
+    if (!currentSession) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => CorporateActionView(
@@ -222,7 +252,9 @@ class _CorporateRootState extends State<CorporateBillingView> {
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
+  Widget build(BuildContext c) => !currentSession
+      ? const Scaffold()
+      : Scaffold(
     appBar: AppBar(title: Text(t('title'))),
     body: ListView(
       padding: const EdgeInsets.all(16),
@@ -320,6 +352,24 @@ class _CorporateRootState extends State<CorporateBillingView> {
                           OutlinedButton(
                             onPressed: busy ? null : () => action(row, 'claim'),
                             child: Text(t('claim')),
+                          ),
+                        if (canManage)
+                          OutlinedButton(
+                            onPressed: busy
+                                ? null
+                                : () => Navigator.of(c).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => CorporateCycleReviewView(
+                                        api: widget.api,
+                                        onExpired: widget.onExpired,
+                                        agreementId: row['id'] as int,
+                                        fleetId: selected!['id'] as int,
+                                        currency: row['currency'] as String,
+                                        precision: row['minor_units'] as int,
+                                      ),
+                                    ),
+                                  ),
+                            child: Text(cycleText(c, 'Monthly billing review', 'مراجعة الفوترة الشهرية')),
                           ),
                         OutlinedButton(
                           onPressed: busy

@@ -33,6 +33,7 @@ import 'partner_rewards.dart';
 import 'referrals.dart';
 import 'financial_documents.dart';
 import 'financial_analytics.dart';
+import 'finance_approval_queue.dart';
 import 'hosted_checkout.dart';
 import 'refund_requests.dart';
 import 'vendor_finance.dart';
@@ -1496,6 +1497,15 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                       ),
                     ),
                   );
+                } else if (value == 'financeApprovalQueue' && account?.role == 'admin') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => FinanceApprovalQueueView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'financialAnalytics') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1513,6 +1523,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                     ),
                   );
                 } else if (value == 'adminCampaignReview') {
+                  if (account?.role != 'admin') return;
                   Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
                     AdminCampaignReviewView(api: api!, onExpired: expiredSession)));
                 } else if (value == 'vendorCampaigns') {
@@ -1741,6 +1752,12 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                   enabled: !busy,
                   child: Text(analyticsText(context, 'title')),
                 ),
+                if (account!.role == 'admin')
+                  PopupMenuItem(
+                    value: 'financeApprovalQueue',
+                    enabled: !busy,
+                    child: Text(financeReviewText(context, 'Pending finance reviews', 'المراجعات المالية المعلقة')),
+                  ),
                 if (account!.role == 'admin')
                   PopupMenuItem(
                     value: 'adminCampaignReview',
