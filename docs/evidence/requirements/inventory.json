@@ -367,7 +367,7 @@
           "software_atom": "Favorites",
           "coded": false,
           "checkpoint": null,
-          "note": "Canonical private favorites are merged across Laravel/web/Flutter in PR16; partner favorites remain incomplete. No whole-atom credit."
+          "note": "Canonical and authorized partner favorites implemented and historically tested through PR337; full acceptance held for retained native callback/session revocation defects identified in PR370. No whole-atom credit pending verified correction."
         },
         {
           "id": "2.3.9",
@@ -446,9 +446,9 @@
     {
       "prd": "2.5",
       "requirement": "Owned and network discovery",
-      "implemented_code_scope": "Existing station catalog plus separate web/native paginated normalized OCPI locations; fail-closed capability/provenance checks 19 November 2026 follow-on: Owned/authorized-partner unified read-only search, partial-metadata safeguards and consent-separated map exploration are integrated with explicit source provenance; no actionable partner capability is inferred.",
-      "automated_evidence_scope": "OcpiIntegrationTest, PlatformTest; roaming/native topology. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Current partial source evidence: docs/evidence/ocpp-source-admission-20261119/, docs/evidence/native-links-20261119/, docs/evidence/browser-role-quiescence-20261119/ and docs/evidence/discovery-private-presets-20261119/. These are local/module or recorded historical-merge proofs; resulting consolidated-source hosted gates remain required and no whole-atom stage credit is added.",
-      "remaining_scope": "Unified provider search/discovery adapters and authorized actionable roaming Tested read-only unified/native map and filter subsets now exist as described above; the remaining statement denotes completion of the original broad requirement, not absence of those subsets.",
+      "implemented_code_scope": "Existing station catalog plus separate web/native paginated normalized OCPI locations; fail-closed capability/provenance checks 19 November 2026 follow-on: Owned/authorized-partner unified read-only search, partial-metadata safeguards and consent-separated map exploration are integrated with explicit source provenance; no actionable partner capability is inferred. Open Charge Map is available as a separate attributed discovery-only source on web and Flutter.",
+      "automated_evidence_scope": "OcpiIntegrationTest, PlatformTest; roaming/native topology. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Current partial source evidence: docs/evidence/ocpp-source-admission-20261119/, docs/evidence/native-links-20261119/, docs/evidence/browser-role-quiescence-20261119/ and docs/evidence/discovery-private-presets-20261119/. These are local/module or recorded historical-merge proofs; resulting consolidated-source hosted gates remain required and no whole-atom stage credit is added. PR193 covers the licensed adapter and web contract. PR197 covers the shared Laravel and Flutter response fixture and authenticated customer/vendor discovery flows.",
+      "remaining_scope": "Complete unified provider search and authorized actionable roaming. Live partner authorization and operational acceptance remain external.",
       "atoms": [
         {
           "id": "2.5.1",
@@ -481,9 +481,9 @@
         {
           "id": "2.5.5",
           "software_atom": "Licensed discovery-provider adapter",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr193",
+          "note": "Open Charge Map is a consent-gated discovery-only adapter with an approved-terms gate, source attribution and bounded quota/cache handling. PR193 passed eight matching jobs and merged with an identical tree. PR197 also verified customer and vendor Flutter discovery over the same adapter."
         },
         {
           "id": "2.5.6",

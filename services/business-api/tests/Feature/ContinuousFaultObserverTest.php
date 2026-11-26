@@ -705,6 +705,170 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public static function sourceAuthorityChanges(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['endpoint', 'secret', 'disabled'] as $kind) {
+                $cases[] = [$protocol, $kind];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('sourceAuthorityChanges')]
+    public function test_fault_source_authority_change_retains_cursor_and_never_emits_false_recovery(string $protocol, string $kind): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture($protocol);
+        $this->source($f, $this->events(1, 1), newest: 2);
+        app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $page = $this->events(2, 2);
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($protocol, $kind, $page) {
+            $this->assertSame('https://source.test/graphql', $request->url());
+            $this->assertSame(str_repeat('s', 32), $request->header('x-hasura-admin-secret')[0] ?? null);
+            if (str_contains($request['query'], 'ChargingStations')) {
+                if ($kind === 'endpoint') {
+                    config(['csms.graphql_url' => 'https://alternate.example.test/graphql']);
+                }
+
+                return Http::response(['data' => ['ChargingStations' => [['id' => 42, 'protocol' => $protocol]]]]);
+            }
+            if ($kind === 'secret') {
+                config(['csms.graphql_secret' => str_repeat('t', 32)]);
+            } elseif ($kind === 'disabled') {
+                config(['csms.fault_worker_enabled' => false]);
+            }
+
+            return Http::response(['data' => ['StatusNotifications' => $page, 'newest' => [['id' => 2]]]]);
+        });
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Changed fault source authority was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        Http::assertSentCount($kind === 'endpoint' ? 1 : 2);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'alternate.example.test'));
+        $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 1, 'state' => 'requires_review']);
+        $this->assertDatabaseCount('charging_status_observations', 1);
+        $this->assertSame(0, InboxNotification::where('kind', 'charging.fault.recovered.simulated')->count());
+        config(['csms.graphql_url' => 'https://source.test/graphql', 'csms.graphql_secret' => str_repeat('s', 32), 'csms.fault_worker_enabled' => true]);
+        $this->source($f, $page, newest: 2);
+        $this->assertSame('caught_up', app(ContinuousFaultObserver::class)->observe($f['binding'])['state']);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.fault.recovered.simulated')->count());
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.monitor.resumed.simulated')->count());
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_same_time_conflicting_connector_receipts_do_not_advance_cursor(string $protocol): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture($protocol);
+        $events = $this->events(1, 2);
+        $events[1]['timestamp'] = $events[0]['timestamp'];
+        $this->source($f, $events, newest: 2);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Contradictory same-time connector states were accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->source($f, [$events[0]], newest: 2);
+        app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->source($f, [$events[1]], newest: 2);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Contradiction across the committed source cursor was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 1, 'state' => 'requires_review']);
+        $this->assertDatabaseCount('charging_status_observations', 1);
+        $this->assertSame(0, InboxNotification::where('kind', 'charging.fault.recovered.simulated')->count());
+        // Same instant on a different connector is independent evidence.
+        $events[1]['connectorId'] = 2;
+        $this->source($f, [$events[1]], newest: 2);
+        $this->assertSame('caught_up', app(ContinuousFaultObserver::class)->observe($f['binding'])['state']);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertNull(DB::table('charging_fault_alerts')->value('recovery_observation_id'));
+        $this->source($f, $this->events(3, 3), newest: 3);
+        $this->assertSame('caught_up', app(ContinuousFaultObserver::class)->observe($f['binding'])['state']);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.fault.recovered.simulated')->count());
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_ocpp16_explicit_null_evse_uses_persisted_zero_identity_for_fault_and_recovery(): void
+    {
+        $f = $this->fixture('1.6');
+        $events = $this->events(1, 2);
+        $events[0]['evseId'] = null;
+        $events[1]['evseId'] = null;
+        $this->source($f, [$events[0]], newest: 2);
+        $this->assertSame(1, app(ContinuousFaultObserver::class)->observe($f['binding'])['alerts_created']);
+        $this->source($f, [$events[1]], newest: 2);
+        $this->assertSame('caught_up', app(ContinuousFaultObserver::class)->observe($f['binding'])['state']);
+        $this->assertDatabaseHas('charging_status_observations', ['source_event_id' => 1, 'evse_number' => 0, 'connector_number' => 1]);
+        $this->assertDatabaseHas('charging_status_observations', ['source_event_id' => 2, 'evse_number' => 0, 'connector_number' => 1]);
+        $this->assertNotNull(DB::table('charging_fault_alerts')->value('recovery_observation_id'));
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.fault.recovered.simulated')->count());
+    }
+
+    public function test_ocpp16_null_evse_same_time_conflict_with_zero_cannot_cross_cursor(): void
+    {
+        $f = $this->fixture('1.6');
+        $events = $this->events(1, 2);
+        $events[0]['evseId'] = null;
+        $events[1]['evseId'] = 0;
+        $events[1]['timestamp'] = $events[0]['timestamp'];
+        $this->source($f, [$events[0]], newest: 2);
+        app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->source($f, [$events[1]], newest: 2);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Conflicting null/zero EVSE receipt accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 1, 'state' => 'requires_review']);
+        $this->assertDatabaseCount('charging_status_observations', 1);
+        $this->assertNull(DB::table('charging_fault_alerts')->value('recovery_observation_id'));
+    }
+
+    public static function invalidEvseProjection(): array
+    {
+        return [['1.6', true], ['2.0.1', false], ['2.0.1', true]];
+    }
+
+    #[DataProvider('invalidEvseProjection')]
+    public function test_missing_evse_or_null_ocpp201_evse_remains_invalid(string $protocol, bool $missing): void
+    {
+        $f = $this->fixture($protocol);
+        $events = $this->events(1, 1);
+        $events[0]['evseId'] = null;
+        if ($missing) {
+            unset($events[0]['evseId']);
+        }
+        $this->source($f, $events, newest: 1);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Incomplete source component was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 0, 'state' => 'requires_review']);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+    }
+
     public function test_disabled_or_production_worker_cannot_read_source(): void
     {
         $f = $this->fixture();
