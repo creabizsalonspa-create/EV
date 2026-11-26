@@ -38,7 +38,7 @@ class ConnectorFleetTest extends TestCase
         $binding = DB::table('csms_bindings')->find($id);
         $evse = Evse::create(['charger_id' => $charger->id, 'number' => 1, 'mode' => 'csms', 'binding_id' => $id, 'source_evse_number' => $protocol === '1.6' ? 0 : 1]);
         $connector = VendorConnector::create(['charger_id' => $charger->id, 'connector_number' => 1, 'connector_type' => 'CCS2', 'max_power_kw' => 50]);
-        $map = ConnectorMapping::create(['station_id' => $station->id, 'evse_id' => $evse->id, 'connector_id' => $connector->id, 'source_connector_number' => 1]);
+        $map = ConnectorMapping::create(['station_id' => $station->id, 'evse_id' => $evse->id, 'connector_id' => $connector->id, 'source_connector_number' => 1, 'source_target_key' => hash('sha256', $id.':'.$evse->source_evse_number.':1')]);
 
         return compact('owner', 'station', 'company', 'binding', 'evse', 'connector', 'map', 'charger');
     }
