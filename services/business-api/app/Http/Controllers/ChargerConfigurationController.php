@@ -75,13 +75,14 @@ class ChargerConfigurationController extends Controller
             $status = 'not_dispatched';
             try {
                 $source->station($b);
-                $token = $source->serviceToken();
+                $operationsBase = rtrim((string) config('csms.operations_base_url'), '/');
+                $token = $source->serviceToken($operationsBase);
                 $current = $this->scope($r, $company, $charger, true);
                 app(VendorAccess::class)->operational($company->fresh());
                 abort_unless($current->id === $b->id && $current->identifier === $b->identifier && $current->protocol === $b->protocol, 409);
-                $source->enabled(true);
+                $source->requireOperationsBase($operationsBase);
                 $sent = true;
-                $status = $source->submit($b, $token, json_decode($row->request_payload, true, flags: JSON_THROW_ON_ERROR)) ? 'transport_submitted' : 'outcome_unknown';
+                $status = $source->submit($b, $token, json_decode($row->request_payload, true, flags: JSON_THROW_ON_ERROR), $operationsBase) ? 'transport_submitted' : 'outcome_unknown';
             } catch (Throwable) {
                 $status = $sent ? 'outcome_unknown' : 'not_dispatched';
             }
