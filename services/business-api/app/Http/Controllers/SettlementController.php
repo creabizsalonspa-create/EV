@@ -11,6 +11,18 @@ use Illuminate\Support\Facades\DB;
 
 class SettlementController extends Controller
 {
+    /**
+     * Request identity remains server-owned. A finance response is not a
+     * carrier for replay hashes even when its owner is authorized.
+     */
+    private function safe(object $record): array
+    {
+        $data = (array) $record;
+        unset($data['request_key'], $data['fingerprint']);
+
+        return $data;
+    }
+
     private function vendor(Request $r, int $vendor): void
     {
         abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $r->user()->id === $vendor), 404);
@@ -30,7 +42,8 @@ class SettlementController extends Controller
 
             return response()->json(DB::table('commercial_settlements')
                 ->when($actor->role !== 'admin', fn ($q) => $q->where('vendor_id', $actor->id))
-                ->orderByDesc('id')->paginate(25))
+                ->orderByDesc('id')->paginate(25)
+                ->through(fn ($row) => $this->safe($row)))
                 ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
@@ -91,14 +104,14 @@ class SettlementController extends Controller
                 || ($actor->role === 'vendor' && $actor->id === $vendor), 404);
             abort_unless(User::whereKey($vendor)->where('role', 'vendor')->exists(), 404);
 
-            return response()->json($service->draft($vendor, $v['currency'],
-                $actor->id, $v['idempotency_key']), 201);
+            return response()->json($this->safe($service->draft($vendor, $v['currency'],
+                $actor->id, $v['idempotency_key'])), 201);
         }, 3);
     }
 
-    public function show(Request $r, int $settlement)
+    public function show(Request $r, int $settlement, SettlementService $service)
     {
-        return DB::transaction(function () use ($r, $settlement) {
+        return DB::transaction(function () use ($r, $settlement, $service) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
             $s = DB::table('commercial_settlements')->find($settlement);
             abort_unless($s, 404);
@@ -109,10 +122,10 @@ class SettlementController extends Controller
                 ->where('settlement_id', $settlement)->orderBy('id')->get();
 
             return response()->json([
-                'settlement' => $s, 'lines' => $lines,
+                'settlement' => $this->safe($s), 'lines' => $lines,
                 'events' => DB::table('commercial_settlement_events')
                     ->where('settlement_id', $settlement)->orderBy('id')->get(),
-                'reconciled' => (int) $s->amount_minor === (int) $lines->sum('amount_minor'),
+                'reconciled' => $service->reconciles($s, $lines),
                 'real_payout_enabled' => false,
             ])->header('Cache-Control', 'private, no-store');
         }, 3);
@@ -124,7 +137,8 @@ class SettlementController extends Controller
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
             abort_unless($actor->role === 'admin', 403);
 
-            return response()->json($service->transition($settlement, $actor->id, $action));
+            return response()->json($this->safe($service->transition($settlement, $actor->id, $action)))
+                ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -144,12 +158,12 @@ class SettlementController extends Controller
             if ($old) {
                 abort_unless((int) $old->vendor_id === $vendor && $old->currency === $v['currency'] && (int) $old->amount_minor === (int) $v['amount_minor'] && $old->reason === $v['reason'], 409, 'Adjustment key payload mismatch.');
 
-                return response()->json($old, 201);
+                return response()->json($this->safe($old), 201);
             }
             $id = DB::table('commercial_adjustments')->insertGetId(['vendor_id' => $vendor, 'currency' => $v['currency'], 'minor_units' => app(SettlementService::class)->currencyPrecision($vendor, $v['currency']), 'amount_minor' => (int) $v['amount_minor'], 'reason' => $v['reason'], 'request_key' => $key, 'created_by' => $actor->id, 'created_at' => now()]);
             DB::table('audit_events')->insert(['actor_id' => $actor->id, 'action' => 'finance.settlement.adjustment_requested', 'subject' => (string) $id, 'created_at' => now()]);
 
-            return response()->json(DB::table('commercial_adjustments')->find($id), 201);
+            return response()->json($this->safe(DB::table('commercial_adjustments')->find($id)), 201);
         }, 3);
     }
 

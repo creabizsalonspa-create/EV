@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\VendorEarningsController;
 use App\Models\ChargingSession;
 use App\Models\Finance\TariffVersion;
 use App\Models\Reservation;
@@ -77,7 +78,10 @@ class SettlementTest extends TestCase
         $base = '/settlement-test/commercial/settlements/'.$s['id'];
         $this->postJson($base.'/approve')->assertForbidden();
         $this->actingAs($this->admin)->postJson($base.'/simulate-payout')->assertConflict();
-        $this->postJson($base.'/approve')->assertOk()->assertJsonPath('state', 'approved');
+        $this->postJson($base.'/approve')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('state', 'approved')
+            ->assertJsonMissingPath('request_key');
         $this->postJson($base.'/approve')->assertOk();
         $this->postJson($base.'/simulate-payout')->assertOk()->assertJsonPath('state', 'simulated_paid');
         $this->postJson($base.'/simulate-payout')->assertOk();
@@ -146,6 +150,107 @@ class SettlementTest extends TestCase
         $this->assertDatabaseCount('commercial_adjustments', 0);
     }
 
+    public function test_private_settlement_and_adjustment_receipts_never_expose_replay_keys(): void
+    {
+        $this->invoice();
+        $this->configure();
+        $draft = $this->draft('private-finance-retry');
+        $this->assertArrayNotHasKey('request_key', $draft);
+        $this->assertArrayNotHasKey('fingerprint', $draft);
+        $base = '/settlement-test/commercial';
+        $this->actingAs($this->vendor)
+            ->getJson($base.'/settlements')->assertOk()
+            ->assertJsonPath('data.0.id', $draft['id'])
+            ->assertJsonMissingPath('data.0.request_key');
+        $this->getJson($base.'/settlements/'.$draft['id'])->assertOk()
+            ->assertJsonPath('reconciled', true)
+            ->assertJsonMissingPath('settlement.request_key');
+        $this->postJson($base.'/vendors/'.$this->vendor->id.'/settlements', [
+            'currency' => 'AED', 'idempotency_key' => 'private-finance-retry',
+        ])->assertCreated()->assertJsonPath('id', $draft['id'])
+            ->assertJsonMissingPath('request_key');
+
+        $body = [
+            'currency' => 'AED', 'amount_minor' => -20,
+            'reason' => 'Synthetic source correction',
+            'idempotency_key' => 'private-adjustment-retry',
+        ];
+        $url = $base.'/vendors/'.$this->vendor->id.'/adjustments';
+        $adjustment = $this->actingAs($this->admin)
+            ->postJson($url, $body)->assertCreated()
+            ->assertJsonMissingPath('request_key')->json();
+        $this->postJson($url, $body)->assertCreated()
+            ->assertJsonPath('id', $adjustment['id'])
+            ->assertJsonMissingPath('request_key');
+        $this->assertSame(64, strlen(DB::table('commercial_settlements')
+            ->where('id', $draft['id'])->value('request_key')));
+        $this->assertSame(64, strlen(DB::table('commercial_adjustments')
+            ->where('id', $adjustment['id'])->value('request_key')));
+        $this->assertDatabaseCount('commercial_settlements', 1);
+        $this->assertDatabaseCount('commercial_adjustments', 1);
+        $this->assertDatabaseCount('finance_payments', 1);
+        $this->assertDatabaseCount('finance_journals', 2);
+    }
+
+    public function test_unreconciled_pending_settlement_cannot_be_approved_but_may_be_rejected(): void
+    {
+        $this->invoice();
+        $this->configure();
+
+        // Synthetic historical reservation with no supporting lines.
+        // Do not change or bypass any immutable financial source.
+        $id = DB::table('commercial_settlements')->insertGetId([
+            'number' => 'SIM-SET-UNRECONCILED-TEST', 'vendor_id' => $this->vendor->id,
+            'currency' => 'AED', 'minor_units' => 2, 'amount_minor' => 100,
+            'state' => 'pending', 'request_key' => hash('sha256', 'unreconciled-pending-test'),
+            'created_by' => $this->vendor->id, 'evidence' => 'SIMULATED',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $base = '/settlement-test/commercial/settlements/'.$id;
+        $before = DB::table('finance_journals')->count();
+        $this->actingAs($this->admin)->getJson($base)->assertOk()
+            ->assertJsonPath('reconciled', false);
+        $this->postJson($base.'/approve')->assertConflict();
+        $this->assertDatabaseHas('commercial_settlements', [
+            'id' => $id, 'state' => 'pending',
+        ]);
+        $this->assertDatabaseCount('commercial_settlement_events', 0);
+        $this->postJson($base.'/reject')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('state', 'rejected')
+            ->assertJsonMissingPath('request_key')
+            ->assertJsonMissingPath('fingerprint');
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
+    public function test_settlement_detail_reconciliation_refuses_lossy_sums(): void
+    {
+        $service = app(SettlementService::class);
+        $statement = (object) ['amount_minor' => 100];
+        $this->assertTrue($service->reconciles($statement, [
+            (object) ['amount_minor' => 150],
+            (object) ['amount_minor' => -50],
+        ]));
+        $this->assertFalse($service->reconciles($statement, [
+            (object) ['amount_minor' => 99],
+        ]));
+        foreach ([
+            [(object) ['amount_minor' => 100.0], []],
+            [$statement, [(object) ['amount_minor' => 100.0]]],
+            [$statement, [
+                (object) ['amount_minor' => 4_503_599_627_370_496],
+                (object) ['amount_minor' => 4_503_599_627_370_496],
+            ]],
+        ] as [$source, $lines]) {
+            try {
+                $service->reconciles($source, $lines);
+                $this->fail('Inexact settlement detail was reported reconciled.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+    }
+
     public function test_unpaid_partial_and_unmatured_invoices_are_not_payable(): void
     {
         $invoice = $this->invoice(false);
@@ -160,6 +265,52 @@ class SettlementTest extends TestCase
         $this->actingAs($this->vendor)->postJson($path.'/settlements', ['currency' => 'AED', 'idempotency_key' => 'held'])->assertConflict();
         $this->travel(8)->days();
         $this->assertSame(900, $this->draft()['amount_minor']);
+    }
+
+    public function test_suspended_or_demoted_vendor_holds_new_settlement_and_execution_but_allows_rejection(): void
+    {
+        $this->invoice();
+        $this->configure();
+        $pending = $this->draft('before-moderation');
+        $beforeJournals = DB::table('finance_journals')->count();
+        $base = '/settlement-test/commercial';
+        $path = $base.'/settlements/'.$pending['id'];
+        DB::table('users')->where('id', $this->vendor->id)
+            ->update(['account_status' => 'suspended']);
+
+        $this->actingAs($this->admin)->postJson($path.'/approve')->assertConflict();
+        $this->postJson($path.'/simulate-payout')->assertConflict();
+        $this->postJson($base.'/vendors/'.$this->vendor->id.'/settlements', [
+            'currency' => 'AED', 'idempotency_key' => 'must-not-draft-suspended',
+        ])->assertConflict();
+        // A private Admin can still reject an old reservation and release
+        // its funds for supervised resolution, never paying a suspended vendor.
+        $this->postJson($path.'/reject')->assertOk()
+            ->assertJsonPath('state', 'rejected');
+
+        DB::table('users')->where('id', $this->vendor->id)
+            ->update(['account_status' => 'active']);
+        $approved = $this->postJson(
+            $base.'/vendors/'.$this->vendor->id.'/settlements',
+            ['currency' => 'AED', 'idempotency_key' => 'after-reviewed-reinstatement']
+        )->assertCreated()->json();
+        $approvedPath = $base.'/settlements/'.$approved['id'];
+        $this->postJson($approvedPath.'/approve')->assertOk()
+            ->assertJsonPath('state', 'approved');
+
+        DB::table('users')->where('id', $this->vendor->id)
+            ->update(['role' => 'customer']);
+        $this->postJson($approvedPath.'/simulate-payout')->assertConflict();
+        $this->postJson($approvedPath.'/reject')->assertOk()
+            ->assertJsonPath('state', 'rejected');
+
+        $this->assertDatabaseCount('commercial_settlements', 2);
+        $this->assertSame(2, DB::table('commercial_settlements')
+            ->where('state', 'rejected')->count());
+        $this->assertDatabaseCount('commercial_payouts', 0);
+        $this->assertDatabaseCount('commercial_settlement_events', 5);
+        $this->assertSame($beforeJournals, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_refunds', 0);
     }
 
     public function test_refund_after_reservation_blocks_approval_and_rejection_releases_revised_funds(): void
@@ -328,6 +479,75 @@ class SettlementTest extends TestCase
         $this->getJson('/settlement-test/commercial/vendors/'.$this->vendor->id.'/statement?currency=AED')->assertJsonPath('available_minor', 900);
     }
 
+    public function test_settlement_amounts_refuse_float_coercion_and_overflow_before_booking(): void
+    {
+        $minor = new \ReflectionMethod(SettlementService::class, 'exactMinor');
+        $add = new \ReflectionMethod(SettlementService::class, 'addMinor');
+        $max = 9_007_199_254_740_991;
+
+        $this->assertSame($max, $minor->invoke(null, (string) $max));
+        $this->assertSame(-$max, $minor->invoke(null, (string) -$max, true));
+        $this->assertSame($max, $add->invoke(null, $max - 5, 5));
+        $this->assertSame(-100, $add->invoke(null, -150, 50, true));
+
+        foreach ([100.0, -100.0, true, false, '3.1',
+            '1e3', '9007199254740992', -1] as $bad) {
+            try {
+                $minor->invoke(null, $bad);
+                $this->fail('Inexact settlement source amount was accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+        foreach ([
+            [$max, 1, false],
+            [-$max, -1, true],
+            [0, -1, false],
+        ] as [$left, $right, $signed]) {
+            try {
+                $add->invoke(null, $left, $right, $signed);
+                $this->fail('Unbounded settlement aggregation was accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+    }
+
+    public function test_checked_balance_rejects_cross_adjustment_overflow_before_any_payable_draft(): void
+    {
+        $this->configure();
+        $beforeJournals = DB::table('finance_journals')->count();
+        $reviewer = User::factory()->create(['role' => 'admin']);
+        // Source-integrity fixture only: two individually representable
+        // immutable signed adjustments whose aggregate exceeds JS precision.
+        // These are NOT credited as a real admin workflow or payout.
+        foreach (['first', 'second'] as $label) {
+            $id = DB::table('commercial_adjustments')->insertGetId([
+                'vendor_id' => $this->vendor->id,
+                'currency' => 'AED', 'minor_units' => 2,
+                'amount_minor' => 4_503_599_627_370_496,
+                'reason' => 'Synthetic overflow source '.$label,
+                'request_key' => hash('sha256', 'settlement-bound-'.$label),
+                'created_by' => $this->admin->id, 'created_at' => now(),
+            ]);
+            DB::table('commercial_adjustment_approvals')->insert([
+                'adjustment_id' => $id, 'approved_by' => $reviewer->id,
+                'created_at' => now(),
+            ]);
+        }
+
+        $base = '/settlement-test/commercial/vendors/'.$this->vendor->id;
+        $this->actingAs($this->vendor)
+            ->getJson($base.'/statement?currency=AED')->assertConflict();
+        $this->getJson($base.'/earnings?currency=AED')->assertConflict();
+        $this->postJson($base.'/settlements', [
+            'currency' => 'AED', 'idempotency_key' => 'overflow-protected-draft',
+        ])->assertConflict();
+        $this->assertDatabaseCount('commercial_settlements', 0);
+        $this->assertSame($beforeJournals, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_vendor_earnings_report_reuses_settlement_policy_and_refund_debt(): void
     {
         $invoice = $this->invoice();
@@ -426,5 +646,89 @@ class SettlementTest extends TestCase
         $this->actingAs($this->admin)->getJson($base.'?currency=AED')
             ->assertOk()->assertJsonPath('data.0.invoice_id', $invoice->id);
         $this->assertDatabaseCount('finance_journals', 2);
+    }
+
+    public function test_vendor_earnings_json_and_plain_csv_reject_unbounded_or_non_numeric_pages(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
+        $this->actingAs($this->vendor);
+        $before = DB::table('finance_journals')->count();
+
+        foreach (['page=0', 'page=-1', 'page=10001', 'page=not-a-number'] as $filter) {
+            $this->getJson($path.'?currency=AED&'.$filter)->assertUnprocessable();
+            $this->get($path.'/export?currency=AED&'.$filter)
+                ->assertUnprocessable()->assertHeader('Cache-Control', 'no-store, private');
+        }
+
+        $this->getJson($path.'?currency=AED&per_page=1&page=10000')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonCount(0, 'data');
+        $csv = $this->get($path.'/export?currency=AED&per_page=1&page=10000');
+        $csv->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertStringNotContainsString($invoice->number, $csv->streamedContent());
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
+    public function test_vendor_earnings_rejects_unsafe_financial_numbers_without_mutating_immutable_invoices(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
+        $before = DB::table('finance_journals')->count();
+
+        // Issued finance invoices are protected by SQLite/PostgreSQL
+        // immutability triggers: do not bypass those safeguards in tests.
+        // Exercise the exact primitive on malformed external aggregates instead.
+        $minor = new \ReflectionMethod(VendorEarningsController::class, 'minor');
+        foreach ([9007199254740992, -9007199254740992, 'not-a-number', 1.5, 100.0, -100.0, true, false] as $unsafe) {
+            try {
+                $minor->invoke(null, $unsafe, true);
+                $this->fail('Inexact source value reached financial output.');
+            } catch (HttpException $e) {
+                $this->assertSame(409, $e->getStatusCode());
+            }
+        }
+        $this->assertSame(-450, $minor->invoke(null, -450, true));
+        try {
+            $minor->invoke(null, -1, false);
+            $this->fail('Negative unsigned amount accepted.');
+        } catch (HttpException $e) {
+            $this->assertSame(409, $e->getStatusCode());
+        }
+
+        $this->actingAs($this->vendor)->getJson($path.'?currency=AED')
+            ->assertOk()->assertJsonPath('total', 1);
+        $this->get($path.'/export?currency=AED')->assertOk();
+        $this->assertDatabaseHas('finance_invoices', [
+            'id' => $invoice->id, 'subtotal_minor' => 1000,
+        ]);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
+    public function test_vendor_earnings_csv_encodes_unsafe_numbers_as_spreadsheet_literals_only(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
+        $before = DB::table('finance_journals')->count();
+
+        // Invoice/provider evidence share the CSV-only cell encoder; never change a signed,
+        // immutable finance invoice to a fabricated provider filename.
+        $cell = new \ReflectionMethod(VendorEarningsController::class, 'csvLiteral');
+        foreach (['=HYPERLINK("https://untrusted.test","open")', '+SUM(1,2)',
+            '-cmd', '@danger', "\t=malicious", "\u{200B}=hidden",
+            "\u{202E}@bidi", "\u{FEFF}+bom", "\u{00A0}=nbsp"] as $formula) {
+            $this->assertSame("'".$formula, $cell->invoke(null, $formula));
+        }
+        $this->assertSame('INV-2026-AE-0001', $cell->invoke(null, 'INV-2026-AE-0001'));
+
+        $this->actingAs($this->vendor)
+            ->getJson($path.'?currency=AED')->assertOk()
+            ->assertJsonPath('data.0.invoice_number', $invoice->number);
+        $csv = $this->get($path.'/export?currency=AED');
+        $csv->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertStringContainsString($invoice->number, $csv->streamedContent());
+        $this->assertSame($before, DB::table('finance_journals')->count());
     }
 }

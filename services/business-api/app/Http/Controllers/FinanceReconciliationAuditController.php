@@ -12,6 +12,13 @@ use Illuminate\Validation\ValidationException;
 
 final class FinanceReconciliationAuditController extends Controller
 {
+    /** CSV output only: prevent invoice references opening as spreadsheet formulas. */
+    private static function literalCsv(string $value): string
+    {
+        return preg_match('/^[\\p{Z}\\p{Cc}\\p{Cf}]*[=+\\-@]/u', $value)
+            ? "'".$value : $value;
+    }
+
     private function page(Request $request, InvoiceReconciliationAudit $audit): array
     {
         $user = app(CurrentFinanceReader::class)->requireCurrent($request);
@@ -81,20 +88,22 @@ final class FinanceReconciliationAuditController extends Controller
                 'paid_minor', 'refunded_minor', 'unpaid_credited_minor', 'net_collected_minor',
                 'amount_due_minor', 'journal_count', 'status', 'issues', 'evidence',
                 'external_psp_or_bank_verified',
-            ]);
+            ], ',', '"', '');
             foreach ($payload['data'] as $row) {
                 fputcsv($output, [
-                    $row['invoice_id'], $row['invoice_number'], $row['currency'], $row['minor_units'],
+                    $row['invoice_id'], self::literalCsv((string) $row['invoice_number']),
+                    $row['currency'], $row['minor_units'],
                     $row['invoiced_minor'], $row['paid_minor'], $row['refunded_minor'],
                     $row['unpaid_credited_minor'], $row['net_collected_minor'],
                     $row['amount_due_minor'], $row['journal_count'], $row['status'],
                     implode(';', $row['issues']), $row['evidence'], 'false',
-                ]);
+                ], ',', '"', '');
             }
             fclose($output);
         }, 'simulated-finance-reconciliation-page.csv', [
             'Content-Type' => 'text/csv; charset=utf-8',
             'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 }

@@ -66,7 +66,7 @@ class ChargingReviewController extends Controller
                 $proof = $service->evidence($row, $actor);
                 $review = DB::table('charging_reviews')->where('user_id', $actor->id)->where('station_id', $proof['station']->id)->first();
 
-                return ['session_id' => $row->id, 'station_name' => $proof['station']->name, 'station_id' => $proof['station']->id, 'evidence' => $proof['evidence'], 'can_review' => $review === null, 'existing_review_id' => $review?->id, 'physical_charging_verified' => false];
+                return ['session_id' => $row->id, 'station_name' => $proof['station']->name, 'station_id' => $proof['station']->id, 'evidence' => $proof['evidence'], 'can_review' => $review === null && $service->intakeEnabled($proof['station']->country), 'existing_review_id' => $review?->id, 'physical_charging_verified' => false];
             } catch (HttpException) {
                 return ['session_id' => $row->id, 'can_review' => false, 'evidence' => 'INELIGIBLE', 'physical_charging_verified' => false];
             }

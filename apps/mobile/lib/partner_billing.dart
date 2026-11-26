@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'invoice.dart';
@@ -22,14 +23,40 @@ class PartnerBillingPage extends StatefulWidget {
 class _PartnerBillingState extends State<PartnerBillingPage>
     with WidgetsBindingObserver {
   late bool Function() current;
+  StreamSubscription<int>? sessionEvents;
+
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        invalidate();
+        currency.clear();
+        country.clear();
+        party.clear();
+        appliedFilters = {'kind': 'all'};
+        kind = 'all';
+      });
+    });
+  }
+
   final currency = TextEditingController(),
       country = TextEditingController(),
       party = TextEditingController();
   Map<String, dynamic>? report;
   String kind = 'all', message = '';
   Map<String, String> appliedFilters = {'kind': 'all'};
-  bool busy = false;
+  bool busy = false, foreground = true;
   int generation = 0;
+  bool active(int epoch) =>
+      mounted && foreground && current() && epoch == generation;
+  void invalidate() {
+    generation++;
+    report = null;
+    message = '';
+    busy = false;
+  }
+  void filterEdited(String value) => setState(invalidate);
   String t(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
   @override
@@ -37,7 +64,10 @@ class _PartnerBillingState extends State<PartnerBillingPage>
     super.initState();
     current = widget.api.sessionFence();
     WidgetsBinding.instance.addObserver(this);
-    load();
+    observe(widget.api);
+    foreground = WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    if (foreground) load();
   }
 
   @override
@@ -45,21 +75,29 @@ class _PartnerBillingState extends State<PartnerBillingPage>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.api != widget.api ||
         oldWidget.providerId != widget.providerId) {
-      generation++;
+      if (oldWidget.api != widget.api) observe(widget.api);
+      invalidate();
       currency.clear();
       country.clear();
       party.clear();
-      report = null;
       appliedFilters = {'kind': 'all'};
       kind = 'all';
       current = widget.api.sessionFence();
-      load();
+      if (foreground) {
+        final api = widget.api;
+        final provider = widget.providerId;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && identical(widget.api, api) &&
+              provider == widget.providerId) load();
+        });
+      }
     }
   }
 
   @override
   void dispose() {
-    generation++;
+    sessionEvents?.cancel();
+    invalidate();
     WidgetsBinding.instance.removeObserver(this);
     currency.dispose();
     country.dispose();
@@ -69,23 +107,22 @@ class _PartnerBillingState extends State<PartnerBillingPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed && mounted) {
-      generation++;
-      currency.clear();
-      country.clear();
-      party.clear();
-      setState(() {
-        report = null;
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) {
+        invalidate();
+        currency.clear();
+        country.clear();
+        party.clear();
         appliedFilters = {'kind': 'all'};
-        busy = false;
-        message = '';
         kind = 'all';
-      });
-    }
+      }
+    });
   }
 
   Future<void> load({int page = 1, bool applyFilters = false}) async {
-    if (!current()) return;
+    if (!foreground || !current() || page < 1 || page > 100000) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -108,18 +145,81 @@ class _PartnerBillingState extends State<PartnerBillingPage>
         'ocpi/providers/${widget.providerId}/billing-reconciliation',
         query: {...appliedFilters, 'page': '$page'},
       );
-      if (!mounted || !current() || epoch != generation) return;
+      if (!active(epoch)) return;
       if (result is! Map<String, dynamic> ||
           result['provider_id'] != widget.providerId ||
           result['schema_version'] != 1 ||
           result['read_only'] != true ||
           result['billing_authority'] != false ||
           result['payment_execution'] != false ||
-          result['data'] is! List)
+          result['current_page'] != page ||
+          result['last_page'] is! int ||
+          result['last_page'] < page ||
+          result['last_page'] > 100000 ||
+          result['per_page'] is! int ||
+          result['per_page'] < 1 ||
+          result['per_page'] > 25 ||
+          result['total'] is! int ||
+          result['total'] < 0 ||
+          result['total'] > 9007199254740991 ||
+          result['data'] is! List ||
+          (result['data'] as List).length > 25) {
         throw const FormatException('Unverified report');
+      }
+      final total = result['total'] as int;
+      final perPage = result['per_page'] as int;
+      final lastPage = total == 0 ? 1 : (total + perPage - 1) ~/ perPage;
+      final remaining = total - (page - 1) * perPage;
+      final expected = remaining < 0
+          ? 0
+          : remaining > perPage
+              ? perPage
+              : remaining;
+      if (result['last_page'] != lastPage ||
+          (result['data'] as List).length != expected) {
+        throw const FormatException('Inconsistent source pagination');
+      }
+      bool amount(dynamic value) =>
+          value is int && value >= 0 && value <= 9007199254740991;
+      for (final item in result['data'] as List) {
+        const allowedSourceFields = {
+          'id', 'external_id', 'country_code', 'party_id', 'currency',
+          'credit', 'received_at', 'source', 'billing',
+        };
+        if (item is! Map ||
+            item.keys.any((field) => !allowedSourceFields.contains(field)) ||
+            item['billing'] is! Map ||
+            item['source'] is! Map || item['external_id'] is! String ||
+            item['country_code'] is! String || item['party_id'] is! String ||
+            item['credit'] is! bool) {
+          throw const FormatException('Invalid CDR source.');
+        }
+        final billing = item['billing'] as Map;
+        if (billing['status'] == 'test_invoice_linked') {
+          final invoice = billing['invoice'];
+          if (invoice is! Map || !amount(invoice['id']) ||
+              invoice['id'] == 0 || invoice['number'] is! String ||
+              (invoice['number'] as String).isEmpty ||
+              invoice['currency'] is! String ||
+              !RegExp(r'^[A-Z]{3}$').hasMatch(invoice['currency']) ||
+              invoice['minor_units'] is! int ||
+              invoice['minor_units'] < 0 || invoice['minor_units'] > 3 ||
+              !amount(invoice['total_minor']) ||
+              !amount(billing['paid_minor']) ||
+              !amount(billing['refunded_minor']) ||
+              !amount(billing['unpaid_credited_minor']) ||
+              !amount(billing['due_minor']) ||
+              !amount(billing['refund_review_count']) ||
+              billing['ledger_balanced'] is! bool) {
+            throw const FormatException('Inexact canonical invoice.');
+          }
+        } else if (billing.containsKey('invoice')) {
+          throw const FormatException('Unlinked financial evidence.');
+        }
+      }
       setState(() => report = result);
     } catch (error) {
-      if (!mounted || !current() || epoch != generation) return;
+      if (!active(epoch)) return;
       setState(
         () => message = t(
           'Report unavailable. Refresh current source state.',
@@ -129,7 +229,10 @@ class _PartnerBillingState extends State<PartnerBillingPage>
       if (error is ApiException && [401, 419].contains(error.status))
         widget.onExpired();
     } finally {
-      if (mounted && epoch == generation) {
+      if (mounted && foreground && epoch == generation) {
+        // API logout may turn the original auth fence false while the
+        // response is still pending. Stop the former account's spinner,
+        // erase its confidential invoice, and never expire a newer login.
         setState(() {
           busy = false;
           if (!current()) {
@@ -142,7 +245,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
   }
 
   Future<void> pdf() async {
-    if (busy || report == null || !current()) return;
+    if (busy || report == null || !foreground || !current()) return;
     final epoch = generation;
     final query = {
       ...appliedFilters,
@@ -159,7 +262,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
         widget.providerId,
         query,
       );
-      if (!mounted || !current() || epoch != generation) return;
+      if (!active(epoch)) return;
       if (document.mime != 'application/pdf' ||
           document.bytes.length < 5 ||
           String.fromCharCodes(document.bytes.take(5)) != '%PDF-') {
@@ -169,6 +272,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
         MaterialPageRoute<void>(
           builder: (_) => VendorDocumentPreview(
             document: document,
+            revokedSessionEvents: widget.api.sessionEvents,
             title: t('Partner billing reconciliation', 'مطابقة فوترة الشريك'),
             notice: t(
               'Read-only TEST report. Credits reference original invoices; do not sum rows as revenue. Not a partner settlement or proof of bank payment.',
@@ -178,7 +282,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
         ),
       );
     } catch (error) {
-      if (!mounted || !current() || epoch != generation) return;
+      if (!active(epoch)) return;
       setState(
         () => message = t(
           'Export unavailable. Narrow filters to at most 250 records and refresh.',
@@ -188,7 +292,18 @@ class _PartnerBillingState extends State<PartnerBillingPage>
       if (error is ApiException && [401, 419].contains(error.status))
         widget.onExpired();
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && foreground && epoch == generation) {
+        // API logout may turn the original auth fence false while the
+        // response is still pending. Stop the former account's spinner,
+        // erase its confidential invoice, and never expire a newer login.
+        setState(() {
+          busy = false;
+          if (!current()) {
+            report = null;
+            message = '';
+          }
+        });
+      }
     }
   }
 
@@ -298,7 +413,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
   }
 
   @override
-  Widget build(BuildContext context) => !current()
+  Widget build(BuildContext context) => !foreground || !current()
       ? Scaffold(
           body: Center(child: Text(t('Sign in again.', 'سجّل الدخول مجددًا.'))),
         )
@@ -320,11 +435,13 @@ class _PartnerBillingState extends State<PartnerBillingPage>
               TextField(
                 controller: currency,
                 maxLength: 3,
+                onChanged: filterEdited,
                 decoration: InputDecoration(labelText: t('Currency', 'العملة')),
               ),
               TextField(
                 controller: country,
                 maxLength: 2,
+                onChanged: filterEdited,
                 decoration: InputDecoration(
                   labelText: t('Country code', 'رمز الدولة'),
                 ),
@@ -332,6 +449,7 @@ class _PartnerBillingState extends State<PartnerBillingPage>
               TextField(
                 controller: party,
                 maxLength: 3,
+                onChanged: filterEdited,
                 decoration: InputDecoration(
                   labelText: t('Party ID', 'رمز الطرف'),
                 ),
@@ -351,7 +469,10 @@ class _PartnerBillingState extends State<PartnerBillingPage>
                 ],
                 onChanged: busy
                     ? null
-                    : (value) => setState(() => kind = value!),
+                    : (value) => setState(() {
+                        kind = value!;
+                        invalidate();
+                      }),
               ),
               TextButton(
                 onPressed: busy ? null : () => load(applyFilters: true),

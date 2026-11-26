@@ -1413,6 +1413,63 @@ window.createRoamingWorkspace = ({
         ]) {
             if (Array.isArray(result[key])) target.append(raw('p', `${document.documentElement.lang === 'ar' ? ar : en}: ${result[key].filter(x => ['locations', 'tariffs', 'sessions', 'cdrs'].includes(x)).join(', ') || '—'}`));
         }
+        const matrix = result.capability_matrix;
+        if (result.charging_commands_enabled !== false || result.billing_eligible !== false) {
+            target.replaceChildren(ui("p", "Roaming credentials unavailable"));
+            button(target, "Refresh", () => credentialWorkspace(provider, target, page));
+            return;
+        }
+        const modules = ["locations", "tariffs", "sessions", "cdrs"];
+        const booleans = [
+            "partner_sender_negotiated", "local_receiver_configured",
+            "local_receiver_active", "local_sender_configured",
+            "local_sender_active", "sandbox_delivery_software_enabled",
+        ];
+        const safeMatrix = matrix == null || (
+            typeof matrix === "object" &&
+            matrix.evidence === "NEGOTIATED_AND_CONFIGURED_SOFTWARE_ONLY" &&
+            matrix.live_roaming_verified === false &&
+            matrix.physical_availability_verified === false &&
+            matrix.partner_conformance_verified === false &&
+            matrix.payment_authority === false &&
+            typeof matrix.credentials_current === "boolean" &&
+            (matrix.peer_role === null || ["CPO", "EMSP"].includes(matrix.peer_role)) &&
+            Array.isArray(matrix.modules) && matrix.modules.length === 4 &&
+            matrix.modules.every((m, index) =>
+                m && typeof m === "object" && m.module === modules[index] &&
+                booleans.every(key => typeof m[key] === "boolean") &&
+                (!m.local_receiver_active || m.local_receiver_configured) &&
+                (!m.local_sender_active || (m.local_sender_configured && matrix.credentials_current)) &&
+                (!m.sandbox_delivery_software_enabled || m.local_sender_active)
+            )
+        );
+        if (!safeMatrix) {
+            // Never expose lifecycle actions or historical private operations
+            // after contradictory module evidence. Explicit refresh only.
+            target.replaceChildren(ui("p", "Roaming credentials unavailable"),
+                raw("p", document.documentElement.lang === "ar"
+                    ? "بيانات قدرات الشريك غير متسقة؛ أعد التحديث للمراجعة."
+                    : "Partner capability evidence is inconsistent; refresh to review."));
+            button(target, "Refresh", () => credentialWorkspace(provider, target, page));
+            return;
+        }
+        if (matrix) {
+            const ar = document.documentElement.lang === "ar";
+            target.append(raw("p", ar
+                ? "وحدات الشريك المُهيأة أو المتفاوض عليها فقط؛ لا تمثل موافقة للتجوال الفعلي أو صلاحية للشحن."
+                : "Configured or negotiated modules only — not live roaming approval or charging authority."));
+            for (const capability of matrix.modules) {
+                if (!["locations", "tariffs", "sessions", "cdrs"].includes(capability.module)) continue;
+                const labels = [
+                    ["partner_sender_negotiated", ar ? "قراءة الشريك" : "Partner read"],
+                    ["local_receiver_active", ar ? "استقبال محلي" : "Local receive"],
+                    ["local_sender_active", ar ? "إرسال محلي" : "Local send"],
+                    ["sandbox_delivery_software_enabled", ar ? "إرسال تجريبي" : "Sandbox delivery"],
+                ];
+                target.append(raw("p", `${capability.module}: ${labels.map(([key, label]) =>
+                    `${label} ${capability[key] === true ? (ar ? "نعم" : "yes") : (ar ? "لا" : "no")}`).join(" · ")}`));
+            }
+        }
         if (result.bootstrap_expires_at)
             line(
                 target,

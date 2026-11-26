@@ -76,7 +76,10 @@ class FinancialApi extends FixtureApi {
         'invoice_id': 3,
         'amount_minor': body['amount_minor'],
         'reason': body['reason'],
-        'request_key': body['idempotency_key'],
+        'user_id': 1,
+        'request_receipt': sha256.convert(utf8.encode(
+          'refund-request-v1:1:3:8:${body['idempotency_key']}',
+        )).toString(),
         'ocpi_credit_record_id': body['ocpi_credit_record_id'],
         'status': 'pending',
       };
@@ -180,6 +183,33 @@ Future<void> confirm(WidgetTester t, String button) async {
 }
 
 void main() {
+  test('private refund acknowledgement binds owner invoice and exact saved key', () {
+    final body = <String, dynamic>{
+      'idempotency_key': 'synthetic-original-key',
+      'amount_minor': 125, 'reason': 'Original reason',
+    };
+    final receipt = <String, dynamic>{
+      'id': 8, 'user_id': 1, 'invoice_id': 3,
+      'amount_minor': 125, 'reason': 'Original reason',
+      'status': 'pending',
+      'request_receipt': sha256.convert(utf8.encode(
+        'refund-request-v1:1:3:8:synthetic-original-key',
+      )).toString(),
+    };
+    expect(refundRequestAcknowledged(receipt, body, owner: 1, invoice: 3), isTrue);
+    for (final change in [
+      {'request_receipt': 'bad-binding'}, {'id': 9}, {'user_id': 2},
+      {'amount_minor': 126}, {'reason': 'Changed'},
+      {'request_key': 'synthetic-original-key'}, {'fingerprint': 'private'},
+      {'ocpi_credit_record_id': 7},
+    ]) {
+      expect(refundRequestAcknowledged({...receipt, ...change}, body,
+        owner: 1, invoice: 3), isFalse);
+    }
+    expect(refundRequestAcknowledged(receipt, {...body, 'idempotency_key': 'other'},
+      owner: 1, invoice: 3), isFalse);
+  });
+
   test(
     'a stale pending screen retains its original request key after another screen confirms',
     () async {

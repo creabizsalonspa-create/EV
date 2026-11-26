@@ -29,6 +29,8 @@ DISABLED = (
     'SUBSCRIPTION_COLLECTION_ENABLED', 'PAYOUT_TEST_ENABLED',
     'CSMS_INGRESS_AUTH_ENABLED', 'EV_BATTERY_SIMULATOR_ENABLED',
     'CSMS_SESSION_BRIDGE_ENABLED', 'CSMS_FAULT_WORKER_ENABLED',
+    'CSMS_UPSTREAM_REGISTRATION_ENABLED', 'OCPI_CPO_PUSH_ENABLED',
+    'OCPI_SCHEDULED_SYNC_ENABLED',
 )
 REQUIRED = ('APP_KEY', 'DB_PASSWORD', 'STAGING_HOST', 'ACME_EMAIL',
             'STAGING_BIND_IP', 'EV_IMAGE_TAG',
@@ -109,6 +111,10 @@ def validate_env(data):
     for key in DISABLED:
         require(data.get(key, 'false').lower() in ('false', 'off', '0'),
                 f'Staging operation must remain disabled: {key}')
+    for key in ('OCPI_CONNECTIONS_JSON', 'OCPI_LOCAL_CREDENTIALS_JSON',
+                'OCPI_LOCAL_CREDENTIAL_PROFILES_JSON'):
+        require(data.get(key, '') in ('', '{}'),
+                f'External partner configuration is disabled in isolated staging: {key}')
     require(data.get('APP_ENV', 'staging') == 'staging', 'APP_ENV must be staging')
     require(data.get('APP_DEBUG', 'false') == 'false', 'APP_DEBUG must be false')
     for key in ('SESSION_ENCRYPT', 'SESSION_SECURE_COOKIE'):

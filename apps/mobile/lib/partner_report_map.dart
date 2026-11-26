@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -72,7 +73,12 @@ class PartnerMapPoint {
 
   /// A platform pin retains its own provenance; it is never relabeled as a partner.
   static PartnerMapPoint? fromPublishedCatalog(Map<String,dynamic> row) {
-    if (row['name'] is! String || row['id'] is! int || (row['id'] as int) < 1 || !['SIMULATED','DISCOVERY_ONLY'].contains(row['evidence'])) return null;
+    if (row['name'] is! String || row['id'] is! int ||
+        (row['id'] as int) < 1 ||
+        !['SIMULATED', 'DISCOVERY_ONLY'].contains(row['evidence']) ||
+        // Discovery-only location evidence cannot assert booking rights.
+        (row['evidence'] == 'DISCOVERY_ONLY' &&
+         row['reservable'] == true)) return null;
     final point = fromPublishedLocation(row);
     if (point == null) return null;
     return PartnerMapPoint(latitude:point.latitude,longitude:point.longitude,name:point.name,platformCatalog:true,catalogEvidence:row['evidence'] as String);
@@ -180,6 +186,8 @@ class PartnerReportMap extends StatefulWidget {
   final TileProvider? tileProvider;
   final bool allowViewportSearch;
   final Future<ForegroundFix> Function()? locationReader;
+  final bool Function()? currentSession;
+  final Stream<int>? sessionEvents;
 
   const PartnerReportMap({
     super.key,
@@ -187,6 +195,8 @@ class PartnerReportMap extends StatefulWidget {
     this.tileProvider,
     this.allowViewportSearch = false,
     this.locationReader,
+    this.currentSession,
+    this.sessionEvents,
   });
 
   @override
@@ -197,6 +207,24 @@ class _PartnerReportMapState extends State<PartnerReportMap>
     with WidgetsBindingObserver {
   bool enabled = false, mapReady = false;
   bool locating = false, foreground = true;
+  bool get authorized => mounted && (widget.currentSession?.call() ?? true);
+  bool currentMap(int epoch) => authorized && foreground && epoch == mapGeneration;
+  StreamSubscription<int>? sessionSubscription;
+  void redact() {
+    mapGeneration++; locationGeneration++;
+    enabled = mapReady = locating = refreshAfterInactive = false;
+    inactiveGpsCentre = resumedGpsCentre = null;
+    inactiveGpsGeneration = null;
+    locationError = null;
+    manualLatitude.clear(); manualLongitude.clear();
+  }
+  Widget scopedSheet(BuildContext sheet, Widget child) => StreamBuilder<int>(
+    stream:widget.sessionEvents,
+    builder:(context,_) => authorized ? child : SafeArea(child:TextButton(
+      onPressed:()=>Navigator.of(sheet).pop(),
+      child:Text(Localizations.localeOf(sheet).languageCode=='ar'?'إغلاق':'Close'),
+    )),
+  );
   String? locationError;
   // Inactive OS permission prompts are not true backgrounding. Never move a
   // flutter_map camera while its framework viewport is suspended/inactive.
@@ -226,15 +254,22 @@ class _PartnerReportMapState extends State<PartnerReportMap>
   @override
   void initState() {
     super.initState();
+    final state=WidgetsBinding.instance.lifecycleState;
+    foreground=state==null||state==AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
+    sessionSubscription=widget.sessionEvents?.listen((_){
+      if(mounted&&!authorized)setState(redact);
+    });
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // A foreground OS permission sheet can transiently mark the app
     // "inactive"; do not cancel that explicit one-shot permission workflow.
     // Paused/hidden/detached always invalidate pending GPS responses.
+    final previousForeground=foreground;
     foreground = state == AppLifecycleState.resumed ||
-        state == AppLifecycleState.inactive;
+        (state == AppLifecycleState.inactive && previousForeground);
+    if(!authorized){if(mounted)setState(redact);return;}
     if (state == AppLifecycleState.resumed) {
       final centre = inactiveGpsCentre;
       final request = inactiveGpsGeneration;
@@ -252,7 +287,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
         currentZoom = 12;
         refreshAfterInactive = true;
       }
-      if (refreshAfterInactive && mounted) {
+      if ((refreshAfterInactive || !previousForeground) && mounted) {
         refreshAfterInactive = false;
         setState(() {});
       }
@@ -286,6 +321,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
     inactiveGpsGeneration = null;
     locationGeneration++;
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(sessionSubscription?.cancel());
     mapController.dispose();
     manualLatitude.dispose();
     manualLongitude.dispose();
@@ -297,7 +333,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
       // The OS may still be showing its permission sheet after this frame.
       // Never mutate MapInteractiveViewer during inactive, or after a route,
       // map-toggle, or auth/lifecycle generation has been replaced.
-      if (!mounted || !enabled || !mapReady || !foreground ||
+      if (!authorized || !enabled || !mapReady || !foreground ||
           WidgetsBinding.instance.lifecycleState == AppLifecycleState.inactive ||
           request != locationGeneration) return;
       mapController.move(centre, 12);
@@ -307,7 +343,8 @@ class _PartnerReportMapState extends State<PartnerReportMap>
   /// One foreground fix, gated twice: this dialog and the native runtime
   /// permission prompt. It never invokes catalog search or saves a GPS pin.
   Future<void> locateOnce() async {
-    if (!mounted || !foreground || !enabled || !mapReady || locating) return;
+    if (!authorized || !foreground || !enabled || !mapReady || locating) return;
+    final reviewedMap = mapGeneration;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -325,13 +362,13 @@ class _PartnerReportMapState extends State<PartnerReportMap>
         ],
       ),
     );
-    if (accepted != true || !mounted || !foreground || !enabled || !mapReady) return;
+    if (accepted != true || !currentMap(reviewedMap) || !enabled || !mapReady) return;
     final request = ++locationGeneration;
     setState(() { locating = true; locationError = null; });
     try {
       final reader = widget.locationReader ?? ForegroundLocationReader().read;
       final point = await reader();
-      if (!mounted || !foreground || !enabled || !mapReady ||
+      if (!authorized || !foreground || !enabled || !mapReady ||
           request != locationGeneration) return;
       if (!point.latitude.isFinite || !point.longitude.isFinite ||
           point.latitude.abs() > 85.05112878 || point.longitude.abs() > 180) {
@@ -348,7 +385,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
         scheduleGpsCamera(centre, request);
       }
     } catch (_) {
-      if (mounted && foreground && request == locationGeneration) {
+      if (authorized && foreground && request == locationGeneration) {
         final message = t(
           'Location unavailable or outside this map area. Move the map manually.',
           'الموقع غير متاح أو خارج نطاق عرض الخريطة. حرّك الخريطة يدوياً.',
@@ -361,7 +398,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
         }
       }
     } finally {
-      if (mounted && request == locationGeneration) {
+      if (authorized && request == locationGeneration) {
         if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.inactive) {
           locating = false;
           refreshAfterInactive = true;
@@ -375,10 +412,11 @@ class _PartnerReportMapState extends State<PartnerReportMap>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
 
   Future<void> details(PartnerMapPoint point) async {
+    if(!authorized||!foreground||!widget.points.contains(point))return;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (sheet) => SafeArea(
+      builder: (sheet) => scopedSheet(sheet,SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -413,17 +451,17 @@ class _PartnerReportMapState extends State<PartnerReportMap>
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 
 
   Future<void> showCluster(List<PartnerMapPoint> group) async {
-    if (group.length < 2) return;
+    if (!authorized || !foreground || group.length < 2 || !group.every(widget.points.contains)) return;
     final chosen = await showModalBottomSheet<PartnerMapPoint>(
       context: context,
       isScrollControlled: true,
-      builder: (sheet) => SafeArea(
+      builder: (sheet) => scopedSheet(sheet,SafeArea(
         child: ListView(
           shrinkWrap: true,
           padding: const EdgeInsets.all(16),
@@ -442,17 +480,19 @@ class _PartnerReportMapState extends State<PartnerReportMap>
                 subtitle: Text(point.platformCatalog
                     ? t('Platform catalog · not live', 'كتالوج المنصة · ليست بيانات مباشرة')
                     : t('Partner report · not live', 'تقرير شريك · ليست بيانات مباشرة')),
-                onTap: () => Navigator.of(sheet).pop(point),
+                onTap: () { if(authorized&&foreground)Navigator.of(sheet).pop(point); },
               ),
           ],
         ),
-      ),
+      )),
     );
-    if (mounted && chosen != null) await details(chosen);
+    if (authorized && foreground && chosen != null) await details(chosen);
   }
 
   @override
   Widget build(BuildContext context) {
+    if(!authorized||!foreground)return Scaffold(appBar:AppBar(title:Text(t('Published location map (not live)','خريطة المواقع المنشورة (ليست مباشرة)'))),
+      body:Center(child:Text(t('Private map hidden. Reopen discovery when authorized.','الخريطة الخاصة مخفية. أعد فتح البحث عند توفر الصلاحية.'))));
     final points = widget.points;
     // Only an explicit unified viewport search may open an empty map.
     // Standalone partner maps still require actual published point evidence.
@@ -496,7 +536,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
             if ((points.isNotEmpty || exploratory) && !enabled)
               FilledButton(
                 key: const Key('partner-map-enable'),
-                onPressed: () => setState(() { replaceMapController(); mapGeneration++; enabled = true; mapReady = false; resumedGpsCentre = null; currentZoom = points.isEmpty ? 2 : 11; }),
+                onPressed: () { if(!currentMap(renderedMapGeneration)||enabled)return; setState(() { replaceMapController(); mapGeneration++; enabled = true; mapReady = false; resumedGpsCentre = null; currentZoom = points.isEmpty ? 2 : 11; }); },
                 child: Text(exploratory
                     ?t('Enable discovery area map','تفعيل خريطة منطقة البحث')
                     :t('Enable report map','تفعيل خريطة التقارير')),
@@ -504,7 +544,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
             if (enabled)
               OutlinedButton(
                 key: const Key('partner-map-disable'),
-                onPressed: () => setState(() { mapGeneration++; enabled = false; mapReady = false; locationGeneration++; inactiveGpsCentre = null; resumedGpsCentre = null; inactiveGpsGeneration = null; refreshAfterInactive = false; locating = false; locationError = null; manualLatitude.clear(); manualLongitude.clear(); }),
+                onPressed: () { if(currentMap(renderedMapGeneration))setState(redact); },
                 child: Text(t('Disable report map', 'إيقاف خريطة التقارير')),
               ),
             if (enabled && widget.allowViewportSearch)
@@ -552,6 +592,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
                 key:const Key('unified-native-manual-centre'),
                 icon:const Icon(Icons.place_outlined),
                 onPressed:!mapReady||!foreground||locating?null:(){
+                  if(!currentMap(renderedMapGeneration)||!enabled||!mapReady)return;
                   final centre=manualDiscoveryMapCenter(
                     manualLatitude.text,manualLongitude.text);
                   if(centre==null){
@@ -573,6 +614,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
                 key: const Key('unified-native-viewport-search'),
                 icon: const Icon(Icons.search),
                 onPressed: !mapReady ? null : () {
+                  if(!currentMap(renderedMapGeneration)||!enabled||!mapReady)return;
                   final box = mapController.camera.visibleBounds;
                   final bounds = discoveryViewportBounds(
                     box.south, box.north, box.west, box.east,
@@ -618,7 +660,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
                       // A map from an earlier disable/reenable generation
                       // cannot activate this map's viewport or GPS buttons.
                       WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted && enabled && !mapReady &&
+                        if (authorized && enabled && !mapReady &&
                             mapGeneration == renderedMapGeneration) {
                           setState(() => mapReady = true);
                         }
@@ -630,11 +672,11 @@ class _PartnerReportMapState extends State<PartnerReportMap>
                       // inside that synchronous callback. In particular this
                       // happens after an inactive -> resumed location sheet.
                       final zoom = camera.zoom;
-                      if (!mounted || !enabled ||
+                      if (!authorized || !enabled ||
                           mapGeneration != renderedMapGeneration ||
                           (zoom - currentZoom).abs() <= 0.005) return;
                       WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted && foreground && enabled &&
+                        if (authorized && foreground && enabled &&
                             mapGeneration == renderedMapGeneration &&
                             (zoom - currentZoom).abs() > 0.005) {
                           setState(() => currentZoom = zoom);
@@ -670,18 +712,17 @@ class _PartnerReportMapState extends State<PartnerReportMap>
                             label: clustered
                                 ? t('${group.length} separate published locations, availability unverified',
                                     '${group.length} مواقع منشورة منفصلة، التوفر غير مؤكد')
-                                : point.name + (point.platformCatalog
-                                    ? ' — platform catalog, availability unverified'
-                                    : ' — unverified partner report'),
+                                : t(
+                                    '${point.name} — ${point.platformCatalog ? 'platform catalog, availability unverified' : 'unverified partner report'}',
+                                    '${point.name} — ${point.platformCatalog ? 'كتالوج المنصة، التوفر غير مؤكد' : 'تقرير شريك غير مؤكد'}',
+                                  ),
                             button: true,
                             child: IconButton(
                               key: ValueKey(clustered
                                   ? 'partner-report-cluster-$index'
                                   : 'partner-report-pin-$index'),
                               tooltip: tooltip,
-                              onPressed: clustered
-                                  ? () => showCluster(group)
-                                  : () => details(point),
+                              onPressed: () { if(!currentMap(renderedMapGeneration)||!enabled)return; if(clustered){showCluster(group);}else{details(point);} },
                               icon: clustered
                                   ? Text('${group.length}',
                                       style: Theme.of(context).textTheme.titleMedium)
@@ -719,7 +760,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
                   'Unverified partner location · not live',
                   'موقع شريك غير مؤكد · ليست بيانات مباشرة',
                 )),
-                onTap: () => details(point),
+                onTap: () { if(currentMap(renderedMapGeneration))details(point); },
               ),
           ],
         ),

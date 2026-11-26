@@ -5,6 +5,7 @@ namespace App\Services\Ocpi;
 use App\Models\Finance\Invoice;
 use App\Models\OcpiProvider;
 use App\Services\Finance\ChargingProvenance;
+use App\Services\Finance\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -41,7 +42,7 @@ final class CpoSessionSource
             ->where('session.id', $sessionId)->where('session.status', 'stopped')->whereNotNull('session.stopped_at')
             ->whereNotNull('link.transaction_id')->whereNotNull('link.started_at')->whereNotNull('link.ended_at')
             ->whereNull('link.closed_without_dispatch_at')
-            ->first(['session.currency', 'session.energy_wh', 'session.stopped_at', 'link.meter_start_wh', 'link.last_meter_wh',
+            ->first(['session.currency', 'session.energy_wh', 'session.total_minor', 'session.rate_minor_per_kwh', 'session.stopped_at', 'link.meter_start_wh', 'link.last_meter_wh',
                 'link.id as link_id', 'link.started_at', 'link.ended_at', 'link.last_sequence', 'reservation.user_id', 'map.evse_id', 'map.connector_id']);
         abort_unless($session && $session->last_sequence > 0 && $session->meter_start_wh !== null && $session->last_meter_wh !== null
             && $session->energy_wh > 0 && $session->last_meter_wh - $session->meter_start_wh === $session->energy_wh,
@@ -63,7 +64,10 @@ final class CpoSessionSource
             ->where('user_id', $session->user_id)->where('evidence', 'SIMULATED')->first();
         abort_unless($invoice && $invoice->currency === $session->currency && $invoice->energy_wh === $session->energy_wh
             && $invoice->minor_units >= 0 && $invoice->minor_units <= 3
-            && $invoice->total_minor === $invoice->subtotal_minor + $invoice->tax_minor, 409, 'Final canonical invoice evidence is required.');
+            && $invoice->total_minor === $invoice->subtotal_minor + $invoice->tax_minor
+            && $invoice->subtotal_minor === $session->total_minor
+            && $invoice->subtotal_minor === Money::multiplyDivide((int) $session->energy_wh, (int) $session->rate_minor_per_kwh, 1000),
+            409, 'Final canonical invoice evidence is required.');
         $provenance = app(ChargingProvenance::class)->inspect($invoice);
         abort_unless($provenance['kind'] === 'OCPP_SIMULATOR' && $provenance['source_verified'], 409, 'Applied charging source receipts are required.');
         $cost = ['excl_vat' => $invoice->subtotal_minor / (10 ** $invoice->minor_units), 'incl_vat' => $invoice->total_minor / (10 ** $invoice->minor_units)];

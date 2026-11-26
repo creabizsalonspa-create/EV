@@ -27,6 +27,47 @@ class ArrivalApi extends FixtureApi {
   }
 }
 
+class BoundArrivalApi extends FixtureApi {
+  int epoch = 0;
+  int writes = 0;
+  final paths = <String>[];
+  Completer<void>? pending;
+
+  @override
+  bool Function() sessionFence() {
+    final original = epoch;
+    return () => original == epoch;
+  }
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    expect(method, 'POST');
+    expect(body, {'self_reported_arrival': true});
+    writes++;
+    paths.add(path);
+    final waiter = pending;
+    if (waiter != null) await waiter.future;
+    return {'physical_presence_verified': false};
+  }
+}
+
+Widget scopedArrival(
+  BoundArrivalApi api,
+  int id, {
+  VoidCallback? onExpired,
+  Future<void> Function()? onChanged,
+}) => app(ReservationArrivalButton(
+  api: api,
+  reservationId: id,
+  onChanged: onChanged ?? () async {},
+  onExpired: onExpired ?? () {},
+));
+
 Widget app(Widget child, {bool arabic = false}) => MaterialApp(
   locale: Locale(arabic ? 'ar' : 'en'),
   supportedLocales: const [Locale('en'), Locale('ar')],
@@ -179,4 +220,113 @@ void main() {
     );
     expect(t.takeException(), isNull);
   });
+  testWidgets('same API credential rotation inside check-in consent sends no old reservation POST', (
+    tester,
+  ) async {
+    final api = BoundArrivalApi();
+    await tester.pumpWidget(scopedArrival(api, 7));
+    await tester.tap(find.text('Check in'));
+    await tester.pumpAndSettle();
+    expect(find.text(arrivalEn['consent']!), findsOneWidget);
+    api.epoch++;
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    expect(api.writes, 0);
+    expect(find.text('Check in'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('same StatefulWidget with new reservation ignores old modal and retained button', (
+    tester,
+  ) async {
+    final api = BoundArrivalApi();
+    var changed = 0;
+    await tester.pumpWidget(scopedArrival(api, 7, onChanged: () async {
+      changed++;
+    }));
+    final previousButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Check in'),
+    ).onPressed!;
+    await tester.tap(find.text('Check in'));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(scopedArrival(api, 8, onChanged: () async {
+      changed++;
+    }));
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    previousButton();
+    await tester.pumpAndSettle();
+    expect(api.writes, 0);
+    expect(find.byType(AlertDialog), findsNothing);
+    await tester.tap(find.text('Check in'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    expect(api.paths, ['reservations/8/check-in']);
+    expect(changed, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('late stale 401 never expires successor or refreshes wrong customer', (
+    tester,
+  ) async {
+    final former = BoundArrivalApi()..pending = Completer<void>();
+    final next = BoundArrivalApi();
+    var expires = 0, refreshed = 0;
+    await tester.pumpWidget(scopedArrival(
+      former, 7,
+      onExpired: () => expires++,
+      onChanged: () async { refreshed++; },
+    ));
+    await tester.tap(find.text('Check in'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirm'));
+    await tester.pump();
+    expect(former.writes, 1);
+    await tester.pumpWidget(scopedArrival(
+      next, 8,
+      onExpired: () => expires++,
+      onChanged: () async { refreshed++; },
+    ));
+    former.pending!.completeError(const ApiException(401, 'expired old login'));
+    await tester.pumpAndSettle();
+    expect(expires, 0);
+    expect(refreshed, 0);
+    expect(next.writes, 0);
+    expect(find.text('Check in'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final ar in [false, true]) {
+    testWidgets('background revokes in-progress arrival consent without automatic retry ($ar)', (
+      tester,
+    ) async {
+      final api = BoundArrivalApi();
+      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(
+        AppLifecycleState.resumed,
+      ));
+      await tester.pumpWidget(app(
+        ReservationArrivalButton(
+          api: api, reservationId: 7,
+          onChanged: () async {},
+          onExpired: () {},
+        ),
+        arabic: ar,
+      ));
+      await tester.tap(find.text(ar ? arrivalAr['title']! : arrivalEn['title']!));
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      await tester.tap(find.text(ar ? 'تأكيد' : 'Confirm'));
+      await tester.pumpAndSettle();
+      expect(api.writes, 0);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(api.writes, 0);
+      expect(find.text(ar ? arrivalAr['title']! : arrivalEn['title']!),
+          findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
 }

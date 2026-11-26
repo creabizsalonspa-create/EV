@@ -16,6 +16,8 @@ class ChargerCertificates
 {
     public function scope(User $actor, VendorCompany $company, VendorCharger $charger, bool $write = false): void
     {
+        // Never authorize a certificate view or mutation using a stale login.
+        app(MaintenanceActor::class)->check($actor);
         app(VendorAccess::class)->require($actor, $company, $write ? 'inventory.write' : 'inventory.read');
         abort_unless($charger->company_id === $company->id, 404);
         if ($write) {
@@ -74,6 +76,9 @@ class ChargerCertificates
         try {
             return DB::transaction(function () use ($actor, $company, $charger, $kind, $intent, $hash) {
                 $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+                // Keep the captured user snapshot until its current epoch,
+                // password and role have been checked under a row lock.
+                app(MaintenanceActor::class)->check($actor);
                 $actor = User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
                 $charger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
                 $this->scope($actor, $company, $charger, true);
@@ -119,6 +124,7 @@ class ChargerCertificates
     {
         return DB::transaction(function () use ($actor, $company, $charger, $intent) {
             $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            app(MaintenanceActor::class)->check($actor);
             $actor = User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
             $charger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
             $this->scope($actor, $company, $charger, true);

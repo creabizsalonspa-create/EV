@@ -162,18 +162,36 @@
       "test_result": "passed",
       "merge_sha": "2be2a0d30868f35b6b474c297cd2d13ae5503d5d",
       "evidence": "docs/evidence/integrated-checkpoints-20261122/pr195-verified.json"
+    },
+    "pr197-licensed-frontend": {
+      "source_sha": "b5483d7b79ba35f42c40c8d528c433d6f3b9f3d9",
+      "test_result": "passed",
+      "merge_sha": "f7af52ac9c8d10b79d0627f4d1fc5242b13f18bb",
+      "evidence": "docs/evidence/integrated-checkpoints-20261123/pr197-licensed-frontend.json"
+    },
+    "pr205": {
+      "source_sha": "bf8def77164ff17da3e7c033ee1313a8f8ab7a42",
+      "test_result": "passed",
+      "merge_sha": "775b0b8e18f5f285ef613725de2dd60e9d361e36",
+      "evidence": "docs/evidence/integrated-checkpoints-20261123/pr205-verified.json"
+    },
+    "pr397-discovery-closure": {
+      "source_sha": "3cf94fa29b915c844885843dc23d7815f4593ce0",
+      "test_result": "passed",
+      "merge_sha": "ae92e14eb211eed52b0bb74775e8e1363cede168",
+      "evidence": "docs/evidence/integrated-checkpoints-20261126/pr397-discovery-closure.json"
     }
   },
   "weighted_percent": {
-    "coded": "60.13",
-    "tested": "60.13",
-    "merged": "60.13",
+    "coded": "61.99",
+    "tested": "61.99",
+    "merged": "61.99",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "4550551/7567560",
-    "tested": "4550551/7567560",
-    "merged": "4550551/7567560",
+    "coded": "781901/1261260",
+    "tested": "781901/1261260",
+    "merged": "781901/1261260",
     "production_accepted": "0"
   },
   "categories": [
@@ -416,9 +434,9 @@
       "requirement": "Search, maps, routes, favorites, reviews",
       "atoms": 9,
       "counts": {
-        "coded": 5,
-        "tested": 5,
-        "merged": 5,
+        "coded": 7,
+        "tested": 7,
+        "merged": 7,
         "production_accepted": 0
       },
       "details": [
@@ -464,13 +482,13 @@
         {
           "id": "2.3.4",
           "software_atom": "Interactive station maps",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Canonical current-page web/Flutter maps are merged in PR16; unified partner maps remain incomplete. No whole-atom credit.",
+          "coded": true,
+          "checkpoint": "pr397-discovery-closure",
+          "note": "Consent-gated interactive canonical/partner and separate licensed-report maps, clustering, pan/zoom, manual center, explicit viewport query, GPS consent and private-data revocation. PR16/197/337 plus integrated PR397 correction; no physical availability or live-provider claim.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -516,13 +534,13 @@
         {
           "id": "2.3.8",
           "software_atom": "Favorites",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Canonical private favorites are merged across Laravel/web/Flutter in PR16; partner favorites remain incomplete. No whole-atom credit.",
+          "coded": true,
+          "checkpoint": "pr397-discovery-closure",
+          "note": "Canonical and authorized normalized partner private favorites on web/Flutter, typed saved-only queries, revocation/removal, lost-write recovery, retained callback/account fences. PR337 historical hold resolved by integrated exact PR397; transient licensed reports remain discovery-only.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -663,9 +681,9 @@
       "requirement": "Owned and network discovery",
       "atoms": 6,
       "counts": {
-        "coded": 3,
-        "tested": 3,
-        "merged": 3,
+        "coded": 4,
+        "tested": 4,
+        "merged": 4,
         "production_accepted": 0
       },
       "details": [
@@ -724,13 +742,13 @@
         {
           "id": "2.5.5",
           "software_atom": "Licensed discovery-provider adapter",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr193",
+          "note": "Open Charge Map is a consent-gated discovery-only adapter with an approved-terms gate, source attribution and bounded quota/cache handling. PR193 passed eight matching jobs and merged with an identical tree. PR197 also verified customer and vendor Flutter discovery over the same adapter.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -1131,9 +1149,9 @@
       "requirement": "Loyalty/rewards/promotions/referrals",
       "atoms": 7,
       "counts": {
-        "coded": 4,
-        "tested": 4,
-        "merged": 4,
+        "coded": 5,
+        "tested": 5,
+        "merged": 5,
         "production_accepted": 0
       },
       "details": [
@@ -1192,13 +1210,13 @@
         {
           "id": "2.9.5",
           "software_atom": "Referrals",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr205",
+          "note": "Referral programme terms, consent, codes, qualifying noncash rewards and private recovery history across Admin/customer web and Flutter.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -3367,9 +3385,9 @@
       "requirement": "Licensed discovery providers",
       "atoms": 4,
       "counts": {
-        "coded": 2,
-        "tested": 2,
-        "merged": 2,
+        "coded": 3,
+        "tested": 3,
+        "merged": 3,
         "production_accepted": 0
       },
       "details": [
@@ -3402,13 +3420,13 @@
         {
           "id": "6.2.3",
           "software_atom": "Provider-specific frontend integration",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr197-licensed-frontend",
+          "note": "Provider-specific Open Charge Map consent-gated English and Arabic web and Flutter customer/vendor discovery.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },

@@ -8,6 +8,7 @@ use App\Services\Ocpi\PartnerBillingExport;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Tests\Support\CreatesUnpaidCreditInvoice;
 use Tests\TestCase;
 
@@ -74,6 +75,91 @@ class PartnerBillingReconciliationTest extends TestCase
         $this->getJson($url.'?page=2')->assertOk()->assertJsonCount(3, 'data');
         $this->assertDatabaseCount('finance_invoices', 1);
         $this->assertDatabaseCount('finance_journals', 1);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
+    public function test_partner_cdr_finance_json_csv_and_pdf_deny_revoked_vendor_and_admin_snapshots(): void
+    {
+        [$owner, , , $invoice, , , , $provider] = $this->scenario();
+        $path = '/api/ocpi/providers/'.$provider->id.'/billing-reconciliation';
+        $journalCount = DB::table('finance_journals')->count();
+        $receiptCount = DB::table('ocpi_test_invoice_receipts')->count();
+        $actors = [$owner, User::factory()->create(['role' => 'admin'])];
+
+        foreach ($actors as $actor) {
+            $snapshot = DB::table('users')->where('id', $actor->id)
+                ->first(['role', 'account_status', 'auth_epoch', 'password']);
+            $restore = (array) $snapshot;
+            $this->actingAs($actor);
+            $this->getJson($path)->assertOk()
+                ->assertJsonPath('data.0.billing.invoice.id', $invoice->id);
+            $this->get($path.'/csv')->assertOk();
+            $this->get($path.'/pdf')->assertOk();
+            foreach ([
+                ['role' => $actor->role === 'admin' ? 'customer' : 'admin'],
+                ['account_status' => 'suspended'],
+                ['auth_epoch' => (int) $snapshot->auth_epoch + 1],
+                ['password' => Hash::make('rotated-partner-cdr-finance-session')],
+            ] as $revocation) {
+                // DB update deliberately retains the original request's
+                // authenticated Laravel model: the live snapshot must win.
+                DB::table('users')->where('id', $actor->id)->update($revocation);
+                $this->getJson($path)->assertConflict();
+                $this->get($path.'/csv')->assertConflict();
+                $this->get($path.'/pdf')->assertConflict();
+                DB::table('users')->where('id', $actor->id)->update($restore);
+            }
+        }
+
+        $this->assertSame($journalCount, DB::table('finance_journals')->count());
+        $this->assertSame($receiptCount, DB::table('ocpi_test_invoice_receipts')->count());
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
+    public function test_partner_cdr_provider_reassignment_stops_source_export_before_invoice_materialization(): void
+    {
+        [$owner, , , $invoice, , , , $provider] = $this->scenario();
+        $other = User::factory()->create(['role' => 'vendor']);
+        $path = '/api/ocpi/providers/'.$provider->id.'/billing-reconciliation';
+        $before = DB::table('finance_journals')->count();
+        $this->actingAs($owner)->getJson($path)->assertOk()
+            ->assertJsonPath('data.0.billing.invoice.id', $invoice->id);
+
+        DB::table('ocpi_providers')->where('id', $provider->id)
+            ->update(['owner_id' => $other->id]);
+        $this->getJson($path)->assertNotFound();
+        $this->get($path.'/csv')->assertNotFound();
+        $this->get($path.'/pdf')->assertNotFound();
+
+        $this->actingAs($other)->getJson($path)->assertOk()
+            ->assertJsonPath('data.0.billing.status', 'scope_requires_review')
+            ->assertJsonMissingPath('data.0.billing.invoice');
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
+    public function test_plain_browser_financial_exports_reject_bad_filters_after_owner_authorization(): void
+    {
+        [$owner, , $outsider, , , , , $provider] = $this->scenario();
+        $path = '/api/ocpi/providers/'.$provider->id.'/billing-reconciliation';
+        $before = DB::table('finance_journals')->count();
+        $this->actingAs($outsider);
+        $this->getJson($path.'?kind=unsupported')->assertNotFound();
+        $this->get($path.'/csv?kind=unsupported')->assertNotFound();
+        $this->get($path.'/pdf?locale=invalid')->assertNotFound();
+
+        $this->actingAs($owner);
+        foreach ([
+            'kind=unsupported', 'currency=invalid', 'page=1',
+            'country_code=ZZZ',
+        ] as $query) {
+            $this->get($path.'/csv?'.$query)->assertUnprocessable()
+                ->assertHeader('Cache-Control', 'no-store, private');
+            $this->get($path.'/pdf?'.$query)->assertUnprocessable();
+        }
+        $this->get($path.'/csv?kind=credits')->assertOk()
+            ->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertSame($before, DB::table('finance_journals')->count());
         $this->assertDatabaseCount('finance_payments', 0);
     }
 

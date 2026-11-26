@@ -3,7 +3,7 @@
  const text=(tag,en,ar)=>{const n=document.createElement(tag);if(tag==='label'){n.append(text('span',en,ar));return n;}n.dataset.en=en;n.dataset.ar=ar;n.textContent=document.documentElement.lang==='ar'?ar:en;return n;};
  const button=(en,ar,action)=>{const n=text('button',en,ar);n.type='button';n.onclick=action;return n;};
  function install(root,api,onCatalog){
-  let advancedQuery={},viewportQuery={},generation=0,page=1,query='',scope='all',country='',connector='',mapRows=[],recentStatus='',maxSourceAge='',savedOnly=false,customer=false,owner=null,favoriteWriter=null,writing=false,uncertain=false,recentPresets=[];
+  let advancedQuery={},viewportQuery={},generation=0,page=1,query='',scope='all',country='',connector='',mapRows=[],mapPublished=false,recentStatus='',maxSourceAge='',savedOnly=false,customer=false,owner=null,favoriteWriter=null,writing=false,uncertain=false,recentPresets=[];
   const form=document.createElement('form'),input=document.createElement('input'),source=document.createElement('select'),plug=document.createElement('select'),state=document.createElement('p'),list=document.createElement('div'),nav=document.createElement('nav');
   input.maxLength=80;input.name='unified-query';
   const field=text('label','Name, address or operator','الاسم أو العنوان أو المشغل');field.append(input);form.append(field);
@@ -73,8 +73,21 @@
     renderRecentPresets();
   }
   root.append(text('h3','Search platform and partner locations','البحث في مواقع المنصة والشركاء'),text('p','One search of published records. Partner reports are unverified and cannot authorize booking, charging or payment. External discovery providers require their separate consent.','بحث موحد في السجلات المنشورة. تقارير الشركاء غير مؤكدة ولا تسمح بالحجز أو الشحن أو الدفع. يتطلب مزودو الاكتشاف الخارجيون موافقة منفصلة.'),form,state,list,nav);
+  // Only this UI instance can revoke its published map. A retired listener
+  // cannot erase a newer view's map when the screen is mounted twice.
+  const mapPublication = {};
+  function revokePublishedMap(){
+   if(!mapPublished)return;
+   mapPublished=false;
+   window.dispatchEvent(new CustomEvent('unified-map-clear',{detail:mapPublication}));
+  }
   const mapButton=button('Map these loaded results','عرض هذه النتائج المحملة على الخريطة',()=>{
-   window.dispatchEvent(new CustomEvent('unified-map-data',{detail:mapRows}));
+   if(mapButton.disabled||mapRows.length===0||
+      document.visibilityState==='hidden')return;
+   mapPublished=true;
+   const published=new CustomEvent('unified-map-data',{detail:mapRows});
+   published.evUnifiedPublication=mapPublication;
+   window.dispatchEvent(published);
    document.getElementById('discovery-map')?.scrollIntoView({block:'start'});
   });mapButton.disabled=true;root.append(mapButton,recentPanel);
   // Missing source metadata must never become a bookable catalog action.
@@ -84,15 +97,36 @@
     ['SIMULATED','DISCOVERY_ONLY'].includes(row.station.evidence)&&
     ['CCS2','Type2','CHAdeMO'].includes(row.station.connector_type)&&
     Number.isSafeInteger(row.station.power_kw)&&
-    row.station.power_kw>=1&&row.station.power_kw<=1000;
+    row.station.power_kw>=1&&row.station.power_kw<=1000&&
+    (row.station.evidence!=='DISCOVERY_ONLY'||row.station.reservable!==true)&&
+    (row.station.distance_km===null||row.station.distance_km===undefined||
+      (typeof row.station.distance_km==='number'&&
+       Number.isFinite(row.station.distance_km)&&row.station.distance_km>=0))&&
+    (row.station.timezone===null||row.station.timezone===undefined||
+      (typeof row.station.timezone==='string'&&row.station.timezone.trim()!==''))&&
+    (row.station.reservation_policy===null||row.station.reservation_policy===undefined||
+      typeof row.station.reservation_policy==='string');
   async function load(target,remember=false){
    if(writing)return;
    const historySnapshot=remember?{q:query,scope,country,connector,recentStatus,maxSourceAge,savedOnly,advanced:{...advancedQuery}}:null;
-   uncertain=false;const turn=++generation;mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();state.replaceChildren(text('span','Searching…','جارٍ البحث…'));submit.disabled=true;
+   uncertain=false;const turn=++generation;revokePublishedMap();mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();state.replaceChildren(text('span','Searching…','جارٍ البحث…'));submit.disabled=true;
    try{
     const data=await api('search?'+new URLSearchParams({...advancedQuery,...viewportQuery,q:query,scope,...(country?{country}:{}),connector,page:String(target),saved_only:savedOnly?'1':'0',recent_source_status:recentStatus,...(maxSourceAge?{max_source_age_hours:maxSourceAge}:{})}));if(turn!==generation)return;
-    if(!Array.isArray(data.data)||!Number.isInteger(data.current_page)||!Number.isInteger(data.last_page)||!Number.isInteger(data.total))throw Error('Invalid catalog response');
-    mapRows=data.data;mapButton.disabled=mapRows.length===0;
+    if(!data||!Array.isArray(data.data)||data.data.length>25||
+       !Number.isSafeInteger(data.current_page)||data.current_page!==target||
+       !Number.isSafeInteger(data.last_page)||data.last_page<1||data.last_page>1000000||
+       !Number.isSafeInteger(data.total)||data.total<0||data.total<data.data.length||
+       (data.current_page>data.last_page&&data.data.length>0))
+      throw Error('Unverified catalog page');
+    // Validate unique typed record identities before rendering any card
+    // or authorizing the map. A failed page must never reveal partial records.
+    const keys=new Set();
+    for(const row of data.data){
+      if(!row||typeof row!=='object'||Array.isArray(row)||
+         typeof row.key!=='string'||keys.has(row.key))
+        throw Error('Invalid catalog identity');
+      keys.add(row.key);
+    }
     page=data.current_page;state.replaceChildren(text('span',`${data.total} published results`,`${data.total} نتيجة منشورة`));
     for(const row of data.data){
      const card=document.createElement('article');card.dataset.discoveryKey=row.key;
@@ -110,7 +144,11 @@
          'بيانات المحطة المنشورة غير مكتملة. لا تتوفر إجراءات الحجز أو الحفظ حتى تصحيح بيانات الكتالوج.'));
       }
      }else if(row.kind==='partner'&&Number.isSafeInteger(row.record_id)&&row.record_id>0&&row.key==='partner:'+row.record_id&&row.location&&row.reservable===false&&row.remote_control===false&&row.availability==='unknown'){
-      allowedFavorite=true;card.dataset.partnerLocationId=String(row.record_id);const l=row.location;
+      const partnerSource=row.evidence==='PARTNER_REPORTED_UNVERIFIED'&&
+        row.location.availability==='unknown'&&row.location.reservable===false&&
+        row.location.remote_control===false;
+      allowedFavorite=partnerSource;
+      card.dataset.partnerLocationId=String(row.record_id);const l=row.location;
       const safe=value=>typeof value==='string'&&value.trim()?value.trim().slice(0,250):'';
       const providedName=safe(l.name)||safe(l.id);
       const nameEn=providedName||'Partner record #'+row.record_id;
@@ -151,12 +189,20 @@
       });star.dataset.favoriteKind=row.kind;card.append(star);
      }
      list.append(card);
+     // Do not send a rejected identity, guessed partner status, or incomplete
+     // catalog metadata to the separate map event consumer.
+     if(row.kind==='catalog' ? catalogMetadataComplete(row) :
+        allowedFavorite&&row.location_available!==false)mapRows.push(row);
     }
+    mapButton.disabled=mapRows.length===0;
     if(page>1)nav.append(button('Previous','السابق',()=>load(page-1)));
     nav.append(text('span',`Page ${page} / ${data.last_page}`,`الصفحة ${page} / ${data.last_page}`));
     if(page<data.last_page)nav.append(button('Next','التالي',()=>load(page+1)));
     rememberSuccessfulSearch(historySnapshot);
-   }catch{if(turn===generation)state.replaceChildren(text('span','Search failed. Submit again to retry.','تعذر البحث. أعد الإرسال للمحاولة.'));}
+   }catch{if(turn===generation){
+     mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();
+     state.replaceChildren(text('span','Search failed. Submit again to retry.','تعذر البحث. أعد الإرسال للمحاولة.'));
+    }}
    finally{if(turn===generation)submit.disabled=false;}
   }
   form.onsubmit=e=>{e.preventDefault();if(writing)return;advancedQuery={};viewportQuery={};for(const [key,control] of Object.entries(advancedInputs)){let value=control.value.trim();if(key==='price_currency')value=value.toUpperCase();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].includes(key))value=normalizeRate(value);if(value)advancedQuery[key]=value;}query=input.value.trim();scope=source.value;country=market.value;connector=plug.value;recentStatus=report.value;maxSourceAge=ageFilter.value;savedOnly=customer&&savedInput.checked;load(1,true);};
@@ -178,7 +224,31 @@
    root.scrollIntoView?.({block:'start'});
   });
   // Location queries and result sets stay in memory; there is no automatic lookup.
-  return {setContext(context){if(owner!==context.owner||customer!==(context.customer===true))this.clear();owner=context.owner;customer=context.customer===true;favoriteWriter=context.favorite;savedField.hidden=!customer;},clear(){recentPresets=[];renderRecentPresets();advancedQuery={};viewportQuery={};for(const control of Object.values(advancedInputs))control.value='';generation++;writing=false;uncertain=false;scope='all';source.value='all';connector='';plug.value='';recentStatus='';report.value='';maxSourceAge='';ageFilter.value='';savedOnly=false;savedInput.checked=false;mapRows=[];mapButton.disabled=true;query='';input.value='';country='';market.value='';list.replaceChildren();nav.replaceChildren();state.replaceChildren();submit.disabled=false;}};
+  const controller={
+   setContext(context){
+    if(owner!==context.owner||customer!==(context.customer===true))this.clear();
+    owner=context.owner;customer=context.customer===true;
+    favoriteWriter=context.favorite;savedField.hidden=!customer;
+   },
+   clear(){
+    revokePublishedMap();
+    recentPresets=[];renderRecentPresets();advancedQuery={};viewportQuery={};
+    for(const control of Object.values(advancedInputs))control.value='';
+    generation++;writing=false;uncertain=false;scope='all';source.value='all';
+    connector='';plug.value='';recentStatus='';report.value='';maxSourceAge='';
+    ageFilter.value='';savedOnly=false;savedInput.checked=false;mapRows=[];
+    mapButton.disabled=true;query='';input.value='';country='';market.value='';
+    list.replaceChildren();nav.replaceChildren();state.replaceChildren();
+    submit.disabled=false;
+   }
+  };
+  // BFCache navigation and hidden tabs cannot retain a previous customer's
+  // search history, typed coordinates, saved filter or published map pins.
+  window.addEventListener('pagehide',()=>controller.clear());
+  document.addEventListener?.('visibilitychange',()=>{
+   if(document.visibilityState==='hidden')controller.clear();
+  });
+  return controller;
  }
  window.EvUnifiedDiscovery={install};
  window.addEventListener('discovery-api-ready',event=>{const root=document.getElementById('unified-discovery');if(root)window.EvUnifiedDiscovery.active=install(root,event.detail,id=>window.dispatchEvent(new CustomEvent('unified-catalog-open',{detail:id})));});

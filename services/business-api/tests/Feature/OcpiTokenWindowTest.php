@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\CreatesSandboxRoaming;
 use Tests\TestCase;
@@ -11,6 +12,97 @@ use Tests\TestCase;
 class OcpiTokenWindowTest extends TestCase
 {
     use CreatesSandboxRoaming, RefreshDatabase;
+
+    public function test_token_reads_and_authorization_require_the_same_attempted_command(): void
+    {
+        $fixture = $this->fixture();
+        [$id] = $this->start($fixture[1], $fixture[4]);
+        $token = $this->writes[0]['body'];
+        $url = '/api/roaming-protocol/2.2.1/tokens';
+        $single = $url.'/'.$token['country_code'].'/'.$token['party_id'].'/'.$token['uid'];
+        $command = DB::table('ocpi_roaming_commands')->where('order_id', $id)->first();
+        $this->withHeaders($this->peer())->getJson($single)->assertOk()->assertJsonPath('data.valid', true);
+        foreach ([
+            ['attempted_at' => null],
+            ['state' => 'prepared'],
+            ['state' => 'partner_rejected'],
+            ['actor_id' => $fixture[2]->id],
+        ] as $changed) {
+            DB::table('ocpi_roaming_commands')->where('id', $command->id)->update($changed);
+            $this->withHeaders($this->peer())->getJson($single)->assertOk()->assertJsonPath('data.valid', false);
+            $this->withHeaders($this->peer())->getJson($url)->assertOk()->assertJsonPath('data.0.valid', false);
+            $this->withHeaders($this->peer())->postJson($url.'/'.$token['uid'].'/authorize', ['location_id' => 'L1', 'evse_uids' => ['E1']])
+                ->assertOk()->assertJsonPath('data.allowed', 'NOT_ALLOWED');
+            $this->assertNull(DB::table('ocpi_roaming_orders')->find($id)->authorized_at);
+            DB::table('ocpi_roaming_commands')->where('id', $command->id)->update([
+                'attempted_at' => $command->attempted_at, 'state' => $command->state, 'actor_id' => $command->actor_id,
+            ]);
+        }
+        $this->withHeaders($this->peer())->getJson($single)->assertOk()->assertJsonPath('data.valid', true);
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_token_grant_rejects_corrupted_or_rebound_command_payload_and_negative_receipts(): void
+    {
+        $fixture = $this->fixture();
+        [$id] = $this->start($fixture[1], $fixture[4]);
+        $token = $this->writes[0]['body'];
+        $url = '/api/roaming-protocol/2.2.1/tokens';
+        $single = $url.'/'.$token['country_code'].'/'.$token['party_id'].'/'.$token['uid'];
+        $command = DB::table('ocpi_roaming_commands')->where('order_id', $id)->first();
+        $payload = json_decode(Crypt::decryptString($command->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
+        $payload['location_id'] = 'FOREIGN';
+        $changes = [
+            ['intent_hash' => str_repeat('a', 64)],
+            ['payload_ciphertext' => 'invalid-ciphertext'],
+            ['payload_ciphertext' => Crypt::encryptString(json_encode($payload, JSON_THROW_ON_ERROR)),
+                'intent_hash' => hash('sha256', json_encode([$id, 'START_SESSION', $payload], JSON_THROW_ON_ERROR))],
+            ['transport_result' => 'REJECTED', 'state' => 'outcome_unknown'],
+            ['callback_result' => 'FAILED'],
+        ];
+        foreach ($changes as $change) {
+            DB::table('ocpi_roaming_commands')->where('id', $command->id)->update($change);
+            $this->withHeaders($this->peer())->getJson($single)->assertOk()->assertJsonPath('data.valid', false);
+            $this->withHeaders($this->peer())->getJson($url)->assertOk()->assertJsonPath('data.0.valid', false);
+            $this->withHeaders($this->peer())->postJson($url.'/'.$token['uid'].'/authorize', ['location_id' => 'L1', 'evse_uids' => ['E1']])
+                ->assertOk()->assertJsonPath('data.allowed', 'NOT_ALLOWED');
+            $this->assertNull(DB::table('ocpi_roaming_orders')->find($id)->authorized_at);
+            DB::table('ocpi_roaming_commands')->where('id', $command->id)->update([
+                'intent_hash' => $command->intent_hash, 'payload_ciphertext' => $command->payload_ciphertext,
+                'transport_result' => $command->transport_result, 'state' => $command->state,
+                'callback_result' => $command->callback_result,
+            ]);
+        }
+        $this->withHeaders($this->peer())->getJson($single)->assertOk()->assertJsonPath('data.valid', true);
+        $this->withHeaders($this->peer())->postJson($url.'/'.$token['uid'].'/authorize', ['location_id' => 'L1', 'evse_uids' => ['E1']])
+            ->assertOk()->assertJsonPath('data.allowed', 'ALLOWED');
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_callback_rejects_a_command_changed_after_initial_lookup(): void
+    {
+        $fixture = $this->fixture();
+        [$id] = $this->start($fixture[1], $fixture[4]);
+        $claim = DB::table('ocpi_roaming_commands')->where('order_id', $id)->first();
+        $armed = true;
+        DB::listen(function ($query) use ($claim, &$armed) {
+            if ($armed && str_contains(strtolower($query->sql), 'join "ocpi_roaming_orders"')) {
+                $armed = false;
+                DB::table('ocpi_roaming_commands')->where('id', $claim->id)->update(['attempted_at' => null]);
+            }
+        });
+        $path = '/api/roaming-protocol/2.2.1/commands/'.$claim->callback_key;
+        $this->withHeaders($this->peer())->postJson($path, ['result' => 'ACCEPTED'])->assertConflict();
+        $this->assertFalse($armed);
+        $this->assertNull(DB::table('ocpi_roaming_commands')->find($claim->id)->callback_hash);
+        DB::table('ocpi_roaming_commands')->where('id', $claim->id)->update(['attempted_at' => $claim->attempted_at]);
+        $this->withHeaders($this->peer())->postJson($path, ['result' => 'ACCEPTED'])->assertOk();
+        $this->assertSame('ACCEPTED', DB::table('ocpi_roaming_commands')->find($claim->id)->callback_result);
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
 
     public function test_token_sender_windows_normalize_offsets_and_keep_exclusive_end_boundary(): void
     {

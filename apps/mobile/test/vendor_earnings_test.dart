@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/vendor_finance.dart';
+import 'package:creabiz_ev/vendor_earnings_csv.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,15 +36,49 @@ Map<String, dynamic> snapshot({int vendor = 3, int page = 1}) => {
   ],
 };
 
+PrivateDocument pageCsv({int vendor = 3, int page = 1,
+    bool changedAmount = false}) {
+  final report = snapshot(vendor: vendor, page: page);
+  final row = Map<String, dynamic>.from((report['data'] as List).single as Map);
+  if (changedAmount) row['paid_minor'] = 9999;
+  final body = <String>[
+    VendorEarningsCsv.headers.join(','),
+    VendorEarningsCsv.headers.map((field) => field == 'invoice_number'
+        ? VendorEarningsCsv.literalNumber(row[field] as String)
+        : '${row[field]}').join(','),
+  ].join('\n') + '\n';
+  return PrivateDocument(Uint8List.fromList(utf8.encode(body)), 'text/csv');
+}
+
 class EarningsApi extends FixtureApi {
   int stamp = 0, vendor = 3;
   String accountRole = 'vendor';
   bool unavailable = false;
   Completer<dynamic>? meWait, reportWait;
+  Completer<PrivateDocument>? csvWait;
+  bool invalidCsvAmount = false;
+  final csvQueries = <Map<String, dynamic>>[];
   @override
   bool Function() sessionFence() {
     final n = stamp;
     return () => n == stamp;
+  }
+
+  @override
+  Future<PrivateDocument> downloadVendorEarningsPage(
+    int vendorId, {
+    required String currency,
+    required int page,
+    int perPage = 20,
+  }) async {
+    csvQueries.add({
+      'vendor_id': vendorId, 'currency': currency,
+      'page': page, 'per_page': perPage,
+    });
+    if (csvWait != null) return csvWait!.future;
+    return pageCsv(
+      vendor: vendorId, page: page, changedAmount: invalidCsvAmount,
+    );
   }
 
   @override
@@ -100,6 +136,24 @@ Widget app(EarningsApi api, {bool ar = false, VoidCallback? expired}) =>
     );
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets('already displayed owner income and CSV controls vanish on explicit account invalidation',
+      (tester) async {
+    final api = EarningsApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('vendor-earnings-overall')), findsOneWidget);
+    expect(find.byKey(const Key('vendor-earnings-export')), findsOneWidget);
+    final before = api.calls.length;
+    await api.forgetSession();
+    await tester.pump();
+    expect(find.byKey(const Key('vendor-earnings-overall')), findsNothing);
+    expect(find.byKey(const Key('vendor-earnings-export')), findsNothing);
+    expect(find.byKey(const Key('vendor-earnings-csv-preview')), findsNothing);
+    expect(find.textContaining('Private records cleared'), findsOneWidget);
+    expect(api.calls.length, before);
+  });
+
   for (final ar in [false, true]) {
     testWidgets(
       'itemized source keeps signed precision, distinct global scope and pagination ${ar ? 'AR' : 'EN'}',
@@ -142,6 +196,98 @@ void main() {
       },
     );
   }
+  testWidgets('vendor invoice CSV is exact per-page copyable TEST data',
+    (t) async {
+      final api = EarningsApi();
+      addTearDown(api.close);
+      await t.pumpWidget(app(api));
+      await t.pumpAndSettle();
+      final button = find.byKey(const Key('vendor-earnings-export'));
+      await t.ensureVisible(button);
+      await t.tap(button);
+      await t.pumpAndSettle();
+      expect(api.csvQueries.single, {
+        'vendor_id': 3, 'currency': 'KWD',
+        'page': 1, 'per_page': 1,
+      });
+      expect(find.byKey(const Key('vendor-earnings-csv-preview')),
+          findsOneWidget);
+      expect(find.textContaining('bank payment'), findsNothing);
+      // Copyable CSV may grow a lazily built ListView: scroll its owner
+      // back to the top before looking up the refresh button.
+      await t.scrollUntilVisible(
+        find.byKey(const Key('vendor-earnings-refresh')),
+        -250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await t.tap(find.byKey(const Key('vendor-earnings-refresh')));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('vendor-earnings-csv-preview')),
+          findsNothing);
+    },
+  );
+  testWidgets('source-mismatched CSV can never appear in a native vendor view',
+    (t) async {
+      final api = EarningsApi()..invalidCsvAmount = true;
+      addTearDown(api.close);
+      await t.pumpWidget(app(api));
+      await t.pumpAndSettle();
+      final button = find.byKey(const Key('vendor-earnings-export'));
+      await t.ensureVisible(button);
+      await t.tap(button);
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('vendor-earnings-csv-preview')),
+          findsNothing);
+      expect(find.byKey(const Key('vendor-earnings-error')),
+          findsOneWidget);
+      expect(find.textContaining('9999'), findsNothing);
+    },
+  );
+  testWidgets('old-user CSV response cannot appear after session rotation',
+    (t) async {
+      final api = EarningsApi()..csvWait = Completer<PrivateDocument>();
+      addTearDown(api.close);
+      await t.pumpWidget(app(api));
+      await t.pumpAndSettle();
+      final button = find.byKey(const Key('vendor-earnings-export'));
+      await t.ensureVisible(button);
+      await t.tap(button);
+      await t.pump();
+      expect(api.csvQueries.single['vendor_id'], 3);
+      api.stamp++;
+      api.vendor = 4;
+      api.csvWait!.complete(pageCsv(vendor: 3));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('vendor-earnings-csv-preview')),
+          findsNothing);
+      expect(find.byKey(const Key('vendor-earnings-overall')),
+          findsNothing);
+    },
+  );
+
+  testWidgets('background during CSV download discards private bytes and does not reload',
+    (t) async {
+      final api = EarningsApi()..csvWait = Completer<PrivateDocument>();
+      addTearDown(api.close);
+      await t.pumpWidget(app(api));
+      await t.pumpAndSettle();
+      final button = find.byKey(const Key('vendor-earnings-export'));
+      await t.ensureVisible(button);
+      await t.tap(button);
+      await t.pump();
+      final calls = api.calls.length;
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await t.pump();
+      api.csvWait!.complete(pageCsv());
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('vendor-earnings-csv-preview')),
+          findsNothing);
+      expect(find.byKey(const Key('vendor-earnings-overall')), findsNothing);
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await t.pumpAndSettle();
+      expect(api.calls.length, calls);
+    },
+  );
   testWidgets(
     'background clears private data and returning requires explicit refresh',
     (t) async {
@@ -306,11 +452,19 @@ void main() {
   test(
     'snapshot preserves immutable original evidence and signed availability without recomputing money',
     () {
+      final raw = snapshot();
       final report = VendorEarningsSnapshot.parse(
-        snapshot(),
+        raw,
         vendorId: 3,
         currency: 'KWD',
         page: 1,
+      );
+      (raw['data'] as List).first['paid_minor'] = 42;
+      expect(report.source['data'][0]['paid_minor'], 1005);
+      expect(report.rows.first['paid_minor'], 1005);
+      expect(
+        () => report.source['data'][0]['paid_minor'] = 42,
+        throwsUnsupportedError,
       );
       expect(report.source['overall_available_minor'], -5);
       expect(report.rows.single['evidence'], 'PARTNER_SANDBOX_SOURCE');

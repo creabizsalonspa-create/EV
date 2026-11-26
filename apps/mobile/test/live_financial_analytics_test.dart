@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/financial_analytics.dart';
 import 'package:creabiz_ev/vendor_finance.dart';
+import 'package:creabiz_ev/vendor_earnings_csv.dart';
 
 void main() {
   final path = Platform.environment['EV_NATIVE_ANALYTICS_FIXTURE'];
@@ -20,6 +21,12 @@ void main() {
         api.request(
           'commercial/vendors/${f['vendor_id']}/earnings',
           query: {'currency': 'AED'},
+        ),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
+      );
+      await expectLater(
+        api.downloadVendorEarningsPage(
+          f['vendor_id'], currency: 'AED', page: 1,
         ),
         throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
       );
@@ -75,12 +82,33 @@ void main() {
       expect(itemized.rows.any((r) => r['invoice_id'] == f['invoice']), true);
       expect(itemized.source['real_payout_enabled'], false);
       expect(itemized.source['external_psp_or_bank_verified'], false);
+      final doc = await api.downloadVendorEarningsPage(
+        f['vendor_id'], currency: 'AED', page: 1,
+        perPage: itemized.source['per_page'] as int,
+      );
+      final verified = VendorEarningsCsv.verifiedText(
+        doc,
+        vendorId: f['vendor_id'] as int,
+        currency: 'AED',
+        page: 1,
+        source: itemized.source,
+        rows: itemized.rows,
+      );
+      expect(doc.mime, 'text/csv');
+      expect(verified, startsWith('invoice_id,invoice_number,'));
+      expect(verified, contains(itemized.rows.first['invoice_number']));
       await api.signOut();
       await api.signIn(f['foreign'], f['password']);
       await expectLater(
         api.request(
           'commercial/vendors/${f['vendor_id']}/earnings',
           query: {'currency': 'AED'},
+        ),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
+      );
+      await expectLater(
+        api.downloadVendorEarningsPage(
+          f['vendor_id'], currency: 'AED', page: 1,
         ),
         throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
       );

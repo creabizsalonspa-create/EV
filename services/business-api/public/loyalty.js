@@ -1435,5 +1435,192 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         panel.append(programmes, accountStatus, history);
         container.append(panel);
     }
+    if (role === "customer") {
+        const panel = node("section"), rows = node("div");
+        panel.dataset.partnerRewardPanel = "true";
+        const storageKey = `creabiz.partner-reward.v1.${owner}`;
+        let pending;
+        try {
+            const stored = JSON.parse(window.sessionStorage.getItem(storageKey));
+            if (Number.isSafeInteger(stored?.review) && stored.review > 0 &&
+                typeof stored.key === "string" && /^[0-9a-f-]{36}$/.test(stored.key)) pending = stored;
+        } catch {}
+        const evidence = (row) => row?.source === "RETAIL_PARTNER_REWARD" &&
+            row.evidence === "SANDBOX_MANUAL_NONCASH" && row.external_fulfillment_verified === false &&
+            row.cash_value === false && row.points_cost === 0;
+        const states = {
+            pending: ["Pending manual fulfillment", "بانتظار التسليم اليدوي"],
+            fulfilled: ["Marked fulfilled in sandbox", "مسجلة كمسلّمة تجريبياً"],
+            rejected: ["Rejected", "مرفوضة"],
+        };
+        const label = (parent, en, ar) => parent.append(t("p", en, ar));
+        function localText(parent, en, ar) {
+            const line = node("p", document.documentElement.lang === "ar" ? ar : en);
+            line.dataset.en = en;
+            line.dataset.ar = ar;
+            parent.append(line);
+        }
+        function receipt(row) {
+            if (!evidence(row) || !Number.isSafeInteger(row.id) ||
+                !Number.isSafeInteger(row.review_id) || !Object.hasOwn(states, row.status)) {
+                throw new Error("Invalid partner reward receipt");
+            }
+            const card = node("article");
+            card.append(node("p", "#" + row.id));
+            label(card, ...states[row.status]);
+            return card;
+        }
+        function partnerRequest(path, method = "GET", data) {
+            if (!alive()) throw new DOMException("Session changed", "AbortError");
+            return api("commercial/partner-rewards/" + path, method, data, controller.signal);
+        }
+        function keep(intent) {
+            window.sessionStorage.setItem(storageKey, JSON.stringify(intent));
+            pending = intent;
+            retry.hidden = false;
+            lookup.hidden = false;
+            cancel.hidden = false;
+        }
+        function clear() {
+            window.sessionStorage.removeItem(storageKey);
+            pending = undefined;
+            retry.hidden = true;
+            lookup.hidden = true;
+            cancel.hidden = true;
+        }
+        async function recover() {
+            if (!pending) return;
+            const intent = pending;
+            const result = await partnerRequest("claim-receipt", "POST", { idempotency_key: intent.key });
+            if (!alive() || pending !== intent) return;
+            rows.replaceChildren();
+            if (result.claim === null) {
+                label(rows, "No partner reward receipt was found for this request.", "لم يُعثر على إيصال مكافأة الشريك لهذا الطلب.");
+                return;
+            }
+            const card = receipt(result.claim);
+            if (result.claim.review_id !== intent.review) throw new Error("Unexpected partner reward receipt");
+            clear();
+            rows.append(card);
+        }
+        async function claim(review) {
+            if (pending && pending.review !== review) {
+                label(rows, "Retry the previous partner reward claim first.", "أعد محاولة المطالبة السابقة بمكافأة الشريك أولاً.");
+                return;
+            }
+            if (!pending) {
+                try {
+                    keep({ review, key: crypto.randomUUID() });
+                } catch {
+                    label(rows, "Claim recovery is unavailable in this browser session.", "يتعذر استرداد المطالبة في جلسة المتصفح هذه.");
+                    return;
+                }
+            }
+            const intent = pending;
+            rows.replaceChildren();
+            let result;
+            try {
+                result = await partnerRequest(`offers/${review}/claim`, "POST", { idempotency_key: intent.key });
+            } catch (error) {
+                if (!alive() || pending !== intent) return;
+                if ([404, 409, 422].includes(error.status)) {
+                    label(rows, "This offer could not be claimed. Check the saved receipt or cancel the same request before starting another.", "تعذرت المطالبة بهذا العرض. تحقق من الإيصال المحفوظ أو ألغ الطلب نفسه قبل بدء طلب آخر.");
+                    return;
+                }
+                if ([401, 419].includes(error.status)) throw error;
+                label(rows, "Claim could not be confirmed. Retry the same request or view claim history.", "تعذر تأكيد المطالبة. أعد محاولة الطلب نفسه أو اعرض سجل المطالبات.");
+                return;
+            }
+            if (!alive() || pending !== intent) return;
+            const card = receipt(result.claim);
+            if (result.claim.review_id !== review) throw new Error("Unexpected partner reward receipt");
+            clear();
+            rows.replaceChildren(card);
+        }
+        async function cancelSaved() {
+            if (!pending) return;
+            const intent = pending;
+            if (!window.confirm(document.documentElement.lang === "ar"
+                ? "إلغاء الطلب المحفوظ؟ إذا وُجدت مطالبة فسيُحفظ إيصالها."
+                : "Cancel the saved request? If a claim already exists, its receipt will be preserved.")) return;
+            const hash = async (value) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))), byte => byte.toString(16).padStart(2, "0")).join("");
+            try {
+                const request = await hash(`partner-reward-claim:${owner}:${intent.key}`);
+                const binding = await hash(`partner-reward-cancel-v1:${intent.review}:${request}`);
+                if (!alive() || pending !== intent) return;
+                const result = await partnerRequest("claim-intents/cancel", "POST", {
+                    review_id: intent.review, idempotency_key: intent.key,
+                });
+                if (!alive() || pending !== intent) return;
+                if (result?.review_id !== intent.review || result.request_binding !== binding) throw new Error("Invalid cancellation acknowledgement");
+                if (result.state === "accepted" && result.claim?.review_id === intent.review) {
+                    const card = receipt(result.claim);
+                    clear();
+                    rows.replaceChildren(card);
+                } else if (result.state === "cancelled" && result.claim === null) {
+                    clear();
+                    rows.replaceChildren();
+                    label(rows, "Saved request cancelled by the server.", "ألغى الخادم الطلب المحفوظ.");
+                } else {
+                    throw new Error("Invalid cancellation state");
+                }
+            } catch (error) {
+                if (!alive() || pending !== intent) return;
+                if ([401, 419].includes(error.status)) throw error;
+                label(rows, "Cancellation not confirmed. Keep the same saved request.", "لم يتأكد الإلغاء. احتفظ بالطلب المحفوظ نفسه.");
+            }
+        }
+        async function load(kind, page = 1) {
+            rows.replaceChildren();
+            let result;
+            try {
+                result = await partnerRequest(kind + "?page=" + page);
+            } catch (error) {
+                if (alive() && kind === "offers" && error.status === 503) {
+                    label(rows, "New partner reward claims are disabled. Existing claims remain available.", "مطالبات مكافآت الشركاء الجديدة معطّلة. تظل المطالبات الحالية متاحة.");
+                    return;
+                }
+                throw error;
+            }
+            if (!alive()) return;
+            if (!Array.isArray(result?.data) || result.current_page !== page ||
+                !Number.isSafeInteger(result.last_page) || result.last_page < 1) {
+                throw new Error("Invalid partner reward page");
+            }
+            if (!result.data.length) {
+                if (kind === "offers") label(rows, "No eligible partner rewards", "لا توجد مكافآت شركاء مؤهلة");
+                else label(rows, "No partner reward claims", "لا توجد مطالبات بمكافآت الشركاء");
+            }
+            for (const item of result.data) {
+                if (kind === "claims") {
+                    rows.append(receipt(item));
+                    continue;
+                }
+                if (!evidence(item) || !Number.isSafeInteger(item.review_id) || item.review_id < 1 ||
+                    !["name", "name_ar", "partner_name", "partner_name_ar", "description", "description_ar"]
+                        .every((field) => typeof item[field] === "string")) throw new Error("Invalid partner reward offer");
+                const card = node("article");
+                localText(card, item.name, item.name_ar);
+                localText(card, item.partner_name, item.partner_name_ar);
+                localText(card, item.description, item.description_ar);
+                button(card, "Claim partner reward", "المطالبة بمكافأة الشريك", () => claim(item.review_id));
+                rows.append(card);
+            }
+            if (page > 1) button(rows, "Previous partner rewards", "مكافآت الشركاء السابقة", () => load(kind, page - 1));
+            if (page < result.last_page) button(rows, "Next partner rewards", "مكافآت الشركاء التالية", () => load(kind, page + 1));
+        }
+        panel.append(t("h4", "Partner rewards", "مكافآت الشركاء"));
+        label(panel, "Sandbox rewards require manual fulfillment. External partner delivery is unverified.", "تتطلب المكافآت التجريبية تسليماً يدوياً. لم يتم التحقق من تسليم الشريك الخارجي.");
+        button(panel, "Browse partner rewards", "تصفح مكافآت الشركاء", () => load("offers"));
+        button(panel, "View partner reward claims", "عرض مطالبات مكافآت الشركاء", () => load("claims"));
+        const retry = button(panel, "Retry partner reward claim", "إعادة محاولة المطالبة بمكافأة الشريك", () => pending && claim(pending.review));
+        const lookup = button(panel, "Check partner reward receipt", "التحقق من إيصال مكافأة الشريك", recover);
+        const cancel = button(panel, "Cancel saved partner reward claim", "إلغاء مطالبة مكافأة الشريك المحفوظة", cancelSaved);
+        retry.hidden = !pending;
+        lookup.hidden = !pending;
+        cancel.hidden = !pending;
+        panel.append(rows);
+        container.append(panel);
+    }
     container.append(content);
 };
