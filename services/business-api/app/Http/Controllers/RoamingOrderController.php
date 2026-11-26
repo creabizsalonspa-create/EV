@@ -72,6 +72,7 @@ class RoamingOrderController extends Controller
         $this->driver($r);
         $p = OcpiProvider::findOrFail($location->ocpi_provider_id);
         $service->policy($p);
+        $service->assertNewWorkContract($p);
         abort_unless($location->module === 'locations', 404);
         $filters = $r->validate(['evse_uid' => 'sometimes|string|max:64', 'connector_id' => 'sometimes|string|max:64']);
         $reservationService = app(ReservationRoaming::class);

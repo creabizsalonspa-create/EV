@@ -33,6 +33,7 @@ final class ReservationRoaming
     {
         try {
             $this->policy($p);
+            app(SandboxRoaming::class)->assertNewWorkContract($p);
 
             return true;
         } catch (Throwable) {
