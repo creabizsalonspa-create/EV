@@ -1,0 +1,36 @@
+name: Composer security lock proposal (temporary review only)
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/composer-security-proposal.yml"
+permissions:
+  contents: read
+jobs:
+  propose:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent5/release-inventory-declaration-reconciliation-20261126'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Resolve reviewed Symfony patch updates without installing or executing scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/php /usr/bin/composer update 'symfony/http-kernel:~7.4.24' 'symfony/mailer:~7.4.24' 'symfony/routing:~7.4.24' --with-all-dependencies --minimal-changes --no-install --no-scripts --no-plugins --no-interaction
+          git diff --exit-code -- services/business-api/composer.json
+          test "$(git diff --name-only)" = "services/business-api/composer.lock"
+          ./scripts/php /usr/bin/composer validate --strict --no-plugins --no-scripts
+          ./scripts/php /usr/bin/composer audit --locked --no-plugins --no-scripts --no-interaction
+          mkdir -p artifacts/composer-security-proposal
+          cp services/business-api/composer.lock artifacts/composer-security-proposal/composer.lock
+          git diff -- services/business-api/composer.lock > artifacts/composer-security-proposal/composer.patch
+          git rev-parse HEAD > artifacts/composer-security-proposal/source-sha.txt
+          sha256sum services/business-api/composer.lock > artifacts/composer-security-proposal/lock.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: composer-security-lock-proposal
+          path: artifacts/composer-security-proposal/
+          if-no-files-found: error
