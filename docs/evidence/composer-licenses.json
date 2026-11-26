@@ -523,19 +523,19 @@
             ]
         },
         "symfony/http-foundation": {
-            "version": "v7.4.23",
+            "version": "v7.4.24",
             "license": [
                 "MIT"
             ]
         },
         "symfony/http-kernel": {
-            "version": "v7.4.23",
+            "version": "v7.4.24",
             "license": [
                 "MIT"
             ]
         },
         "symfony/mailer": {
-            "version": "v7.4.19",
+            "version": "v7.4.24",
             "license": [
                 "MIT"
             ]
@@ -619,7 +619,7 @@
             ]
         },
         "symfony/routing": {
-            "version": "v7.4.23",
+            "version": "v7.4.24",
             "license": [
                 "MIT"
             ]
