@@ -23,8 +23,27 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
   void initState() {
     super.initState();
     ownerFence = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    background = lifecycle != null && lifecycle != AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    load();
+    // A first-inactive screen may not issue private phone-status GETs.
+    if (!background) load();
+  }
+  void clearPrivate() {
+    generation++;
+    scrub();
+    status = challenge = null;
+    message = null;
+    busy = false;
+  }
+  @override
+  void didUpdateWidget(covariant PhoneVerificationView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api || !ownerFence()) {
+      // Login may change in a retained EvApi without widget replacement.
+      clearPrivate();
+      ownerFence = widget.api.sessionFence();
+    }
   }
   bool current(int version) => mounted && !background && ownerFence() && generation == version;
   void scrub() { phone.clear(); password.clear(); code.clear(); consent = false; intentKey = intentPhone = null; }
@@ -45,16 +64,50 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
   Future<void> read(int version) async {
     final data = await widget.api.request('account/phone');
     if (!current(version)) return;
-    if (data is! Map || data['available'] is! bool || data['verified'] is! bool) throw const ApiException(502, 'Invalid verification status');
+    final activeChallenge = data is Map ? data['challenge'] : null;
+    if (data is! Map ||
+        data['available'] is! bool || data['verified'] is! bool ||
+        (data['phone_mask'] != null &&
+            (data['phone_mask'] is! String ||
+             (data['phone_mask'] as String).length > 40)) ||
+        (activeChallenge != null &&
+            (activeChallenge is! Map ||
+             activeChallenge['id'] is! String ||
+             !RegExp(r'^[A-Za-z0-9_-]{1,64}$')
+                 .hasMatch(activeChallenge['id'] as String) ||
+             !const {'pending', 'uncertain'}
+                 .contains(activeChallenge['status']) ||
+             (activeChallenge['attempts_remaining'] != null &&
+                (activeChallenge['attempts_remaining'] is! int ||
+                 activeChallenge['attempts_remaining'] < 0 ||
+                 activeChallenge['attempts_remaining'] > 5))))) {
+      throw const ApiException(502, 'Unverified private phone status');
+    }
     setState(() {
       status = Map<String, dynamic>.from(data);
-      challenge = data['challenge'] is Map ? Map<String, dynamic>.from(data['challenge'] as Map) : null;
+      challenge = activeChallenge is Map
+          ? Map<String, dynamic>.from(activeChallenge)
+          : null;
     });
   }
-  Future<void> load() => act(read);
+  Future<void> load() async {
+    if (busy || background || !ownerFence()) return;
+    // An unverified/failed GET must not leave a previous phone, challenge or
+    // OTP action visible. Preserve only the same-account uncertain POST key,
+    // not password, OTP, phone field contents or old consent.
+    setState(() {
+      status = challenge = null;
+      message = null;
+      phone.clear();
+      password.clear();
+      code.clear();
+      consent = false;
+    });
+    await act(read);
+  }
   Future<void> start() async {
+    if (busy || background || !ownerFence()) return;
     final value = vendorDigits(phone.text.trim());
-    if (busy) return;
     if (!consent || !RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(value) || password.text.isEmpty) {
       setState(() => message = t('Enter an international phone number, your current password and SMS consent.', 'أدخل رقماً دولياً وكلمة مرورك الحالية ووافق على طلب الرسالة.')); return;
     }
@@ -62,21 +115,43 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
       setState(() => message = t('Reopen this screen before changing an uncertain request.', 'أعد فتح الشاشة قبل تغيير طلب غير مؤكد.')); return;
     }
     intentPhone = value;
-    intentKey ??= List.generate(24, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+    if (intentKey == null) {
+      final random = Random.secure();
+      intentKey = List.generate(24,
+          (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+    }
     final credential = password.text; password.clear();
-    await act((version) async {
-      final data = await widget.api.request('account/phone/challenges', method: 'POST', body: {
-        'phone': intentPhone, 'password': credential, 'consent': true,
-        'locale': Localizations.localeOf(context).languageCode == 'ar' ? 'ar' : 'en', 'idempotency_key': intentKey,
-      });
+    final payload = <String, dynamic>{
+      'phone': intentPhone, 'password': credential, 'consent': true,
+      'locale': Localizations.localeOf(context).languageCode == 'ar' ? 'ar' : 'en',
+      'idempotency_key': intentKey,
+    };
+    try {
+      await act((version) async {
+        final data = await widget.api.request('account/phone/challenges',
+            method: 'POST', body: payload);
       if (!current(version)) return;
-      if (data is! Map || data['id'] is! String || !['pending','uncertain'].contains(data['status'])) throw const ApiException(502, 'Invalid challenge');
+      if (data is! Map ||
+          data['id'] is! String ||
+          !RegExp(r'^[A-Za-z0-9_-]{1,64}$').hasMatch(data['id'] as String) ||
+          !const {'pending', 'uncertain'}.contains(data['status']) ||
+          (data['attempts_remaining'] != null &&
+              (data['attempts_remaining'] is! int ||
+                  data['attempts_remaining'] < 0 ||
+                  data['attempts_remaining'] > 5))) {
+        throw const ApiException(502, 'Unverified phone challenge receipt');
+      }
       setState(() { challenge = Map<String, dynamic>.from(data); intentKey = intentPhone = null; scrub(); });
-    });
+      });
+    } finally {
+      // Limit the lifetime of the authentication credential in the payload.
+      payload.clear();
+    }
   }
   Future<void> confirm() async {
+    if (busy || background || !ownerFence()) return;
     final value = vendorDigits(code.text.trim()), id = challenge?['id'];
-    if (busy || id is! String) return;
+    if (id is! String) return;
     if (!RegExp(r'^[0-9]{4,10}$').hasMatch(value)) {
       setState(() => message = t('Enter the 4–10 digit verification code.', 'أدخل رمز التحقق المكون من ٤ إلى ١٠ أرقام.')); return;
     }
@@ -91,7 +166,7 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
     });
   }
   Future<void> remove() async {
-    if (busy) return;
+    if (busy || background || !ownerFence()) return;
     if (password.text.isEmpty) { setState(() => message = t('Enter your current password.', 'أدخل كلمة المرور الحالية.')); return; }
     final credential = password.text; password.clear();
     await act((version) async { await widget.api.request('account/phone', method: 'DELETE', body: {'password': credential});
@@ -100,13 +175,14 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      if (!background) return;
-      setState(() { background = false; busy = false; }); load();
-    } else {
-      generation++; scrub(); status = challenge = null;
-      if (mounted) setState(() { background = true; busy = false; });
-    }
+    if (!mounted) return;
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == !background) return;
+    setState(() {
+      background = !resumed;
+      if (!resumed) clearPrivate();
+      // Resume permits user-triggered Refresh only, never silent re-reads.
+    });
   }
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -138,5 +214,13 @@ class _PhoneVerificationState extends State<PhoneVerificationView> with WidgetsB
     ]),
   );
   @override
-  void dispose() { generation++; WidgetsBinding.instance.removeObserver(this); phone.dispose(); password.dispose(); code.dispose(); super.dispose(); }
+  void dispose() {
+    generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    scrub();
+    phone.dispose();
+    password.dispose();
+    code.dispose();
+    super.dispose();
+  }
 }

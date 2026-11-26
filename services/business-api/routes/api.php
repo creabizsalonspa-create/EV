@@ -184,6 +184,7 @@ Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throt
 Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class])->prefix('v1/notifications')->group(__DIR__.'/notification_email.php');
 // Expiring source-only upload capability; never a browser account or configurable remote URL.
 Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'upload'])->where('operation', '[0-9]{1,18}')->middleware('throttle:30,1');
+Route::put('/internal/diagnostic-logs/{operation}/{filename}', [ChargerDiagnosticLogController::class, 'upload'])->where(['operation' => '[0-9]{1,18}', 'filename' => '[A-Za-z0-9][A-Za-z0-9._-]{0,254}'])->middleware('throttle:30,1');
 
 Route::get('/v1/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
 Route::prefix('/v1/charging-reviews')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');

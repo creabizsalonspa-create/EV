@@ -102,6 +102,212 @@ class CommercialCampaignTest extends TestCase
         $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
     }
 
+    public function test_sponsored_pages_count_only_current_paid_entitled_placements_not_stale_approved_rows(): void
+    {
+        $this->freezeTime();
+        $first = $this->fixture();
+        $stale = $this->approved($first);
+        $second = $this->fixture();
+        $validFirst = $this->approved($second);
+        $third = $this->fixture();
+        $validSecond = $this->approved($third);
+        $beforeDeliveries = DB::table('commercial_campaign_deliveries')->count();
+        // Approval alone is not delivery eligibility: the first
+        // subscription now has a refund credit against its paid invoice.
+        app(SubscriptionCreditService::class)->refund(
+            $first['admin'], $first['subscription']->id, $first['invoice']->id,
+            1, 'Synthetic credited package must no longer deliver', 'pagination-credit'
+        );
+        $this->assertDatabaseHas('commercial_campaigns', [
+            'id' => $stale['id'], 'status' => 'approved',
+        ]);
+        $beforeLedgers = DB::table('commercial_subscription_ledger')->count();
+        $beforeJournals = DB::table('finance_journals')->count();
+
+        $url = '/campaign-test/commercial/campaign-placements?country=AE&placement=discovery_banner&per_page=1';
+        $this->actingAs($first['customer'])->getJson($url.'&page=1')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('placements.0.campaign_id', $validFirst['id'])
+            ->assertJsonPath('current_page', 1)
+            ->assertJsonPath('per_page', 1)
+            ->assertJsonPath('total', 2)
+            ->assertJsonPath('last_page', 2)
+            ->assertJsonPath('client_telemetry_billable', false)
+            ->assertJsonMissing(['campaign_id' => $stale['id']]);
+
+        $this->getJson($url.'&page=2')->assertOk()
+            ->assertJsonPath('placements.0.campaign_id', $validSecond['id'])
+            ->assertJsonPath('current_page', 2)->assertJsonPath('last_page', 2);
+        $this->getJson($url.'&page=3')->assertOk()
+            ->assertJsonCount(0, 'placements')
+            ->assertJsonPath('current_page', 3)->assertJsonPath('last_page', 2);
+
+        $this->getJson($url.'&page=0')->assertUnprocessable();
+        $this->getJson(str_replace('&per_page=1', '&per_page=0', $url))->assertUnprocessable();
+        $this->getJson(str_replace('&per_page=1', '&per_page=26', $url))->assertUnprocessable();
+        $this->assertDatabaseCount('commercial_campaign_deliveries', $beforeDeliveries);
+        // The query itself cannot reserve or spend package delivery units.
+        $this->assertSame($beforeLedgers, DB::table('commercial_subscription_ledger')->count());
+        $this->assertSame($beforeJournals, DB::table('finance_journals')->count());
+    }
+
+    public function test_sponsored_catalog_filters_before_final_eligible_pagination(): void
+    {
+        $one = $this->fixture();
+        $campaignOne = $this->approved($one);
+        $two = $this->fixture();
+        $campaignTwo = $this->approved($two);
+        $this->actingAs($one['customer']);
+        $url = '/api/commercial/campaign-placements?placement=discovery_banner'
+            .'&station_ids[]='.$two['station']->id.'&per_page=1';
+        $this->getJson($url)->assertOk()->assertJsonCount(1, 'placements')
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('placements.0.campaign_id', $campaignTwo['id'])
+            ->assertJsonMissing(['campaign_id' => $campaignOne['id']]);
+        $this->getJson($url.'&page=2')->assertOk()->assertJsonCount(0, 'placements')
+            ->assertJsonPath('last_page', 1);
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
+    }
+
+    public function test_spent_server_delivery_budget_is_not_a_live_sponsored_placement_page(): void
+    {
+        $this->freezeTime();
+        $first = $this->fixture();
+        $first['values']['budget_units'] = 1;
+        $spent = $this->approved($first);
+        $second = $this->fixture();
+        $active = $this->approved($second);
+        $this->delivery($spent['id'], 'server-proven-unit')->assertOk();
+        $before = DB::table('commercial_campaign_deliveries')->count();
+        $beforeLedger = DB::table('commercial_subscription_ledger')->count();
+
+        $url = '/api/commercial/campaign-placements?country=AE'
+            .'&placement=discovery_banner&per_page=1';
+        $this->actingAs($first['customer'])->getJson($url)->assertOk()
+            ->assertJsonCount(1, 'placements')
+            ->assertJsonPath('placements.0.campaign_id', $active['id'])
+            ->assertJsonPath('last_page', 1)
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('placements.0.compatibility_verified', false)
+            ->assertJsonPath('placements.0.capability_override', false);
+        $this->getJson($url.'&page=2')->assertOk()
+            ->assertJsonCount(0, 'placements')
+            ->assertJsonPath('total', 1);
+        $this->assertSame($before, DB::table('commercial_campaign_deliveries')->count());
+        $this->assertSame($beforeLedger, DB::table('commercial_subscription_ledger')->count());
+    }
+
+    public function test_default_sponsored_page_is_full_when_first_paid_package_budget_is_exhausted(): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture(['campaign_slots' => 30, 'campaign_units' => 50]);
+        $service = app(CampaignService::class);
+        $ids = [];
+        for ($i = 0; $i < 26; $i++) {
+            $values = $f['values'];
+            $values['budget_units'] = 1;
+            $values['idempotency_key'] = 'full-paid-page-'.$i;
+            $campaign = $service->create($f['vendor'], $values);
+            $ids[] = $campaign->id;
+            $service->action($campaign->id, $f['vendor'], 'submit',
+                'Vendor requests approval of full page '.$i);
+            $service->action($campaign->id, $f['admin'], 'approve',
+                'Administrator approved package source '.$i);
+        }
+        $this->delivery($ids[0], 'spent-first-page')->assertOk();
+        $receipts = DB::table('commercial_campaign_deliveries')->count();
+        $journals = DB::table('finance_journals')->count();
+        $this->actingAs($f['customer'])
+            ->getJson('/api/commercial/campaign-placements?country=AE&placement=discovery_banner')
+            ->assertOk()->assertJsonCount(25, 'placements')
+            ->assertJsonPath('placements.0.campaign_id', $ids[1])
+            ->assertJsonPath('placements.24.campaign_id', $ids[25])
+            ->assertJsonPath('current_page', 1)
+            ->assertJsonPath('last_page', 1)
+            ->assertJsonPath('total', 25)
+            ->assertJsonPath('per_page', 25);
+        $this->assertSame($receipts, DB::table('commercial_campaign_deliveries')->count());
+        $this->assertSame($journals, DB::table('finance_journals')->count());
+    }
+
+    public function test_disabled_sponsorship_returns_bounded_empty_page_without_consuming_package_or_queries(): void
+    {
+        $f = $this->fixture();
+        $approved = $this->approved($f);
+        $this->assertDatabaseHas('commercial_campaigns', [
+            'id' => $approved['id'], 'status' => 'approved',
+        ]);
+        $beforeUnits = DB::table('commercial_campaign_deliveries')->count();
+        $beforeJournals = DB::table('finance_journals')->count();
+        config(['campaigns.enabled' => false]);
+        $this->actingAs($f['customer'])
+            ->getJson('/api/commercial/campaign-placements?country=AE'
+                .'&placement=discovery_banner&page=2&per_page=1')
+            ->assertOk()->assertJsonCount(0, 'placements')
+            ->assertJsonPath('current_page', 2)
+            ->assertJsonPath('per_page', 1)
+            ->assertJsonPath('last_page', 1)
+            ->assertJsonPath('total', 0)
+            ->assertJsonPath('client_telemetry_billable', false);
+        $this->assertSame($beforeUnits, DB::table('commercial_campaign_deliveries')->count());
+        $this->assertSame($beforeJournals, DB::table('finance_journals')->count());
+    }
+
+    public function test_suspended_or_demoted_paid_vendor_cannot_buy_visibility_or_consume_signed_delivery(): void
+    {
+        $this->freezeTime();
+        $blocked = $this->fixture();
+        $suspendedCampaign = $this->approved($blocked);
+        $valid = $this->fixture();
+        $activeCampaign = $this->approved($valid);
+        $this->assertSame('approved', DB::table('commercial_campaigns')
+            ->where('id', $suspendedCampaign['id'])->value('status'));
+        $cash = DB::table('commercial_subscription_ledger')->count();
+        $journals = DB::table('finance_journals')->count();
+        $receipts = DB::table('commercial_campaign_deliveries')->count();
+        $url = '/api/commercial/campaign-placements?country=AE&placement=discovery_banner&per_page=1';
+
+        // A previously approved and fully paid campaign loses placement
+        // authority as soon as its owning business account is suspended.
+        DB::table('users')->where('id', $blocked['vendor']->id)
+            ->update(['account_status' => 'suspended']);
+        $this->actingAs($valid['customer'])->getJson($url)
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('last_page', 1)
+            ->assertJsonPath('placements.0.campaign_id', $activeCampaign['id']);
+        $this->getJson($url.'&page=2')->assertOk()
+            ->assertJsonCount(0, 'placements')->assertJsonPath('total', 1);
+        $this->delivery($suspendedCampaign['id'], 'suspended-vendor')->assertConflict();
+        $this->assertSame($receipts, DB::table('commercial_campaign_deliveries')->count());
+
+        // A change in business role must also revoke publishing. Neither
+        // a source campaign status nor paid entitlement is rewritten.
+        DB::table('users')->where('id', $blocked['vendor']->id)
+            ->update(['account_status' => 'active', 'role' => 'customer']);
+        $this->getJson($url)->assertOk()->assertJsonPath('total', 1);
+        $this->delivery($suspendedCampaign['id'], 'demoted-vendor')->assertConflict();
+
+        // Reinstatement restores the existing paid entitlement without
+        // minting a new unit, charge, campaign or unreviewed approval.
+        DB::table('users')->where('id', $blocked['vendor']->id)
+            ->update(['role' => 'vendor']);
+        $this->getJson($url)->assertOk()
+            ->assertJsonPath('total', 2)->assertJsonPath('last_page', 2)
+            ->assertJsonPath('placements.0.campaign_id', $suspendedCampaign['id']);
+        $this->getJson($url.'&page=2')->assertOk()
+            ->assertJsonPath('placements.0.campaign_id', $activeCampaign['id']);
+        $this->delivery($suspendedCampaign['id'], 'restored-vendor')->assertOk()
+            ->assertJsonPath('duplicate', false);
+        $this->delivery($suspendedCampaign['id'], 'restored-vendor')->assertOk()
+            ->assertJsonPath('duplicate', true);
+        $this->assertDatabaseHas('commercial_campaigns', [
+            'id' => $suspendedCampaign['id'], 'status' => 'approved',
+        ]);
+        $this->assertSame($receipts + 1, DB::table('commercial_campaign_deliveries')->count());
+        $this->assertSame($cash, DB::table('commercial_subscription_ledger')->count());
+        $this->assertSame($journals, DB::table('finance_journals')->count());
+    }
+
     public function test_unpaid_or_non_entitled_package_and_foreign_station_cannot_create_campaign(): void
     {
         $f = $this->fixture(paid: false);

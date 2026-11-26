@@ -55,6 +55,30 @@ class EnterpriseController extends Controller
         });
     }
 
+    public function configureRegionalReviewIntake(Request $r, string $country)
+    {
+        abort_unless($r->user()->role === 'admin', 403);
+        $values = $r->validate(['enabled' => 'required|boolean', 'expected_revision' => 'required|integer|min:0']);
+
+        return DB::transaction(function () use ($r, $country, $values) {
+            AdminTransactionAuthority::requireCurrent($r->user());
+            $row = DB::table('regions')->where('country', $country)->lockForUpdate()->firstOrFail();
+            $enabled = (bool) $values['enabled'];
+            $revision = (int) $row->review_intake_revision;
+            abort_unless($revision === (int) $values['expected_revision'], 409, 'Regional review settings changed. Refresh before deciding.');
+            if ($enabled !== (bool) $row->review_intake_enabled) {
+                $revision++;
+                DB::table('regions')->where('country', $country)->update([
+                    'review_intake_enabled' => $enabled, 'review_intake_revision' => $revision, 'updated_at' => now(),
+                ]);
+                $this->audit($r, $enabled ? 'region.review_intake_enabled' : 'region.review_intake_disabled', $country.':'.$revision);
+            }
+
+            return response()->json(['country' => $country, 'review_intake_enabled' => $enabled, 'review_intake_revision' => $revision])
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
+    }
+
     public function index(Request $r)
     {
         $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);

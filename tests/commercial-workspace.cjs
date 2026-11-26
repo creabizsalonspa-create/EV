@@ -109,6 +109,47 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       .getByRole("button", { name: "Request refund", exact: true })
       .click();
     await root.getByText("Browser refund " + run, { exact: true }).waitFor();
+
+    // Assert the Admin's actual rendered outstanding-source summary, not a
+    // hidden JSON fixture. The group spans the full filtered queue even when
+    // the detail page is bounded; no cross-currency sum or approval click.
+    const reviewPanel = rootAdmin.locator("[data-finance-approval-queue]");
+    await rootAdmin.getByLabel("Finance approval kind").selectOption("refund");
+    await rootAdmin.getByRole("button", {
+      name: "Load pending finance reviews", exact: true,
+    }).click();
+    await reviewPanel.locator("[data-finance-approval-group-summary]").waitFor();
+    const pendingResponse = await admin.request.get(
+      base + "/api/finance/approval-queue?kind=refund&per_page=20&page=1",
+      { headers: { Accept: "application/json" } },
+    );
+    assert.equal(pendingResponse.status(), 200);
+    const pending = await pendingResponse.json();
+    assert.equal(pending.summary.currency_and_precision_isolated, true);
+    assert.equal(
+      pending.summary.scope,
+      "ALL_CURRENT_FILTERED_PENDING_RECORDS_NOT_PAGE",
+    );
+    assert.equal(
+      pending.summary.groups.reduce((total, group) =>
+        total + group.review_count, 0),
+      pending.total,
+      "Full filtered pending approval count must not be current-page-only",
+    );
+    const renderedRefunds = await reviewPanel
+      .locator('[data-finance-approval-group="refund"]').allInnerTexts();
+    assert.equal(renderedRefunds.length, pending.summary.groups.length);
+    for (const group of pending.summary.groups) {
+      const source = renderedRefunds.find(
+        (value) => value.includes(group.currency) &&
+          value.includes(String(group.signed_amount_minor)),
+      );
+      assert(source, "Admin must show exact server-grouped pending finance amount");
+    }
+    assert(
+      !(await reviewPanel.innerText()).includes("Browser refund " + run),
+      "Private customer refund notes must never leak into Admin review groups",
+    );
     const plan = root.locator(".finance-row").filter({
       has: customer.getByRole("heading", {
         name: "Commercial " + run,
@@ -302,6 +343,46 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const disputeReview = rootAdmin.locator(".finance-row").filter({
       has: admin.getByText("Browser dispute " + run, { exact: true }),
     });
+    // A corrupted HTTP read must not create an Admin money decision control.
+    // Only the browser response changes; no ledger or provider data is touched.
+    const disputePath = "**/api/commercial/cases*";
+    await admin.route(disputePath, async (route) => {
+      const response = await route.fetch();
+      const json = await response.json();
+      if (Array.isArray(json.data)) {
+        json.data = json.data.map((item) =>
+          item.reason === "Browser dispute " + run
+            ? { ...item, amount_minor: "fabricated-money" }
+            : item,
+        );
+      }
+      await route.fulfill({ response, json });
+    });
+    await rootAdmin
+      .getByRole("button", { name: "Refresh finance", exact: true })
+      .click();
+    await disputeReview
+      .getByText("Dispute amount unverified; refresh before review.", { exact: true })
+      .waitFor();
+    assert.equal(
+      await disputeReview.getByRole("button", { name: "Resolve dispute", exact: true }).count(),
+      0,
+      "Malformed minor amounts cannot authorize a dispute resolution UI",
+    );
+    await admin.unroute(disputePath);
+    await rootAdmin
+      .getByRole("button", { name: "Refresh finance", exact: true })
+      .click();
+    await disputeReview.getByRole("button", { name: "Resolve dispute", exact: true }).waitFor();
+    assert.equal(
+      await disputeReview.locator("bdi[data-case-minor-amount]").textContent(),
+      "50",
+      "Customer dispute should display exact canonical 0.50 as 50 minor units",
+    );
+    assert.equal(
+      await disputeReview.getByText("Disputed amount (minor units)", { exact: true }).count(),
+      1,
+    );
     await disputeReview
       .locator("[name=resolution]")
       .fill("Accepted browser dispute");
@@ -580,6 +661,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       .getByRole("heading", { name: "المالية والأعمال", exact: true })
       .waitFor();
     assert.equal(await customer.locator("html").getAttribute("dir"), "rtl");
+    await root.getByText("المبلغ المتنازع عليه (وحدات نقدية صغرى)", { exact: true }).first().waitFor();
     await customer.setViewportSize({ width: 390, height: 900 });
     for (const theme of ["light", "dark"]) {
       await customer.locator("#theme-choice").selectOption(theme);

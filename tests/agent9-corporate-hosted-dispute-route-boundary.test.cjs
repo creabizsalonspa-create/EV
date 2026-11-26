@@ -29,6 +29,15 @@ test('all 25 typed route constraints use bounded integer patterns', () => {
   assert.equal(total, 25);
 });
 
+test('both corporate cycle-review routes retain the bounded agreement matcher', () => {
+  const src = read('corporate_billing.php');
+  for (const [method, suffix, action] of [['get', '', 'show'], ['post', '/issue', 'issue']]) {
+    const route = "Route::" + method + "('/commercial/corporate/agreements/{agreement}/cycle-review" + suffix
+      + "', [CorporateCycleReviewController::class, '" + action + "'])->where('agreement', '[0-9]{1,18}');";
+    assert.ok(src.includes(route), 'Missing bounded cycle review route: ' + method + ' ' + suffix);
+  }
+});
+
 test('hosted checkout reference, action names and dispute evidence IDs remain strictly controlled', () => {
   for (const file of ['hosted_checkout.php', 'corporate_hosted_checkout.php']) {
     const src = read(file);
@@ -47,10 +56,4 @@ test('oversized or malformed integer strings fail the route-matcher policy', () 
   for (const bad of ['negative', '-1', '2.0', '1e19', '9'.repeat(19), '9'.repeat(120)]) {
     assert.doesNotMatch(bad, policy);
   }
-});
-
-test('corporate cycle review and explicit issue both bound agreement IDs before dispatch', () => {
-  const src = read('corporate_billing.php');
-  assert.ok(src.includes("Route::get('/commercial/corporate/agreements/{agreement}/cycle-review', [CorporateCycleReviewController::class, 'show'])->where('agreement', '[0-9]{1,18}')"));
-  assert.ok(src.includes("Route::post('/commercial/corporate/agreements/{agreement}/cycle-review/issue', [CorporateCycleReviewController::class, 'issue'])->where('agreement', '[0-9]{1,18}')"));
 });

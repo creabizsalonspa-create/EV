@@ -7,6 +7,7 @@ use App\Http\Controllers\ChargerConfigurationController;
 use App\Http\Controllers\ChargerDiagnosticLogController;
 use App\Http\Controllers\ChargerDiagnosticsController;
 use App\Http\Controllers\ChargerFirmwareController;
+use App\Http\Controllers\ChargerLiveConnectorsController;
 use App\Http\Controllers\ChargerResetController;
 use App\Http\Controllers\ChargerSourceRegistrationController;
 use App\Http\Controllers\ChargingRepairController;
@@ -65,6 +66,7 @@ Route::post('/companies/{company}/chargers/{charger}/evses/{evse}/connectors/{co
 
 Route::get('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissionController::class, 'show']);
 Route::get('/companies/{company}/chargers/{charger}/source-diagnostics', ChargerDiagnosticsController::class);
+Route::get('/companies/{company}/chargers/{charger}/live-connectors', ChargerLiveConnectorsController::class);
 Route::get('/companies/{company}/chargers/{charger}/configuration-reads', [ChargerConfigurationController::class, 'index']);
 Route::post('/companies/{company}/chargers/{charger}/configuration-reads', [ChargerConfigurationController::class, 'create']);
 Route::post('/companies/{company}/chargers/{charger}/configuration-reads/{operation}/observe', [ChargerConfigurationController::class, 'observe'])->where('operation', '[0-9]{1,18}');

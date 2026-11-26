@@ -9,6 +9,7 @@ import 'foreground_location.dart';
 import 'discovery_client.dart';
 import 'address_search.dart';
 import 'route_planner.dart';
+import 'vendor_forms.dart' show vendorDigits;
 
 /// Missing coordinates never become a real location at (0, 0).
 bool stationHasMapPoint(Station station) =>
@@ -53,8 +54,16 @@ class StationMapView extends StatefulWidget {
   State<StationMapView> createState() => _StationMapViewState();
 }
 
-class _StationMapViewState extends State<StationMapView> {
+class _StationMapViewState extends State<StationMapView> with WidgetsBindingObserver {
   bool enabled = false;
+  late bool foreground;
+  int consentEpoch = 0;
+  final manualLatitude = TextEditingController();
+  final manualLongitude = TextEditingController();
+  final manualForm = GlobalKey<FormState>();
+  bool get sessionCurrent => widget.discoveryClient?.currentSession() ?? true;
+  bool get available => mounted && foreground && sessionCurrent;
+  bool active(int epoch) => available && epoch == consentEpoch;
   DiscoveryCapabilities? discoveryCapabilities;
   bool locating = false;
   String? locationError;
@@ -67,22 +76,72 @@ class _StationMapViewState extends State<StationMapView> {
   @override
   void initState() {
     super.initState();
-    loadDiscoveryCapabilities();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    if (available) loadDiscoveryCapabilities();
   }
 
   Future<void> loadDiscoveryCapabilities() async {
+    if (!available) return;
+    final epoch = consentEpoch;
+    final client = widget.discoveryClient;
     try {
-      final result = await widget.discoveryClient?.capabilities();
-      if (mounted) setState(() => discoveryCapabilities = result);
+      final result = await client?.capabilities();
+      if (active(epoch) && identical(client, widget.discoveryClient)) {
+        setState(() => discoveryCapabilities = result);
+      }
     } catch (_) {
-      if (mounted) setState(() => discoveryCapabilities = null);
+      if (active(epoch)) setState(() => discoveryCapabilities = null);
+    }
+  }
+
+  void clearTransient() {
+    consentEpoch++;
+    locationGeneration++;
+    enabled = false;
+    locating = false;
+    fix = null;
+    searchPoint = null;
+    locationError = null;
+    discoveryCapabilities = null;
+    manualLatitude.clear();
+    manualLongitude.clear();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (!mounted || foreground == resumed) return;
+    setState(() {
+      foreground = resumed;
+      if (!resumed) clearTransient();
+    });
+    if (available) loadDiscoveryCapabilities();
+  }
+
+  @override
+  void didUpdateWidget(covariant StationMapView old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.discoveryClient, widget.discoveryClient) ||
+        !identical(old.stations, widget.stations) ||
+        old.customer != widget.customer || !sessionCurrent) {
+      clearTransient();
+      if (available) {
+        final epoch = consentEpoch;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (active(epoch)) loadDiscoveryCapabilities();
+        });
+      }
     }
   }
 
   void planRoute([Station? initialStop]) {
+    if (!available) return;
+    final epoch = consentEpoch;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => RoutePlannerView(
+        builder: (_) => !active(epoch) ? const SizedBox.shrink() : RoutePlannerView(
           client: widget.discoveryClient,
           stations: widget.stations,
           origin: searchPoint == null
@@ -98,11 +157,17 @@ class _StationMapViewState extends State<StationMapView> {
   @override
   void dispose() {
     locationGeneration++;
+    consentEpoch++;
+    WidgetsBinding.instance.removeObserver(this);
+    manualLatitude.dispose();
+    manualLongitude.dispose();
     controller.dispose();
     super.dispose();
   }
 
   Future<void> locate() async {
+    if (!available || locating) return;
+    final epoch = consentEpoch;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -129,7 +194,7 @@ class _StationMapViewState extends State<StationMapView> {
         ],
       ),
     );
-    if (accepted != true || !mounted) return;
+    if (accepted != true || !active(epoch) || locating) return;
     final generation = ++locationGeneration;
     setState(() {
       locating = true;
@@ -138,7 +203,7 @@ class _StationMapViewState extends State<StationMapView> {
     try {
       final result =
           await (widget.locationReader ?? ForegroundLocationReader().read)();
-      if (!mounted || generation != locationGeneration) return;
+      if (!active(epoch) || generation != locationGeneration) return;
       setState(() {
         fix = result;
         searchPoint = LatLng(result.latitude, result.longitude);
@@ -146,24 +211,26 @@ class _StationMapViewState extends State<StationMapView> {
       if (enabled && result.latitude.abs() <= 85.05112878)
         controller.move(searchPoint!, 13);
     } catch (error) {
-      if (!mounted || generation != locationGeneration) return;
+      if (!active(epoch) || generation != locationGeneration) return;
       setState(
         () => locationError = error is LocationLookupFailure
             ? error.reason
             : 'unavailable',
       );
     } finally {
-      if (mounted && generation == locationGeneration)
+      if (active(epoch) && generation == locationGeneration)
         setState(() => locating = false);
     }
   }
 
   Future<void> details(Station station) async {
+    if (!available || !stationHasMapPoint(station)) return;
+    final epoch = consentEpoch;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (sheet) => SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -188,6 +255,7 @@ class _StationMapViewState extends State<StationMapView> {
                   t('Open external directions', 'فتح الاتجاهات الخارجية'),
                 ),
                 onPressed: () async {
+                  if (!active(epoch)) return;
                   final consent = await showDialog<bool>(
                     context: sheet,
                     builder: (dialog) => AlertDialog(
@@ -210,7 +278,7 @@ class _StationMapViewState extends State<StationMapView> {
                       ],
                     ),
                   );
-                  if (consent != true || !mounted) return;
+                  if (consent != true || !active(epoch) || !sheet.mounted) return;
                   final uri = Uri.https('www.google.com', '/maps/dir/', {
                     'api': '1',
                     'destination': '${station.latitude},${station.longitude}',
@@ -249,6 +317,7 @@ class _StationMapViewState extends State<StationMapView> {
                   ),
                 ),
                 onPressed: () {
+                  if (!active(epoch)) return;
                   Navigator.pop(sheet);
                   planRoute(station);
                 },
@@ -258,6 +327,7 @@ class _StationMapViewState extends State<StationMapView> {
                       station.reservationPolicy == 'canonical'))
                 FilledButton(
                   onPressed: () {
+                    if (!active(epoch)) return;
                     Navigator.pop(sheet);
                     Navigator.pop(context, station);
                   },
@@ -265,14 +335,46 @@ class _StationMapViewState extends State<StationMapView> {
                 ),
             ],
           ),
-        ),
+        )),
       ),
     );
+  }
+
+  double? coordinate(String input, double limit) {
+    final text = vendorDigits(input.trim());
+    if (!RegExp(r'^-?[0-9]{1,3}(\.[0-9]{1,6})?$').hasMatch(text)) return null;
+    final number = double.tryParse(text);
+    return number != null && number.isFinite && number.abs() <= limit ? number : null;
+  }
+
+  void choosePoint(LatLng point) {
+    locationGeneration++;
+    setState(() {
+      locating = false;
+      fix = null;
+      locationError = null;
+      searchPoint = point;
+    });
+  }
+
+  void submitManual(int epoch) {
+    if (!active(epoch) || widget.onSearch == null || !(manualForm.currentState?.validate() ?? false)) return;
+    final lat = coordinate(manualLatitude.text, 90)!;
+    final lng = coordinate(manualLongitude.text, 180)!;
+    FocusManager.instance.primaryFocus?.unfocus();
+    choosePoint(LatLng(lat, lng));
+    if (enabled && lat.abs() <= 85.05112878) controller.move(searchPoint!, 13);
   }
 
   @override
   Widget build(BuildContext context) {
     final points = widget.stations.where(stationHasMapPoint).toList();
+    final epoch = consentEpoch;
+    if (!available) return Scaffold(
+      appBar: AppBar(title: Text(t('Station map', 'خريطة المحطات'))),
+      body: Center(child: Text(t('Map hidden. Return to discovery if the account changed.',
+        'الخريطة مخفية. ارجع إلى البحث إذا تغير الحساب.'))),
+    );
     return Scaffold(
       appBar: AppBar(title: Text(t('Station map', 'خريطة المحطات'))),
       body: SafeArea(
@@ -290,7 +392,7 @@ class _StationMapViewState extends State<StationMapView> {
             ),
             OutlinedButton.icon(
               key: const Key('charging-route-open'),
-              onPressed: () => planRoute(),
+              onPressed: () { if (active(epoch)) planRoute(); },
               icon: const Icon(Icons.route),
               label: Text(t('Plan charging route', 'تخطيط مسار الشحن')),
             ),
@@ -302,12 +404,8 @@ class _StationMapViewState extends State<StationMapView> {
                   AddressSearch(
                     client: widget.discoveryClient!,
                     onSelected: (place) {
-                      setState(
-                        () => searchPoint = LatLng(
-                          place.point.latitude,
-                          place.point.longitude,
-                        ),
-                      );
+                      if (!active(epoch)) return;
+                      choosePoint(LatLng(place.point.latitude, place.point.longitude));
                       if (enabled && place.point.latitude.abs() <= 85.05112878)
                         controller.move(searchPoint!, 13);
                     },
@@ -316,7 +414,7 @@ class _StationMapViewState extends State<StationMapView> {
               ),
             OutlinedButton.icon(
               key: const Key('native-location-once'),
-              onPressed: locating ? null : locate,
+              onPressed: locating ? null : () { if (active(epoch)) locate(); },
               icon: locating
                   ? const SizedBox(
                       width: 18,
@@ -360,11 +458,15 @@ class _StationMapViewState extends State<StationMapView> {
             if (!enabled)
               FilledButton(
                 key: const Key('enable-map'),
-                onPressed: () => setState(() => enabled = true),
+                onPressed: () { if (active(epoch)) setState(() => enabled = true); },
                 child: Text(
                   t('Enable interactive map', 'تفعيل الخريطة التفاعلية'),
                 ),
               ),
+            if (enabled)
+              TextButton(key: const Key('disable-map'),
+                onPressed: () { if (active(epoch)) setState(() => enabled = false); },
+                child: Text(t('Disable interactive map', 'إيقاف الخريطة التفاعلية'))),
             if (widget.onSearch != null && (enabled || searchPoint != null))
               Padding(
                 padding: const EdgeInsets.all(8),
@@ -372,13 +474,17 @@ class _StationMapViewState extends State<StationMapView> {
                   children: [
                     Text(
                       t(
-                        'Tap the map to choose a search centre. Coordinates are sent only when you search.',
-                        'اضغط الخريطة لتحديد مركز البحث. تُرسل الإحداثيات عند البحث فقط.',
+                        'Choose a search centre on the map or enter it manually. Coordinates are sent only when you search.',
+                        'اختر مركز البحث على الخريطة أو أدخله يدوياً. تُرسل الإحداثيات عند البحث فقط.',
                       ),
                     ),
                     if (searchPoint != null)
+                      Text('${searchPoint!.latitude}, ${searchPoint!.longitude}',
+                        key: const Key('map-selected-centre'), textDirection: TextDirection.ltr),
+                    if (searchPoint != null)
                       FilledButton(
                         onPressed: () {
+                          if (!active(epoch) || searchPoint == null) return;
                           final p = searchPoint!;
                           Navigator.pop(context);
                           widget.onSearch!(p.latitude, p.longitude);
@@ -418,10 +524,10 @@ class _StationMapViewState extends State<StationMapView> {
                           ),
                     initialZoom: 11,
                     onPositionChanged: (camera, _) {
-                      if (camera.zoom != zoom)
+                      if (active(epoch) && enabled && camera.zoom != zoom)
                         setState(() => zoom = camera.zoom);
                     },
-                    onTap: (_, point) => setState(() => searchPoint = point),
+                    onTap: (_, point) { if (active(epoch) && enabled) choosePoint(point); },
                   ),
                   children: [
                     TileLayer(
@@ -435,16 +541,19 @@ class _StationMapViewState extends State<StationMapView> {
                     MarkerLayer(
                       markers: clusterStations(points, zoom).map((group) {
                         final station = group.first;
+                        final markerLabel = group.length == 1 ? station.name :
+                          t('${group.length} published stations, open list', '${group.length} محطات منشورة، افتح القائمة');
                         return Marker(
                           point: LatLng(station.latitude!, station.longitude!),
                           width: 48,
                           height: 48,
                           child: Semantics(
-                            label: station.name,
+                            label: markerLabel,
                             button: true,
                             child: IconButton(
-                              tooltip: station.name,
+                              tooltip: markerLabel,
                               onPressed: () async {
+                                if (!active(epoch) || !enabled) return;
                                 if (group.length == 1) {
                                   await details(station);
                                   return;
@@ -461,6 +570,7 @@ class _StationMapViewState extends State<StationMapView> {
                                               title: Text(s.name),
                                               subtitle: Text(s.source),
                                               onTap: () {
+                                                if (!active(epoch)) return;
                                                 Navigator.pop(sheet);
                                                 details(s);
                                               },
@@ -489,18 +599,63 @@ class _StationMapViewState extends State<StationMapView> {
                       attributions: [
                         TextSourceAttribution(
                           'OpenStreetMap contributors',
-                          onTap: () => launchUrl(
-                            Uri.parse(
-                              'https://www.openstreetmap.org/copyright',
-                            ),
-                            mode: LaunchMode.externalApplication,
-                          ),
+                          onTap: () { if (active(epoch) && enabled) {
+                            launchUrl(Uri.parse('https://www.openstreetmap.org/copyright'),
+                              mode: LaunchMode.externalApplication);
+                          } },
                         ),
                       ],
                     ),
                   ],
                 ),
               ),
+            if (widget.onSearch != null)
+              ExpansionTile(
+                key: const Key('manual-map-centre'),
+                title: Text(t('Enter search centre manually', 'أدخل مركز البحث يدوياً')),
+                children: [
+                  Form(key: manualForm, child: Column(children: [
+                    for (final field in [
+                      ('map-latitude', 'Latitude', 'خط العرض', manualLatitude, 90.0),
+                      ('map-longitude', 'Longitude', 'خط الطول', manualLongitude, 180.0),
+                    ]) Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: TextFormField(
+                        key: Key(field.$1),
+                        controller: field.$4,
+                        textDirection: TextDirection.ltr,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                        decoration: InputDecoration(labelText: t(field.$2, field.$3)),
+                        validator: (value) => coordinate(value ?? '', field.$5) == null
+                          ? t('Enter valid coordinates, up to six decimal places.',
+                              'أدخل إحداثيات صحيحة، حتى ست منازل عشرية.') : null,
+                      ),
+                    ),
+                    Text(t('Choosing a centre does not send a search or enable tiles.',
+                      'اختيار المركز لا يرسل بحثاً ولا يفعّل الخرائط.')),
+                    OutlinedButton(key: const Key('choose-manual-map-centre'),
+                      onPressed: () => submitManual(epoch),
+                      child: Text(t('Choose centre', 'اختيار المركز'))),
+                  ])),
+                ],
+              ),
+            ExpansionTile(
+              key: const Key('station-map-list'),
+              title: Text(t('Published stations: list alternative', 'المحطات المنشورة: عرض قائمة بديلة')),
+              children: [
+                for (final station in widget.stations)
+                  ListTile(
+                    title: Text(station.name),
+                    subtitle: Text('${station.source} · ${stationHasMapPoint(station)
+                      ? t('Published location; availability unverified.', 'موقع منشور؛ التوفر غير مؤكد.')
+                      : t('Map coordinates unavailable.', 'إحداثيات الخريطة غير متاحة.')}'),
+                    trailing: stationHasMapPoint(station) ? const Icon(Icons.chevron_right) : null,
+                    onTap: stationHasMapPoint(station) ? () {
+                      if (active(epoch)) details(station);
+                    } : null,
+                  ),
+              ],
+            ),
           ],
         ),
       ),

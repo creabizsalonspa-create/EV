@@ -14,6 +14,39 @@ use Illuminate\Validation\Rule;
 
 class CommercialFinanceController extends Controller
 {
+    private const MAX_EXACT_MINOR = 9_007_199_254_740_991;
+
+    /** Never serialize >2^53-1 integers that native/browser reports round. */
+    private static function exactAggregate(mixed $value): int
+    {
+        $number = filter_var($value, FILTER_VALIDATE_INT);
+        abort_if($number === false || $number < 0 ||
+            $number > self::MAX_EXACT_MINOR,
+            409, 'Financial aggregate exceeds supported exact integer bounds; narrow the period.');
+
+        return $number;
+    }
+
+    /** Never echo client replay keys or their future fingerprints in an API DTO. */
+    private static function safeRefundRequest(object $row): object
+    {
+        unset($row->request_key, $row->fingerprint);
+
+        return $row;
+    }
+
+    /**
+     * Only the authenticated POST acknowledgement carries a domain-separated
+     * binding to its persisted request identity. Neither the original replay
+     * key nor this binding is returned in history or reviewer responses.
+     */
+    private static function refundAcknowledgement(object $row): object
+    {
+        $row->request_receipt = hash('sha256', 'refund-request-v1:'.$row->user_id.':'.$row->invoice_id.':'.$row->id.':'.$row->request_key);
+
+        return self::safeRefundRequest($row);
+    }
+
     private function invoices(Request $r)
     {
         return Invoice::query()->when($r->user()->role !== 'admin', fn ($q) => $q->where($r->user()->role === 'vendor' ? 'vendor_id' : 'user_id', $r->user()->id));
@@ -51,9 +84,7 @@ class CommercialFinanceController extends Controller
                 $fields = array_merge($fields, ['commission_minor', 'vendor_allocated_minor', 'commission_refunded_minor', 'vendor_refunded_minor', 'commission_credited_minor', 'vendor_credited_minor']);
             }
             foreach ($fields as $field) {
-                $amount = filter_var($row->$field, FILTER_VALIDATE_INT);
-                abort_if($amount === false || $amount < 0, 409, 'Report exceeds supported exact integer range; narrow the period.');
-                $result[$field] = $amount;
+                $result[$field] = self::exactAggregate($row->$field);
             }
             $result['net_collected_minor'] = $result['paid_minor'] - $result['refunded_minor'];
             if (isset($result['commission_minor'])) {
@@ -82,7 +113,7 @@ class CommercialFinanceController extends Controller
                         );
                     }
 
-                    return $row;
+                    return self::safeRefundRequest($row);
                 }))->header('Cache-Control', 'private, no-store');
         }, 3);
     }
@@ -90,21 +121,23 @@ class CommercialFinanceController extends Controller
     public function requestRefund(Request $r, Invoice $invoice)
     {
         abort_unless($invoice->user_id === $r->user()->id, 404);
-        $v = $r->validate(['ocpi_credit_record_id' => 'sometimes|integer|min:1', 'amount_minor' => 'required|integer|between:1,2000000000', 'reason' => 'required|string|max:500', 'idempotency_key' => 'required|string|max:100']);
 
-        if (isset($v['ocpi_credit_record_id'])) {
-            $v['ocpi_credit_record_id'] = (int) $v['ocpi_credit_record_id'];
-        }
-
-        return DB::transaction(function () use ($r, $invoice, $v) {
+        return DB::transaction(function () use ($r, $invoice) {
             $current = app(CurrentFinanceReader::class)->requireCurrent($r);
             $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
-            abort_unless($invoice->user_id === $current->id, 404);
+            abort_unless($current->role === 'customer' && $invoice->user_id === $current->id, 404);
+            // Validate private refund terms only after the persisted current
+            // customer and original invoice owner are authorized.
+            $v = $r->validate(['ocpi_credit_record_id' => 'sometimes|integer|min:1', 'amount_minor' => 'required|integer|between:1,2000000000', 'reason' => 'required|string|max:500', 'idempotency_key' => 'required|string|max:100']);
+            if (isset($v['ocpi_credit_record_id'])) {
+                $v['ocpi_credit_record_id'] = (int) $v['ocpi_credit_record_id'];
+            }
             $old = DB::table('finance_refund_requests')->where('user_id', $current->id)->where('request_key', $v['idempotency_key'])->first();
             if ($old) {
                 abort_unless($old->invoice_id === $invoice->id && (int) $old->amount_minor === (int) $v['amount_minor'] && $old->reason === $v['reason'] && ($old->ocpi_credit_record_id ?? null) === ($v['ocpi_credit_record_id'] ?? null), 409, 'Refund request key conflict.');
 
-                return response()->json($old);
+                return response()->json(self::refundAcknowledgement($old))
+                    ->header('Cache-Control', 'private, no-store');
             }
             if (isset($v['ocpi_credit_record_id'])) {
                 $credit = app(CreditRefundEvidence::class)->require($invoice, (int) $v['ocpi_credit_record_id']);
@@ -114,15 +147,15 @@ class CommercialFinanceController extends Controller
             abort_unless((int) $v['amount_minor'] <= $available, 409, 'Requested amount exceeds unreserved captured funds.');
             $id = DB::table('finance_refund_requests')->insertGetId(['invoice_id' => $invoice->id, 'user_id' => $current->id, 'request_key' => $v['idempotency_key'], 'ocpi_credit_record_id' => $v['ocpi_credit_record_id'] ?? null, 'amount_minor' => (int) $v['amount_minor'], 'reason' => $v['reason'], 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
 
-            return response()->json(DB::table('finance_refund_requests')->find($id), 201);
+            return response()->json(
+                self::refundAcknowledgement(DB::table('finance_refund_requests')->find($id)), 201
+            )->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
     public function review(Request $r, int $request, FinanceService $finance)
     {
-        $v = $r->validate(['decision' => 'required|in:approve,reject', 'note' => 'required|string|max:500']);
-
-        return DB::transaction(function () use ($r, $request, $v, $finance) {
+        return DB::transaction(function () use ($r, $request, $finance) {
             // Lock the current reviewer before the invoice and request. A
             // demoted/suspended cached Admin cannot authorize money changes.
             $current = app(CurrentFinanceReader::class)->requireCurrent($r);
@@ -132,12 +165,17 @@ class CommercialFinanceController extends Controller
             $invoice = Invoice::whereKey($row->invoice_id)->lockForUpdate()->firstOrFail();
             abort_unless($current->role === 'admin'
                 || ($current->role === 'vendor' && $invoice->vendor_id === $current->id), 404);
+            $v = $r->validate([
+                'decision' => 'required|in:approve,reject',
+                'note' => 'required|string|max:500',
+            ]);
             $row = DB::table('finance_refund_requests')->where('id', $request)->lockForUpdate()->first();
             $status = $v['decision'] === 'approve' ? 'approved' : 'rejected';
             if ($row->status !== 'pending') {
                 abort_unless($row->status === $status && $row->decision_note === $v['note'], 409, 'Refund request already reviewed.');
 
-                return response()->json($row);
+                return response()->json(self::safeRefundRequest($row))
+                    ->header('Cache-Control', 'private, no-store');
             }
             if ($status === 'approved' && $row->ocpi_credit_record_id !== null) {
                 app(CreditRefundEvidence::class)->require($invoice, (int) $row->ocpi_credit_record_id);
@@ -147,7 +185,9 @@ class CommercialFinanceController extends Controller
             DB::table('finance_refund_requests')->where('id', $request)->update(['status' => $status, 'reviewed_by' => $current->id, 'decision_note' => $v['note'], 'refund_id' => $refund?->id, 'updated_at' => now()]);
             DB::table('audit_events')->insert(['actor_id' => $current->id, 'action' => 'finance.refund_request.'.$status, 'subject' => (string) $request, 'created_at' => now()]);
 
-            return response()->json(DB::table('finance_refund_requests')->find($request));
+            return response()->json(
+                self::safeRefundRequest(DB::table('finance_refund_requests')->find($request))
+            )->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 }

@@ -24,7 +24,8 @@ class RecordSynchronizer
         foreach ($records as $record) {
             if (! is_array($record)) {
                 throw new OcpiException('Malformed OCPI record.');
-            }$validated[] = [$record, $this->normalizer->normalize($module, $record), $this->normalizer->hash($record)];
+            }
+            $validated[] = [$record, $this->normalizer->normalize($module, $record), $this->normalizer->hash($record)];
         }
 
         return DB::transaction(function () use ($provider, $module, $validated) {
@@ -91,6 +92,11 @@ class RecordSynchronizer
                 }
             }
             $locked->update(['last_synced_at' => now()]);
+            if ($module === 'locations' && ($counts['created'] + $counts['updated']) > 0) {
+                // The whole quality observation commits or rolls back together
+                // with the canonical normalized source batch.
+                app(CatalogQualityHistory::class)->capture($locked);
+            }
 
             return $counts;
         });
