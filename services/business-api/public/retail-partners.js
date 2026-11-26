@@ -14,6 +14,17 @@
         rewardTermsStale: ["Partner terms have changed", "تغيّرت شروط الشريك"],
         propose: ["Proposed", "مقترحة"],
         rewardHistory: ["Reward decision history", "سجل قرارات المكافأة"],
+        claimHistory: ["Synthetic partner claim history", "سجل مطالبات الشريك التجريبية"],
+        claimNotice: ["Manual sandbox evidence only; external fulfillment is not verified. Zero points and no cash value.", "أدلة يدوية تجريبية فقط؛ لم يتم التحقق من التسليم الخارجي. لا نقاط ولا قيمة نقدية."],
+        claimEmpty: ["No recorded claims for this review.", "لا توجد مطالبات مسجلة لهذه المراجعة."],
+        claimPending: ["Awaiting manual review", "بانتظار المراجعة اليدوية"],
+        claimFulfilled: ["Manually marked fulfilled", "سُجّل التسليم يدوياً"],
+        claimRejected: ["Rejected", "مرفوضة"],
+        claimOlder: ["Older claims", "مطالبات أقدم"],
+        claimNewer: ["Newer claims", "مطالبات أحدث"],
+        claimId: ["Claim", "المطالبة"],
+        redemptionId: ["Redemption", "طلب الاستبدال"],
+        approvalEvent: ["Approval event", "حدث الموافقة"],
         language: ["Language", "اللغة"],
         theme: ["Theme", "المظهر"],
         system: ["System", "النظام"],
@@ -401,19 +412,50 @@
                     }
                 }
                 const history = node("div");
-                async function readHistory(eventPage = 1) {
+                let historyGeneration = 0;
+                async function readHistory(eventPage = 1, claimsPage = 1) {
+                    const sequence = ++historyGeneration;
                     history.replaceChildren();
                     try {
-                        const data = await request(`${endpoint}/${row.id}?page=${eventPage}`);
-                        if (!active()) return;
+                        const data = await request(`${endpoint}/${row.id}?page=${eventPage}&claims_page=${claimsPage}`);
+                        if (!active() || sequence !== historyGeneration || !history.isConnected) return;
+                        const positive = (id) => Number.isSafeInteger(id) && id > 0;
+                        const validPage = (value, requested) => value && Array.isArray(value.data)
+                            && value.data.length <= 25 && value.current_page === requested
+                            && positive(value.last_page);
+                        const states = { pending: "claimPending", fulfilled: "claimFulfilled", rejected: "claimRejected" };
+                        if (data.review?.id !== row.id || data.review?.partner_id !== partner.id
+                            || !validPage(data.events, eventPage) || !validPage(data.claims, claimsPage)
+                            || new Set(data.claims.data.map(claim => claim.id)).size !== data.claims.data.length
+                            || data.claims.data.some(claim => !positive(claim.id) || claim.review_id !== row.id
+                                || !positive(claim.redemption_id) || !positive(claim.approval_event_id)
+                                || !Object.hasOwn(states, claim.status) || claim.points_cost !== 0
+                                || claim.source !== "RETAIL_PARTNER_REWARD" || claim.evidence !== "SANDBOX_MANUAL_NONCASH"
+                                || claim.cash_value !== false || claim.external_fulfillment_verified !== false))
+                            throw Error("Invalid partner claim evidence");
                         for (const event of data.events.data)
                             history.append(node("p", `${event.revision} · ${t(event.decision)} · ${event.reason}`));
                         if (data.events.current_page > 1)
-                            history.append(button("newer", () => readHistory(eventPage - 1)));
+                            history.append(button("newer", () => readHistory(eventPage - 1, claimsPage)));
                         if (data.events.current_page < data.events.last_page)
-                            history.append(button("older", () => readHistory(eventPage + 1)));
+                            history.append(button("older", () => readHistory(eventPage + 1, claimsPage)));
+                        const claims = node("section");
+                        claims.dataset.partnerClaimHistory = "true";
+                        claims.append(node("h4", t("claimHistory")), node("p", t("claimNotice")));
+                        if (!data.claims.data.length) claims.append(node("p", t("claimEmpty")));
+                        for (const claim of data.claims.data) {
+                            const item = node("article");
+                            item.append(node("p", `${t("claimId")} #${claim.id} · ${t(states[claim.status])}`),
+                                node("p", `${t("redemptionId")} #${claim.redemption_id} · ${t("approvalEvent")} #${claim.approval_event_id}`));
+                            claims.append(item);
+                        }
+                        if (claimsPage > 1)
+                            claims.append(button("claimNewer", () => readHistory(eventPage, claimsPage - 1)));
+                        if (claimsPage < data.claims.last_page)
+                            claims.append(button("claimOlder", () => readHistory(eventPage, claimsPage + 1)));
+                        history.append(claims);
                     } catch (error) {
-                        if (active()) fail(error);
+                        if (active() && sequence === historyGeneration && history.isConnected) fail(error);
                     }
                 }
                 card.append(button("rewardHistory", () => readHistory()), history);
