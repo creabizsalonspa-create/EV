@@ -3,6 +3,7 @@
 import argparse
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -36,8 +37,13 @@ def read_strict_json(payload):
     def nonfinite(value):
         raise EvidenceError('Non-standard JSON numeric constant in recovery evidence')
 
+    def finite_float(value):
+        result = float(value)
+        require(math.isfinite(result), 'Non-finite recovery evidence number')
+        return result
+
     return json.loads(payload.decode('utf-8'), object_pairs_hook=unique,
-                      parse_constant=nonfinite)
+                      parse_constant=nonfinite, parse_float=finite_float)
 
 
 def read_proof(path):
@@ -61,7 +67,7 @@ def read_proof(path):
                 'Recovery evidence changed size while reading')
     try:
         result = read_strict_json(payload)
-    except (ValueError, UnicodeError):
+    except (ValueError, UnicodeError, RecursionError):
         raise EvidenceError('Recovery evidence must be valid JSON') from None
     require(type(result) is dict, 'Recovery evidence must be a JSON object')
     return result
@@ -111,7 +117,10 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             business['laravel_migration_rows'] > 0,
             'No restored Laravel migration history')
     domain = business.get('canonical_domain_fingerprint', {})
-    require(isinstance(domain, dict) and valid_hash(domain.get('fingerprint_sha256'), 64)
+    # Only the exact producer schema may reach the retained summary artifact.
+    require(type(domain) is dict and set(domain) == {
+                'table_count', 'row_count', 'sequence_count', 'fingerprint_sha256'}
+            and valid_hash(domain.get('fingerprint_sha256'), 64)
             and all(type(domain.get(field)) is int and domain[field] > 0
                     for field in ('table_count', 'row_count', 'sequence_count'))
             and 30 <= domain['table_count'] <= 1024

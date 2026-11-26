@@ -197,6 +197,8 @@ class GateTest(unittest.TestCase):
                 '{"value":NaN}',
                 '{"value":Infinity}',
                 '{"value":-Infinity}',
+                '{"value":1e999}',
+                '{"nested":{"value":-1e999}}',
             ):
                 with self.subTest(payload=payload):
                     path.write_text(payload)
@@ -204,6 +206,19 @@ class GateTest(unittest.TestCase):
                         gate.read_proof(path)
             path.write_text('{"status":"PASS","metadata":{"numbers":[1,2,3]}}')
             self.assertEqual(gate.read_proof(path)['status'], 'PASS')
+
+    def test_unexpected_domain_fields_cannot_reach_retained_summary(self):
+        b, c = evidence()
+        b['canonical_domain_fingerprint']['unexpected_private_field'] = 'synthetic sentinel'
+        with self.assertRaises(gate.EvidenceError):
+            gate.inspect_proofs(b, c, SHA, '1234567', '1')
+
+    def test_deeply_nested_evidence_is_rejected_without_parser_traceback(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d)/'proof.json'
+            path.write_text('{"nested":' + '[' * 2000 + '0' + ']' * 2000 + '}')
+            with self.assertRaises(gate.EvidenceError):
+                gate.read_proof(path)
 
     def test_named_pipe_evidence_is_rejected_without_waiting_for_a_writer(self):
         import os
