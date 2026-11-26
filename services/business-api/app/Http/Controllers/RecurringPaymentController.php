@@ -101,7 +101,7 @@ class RecurringPaymentController extends Controller
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
             $owned = app(SubscriptionService::class)->access($actor, $subscription, true);
             abort_unless($owned->user_id === $actor->id, 404);
-            $v = $r->validate(['enabled' => 'required|boolean', 'mandate_id' => 'required_if:enabled,true|nullable|integer|min:1', 'consent' => 'required_if:enabled,true|accepted', 'expected_version' => 'required|integer|min:0']);
+            $v = $r->validate(['enabled' => 'required|boolean', 'mandate_id' => 'required_if:enabled,true|nullable|integer|min:1', 'consent' => 'exclude_unless:enabled,true|required|accepted', 'expected_version' => 'required|integer|min:0']);
 
             return response()->json($c->policy($actor, $subscription, $v['enabled'], isset($v['mandate_id']) ? (int) $v['mandate_id'] : null, (int) $v['expected_version']))->header('Cache-Control', 'private, no-store');
         }, 3);
