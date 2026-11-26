@@ -12,13 +12,14 @@ use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\FaultReminderEscalator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class FaultReminderEscalatorTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function fixture(): array
+    private function fixture(string $protocol = '1.6'): array
     {
         config([
             'csms.fault_worker_enabled' => true,
@@ -46,11 +47,11 @@ class FaultReminderEscalatorTest extends TestCase
         $charger = VendorCharger::create([
             'company_id' => $company->id, 'site_id' => $site->id,
             'asset_reference' => 'TEST-REMINDER', 'manufacturer' => 'Synthetic',
-            'model' => 'Simulated', 'source' => 'simulator', 'ocpp_protocol' => '1.6',
+            'model' => 'Simulated', 'source' => 'simulator', 'ocpp_protocol' => $protocol,
         ]);
         $bindingId = DB::table('csms_bindings')->insertGetId([
             'station_id' => $station->id, 'vendor_charger_id' => $charger->id,
-            'identifier' => 'ev-test-reminder-'.$charger->id, 'protocol' => '1.6',
+            'identifier' => 'ev-test-reminder-'.$charger->id, 'protocol' => $protocol,
             'created_at' => now(), 'updated_at' => now(),
         ]);
         $binding = DB::table('csms_bindings')->find($bindingId);
@@ -71,6 +72,89 @@ class FaultReminderEscalatorTest extends TestCase
         ]);
 
         return compact('owner', 'company', 'station', 'charger', 'bindingId', 'observation', 'alert');
+    }
+
+    public function test_admin_operational_health_projects_only_assigned_historical_fault_receipts(): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $other = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $worker = app(FaultReminderEscalator::class);
+        $this->assertSame(1, $worker->scan()['escalated']);
+        $path = '/api/admin/operational-health';
+        $this->actingAs($admin)->getJson($path)->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('fault_escalations.scope', 'ASSIGNED_SIMULATOR_ESCALATIONS')
+            ->assertJsonPath('fault_escalations.data.0.alert_id', (string) $f['alert'])
+            ->assertJsonPath('fault_escalations.data.0.state', 'recorded_open')
+            ->assertJsonPath('fault_escalations.current_fault_state_verified', false)
+            ->assertJsonPath('fault_escalations.physical_verification', false)
+            ->assertJsonMissingPath('fault_escalations.data.0.admin_user_id')
+            ->assertJsonMissingPath('fault_escalations.data.0.company_id');
+        $this->actingAs($other)->getJson($path)->assertOk()->assertJsonCount(0, 'fault_escalations.data');
+        $this->actingAs($f['owner'])->getJson($path)->assertForbidden();
+        DB::table('charging_fault_alerts')->where('id', $f['alert'])
+            ->update(['acknowledged_at' => now(), 'acknowledged_by' => $f['owner']->id]);
+        $this->assertSame(1, $worker->scan()['closed']);
+        $this->actingAs($admin)->getJson($path)->assertOk()
+            ->assertJsonPath('fault_escalations.data.0.state', 'recorded_closed')
+            ->assertJsonPath('fault_escalations.data.0.resolution_source', 'operator_acknowledged')
+            ->assertJsonPath('fault_escalations.data.0.physical_verification', false);
+        // A recorded closure with contradictory chronology is never
+        // presented as an established closure.
+        DB::table('charging_fault_admin_escalations')->where('alert_id', $f['alert'])
+            ->update(['resolved_at' => now()->subMinute()]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('fault_escalations.data.0.state', 'requires_review')
+            ->assertJsonPath('fault_escalations.data.0.resolution_source', null)
+            ->assertJsonPath('fault_escalations.data.0.closed_at', null);
+        $this->getJson($path.'?fault_before=0')->assertUnprocessable();
+        $this->getJson($path.'?fault_before=9999999999999999999')->assertUnprocessable();
+        $this->getJson($path.'?fault_before='.$f['alert'])->assertOk()->assertJsonCount(0, 'fault_escalations.data');
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_admin_fault_history_paginates_by_exclusive_exact_alert_id(): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $binding = DB::table('csms_bindings')->find($f['bindingId']);
+        $ids = [];
+        for ($i = 2; $i <= 28; $i++) {
+            $observation = DB::table('charging_status_observations')->insertGetId([
+                'binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding),
+                'source_event_id' => $i, 'fingerprint' => hash('sha256', 'history-'.$i),
+                'evse_number' => 1, 'connector_number' => 1, 'status' => 'Faulted',
+                'error_code' => 'GroundFailure', 'occurred_at' => now()->subHours(2),
+                'created_at' => now()->subHours(2),
+            ]);
+            $id = DB::table('charging_fault_alerts')->insertGetId([
+                'observation_id' => $observation, 'created_at' => now()->subHours(2),
+                'updated_at' => now()->subHours(2),
+            ]);
+            DB::table('charging_fault_admin_escalations')->insert([
+                'alert_id' => $id, 'admin_user_id' => $admin->id, 'created_at' => now()->subHour(),
+            ]);
+            $ids[] = (string) $id;
+        }
+        $ids = array_reverse($ids);
+        $path = '/api/admin/operational-health';
+        $page = $this->actingAs($admin)->getJson($path)->assertOk()
+            ->assertJsonCount(25, 'fault_escalations.data')
+            ->assertJsonPath('fault_escalations.next_before', $ids[24])
+            ->json('fault_escalations');
+        $this->assertSame(array_slice($ids, 0, 25), array_column($page['data'], 'alert_id'));
+        $page = $this->getJson($path.'?fault_before='.$ids[24])->assertOk()
+            ->assertJsonCount(2, 'fault_escalations.data')->assertJsonPath('fault_escalations.next_before', null)
+            ->json('fault_escalations');
+        $this->assertSame(array_slice($ids, 25), array_column($page['data'], 'alert_id'));
+        $this->assertDatabaseCount('charging_fault_admin_escalations', 27);
+        $this->assertDatabaseCount('inbox_notifications', 0);
     }
 
     public function test_simulator_fault_reminds_owner_once_without_hardware_or_payment_side_effects(): void
@@ -157,6 +241,9 @@ class FaultReminderEscalatorTest extends TestCase
             'now',
             '2020-02-30 10:00:00',
             '2020-01-01 24:00:00',
+            '2020-01-01T10:00:00+24:00',
+            '2020-01-01T10:00:00-24:00',
+            '2020-01-01T10:00:00+04:99',
         ];
         foreach ($invalidTimes as $untrusted) {
             DB::table('charging_status_observations')
@@ -265,6 +352,41 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_owner_global_reminder_age_cannot_delay_explicit_sixty_minute_admin_escalation(): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(60)->addSecond()]);
+        $service = app(FaultReminderEscalator::class);
+        $early = $service->scan(50, 0, 120);
+        $this->assertSame(0, $early['escalated']);
+        $this->assertSame(0, $early['reminded']);
+        $this->travel(1)->seconds();
+        $atBoundary = $service->scan(50, 0, 120);
+        $this->assertSame(1, $atBoundary['escalated']);
+        $this->assertSame(0, $atBoundary['reminded']);
+        $this->assertDatabaseHas('charging_fault_admin_escalations', [
+            'alert_id' => $f['alert'], 'admin_user_id' => $admin->id,
+        ]);
+        $this->assertDatabaseCount('charging_fault_reminders', 0);
+        $this->assertDatabaseCount('inbox_notifications', 1);
+        $repeat = $service->scan(50, 0, 120);
+        $this->assertSame(0, $repeat['escalated']);
+        $this->assertSame(0, $repeat['reminded']);
+        $this->travel(60)->minutes();
+        $ownerDue = $service->scan(50, 0, 120);
+        $this->assertSame(1, $ownerDue['reminded']);
+        $this->assertSame(0, $ownerDue['escalated']);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->assertDatabaseCount('charging_fault_admin_escalations', 1);
+        $this->assertDatabaseCount('charging_fault_reminders', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_suspended_vendor_does_not_block_authenticated_admin_escalation_closure(): void
     {
         $f = $this->fixture();
@@ -361,6 +483,7 @@ class FaultReminderEscalatorTest extends TestCase
         $invalidTimes = [
             '', '   ', 'now', 'today',
             '2020-02-30 10:00:00', '2020-01-01 24:00:00',
+            now()->copy()->addDay()->format('Y-m-d H:i:s').'+24:00',
         ];
         foreach ($invalidTimes as $invalidTime) {
             DB::table('charging_status_observations')->where('id', $bad)
@@ -382,6 +505,77 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertSame('source_recovered', $closure->metadata['resolution_source']);
         $this->assertSame('SIMULATED_SOURCE_OBSERVED', $closure->metadata['evidence']);
         $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_recovery_requires_protocol_correct_clearance_before_escalation_closure(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            DB::table('charging_status_observations')->where('id', $f['observation'])
+                ->update(['occurred_at' => now()->subMinutes(65)]);
+            $worker = app(FaultReminderEscalator::class);
+            $this->assertSame(1, $worker->scan()['escalated']);
+            $binding = DB::table('csms_bindings')->find($f['bindingId']);
+            $recovery = DB::table('charging_status_observations')->insertGetId([
+                'binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding),
+                'source_event_id' => 2, 'fingerprint' => str_repeat('f', 64),
+                'evse_number' => 1, 'connector_number' => 1, 'status' => 'Available',
+                'error_code' => null, 'occurred_at' => now(), 'created_at' => now(),
+            ]);
+            DB::table('charging_fault_alerts')->where('id', $f['alert'])
+                ->update(['recovery_observation_id' => $recovery]);
+            if ($protocol === '1.6') {
+                $this->assertSame(0, $worker->scan()['closed']);
+                $this->assertDatabaseHas('charging_fault_admin_escalations', [
+                    'alert_id' => $f['alert'], 'resolved_at' => null,
+                ]);
+                DB::table('charging_status_observations')->where('id', $recovery)
+                    ->update(['error_code' => 'NoError']);
+            }
+            $this->assertSame(1, $worker->scan()['closed']);
+            $this->assertSame(0, $worker->scan()['closed']);
+            $this->assertDatabaseHas('charging_fault_admin_escalations', [
+                'alert_id' => $f['alert'], 'resolution_source' => 'source_recovered',
+            ]);
+        }
+        $this->assertSame(2, InboxNotification::where('kind', 'charging.fault.escalation_closed.simulated')->count());
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_orphaned_prefault_and_future_acknowledgements_cannot_close_escalation(): void
+    {
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $worker = app(FaultReminderEscalator::class);
+        $this->assertSame(1, $worker->scan()['escalated']);
+        foreach ([
+            [null, now()],
+            [$f['owner']->id, now()->subMinutes(70)],
+            [$f['owner']->id, now()->addMinutes(5)],
+        ] as [$actor, $time]) {
+            DB::table('charging_fault_alerts')->where('id', $f['alert'])
+                ->update(['acknowledged_by' => $actor, 'acknowledged_at' => $time]);
+            $this->assertSame(0, $worker->scan()['closed']);
+            $this->assertDatabaseHas('charging_fault_admin_escalations', [
+                'alert_id' => $f['alert'], 'resolved_at' => null,
+            ]);
+        }
+        DB::table('charging_fault_alerts')->where('id', $f['alert'])
+            ->update(['acknowledged_by' => $f['owner']->id, 'acknowledged_at' => now()]);
+        $this->assertSame(1, $worker->scan()['closed']);
+        $this->assertSame(0, $worker->scan()['closed']);
+        $this->assertDatabaseHas('charging_fault_admin_escalations', [
+            'alert_id' => $f['alert'], 'resolution_source' => 'operator_acknowledged',
+        ]);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.fault.escalation_closed.simulated')->count());
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_suspended_admin_cannot_read_historical_simulator_escalation_from_old_session(): void
@@ -683,6 +877,74 @@ class FaultReminderEscalatorTest extends TestCase
             ->update(['identifier' => 'ev-test-reassigned']);
         $this->assertSame(0, app(FaultReminderEscalator::class)->scan()['reminded']);
         $this->assertDatabaseCount('inbox_notifications', 0);
+    }
+
+    public static function faultReminderProtocols(): array
+    {
+        return [['1.6'], ['2.0.1']];
+    }
+
+    #[DataProvider('faultReminderProtocols')]
+    public function test_reminders_and_escalation_closure_require_matching_country_lineage_and_fault_evidence(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        $observation = DB::table('charging_status_observations')->where('id', $f['observation']);
+        $observation->update(['occurred_at' => now()->subMinutes(65)]);
+        $worker = app(FaultReminderEscalator::class);
+
+        foreach ([
+            ['vendor_sites', $f['charger']->site_id],
+            ['stations', $f['station']->id],
+            ['vendor_companies', $f['company']->id],
+        ] as [$table, $id]) {
+            DB::table($table)->where('id', $id)->update(['country' => 'US']);
+            $scan = $worker->scan();
+            $this->assertSame(0, $scan['reminded']);
+            $this->assertSame(0, $scan['escalated']);
+            $this->assertDatabaseCount('inbox_notifications', 0);
+            DB::table($table)->where('id', $id)->update(['country' => 'AE']);
+        }
+
+        // A retained alert pointing at a healthy observation cannot itself
+        // establish a fault, even if all the source ownership IDs agree.
+        foreach ([null, 'NoError'] as $errorCode) {
+            $observation->update(['status' => 'Available', 'error_code' => $errorCode]);
+            $scan = $worker->scan();
+            $this->assertSame(0, $scan['reminded']);
+            $this->assertSame(0, $scan['escalated']);
+            $this->assertDatabaseCount('inbox_notifications', 0);
+        }
+        $this->assertDatabaseCount('charging_fault_reminders', 0);
+        $this->assertDatabaseCount('charging_fault_admin_escalations', 0);
+
+        $observation->update(['status' => 'Faulted', 'error_code' => 'GroundFailure']);
+        $scan = $worker->scan();
+        $this->assertSame(1, $scan['reminded']);
+        $this->assertSame(1, $scan['escalated']);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        DB::table('charging_fault_alerts')->where('id', $f['alert'])
+            ->update(['acknowledged_at' => now(), 'acknowledged_by' => $f['owner']->id]);
+
+        // Existing incident history cannot be closed on mismatched country
+        // or a corrupted original observation either.
+        DB::table('vendor_sites')->where('id', $f['charger']->site_id)->update(['country' => 'US']);
+        $this->assertSame(0, $worker->scan()['closed']);
+        DB::table('vendor_sites')->where('id', $f['charger']->site_id)->update(['country' => 'AE']);
+        $observation->update(['status' => 'Available', 'error_code' => 'NoError']);
+        $this->assertSame(0, $worker->scan()['closed']);
+        $this->assertDatabaseHas('charging_fault_admin_escalations', [
+            'alert_id' => $f['alert'], 'resolved_at' => null,
+        ]);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+
+        $observation->update(['status' => 'Faulted', 'error_code' => 'GroundFailure']);
+        $this->assertSame(1, $worker->scan()['closed']);
+        $this->assertSame(0, $worker->scan()['closed']);
+        $this->assertDatabaseCount('inbox_notifications', 3);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_worker_is_disabled_in_production_and_rejects_unbounded_scan_arguments(): void
