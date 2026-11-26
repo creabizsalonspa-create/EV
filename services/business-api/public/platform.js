@@ -139,6 +139,14 @@ function clearIdentity() {
     return epoch;
 }
 function clearPrivateViews() {
+    // Public country labels may remain, but reviewed Admin drafts and
+    // detached mutation callbacks must never cross a credential epoch.
+    const regionForm = el("region-config");
+    regionForm.reset();
+    delete regionForm.dataset.expectedCountry;
+    delete regionForm.dataset.expectedRevision;
+    delete regionForm.dataset.expectedEpoch;
+    el("region-list").querySelectorAll("[data-access=admin]").forEach((node) => node.remove());
     inboxUnreadOnly = false;
     inboxCategory = "all";
     inboxPreferences = null;
@@ -1387,7 +1395,7 @@ async function regions() {
             edit.dataset.access = "admin";
             edit.dataset.regionConfigurationEdit = region.country;
             edit.onclick = () => {
-                if (!edit.isConnected || epoch !== client.sessionEpoch || user?.role !== "admin") return;
+                if (!edit.isConnected || regionalConfigBusy || epoch !== client.sessionEpoch || user?.role !== "admin") return;
                 const form = el("region-config");
                 for (const key of ["country", "currency", "minor_units", "timezone", "tax_bps"]) {
                     form.elements.namedItem(key).value = region[key] ?? "";
@@ -1408,8 +1416,7 @@ async function regions() {
         button.dataset.regionReviewIntake = region.country;
         button.hidden = user?.role !== "admin";
         button.onclick = async () => {
-            if (button.disabled || user?.role !== "admin") return;
-            const epoch = client.sessionEpoch;
+            if (!button.isConnected || button.disabled || epoch !== client.sessionEpoch || user?.role !== "admin") return;
             button.disabled = true;
             try {
                 await api("regions/" + encodeURIComponent(region.country) + "/review-intake", "PUT", {
@@ -1861,7 +1868,10 @@ el("region-config").onsubmit = async (e) => {
         const saved = await api("regions/" + encodeURIComponent(country), "PUT", v);
         if (epoch !== client.sessionEpoch || user?.role !== "admin") return;
         if (saved?.country !== country || !Number.isSafeInteger(saved.configuration_revision) ||
-            saved.configuration_revision < 1 ||
+            ![v.expected_revision, v.expected_revision + 1].includes(saved.configuration_revision) ||
+            saved.configuration_revision < 1 || saved.currency !== v.currency ||
+            saved.minor_units !== Number(v.minor_units) || saved.timezone !== v.timezone ||
+            saved.tax_bps !== (v.tax_bps === null ? null : Number(v.tax_bps)) ||
             ![false, 0].includes(saved.commerce_enabled))
             throw Error("Regional configuration receipt cannot be verified.");
         form.dataset.expectedCountry = country;
@@ -1909,6 +1919,8 @@ el("account").onsubmit = async (e) => {
         await identity();
         if (epoch !== client.sessionEpoch) return;
         await stations();
+        if (epoch !== client.sessionEpoch) return;
+        await regions();
         if (epoch === client.sessionEpoch) notice("Signed in.");
     } catch (error) {
         if (error.status === 422 && error.errors?.second_factor_code) {

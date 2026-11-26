@@ -129,6 +129,22 @@ async function main() {
     );
     const ap = await adminContext.newPage();
     await ap.goto(admin.base);
+    const editRegion = ap.locator('[data-region-configuration-edit="AE"]');
+    // Exercise the versioned editor against the real current region with
+    // a no-op save; no regional tax/currency values are changed.
+    await editRegion.click();
+    const regionalForm = ap.locator("#region-config");
+    const revision = await regionalForm.getAttribute("data-expected-revision");
+    assert(Number(revision) >= 1);
+    const savedRegion = ap.waitForResponse((response) =>
+      response.request().method() === "PUT" &&
+      new URL(response.url()).pathname === "/api/regions/AE",
+    );
+    await regionalForm.locator("button").click();
+    const receipt = await savedRegion;
+    assert.equal(receipt.status(), 200);
+    assert.equal(String((await receipt.json()).configuration_revision), revision);
+    await editRegion.waitFor();
     const intake = ap.locator('[data-region-review-intake="AE"]');
     await intake.filter({ hasText: /^Pause new charging feedback$/ }).click();
     await intake.filter({ hasText: /^Allow new charging feedback$/ }).waitFor();
@@ -191,6 +207,25 @@ async function main() {
         exact: true,
       })
       .waitFor();
+    // Preserve a detached old callback and verify logout invalidates its
+    // authority before any API dispatch; reset even unsaved form values.
+    await editRegion.click();
+    await regionalForm.locator('[name="currency"]').fill("ZZZ");
+    await ap.evaluate(() => {
+      window.oldRegionalIntake = document.querySelector('[data-region-review-intake="AE"]').onclick;
+    });
+    await ap.locator("#logout").click();
+    await ap.waitForFunction(() => document.querySelector("#region-config").hidden);
+    assert.equal(await regionalForm.locator('[name="currency"]').inputValue(), "");
+    assert.equal(await regionalForm.getAttribute("data-expected-revision"), null);
+    assert.equal(await editRegion.count(), 0);
+    let oldDispatches = 0;
+    await ap.route("**/api/regions/AE/review-intake", async (route) => {
+      oldDispatches++;
+      await route.abort();
+    });
+    await ap.evaluate(async () => { await window.oldRegionalIntake(); });
+    assert.equal(oldDispatches, 0);
     await page.locator("#logout").click();
     await page.waitForFunction(
       () => document.querySelector("#charging-reviews").hidden,
