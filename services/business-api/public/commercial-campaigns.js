@@ -637,7 +637,75 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
                 () => create(packagePage, stationPage + 1),
             );
     }
-    async function list(page = 1) {
+    let reviewScope = { status: null, country: null, vendor_id: null, station_id: null, invoice_id: null };
+    function reviewFilters(parent, results) {
+        const formNode = document.createElement("form");
+        formNode.className = "finance-form";
+        formNode.dataset.campaignFilters = "true";
+        const fields = [
+            ["status", "Campaign status", "حالة الحملة"],
+            ["country", "Country code", "رمز الدولة"],
+            ...(role === "admin" ? [["vendor_id", "Vendor ID", "رقم البائع"]] : []),
+            ["station_id", "Station ID", "رقم المحطة"],
+            ["invoice_id", "Package invoice ID", "رقم فاتورة الحزمة"],
+        ];
+        for (const [name, en, ar] of fields) {
+            const label = document.createElement("label");
+            const input = document.createElement(name === "status" ? "select" : "input");
+            input.name = name;
+            if (name === "status") {
+                const all = t("option", "All statuses", "جميع الحالات");
+                all.value = "";
+                input.append(all);
+                for (const [value, labels] of Object.entries(states)) {
+                    const option = t("option", ...labels);
+                    option.value = value;
+                    input.append(option);
+                }
+            } else {
+                input.type = "text";
+                input.maxLength = name === "country" ? 2 : 16;
+                if (name !== "country") input.inputMode = "numeric";
+            }
+            input.value = reviewScope[name] ?? "";
+            label.append(t("span", en, ar), input);
+            formNode.append(label);
+        }
+        const apply = t("button", "Apply campaign filters", "تطبيق مرشحات الحملات");
+        apply.type = "submit";
+        formNode.append(apply);
+        button(formNode, "Clear campaign filters", "مسح مرشحات الحملات", () => list(1, {
+            status: null, country: null, vendor_id: null, station_id: null, invoice_id: null,
+        }));
+        formNode.oninput = () => {
+            if (!alive() || busy) return;
+            results.replaceChildren();
+        };
+        formNode.onsubmit = event => {
+            event.preventDefault();
+            if (!alive() || !formNode.isConnected || busy) return;
+            const raw = Object.fromEntries(new FormData(formNode));
+            const scope = { status: raw.status || null, country: raw.country.trim().toUpperCase() || null,
+                vendor_id: null, station_id: null, invoice_id: null };
+            if (scope.status !== null && !Object.hasOwn(states, scope.status) ||
+                scope.country !== null && !/^[A-Z]{2}$/.test(scope.country)) {
+                status.textContent = "Invalid campaign filters.";
+                return;
+            }
+            for (const key of ["vendor_id", "station_id", "invoice_id"]) {
+                const value = (raw[key] || "").trim();
+                if (!value) continue;
+                if (!/^[1-9][0-9]{0,15}$/.test(value) || !positive(Number(value))) {
+                    status.textContent = "Invalid campaign filter identity.";
+                    return;
+                }
+                scope[key] = Number(value);
+            }
+            perform(() => list(1, scope));
+        };
+        parent.append(formNode);
+    }
+    async function list(page = 1, scope = reviewScope) {
         if (role === "vendor") {
             const saved = recoverableCreation();
             if (saved) {
@@ -648,20 +716,28 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
         const seq = ++generation;
         content.replaceChildren();
         nav();
-        const data = await request(`commercial/campaigns?page=${page}`);
+        reviewScope = { ...scope };
+        const results = document.createElement("div");
+        reviewFilters(content, results);
+        content.append(results);
+        const query = new URLSearchParams({ page: String(page) });
+        for (const [key, value] of Object.entries(scope)) if (value !== null) query.set(key, String(value));
+        const data = await request(`commercial/campaigns?${query}`);
         if (!alive() || seq !== generation) return;
         verifyPage(data, page);
+        if (!data.scope || Object.keys(scope).some(key => data.scope[key] !== scope[key]))
+            throw Error("Campaign filter source cannot be verified.");
         const ids = new Set();
         for (const c of data.data) {
             verifyCampaign(c);
-            if (ids.has(c.id)) throw Error("Duplicate campaign source.");
+            if (ids.has(c.id) || (role === "vendor" && c.vendor_id !== owner) ||
+                Object.keys(scope).some(key => scope[key] !== null && c[key] !== scope[key]))
+                throw Error("Campaign source does not match reviewed scope.");
             ids.add(c.id);
         }
         currentPage = page;
-        content.replaceChildren();
-        nav();
         if (!data.data.length)
-            content.append(
+            results.append(
                 t(
                     "p",
                     "No campaigns yet. Paid package eligibility and administrator review are required before a sponsored placement can serve.",
@@ -693,9 +769,10 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
             );
             row.append(counts);
             button(row, "Review campaign", "مراجعة الحملة", () => detail(c.id, 1, c));
-            content.append(row);
+            results.append(row);
         }
-        pager(data, list);
+        if (data.current_page > 1) button(results, "Previous page", "الصفحة السابقة", () => list(page - 1, scope));
+        if (data.current_page < data.last_page && page < 100000) button(results, "Next page", "الصفحة التالية", () => list(page + 1, scope));
     }
     async function detail(id, deliveryPage = 1, previous = null) {
         const seq = ++generation;
