@@ -8,6 +8,18 @@ final class CpoCatalogContract
 {
     public const MODULES = ['locations', 'tariffs'];
 
+    public const SESSION_MODULES = ['sessions', 'cdrs'];
+
+    public function modules(OcpiProvider $provider): array
+    {
+        $contract = $this->approved($provider);
+        if ($contract === null) {
+            return [];
+        }
+
+        return ($contract['session_exports'] ?? []) === [] ? self::MODULES : [...self::MODULES, ...self::SESSION_MODULES];
+    }
+
     public const MAX_RECORD_BYTES = 262_144;
 
     public function approved(OcpiProvider $provider): ?array
@@ -32,6 +44,11 @@ final class CpoCatalogContract
             && count($contract['tariffs']) <= 500,
             409, 'CPO catalog contract is invalid.'
         );
+
+        if (isset($contract['session_exports'])) {
+            abort_unless(app()->environment(['local', 'testing']) && ($connection['environment'] ?? null) === 'sandbox'
+                && is_array($contract['session_exports']) && count($contract['session_exports']) <= 250, 409, 'Session exports require an explicit synthetic sandbox contract.');
+        }
 
         return $contract;
     }

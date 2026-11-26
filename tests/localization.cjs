@@ -9,8 +9,22 @@ const fs = require("node:fs"),
     fs.readFileSync("services/business-api/public/locale-data.js", "utf8"),
     scope,
   );
-  for (const [key, value] of Object.entries(scope.window.EV_MESSAGES)) {
+  const labels = scope.window.EV_MESSAGES;
+  const neutralTemplates = new Set([
+    "English",
+    "#{id} · {subject} · {status}",
+    "{subject} · {status}",
+    "{name} · {role}",
+    "{evidence} · {status}",
+    "Settings reading",
+  ]);
+  assert(Object.keys(labels).length >= 980, "Web translation registry lost substantial workflow coverage");
+  for (const [key, value] of Object.entries(labels)) {
     assert(value.en && value.ar, key);
+    if (!neutralTemplates.has(key)) {
+      assert.match(value.ar, /[ء-ي]/, key + ": Arabic resource was replaced by an English fallback");
+      assert.notEqual(value.ar, value.en, key + ": Arabic resource equals English");
+    }
     const variables = (s) =>
       [...s.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]).sort();
     assert.deepEqual(variables(value.en), variables(value.ar), key);
@@ -78,10 +92,37 @@ const fs = require("node:fs"),
     );
     await page.goto(base);
     await page.locator("#stations h3").waitFor();
+    // A ticket subject/name is literal text, not a second translation template.
+    // Also cover JS replacement metacharacters and translated status resources.
+    const interpolation = async (lang) => page.evaluate((lang) => {
+      const locale = window.EvLocale;
+      const subject = "{status} $& $$ $` $' <literal>";
+      const key = '{subject} · {status}';
+      const template = window.EV_MESSAGES[key][lang];
+      const expectedStatus = locale.text('English');
+      const expected = template.replace(/\{(subject|status)\}/g, (_, name) =>
+        name === 'subject' ? subject : expectedStatus);
+      const first = locale.text(key, {subject, status:{translate:'English'}});
+      const reversed = locale.text(key, {status:{translate:'English'}, subject});
+      const missing = locale.text(key, {subject});
+      const node = document.createElement('p');
+      locale.bind(node, key, {subject, status:{translate:'English'}});
+      return {expected, first, reversed, missing, expectedMissing:
+        template.replace(/\{subject\}/g, () => subject), bound:node.textContent};
+    }, lang);
+    const verifyInterpolation = async (lang) => {
+      const result = await interpolation(lang);
+      assert.equal(result.first, result.expected);
+      assert.equal(result.reversed, result.expected);
+      assert.equal(result.bound, result.expected);
+      assert.equal(result.missing, result.expectedMissing);
+    };
+    await verifyInterpolation('en');
     await page.locator("#account input[name=name]").fill("Unchanged draft");
     await page.locator("#language").click();
     await page.waitForFunction(() => document.documentElement.lang === "ar");
     assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
+    await verifyInterpolation('ar');
     assert.equal(
       await page.locator("#account input[name=name]").inputValue(),
       "Unchanged draft",

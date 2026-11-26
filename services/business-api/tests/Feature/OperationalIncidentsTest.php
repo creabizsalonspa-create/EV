@@ -69,10 +69,14 @@ class OperationalIncidentsTest extends TestCase
         $this->assertSame(2, $scanner->scan($health)['resolved']);
         $this->assertSame(0, $scanner->scan($health)['resolved']);
         $this->assertSame([], $scanner->summary()['open']);
+        $resolved = $scanner->summary()['resolved'];
+        $this->assertSame(['queue_worker_stale', 'scheduler_stale'], array_column($resolved, 'condition_key'));
+        $this->assertNotEmpty($resolved[0]->resolved_at);
         $this->assertDatabaseCount('operational_incident_events', 4);
         $this->travel(180)->seconds();
         $this->assertSame(2, $scanner->scan($health)['opened']);
         $this->assertDatabaseHas('operational_incident_states', ['condition_key' => 'scheduler_stale', 'state' => 'open', 'transitions' => 3]);
+        $this->assertSame([], $scanner->summary()['resolved']);
         $this->assertDatabaseCount('operational_incident_events', 6);
     }
 

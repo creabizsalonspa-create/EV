@@ -150,6 +150,31 @@ class VendorRevenueCohortTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 2);
     }
 
+    public function test_plain_browser_cohort_csv_refuses_invalid_filters_without_finance_mutations(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
+        $this->invoice(100, 'invalid-csv', true);
+        $base = '/revenue-test/commercial/vendors/'.$this->vendor->id.'/revenue-cohorts';
+        $this->actingAs($this->vendor);
+        $journalCount = DB::table('finance_journals')->count();
+        $invoiceCount = DB::table('finance_invoices')->count();
+
+        foreach ([
+            'currency=aed&from=2026-11-10&to=2026-11-11',
+            'currency=AED&from=2026-02-30&to=2026-11-11',
+            'currency=AED&from=2026-11-12&to=2026-11-10',
+        ] as $query) {
+            $this->get($base.'/export?'.$query)->assertUnprocessable()
+                ->assertHeader('Cache-Control', 'no-store, private');
+        }
+        $this->get($base.'/export?currency=AED&from=2026-11-10&to=2027-03-01')
+            ->assertUnprocessable();
+        $this->get($base.'/export?currency=AED&from=2026-11-10&to=2026-11-11')
+            ->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertSame($journalCount, DB::table('finance_journals')->count());
+        $this->assertSame($invoiceCount, DB::table('finance_invoices')->count());
+    }
+
     public function test_invoice_cohort_aggregates_exclude_another_vendor_even_when_currency_and_date_match(): void
     {
         $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));

@@ -20,7 +20,7 @@ try {
   });
   execFileSync(
     "flutter",
-    ["test", "test/live_hosted_checkout_test.dart", "--reporter", "expanded"],
+    ["test", "--no-pub", "test/live_hosted_checkout_test.dart", "--reporter", "expanded"],
     {
       cwd: "apps/mobile",
       stdio: "inherit",

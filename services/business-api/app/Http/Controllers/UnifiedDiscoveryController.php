@@ -34,7 +34,7 @@ final class UnifiedDiscoveryController extends Controller
         abort_if($request->boolean('saved_only') && $customer === null, 403);
         $catalog = Station::query();
         $partner = OcpiRecord::query()->where('module', 'locations')->where('normalized->publish', true)
-            ->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'));
+            ->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->select('id'));
         // Explicit market filter uses the charging location's country,
         // never the OCPI partner party's country code.
         if (! empty($v['country'])) {
@@ -80,7 +80,7 @@ final class UnifiedDiscoveryController extends Controller
             };
             $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $value).'%';
             if ($field === 'operator') {
-                $partner->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->whereRaw("name $comparison ? ESCAPE '!'", [$pattern])->select('id'));
+                $partner->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->whereRaw("name $comparison ? ESCAPE '!'", [$pattern])->select('id'));
             } else {
                 $partner->where(function ($query) use ($driver, $comparison, $pattern) {
                     foreach (['address', 'city'] as $key) {
@@ -121,7 +121,7 @@ final class UnifiedDiscoveryController extends Controller
                     $column = $driver === 'pgsql' ? "(ocpi_records.normalized->>'$field')" : "json_extract(ocpi_records.normalized, '$.$field')";
                     $query->orWhereRaw("$column $operator ? ESCAPE '!'", [$pattern]);
                 }
-                $query->orWhereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->whereRaw("name $operator ? ESCAPE '!'", [$pattern])->select('id'));
+                $query->orWhereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->whereRaw("name $operator ? ESCAPE '!'", [$pattern])->select('id'));
             });
         }
         if (! empty($v['connector'])) {
@@ -146,9 +146,9 @@ final class UnifiedDiscoveryController extends Controller
         $rows = $page->getCollection();
         $stations = app(StationCatalog::class)->present(Station::whereIn('id', $rows->where('kind', 'catalog')->pluck('id'))->get(), $customer)->keyBy('id');
         $partners = OcpiRecord::whereIn('id', $rows->where('kind', 'partner')->pluck('id'))->where('module', 'locations')->where('normalized->publish', true)
-            ->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'))
+            ->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->select('id'))
             ->get(['id', 'ocpi_provider_id', 'normalized', 'source_updated_at', 'received_at'])->keyBy('id');
-        $labels = OcpiProvider::whereIn('id', $partners->pluck('ocpi_provider_id'))->where('authorized', true)->pluck('name', 'id');
+        $labels = OcpiProvider::publiclyDiscoverable()->whereIn('id', $partners->pluck('ocpi_provider_id'))->pluck('name', 'id');
         $savedPartners = $customer === null ? collect() : DB::table('partner_location_favorites')->where('user_id', $customer)->whereIn('record_id', $partners->keys())->pluck('record_id')->flip();
         $this->currentActor($request);
         $checkedAt = now();

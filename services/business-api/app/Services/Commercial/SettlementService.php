@@ -12,6 +12,27 @@ class SettlementService
 {
     private const RESERVED = ['pending', 'approved', 'simulated_paid', 'provider_paid'];
 
+    private const MAX_EXACT_MINOR = 9_007_199_254_740_991;
+
+    /** Never round or truncate a canonical financial amount before settlement. */
+    private static function exactMinor(mixed $value, bool $signed = false): int
+    {
+        abort_unless(is_int($value) || is_string($value), 409,
+            'Settlement source minor units must be exact integers.');
+        $number = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($number !== false && $number <= self::MAX_EXACT_MINOR
+            && $number >= ($signed ? -self::MAX_EXACT_MINOR : 0),
+            409, 'Settlement source amount exceeds exact integer bounds.');
+
+        return $number;
+    }
+
+    /** Each bounded sum is checked before it can enter a ledger or report. */
+    private static function addMinor(int $left, int $right, bool $signed = false): int
+    {
+        return self::exactMinor($left + $right, $signed);
+    }
+
     private function enabled(): void
     {
         abort_if(app()->environment('production'), 503, 'Settlement simulation is disabled in production; no payout provider is connected.');
@@ -41,38 +62,64 @@ class SettlementService
         $tax = 0;
         $refunded = 0;
         foreach ($query->get() as $invoice) {
-            $paid = (int) DB::table('finance_payments')->where('invoice_id', $invoice->id)->sum('amount_minor');
+            $paid = self::exactMinor(DB::table('finance_payments')->where('invoice_id', $invoice->id)->sum('amount_minor'));
             $refunds = DB::table('finance_refunds')->where('invoice_id', $invoice->id);
-            $refund = (int) (clone $refunds)->sum('amount_minor');
-            $vendorRefund = (int) (clone $refunds)->sum('vendor_minor');
-            $reserved = (int) DB::table('commercial_settlement_lines as l')->join('commercial_settlements as s', 's.id', '=', 'l.settlement_id')->where('l.invoice_id', $invoice->id)->whereIn('s.state', self::RESERVED)->sum('l.amount_minor');
+            $refund = self::exactMinor((clone $refunds)->sum('amount_minor'));
+            $vendorRefund = self::exactMinor((clone $refunds)->sum('vendor_minor'));
+            $reserved = self::exactMinor(DB::table('commercial_settlement_lines as l')->join('commercial_settlements as s', 's.id', '=', 'l.settlement_id')->where('l.invoice_id', $invoice->id)->whereIn('s.state', self::RESERVED)->sum('l.amount_minor'), true);
+            $invoiceTotal = self::exactMinor($invoice->total_minor);
+            $invoiceVendor = self::exactMinor($invoice->vendor_minor);
+            $invoiceSubtotal = self::exactMinor($invoice->subtotal_minor);
+            $invoiceCommission = self::exactMinor($invoice->commission_minor);
+            $invoiceTax = self::exactMinor($invoice->tax_minor);
             // Positive earnings require full capture and a completed holding period.
             // Refund debt after a prior settlement is carried forward immediately.
             $mature = Carbon::parse($invoice->created_at)->addDays($holdDays)->lte(now());
-            $earned = $paid === (int) $invoice->total_minor && ($mature || $reserved !== 0) ? (int) $invoice->vendor_minor - $vendorRefund : 0;
+            $earned = $paid === $invoiceTotal && ($mature || $reserved !== 0)
+                ? self::addMinor($invoiceVendor, -$vendorRefund, true) : 0;
             if ($this->held((int) $invoice->id)) {
-                $completed = (int) DB::table('commercial_settlement_lines as l')->join('commercial_settlements as s', 's.id', '=', 'l.settlement_id')->where('l.invoice_id', $invoice->id)->whereIn('s.state', ['simulated_paid', 'provider_paid'])->sum('l.amount_minor');
+                $completed = self::exactMinor(DB::table('commercial_settlement_lines as l')->join('commercial_settlements as s', 's.id', '=', 'l.settlement_id')->where('l.invoice_id', $invoice->id)->whereIn('s.state', ['simulated_paid', 'provider_paid'])->sum('l.amount_minor'), true);
                 $earned = min($earned, $completed);
             }
-            $available = $earned - $reserved;
+            $available = self::addMinor($earned, -$reserved, true);
             if ($available !== 0) {
                 $lines[] = ['invoice_id' => (int) $invoice->id, 'adjustment_id' => null, 'amount_minor' => $available];
             }
-            $gross += (int) $invoice->subtotal_minor;
-            $commission += (int) $invoice->commission_minor;
-            $tax += (int) $invoice->tax_minor;
-            $refunded += $refund;
+            $gross = self::addMinor($gross, $invoiceSubtotal);
+            $commission = self::addMinor($commission, $invoiceCommission);
+            $tax = self::addMinor($tax, $invoiceTax);
+            $refunded = self::addMinor($refunded, $refund);
         }
         $adjustments = DB::table('commercial_adjustments as a')->join('commercial_adjustment_approvals as p', 'p.adjustment_id', '=', 'a.id')->where('a.vendor_id', $vendor)->where('a.currency', $currency)->select('a.*')->orderBy('a.id')->get();
         foreach ($adjustments as $adjustment) {
-            $reserved = (int) DB::table('commercial_settlement_lines as l')->join('commercial_settlements as s', 's.id', '=', 'l.settlement_id')->where('l.adjustment_id', $adjustment->id)->whereIn('s.state', self::RESERVED)->sum('l.amount_minor');
-            $available = (int) $adjustment->amount_minor - $reserved;
+            $reserved = self::exactMinor(DB::table('commercial_settlement_lines as l')->join('commercial_settlements as s', 's.id', '=', 'l.settlement_id')->where('l.adjustment_id', $adjustment->id)->whereIn('s.state', self::RESERVED)->sum('l.amount_minor'), true);
+            $available = self::addMinor(self::exactMinor($adjustment->amount_minor, true), -$reserved, true);
             if ($available !== 0) {
                 $lines[] = ['invoice_id' => null, 'adjustment_id' => (int) $adjustment->id, 'amount_minor' => $available];
             }
         }
 
-        return ['vendor_id' => $vendor, 'currency' => $currency, 'minor_units' => $this->currencyPrecision($vendor, $currency), 'gross_invoiced_minor' => $gross, 'commission_invoiced_minor' => $commission, 'tax_invoiced_minor' => $tax, 'refunded_minor' => $refunded, 'available_minor' => array_sum(array_column($lines, 'amount_minor')), 'lines' => $lines, 'evidence' => 'SIMULATED', 'real_payout_enabled' => false];
+        $totalAvailable = 0;
+        foreach ($lines as $line) {
+            $totalAvailable = self::addMinor($totalAvailable, $line['amount_minor'], true);
+        }
+
+        return ['vendor_id' => $vendor, 'currency' => $currency, 'minor_units' => $this->currencyPrecision($vendor, $currency), 'gross_invoiced_minor' => $gross, 'commission_invoiced_minor' => $commission, 'tax_invoiced_minor' => $tax, 'refunded_minor' => $refunded, 'available_minor' => $totalAvailable, 'lines' => $lines, 'evidence' => 'SIMULATED', 'real_payout_enabled' => false];
+    }
+
+    /**
+     * One authoritative exact-money check for the settlement detail DTO.
+     * Mixed signed refund-debt lines may reconcile to a positive payable;
+     * neither oversized SQL sums nor float-origin amounts may pass as green.
+     */
+    public function reconciles(object $settlement, iterable $lines): bool
+    {
+        $total = 0;
+        foreach ($lines as $line) {
+            $total = self::addMinor($total, self::exactMinor($line->amount_minor, true), true);
+        }
+
+        return $total === self::exactMinor($settlement->amount_minor);
     }
 
     private function held(int $invoice): bool
@@ -87,7 +134,9 @@ class SettlementService
 
         return DB::transaction(function () use ($vendor, $currency, $actor, $key) {
             User::whereKey($actor)->lockForUpdate()->firstOrFail();
-            User::whereKey($vendor)->where('role', 'vendor')->lockForUpdate()->firstOrFail();
+            $vendorAccount = User::whereKey($vendor)->where('role', 'vendor')->lockForUpdate()->firstOrFail();
+            abort_unless($vendorAccount->account_status === 'active', 409,
+                'A suspended vendor cannot reserve new payable settlements.');
             $requestKey = hash('sha256', $actor.':'.$key);
             if ($old = DB::table('commercial_settlements')->where('request_key', $requestKey)->first()) {
                 abort_unless((int) $old->vendor_id === $vendor && $old->currency === $currency, 409, 'Settlement key payload mismatch.');
@@ -115,7 +164,14 @@ class SettlementService
         return DB::transaction(function () use ($id, $actor, $action) {
             $hint = DB::table('commercial_settlements')->find($id);
             abort_unless($hint, 404);
-            User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
+            $vendorAccount = User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
+            // Reject remains available for supervised release of an old
+            // reservation; approval/execution must recheck current vendor status.
+            if ($action !== 'reject') {
+                abort_unless($vendorAccount->role === 'vendor'
+                    && $vendorAccount->account_status === 'active', 409,
+                    'Vendor payout approval is held until account review.');
+            }
             $s = DB::table('commercial_settlements')->where('id', $id)->lockForUpdate()->first();
             // Durable provider claims retain this reservation even after a timeout.
             // Cancel only a provably unsent/failed payout through its own workflow.

@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class ChargingRepairTest extends TestCase
@@ -54,6 +55,8 @@ class ChargingRepairTest extends TestCase
     {
         [$owner, , , $url, $alert, $binding] = $this->repairFixture();
         $this->actingAs($owner);
+        $alertsUrl = str_replace('repair-orders', 'fault-alerts', $url);
+        $this->getJson($alertsUrl)->assertOk()->assertJsonPath('data.0.id', $alert)->assertJsonPath('data.0.repair_review_closed_at', null);
         $create = $this->intent($alert, 0, 'open');
         $id = $this->postJson($url, $create)->assertOk()->assertJsonPath('version', 1)->json('id');
         $this->postJson($url, $create)->assertOk()->assertJsonPath('replayed', true);
@@ -68,7 +71,21 @@ class ChargingRepairTest extends TestCase
         $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertConflict();
         app(FaultMonitor::class)->ingest($binding, ['source_generation' => FaultMonitor::generation($binding), 'events' => [['id' => 11, 'evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => now()->toISOString()]]]);
         $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertOk()->assertJsonPath('capacity_changed', false)->assertJsonPath('commands_sent', false);
+        $closed = $this->getJson($alertsUrl)->assertOk()->assertJsonPath('data.0.id', $alert)
+            ->assertJsonPath('physical_charging_verified', false)->assertJsonMissingPath('data.0.note_ciphertext')
+            ->json('data.0.repair_review_closed_at');
+        $this->assertNotEmpty($closed);
+        $this->getJson(str_replace('/api/', '/api/v1/', $alertsUrl))->assertOk()->assertJsonPath('data.0.repair_review_closed_at', $closed);
+
+        app(FaultMonitor::class)->ingest($binding, ['source_generation' => FaultMonitor::generation($binding), 'events' => [[
+            'id' => 12, 'evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Faulted',
+            'errorCode' => 'GroundFailure', 'timestamp' => now()->toISOString(),
+        ]]]);
+        $this->getJson($alertsUrl)->assertOk()->assertJsonPath('data.0.source_event_id', 12)->assertJsonPath('data.0.repair_review_closed_at', null)
+            ->assertJsonPath('data.1.repair_review_closed_at', $closed);
+
         $this->postJson($url, $this->intent($alert, 4, 'open'))->assertOk();
+        $this->getJson($alertsUrl)->assertOk()->assertJsonPath('data.1.repair_review_closed_at', null);
         $list = $this->getJson($url)->assertOk()->assertJsonPath('data.0.state', 'open')->assertJsonPath('physical_repair_verified', false);
         $this->assertStringNotContainsString('PRIVATE repair', $list->getContent());
         $this->assertStringContainsString('no-store', $list->headers->get('Cache-Control'));
@@ -78,6 +95,134 @@ class ChargingRepairTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
         Http::assertNothingSent();
+    }
+
+    #[TestWith(['1.6'])]
+    #[TestWith(['2.0.1'])]
+    public function test_repair_review_cannot_close_on_historical_recovery_after_new_fault_until_source_clears(string $protocol): void
+    {
+        [$owner, $company, $charger, $diagnostics] = $this->fixture($protocol);
+        $binding = DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->firstOrFail();
+        $generation = FaultMonitor::generation($binding);
+        $monitor = app(FaultMonitor::class);
+        $monitor->ingest($binding, ['source_generation' => $generation, 'events' => [[
+            'id' => 10, 'evseId' => 1, 'connectorId' => 1,
+            'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure',
+            'timestamp' => now()->subMinutes(4)->toISOString(),
+        ]]]);
+        $alert = DB::table('charging_fault_alerts')->value('id');
+        $url = str_replace('source-diagnostics', 'repair-orders', $diagnostics);
+        $this->actingAs($owner);
+        $this->postJson($url, $this->intent($alert, 0, 'open'))->assertOk();
+        $this->postJson($url, $this->intent($alert, 1, 'in_progress'))->assertOk();
+        $this->postJson($url, $this->intent($alert, 2, 'review'))->assertOk();
+
+        $monitor->ingest($binding, ['source_generation' => $generation, 'events' => [[
+            'id' => 11, 'evseId' => 1, 'connectorId' => 1,
+            'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+            'timestamp' => now()->subMinutes(3)->toISOString(),
+        ]]]);
+        $this->assertNotNull(DB::table('charging_fault_alerts')->where('id', $alert)->value('recovery_observation_id'));
+        $monitor->ingest($binding, ['source_generation' => $generation, 'events' => [[
+            'id' => 12, 'evseId' => 1, 'connectorId' => 1,
+            'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure',
+            'timestamp' => now()->subMinutes(2)->toISOString(),
+        ]]]);
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertConflict();
+        $this->assertDatabaseHas('charging_repair_orders', [
+            'alert_id' => $alert, 'state' => 'review', 'version' => 3,
+        ]);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+
+        $monitor->ingest($binding, ['source_generation' => $generation, 'events' => [[
+            'id' => 13, 'evseId' => 1, 'connectorId' => 1,
+            'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+            'timestamp' => now()->subMinute()->toISOString(),
+        ]]]);
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertOk()
+            ->assertJsonPath('state', 'closed')
+            ->assertJsonPath('capacity_changed', false)
+            ->assertJsonPath('commands_sent', false);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_repair_review_never_trusts_wrong_connector_recovery_or_regressed_source_clock(): void
+    {
+        [$owner, , , $url, $alert, $binding] = $this->repairFixture();
+        $this->actingAs($owner);
+        $this->postJson($url, $this->intent($alert, 0, 'open'))->assertOk();
+        $this->postJson($url, $this->intent($alert, 1, 'in_progress'))->assertOk();
+        $this->postJson($url, $this->intent($alert, 2, 'review'))->assertOk();
+        $generation = FaultMonitor::generation($binding);
+        $monitor = app(FaultMonitor::class);
+        $monitor->ingest($binding, ['source_generation' => $generation, 'events' => [[
+            'id' => 11, 'evseId' => 1, 'connectorId' => 1,
+            'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+            'timestamp' => now()->subSeconds(20)->toISOString(),
+        ]]]);
+        $valid = DB::table('charging_fault_alerts')->where('id', $alert)->value('recovery_observation_id');
+        $monitor->ingest($binding, ['source_generation' => $generation, 'events' => [[
+            'id' => 12, 'evseId' => 2, 'connectorId' => 1,
+            'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+            'timestamp' => now()->subSeconds(10)->toISOString(),
+        ]]]);
+        $other = DB::table('charging_status_observations')
+            ->where('source_generation', $generation)->where('source_event_id', 12)->value('id');
+        DB::table('charging_fault_alerts')->where('id', $alert)
+            ->update(['recovery_observation_id' => $other]);
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertConflict();
+
+        DB::table('charging_fault_alerts')->where('id', $alert)
+            ->update(['recovery_observation_id' => $valid]);
+        $monitor->ingest($binding, ['source_generation' => $generation, 'events' => [[
+            'id' => 13, 'evseId' => 1, 'connectorId' => 1,
+            'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+            'timestamp' => now()->subMinutes(3)->toISOString(),
+        ]]]);
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertConflict();
+        $this->assertDatabaseHas('charging_repair_orders', [
+            'alert_id' => $alert, 'state' => 'review', 'version' => 3,
+        ]);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_old_healthy_source_receipt_cannot_close_repair_without_new_fresh_evidence(): void
+    {
+        [$owner, , , $url, $alert, $binding] = $this->repairFixture();
+        $this->actingAs($owner);
+        $this->postJson($url, $this->intent($alert, 0, 'open'))->assertOk();
+        $this->postJson($url, $this->intent($alert, 1, 'in_progress'))->assertOk();
+        $this->postJson($url, $this->intent($alert, 2, 'review'))->assertOk();
+        $generation = FaultMonitor::generation($binding);
+        app(FaultMonitor::class)->ingest($binding, [
+            'source_generation' => $generation,
+            'events' => [[
+                'id' => 11, 'evseId' => 1, 'connectorId' => 1,
+                'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+                'timestamp' => now()->toISOString(),
+            ]],
+        ]);
+        $this->assertNotNull(DB::table('charging_fault_alerts')->where('id', $alert)->value('recovery_observation_id'));
+        $this->travel(7)->minutes();
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertConflict();
+        $this->assertDatabaseHas('charging_repair_orders', [
+            'alert_id' => $alert, 'state' => 'review', 'version' => 3,
+        ]);
+        app(FaultMonitor::class)->ingest($binding, [
+            'source_generation' => $generation,
+            'events' => [[
+                'id' => 12, 'evseId' => 1, 'connectorId' => 1,
+                'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+                'timestamp' => now()->toISOString(),
+            ]],
+        ]);
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertOk()
+            ->assertJsonPath('capacity_changed', false)
+            ->assertJsonPath('commands_sent', false);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_private_scopes_read_only_staff_and_rebinding_fences(): void

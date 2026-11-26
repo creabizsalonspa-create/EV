@@ -22,6 +22,10 @@ window.EvAdminOperationalHealth = (() => {
         if(i!==undefined) {
             if(!i || typeof i.store_readable!=='boolean' || typeof i.monitoring_enabled!=='boolean' || i.automatic_retry!==false || i.external_alert_delivery!==false || i.production_recovery_verified!==false || !Array.isArray(i.open) || !Array.isArray(i.recent_events) || i.open.length>6 || i.recent_events.length>20) return false;
             if(!i.open.every(v=>Object.hasOwn(incidentNames,v.condition_key)&&v.state==='open'&&typeof v.opened_at==='string'))return false;
+            const resolved = i.resolved === undefined ? [] : i.resolved;
+            if (!Array.isArray(resolved) || i.open.length + resolved.length > 6 ||
+                !resolved.every(v => v && Object.hasOwn(incidentNames, v.condition_key) && v.state === 'resolved' && typeof v.opened_at === 'string' && typeof v.resolved_at === 'string') ||
+                new Set([...i.open, ...resolved].map(v => v.condition_key)).size !== i.open.length + resolved.length) return false;
             if(!i.recent_events.every(v=>exact(v.id)&&Object.hasOwn(incidentNames,v.condition_key)&&['opened','resolved'].includes(v.transition)&&typeof v.observed_at==='string'))return false;
             if(i.scanner!==undefined && (!i.scanner || !['recent','stale','unknown'].includes(i.scanner.state) || i.scanner.max_age_seconds!==150 ||
                 (i.scanner.state==='unknown')!==(i.scanner.last_completed_at===null) ||
@@ -68,6 +72,14 @@ window.EvAdminOperationalHealth = (() => {
                 else {
                     if(!i.open.length)output.append(n('p','No currently recorded open incidents. Unknown monitoring is not proof of health.','لا توجد حوادث مفتوحة مسجلة حالياً. عدم معرفة حالة المراقبة ليس دليلاً على السلامة.'));
                     for(const item of i.open){const a=document.createElement('article');a.append(n('h5',...incidentNames[item.condition_key]),n('p','Open / مفتوح','مفتوح / Open'),plain('p',item.opened_at));output.append(a);}
+                    if (i.resolved?.length) {
+                        output.append(n('h5', 'Resolved incidents', 'الحوادث التي تم حلها'));
+                        for (const item of i.resolved) {
+                            const row = document.createElement('article');
+                            row.append(n('p', ...incidentNames[item.condition_key]), plain('time', item.resolved_at));
+                            output.append(row);
+                        }
+                    }
                     output.append(n('h5','Recent incident transitions','التغييرات الأخيرة في الحوادث'));
                     for(const event of i.recent_events){const a=document.createElement('article');a.append(n('p',...incidentNames[event.condition_key]),n('p',event.transition==='opened'?'Opened':'Resolved',event.transition==='opened'?'فُتحت':'تم حلها'),plain('p',event.observed_at));output.append(a);}
                 }

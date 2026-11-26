@@ -7,6 +7,7 @@ use App\Services\Commercial\SettlementService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 final class VendorRevenueCohortController extends Controller
 {
@@ -141,7 +142,17 @@ final class VendorRevenueCohortController extends Controller
 
     public function export(Request $request, int $vendor, SettlementService $settlements)
     {
-        $report = DB::transaction(fn () => $this->report($request, $vendor, $settlements), 3);
+        try {
+            $report = DB::transaction(fn () => $this->report($request, $vendor, $settlements), 3);
+        } catch (ValidationException $error) {
+            // Browser CSV GETs typically lack Accept: application/json.
+            // Return the same explicit 422 as a JSON request, never a
+            // redirect that hides a malformed/oversized financial period.
+            return response()->json([
+                'message' => 'Invalid private invoice-cohort period.',
+                'errors' => $error->errors(),
+            ], 422)->header('Cache-Control', 'private, no-store');
+        }
 
         return response()->streamDownload(static function () use ($report): void {
             $output = fopen('php://output', 'wb');
@@ -151,14 +162,17 @@ final class VendorRevenueCohortController extends Controller
                 'vendor_refunded_minor', 'unpaid_credited_minor', 'vendor_credited_minor',
                 'net_collected_minor', 'net_vendor_allocated_minor',
             ];
-            fputcsv($output, $fields);
+            fputcsv($output, $fields, ',', '"', '');
             foreach ($report['data'] as $row) {
-                fputcsv($output, array_map(static fn (string $field) => $row[$field], $fields));
+                fputcsv($output,
+                    array_map(static fn (string $field) => $row[$field], $fields),
+                    ',', '"', '');
             }
             fclose($output);
         }, 'simulated-vendor-invoice-cohorts.csv', [
             'Content-Type' => 'text/csv; charset=utf-8',
             'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 }

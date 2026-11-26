@@ -1,3 +1,4 @@
+import 'local_fixture_origin.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,7 +13,7 @@ void main() {
       final f =
           jsonDecode(await File(path!).readAsString()) as Map<String, dynamic>;
       expect(f['fixture_only'], true);
-      final api = EvApi(Uri.parse('http://127.0.0.1:8000'));
+      final api = EvApi(localFixtureOrigin());
       addTearDown(api.close);
       await api.signIn(f['customer'], f['password']);
       final generated = await api.request(

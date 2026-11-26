@@ -1,3 +1,4 @@
+import 'local_fixture_origin.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,7 +12,7 @@ void main() {
     () async {
       final f = jsonDecode(await File(path!).readAsString());
       expect(f['fixture_only'], true);
-      final api = EvApi(Uri.parse('http://127.0.0.1:8000'));
+      final api = EvApi(localFixtureOrigin());
       addTearDown(api.close);
       await api.signIn(f['customer'], f['password']);
       final original = await api.request('finance/invoices/${f['invoice']}');

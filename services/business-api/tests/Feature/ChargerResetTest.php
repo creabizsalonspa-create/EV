@@ -23,7 +23,7 @@ class ChargerResetTest extends TestCase
 
     private function fixture(string $protocol = '1.6'): array
     {
-        config(['csms.safe_reset_enabled' => true, 'csms.session_bridge_enabled' => true, 'csms.graphql_secret' => str_repeat('x', 64), 'csms.graphql_url' => 'http://source.test/graphql']);
+        config(['csms.safe_reset_enabled' => true, 'csms.session_bridge_enabled' => true, 'csms.graphql_secret' => str_repeat('x', 64), 'csms.graphql_url' => 'http://127.0.0.1:8095/v1/graphql']);
         $owner = User::factory()->create(['role' => 'vendor']);
         $station = Station::create(['vendor_id' => $owner->id, 'name' => 'Reset fixture', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
         $company = VendorCompany::create(['owner_id' => $owner->id, 'legal_name' => 'Synthetic reset', 'country' => 'AE', 'trade_license_number' => 'SYNTHETIC', 'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved']);
@@ -35,19 +35,23 @@ class ChargerResetTest extends TestCase
         return compact('owner', 'station', 'company', 'charger', 'binding', 'path', 'protocol');
     }
 
-    private function source(array $f, bool $active = false, bool $uncertain = false, ?string $statusTime = null): void
+    private function source(array $f, bool $active = false, bool $uncertain = false, ?string $statusTime = null, ?string $faultCode = 'NoError', ?callable $duringToken = null): void
     {
         Http::swap(new Factory);
         Http::preventStrayRequests();
-        Http::fake(function ($r) use ($f, $active, $uncertain, $statusTime) {
-            if ($r->url() === 'http://source.test/graphql') {
+        Http::fake(function ($r) use ($f, $active, $uncertain, $statusTime, $faultCode, $duringToken) {
+            if ($r->url() === 'http://127.0.0.1:8095/v1/graphql') {
                 if (str_contains($r['query'], 'ChargingStations')) {
                     return Http::response(['data' => ['ChargingStations' => [['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']]]]]);
                 }
 
-                return Http::response(['data' => ['Transactions' => $active ? [['id' => 1]] : [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => $statusTime ?? now()->toISOString()]]]]);
+                return Http::response(['data' => ['Transactions' => $active ? [['id' => 1]] : [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'errorCode' => $faultCode, 'timestamp' => $statusTime ?? now()->toISOString()]]]]);
             }
             if (str_ends_with($r->url(), '/dev/token')) {
+                if ($duringToken) {
+                    $duringToken();
+                }
+
                 return Http::response(['accessToken' => 'synthetic-source-token']);
             }
 
@@ -59,7 +63,7 @@ class ChargerResetTest extends TestCase
     {
         foreach (['1.6', '2.0.1'] as $protocol) {
             $f = $this->fixture($protocol);
-            $this->source($f);
+            $this->source($f, faultCode: $protocol === '1.6' ? 'NoError' : null);
             $body = ['reason' => 'PRIVATE operational safety review', 'idempotency_key' => 'reset-'.$protocol];
             $id = $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'transport_submitted')->assertJsonPath('capacity_released', false)->json('id');
             $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id);
@@ -99,8 +103,11 @@ class ChargerResetTest extends TestCase
         $out = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
             foreach (['station_object', 'station_string_id', 'station_string_online', 'connector_object', 'connector_string_id',
-                'connector_duplicate', 'status_object', 'status_string_connector', 'status_missing_time', 'active_transaction'] as $kind) {
+                'connector_duplicate', 'status_object', 'status_string_connector', 'status_missing_time', 'active_transaction', 'fault_code', 'malformed_fault_code'] as $kind) {
                 $out[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+            if ($protocol === '1.6') {
+                $out[$protocol.'_missing_error_code'] = [$protocol, 'missing_error_code'];
             }
         }
 
@@ -114,7 +121,7 @@ class ChargerResetTest extends TestCase
         Http::swap(new Factory);
         Http::preventStrayRequests();
         Http::fake(function ($r) use ($f, $kind) {
-            $this->assertSame('http://source.test/graphql', $r->url());
+            $this->assertSame('http://127.0.0.1:8095/v1/graphql', $r->url());
             if (str_contains($r['query'], 'ChargingStations')) {
                 $station = ['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']];
                 if ($kind === 'station_string_id') {
@@ -137,13 +144,20 @@ class ChargerResetTest extends TestCase
             if ($kind === 'connector_duplicate') {
                 $connectors[] = ['id' => 7];
             }
-            $status = ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available',
+            $status = ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'errorCode' => 'NoError',
                 'timestamp' => now()->toISOString()];
             if ($kind === 'status_string_connector') {
                 $status['connectorDatabaseId'] = '7';
             }
             if ($kind === 'status_missing_time') {
                 unset($status['timestamp']);
+            }
+            if ($kind === 'fault_code') {
+                $status['errorCode'] = 'GroundFailure';
+            } elseif ($kind === 'malformed_fault_code') {
+                $status['errorCode'] = ['NoError'];
+            } elseif ($kind === 'missing_error_code') {
+                unset($status['errorCode']);
             }
             $notifications = $kind === 'status_object' ? ['status' => $status] : [$status];
 
@@ -173,7 +187,7 @@ class ChargerResetTest extends TestCase
                 Http::swap(new Factory);
                 Http::preventStrayRequests();
                 Http::fake(function ($request) use ($f, $unregisteredStatus) {
-                    $this->assertSame('http://source.test/graphql', $request->url());
+                    $this->assertSame('http://127.0.0.1:8095/v1/graphql', $request->url());
                     if (str_contains($request['query'], 'ChargingStations')) {
                         return Http::response(['data' => ['ChargingStations' => [
                             ['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']],
@@ -186,8 +200,8 @@ class ChargerResetTest extends TestCase
                         // This newer source row was omitted from the current
                         // connector inventory; even Available is not idle proof.
                         'StatusNotifications' => [
-                            ['connectorDatabaseId' => 8, 'connectorStatus' => $unregisteredStatus, 'timestamp' => now()->toISOString()],
-                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => now()->subSecond()->toISOString()],
+                            ['connectorDatabaseId' => 8, 'connectorStatus' => $unregisteredStatus, 'errorCode' => $unregisteredStatus === 'Available' ? 'NoError' : 'GroundFailure', 'timestamp' => now()->toISOString()],
+                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => now()->subSecond()->toISOString()],
                         ],
                     ]]);
                 });
@@ -212,7 +226,7 @@ class ChargerResetTest extends TestCase
             Http::swap(new Factory);
             Http::preventStrayRequests();
             Http::fake(function ($request) use ($f) {
-                if ($request->url() === 'http://source.test/graphql') {
+                if ($request->url() === 'http://127.0.0.1:8095/v1/graphql') {
                     if (str_contains($request['query'], 'ChargingStations')) {
                         return Http::response(['data' => ['ChargingStations' => [
                             ['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']],
@@ -223,8 +237,8 @@ class ChargerResetTest extends TestCase
                         'Transactions' => [],
                         'Connectors' => [['id' => 7], ['id' => 8]],
                         'StatusNotifications' => [
-                            ['connectorDatabaseId' => 8, 'connectorStatus' => 'Available', 'timestamp' => now()->toISOString()],
-                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => now()->subSecond()->toISOString()],
+                            ['connectorDatabaseId' => 8, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => now()->toISOString()],
+                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => now()->subSecond()->toISOString()],
                         ],
                     ]]);
                 }
@@ -248,12 +262,12 @@ class ChargerResetTest extends TestCase
     public function test_conflicting_source_status_clocks_cannot_authorize_a_reset(): void
     {
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['same_instant_conflict', 'reverse_source_clock'] as $kind) {
+            foreach (['same_instant_conflict', 'same_instant_fault_code', 'reverse_source_clock'] as $kind) {
                 $f = $this->fixture($protocol);
                 Http::swap(new Factory);
                 Http::preventStrayRequests();
                 Http::fake(function ($r) use ($f, $kind) {
-                    $this->assertSame('http://source.test/graphql', $r->url());
+                    $this->assertSame('http://127.0.0.1:8095/v1/graphql', $r->url());
                     if (str_contains($r['query'], 'ChargingStations')) {
                         return Http::response(['data' => [
                             'ChargingStations' => [['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']]],
@@ -266,8 +280,8 @@ class ChargerResetTest extends TestCase
                         'Transactions' => [],
                         'Connectors' => [['id' => 7]],
                         'StatusNotifications' => [
-                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => $first],
-                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Faulted', 'timestamp' => $second],
+                            ['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => $first],
+                            ['connectorDatabaseId' => 7, 'connectorStatus' => $kind === 'same_instant_fault_code' ? 'Available' : 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => $second],
                         ],
                     ]]);
                 });
@@ -282,6 +296,39 @@ class ChargerResetTest extends TestCase
                 $this->assertDatabaseCount('charger_commands', 0);
                 $this->assertDatabaseCount('finance_invoices', 0);
             }
+        }
+    }
+
+    public function test_fault_receipt_prevents_review_of_existing_reset_hold(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $this->source($f);
+            $id = $this->actingAs($f['owner'])->postJson($f['path'], [
+                'reason' => 'Review simulator reset source safety',
+                'idempotency_key' => 'fault-review-'.$protocol,
+            ])->assertCreated()->json('id');
+            $this->travel(21)->seconds();
+            $this->source($f, faultCode: 'GroundFailure');
+            $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Fault must retain the operation hold'])->assertConflict();
+            $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null]);
+            Http::assertNotSent(fn ($request) => str_contains($request->url(), '/configuration/reset'));
+        }
+    }
+
+    public function test_operations_origin_change_after_token_blocks_reset_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $original = config('csms.operations_base_url');
+            $this->source($f, duringToken: fn () => config(['csms.operations_base_url' => 'https://other.example.test']));
+            $body = ['reason' => 'Inspect reset token source drift', 'idempotency_key' => 'token-drift-'.$protocol];
+            $id = $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'outcome_unknown')->json('id');
+            config(['csms.operations_base_url' => $original]);
+            $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id);
+            Http::assertSentCount(5);
+            Http::assertNotSent(fn ($r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), 'other.example.test'));
+            $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null]);
         }
     }
 

@@ -8,6 +8,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\FirmwareCompatibility;
 use App\Services\Charging\MaintenanceActor;
+use App\Services\Charging\OperationsCredentials;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SignedFirmwareCatalog;
 use App\Services\Charging\SourceStatusTime;
@@ -144,7 +145,7 @@ class ChargerFirmwareController extends Controller
         // GraphQL's online flag can survive a silent disconnect; firmware
         // eligibility must be based on a strictly parsed recent heartbeat.
         $lastMessage = SourceStatusTime::parse($observed['latestOcppMessageTimestamp']);
-        abort_unless($lastMessage->gte(now()->subMinutes(5)), 409,
+        abort_unless($lastMessage->gte(now()->subMinutes(5)) && $lastMessage->lte(now()), 409,
             'Source firmware identity is stale; refresh before planning maintenance.');
         abort_unless(in_array($observed['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true) &&
             $observed['chargePointVendor'] === $charger->manufacturer &&
@@ -189,7 +190,7 @@ class ChargerFirmwareController extends Controller
             'Authenticated source firmware identity changed during inspection.');
         $followupTime = SourceStatusTime::parse($reviewRows[0]['latestOcppMessageTimestamp']);
         abort_unless($followupTime->gte($lastMessage) &&
-            $followupTime->gte(now()->subMinutes(5)), 409,
+            $followupTime->gte(now()->subMinutes(5)) && $followupTime->lte(now()), 409,
             'Firmware source heartbeat changed during inspection.');
         $finalCompany = VendorCompany::findOrFail($company->id);
         $finalCharger = VendorCharger::findOrFail($charger->id);
@@ -389,11 +390,14 @@ class ChargerFirmwareController extends Controller
                     abort_unless(hash_equals($current->source_payload_digest, hash('sha256', $serialized)), 409, 'Firmware source provenance changed.');
                     $payload = json_decode($serialized, true, 32, JSON_THROW_ON_ERROR);
                     abort_unless(($payload['requestId'] ?? null) === (int) $current->id && ($payload['firmware']['signature'] ?? null) === $release->signature && ($payload['firmware']['signingCertificate'] ?? null) === $release->signing_certificate, 409, 'Approved release lineage changed.');
-                    $token = Http::timeout(5)->withoutRedirecting()->post(config('csms.operations_base_url').'/dev/token', ['roles' => ['admin'], 'tenantId' => 1])->throw()->json('accessToken');
+                    $operationsBase = config('csms.operations_base_url');
+                    $token = app(OperationsCredentials::class)->token($operationsBase);
+                    $this->enabled();
+                    abort_unless(config('csms.operations_base_url') === $operationsBase, 409, 'Operations authority changed before firmware dispatch.');
                     abort_unless(is_string($token) && $token !== '', 503);
                     $action = $b->protocol === '1.6' ? 'signedUpdateFirmware' : 'updateFirmware';
                     $wireAttempted = true; // From here even an exception is an uncertain command outcome.
-                    $reply = Http::timeout(10)->withoutRedirecting()->withToken($token)->post(config('csms.operations_base_url').'/ocpp/'.$b->protocol.'/configuration/'.$action.'?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), $payload);
+                    $reply = Http::timeout(10)->withoutRedirecting()->withToken($token)->post($operationsBase.'/ocpp/'.$b->protocol.'/configuration/'.$action.'?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), $payload);
 
                     if (! $reply->successful() || $reply->json() !== [['success' => true]]) {
                         $message = $reply->json('message');

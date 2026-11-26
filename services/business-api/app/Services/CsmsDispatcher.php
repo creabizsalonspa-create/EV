@@ -14,6 +14,7 @@ use App\Services\Charging\ChargingActorConsent;
 use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\OcppTransactionId;
 use App\Services\Charging\OperatingCalendar;
+use App\Services\Charging\OperationsCredentials;
 use App\Services\Charging\StationGate;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -149,11 +150,7 @@ class CsmsDispatcher
                 throw new \RuntimeException('Invalid simulator binding');
             }
             $base = config('csms.base_url');
-            $auth = Http::timeout(5)->post($base.'/dev/token', ['roles' => ['admin'], 'tenantId' => 1])->throw();
-            $token = $auth->json('accessToken');
-            if (! is_string($token) || $token === '') {
-                throw new \RuntimeException('Missing local token');
-            }
+            $token = app(OperationsCredentials::class)->token($base);
             if ($b->protocol === '1.6') {
                 $action = $command->action === 'start' ? 'remoteStartTransaction' : 'remoteStopTransaction';
                 if ($command->action === 'stop' && ! OcppTransactionId::valid16($command->payload['transaction_id'] ?? null)) {
@@ -164,7 +161,7 @@ class CsmsDispatcher
                 $action = $command->action === 'start' ? 'requestStartTransaction' : 'requestStopTransaction';
                 $payload = $command->action === 'start' ? ['idToken' => ['idToken' => $command->payload['id_token'] ?? 'EV-SIMULATOR', 'type' => 'Central'], 'remoteStartId' => $command->id, 'evseId' => $sourceEvse] : ['transactionId' => $command->payload['transaction_id']];
             }
-            $response = Http::withToken($token)->timeout(25)->post($base.'/ocpp/'.$b->protocol.'/evdriver/'.$action.'?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), $payload)->throw();
+            $response = Http::withToken($token)->timeout(25)->withoutRedirecting()->post($base.'/ocpp/'.$b->protocol.'/evdriver/'.$action.'?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), $payload)->throw();
             $confirmation = $response->json();
             $submitted = is_array($confirmation) && count($confirmation) === 1 && ($confirmation[0]['success'] ?? null) === true;
             $rejected = is_array($confirmation) && count($confirmation) === 1 && ($confirmation[0]['success'] ?? null) === false;

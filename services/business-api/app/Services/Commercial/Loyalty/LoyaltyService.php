@@ -4,6 +4,7 @@ namespace App\Services\Commercial\Loyalty;
 
 use App\Models\User;
 use App\Services\Commercial\Referrals\ReferralSource;
+use App\Services\Retail\PartnerRewardGovernance;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -310,6 +311,46 @@ class LoyaltyService
         return $redemption;
     }
 
+    public function claimPartnerReward(int $user, int $review, string $key): object
+    {
+        $activation = app(NoncashActivation::class);
+        abort_unless($activation->legacyPointsEnabled(), 503, 'Synthetic partner rewards are disabled.');
+
+        return DB::transaction(function () use ($user, $review, $key) {
+            $customer = User::whereKey($user)->lockForUpdate()->firstOrFail();
+            abort_unless($customer->role === 'customer' && $customer->account_status === 'active' && $customer->email_verified_at !== null, 403);
+            $request = $this->partnerRewardClaimKey($user, $key);
+            $claims = DB::table('partner_reward_claims')->where('user_id', $user);
+            if ($prior = (clone $claims)->where('request_key', $request)->first()) {
+                abort_unless((int) $prior->review_id === $review, 409, 'Partner reward retry content changed.');
+
+                return $prior;
+            }
+
+            [$offer, $event] = app(PartnerRewardGovernance::class)->lockEligibleSandboxReview($review);
+            $redemption = $this->reserveNoncashRewardLocked($user, (int) $offer->reward_id, $request,
+                'Synthetic partner reward pending manual noncash fulfillment.');
+            $id = DB::table('partner_reward_claims')->insertGetId([
+                'review_id' => $offer->id, 'approval_event_id' => $event->id, 'user_id' => $user,
+                'redemption_id' => $redemption, 'request_key' => $request, 'created_at' => now()->utc(),
+            ]);
+            $this->audit($user, 'loyalty.partner_reward.claimed', (string) $id);
+
+            return $claims->where('id', $id)->firstOrFail();
+        }, 3);
+    }
+
+    public function findPartnerRewardClaim(int $user, string $key): ?object
+    {
+        return DB::table('partner_reward_claims')->where('user_id', $user)
+            ->where('request_key', $this->partnerRewardClaimKey($user, $key))->first();
+    }
+
+    private function partnerRewardClaimKey(int $user, string $key): string
+    {
+        return hash('sha256', 'partner-reward-claim:'.$user.':'.$key);
+    }
+
     /** Read-only canonical receipt/refund/uncertainty evidence; never a new ledger. */
     public function promotionSource(object $invoice): array
     {
@@ -377,6 +418,8 @@ class LoyaltyService
             $hint = DB::table('loyalty_redemptions')->find($id);
             abort_unless($hint, 404);
             $activation = app(NoncashActivation::class);
+            $partnerClaim = DB::table('partner_reward_claims')->where('redemption_id', $id)->first();
+            abort_if($partnerClaim && ! $activation->legacyPointsEnabled(), 503, 'Synthetic partner rewards are disabled.');
             if (! $activation->legacyPointsEnabled()) {
                 abort_unless((int) $hint->points_cost === 0, 503, 'Positive-point reward fulfillment is not enabled by manual noncash configuration.');
                 $coupon = DB::table('loyalty_coupon_claims')->where('redemption_id', $id)->first();
@@ -391,6 +434,9 @@ class LoyaltyService
                 $activation->requirePointIsolation((int) $hint->user_id);
             }
             User::whereKey($hint->user_id)->lockForUpdate()->firstOrFail();
+            if ($partnerClaim && $action === 'fulfill' && $hint->status !== 'fulfilled') {
+                app(PartnerRewardGovernance::class)->lockEligibleSandboxReview((int) $partnerClaim->review_id, (int) $partnerClaim->approval_event_id);
+            }
             $backing = DB::table('loyalty_referral_rewards as rr')->join('loyalty_referral_qualifications as q', 'q.id', '=', 'rr.qualification_id')
                 ->where('rr.redemption_id', $id)->select('q.invoice_id', 'q.referral_id')->first();
             $invoiceIds = DB::table('loyalty_awards')->where('user_id', $hint->user_id)->pluck('invoice_id')->all();

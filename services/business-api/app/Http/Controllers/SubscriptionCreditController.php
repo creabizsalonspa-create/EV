@@ -22,24 +22,33 @@ class SubscriptionCreditController extends Controller
         }, 3);
     }
 
-    public function refund(Request $r, int $subscription, SubscriptionCreditService $service)
+    public function refund(Request $r, int $subscription, SubscriptionCreditService $service, SubscriptionService $subscriptions)
     {
         abort_unless($r->user()->role === 'admin', 403);
-        $v = $r->validate(['invoice_id' => 'required|integer|min:1', 'amount_minor' => 'required|integer|between:1,2000000000', 'reason' => 'required|string|max:500', 'idempotency_key' => 'required|string|max:100']);
 
-        // Do not hold a controller transaction across a provider call.
-        // The service revalidates this snapshot again in both durable
-        // transaction boundaries before preparing and issuing a test refund.
-        $actor = DB::transaction(function () use ($r) {
+        // The private subscription is not disclosed through different
+        // validation errors to former Admin credentials or unrelated users.
+        // Do not hold a controller transaction across provider I/O:
+        // the service independently rechecks the same snapshot at both
+        // durable transaction boundaries before test-provider refund.
+        $actor = DB::transaction(function () use ($r, $subscription, $subscriptions) {
             $current = app(CurrentFinanceReader::class)->requireCurrent($r);
             abort_unless($current->role === 'admin', 403);
+            $subscriptions->access($current, $subscription, true);
 
             return $current;
         }, 3);
+        $v = $r->validate([
+            'invoice_id' => 'required|integer|min:1',
+            'amount_minor' => 'required|integer|between:1,2000000000',
+            'reason' => 'required|string|max:500',
+            'idempotency_key' => 'required|string|max:100',
+        ]);
 
         return response()->json($service->refund($actor, $subscription,
             (int) $v['invoice_id'], (int) $v['amount_minor'],
-            $v['reason'], $v['idempotency_key']), 201);
+            $v['reason'], $v['idempotency_key']), 201)
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function show(Request $r, int $credit, SubscriptionCreditService $service)

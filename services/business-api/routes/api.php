@@ -171,7 +171,7 @@ Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function (
     Route::match(['GET', 'PUT', 'DELETE'], '2.2.1/tariffs/{country}/{party}/{external}', [OcpiProtocolRecordsController::class, 'tariff']);
     Route::post('2.2.1/cdrs', [OcpiProtocolRecordsController::class, 'cdr']);
     Route::get('2.2.1/cdrs/{external}', [OcpiProtocolRecordsController::class, 'cdr']);
-    Route::get('2.2.1/cpo/{module}', [OcpiCpoCatalogController::class, 'protocol'])->whereIn('module', ['locations', 'tariffs']);
+    Route::get('2.2.1/cpo/{module}', [OcpiCpoCatalogController::class, 'protocol'])->whereIn('module', ['locations', 'tariffs', 'sessions', 'cdrs']);
     Route::get('2.2.1/cpo/{module}/{external}/{evse?}/{connector?}', [OcpiCpoCatalogController::class, 'protocol'])
         ->where('module', 'locations')->where('external', 'S[1-9][0-9]{0,17}')->where('evse', 'E[1-9][0-9]{0,17}')->where('connector', 'C[1-9][0-9]{0,17}');
     Route::get('versions', [OcpiProtocolCredentialsController::class, 'handle']);
@@ -184,6 +184,7 @@ Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throt
 Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class])->prefix('v1/notifications')->group(__DIR__.'/notification_email.php');
 // Expiring source-only upload capability; never a browser account or configurable remote URL.
 Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'upload'])->where('operation', '[0-9]{1,18}')->middleware('throttle:30,1');
+Route::put('/internal/diagnostic-logs/{operation}/{filename}', [ChargerDiagnosticLogController::class, 'upload'])->where(['operation' => '[0-9]{1,18}', 'filename' => '[A-Za-z0-9][A-Za-z0-9._-]{0,254}'])->middleware('throttle:30,1');
 
 Route::get('/v1/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
 Route::prefix('/v1/charging-reviews')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');

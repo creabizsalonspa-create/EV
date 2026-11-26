@@ -308,6 +308,16 @@ Web and Flutter support explicit preparation, proof, rotation, disablement and f
 Unsent remote OCPP/OCPI starts bind to the authenticated actor's security epoch. Logout/revocation or suspension blocks stale pending starts; old unstamped queued starts require fresh consent rather than silent backfilling. Proven unsent starts remain cancellable. Dispatched/uncertain commands remain unreplayed, and established source observations and queued stops retain their existing reconciliation rules. Private epochs are not returned to clients; history provides safe recovery notices.
 
 New account recovery sets use encrypted format2 with domain-separated digests of128-bit random one-use codes. Legacy96-bit HMAC sets accept only the current or explicitly approved `APP_PREVIOUS_KEYS` during key overlap, and web/native status recommends regeneration. Keep required previous keys until legacy recovery sets are regenerated and encrypted data is rewrapped. Once format2 codes are issued, rollback software must retain its format2 reader; an older MFA reader is not compatible with that data.
+### Read-only local CSMS connector source observation (charging 3.3.4)
+
+`GET /api/vendor-ops/companies/{company}/chargers/{charger}/live-connectors` is an **explicit read only** from the vendor charger diagnostics view (also available from the native diagnostics screen). The authenticated operation is restricted to `local` or `testing`, enabled CSMS session bridging, an owned simulator charger, valid current staff/company read scope and one canonical `ev-test-*` binding. It does **not** contact a production charger.
+
+It checks a unique typed station's protocol, manufacturer, model and signed-in user's current permission; reads a bounded inventory of at most 100 source connector IDs and 1000 status notifications, validates event ordering, target uniqueness and the station heartbeat, then independently re-reads station identity and current local mappings/owner authorization **after** the CSMS request. Missing connector event coverage, aged heartbeats, offline source, source/owned topology mismatch or old status cannot be promoted to `recent`. Stale observations are presented as `stale` or `unknown`, with `reported_status=null`. Duplicate source connector identities, unmapped/invalid events, clock regressions and changed ownership fail closed. OCPP 1.6 correlates by connector number without assuming an EVSE field transmitted over OCPP; OCPP 2.0.1 uses exact positive EVSE/connector numbers.
+
+The JSON includes `evidence=SIMULATED_CSMS_SOURCE`, `company_id`, `charger_id`, `protocol`, `source_topology_matches_local`, `source_identity_rechecked`, `source_online`, `source_last_message_at`, `observed_at` and scoped `connectors` with canonical `mapping_id`, source EVSE/connector numbers, operator maintenance flag, `state`, `reported_status` (only for recent source status), `source_event_at`, `physical_available=false` and `remote_control_authorized=false`. The top-level `physical_availability_verified=false`, `remote_control_authorized=false`, `commands_sent=false` are hard-coded. This endpoint never authorizes a booking, power relay, charger command, real-world connector use or billing.
+
+Web and Flutter show the same evidence only after an explicit user action, never poll silently, avoid untrusted HTML, and hide stale/private data when access changes. Integration testing uses two protocol fixtures, adversarial status/source identity and tenant-owner changes, and verifies **zero charging or finance writes**. A matching local status is software source evidence, not physical hardware acceptance or the whole multi-charger fleet-monitoring requirement. Cross-company, full-scale live fleet dashboards and actual approved hardware still require separate acceptance.
+
 ### Operator station availability blocks
 
 Public `GET /api/stations/{station}/availability-blocks` lists up to 50 current/future station-wide policy intervals with bilingual public reasons, UTC timestamps, revision and explicit unverified physical availability. The same bounded public projection is included in station information/catalog responses; creator, request identity and audit details remain private. Bearer route equivalents use `/api/v1`.
@@ -316,7 +326,9 @@ Only the owning vendor can `POST .../availability-blocks` with UUID `idempotency
 
 `POST .../availability-blocks/{uuid}/cancel` requires the known revision. Natural cancellation replay is safe and does not reactivate the policy. Records/audits are retained; migration rollback refuses data loss. Station-row locks serialize publication/cancellation with existing reservation/start/pre-dispatch gates. Half-open blocks `[start,end)` apply even when weekly operating hours are advisory or unpublished. New overlapping bookings and starts fail closed; existing accepted booking receipts remain replayable/cancellable, and active charging can stop. This does not automatically cancel bookings, trigger refunds, change tariffs or send charger commands. Connector-specific blocks and wider live availability remain separate unfinished scope.
 
-Vendor web and Flutter publish/retry/cancel against the canonical APIs. Uncertain retries retain the same frozen request identity. Customer web/Flutter display the public intervals, labeled operator policy rather than a live availability guarantee. Read refreshes do not mutate policy. No hardware acceptance or production credit is inferred.
+Vendor web and Flutter publish/retry/cancel against the canonical APIs. The **owner-only navigation** is Vendor Operations → Company Inventory → linked Site → **Manage station availability blocks** on web, and Vendor Inventory → Company → linked Site → **Manage station availability blocks** on Flutter. The UI uses the site's actual `station_id` and refuses to show a station editor for an unlinked site, delegated inventory staff, or a non-vendor account. Server writes independently recheck current owner role, active credentials, and current `auth_epoch` inside the transaction, even if a browser still holds an old page. An invalid or failed source refresh clears old cancellation buttons; typed source receipts must identify the same station and `STATION_WIDE_OPERATOR_POLICY` with `physical_availability_verified=false`.
+
+Uncertain retries retain the same frozen request identity, including after a transient network failure; changing station or authenticated API invalidates that old pending identity. Flutter backgrounding clears visible policy rows; HTTP 401/419 clears private rows and notifies its parent to expire the session. Customer web/Flutter display the public intervals, labeled operator policy rather than a live availability guarantee. Read refreshes do not mutate policy. No hardware acceptance or production credit is inferred.
 
 ### Shared account sign-in budget
 
@@ -405,6 +417,13 @@ instantaneous peak or grid-meter demand measurement. `physical_site_demand_verif
 is always false and `billing_authority` remains false. EN/AR web, PDF and native
 views preserve these distinctions. No ledger writes or provider calls occur.
 Oversized exact-number sums return409 rather than rounding or overflowing.
+
+The operational report separately exposes `reported_non_fault_unavailable_seconds`.
+It counts accepted simulator connector `Unavailable` time without an error
+code, bounded by the next observation and the existing 300-second freshness
+window. Reported fault time is counted separately. Conflicting observations
+and stale gaps contribute to unknown time. These metrics do not establish
+physical downtime, uptime, or operational availability.
 
 ### Private Admin platform operations map
 

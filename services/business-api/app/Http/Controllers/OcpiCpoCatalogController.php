@@ -51,9 +51,13 @@ final class OcpiCpoCatalogController extends Controller
     public function reconcile(Request $request, OcpiProvider $provider, string $module, string $source, CpoCatalogPublisher $publisher)
     {
         abort_unless($request->user()->role === 'admin', 403);
-        $data = $request->validate(['confirmed' => 'required|accepted', 'published_at' => 'required|string|size:27']);
+        $data = $request->validate([
+            'confirmed' => 'required|accepted',
+            'published_at' => 'required|string|size:27',
+            'cdr_receipt' => ['nullable', 'string', 'regex:/^[A-Za-z0-9_-]{1,36}$/D'],
+        ]);
 
-        return $this->private($publisher->reconcile($request->user(), $provider, $module, (int) $source, $data['published_at']));
+        return $this->private($publisher->reconcile($request->user(), $provider, $module, (int) $source, $data['published_at'], $data['cdr_receipt'] ?? null));
     }
 
     private function private(array $data)

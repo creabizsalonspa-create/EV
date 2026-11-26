@@ -84,6 +84,38 @@ class PlatformTest extends TestCase
         $this->postJson('/api/reservations', $this->payload($s, 'new-after-cancel'))->assertCreated();
     }
 
+    public function test_reservation_display_times_preserve_instants_and_use_station_timezone_rules(): void
+    {
+        $customer = User::factory()->create();
+        $station = $this->station();
+        $station->update(['timezone' => 'America/New_York']);
+        Reservation::create([
+            'station_id' => $station->id,
+            'user_id' => $customer->id,
+            'starts_at' => '2026-11-01 06:30:00',
+            'checked_in_at' => '2026-11-01 05:30:00',
+            'idempotency_key' => 'display-dst-repeated-hour',
+        ]);
+
+        $this->actingAs($customer)->getJson('/api/v1/reservations')->assertOk()
+            ->assertJsonPath('data.0.station_timezone', 'America/New_York')
+            ->assertJsonPath('data.0.starts_at', '2026-11-01 06:30:00')
+            ->assertJsonPath('data.0.checked_in_at', '2026-11-01T05:30:00.000000Z')
+            ->assertJsonPath('data.0.station_times.starts_at', '2026-11-01T01:30:00-05:00')
+            ->assertJsonPath('data.0.station_times.checked_in_at', '2026-11-01T01:30:00-04:00');
+
+        $station->update(['timezone' => 'Asia/Kathmandu']);
+        $this->getJson('/api/v1/reservations')->assertOk()
+            ->assertJsonPath('data.0.station_times.starts_at', '2026-11-01T12:15:00+05:45');
+
+        $station->update(['timezone' => 'Invalid/Zone']);
+        $this->getJson('/api/v1/reservations')->assertOk()
+            ->assertJsonPath('data.0.station_times', null)
+            ->assertJsonPath('data.0.starts_at', '2026-11-01 06:30:00');
+        $this->actingAs(User::factory()->create())->getJson('/api/v1/reservations')
+            ->assertOk()->assertJsonCount(0, 'data');
+    }
+
     public function test_half_hour_window_and_country_validation(): void
     {
         $s = $this->station();

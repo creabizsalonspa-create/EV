@@ -31,7 +31,7 @@ final class PartnerLocationDiscoveryController extends Controller
         ]);
         $text = trim($filters['q'] ?? '');
         $providerText = trim($filters['provider'] ?? '');
-        $authorizedProviders = OcpiProvider::query()->where('authorized', true);
+        $authorizedProviders = OcpiProvider::publiclyDiscoverable();
         if ($providerText !== '') {
             $driver = DB::connection()->getDriverName();
             if (! in_array($driver, ['sqlite', 'pgsql'], true)) {
@@ -95,9 +95,9 @@ final class PartnerLocationDiscoveryController extends Controller
         // Name is provider-configured and not proof of a legal network operator.
         // The same authorization gate prevents exposing a revoked provider label.
         $query->addSelect([
-            'provider_label' => OcpiProvider::query()->select('name')
+            'provider_label' => OcpiProvider::publiclyDiscoverable()->select('name')
                 ->whereColumn('ocpi_providers.id', 'ocpi_records.ocpi_provider_id')
-                ->where('authorized', true)->limit(1),
+                ->limit(1),
         ]);
 
         // The final ID key also stabilizes ties in distance.

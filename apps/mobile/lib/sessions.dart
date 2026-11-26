@@ -32,11 +32,15 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
   void initState() {
     super.initState();
     ownSession = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    load();
+    if (foreground) load();
   }
 
-  bool active(int epoch, bool Function() fence) => mounted && foreground && epoch == generation && fence();
+  bool active(int epoch, bool Function() fence) =>
+      mounted && foreground && epoch == generation &&
+      identical(fence, ownSession) && fence();
 
   void failed(Object e) {
     if (!mounted || !foreground || !ownSession()) return;
@@ -45,24 +49,43 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
   }
 
   Future<void> load({int page = 1}) async {
-    if (!foreground) return;
-    if (!ownSession()) { if (mounted) setState(() { data = null; error = const ApiException(409,'Session changed'); }); return; }
-    final request = ++generation, current = ownSession;
+    final api = widget.api, fence = ownSession;
+    if (!foreground || !fence()) return;
+    final request = ++generation;
+    bool current() => active(request, fence) && identical(widget.api, api);
     setState(() {
       busy = true;
       error = null;
+      // Do not retain another page or a prior account's balances across
+      // an unverified refresh, denied read or failed transport.
+      data = null;
     });
     try {
-      final result = await widget.api.request(
+      final result = await api.request(
         'simulations',
         query: {'page': '$page'},
       );
-      if (mounted && request == generation && current() && foreground)
-        setState(() => data = ApiPage.fromJson(result, (v) => v));
+      if (!current()) return;
+      final parsed = ApiPage.fromJson(result, (v) => v);
+      if (current()) setState(() => data = parsed);
     } catch (e) {
-      if (mounted && request == generation && current() && foreground) failed(e);
+      if (current()) failed(e);
     } finally {
-      if (mounted && request == generation) setState(() { busy = false; if (!current()) data = null; });
+      if (current()) {
+        setState(() => busy = false);
+      } else if (mounted && foreground && request == generation &&
+          identical(widget.api, api) && identical(ownSession, fence) &&
+          !fence()) {
+        // An old account may revoke while the initial spinner is active.
+        // It cannot sign out, render data or overwrite a replacement actor,
+        // but the existing spinner must be removed from the frame; otherwise
+        // Flutter pumpAndSettle never completes on the revoked private view.
+        setState(() {
+          busy = false;
+          data = null;
+          error = null;
+        });
+      }
     }
   }
 
@@ -180,9 +203,20 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
 
   @override
   Widget build(BuildContext context) {
-    final s = EvStrings.of(context), p = ownSession() && foreground ? data : null;
+    if (!foreground || !ownSession()) return const SizedBox.shrink();
+    final s = EvStrings.of(context), p = data;
+    final originalApi = widget.api;
+    final originalSession = ownSession;
+    final originalEpoch = generation;
+    final originalRole = widget.role;
+    bool stillCurrent() => mounted && foreground &&
+        originalEpoch == generation &&
+        identical(widget.api, originalApi) &&
+        identical(ownSession, originalSession) &&
+        widget.role == originalRole && originalSession();
     return RefreshIndicator(
-      onRefresh: () => load(page: p?.current ?? 1),
+      onRefresh: () => stillCurrent()
+          ? load(page: p?.current ?? 1) : Future<void>.value(),
       child: ListView(
         padding: const EdgeInsets.all(16),
         physics: const AlwaysScrollableScrollPhysics(),
@@ -191,14 +225,17 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
             TextButton(
               onPressed: busy
                   ? null
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => ChargingOperationsView(
-                          api: widget.api,
-                          onExpired: widget.onExpired,
+                  : () {
+                      if (!stillCurrent()) return;
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => ChargingOperationsView(
+                            api: originalApi,
+                            onExpired: widget.onExpired,
+                          ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
               child: Text(opsText(context, 'title')),
             ),
 
@@ -207,20 +244,25 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
             style: Theme.of(context).textTheme.headlineLarge,
           ),
           Text(s.t('meterDisclaimer')),
-          TextButton(onPressed:busy ? null : () => load(page:data?.current ?? 1),child:Text(s.t('refresh'))),
+          TextButton(onPressed:busy ? null : () {
+            if (stillCurrent()) load(page:p?.current ?? 1);
+          },child:Text(s.t('refresh'))),
           if (['customer', 'vendor'].contains(widget.role))
             TextButton(
               onPressed: busy
                   ? null
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => ChargingReviewsView(
-                          api: widget.api,
-                          role: widget.role,
-                          onExpired: widget.onExpired,
+                  : () {
+                      if (!stillCurrent()) return;
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => ChargingReviewsView(
+                            api: originalApi,
+                            role: originalRole,
+                            onExpired: widget.onExpired,
+                          ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
               child: Text(
                 Localizations.localeOf(context).languageCode == 'ar'
                     ? 'ملاحظات الشحن'
@@ -232,7 +274,9 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
           if (error != null) ...[
             Text(s.t(errorKey(error!))),
             TextButton(
-              onPressed: busy ? null : () => load(page: p?.current ?? 1),
+              onPressed: busy ? null : () {
+                if (stillCurrent()) load(page: p?.current ?? 1);
+              },
               child: Text(s.t('retry')),
             ),
           ],
@@ -325,7 +369,9 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
                         TextButton(
                           onPressed: busy
                               ? null
-                              : () => reconcile(row['id'] as int),
+                              : () {
+                                if (stillCurrent()) reconcile(row['id'] as int);
+                              },
                           child: Text(s.t('reconcileEvidence')),
                         ),
                     ],
@@ -340,23 +386,28 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
                     if (widget.role == 'customer' &&
                         row['can_cancel_before_dispatch'] == true)
                       OutlinedButton(
-                        onPressed: busy ? null : () => cancelPending(row),
+                        onPressed: busy ? null : () {
+                          if (stillCurrent()) cancelPending(row);
+                        },
                         child: Text(s.t('cancelUndispatched')),
                       ),
                     if (row['status'] == 'stopped')
                       TextButton(
                         onPressed: busy
                             ? null
-                            : () => Navigator.push(
-                                context,
-                                MaterialPageRoute<void>(
-                                  builder: (_) => InvoicePage(
-                                    api: widget.api,
-                                    sessionId: row['id'] as int,
-                                    onExpired: widget.onExpired,
+                            : () {
+                                if (!stillCurrent()) return;
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => InvoicePage(
+                                      api: originalApi,
+                                      sessionId: row['id'] as int,
+                                      onExpired: widget.onExpired,
+                                    ),
                                   ),
-                                ),
-                              ),
+                                );
+                              },
                         child: Text(s.t('invoice')),
                       ),
                     if (row['status'] == 'charging')
@@ -366,16 +417,20 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
                           if (widget.role == 'vendor' &&
                               row['csms_linked'] != true)
                             FilledButton(
-                              onPressed: busy ? null : () => meter(row),
+                              onPressed: busy ? null : () {
+                                if (stillCurrent()) meter(row);
+                              },
                               child: Text(s.t('submitMeter')),
                             ),
                           OutlinedButton(
                             onPressed: busy
                                 ? null
-                                : () => stop(
-                                    row['id'] as int,
-                                    linked: row['csms_linked'] == true,
-                                  ),
+                                : () {
+                                    if (stillCurrent()) stop(
+                                      row['id'] as int,
+                                      linked: row['csms_linked'] == true,
+                                    );
+                                  },
                             child: Text(
                               s.t(
                                 row['csms_linked'] == true
@@ -404,13 +459,17 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
                 TextButton(
                   onPressed: busy || p.current <= 1
                       ? null
-                      : () => load(page: p.current - 1),
+                      : () {
+                          if (stillCurrent()) load(page: p.current - 1);
+                        },
                   child: Text(s.t('previous')),
                 ),
                 TextButton(
                   onPressed: busy || p.current >= p.last
                       ? null
-                      : () => load(page: p.current + 1),
+                      : () {
+                          if (stillCurrent()) load(page: p.current + 1);
+                        },
                   child: Text(s.t('next')),
                 ),
               ],
@@ -425,16 +484,40 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
   @override
   void didUpdateWidget(covariant SessionsView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.api != widget.api || oldWidget.role != widget.role) {
-      generation++; data = null; error = null; busy = false;
+    if (!identical(oldWidget.api, widget.api) ||
+        oldWidget.role != widget.role || !ownSession()) {
+      generation++;
+      data = null;
+      error = null;
+      busy = false;
       ownSession = widget.api.sessionFence();
-      if (foreground) load();
+      final api = widget.api;
+      final fence = ownSession;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && foreground && identical(api, widget.api) &&
+            identical(fence, ownSession) && fence()) {
+          load();
+        }
+      });
     }
   }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    foreground = state == AppLifecycleState.resumed;
-    if (!foreground && mounted) setState(() { generation++; data = null; error = null; busy = false; });
+    final resumed = state == AppLifecycleState.resumed;
+    if (foreground == resumed) return;
+    foreground = resumed;
+    if (!resumed && mounted) {
+      generation++;
+      setState(() {
+        data = null;
+        error = null;
+        busy = false;
+      });
+    } else if (mounted) {
+      // A private charging history is never implicitly fetched on resume.
+      setState(() {});
+    }
   }
   @override
   void dispose() {

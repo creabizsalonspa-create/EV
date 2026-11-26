@@ -118,23 +118,30 @@ final class OperationalIncidents
         try {
             // A missing incident table must abort only this nested savepoint,
             // not poison the enclosing PostgreSQL Admin transaction.
-            return DB::transaction(fn () => [
-                'store_readable' => true,
-                'monitoring_enabled' => (bool) config('operational_health.enabled'),
-                'automatic_retry' => false,
-                'external_alert_delivery' => false,
-                'production_recovery_verified' => false,
-                'scanner' => $this->scannerSnapshot(),
-                'open' => DB::table('operational_incident_states')->where('state', 'open')
-                    ->orderBy('condition_key')->get(['condition_key', 'state', 'opened_at', 'updated_at'])->toArray(),
-                'recent_events' => DB::table('operational_incident_events')->orderByDesc('id')->limit(20)
-                    ->get(['id', 'condition_key', 'transition', 'observed_at'])->toArray(),
-            ]);
+            return DB::transaction(function () {
+                // Partition one result so a concurrent scan cannot make a
+                // condition appear in both projections in the same response.
+                $states = DB::table('operational_incident_states')->whereIn('condition_key', self::KEYS)
+                    ->orderBy('condition_key')->get(['condition_key', 'state', 'opened_at', 'resolved_at', 'updated_at']);
+
+                return [
+                    'store_readable' => true,
+                    'monitoring_enabled' => (bool) config('operational_health.enabled'),
+                    'automatic_retry' => false,
+                    'external_alert_delivery' => false,
+                    'production_recovery_verified' => false,
+                    'scanner' => $this->scannerSnapshot(),
+                    'open' => $states->where('state', 'open')->values()->all(),
+                    'resolved' => $states->where('state', 'resolved')->whereNotNull('resolved_at')->values()->all(),
+                    'recent_events' => DB::table('operational_incident_events')->orderByDesc('id')->limit(20)
+                        ->get(['id', 'condition_key', 'transition', 'observed_at'])->toArray(),
+                ];
+            });
         } catch (Throwable) {
             return ['store_readable' => false, 'monitoring_enabled' => (bool) config('operational_health.enabled'),
                 'automatic_retry' => false, 'external_alert_delivery' => false,
                 'production_recovery_verified' => false, 'scanner' => $this->unknownScanner(),
-                'open' => [], 'recent_events' => []];
+                'open' => [], 'resolved' => [], 'recent_events' => []];
         }
     }
 

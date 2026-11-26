@@ -97,7 +97,7 @@ require("./vendor-invitation-verification.test.cjs");
         .isDisabled(),
       true,
     );
-    assert.equal(await page.locator("[data-access=admin]").isVisible(), false);
+    assert.equal(await page.locator("[data-access=admin]:visible").count(), 0);
     assert.equal(await page.locator("[data-access=vendor]").isVisible(), false);
     fail = true;
     await page.locator("#refresh-catalog").click();

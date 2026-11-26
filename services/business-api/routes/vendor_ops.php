@@ -7,7 +7,9 @@ use App\Http\Controllers\ChargerConfigurationController;
 use App\Http\Controllers\ChargerDiagnosticLogController;
 use App\Http\Controllers\ChargerDiagnosticsController;
 use App\Http\Controllers\ChargerFirmwareController;
+use App\Http\Controllers\ChargerLiveConnectorsController;
 use App\Http\Controllers\ChargerResetController;
+use App\Http\Controllers\ChargerSourceRegistrationController;
 use App\Http\Controllers\ChargingRepairController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\MaintenanceWindowController;
@@ -16,6 +18,10 @@ use App\Http\Controllers\VendorAgreementController;
 use App\Http\Controllers\VendorOpsController as V;
 use App\Http\Controllers\VendorStaffChargingReadController;
 use Illuminate\Support\Facades\Route;
+
+Route::get('/companies/{company}/chargers/{charger}/source-registration', [ChargerSourceRegistrationController::class, 'show'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}');
+Route::post('/companies/{company}/chargers/{charger}/source-registration', [ChargerSourceRegistrationController::class, 'prepare'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}');
+Route::post('/companies/{company}/chargers/{charger}/source-registration/{registration}/register', [ChargerSourceRegistrationController::class, 'register'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}')->where('registration', '[0-9]{1,18}');
 
 Route::get('/companies', [V::class, 'companies']);
 Route::post('/companies', [V::class, 'createCompany']);
@@ -60,6 +66,7 @@ Route::post('/companies/{company}/chargers/{charger}/evses/{evse}/connectors/{co
 
 Route::get('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissionController::class, 'show']);
 Route::get('/companies/{company}/chargers/{charger}/source-diagnostics', ChargerDiagnosticsController::class);
+Route::get('/companies/{company}/chargers/{charger}/live-connectors', ChargerLiveConnectorsController::class);
 Route::get('/companies/{company}/chargers/{charger}/configuration-reads', [ChargerConfigurationController::class, 'index']);
 Route::post('/companies/{company}/chargers/{charger}/configuration-reads', [ChargerConfigurationController::class, 'create']);
 Route::post('/companies/{company}/chargers/{charger}/configuration-reads/{operation}/observe', [ChargerConfigurationController::class, 'observe'])->where('operation', '[0-9]{1,18}');

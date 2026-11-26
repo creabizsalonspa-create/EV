@@ -23,6 +23,7 @@ use App\Services\Discovery\SourceReportFilter;
 use App\Services\Discovery\StationCatalog;
 use App\Services\Identity\AccountSecondFactor;
 use Carbon\CarbonImmutable;
+use DateTimeZone;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -157,7 +158,7 @@ class PlatformController extends Controller
     public function createStation(Request $r)
     {
         abort_unless($r->user()->role === 'vendor', 403);
-        $v = $r->validate(['name' => 'required|string|max:150', 'country' => 'required|string|size:2|uppercase|exists:regions,country', 'currency' => 'required|string|size:3|uppercase', 'timezone' => 'required|timezone', 'latitude' => 'required|numeric|between:-90,90', 'longitude' => 'required|numeric|between:-180,180', 'source' => 'required|in:discovery,simulator', 'connector_type' => 'required|in:CCS2,Type2,CHAdeMO', 'power_kw' => 'required|integer|between:1,1000']);
+        $v = $r->validate(['name' => 'required|string|max:150', 'country' => 'required|string|size:2|uppercase|exists:regions,country', 'currency' => 'required|string|size:3|uppercase', 'timezone' => 'required|timezone', 'latitude' => 'required|numeric|between:-90,90', 'longitude' => 'required|numeric|between:-180,180', 'source' => 'required|in:discovery,simulator,direct_unverified', 'connector_type' => 'required|in:CCS2,Type2,CHAdeMO', 'power_kw' => 'required|integer|between:1,1000']);
 
         abort_unless(DB::table('regions')->where('country', $v['country'])->where('currency', $v['currency'])->exists(), 422, 'Currency does not match configured region.');
 
@@ -214,7 +215,24 @@ class PlatformController extends Controller
                 $data['vehicle_label'] = $names->get($reservation->vehicle_id);
             }
 
-            return $data + ['station_timezone' => $zones->get($reservation->station_id), 'csms_bound' => $csms, 'can_check_in' => app(ReservationLifecycle::class)->eligible($reservation), 'physical_presence_verified' => false];
+            $timezone = $zones->get($reservation->station_id);
+            $localTimes = null;
+            if (is_string($timezone)) {
+                try {
+                    $zone = new DateTimeZone($timezone);
+                } catch (\Exception) {
+                    $zone = null;
+                }
+                if ($zone !== null) {
+                    $localTimes = [
+                        'starts_at' => CarbonImmutable::parse($reservation->starts_at, 'UTC')->setTimezone($zone)->toIso8601String(),
+                        'checked_in_at' => $reservation->checked_in_at?->setTimezone($zone)->toIso8601String(),
+                    ];
+                }
+            }
+
+            return $data + ['station_timezone' => $timezone, 'station_times' => $localTimes,
+                'csms_bound' => $csms, 'can_check_in' => app(ReservationLifecycle::class)->eligible($reservation), 'physical_presence_verified' => false];
         }))->header('Cache-Control', 'private, no-store');
     }
 

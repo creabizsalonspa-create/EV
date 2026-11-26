@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
@@ -870,11 +871,16 @@ Future<bool> privatePdfRasterReady(PdfDocument document) async {
 class VendorDocumentPreview extends StatefulWidget {
   final PrivateDocument document;
   final String? title, notice;
+  // Optional, non-secret native auth generation events. When the account
+  // changes while a private PDF is already open, remove its renderer
+  // immediately instead of leaving a once-valid document on screen.
+  final Stream<int>? revokedSessionEvents;
   const VendorDocumentPreview({
     super.key,
     required this.document,
     this.title,
     this.notice,
+    this.revokedSessionEvents,
   });
   @override
   State<VendorDocumentPreview> createState() => _DocumentPreviewState();
@@ -883,7 +889,29 @@ class VendorDocumentPreview extends StatefulWidget {
 class _DocumentPreviewState extends State<VendorDocumentPreview>
     with WidgetsBindingObserver {
   bool visible = true, pdfReady = false, pdfFailed = false, verifying = false;
+  StreamSubscription<int>? revocation;
   final name = operationKey();
+
+  void observe() {
+    revocation?.cancel();
+    revocation = widget.revokedSessionEvents?.listen((_) {
+      if (!mounted) return;
+      image?.evict();
+      image = null;
+      setState(() {
+        visible = false;
+        pdfReady = false;
+        pdfFailed = false;
+      });
+      // Do not retain a private viewer route after logout. Deferring
+      // navigation until after the redraw prevents setState during build.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+      });
+    });
+  }
   ImageProvider? image;
   // pdfrx 2.2.24's load-finished event is skipped when all pages were
   // available during the initial native open. Verify actual raster capability
@@ -908,6 +936,7 @@ class _DocumentPreviewState extends State<VendorDocumentPreview>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    observe();
     if (widget.document.mime != 'application/pdf')
       image = ResizeImage(
         MemoryImage(widget.document.bytes),
@@ -918,7 +947,15 @@ class _DocumentPreviewState extends State<VendorDocumentPreview>
   }
 
   @override
+  void didUpdateWidget(covariant VendorDocumentPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.revokedSessionEvents,
+        widget.revokedSessionEvents)) observe();
+  }
+
+  @override
   void dispose() {
+    revocation?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     image?.evict();
     image = null;

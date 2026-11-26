@@ -8,11 +8,12 @@ class EvStrings {
   static EvStrings of(BuildContext context) =>
       EvStrings(Localizations.localeOf(context));
   String t(String key, [Map<String, Object> values = const {}]) {
-    var text = (arabic ? ar : en)[key] ?? key;
-    for (final entry in values.entries) {
-      text = text.replaceAll('{${entry.key}}', '${entry.value}');
-    }
-    return text;
+    final template = (arabic ? ar : en)[key] ?? key;
+    // Never re-interpret a placeholder inside an account or provider value.
+    return template.replaceAllMapped(RegExp(r'\{([A-Za-z0-9_]+)\}'), (match) {
+      final name = match[1]!;
+      return values.containsKey(name) ? '${values[name]}' : match[0]!;
+    });
   }
 
   static const en = <String, String>{
@@ -276,7 +277,7 @@ class EvStrings {
     'reserve': 'Reserve',
     'reservation': 'Reservation #{id} · {status}',
     'session': 'Simulated #{id} · {status}',
-    'stationSlot': 'Station {id} · {time} UTC',
+    'stationSlot': 'Station {id} · {time}',
     'cancelBooking': 'Cancel booking',
     'startSimulator': 'Start simulator',
     'stopSimulation': 'Stop simulation',
@@ -686,7 +687,7 @@ class EvStrings {
     'reserve': 'حجز',
     'reservation': 'الحجز #{id} · {status}',
     'session': 'الجلسة التجريبية #{id} · {status}',
-    'stationSlot': 'المحطة {id} · {time} بالتوقيت العالمي',
+    'stationSlot': 'المحطة {id} · {time}',
     'cancelBooking': 'إلغاء الحجز',
     'startSimulator': 'بدء المحاكاة',
     'stopSimulation': 'إيقاف المحاكاة',

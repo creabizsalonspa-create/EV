@@ -4,6 +4,7 @@ namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -23,7 +24,8 @@ class RecordSynchronizer
         foreach ($records as $record) {
             if (! is_array($record)) {
                 throw new OcpiException('Malformed OCPI record.');
-            }$validated[] = [$record, $this->normalizer->normalize($module, $record), $this->normalizer->hash($record)];
+            }
+            $validated[] = [$record, $this->normalizer->normalize($module, $record), $this->normalizer->hash($record)];
         }
 
         return DB::transaction(function () use ($provider, $module, $validated) {
@@ -31,6 +33,15 @@ class RecordSynchronizer
             $locked = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
             if (! $locked->authorized || $locked->version !== '2.2.1' || $locked->authorization_revision !== $provider->authorization_revision || $locked->owner_id !== $provider->owner_id || $locked->connection_key !== $provider->connection_key) {
                 throw new OcpiException('Provider authorization changed.');
+            }
+            // A location/tariff response can arrive after the owning vendor
+            // was suspended. Do not mutate a catalog that may later reappear
+            // upon reactivation. Existing sessions/CDRs remain eligible for
+            // explicitly admin-authorized historical financial reconciliation.
+            if (in_array($module, ['locations', 'tariffs'], true)
+                && ! User::whereKey($locked->owner_id)->where('role', 'vendor')
+                    ->where('account_status', 'active')->exists()) {
+                throw new OcpiException('Inactive operator owner cannot publish catalog source records.');
             }
             $counts = ['created' => 0, 'updated' => 0, 'duplicate' => 0, 'stale' => 0];
             foreach ($validated as [$raw,$n,$hash]) {
@@ -81,6 +92,11 @@ class RecordSynchronizer
                 }
             }
             $locked->update(['last_synced_at' => now()]);
+            if ($module === 'locations' && ($counts['created'] + $counts['updated']) > 0) {
+                // The whole quality observation commits or rolls back together
+                // with the canonical normalized source batch.
+                app(CatalogQualityHistory::class)->capture($locked);
+            }
 
             return $counts;
         });

@@ -1,6 +1,19 @@
 <?php
 
 return [
+    'production_diagnostics_enabled' => env('CSMS_PRODUCTION_DIAGNOSTICS_ENABLED', false),
+    'production_diagnostic_upload_origin' => env('CSMS_PRODUCTION_DIAGNOSTIC_UPLOAD_ORIGIN'),
+    'upstream_registration_enabled' => env('CSMS_UPSTREAM_REGISTRATION_ENABLED', false),
+    'upstream_registration_allow_local_http' => env('CSMS_UPSTREAM_REGISTRATION_ALLOW_LOCAL_HTTP', false),
+    // Explicit production service identity. No discovery/JWKS fetch or dev fallback.
+    'operations_auth_mode' => env('CSMS_OPERATIONS_AUTH_MODE', 'development'),
+    'operations_oauth_token_url' => env('CSMS_OPERATIONS_OAUTH_TOKEN_URL'),
+    'operations_oauth_client_id' => env('CSMS_OPERATIONS_OAUTH_CLIENT_ID'),
+    'operations_oauth_client_secret' => env('CSMS_OPERATIONS_OAUTH_CLIENT_SECRET'),
+    'operations_oauth_issuer' => env('CSMS_OPERATIONS_OAUTH_ISSUER'),
+    'operations_oauth_audience' => env('CSMS_OPERATIONS_OAUTH_AUDIENCE'),
+    'operations_oauth_scope' => env('CSMS_OPERATIONS_OAUTH_SCOPE', 'csms:operations'),
+    'operations_oauth_public_keys' => json_decode((string) env('CSMS_OPERATIONS_OAUTH_PUBLIC_KEYS', '{}'), true),
     'certificate_denied_issuers' => array_values(array_filter(array_map('strtolower', array_map('trim', explode(',', (string) env('CSMS_CERTIFICATE_DENIED_ISSUERS', '')))))),
     'certificate_management_enabled' => env('CSMS_CERTIFICATE_MANAGEMENT_ENABLED', false),
     'certificate_issuer_bundle' => env('CSMS_CERTIFICATE_ISSUER_BUNDLE', storage_path('app/private/charger-certificates/issuers.pem')),

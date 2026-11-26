@@ -6,6 +6,7 @@ use App\Models\Station;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\CsmsGraphqlTransport;
 use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\SourceStatusDurations;
@@ -41,8 +42,9 @@ class ChargerDiagnosticsController extends Controller
     {
         $secret = (string) config('csms.graphql_secret');
         abort_unless(config('csms.session_bridge_enabled') && ! app()->environment('production') && strlen($secret) >= 32, 503, 'Authenticated simulator source is unavailable.');
+        $url = app(CsmsGraphqlTransport::class)->requireApproved();
         try {
-            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $secret])->post(config('csms.graphql_url'), compact('query', 'variables'));
+            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $secret])->post($url, compact('query', 'variables'));
             $data = $reply->json('data');
         } catch (Throwable) {
             abort(503, 'Authenticated simulator source is unavailable.');
@@ -128,8 +130,15 @@ class ChargerDiagnosticsController extends Controller
         $b = $this->binding($r, $company, $charger);
         $rows = DB::table('charging_fault_alerts as a')->join('charging_status_observations as o', 'o.id', '=', 'a.observation_id')
             ->leftJoin('charging_status_observations as recovery', 'recovery.id', '=', 'a.recovery_observation_id')
+            ->leftJoin('charging_repair_orders as repair', 'repair.alert_id', '=', 'a.id')
+            ->leftJoin('charging_repair_events as closure', function ($join) {
+                $join->on('closure.order_id', '=', 'repair.id')->on('closure.version', '=', 'repair.version')
+                    ->where('closure.state', 'closed')->where('repair.state', 'closed')->whereNotNull('recovery.id');
+            })
             ->where('o.source_generation', FaultMonitor::generation($b))->orderByDesc('o.source_event_id')
-            ->select('a.id', 'o.source_event_id', 'o.evse_number', 'o.connector_number', 'o.status', 'o.error_code', 'o.occurred_at', 'a.acknowledged_at', 'recovery.occurred_at as recovery_observed_at')->paginate(25);
+            ->select('a.id', 'o.source_event_id', 'o.evse_number', 'o.connector_number', 'o.status', 'o.error_code',
+                'o.occurred_at', 'a.acknowledged_at', 'recovery.occurred_at as recovery_observed_at', 'closure.created_at as repair_review_closed_at')
+            ->paginate(25);
 
         return response()->json($rows->toArray() + ['can_manage_faults' => app(VendorAccess::class)->capabilities($r->user(), $company)['inventory_write'], 'evidence' => 'SIMULATED_SOURCE', 'physical_charging_verified' => false])->header('Cache-Control', 'private, no-store');
     }

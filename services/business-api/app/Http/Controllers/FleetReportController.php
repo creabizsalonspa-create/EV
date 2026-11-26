@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Enterprise\FleetReport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 final class FleetReportController extends Controller
 {
@@ -25,17 +26,19 @@ final class FleetReportController extends Controller
 
     public function index(Request $request)
     {
-        $v = $request->validate([
-            'q' => 'nullable|string|max:80',
-            'country' => ['nullable', 'regex:/^[A-Z]{2}$/D'],
-            'owner_id' => 'nullable|integer|between:1,9007199254740991',
-            'include' => 'nullable|in:owner_inventory',
-            'page' => 'nullable|integer|between:1,1000000',
-        ]);
-
-        return DB::transaction(function () use ($request, $v) {
+        return DB::transaction(function () use ($request) {
             $actor = $this->actor($request);
             abort_unless($actor->role === 'admin', 403);
+            // Admin identity must be current before any private-owner
+            // directory filter validation. A former Admin cannot use 422
+            // differences to probe report capabilities.
+            $v = $request->validate([
+                'q' => 'nullable|string|max:80',
+                'country' => ['nullable', 'regex:/^[A-Z]{2}$/D'],
+                'owner_id' => 'nullable|integer|between:1,9007199254740991',
+                'include' => 'nullable|in:owner_inventory',
+                'page' => 'nullable|integer|between:1,1000000',
+            ]);
 
             // Apply the owner filter BEFORE the fixed-size page is selected.
             // Explicit fields only: no fleet owner password, token, or KYC.
@@ -117,14 +120,31 @@ final class FleetReportController extends Controller
 
     public function show(Request $request, Fleet $fleet, FleetReport $reports)
     {
-        $filters = $request->validate(['from' => 'required|date_format:Y-m-d', 'through' => 'required|date_format:Y-m-d', 'cost_center_id' => 'nullable|integer|min:1', 'format' => 'nullable|in:json,csv']);
-        $data = DB::transaction(function () use ($request, $fleet, $reports, $filters) {
-            $current = $this->actor($request);
-            $locked = Fleet::whereKey($fleet->id)->lockForUpdate()->firstOrFail();
-            abort_unless($locked->owner_id === $current->id || $current->role === 'admin', 404);
+        try {
+            [$data, $filters] = DB::transaction(function () use ($request, $fleet, $reports) {
+                $current = $this->actor($request);
+                $locked = Fleet::whereKey($fleet->id)->lockForUpdate()->firstOrFail();
+                abort_unless($locked->owner_id === $current->id || $current->role === 'admin', 404);
+                // Privacy applies to malformed report URLs as well as valid
+                // ones: a non-owner must never discover another fleet's
+                // reporting data or filter rules via premature HTTP 422.
+                $filters = $request->validate([
+                    'from' => 'required|date_format:Y-m-d',
+                    'through' => 'required|date_format:Y-m-d',
+                    'cost_center_id' => 'nullable|integer|min:1',
+                    'format' => 'nullable|in:json,csv',
+                ]);
 
-            return $reports->read($locked, $filters);
-        });
+                return [$reports->read($locked, $filters), $filters];
+            }, 3);
+        } catch (ValidationException $error) {
+            // Direct CSV links often lack Accept: JSON; form redirects must
+            // never hide an invalid private financial export.
+            return response()->json([
+                'message' => 'Invalid private fleet report filters.',
+                'errors' => $error->errors(),
+            ], 422)->header('Cache-Control', 'private, no-store');
+        }
         if (($filters['format'] ?? 'json') !== 'csv') {
             return response()->json($data)->header('Cache-Control', 'private, no-store');
         }

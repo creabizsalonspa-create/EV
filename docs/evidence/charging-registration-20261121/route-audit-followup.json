@@ -1,0 +1,20 @@
+{
+  "source_sha": "6ced85dafdcb95f09c2ef5adca982d829a89aa59",
+  "supersedes_failed_hosted_source": "a9ae2c50bcf70e45af04a5ad4e48d57096d5b205",
+  "failed_run": 44866783590,
+  "failed_job": 136732117429,
+  "failure": "Offline charger-operation numeric route audit expected13 bounded routes; the registration batch correctly added3, yielding16. Platform stopped before runtime tests; native cancellations and recovery skip are not passes.",
+  "repair": "Keep all original literal bounded matchers and malformed/overflow assertions. Inventory now16; explicit company/charger/registration checks cover all3 new routes, using same bounded where syntax. New authenticated HTTP cases reject19-digit,exponent,negative,decimal and text IDs before source calls.",
+  "verified_local": {
+    "all_agent9_offline_guards": 64,
+    "registration_and_credentials_cases": 66,
+    "assertions": 532,
+    "route_php_style": true
+  },
+  "hosted_current_source": "pending mandatory rerun; no old-head CI credit",
+  "log_sha256": {
+    "agent9-final.txt": "d11ffa9af16a5e48191ef8dba7f0581b0e7fd0d241aad9783290221d1b4d80b0",
+    "route-feature-final.txt": "35447126428493ab42bddaa4c93820f3384a20b67b7e3c0ae50498098bf9f27d",
+    "route-pint.txt": "f4c2a0df07457068500f56553624a6ec03e06a64b68a6b5c7567378b15f11103"
+  }
+}
