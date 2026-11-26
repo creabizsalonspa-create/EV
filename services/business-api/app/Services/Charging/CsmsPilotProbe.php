@@ -79,6 +79,20 @@ final class CsmsPilotProbe
         return $data;
     }
 
+    /** OCPP 1.6 has no wire EVSE; an explicitly null source projection is zero. */
+    private function sourceEvse(string $protocol, array $event): int
+    {
+        $evse = $event['evseId'] ?? null;
+        if ($protocol === '1.6' && array_key_exists('evseId', $event) && $evse === null) {
+            $evse = 0;
+        }
+        abort_unless(is_int($evse) &&
+            ($protocol === '1.6' ? $evse === 0 : ($protocol === '2.0.1' && $evse > 0)),
+            409, 'Contradictory or unknown source EVSE identity.');
+
+        return $evse;
+    }
+
     public function inspect(int $bindingId): array
     {
         // A pilot probe is read-only but must never reuse the local simulator
@@ -144,8 +158,6 @@ final class CsmsPilotProbe
                 $event['id'] > 0 && $event['id'] < $priorId &&
                 is_int($event['connectorDatabaseId'] ?? null) &&
                 isset($known[$event['connectorDatabaseId']]) &&
-                is_int($event['evseId'] ?? null) &&
-                ($binding->protocol === '1.6' ? $event['evseId'] === 0 : $event['evseId'] > 0) &&
                 is_int($event['connectorId'] ?? null) &&
                 $event['connectorId'] > 0 &&
                 in_array($event['connectorStatus'] ?? null,
@@ -161,7 +173,7 @@ final class CsmsPilotProbe
             $priorId = $event['id'];
             $priorTime = $at;
             $connectorId = $event['connectorDatabaseId'];
-            $sourceTarget = $event['evseId'].':'.$event['connectorId'];
+            $sourceTarget = $this->sourceEvse($binding->protocol, $event).':'.$event['connectorId'];
             $entry = [
                 'status' => $event['connectorStatus'],
                 'error_code' => $event['errorCode'] ?? null,

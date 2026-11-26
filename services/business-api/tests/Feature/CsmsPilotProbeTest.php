@@ -222,6 +222,20 @@ class CsmsPilotProbeTest extends TestCase
                         ? 'GroundFailure' : $rows[1]['errorCode'],
                 ]);
             }
+            if ($state === 'source_evse_null') {
+                $rows[0]['evseId'] = null;
+            }
+            if ($state === 'source_evse_missing') {
+                unset($rows[0]['evseId']);
+            }
+            if ($state === 'source_evse_string') {
+                $rows[0]['evseId'] = (string) $rows[0]['evseId'];
+            }
+            if ($state === 'source_evse_null_history') {
+                $at = now()->subSeconds(4)->toISOString();
+                $rows[] = array_replace($rows[1], ['id' => 23, 'timestamp' => $at, 'evseId' => null]);
+                $rows[] = array_replace($rows[1], ['id' => 22, 'timestamp' => $at, 'evseId' => 0]);
+            }
             if ($state === 'source_target_string') {
                 $rows[0]['connectorId'] = '2';
             }
@@ -329,6 +343,35 @@ class CsmsPilotProbeTest extends TestCase
             Http::assertSentCount(3);
             Http::assertNotSent(fn ($request) => str_contains($request->url(), '/ocpp/')
                 || str_contains($request->url(), '/dev/token'));
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+    }
+
+    public function test_pilot_probe_normalizes_only_explicit_ocpp16_null_evse_and_preserves_exact_topology(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            foreach (['source_evse_null', 'source_evse_null_history', 'source_evse_missing', 'source_evse_string'] as $state) {
+                $this->source($f, $state);
+                $valid = $protocol === '1.6' && in_array($state, ['source_evse_null', 'source_evse_null_history'], true);
+                $this->assertSame($valid ? 0 : 1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+                if ($valid) {
+                    $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+                    $this->assertTrue($report['software_source_observed']);
+                    $this->assertTrue($report['source_connector_targets_match_local_topology']);
+                    $this->assertFalse($report['physical_topology_verified']);
+                    $this->assertFalse($report['production_accepted']);
+                    $this->assertFalse($report['device_commands_sent']);
+                    Http::assertSentCount(3);
+                } else {
+                    $this->assertStringContainsString('Source pilot probe blocked', Artisan::output());
+                    Http::assertSentCount(2);
+                }
+                Http::assertNotSent(fn ($request) => str_contains($request->url(), '/ocpp/')
+                    || str_contains($request->url(), '/dev/token'));
+            }
         }
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
