@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const { randomUUID } = require("node:crypto");
 const assert = require("node:assert/strict");
 const { CONNECT_TIMEOUT_MS, RPC_TIMEOUT_MS } = require('./csms-timeouts.cjs');
-const env = fs.readFileSync("services/csms/charging/.env", "utf8");
+const env = fs.readFileSync(process.env.EV_CSMS_FIXTURE_ENV || "services/csms/charging/.env", "utf8");
 const secret = env
   .split("\n")
   .find((l) => l.startsWith("CHARGING_HASURA_ADMIN_SECRET="))

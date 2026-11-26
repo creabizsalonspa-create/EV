@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'charging_provenance.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
@@ -34,8 +35,18 @@ class _InvoicePageState extends State<InvoicePage>
   bool busy = false, foreground = true;
   late bool Function() authorized;
   int generation = 0;
+  StreamSubscription<int>? sessionSubscription;
   bool current(int n, bool Function() session) =>
       mounted && foreground && authorized() && session() && generation == n;
+
+  void observeSession() {
+    final api = widget.api;
+    sessionSubscription = api.sessionEvents.listen((_) {
+      if (mounted && identical(api, widget.api) && !authorized()) {
+        setState(clearPrivate);
+      }
+    });
+  }
 
   void clearPrivate() {
     generation++;
@@ -48,8 +59,11 @@ class _InvoicePageState extends State<InvoicePage>
   void initState() {
     super.initState();
     authorized = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    load();
+    observeSession();
+    if (foreground) load();
   }
 
   @override
@@ -59,20 +73,33 @@ class _InvoicePageState extends State<InvoicePage>
         oldWidget.invoiceId != widget.invoiceId ||
         oldWidget.sessionId != widget.sessionId) {
       clearPrivate();
-      authorized = widget.api.sessionFence();
+      if (!identical(oldWidget.api, widget.api)) {
+        unawaited(sessionSubscription?.cancel());
+        authorized = widget.api.sessionFence();
+        observeSession();
+      }
+      // A retained route must not acquire a successor account's credentials.
       // An uncertain session-invoice POST must never be replayed automatically.
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    foreground = state == AppLifecycleState.resumed;
-    if (mounted && !foreground) setState(clearPrivate);
+    final resumed = state == AppLifecycleState.resumed;
+    if (foreground == resumed) return;
+    foreground = resumed;
+    if (!mounted) return;
+    if (!foreground) {
+      setState(clearPrivate);
+    } else {
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
     generation++;
+    unawaited(sessionSubscription?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -100,6 +127,22 @@ class _InvoicePageState extends State<InvoicePage>
       // simulator-only endpoint.
       final invoice = result is Map ? result['invoice'] : null;
       bool validMinor(Object? value) => value is int && value >= 0;
+      bool consistentTotals(Map invoice, Map result) {
+        final subtotal = invoice['subtotal_minor'] as int;
+        final tax = invoice['tax_minor'] as int;
+        final total = invoice['total_minor'] as int;
+        final paid = result['paid_minor'] as int;
+        final refunded = result['refunded_minor'] as int;
+        final credit = result['unpaid_credited_minor'] as int;
+        final due = result['amount_due_minor'] as int;
+        if (subtotal > total || tax != total - subtotal ||
+            paid > total || refunded > paid || credit > total - paid ||
+            due != total - paid - credit) return false;
+        final state = credit > 0 ? 'credited' : refunded > 0
+            ? (refunded == total ? 'refunded' : 'partially_refunded')
+            : due == 0 ? 'paid' : paid > 0 ? 'partially_paid' : 'unpaid';
+        return state == result['state'];
+      }
       bool validTransactions(Object? rows) =>
           rows == null ||
           (rows is List &&
@@ -156,7 +199,8 @@ class _InvoicePageState extends State<InvoicePage>
           !validMinor(result['unpaid_credited_minor']) ||
           !validTransactions(result['payments']) ||
           !validTransactions(result['refunds']) ||
-          !validCreditNotes(result['unpaid_credit_notes'])) {
+          !validCreditNotes(result['unpaid_credit_notes']) ||
+          !consistentTotals(invoice, result)) {
         throw const ApiException(409, 'Unsupported finance evidence.');
       }
       if (current(n, session))
@@ -173,17 +217,37 @@ class _InvoicePageState extends State<InvoicePage>
         data = null;
       });
     } finally {
-      if (current(n, session)) setState(() => busy = false);
+      if (current(n, session)) {
+        setState(() => busy = false);
+      } else if (mounted && n == generation && !authorized()) {
+        setState(clearPrivate);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), invoice = data?['invoice'];
-    if (!authorized()) return Scaffold(
+    if (!foreground || !authorized()) return Scaffold(
       appBar: AppBar(title: Text(s.t('invoice'))),
-      body: Center(child: Text(s.t('expired'))),
+      body: Center(child: Text(s.t(foreground ? 'expired' : 'privacyScreenHidden'))),
     );
+    final api = widget.api;
+    final expired = widget.onExpired;
+    final epoch = generation;
+    final fence = authorized;
+    bool active() => current(epoch, fence) &&
+        identical(api, widget.api) && identical(fence, authorized);
+    VoidCallback? open(Widget Function() page, {bool refreshOnReturn = false}) {
+      if (busy) return null;
+      return () async {
+        if (!active() || busy) return;
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => active() ? page() : const SizedBox.shrink(),
+        ));
+        if (refreshOnReturn && active()) await load();
+      };
+    }
     return Scaffold(
       appBar: AppBar(title: Text(s.t('invoice'))),
       body: ListView(
@@ -193,7 +257,7 @@ class _InvoicePageState extends State<InvoicePage>
           if (busy) const LinearProgressIndicator(),
           if (error != null) Text(s.t(errorKey(error!))),
           TextButton(
-            onPressed: busy ? null : load,
+            onPressed: busy ? null : () { if (active()) load(); },
             child: Text(s.t('refresh')),
           ),
           if (invoice != null) ...[
@@ -202,17 +266,11 @@ class _InvoicePageState extends State<InvoicePage>
               style: Theme.of(context).textTheme.headlineMedium,
             ),
             OutlinedButton(
-              onPressed: busy
-                  ? null
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => FinancialDocumentsView(
-                          api: widget.api,
-                          onExpired: widget.onExpired,
+              onPressed: open(() => FinancialDocumentsView(
+                          api: api,
+                          onExpired: expired,
                           sourceKind: 'charging_invoice',
-                          sourceId: invoice['id'] as int,
-                        ),
-                      ),
+                          sourceId: invoice['id'] as int),
                     ),
               child: Text(financialText(context, 'title')),
             ),
@@ -221,65 +279,41 @@ class _InvoicePageState extends State<InvoicePage>
                 invoice['user_id'] is int &&
                 data!['state'] != 'credited')
               OutlinedButton(
-                onPressed: busy
-                    ? null
-                    : () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => RefundRequestView(
-                            api: widget.api,
-                            onExpired: widget.onExpired,
+                onPressed: open(() => RefundRequestView(
+                            api: api,
+                            onExpired: expired,
                             invoiceId: invoice['id'] as int,
                             digits: invoice['minor_units'] as int,
-                            currency: invoice['currency'] as String,
-                          ),
-                        ),
+                            currency: invoice['currency'] as String),
                       ),
                 child: Text(refundText(context, 'new')),
               ),
             if (data!['state'] != 'credited')
               OutlinedButton(
-                onPressed: busy
-                    ? null
-                    : () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => CorporateBillingView(
-                            api: widget.api,
-                            onExpired: widget.onExpired,
-                            invoiceId: invoice['id'] as int,
-                          ),
-                        ),
+                onPressed: open(() => CorporateBillingView(
+                            api: api,
+                            onExpired: expired,
+                            invoiceId: invoice['id'] as int),
                       ),
                 child: Text(corporateText(context, 'title')),
               ),
             if (data!['state'] != 'credited')
               OutlinedButton(
-                onPressed: busy
-                    ? null
-                    : () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => CreatePaymentCaseView(
-                            api: widget.api,
-                            onExpired: widget.onExpired,
-                            invoiceId: invoice['id'] as int,
-                          ),
-                        ),
+                onPressed: open(() => CreatePaymentCaseView(
+                            api: api,
+                            onExpired: expired,
+                            invoiceId: invoice['id'] as int),
                       ),
                 child: Text(caseText(context, 'new')),
               ),
             if (data!['state'] != 'credited')
               OutlinedButton(
-                onPressed: busy
-                    ? null
-                    : () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => HostedCheckoutView(
-                            api: widget.api,
-                            onExpired: widget.onExpired,
+                onPressed: open(() => HostedCheckoutView(
+                            api: api,
+                            onExpired: expired,
                             scope: 'charging',
                             invoiceId: invoice['id'] as int,
-                            sourceOwnerId: invoice['user_id'] as int?,
-                          ),
-                        ),
+                            sourceOwnerId: invoice['user_id'] as int?),
                       ),
                 child: Text(hostedText(context, 'title')),
               ),
@@ -293,25 +327,30 @@ class _InvoicePageState extends State<InvoicePage>
             }.entries)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 10),
-                child: Text(
-                  s.t('invoiceLine', {
-                    'label': s.t(entry.key),
-                    'amount': entry.value,
-                    'currency': invoice['currency'],
-                  }),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${s.t(entry.key)}: \u2068${minorDecimal(entry.value as int, invoice['minor_units'] as int)} ${invoice['currency']}\u2069',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    // Retain exact recorded minor units for source review.
+                    Text(
+                      s.t('invoiceLine', {
+                        'label': s.t(entry.key),
+                        'amount': entry.value,
+                        'currency': invoice['currency'],
+                      }),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
               ),
             OutlinedButton(
-              onPressed: busy
-                  ? null
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => ChargingProvenanceView(
-                          api: widget.api,
+              onPressed: open(() => ChargingProvenanceView(
+                          api: api,
                           invoiceId: invoice['id'] as int,
-                          onExpired: widget.onExpired,
-                        ),
-                      ),
+                          onExpired: expired),
                     ),
               child: Text(
                 Localizations.localeOf(context).languageCode == 'ar'
@@ -321,21 +360,11 @@ class _InvoicePageState extends State<InvoicePage>
             ),
             if (data!['can_review_unpaid_credit'] == true)
               OutlinedButton(
-                onPressed: busy
-                    ? null
-                    : () async {
-                        final current = widget.api.sessionFence();
-                        await Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => UnpaidCreditView(
-                              api: widget.api,
-                              invoiceId: invoice['id'] as int,
-                              onExpired: widget.onExpired,
-                            ),
-                          ),
-                        );
-                        if (mounted && current()) await load();
-                      },
+                onPressed: open(() => UnpaidCreditView(
+                  api: api,
+                  invoiceId: invoice['id'] as int,
+                  onExpired: expired,
+                ), refreshOnReturn: true),
                 child: Text(
                   Localizations.localeOf(context).languageCode == 'ar'
                       ? 'تسوية الفاتورة غير المدفوعة والتحقق'
@@ -348,17 +377,11 @@ class _InvoicePageState extends State<InvoicePage>
               ),
             for (final note in data!['unpaid_credit_notes'] ?? [])
               OutlinedButton(
-                onPressed: busy
-                    ? null
-                    : () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => FinancialDocumentsView(
-                            api: widget.api,
-                            onExpired: widget.onExpired,
+                onPressed: open(() => FinancialDocumentsView(
+                            api: api,
+                            onExpired: expired,
                             sourceKind: 'charging_unpaid_credit',
-                            sourceId: note['id'] as int,
-                          ),
-                        ),
+                            sourceId: note['id'] as int),
                       ),
                 child: Text('${note['credit_note_number']}'),
               ),
@@ -367,6 +390,10 @@ class _InvoicePageState extends State<InvoicePage>
               if ((data![kind] as List? ?? []).isEmpty)
                 Text(s.t('noTransactions')),
               for (final row in (data![kind] as List? ?? [])) ...[
+                Text(
+                  '\u2068${minorDecimal(row['amount_minor'] as int, invoice['minor_units'] as int)} ${invoice['currency']}\u2069',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
                 Text(
                   s.t('invoiceTransaction', {
                     'amount': row['amount_minor'],

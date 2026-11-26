@@ -114,6 +114,9 @@
         routeSegments = [],
         routeLines;
     let popupOpen = false;
+    // Each independently published source can supersede only its own layer.
+    let unifiedCatalogOwner = false, unifiedPartnerOwner = false;
+    let unifiedPublisherToken = null;
     let records = [],
         partnerRows = [],
         ocmRows = [],
@@ -795,18 +798,22 @@
     });
     window.addEventListener("ev:locale", render);
     window.addEventListener("roaming-map-data", (event) => {
+        unifiedPartnerOwner = false;
         partnerRows = Array.isArray(event.detail) && event.detail.length <= 25
             ? event.detail.filter(partnerSafe)
             : [];
         render();
     });
     window.addEventListener("open-charge-map-data", (event) => {
+        // Open-licensed records do not supersede either union-owned layer.
         ocmRows = Array.isArray(event.detail) && event.detail.length <= 25
             ? event.detail.filter(ocmSafe)
             : [];
         render();
     });
     window.addEventListener("unified-map-data", (event) => {
+        unifiedCatalogOwner = unifiedPartnerOwner = true;
+        unifiedPublisherToken = event.evUnifiedPublication ?? null;
         const rows = Array.isArray(event.detail) && event.detail.length <= 25 ? event.detail : [];
         // The event is a UI message, not a new source of server authority.
         // A malformed or incomplete catalog record stays list-only; never
@@ -821,6 +828,19 @@
             ["SIMULATED", "DISCOVERY_ONLY"].includes(row.station.evidence) &&
             !(row.station.evidence === "DISCOVERY_ONLY" &&
               row.station.reservable === true) &&
+            // An event from another script is not proof of server authority.
+            ["CCS2", "Type2", "CHAdeMO"].includes(row.station.connector_type) &&
+            Number.isSafeInteger(row.station.power_kw) &&
+            row.station.power_kw >= 1 && row.station.power_kw <= 1000 &&
+            (row.station.distance_km == null ||
+              (typeof row.station.distance_km === "number" &&
+               Number.isFinite(row.station.distance_km) &&
+               row.station.distance_km >= 0)) &&
+            (row.station.timezone == null ||
+              (typeof row.station.timezone === "string" &&
+               row.station.timezone.trim() !== "")) &&
+            (row.station.reservation_policy == null ||
+              typeof row.station.reservation_policy === "string") &&
             valid(row.station),
         ).map(row => row.station);
         partnerRows = rows.filter(row => row?.kind === 'partner').map(row => ({...row,id:row.record_id})).filter(partnerSafe);
@@ -829,12 +849,39 @@
         render();
         fitLoaded(true);
     });
+    window.addEventListener("unified-map-clear", (event) => {
+        // A detached UI/old actor cannot revoke a newer publication. Manual
+        // legacy events without a token remain scoped to an unowned publication.
+        if ((event.detail ?? null) !== unifiedPublisherToken ||
+            (!unifiedCatalogOwner && !unifiedPartnerOwner)) return;
+        if (unifiedCatalogOwner) {
+            records = [];
+            routeSegments = [];
+            planner?.clear();
+            renderRoute();
+        }
+        if (unifiedPartnerOwner) partnerRows = [];
+        unifiedCatalogOwner = unifiedPartnerOwner = false;
+        unifiedPublisherToken = null;
+        if (!records.length && !partnerRows.length && !ocmRows.length) {
+            // No remaining source: revoke prior-account map tiles, GPS
+            // consent, selected coordinates and viewport state.
+            window.dispatchEvent(new CustomEvent("catalog-map-clear"));
+            if (map) disable.onclick();
+        } else {
+            // Preserve independently published catalog, partner or OCM pins.
+            render();
+        }
+    });
     window.addEventListener("catalog-map-data", (event) => {
+        unifiedCatalogOwner = false;
         records = event.detail;
         planner?.update(records);
         render();
     });
     window.addEventListener("catalog-map-clear", () => {
+        unifiedCatalogOwner = unifiedPartnerOwner = false;
+        unifiedPublisherToken = null;
         records = [];
         partnerRows = [];
         ocmRows = [];
