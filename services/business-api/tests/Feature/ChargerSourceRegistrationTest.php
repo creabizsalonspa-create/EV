@@ -221,7 +221,7 @@ class ChargerSourceRegistrationTest extends TestCase
     {
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['lookup_url', 'mutation_url', 'lookup_disabled', 'readback_disabled'] as $drift) {
+            foreach (['lookup_url', 'mutation_url', 'lookup_disabled', 'readback_disabled', 'lookup_secret', 'mutation_secret', 'readback_secret'] as $drift) {
                 $cases[] = [$protocol, $drift];
             }
         }
@@ -240,11 +240,14 @@ class ChargerSourceRegistrationTest extends TestCase
         Http::fake(function (Request $request) use ($drift, $original, $alternate, &$calls) {
             $calls++;
             $this->assertSame($original, $request->url());
+            $this->assertTrue($request->hasHeader('x-hasura-admin-secret', str_repeat('s', 64)));
             if (str_contains($request['query'], 'insert_ChargingStations_one')) {
                 $this->writes++;
                 $this->remote = $request['variables']['object'] + ['id' => 401];
                 if ($drift === 'mutation_url') {
                     config(['csms.graphql_url' => $alternate]);
+                } elseif ($drift === 'mutation_secret') {
+                    config(['csms.graphql_secret' => str_repeat('r', 64)]);
                 }
 
                 return Http::response(['data' => ['insert_ChargingStations_one' => $this->remote]]);
@@ -252,11 +255,15 @@ class ChargerSourceRegistrationTest extends TestCase
             if ($calls === 1) {
                 if ($drift === 'lookup_url') {
                     config(['csms.graphql_url' => $alternate]);
+                } elseif ($drift === 'lookup_secret') {
+                    config(['csms.graphql_secret' => str_repeat('r', 64)]);
                 } elseif ($drift === 'lookup_disabled') {
                     config(['csms.upstream_registration_enabled' => false]);
                 }
             } elseif ($drift === 'readback_disabled') {
                 config(['csms.upstream_registration_enabled' => false]);
+            } elseif ($drift === 'readback_secret') {
+                config(['csms.graphql_secret' => str_repeat('r', 64)]);
             }
 
             return Http::response(['data' => ['ChargingStations' => $this->remote ? [$this->remote] : []]]);
@@ -264,16 +271,16 @@ class ChargerSourceRegistrationTest extends TestCase
         $response = $this->postJson($f['path'].'/'.$id.'/register');
         $this->assertContains($response->status(), [409, 503]);
         $expectedCalls = match ($drift) {
-            'lookup_url', 'lookup_disabled' => 1,
-            'mutation_url' => 2,
-            'readback_disabled' => 3,
+            'lookup_url', 'lookup_disabled', 'lookup_secret' => 1,
+            'mutation_url', 'mutation_secret' => 2,
+            'readback_disabled', 'readback_secret' => 3,
         };
         $this->assertSame($expectedCalls, $calls);
         $this->assertSame($expectedCalls > 1 ? 1 : 0, $this->writes);
         $this->assertDatabaseHas('charger_source_registrations', [
             'id' => $id, 'state' => 'requires_inspection', 'source_station_id' => null, 'verified_at' => null,
         ]);
-        config(['csms.graphql_url' => $original, 'csms.upstream_registration_enabled' => true]);
+        config(['csms.graphql_url' => $original, 'csms.upstream_registration_enabled' => true, 'csms.graphql_secret' => str_repeat('s', 64)]);
         $this->postJson($f['path'].'/'.$id.'/register')->assertOk()->assertJsonPath('state', 'requires_inspection');
         $this->assertSame($expectedCalls, $calls);
         Http::assertNotSent(fn (Request $request) => $request->url() === $alternate);
