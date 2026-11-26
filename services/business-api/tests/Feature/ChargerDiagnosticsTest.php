@@ -8,7 +8,9 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\ConnectorFreshness;
 use App\Services\Charging\FaultMonitor;
+use App\Services\Charging\SourceStatusTime;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -194,6 +196,97 @@ class ChargerDiagnosticsTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertSame(1, DB::table('audit_events')->where('action', 'vendor_ops.charging_fault.acknowledged')->count());
+    }
+
+    #[DataProvider('protocols')]
+    public function test_only_explicit_noerror_recovers_ocpp16_fault_and_advertises_available(string $protocol): void
+    {
+        [, , $charger] = $this->fixture($protocol);
+        $binding = DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->first();
+        $monitor = app(FaultMonitor::class);
+        $generation = FaultMonitor::generation($binding);
+        $this->travelTo(now()->startOfSecond());
+
+        $fault = $this->statusEvent(10, 'Faulted', 3);
+        $ambiguous = $this->statusEvent(20, 'Available', 2);
+        $ambiguous['errorCode'] = null;
+        $cleared = $this->statusEvent(30, 'Available', 1);
+        DB::transaction(function () use ($monitor, $binding, $generation, $protocol, $fault, $ambiguous, $cleared) {
+            // The strict live ingestion contract rejects ambiguous 1.6
+            // receipts. Recreate retained pre-validation evidence directly
+            // in the fixture, never by weakening the live source guard.
+            $this->assertSame(1, $monitor->ingest($binding, [
+                'source_generation' => $generation, 'events' => [$fault],
+            ]));
+            if ($protocol === '1.6') {
+                $this->seedHistoricalObservation($binding, $generation, $ambiguous);
+                $this->assertSame(0, $monitor->ingest($binding, [
+                    'source_generation' => $generation, 'events' => [],
+                ]));
+            } else {
+                $this->assertSame(0, $monitor->ingest($binding, [
+                    'source_generation' => $generation, 'events' => [$ambiguous],
+                ]));
+            }
+            $alert = DB::table('charging_fault_alerts')->first();
+            $this->assertNotNull($alert);
+            if ($protocol === '1.6') {
+                $this->assertNull($alert->recovery_observation_id,
+                    'A missing 1.6 fault code cannot prove a cleared charger fault.');
+            } else {
+                $this->assertNotNull($alert->recovery_observation_id,
+                    '2.0.1 status does not require a 1.6 errorCode.');
+            }
+            $view = app(ConnectorFreshness::class)
+                ->present($binding, 1, 1);
+            $this->assertSame($protocol === '1.6' ? 'unknown' : 'recent', $view['state']);
+            $this->assertSame($protocol === '1.6' ? null : 'Available', $view['reported_status']);
+            if ($protocol === '1.6') {
+                $contradictory = $this->statusEvent(25, 'Available', 2);
+                $contradictory['timestamp'] = now()->subSeconds(90)->toISOString();
+                $contradictory['errorCode'] = 'GroundFailure';
+                $historicalId = $this->seedHistoricalObservation($binding, $generation, $contradictory);
+                DB::table('charging_fault_alerts')->insert([
+                    'observation_id' => $historicalId, 'created_at' => now(), 'updated_at' => now(),
+                ]);
+                $this->assertSame(0, $monitor->ingest($binding, [
+                    'source_generation' => $generation, 'events' => [],
+                ]));
+                $faulted = app(ConnectorFreshness::class)->present($binding, 1, 1);
+                $this->assertSame('recent', $faulted['state']);
+                $this->assertSame('Faulted', $faulted['reported_status']);
+                $this->assertSame(0, DB::table('charging_fault_alerts')->whereNotNull('recovery_observation_id')->count());
+            }
+            $this->assertSame(0, $monitor->ingest($binding, [
+                'source_generation' => $generation, 'events' => [$cleared],
+            ]));
+            $this->assertNotNull(DB::table('charging_fault_alerts')->value('recovery_observation_id'));
+            $available = app(ConnectorFreshness::class)
+                ->present($binding, 1, 1);
+            $this->assertSame('recent', $available['state']);
+            $this->assertSame('Available', $available['reported_status']);
+        });
+        $this->assertDatabaseCount('charging_status_observations', $protocol === '1.6' ? 4 : 3);
+        $this->assertDatabaseCount('charging_fault_alerts', $protocol === '1.6' ? 2 : 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
+    private function seedHistoricalObservation(object $binding, string $generation, array $event): int
+    {
+        $values = [
+            'binding_id' => $binding->id, 'source_generation' => $generation,
+            'source_event_id' => $event['id'], 'evse_number' => $event['evseId'],
+            'connector_number' => $event['connectorId'], 'status' => $event['connectorStatus'],
+            'error_code' => $event['errorCode'],
+            'occurred_at' => SourceStatusTime::parse($event['timestamp'])->format('Y-m-d H:i:s.u'),
+        ];
+
+        return DB::table('charging_status_observations')->insertGetId($values + [
+            'fingerprint' => hash('sha256', json_encode($values, JSON_THROW_ON_ERROR)),
+            'created_at' => now(),
+        ]);
     }
 
     public function test_backward_source_pages_recover_old_faults_and_changed_replay_is_rejected(): void
