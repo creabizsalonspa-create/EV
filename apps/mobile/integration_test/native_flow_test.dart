@@ -725,7 +725,13 @@ void main() {
             expectSync(raw, contains('name="idempotency_key"'));
             evidenceUploaded = true;
             request.response.statusCode = 201;
-            result = {'id': 5};
+            result = {
+              'id': 5,
+              'company_id': 1,
+              'kind': 'trade_license',
+              'mime_type': 'application/pdf',
+              'size_bytes': pdf.length,
+            };
           } else
             result = {
               'data': evidenceUploaded
