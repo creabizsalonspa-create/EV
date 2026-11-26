@@ -4,7 +4,13 @@ import 'api.dart';
 class StationAvailabilityBlocksView extends StatefulWidget {
   final EvApi api;
   final int stationId;
-  const StationAvailabilityBlocksView({super.key, required this.api, required this.stationId});
+  final VoidCallback? onExpired;
+  const StationAvailabilityBlocksView({
+    super.key,
+    required this.api,
+    required this.stationId,
+    this.onExpired,
+  });
   @override
   State<StationAvailabilityBlocksView> createState() => _StationBlocksState();
 }
@@ -21,18 +27,73 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
   bool current(int ticket) => mounted && owner() && !background && generation == ticket;
   @override
   void initState() { super.initState(); owner=widget.api.sessionFence(); WidgetsBinding.instance.addObserver(this); act(read); }
+  @override
+  void didUpdateWidget(covariant StationAvailabilityBlocksView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api || oldWidget.stationId != widget.stationId) {
+      // Changing the station or authenticated API revokes any retained
+      // idempotency identity and private station policy snapshot.
+      generation++;
+      owner = widget.api.sessionFence();
+      pending = null;
+      rows = [];
+      busy = false;
+      message = null;
+      for (final field in fields.values) { field.clear(); }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) act(read);
+      });
+    }
+  }
   Future<void> read(int ticket) async {
     final data=await widget.api.request(path);
     if (!current(ticket)) return;
-    if (data is! Map || data['station_id'] != widget.stationId || data['data'] is! List) throw const ApiException(502,'Invalid block response');
-    setState(() => rows=(data['data'] as List).map((row)=>Map<String,dynamic>.from(row as Map)).toList());
+    if (data is! Map ||
+        data['station_id'] != widget.stationId ||
+        data['data'] is! List ||
+        (data['data'] as List).length > 50) {
+      throw const ApiException(502, 'Invalid block response');
+    }
+    final typed = <Map<String, dynamic>>[];
+    for (final row in data['data'] as List) {
+      if (row is! Map ||
+          row['station_id'] != widget.stationId ||
+          row['id'] is! String ||
+          row['starts_at'] is! String ||
+          row['ends_at'] is! String ||
+          row['reason_en'] is! String ||
+          row['reason_ar'] is! String ||
+          row['revision'] is! int ||
+          row['revision'] < 1 ||
+          row['scope'] != 'STATION_WIDE_OPERATOR_POLICY' ||
+          row['cancelled'] != false ||
+          row['physical_availability_verified'] != false) {
+        throw const ApiException(502, 'Invalid station block source');
+      }
+      typed.add(Map<String, dynamic>.from(row));
+    }
+    setState(() => rows = typed);
   }
   Future<void> act(Future<void> Function(int) task) async {
     if (busy || background || !owner()) return;
     final ticket=generation;setState(() {busy=true;message=null;});
     try {await task(ticket);} catch(error) {
-      if (current(ticket)) setState(() { if (error is ApiException && error.status==422) pending=null;
-        message=t('Action not confirmed. Refresh status or retry the same request.','لم يتأكد الإجراء. حدّث الحالة أو أعد محاولة الطلب نفسه.'); });
+      if (!current(ticket)) return;
+      if (error is ApiException && [401, 419].contains(error.status)) {
+        generation++;
+        pending = null;
+        for (final field in fields.values) { field.clear(); }
+        setState(() { rows = []; busy = false; message = null; });
+        widget.onExpired?.call();
+        return;
+      }
+      setState(() {
+        // A failed authoritative GET or mutation invalidates the displayed
+        // station policy; never keep a stale cancel grant on the screen.
+        rows = [];
+        if (error is ApiException && error.status == 422) pending = null;
+        message = t('Action not confirmed. Refresh status or retry the same request.','لم يتأكد الإجراء. حدّث الحالة أو أعد محاولة الطلب نفسه.');
+      });
     } finally {if(current(ticket))setState(()=>busy=false);}
   }
   Future<void> publish() => act((ticket) async {

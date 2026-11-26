@@ -1528,24 +1528,27 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             pending = intent;
             retry.hidden = false;
             lookup.hidden = false;
+            cancel.hidden = false;
         }
         function clear() {
             window.sessionStorage.removeItem(storageKey);
             pending = undefined;
             retry.hidden = true;
             lookup.hidden = true;
+            cancel.hidden = true;
         }
         async function recover() {
             if (!pending) return;
-            const result = await partnerRequest("claim-receipt", "POST", { idempotency_key: pending.key });
-            if (!alive()) return;
+            const intent = pending;
+            const result = await partnerRequest("claim-receipt", "POST", { idempotency_key: intent.key });
+            if (!alive() || pending !== intent) return;
             rows.replaceChildren();
             if (result.claim === null) {
                 label(rows, "No partner reward receipt was found for this request.", "لم يُعثر على إيصال مكافأة الشريك لهذا الطلب.");
                 return;
             }
             const card = receipt(result.claim);
-            if (result.claim.review_id !== pending.review) throw new Error("Unexpected partner reward receipt");
+            if (result.claim.review_id !== intent.review) throw new Error("Unexpected partner reward receipt");
             clear();
             rows.append(card);
         }
@@ -1562,26 +1565,59 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                     return;
                 }
             }
+            const intent = pending;
             rows.replaceChildren();
             let result;
             try {
-                result = await partnerRequest(`offers/${review}/claim`, "POST", { idempotency_key: pending.key });
+                result = await partnerRequest(`offers/${review}/claim`, "POST", { idempotency_key: intent.key });
             } catch (error) {
-                if (!alive()) return;
+                if (!alive() || pending !== intent) return;
                 if ([404, 409, 422].includes(error.status)) {
-                    clear();
-                    label(rows, "This offer could not be claimed. Refresh available rewards or open claim history.", "تعذرت المطالبة بهذا العرض. حدّث المكافآت المتاحة أو افتح سجل المطالبات.");
+                    label(rows, "This offer could not be claimed. Check the saved receipt or cancel the same request before starting another.", "تعذرت المطالبة بهذا العرض. تحقق من الإيصال المحفوظ أو ألغ الطلب نفسه قبل بدء طلب آخر.");
                     return;
                 }
                 if ([401, 419].includes(error.status)) throw error;
                 label(rows, "Claim could not be confirmed. Retry the same request or view claim history.", "تعذر تأكيد المطالبة. أعد محاولة الطلب نفسه أو اعرض سجل المطالبات.");
                 return;
             }
-            if (!alive()) return;
+            if (!alive() || pending !== intent) return;
             const card = receipt(result.claim);
             if (result.claim.review_id !== review) throw new Error("Unexpected partner reward receipt");
             clear();
             rows.replaceChildren(card);
+        }
+        async function cancelSaved() {
+            if (!pending) return;
+            const intent = pending;
+            if (!window.confirm(document.documentElement.lang === "ar"
+                ? "إلغاء الطلب المحفوظ؟ إذا وُجدت مطالبة فسيُحفظ إيصالها."
+                : "Cancel the saved request? If a claim already exists, its receipt will be preserved.")) return;
+            const hash = async (value) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))), byte => byte.toString(16).padStart(2, "0")).join("");
+            try {
+                const request = await hash(`partner-reward-claim:${owner}:${intent.key}`);
+                const binding = await hash(`partner-reward-cancel-v1:${intent.review}:${request}`);
+                if (!alive() || pending !== intent) return;
+                const result = await partnerRequest("claim-intents/cancel", "POST", {
+                    review_id: intent.review, idempotency_key: intent.key,
+                });
+                if (!alive() || pending !== intent) return;
+                if (result?.review_id !== intent.review || result.request_binding !== binding) throw new Error("Invalid cancellation acknowledgement");
+                if (result.state === "accepted" && result.claim?.review_id === intent.review) {
+                    const card = receipt(result.claim);
+                    clear();
+                    rows.replaceChildren(card);
+                } else if (result.state === "cancelled" && result.claim === null) {
+                    clear();
+                    rows.replaceChildren();
+                    label(rows, "Saved request cancelled by the server.", "ألغى الخادم الطلب المحفوظ.");
+                } else {
+                    throw new Error("Invalid cancellation state");
+                }
+            } catch (error) {
+                if (!alive() || pending !== intent) return;
+                if ([401, 419].includes(error.status)) throw error;
+                label(rows, "Cancellation not confirmed. Keep the same saved request.", "لم يتأكد الإلغاء. احتفظ بالطلب المحفوظ نفسه.");
+            }
         }
         async function load(kind, page = 1) {
             rows.replaceChildren();
@@ -1628,8 +1664,10 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         button(panel, "View partner reward claims", "عرض مطالبات مكافآت الشركاء", () => load("claims"));
         const retry = button(panel, "Retry partner reward claim", "إعادة محاولة المطالبة بمكافأة الشريك", () => pending && claim(pending.review));
         const lookup = button(panel, "Check partner reward receipt", "التحقق من إيصال مكافأة الشريك", recover);
+        const cancel = button(panel, "Cancel saved partner reward claim", "إلغاء مطالبة مكافأة الشريك المحفوظة", cancelSaved);
         retry.hidden = !pending;
         lookup.hidden = !pending;
+        cancel.hidden = !pending;
         panel.append(rows);
         container.append(panel);
     }

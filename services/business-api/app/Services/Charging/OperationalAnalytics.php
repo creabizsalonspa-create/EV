@@ -144,6 +144,7 @@ class OperationalAnalytics
         $observations = DB::table('charging_status_observations')->whereIn('binding_id', $bindings->pluck('id'))->where('occurred_at', '>=', $from->subSeconds(300))->where('occurred_at', '<=', $until)->where('created_at', '<=', $asOf)->orderBy('occurred_at')->orderBy('source_event_id')->limit(20001)->get();
         abort_if($observations->count() > 20000, 409, 'Narrow the report period/site.');
         $components = [];
+        $unavailableBySite = [];
         foreach ($maps as $m) {
             $evse = $byEvse[$m->evse_id];
             $b = $byBinding[$evse->binding_id];
@@ -176,6 +177,7 @@ class OperationalAnalytics
             $times = array_keys($timeline);
             $known = 0;
             $fault = 0;
+            $unavailable = 0;
             foreach ($times as $i => $t) {
                 $e = $timeline[$t];
                 $seconds = max(0, min($z, $t + 300, $times[$i + 1] ?? $z) - max($a, $t));
@@ -184,15 +186,19 @@ class OperationalAnalytics
                 } $known += $seconds;
                 if ($e['fault']) {
                     $fault += $seconds;
+                } elseif ($e['status'] === 'Unavailable') {
+                    $unavailable += $seconds;
                 }
             }
             $site = $component['site'];
             $rows[$site]['status_known_seconds'] += $known;
             $rows[$site]['reported_fault_seconds'] += $fault;
+            $unavailableBySite[$site] = ($unavailableBySite[$site] ?? 0) + $unavailable;
         }
         foreach ($rows as &$row) {
             $row += app(ObservedSiteDemand::class)->project($demand[$row['site_id']] ?? []);
             $row['status_unknown_seconds'] = $row['possible_connector_seconds'] - $row['status_known_seconds'];
+            $row['reported_non_fault_unavailable_seconds'] = $unavailableBySite[$row['site_id']] ?? 0;
         }unset($row);
         // Canonical invoice facts stay separate by currency, precision and provenance.
         $money = [];

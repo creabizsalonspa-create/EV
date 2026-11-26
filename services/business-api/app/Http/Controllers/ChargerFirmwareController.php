@@ -222,11 +222,14 @@ class ChargerFirmwareController extends Controller
                     abort_unless(hash_equals($current->source_payload_digest, hash('sha256', $serialized)), 409, 'Firmware source provenance changed.');
                     $payload = json_decode($serialized, true, 32, JSON_THROW_ON_ERROR);
                     abort_unless(($payload['requestId'] ?? null) === (int) $current->id && ($payload['firmware']['signature'] ?? null) === $release->signature && ($payload['firmware']['signingCertificate'] ?? null) === $release->signing_certificate, 409, 'Approved release lineage changed.');
-                    $token = app(OperationsCredentials::class)->token(config('csms.operations_base_url'));
+                    $operationsBase = config('csms.operations_base_url');
+                    $token = app(OperationsCredentials::class)->token($operationsBase);
+                    $this->enabled();
+                    abort_unless(config('csms.operations_base_url') === $operationsBase, 409, 'Operations authority changed before firmware dispatch.');
                     abort_unless(is_string($token) && $token !== '', 503);
                     $action = $b->protocol === '1.6' ? 'signedUpdateFirmware' : 'updateFirmware';
                     $wireAttempted = true; // From here even an exception is an uncertain command outcome.
-                    $reply = Http::timeout(10)->withoutRedirecting()->withToken($token)->post(config('csms.operations_base_url').'/ocpp/'.$b->protocol.'/configuration/'.$action.'?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), $payload);
+                    $reply = Http::timeout(10)->withoutRedirecting()->withToken($token)->post($operationsBase.'/ocpp/'.$b->protocol.'/configuration/'.$action.'?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), $payload);
 
                     if (! $reply->successful() || $reply->json() !== [['success' => true]]) {
                         $message = $reply->json('message');
