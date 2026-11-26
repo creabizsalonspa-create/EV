@@ -405,11 +405,14 @@ class LoyaltyController extends Controller
         return DB::table('loyalty_redemptions')->when($r->user()->role !== 'admin', fn ($q) => $q->where('user_id', $r->user()->id))->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->safe($row));
     }
 
-    public function partnerRewardOffers(Request $r, PartnerRewardGovernance $governance)
+    public function partnerRewardOffers(Request $r, PartnerRewardGovernance $governance, LoyaltyService $service)
     {
-        abort_unless($r->user()->role === 'customer', 403);
+        abort_unless($r->user()->role === 'customer' && $r->user()->email_verified_at !== null, 403);
+        $values = $r->validate(['page' => 'sometimes|integer|between:1,100000']);
+        $user = (int) $r->user()->id;
 
-        return response()->json($governance->sandboxOffers())->header('Cache-Control', 'private, no-store');
+        return response()->json($governance->sandboxOffers($user, $service->account($user), (int) ($values['page'] ?? 1)))
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function claimPartnerReward(Request $r, int $review, LoyaltyService $service, PartnerRewardGovernance $governance)

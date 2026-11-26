@@ -99,6 +99,36 @@ class RetailPartnerRewardGovernanceTest extends TestCase
         DB::table('partner_reward_claims')->where('id', $claim['id'])->delete();
     }
 
+    public function test_offer_discovery_filters_member_and_shared_inventory_before_pagination(): void
+    {
+        [$reviewer, $review] = $this->sandboxOffer(['stock' => 2, 'per_user_limit' => 1]);
+        $first = User::factory()->create();
+        $second = User::factory()->create();
+        $third = User::factory()->create();
+        $base = '/api/commercial/partner-rewards';
+        $this->actingAs($first)->getJson("$base/offers?page=0")->assertUnprocessable();
+        $this->getJson("$base/offers?page=100001")->assertUnprocessable();
+        $this->getJson("$base/offers?page=1")->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.review_id', $review);
+        $this->getJson("$base/offers?page=2")->assertOk()->assertJsonPath('current_page', 2)
+            ->assertJsonPath('total', 1)->assertJsonCount(0, 'data');
+        $claim = $this->postJson("$base/offers/$review/claim", ['idempotency_key' => 'first-claim'])
+            ->assertCreated()->json('claim');
+        $this->getJson("$base/offers")->assertOk()->assertJsonPath('total', 0)->assertJsonCount(0, 'data');
+        $this->actingAs($second)->getJson("$base/offers")->assertOk()->assertJsonPath('total', 1);
+        $this->postJson("$base/offers/$review/claim", ['idempotency_key' => 'second-claim'])->assertCreated();
+        $this->actingAs($third)->getJson("$base/offers")->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($reviewer)->postJson('/api/commercial/loyalty/redemptions/'.$claim['redemption_id'].'/reject',
+            ['reason' => 'Release synthetic reward inventory'])->assertOk();
+        $this->actingAs($third)->getJson("$base/offers")->assertOk()->assertJsonPath('total', 1);
+        $this->actingAs($first)->getJson("$base/offers")->assertOk()->assertJsonPath('total', 1);
+        $this->actingAs($second)->getJson("$base/offers")->assertOk()->assertJsonPath('total', 0);
+        $this->assertDatabaseCount('partner_reward_claims', 2);
+        $this->assertDatabaseCount('loyalty_redemptions', 2);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_revoked_review_blocks_new_claims_and_fulfillment_but_preserves_receipt_and_release(): void
     {
         [$reviewer, $review, $path] = $this->sandboxOffer();
@@ -132,7 +162,8 @@ class RetailPartnerRewardGovernanceTest extends TestCase
         $customer = User::factory()->create();
         $this->app['auth']->forgetGuards();
         $this->withToken($unverified->createToken('mobile')->plainTextToken)
-            ->postJson("$base/offers/$review/claim", ['idempotency_key' => 'unverified'])->assertForbidden();
+            ->getJson("$base/offers")->assertForbidden();
+        $this->postJson("$base/offers/$review/claim", ['idempotency_key' => 'unverified'])->assertForbidden();
         $this->app['auth']->forgetGuards();
         $this->withToken($customer->createToken('mobile')->plainTextToken)
             ->postJson("$base/offers/$review/claim", ['idempotency_key' => 'native'])->assertCreated();
