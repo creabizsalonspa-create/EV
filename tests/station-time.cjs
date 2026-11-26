@@ -122,3 +122,21 @@ test("fractional PostgreSQL UTC timestamps preserve the same localized minute wi
         }
     }
 });
+
+
+test("repeated regional wall clocks disclose distinct source-instant UTC offsets in English and Arabic", () => {
+    const { displayStationTime } = subject();
+    for (const language of ["en", "ar"]) {
+        const first = displayStationTime("2026-11-01T05:30:00Z", "America/New_York", language);
+        const second = displayStationTime("2026-11-01T06:30:00Z", "America/New_York", language);
+        assert.ok(first && second);
+        assert.notEqual(first, second);
+        assert.match(first, /\u2068UTC-04:00\u2069$/);
+        assert.match(second, /\u2068UTC-05:00\u2069$/);
+        assert.equal(first, displayStationTime("2026-11-01T01:30:00-04:00", "America/New_York", language));
+        assert.equal(second, displayStationTime("2026-11-01T01:30:00-05:00", "America/New_York", language));
+        assert.match(displayStationTime("2026-11-16T04:30:00Z", "Asia/Kathmandu", language), /UTC\+05:45/);
+        assert.match(displayStationTime("2026-11-16T04:30:00Z", "Europe/London", language), /UTC\+00:00/);
+        assert.match(displayStationTime("2026-11-16T04:30:00Z", "UTC", language), /\(UTC\)$/);
+    }
+});
