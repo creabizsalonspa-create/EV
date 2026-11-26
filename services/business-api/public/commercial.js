@@ -2033,6 +2033,55 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         }
         button(parent, "Load pending finance reviews", "عرض المراجعات المالية المعلقة", () => show(1));
     }
+    const earningsFields = [
+        ["subtotal_minor", "Invoice subtotal", "المجموع الفرعي للفاتورة"],
+        ["tax_minor", "Tax", "الضريبة"],
+        ["commission_minor", "Commission", "العمولة"],
+        ["vendor_allocated_minor", "Vendor allocation", "حصة المشغل"],
+        ["paid_minor", "Recorded payments", "المدفوعات المسجلة"],
+        ["refunded_minor", "Recorded refunds", "المبالغ المستردة المسجلة"],
+        ["vendor_refunded_minor", "Vendor refunds", "مبالغ المشغل المستردة"],
+        ["unpaid_credited_minor", "Unpaid invoice credits", "الأرصدة الدائنة للفواتير غير المدفوعة"],
+        ["net_collected_minor", "Net collected", "صافي التحصيل"],
+        ["amount_due_minor", "Amount due", "المبلغ المستحق"],
+        ["pending_reserved_minor", "Pending settlement", "تسوية معلقة"],
+        ["completed_settlement_minor", "Completed test settlement", "تسوية اختبارية مكتملة"],
+        ["available_minor", "Available or debt", "المتاح أو الدين"],
+    ];
+    function validateVendorEarnings(report, vendorId, currency, page) {
+        const invalid = () => { throw Error("Vendor earnings source cannot be verified."); };
+        const integer = Number.isSafeInteger;
+        const precision = value => integer(value) && value >= 0 && value <= 3;
+        const signed = new Set(["net_collected_minor", "pending_reserved_minor",
+            "completed_settlement_minor", "available_minor"]);
+        const vendor = Number(vendorId);
+        if (!integer(vendor) || vendor < 1 || !/^[A-Z]{3}$/.test(currency) ||
+            !integer(page) || page < 1 || page > 10000 ||
+            !report || report.vendor_id !== vendor || report.currency !== currency ||
+            report.evidence !== "SIMULATED_CANONICAL_SETTLEMENT" ||
+            report.real_payout_enabled !== false || report.external_psp_or_bank_verified !== false ||
+            report.overall_balance_scope !== "ALL_VENDOR_INVOICES_AND_APPROVED_ADJUSTMENTS" ||
+            !precision(report.minor_units) || !integer(report.overall_available_minor) ||
+            !integer(report.hold_days) || report.hold_days < 0 ||
+            report.current_page !== page || report.per_page !== 10 ||
+            !integer(report.total) || report.total < 0 || !integer(report.last_page) ||
+            report.last_page !== Math.max(1, Math.ceil(report.total / 10)) ||
+            page > report.last_page || !Array.isArray(report.data) ||
+            report.data.length !== Math.min(10, Math.max(0, report.total - (page - 1) * 10)))
+            invalid();
+        const ids = new Set();
+        for (const row of report.data) {
+            if (!row || !integer(row.invoice_id) || row.invoice_id < 1 || ids.has(row.invoice_id) ||
+                row.currency !== currency || row.minor_units !== report.minor_units ||
+                typeof row.invoice_number !== "string" || row.invoice_number.length < 1 ||
+                row.invoice_number.length > 150 || typeof row.evidence !== "string" ||
+                !/^[A-Z][A-Z0-9_]{0,63}$/.test(row.evidence) ||
+                earningsFields.some(([key]) => !integer(row[key]) || (!signed.has(key) && row[key] < 0)))
+                invalid();
+            ids.add(row.invoice_id);
+        }
+        return report;
+    }
     async function settlements(parent, current) {
         const activeCache = cache,
             key = "commercial/settlements?";
@@ -2090,8 +2139,20 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         currency, page: String(page), per_page: "10",
                     });
                     const path = "commercial/vendors/" + vendorId + "/earnings?" + query;
-                    const result = await api(path, "GET", undefined, controller.signal);
+                    // Clear the previously accepted private page and CSV affordance
+                    // before another read, including a rejected or unavailable response.
                     if (current !== epoch || !detail.isConnected) return;
+                    earningsPane.replaceChildren(translated("p", "Loading earnings…", "جارٍ تحميل الأرباح…"));
+                    let result;
+                    try {
+                        const response = await api(path, "GET", undefined, controller.signal);
+                        if (current !== epoch || !detail.isConnected) return;
+                        result = validateVendorEarnings(response, vendorId, currency, page);
+                    } catch (error) {
+                        if (current !== epoch || !detail.isConnected) return;
+                        earningsPane.replaceChildren(translated("p", "Earnings unavailable", "الأرباح غير متاحة"));
+                        throw error;
+                    }
                     earningsPane.replaceChildren(
                         translated("h4", "Itemized vendor earnings", "تفاصيل أرباح المشغل"),
                         translated("p",
@@ -2106,15 +2167,14 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         row.dataset.earningsInvoiceId = String(invoice.invoice_id);
                         const amount = (minor) =>
                             money(minor, invoice.currency, invoice.minor_units);
-                        row.append(
-                            text("h5", invoice.invoice_number),
-                            text("p", amount(invoice.vendor_allocated_minor) + " · Vendor allocation / حصة المشغل"),
-                            text("p", amount(invoice.commission_minor) + " · Commission / العمولة"),
-                            text("p", amount(invoice.net_collected_minor) + " · Net collected / صافي التحصيل"),
-                            text("p", amount(invoice.pending_reserved_minor) + " · Pending settlement / تسوية معلقة"),
-                            text("p", amount(invoice.completed_settlement_minor) + " · Completed test settlement / تسوية اختبارية"),
-                            text("p", amount(invoice.available_minor) + " · Available or debt / المتاح أو الدين"),
-                        );
+                        row.append(text("h5", invoice.invoice_number));
+                        for (const [field, en, ar] of earningsFields) {
+                            const line = document.createElement("p");
+                            line.dataset.earningsAmount = field;
+                            line.append(translated("span", en, ar), text("span", " · " + amount(invoice[field])));
+                            row.append(line);
+                        }
+                        row.append(translated("span", "Source evidence", "دليل المصدر"), text("span", " · " + invoice.evidence));
                         earningsPane.append(row);
                     }
                     if (!(result.data || []).length)

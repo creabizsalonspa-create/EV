@@ -149,6 +149,23 @@ const assert = require("node:assert/strict");
     const earnedCsv = fs.readFileSync(dir + "/vendor-earnings.csv", "utf8");
     assert(earnedCsv.includes("vendor_allocated_minor"));
     assert(earnedCsv.includes("pending_reserved_minor"));
+    const invoiceEarnings = earningsPane.locator('[data-earnings-invoice-id="' + f.invoice + '"]');
+    assert.equal(await invoiceEarnings.locator("[data-earnings-amount]").count(), 13);
+    const earningsUrl = url => url.pathname === "/api/commercial/vendors/" + f.vendor + "/earnings";
+    const mismatched = async route => {
+      const original = await route.fetch();
+      assert.equal(original.status(), 200);
+      const report = await original.json();
+      await route.fulfill({ response: original, json: { ...report, vendor_id: Number(f.vendor) + 1 } });
+    };
+    await vendor.route(earningsUrl, mismatched);
+    await vendor.getByRole("button", { name: "View itemized earnings", exact: true }).click();
+    await earningsPane.getByText("Earnings unavailable", { exact: true }).waitFor();
+    assert.equal(await earningsPane.locator("[data-earnings-invoice-id]").count(), 0);
+    assert.equal(await earningsPane.getByRole("link", { name: "Download earnings CSV", exact: true }).count(), 0);
+    await vendor.unroute(earningsUrl, mismatched);
+    await vendor.getByRole("button", { name: "View itemized earnings", exact: true }).click();
+    await invoiceEarnings.waitFor();
     await vendor.getByRole("button", {
       name: "Inspect accessible ledger integrity", exact: true,
     }).click();
