@@ -387,6 +387,21 @@ const { chromium } = require("playwright"),
     const activity = vendorPanel.locator("[data-checkout-activity]");
     await vendorPanel.getByRole("button", { name: "View checkout activity", exact: true }).click();
     await activity.getByText("Test capture recorded", { exact: true }).waitFor();
+    // Malformed event pages cannot fabricate a timestamp or duplicate activity.
+    const eventRoute = "**/api/commercial/hosted-checkouts/" + vh.id + "/events*";
+    for (const duplicate of [false, true]) {
+      await vendor.route(eventRoute, (route) => {
+        const row = {id: 1, hosted_checkout_id: vh.id, kind: "capture_observed",
+          created_at: duplicate ? "2026-02-28 04:30:00.123456" : "2026-02-30T04:30:00Z"};
+        return route.fulfill({json:{current_page:1,last_page:1,total:2,data:duplicate?[row,row]:[row]}});
+      });
+      await activity.getByRole("button",{name:"Refresh activity",exact:true}).click();
+      await activity.getByText("Could not load checkout activity.",{exact:true}).waitFor();
+      assert.equal(await activity.getByText("Test capture recorded",{exact:true}).count(),0);
+      await vendor.unroute(eventRoute);
+    }
+    await activity.getByRole("button",{name:"Refresh activity",exact:true}).click();
+    await activity.getByText("Test capture recorded",{exact:true}).waitFor();
     await vendor.locator("#language").click();
     await activity.getByText("تم تسجيل تحصيل اختباري", { exact: true }).waitFor();
     await vendor.locator("#language").click();

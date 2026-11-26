@@ -220,13 +220,29 @@ export function mountHostedCheckout({
         reconciliation_requires_review: ["Reconciliation requires review", "تتطلب المطابقة المراجعة"],
         provider_case_requires_review: ["Provider case requires review", "تتطلب حالة المزود المراجعة"],
     };
-    async function loadEvents(area, id, number) {
-        const issued = epoch;
+    function eventInstant(value) {
+        const parts = typeof value === "string" &&
+            /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?Z?$/.exec(value);
+        if (!parts) return null;
+        const [year, month, day, hour, minute, second] = parts.slice(1, 7).map(Number);
+        const calendar = new Date(0);
+        calendar.setUTCFullYear(year, month - 1, day);
+        calendar.setUTCHours(hour, minute, second, 0);
+        if (year < 1 || calendar.getUTCFullYear() !== year ||
+            calendar.getUTCMonth() + 1 !== month || calendar.getUTCDate() !== day ||
+            calendar.getUTCHours() !== hour || calendar.getUTCMinutes() !== minute ||
+            calendar.getUTCSeconds() !== second) return null;
+        const utc = new Date(value.replace(" ", "T").replace(/Z?$/, "Z"));
+        return Number.isFinite(utc.getTime()) ? utc : null;
+    }
+    async function loadEvents(area, id, number, rendered = epoch) {
         const current = () => alive() && !document.hidden && area.isConnected
-            && selected === id && issued === epoch;
+            && selected === id && rendered === epoch;
+        // Retired, detached and hidden activity controls may not dispatch a read.
+        if (!current() || !Number.isSafeInteger(number) || number < 1) return;
         area.replaceChildren();
         const refresh = () => button(
-            area, "Refresh activity", "تحديث النشاط", () => loadEvents(area, id, number),
+            area, "Refresh activity", "تحديث النشاط", () => loadEvents(area, id, number, rendered),
         );
         try {
             const response = await api(
@@ -235,18 +251,21 @@ export function mountHostedCheckout({
             if (!current()) return;
             if (!response || !Array.isArray(response.data) ||
                 response.current_page !== number ||
-                !Number.isInteger(response.last_page) || response.last_page < 1) {
+                !Number.isSafeInteger(response.last_page) || response.last_page < 1 ||
+                !Number.isSafeInteger(response.total) || response.total < 0 ||
+                response.data.length > response.total) {
                 throw Error("Invalid checkout event page.");
             }
+            const ids = new Set();
             const rows = response.data.map((row) => {
                 const key = corporate ? "checkout_id" : "hosted_checkout_id";
                 if (row?.[key] !== id || !Number.isSafeInteger(row.id) || row.id < 1 ||
-                    typeof row.kind !== "string" || typeof row.created_at !== "string" ||
-                    !/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$/.test(row.created_at)) {
+                    typeof row.kind !== "string" || ids.has(row.id)) {
                     throw Error("Invalid checkout event.");
                 }
-                const utc = new Date(row.created_at.replace(" ", "T").replace(/Z?$/, "Z"));
-                if (!Number.isFinite(utc.getTime())) throw Error("Invalid checkout event time.");
+                ids.add(row.id);
+                const utc = eventInstant(row.created_at);
+                if (!utc) throw Error("Invalid checkout event time.");
                 const name = Object.hasOwn(eventLabels, row.kind)
                     ? eventLabels[row.kind]
                     : ["Checkout event recorded", "تم تسجيل حدث لعملية الدفع"];
@@ -265,8 +284,8 @@ export function mountHostedCheckout({
             } else {
                 area.append(t("p", "No checkout activity recorded.", "لا يوجد نشاط مسجل لعملية الدفع."));
             }
-            if (number > 1) button(area, "Previous activity", "النشاط السابق", () => loadEvents(area, id, number - 1));
-            if (number < response.last_page) button(area, "Next activity", "النشاط التالي", () => loadEvents(area, id, number + 1));
+            if (number > 1) button(area, "Previous activity", "النشاط السابق", () => loadEvents(area, id, number - 1, rendered));
+            if (number < response.last_page) button(area, "Next activity", "النشاط التالي", () => loadEvents(area, id, number + 1, rendered));
         } catch (error) {
             if (!current() || ["AbortError", "SessionChangedError"].includes(error.name)) return;
             const feedback = t("p", "Could not load checkout activity.", "تعذر تحميل نشاط عملية الدفع.");
@@ -293,7 +312,8 @@ export function mountHostedCheckout({
         );
         const activity = n("section", "");
         activity.dataset.checkoutActivity = "";
-        button(card, "View checkout activity", "عرض نشاط عملية الدفع", () => loadEvents(activity, row.id, 1));
+        const activityEpoch = epoch;
+        button(card, "View checkout activity", "عرض نشاط عملية الدفع", () => loadEvents(activity, row.id, 1, activityEpoch));
         card.append(activity);
         if (row.hosted_url) {
             const url = new URL(row.hosted_url);
