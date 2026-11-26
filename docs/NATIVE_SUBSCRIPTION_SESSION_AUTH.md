@@ -300,3 +300,17 @@ wrong or stale receipt retains the original key for explicit same-intent retry.
 Backend and Flutter regressions cover the original cancellation followed by
 resume, malformed response binding, actor isolation and exact replay. Fresh
 hosted source and combined validation required before Agent 5 integration.
+
+
+## Explicit native due-renewal control
+
+The existing authenticated renewal action was available in Laravel but absent
+from the Flutter subscription detail. The native owner may now explicitly
+check a reviewed paid cycle. The optional expected_cycle_number guard executes
+under the existing subscription row lock; a later paid cycle rejects an old
+confirmation. Existing web/scheduler callers are unchanged. The operation
+reuses canonical invoice uniqueness and scheduled cancellation, never captures
+payment, never auto retries, and refreshes private history only while the
+same session and screen remain active. Missing or malformed response evidence
+requires explicit refresh. Added feature, native widget and connected Laravel
+client assertions; exact-head hosted validation remains mandatory.

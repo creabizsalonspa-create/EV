@@ -244,6 +244,33 @@ class SubscriptionTest extends TestCase
         $this->assertDatabaseCount('commercial_subscription_receipts', 2);
     }
 
+    public function test_native_renewal_check_is_bound_to_reviewed_cycle_and_never_captures_payment(): void
+    {
+        $f = $this->subscribe($this->plan());
+        $paid = $this->pay($f);
+        $id = $paid['subscription']['id'];
+        $path = $f[2].'/renew';
+        $this->postJson($path, ['expected_cycle_number' => 1])->assertOk()->assertJsonCount(1, 'invoices');
+        $this->postJson($path, ['expected_cycle_number' => 2])->assertConflict();
+        $this->postJson($path, ['expected_cycle_number' => 0])->assertUnprocessable();
+        $this->travelTo(Carbon::parse($paid['subscription']['period_end'])->addSecond());
+        $renewed = $this->postJson($path, ['expected_cycle_number' => 1])->assertOk()
+            ->assertJsonPath('subscription.cycle_number', 1)->assertJsonCount(2, 'invoices')
+            ->assertJsonPath('real_payment_processed', false)->json();
+        $this->postJson($path, ['expected_cycle_number' => 1])->assertOk()->assertJsonCount(2, 'invoices');
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->assertDatabaseCount('commercial_subscription_invoices', 2);
+        $f[1] = $renewed;
+        $this->pay($f, 'native-cycle-two');
+        $this->postJson($path, ['expected_cycle_number' => 1])->assertConflict();
+        $this->postJson($path, ['expected_cycle_number' => 2])->assertOk()->assertJsonCount(2, 'invoices');
+        $this->assertDatabaseCount('commercial_subscription_receipts', 2);
+        $this->assertDatabaseCount('commercial_subscription_invoices', 2);
+        $this->assertDatabaseHas('commercial_subscriptions', ['id' => $id, 'cycle_number' => 2]);
+        $this->actingAs(User::factory()->create(['role' => 'vendor']))
+            ->postJson($path, ['expected_cycle_number' => 0])->assertNotFound();
+    }
+
     public function test_upgrades_and_downgrades_are_scheduled_with_frozen_current_cycle_prices(): void
     {
         $basic = $this->plan();

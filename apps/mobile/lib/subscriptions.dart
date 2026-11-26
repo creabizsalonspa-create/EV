@@ -27,6 +27,9 @@ const subscriptionEn = {
   'cancel_now': 'Cancel now',
   'resume': 'Resume renewal',
   'renew': 'Check due renewal',
+  'renewConsent': 'Check this billing cycle with the server? If due, the server may issue its renewal invoice or finalize a scheduled cancellation. This does not collect payment.',
+  'renewConfirm': 'Check this cycle',
+  'renewDismiss': 'Not now',
   'detail': 'Details',
   'refresh': 'Refresh',
   'next': 'Next',
@@ -77,6 +80,9 @@ const subscriptionAr = {
   'cancel_now': 'الإلغاء الآن',
   'resume': 'استئناف التجديد',
   'renew': 'فحص التجديد المستحق',
+  'renewConsent': 'هل تريد فحص دورة الفوترة هذه لدى الخادم؟ عند الاستحقاق قد يصدر فاتورة التجديد أو ينفذ الإلغاء المجدول. لا يتم تحصيل دفعة.',
+  'renewConfirm': 'فحص هذه الدورة',
+  'renewDismiss': 'ليس الآن',
   'detail': 'التفاصيل',
   'refresh': 'تحديث',
   'next': 'التالي',
@@ -219,6 +225,17 @@ List<String> subscriptionActions(Map<String, dynamic> sub, {DateTime? now}) {
     if (current && sub['cancel_at_period_end'] == true) 'resume',
     'cancel_now',
   ];
+}
+
+/// A renewal check is a cycle-scoped, non-payment operation. The server
+/// determines whether a new invoice or scheduled cancellation is due.
+bool subscriptionCanCheckRenewal(dynamic sub) {
+  if (sub is! Map || !['active', 'past_due'].contains(sub['status'])) {
+    return false;
+  }
+  final cycle = sub['cycle_number'], end = sub['period_end'];
+  return cycle is int && cycle >= 1 && cycle <= 9007199254740991 &&
+      end is String && DateTime.tryParse(end) != null;
 }
 
 class SubscriptionsView extends StatefulWidget {
@@ -1047,10 +1064,83 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
 
   Future<void> push(Widget view) async {
     if (!current || busy) return;
+    final session = currentSession!, epoch = generation;
     await Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => view));
-    if (mounted) load(number: page);
+    if (mounted && foreground && epoch == generation && session()) {
+      await load(number: page);
+    }
+  }
+
+  Future<void> checkRenewal() async {
+    final source = summary;
+    if (busy || !current || hidden || source == null ||
+        !subscriptionCanCheckRenewal(source['subscription'])) return;
+    final sub = source['subscription'] as Map;
+    final id = widget.id, owner = sub['user_id'] as int;
+    final cycle = sub['cycle_number'] as int;
+    final api = widget.api, session = currentSession!, epoch = generation;
+    bool active() => mounted && foreground && !hidden &&
+        epoch == generation && session() &&
+        identical(api, widget.api) && id == widget.id;
+    setState(() { busy = true; error = null; });
+    try {
+      final agreed = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: Text(subscriptionText(dialog, 'renew')),
+          content: Text(subscriptionText(dialog, 'renewConsent')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialog).pop(false),
+              child: Text(subscriptionText(dialog, 'renewDismiss')),
+            ),
+            FilledButton(
+              key: const Key('subscription-renew-confirm'),
+              onPressed: () => Navigator.of(dialog).pop(true),
+              child: Text(subscriptionText(dialog, 'renewConfirm')),
+            ),
+          ],
+        ),
+      );
+      if (!active() || agreed != true) return;
+      final account = await api.request('me');
+      if (!active()) return;
+      if (account is! Map || account['id'] is! int ||
+          account['id'] != owner ||
+          !['customer', 'vendor'].contains(account['role'])) {
+        throw const FormatException('Renewal account changed.');
+      }
+      final result = await api.request(
+        'commercial/subscriptions/$id/renew',
+        method: 'POST',
+        body: {'expected_cycle_number': cycle},
+      );
+      if (!active()) return;
+      final accepted = subscriptionSummary(result, owner, id: id);
+      if (accepted['subscription']['cycle_number'] is! int ||
+          accepted['subscription']['cycle_number'] != cycle) {
+        throw const FormatException('Unexpected renewal cycle.');
+      }
+      // The authoritative result may be unchanged. Refresh the current
+      // summary/history; never imply that an invoice or payment occurred.
+      await load();
+    } catch (e) {
+      if (active()) {
+        setState(() {
+          summary = null;
+          events = null;
+          error = e;
+        });
+        if (e is ApiException && e.endsCurrentSession) widget.onExpired();
+      } else if (mounted && foreground && epoch == generation &&
+          e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+      }
+    } finally {
+      if (active()) setState(() => busy = false);
+    }
   }
 
   @override
@@ -1088,6 +1178,12 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView>
             ),
           if (summary!['subscription']['cancel_at_period_end'] == true)
             Text(t('cancelling')),
+          if (subscriptionCanCheckRenewal(summary!['subscription']))
+            OutlinedButton(
+              key: const Key('subscription-renew-check'),
+              onPressed: busy ? null : checkRenewal,
+              child: Text(t('renew')),
+            ),
           if (subscriptionActions(
             Map<String, dynamic>.from(summary!['subscription'] as Map),
           ).contains('change_plan')) ...[

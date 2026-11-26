@@ -11,7 +11,7 @@ import 'vendor_finance_test.dart' show VendorOperationStore, PausedVendorStore;
 
 class SubscriptionApi extends FixtureApi {
   bool lost = false, wrongOwner = false;
-  int? forgedPlanId, forgedCurrentPage, forgedTotal;
+  int? forgedPlanId, forgedCurrentPage, forgedTotal, renewalCycle;
   Map<String, dynamic>? historyOverride, writeReceiptOverride, operationReceiptOverride;
   int writes = 0;
   Completer<dynamic>? meWait, detailWait, eventsWait, postWait;
@@ -32,7 +32,9 @@ class SubscriptionApi extends FixtureApi {
       'id': 4,
       'user_id': wrongOwner ? 9 : 1,
       'plan_id': 7,
-      'status': 'pending',
+      'status': renewalCycle == null ? 'pending' : 'active',
+      'cycle_number': renewalCycle ?? 0,
+      'period_end': renewalCycle == null ? null : '2026-11-28T00:00:00Z',
       'cancel_at_period_end': false,
     },
     'plan': plan,
@@ -73,6 +75,7 @@ class SubscriptionApi extends FixtureApi {
       if (lost) throw const ApiException(0, 'private-subscription-diagnostic');
       if (postWait != null) return postWait!.future;
       final result = writeReceiptOverride ?? summary;
+      if (path.endsWith('/renew')) return result;
       final saved = bodies.last;
       final action = saved['action'] ?? 'enroll';
       final planId = saved['plan_id'];
@@ -124,6 +127,83 @@ Future<void> confirm(WidgetTester t) async {
 }
 
 void main() {
+  testWidgets('due renewal requires explicit cycle-bound confirmation and never auto posts',
+      (t) async {
+    final api = SubscriptionApi()..renewalCycle = 1;
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionDetailView(
+      api: api, onExpired: () {}, id: 4,
+    )));
+    await t.pumpAndSettle();
+    final button = find.byKey(const Key('subscription-renew-check'));
+    await t.ensureVisible(button);
+    await t.tap(button);
+    await t.pumpAndSettle();
+    expect(api.writes, 0);
+    await t.tap(find.text('Not now'));
+    await t.pumpAndSettle();
+    expect(api.writes, 0);
+    await t.tap(button);
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('subscription-renew-confirm')));
+    await t.pumpAndSettle();
+    expect(api.writes, 1);
+    expect(api.bodies.single, {'expected_cycle_number': 1});
+    expect(api.calls.where((c) => c == 'POST commercial/subscriptions/4/renew').length, 1);
+    expect(find.text('Benefits are not active'), findsOneWidget);
+    await t.tap(find.text('Refresh'));
+    await t.pumpAndSettle();
+    expect(api.writes, 1);
+  });
+
+  testWidgets('logout while renewal consent is open prevents a write',
+      (t) async {
+    final api = SubscriptionApi()..renewalCycle = 1;
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionDetailView(
+      api: api, onExpired: () {}, id: 4,
+    )));
+    await t.pumpAndSettle();
+    final button = find.byKey(const Key('subscription-renew-check'));
+    await t.ensureVisible(button);
+    await t.tap(button);
+    await t.pumpAndSettle();
+    await api.forgetSession();
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('subscription-renew-confirm')));
+    await t.pumpAndSettle();
+    expect(api.writes, 0);
+    expect(button, findsNothing);
+    expect(find.text(subscriptionEn['privateCleared']!), findsOneWidget);
+  });
+
+  testWidgets('wrong renewal cycle clears stale controls without replay',
+      (t) async {
+    final api = SubscriptionApi()..renewalCycle = 1;
+    api.writeReceiptOverride = {
+      ...api.summary,
+      'subscription': {...(api.summary['subscription'] as Map), 'cycle_number': 2},
+    };
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionDetailView(
+      api: api, onExpired: () {}, id: 4,
+    )));
+    await t.pumpAndSettle();
+    final button = find.byKey(const Key('subscription-renew-check'));
+    await t.ensureVisible(button);
+    await t.tap(button);
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('subscription-renew-confirm')));
+    await t.pumpAndSettle();
+    expect(api.writes, 1);
+    expect(button, findsNothing);
+    expect(find.text('Benefits are not active'), findsNothing);
+    await t.tap(find.text('Refresh'));
+    await t.pumpAndSettle();
+    expect(button, findsOneWidget);
+    expect(api.writes, 1);
+  });
+
   test('all lifecycle acknowledgements bind the original immutable event and key', () {
     final api = SubscriptionApi();
     addTearDown(api.close);

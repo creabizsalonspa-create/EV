@@ -389,11 +389,15 @@ class SubscriptionService
         }
     }
 
-    public function renew(int $id): array
+    public function renew(int $id, ?int $expectedCycle = null): array
     {
-        return DB::transaction(function () use ($id) {
+        return DB::transaction(function () use ($id, $expectedCycle) {
             $s = DB::table('commercial_subscriptions')->where('id', $id)->lockForUpdate()->first();
             abort_unless($s, 404);
+            // A delayed native confirmation must not advance a different
+            // paid cycle. Existing scheduler and web callers may omit it.
+            abort_unless($expectedCycle === null || (int) $s->cycle_number === $expectedCycle,
+                409, 'Subscription cycle changed; refresh before checking renewal.');
             if ($s->status === 'cancelled' || ! $s->period_end || CarbonImmutable::parse($s->period_end)->isFuture()) {
                 return $this->summary($id);
             }

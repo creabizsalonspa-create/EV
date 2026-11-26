@@ -193,7 +193,10 @@ class SubscriptionController extends Controller
             $current = $this->currentActor($r);
             $s->access($current, $subscription);
 
-            return response()->json($s->renew($subscription))
+            $v = $r->validate(['expected_cycle_number' => 'sometimes|required|integer|between:1,9007199254740991']);
+
+            return response()->json($s->renew($subscription,
+                isset($v['expected_cycle_number']) ? (int) $v['expected_cycle_number'] : null))
                 ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
