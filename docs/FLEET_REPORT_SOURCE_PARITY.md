@@ -17,3 +17,13 @@ Added backend Unicode CSV regression and client forged scope regressions.
 No fleet/payment/claim mutation or physical charging proof is inferred.
 Partial 8.1.8 and enterprise reporting scope; existing Agent 5 canonical
 integration and fresh hosted gates remain mandatory.
+
+
+Follow-up: native report data is projected onto deeply immutable validated
+fields; arbitrary transport metadata is not retained or exported. Exact
+fleet and cost-center identities and cumulative claim counts are checked
+before arithmetic. The mounted private screen listens to actual session
+generation changes and clears the accepted report, errors and CSV immediately;
+a captured CSV callback cannot restore the former report. Browser submits are
+single-flight and detached/hidden callbacks cannot initiate a report request.
+Added native parser and live-widget logout regressions. Fresh CI required.

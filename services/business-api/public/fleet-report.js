@@ -23,7 +23,7 @@ window.EvFleetReport = (() => {
                 typeof g.code!=='string'||typeof g.name!=='string'||typeof g.currency!=='string'||
                 !/^[A-Z]{3}$/.test(g.currency)||!Number.isInteger(g.minor_units)||g.minor_units<0||g.minor_units>3||
                 typeof g.amount_minor!=='string'||!/^(0|[1-9][0-9]{0,22})$/.test(g.amount_minor)||
-                !count(g.claims)||g.claims===0)
+                !count(g.claims)||g.claims===0||g.claims>d.approved_claims-claims)
                 throw Error('Invalid fleet report group.');
             const key=JSON.stringify([g.cost_center_id,g.code,g.name,g.currency,g.minor_units]);
             if(groups.has(key))throw Error('Duplicate fleet report group.');
@@ -42,7 +42,7 @@ window.EvFleetReport = (() => {
         const output=document.createElement('div');root.append(text('p','Approved claims explicitly shared with this fleet only. Amounts are recorded claims, not balances, payments, refunds or proof of physical charging. Inventory counts are current and cover all cost centers. Dates use the fleet timezone.','المطالبات المعتمدة التي تمت مشاركتها صراحة مع الأسطول فقط. المبالغ مطالبات مسجلة وليست أرصدة أو مدفوعات أو مبالغ مستردة أو دليلاً على الشحن الفعلي. أعداد المخزون حالية وتشمل جميع مراكز التكلفة. التواريخ حسب منطقة الأسطول الزمنية.'),form,output);
         let request=0;
         form.addEventListener('input',()=>{request++;output.replaceChildren();button.disabled=false;});
-        form.onsubmit=async e=>{e.preventDefault();const run=++request;output.replaceChildren();button.disabled=true;
+        form.onsubmit=async e=>{e.preventDefault();if(identity!==serial||document.hidden||!form.isConnected||button.disabled)return;const run=++request;output.replaceChildren();button.disabled=true;
             const query=new URLSearchParams({from:from.value,through:through.value});if(center.value)query.set('cost_center_id',center.value);
             try{const d=await api(`fleets/${id}/report?${query}`);
                 if(identity!==serial||run!==request||document.hidden||!root.isConnected)return;
