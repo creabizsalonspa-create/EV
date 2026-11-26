@@ -81,7 +81,7 @@ class VendorRevenueCohortSnapshot {
     final map = Map<String, dynamic>.from(raw);
     if (vendorId < 1 ||
         !RegExp(r'^[A-Z]{3}$').hasMatch(currency) ||
-        map['vendor_id'] != vendorId ||
+        exact(map['vendor_id']) != vendorId ||
         map['currency'] != currency ||
         map['from'] != from ||
         map['to'] != to ||
@@ -98,6 +98,18 @@ class VendorRevenueCohortSnapshot {
         map['data'] is! List ||
         map['totals'] is! Map) {
       throw const FormatException('Untrusted invoice cohort source.');
+    }
+
+    // The companion canonical as-of source adds this optional metadata.
+    // Older sources remain supported without inventing a snapshot timestamp.
+    if (map.containsKey('as_of')) {
+      final cutoff = map['as_of'];
+      final instant = cutoff is String ? DateTime.tryParse(cutoff) : null;
+      if (cutoff is! String || instant == null || !instant.isUtc ||
+          !RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)$').hasMatch(cutoff) ||
+          instant.toIso8601String().substring(0, 19) != cutoff.substring(0, 19)) {
+        throw const FormatException('Invalid UTC cohort cutoff.');
+      }
     }
 
     final first = dateDay(from);
@@ -438,6 +450,44 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
     }
   }
 
+  /// All amounts come from the validated, immutable snapshot. The
+  /// compact cards retain their summaries; expanded rows expose every
+  /// canonical metric without a second read or any financial action.
+  List<Widget> breakdown(
+    VendorRevenueCohortSnapshot data, {
+    Map<String, dynamic>? row,
+  }) {
+    final scope = row == null ? 'total' : row['date_utc'];
+    final values = row ?? data.totals;
+    final labels = <String, String>{
+      'invoiced_minor': t('Issued', 'صادرة'),
+      'vendor_allocated_minor': t('Gross vendor allocation', 'إجمالي مخصص المورد'),
+      'commission_allocated_minor': t('Commission allocation', 'مخصص العمولة'),
+      'paid_minor': t('Captured', 'مقبوض'),
+      'refunded_minor': t('Refunded', 'مسترد'),
+      'vendor_refunded_minor': t('Vendor allocation refunded', 'مخصص المورد المسترد'),
+      'unpaid_credited_minor': t('Unpaid invoice credits', 'إشعارات دائنة للفواتير غير المسددة'),
+      'vendor_credited_minor': t('Vendor allocation credited', 'إشعارات دائنة لمخصص المورد'),
+      'net_collected_minor': t('Net collected', 'صافي التحصيل'),
+      'net_vendor_allocated_minor': t('Net vendor allocated', 'صافي مخصص المورد'),
+    };
+    return [
+      ListTile(
+        dense: true,
+        key: ValueKey('revenue-breakdown-$scope-invoice_count'),
+        title: Text(t('Invoice count', 'عدد الفواتير')),
+        subtitle: Text('${values['invoice_count']}'),
+      ),
+      for (final entry in labels.entries)
+        ListTile(
+          dense: true,
+          key: ValueKey('revenue-breakdown-$scope-${entry.key}'),
+          title: Text(entry.value),
+          subtitle: Text(data.money(entry.key, row: row)),
+        ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final authorized = currentAuthority?.call() ?? false;
@@ -522,6 +572,18 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
             if (exporting) const LinearProgressIndicator(),
             if (csvPreview != null)
               SelectableText(csvPreview!, key: const Key('revenue-cohort-csv')),
+            if (data.source['as_of'] != null)
+              Text(
+                '${t('Report cutoff (UTC)', 'وقت التقرير (UTC)')}: ${data.source['as_of']}',
+                key: const Key('revenue-cohort-as-of'),
+              ),
+            Card(
+              child: ExpansionTile(
+                key: const Key('revenue-cohort-total-breakdown'),
+                title: Text(t('Complete financial breakdown', 'التفصيل المالي الكامل')),
+                children: breakdown(data),
+              ),
+            ),
             if (data.totals['invoice_count'] == 0)
               Text(t('No invoices for this period.', 'لا توجد فواتير في هذه الفترة.')),
             for (final day in data.days)
@@ -540,8 +602,15 @@ class _VendorRevenueCohortState extends State<VendorRevenueCohortView>
                             (day['invoiced_minor'] as int) / maxDaily,
                         ),
                       ),
+                      Text('${t('Invoice count', 'عدد الفواتير')}: ${day['invoice_count']}'),
                       Text('${t('Issued', 'صادرة')}: ${data.money('invoiced_minor', row: day)}'),
+                      Text('${t('Net collected', 'صافي التحصيل')}: ${data.money('net_collected_minor', row: day)}'),
                       Text('${t('Net vendor allocated', 'صافي مخصص المورد')}: ${data.money('net_vendor_allocated_minor', row: day)}'),
+                      ExpansionTile(
+                        key: ValueKey('revenue-cohort-breakdown-${day['date_utc']}'),
+                        title: Text(t('Daily financial breakdown', 'التفصيل المالي اليومي')),
+                        children: breakdown(data, row: day),
+                      ),
                     ],
                   ),
                 ),

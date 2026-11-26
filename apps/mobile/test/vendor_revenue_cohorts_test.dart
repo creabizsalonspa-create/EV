@@ -154,6 +154,61 @@ PrivateDocument cohortDocument(Map<String,dynamic> source) {
 }
 
 void main() {
+  test('accepts exact optional UTC cutoff without fabricating old-source metadata', () {
+    final raw = cohort();
+    VendorRevenueCohortSnapshot parse() => VendorRevenueCohortSnapshot.parse(
+      raw, vendorId: 1, currency: 'AED', from: '2026-11-01', to: '2026-11-03',
+    );
+    expect(parse().source.containsKey('as_of'), false);
+    raw['as_of'] = '2026-11-03T09:10:11+00:00';
+    expect(parse().source['as_of'], raw['as_of']);
+    for (final invalid in [
+      null, '2026-02-30T00:00:00Z', '2026-11-03T13:10:11+04:00',
+      '2026-11-03T09:10:11', '2026-11-03', 123,
+    ]) {
+      raw['as_of'] = invalid;
+      expect(parse, throwsFormatException);
+    }
+  });
+
+  testWidgets('expanded vendor report exposes all canonical amounts and daily net collection', (tester) async {
+    final api = RevenueApi();
+    addTearDown(api.close);
+    tester.view.physicalSize = const Size(1000, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await open(tester, api);
+    final total = find.byKey(const Key('revenue-cohort-total-breakdown'));
+    await tester.ensureVisible(total);
+    await tester.tap(total);
+    await tester.pumpAndSettle();
+    for (final field in VendorRevenueCohortCsv.headers.skip(1)) {
+      expect(find.byKey(ValueKey('revenue-breakdown-total-$field')), findsOneWidget);
+    }
+    ListTile tile(String scope, String field) => tester.widget<ListTile>(
+      find.byKey(ValueKey('revenue-breakdown-$scope-$field')),
+    );
+    expect((tile('total', 'net_collected_minor').subtitle as Text).data, 'AED 8.99');
+    expect((tile('total', 'commission_allocated_minor').subtitle as Text).data, 'AED 1.00');
+    expect((tile('total', 'vendor_refunded_minor').subtitle as Text).data, 'AED 2.00');
+    await tester.tap(total);
+    await tester.pumpAndSettle();
+    final day = api.queries.single['from']!;
+    final daily = find.byKey(ValueKey('revenue-cohort-breakdown-$day'));
+    await tester.scrollUntilVisible(daily, 300, scrollable: find.byType(Scrollable).first);
+    await tester.tap(daily);
+    await tester.pumpAndSettle();
+    expect((tile(day, 'net_collected_minor').subtitle as Text).data, 'AED 8.99');
+    expect((tile(day, 'vendor_credited_minor').subtitle as Text).data, 'AED 0.00');
+    expect(api.queries.length, 1);
+    expect(api.calls.where((c) => c.startsWith('POST ')), isEmpty);
+    await api.forgetSession();
+    await tester.pump();
+    expect(find.byKey(ValueKey('revenue-breakdown-$day-net_collected_minor')), findsNothing);
+    expect(total, findsNothing);
+  });
+
   test('verified cohort CSV accepts 93 days but rejects altered cells and MIME', () {
     final raw = cohort(from:'2026-08-01',to:'2026-11-01');
     final snapshot = VendorRevenueCohortSnapshot.parse(raw,
