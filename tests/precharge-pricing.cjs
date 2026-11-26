@@ -2,14 +2,14 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),{test}=require('node:test');
 const estimate={version:1,evidence:'SIMULATED',currency:'KWD',minor_units:3,energy_wh:1500,rate_minor_per_kwh:'251',tax_bps:500,subtotal_minor:'377',tax_minor:'19',total_minor:'396',session_fee_minor:'0',idle_fee_minor:'0',external_fees_included:false,automatic_stop:false,final_total_depends_on_meter:true,expires_at:'2026-11-18T10:35:00.000000Z'};
 function fixture({allow=true,visible=true,energy='1500',expiredQuote=false,
-    badReceipt=false,wrongExpiry=false}={}) {
+    badReceipt=false,wrongExpiry=false,hideAfterPrompt=false}={}) {
  let current=true,confirmation;
  const expiry=new Date(Date.now()+(expiredQuote?-60_000:300_000))
    .toISOString().replace('Z','000Z');
  const currentQuote={...estimate,expires_at:expiry};
- const calls=[],window={prompt:()=> energy,confirm:text=>{confirmation=text;return allow;}};
+ const calls=[],document={visibilityState:visible?'visible':'hidden'},window={prompt:()=>{if(hideAfterPrompt)document.visibilityState='hidden';return energy;},confirm:text=>{confirmation=text;return allow;}};
  vm.runInNewContext(fs.readFileSync('services/business-api/public/money-input.js','utf8'),{window});
- vm.runInNewContext(fs.readFileSync('services/business-api/public/precharge-pricing.js','utf8'),{window,document:{visibilityState:visible?'visible':'hidden'}});
+ vm.runInNewContext(fs.readFileSync('services/business-api/public/precharge-pricing.js','utf8'),{window,document});
  const api=async(path,method,body)=>{
    calls.push({path,method,body});
    if (path.endsWith('price-estimate'))
@@ -126,4 +126,33 @@ test('SQL replay with fractional seconds matches the exact original reviewed exp
  };
  assert.equal(await f.p.review({api,reservationId:7,current:f.current}),true);
  assert.equal(f.calls.length,2,'No replayed consent POST');
+});
+
+test('consent acknowledgement requires real UTC acceptance before exact microsecond expiry',async()=>{
+ const f=fixture(), expiry=f.quote.expires_at;
+ const cases=[
+  {accepted_at:'invalid-but-long-enough-to-pass',valid_until:expiry},
+  {accepted_at:'2026-02-30T04:30:00.000000Z',valid_until:expiry},
+  {accepted_at:expiry,valid_until:expiry},
+  {accepted_at:new Date().toISOString(),valid_until:expiry.slice(0,-2)+'1Z'},
+ ];
+ for(const receipt of cases){
+  const h=fixture();
+  const api=async(...args)=>{
+   if(args[0].endsWith('price-estimate'))return {estimate:{...h.quote,expires_at:expiry},quote_token:'private-synthetic-token'};
+   return {id:7,...receipt};
+  };
+  await assert.rejects(h.p.review({api,reservationId:7,current:h.current}),/Price consent not confirmed/);
+ }
+ const api=async(...args)=>{
+  if(args[0].endsWith('price-estimate'))return {estimate:{...f.quote,expires_at:expiry},quote_token:'private-synthetic-token'};
+  return {id:7,accepted_at:new Date().toISOString().slice(0,19).replace('T',' '),valid_until:expiry};
+ };
+ assert.equal(await f.p.review({api,reservationId:7,current:f.current}),true);
+});
+
+test('tab hidden while energy prompt is open cannot dispatch estimate',async()=>{
+ const f=fixture({hideAfterPrompt:true});
+ assert.equal(await f.p.review({api:f.api,reservationId:7,current:f.current}),false);
+ assert.equal(f.calls.length,0);
 });

@@ -150,6 +150,11 @@ void main() {
     expect(confirmedPrechargeReceipt({...receipt,'id':0},price),false);
     expect(confirmedPrechargeReceipt({...receipt,'valid_until':'2026-02-30 10:00:00'},price),false);
     expect(confirmedPrechargeReceipt({...receipt,'valid_until':'not-a-timestamp'},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'accepted_at':'invalid-but-long-enough-to-pass'},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'accepted_at':'2026-02-30T04:30:00.000000Z'},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'accepted_at':exp},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'valid_until':exp.substring(0,exp.length-2)+'1Z'},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'accepted_at':DateTime.now().toUtc().toIso8601String().substring(0,19).replaceFirst('T',' ')},price),true);
   });
 
 

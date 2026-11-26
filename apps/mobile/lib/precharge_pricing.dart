@@ -25,20 +25,20 @@ bool freshPrechargeEstimate(Map<String,dynamic> value) =>
     DateTime.parse(value['expires_at'] as String).toUtc()
         .isAfter(DateTime.now().toUtc());
 
+String? _receiptInstant(dynamic value) {
+  if (value is! String) return null;
+  final match=RegExp(r'^(\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?|T(\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z)$').firstMatch(value);
+  if (match == null) return null;
+  final normalized='${match.group(1)}T${match.group(2) ?? match.group(4)}.${(match.group(3) ?? match.group(5) ?? '').padRight(6,'0')}Z';
+  return validQuoteExpiry(normalized) ? normalized : null;
+}
+
 bool confirmedPrechargeReceipt(dynamic receipt, Map<String,dynamic> estimate) {
-  if(receipt is! Map || receipt['id'] is! int || receipt['id']<1 ||
-     receipt['accepted_at'] is! String ||
-     (receipt['accepted_at'] as String).length<19 ||
-     (receipt['accepted_at'] as String).length>64 ||
-     receipt['valid_until'] is! String) return false;
-  final value=receipt['valid_until'] as String;
-  final sql=RegExp(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?$')
-      .firstMatch(value);
-  final normalized=sql==null ? value :
-      '${sql.group(1)!.replaceFirst(' ', 'T')}.${(sql.group(2) ?? '').padRight(6,'0')}Z';
-  return validQuoteExpiry(normalized) &&
-      DateTime.parse(normalized).toUtc() ==
-          DateTime.parse(estimate['expires_at'] as String).toUtc();
+  if(receipt is! Map || receipt['id'] is! int || receipt['id']<1) return false;
+  final accepted = _receiptInstant(receipt['accepted_at']);
+  final until = _receiptInstant(receipt['valid_until']);
+  return accepted != null && until != null &&
+      until == estimate['expires_at'] && accepted.compareTo(until) < 0;
 }
 
 bool validPrechargeEstimate(dynamic value) {
