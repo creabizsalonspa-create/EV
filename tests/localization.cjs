@@ -92,6 +92,56 @@ const fs = require("node:fs"),
     );
     await page.goto(base);
     await page.locator("#stations h3").waitFor();
+    // Contrast is checked against computed styles on the real rendered page,
+    // not just the palette constants. Pending reads must not dim live status.
+    for (const theme of ["light", "dark"]) {
+      await page.locator("#theme-choice").selectOption(theme);
+      for (const language of ["en", "ar"]) {
+        await page.evaluate((language) => window.EvLocale.set(language), language);
+        const result = await page.evaluate(() => {
+          function luminance(color) {
+            const values = color.match(/[\d.]+/g).slice(0, 3).map(Number);
+            return values.map((n) => n / 255).map((n) =>
+              n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4
+            ).reduce((sum, n, i) => sum + n * [0.2126, 0.7152, 0.0722][i], 0);
+          }
+          function contrast(a, b) {
+            const x = luminance(a), y = luminance(b);
+            return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+          }
+          const input = document.querySelector("#account input[name=email]");
+          const control = getComputedStyle(input);
+          const section = getComputedStyle(document.querySelector("#identity"));
+          const body = getComputedStyle(document.body);
+          const fixture = document.createElement("section");
+          fixture.setAttribute("aria-busy", "true");
+          const status = document.createElement("p");
+          status.setAttribute("role", "status");
+          status.textContent = "Synthetic pending read";
+          fixture.append(status);
+          document.querySelector("#workspace").append(fixture);
+          try {
+            return {
+              surfaceBorder: contrast(control.borderTopColor, section.backgroundColor),
+              pageBorder: contrast(control.borderTopColor, body.backgroundColor),
+              busyOpacity: Number(getComputedStyle(fixture).opacity),
+              busyTextContrast: contrast(getComputedStyle(status).color,
+                getComputedStyle(fixture).backgroundColor),
+              direction: document.documentElement.dir,
+            };
+          } finally {
+            fixture.remove();
+          }
+        });
+        assert(result.surfaceBorder >= 3, theme + "/" + language + " input boundary on surface");
+        assert(result.pageBorder >= 3, theme + "/" + language + " input boundary on page");
+        assert.equal(result.busyOpacity, 1, theme + "/" + language + " pending content opacity");
+        assert(result.busyTextContrast >= 4.5, theme + "/" + language + " pending status text");
+        assert.equal(result.direction, language === "ar" ? "rtl" : "ltr");
+      }
+    }
+    await page.evaluate(() => window.EvLocale.set("en"));
+    await page.locator("#theme-choice").selectOption("system");
     // A ticket subject/name is literal text, not a second translation template.
     // Also cover JS replacement metacharacters and translated status resources.
     const interpolation = async (lang) => page.evaluate((lang) => {
