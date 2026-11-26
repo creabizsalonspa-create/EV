@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Services\Commercial\SubscriptionPaidCycle;
 use App\Services\Commercial\SubscriptionService;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
@@ -331,6 +332,128 @@ class SubscriptionTest extends TestCase
         $this->actingAs($f[0]);
         $this->pay($f);
         $this->postJson($f[2].'/change', ['action' => 'cancel_now', 'idempotency_key' => 'cancel'])->assertOk()->assertJsonPath('entitlements_active', false);
+    }
+
+    public function test_active_flag_without_exact_paid_cycle_does_not_authorize_features_or_change(): void
+    {
+        $p = $this->plan();
+        $target = $this->plan(['code' => 'vendor-target']);
+        $f = $this->subscribe($p);
+        $invoice = $f[1]['invoices'][0];
+        $id = $f[1]['subscription']['id'];
+        DB::table('commercial_subscriptions')->where('id', $id)->update([
+            'status' => 'active', 'cycle_number' => 1,
+            'period_start' => $invoice['period_start'], 'period_end' => $invoice['period_end'],
+        ]);
+        $this->getJson($f[2])->assertOk()->assertJsonPath('entitlements_active', false);
+        $this->getJson($f[2].'/change-preview?plan_id='.$target['id'])->assertConflict();
+        $this->postJson($f[2].'/change', ['action' => 'change_plan', 'plan_id' => $target['id'], 'idempotency_key' => 'unpaid-change'])->assertConflict();
+        $this->postJson($f[2].'/change', ['action' => 'cancel_at_period_end', 'idempotency_key' => 'unpaid-end'])->assertConflict();
+        $this->assertDatabaseCount('commercial_subscription_events', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+        DB::table('commercial_subscription_receipts')->insert([
+            'invoice_id' => $invoice['id'], 'provider_reference' => 'synthetic-wrong-denomination',
+            'amount_minor' => $invoice['total_minor'], 'currency' => 'USD',
+            'evidence' => 'MOCK_PROVIDER', 'created_at' => now(),
+        ]);
+        $this->getJson($f[2])->assertConflict();
+        $this->getJson($f[2].'/change-preview?plan_id='.$target['id'])->assertConflict();
+        $this->assertDatabaseCount('commercial_subscription_events', 1);
+    }
+
+    public function test_unposted_receipt_cannot_authorize_paid_marketing_entitlements(): void
+    {
+        $p = $this->plan(['entitlements' => ['campaign_slots' => 2, 'campaign_units' => 5]]);
+        $target = $this->plan(['code' => 'marketing-target']);
+        $f = $this->subscribe($p);
+        $invoice = $f[1]['invoices'][0];
+        DB::table('commercial_subscriptions')->where('id', $f[1]['subscription']['id'])->update([
+            'status' => 'active', 'cycle_number' => 1,
+            'period_start' => $invoice['period_start'], 'period_end' => $invoice['period_end'],
+        ]);
+        // Exact denomination and amount alone are insufficient. Preserve
+        // existing immutable guards and insert only synthetic source evidence.
+        DB::table('commercial_subscription_receipts')->insert([
+            'invoice_id' => $invoice['id'], 'provider_reference' => 'synthetic-unposted-receipt',
+            'amount_minor' => $invoice['total_minor'], 'currency' => $invoice['currency'],
+            'evidence' => 'MOCK_PROVIDER', 'created_at' => now(),
+        ]);
+        $ledgerCount = DB::table('commercial_subscription_ledger')->count();
+        $this->getJson($f[2])->assertConflict();
+        $this->getJson($f[2].'/change-preview?plan_id='.$target['id'])->assertConflict();
+        $this->postJson($f[2].'/change', [
+            'action' => 'change_plan', 'plan_id' => $target['id'], 'idempotency_key' => 'unposted-change',
+        ])->assertConflict();
+        $this->assertDatabaseCount('commercial_subscription_events', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $ledgerCount);
+    }
+
+    public function test_paid_cycle_amount_boundary_does_not_coerce_inexact_financial_sources(): void
+    {
+        $exact = new \ReflectionMethod(SubscriptionPaidCycle::class, 'exactMinor');
+        foreach ([0, 1049, '1049', '9007199254740991'] as $valid) {
+            $this->assertSame((int) $valid, $exact->invoke(null, $valid));
+        }
+        foreach ([1049.0, 1049.5, true, false, null, -1, '-1', '1049.0', '1e3', ' 1049', '01049', '9007199254740992'] as $invalid) {
+            try {
+                $exact->invoke(null, $invalid);
+                $this->fail('Inexact paid-cycle amount was accepted.');
+            } catch (HttpException $e) {
+                $this->assertSame(409, $e->getStatusCode());
+            }
+        }
+    }
+
+    public function test_fractional_sqlite_receipt_cannot_grant_paid_cycle_authority(): void
+    {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('SQLite can store fractional values in integer-affinity columns; PostgreSQL uses typed integers.');
+        }
+        $p = $this->plan();
+        $target = $this->plan(['code' => 'vendor-fractional-target']);
+        $f = $this->subscribe($p);
+        $invoice = $f[1]['invoices'][0];
+        $id = $f[1]['subscription']['id'];
+        DB::table('commercial_subscriptions')->where('id', $id)->update([
+            'status' => 'active', 'cycle_number' => 1,
+            'period_start' => $invoice['period_start'], 'period_end' => $invoice['period_end'],
+        ]);
+        // Insert a synthetic invalid receipt once; never disable immutable history guards.
+        DB::table('commercial_subscription_receipts')->insert([
+            'invoice_id' => $invoice['id'], 'provider_reference' => 'synthetic-fractional-receipt',
+            'amount_minor' => $invoice['total_minor'] + 0.5, 'currency' => $invoice['currency'],
+            'evidence' => 'MOCK_PROVIDER', 'created_at' => now(),
+        ]);
+        $receipt = DB::table('commercial_subscription_receipts')->where('invoice_id', $invoice['id'])->first();
+        $this->assertSame($invoice['total_minor'] + 0.5, (float) $receipt->amount_minor);
+        $journalCount = DB::table('commercial_subscription_ledger')->count();
+        $this->getJson($f[2])->assertConflict();
+        $this->getJson($f[2].'/change-preview?plan_id='.$target['id'])->assertConflict();
+        $this->postJson($f[2].'/change', ['action' => 'change_plan', 'plan_id' => $target['id'], 'idempotency_key' => 'fractional-change'])->assertConflict();
+        $this->postJson($f[2].'/change', ['action' => 'cancel_at_period_end', 'idempotency_key' => 'fractional-end'])->assertConflict();
+        $this->assertDatabaseCount('commercial_subscription_events', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $journalCount);
+    }
+
+    public function test_retirement_blocks_new_changes_but_preserves_already_committed_next_cycle(): void
+    {
+        $basic = $this->plan();
+        $target = $this->plan(['code' => 'vendor-next', 'price_minor' => 2000]);
+        $f = $this->subscribe($basic);
+        $paid = $this->pay($f);
+        $payload = ['action' => 'change_plan', 'plan_id' => $target['id'], 'idempotency_key' => 'committed-change'];
+        $this->postJson($f[2].'/change', $payload)->assertOk();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->patchJson('/subscription-test/commercial/plans/'.$target['id'].'/availability', ['available' => false])->assertOk();
+        $this->actingAs($f[0])->postJson($f[2].'/change', $payload)->assertOk()->assertJsonPath('subscription.next_plan_id', $target['id']);
+        $this->postJson($f[2].'/change', array_replace($payload, ['idempotency_key' => 'new-after-retirement']))->assertConflict();
+        $this->travelTo(Carbon::parse($paid['subscription']['period_end'])->addSecond());
+        $this->postJson($f[2].'/renew')->assertOk()->assertJsonPath('invoices.1.plan_id', $target['id'])
+            ->assertJsonPath('invoices.1.subtotal_minor', 2000)->assertJsonPath('entitlements_active', false);
+        $this->assertDatabaseCount('commercial_subscription_invoices', 2);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
     }
 
     public function test_database_guards_invoice_receipt_plan_and_event_immutability(): void
