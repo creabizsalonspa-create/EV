@@ -57,7 +57,23 @@ final class EmailNotices
         if (! $local && (empty($transport['host']) || ! in_array((int) ($transport['port'] ?? 0), [25, 465, 587, 2525], true))) {
             return null;
         }
-        $hash = hash('sha256', json_encode([$origin, $from, $mailer, $transport['host'] ?? null, $transport['port'] ?? null], JSON_THROW_ON_ERROR));
+        // Bind consent to the effective mail transport, not merely its host/port.
+        // Credential or sender identity changes require fresh explicit consent.
+        // A keyed digest avoids storing a directly guessable credential hash.
+        $key = config('app.key');
+        $fromName = config('mail.from.name');
+        if (! is_string($key) || $key === '' || ($fromName !== null && ! is_string($fromName))) {
+            return null;
+        }
+        ksort($transport);
+        try {
+            $hash = hash_hmac('sha256', json_encode(
+                ['notification-email-v2', $origin, $from, $fromName, $mailer, $transport],
+                JSON_THROW_ON_ERROR
+            ), $key);
+        } catch (Throwable) {
+            return null;
+        }
 
         return ['origin' => $origin, 'transport' => $transport, 'hash' => $hash, 'evidence' => $local ? 'SIMULATED_EMAIL_HANDOFF' : 'SMTP_HANDOFF_UNVERIFIED'];
     }
