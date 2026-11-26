@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\ContractReviewGate;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\IncomingEnrollment;
 use App\Services\Ocpi\OcpiException;
@@ -71,6 +72,7 @@ class OcpiCredentialsController extends Controller
             $actions = [];
             $ownerVendor = $owner->role === 'vendor';
             $ownerActive = $ownerVendor && $owner->account_status === 'active';
+            $reviewCurrent = app(ContractReviewGate::class)->current($provider, $owner);
             if ($configured && $provider->authorized && $r->user()->role === 'admin' && $ownerVendor) {
                 if ($state === 'active') {
                     $actions = $ownerActive ? ['rotate', 'unregister'] : ['unregister'];
@@ -103,11 +105,18 @@ class OcpiCredentialsController extends Controller
                 // Keep explicit de-registration available to a current admin.
                 $actions = $r->user()->role === 'admin' ? ['unregister'] : [];
             }
-            $activeReceivers = $configured && $tokenBound && $provider->authorized
+            // An expired or absent enforced review must not advertise an
+            // operation or module that the actual protocol boundary denies.
+            // Keep explicit decommissioning available without a new review.
+            if (! $reviewCurrent) {
+                $actions = $configured && $provider->authorized && $actor->role === 'admin'
+                    && $ownerVendor && $state === 'active' ? ['unregister'] : [];
+            }
+            $activeReceivers = $reviewCurrent && $configured && $tokenBound && $provider->authorized
                 ? ($ownerActive ? $receiverModules : array_values(array_intersect($receiverModules, ['sessions', 'cdrs']))) : [];
             $capabilities = app(PartnerCapabilityMatrix::class)->read(
-                $provider, $configured, $configured && $tokenBound && $provider->authorized && $ownerActive,
-                $ownerActive, $receiverModules, $activeReceivers
+                $provider, $configured, $configured && $tokenBound && $provider->authorized && $ownerActive && $reviewCurrent,
+                $ownerActive && $reviewCurrent, $receiverModules, $activeReceivers
             );
 
             return response()->json(['capability_matrix' => $capabilities, 'configured_receiver_modules' => $receiverModules, 'active_receiver_modules' => $activeReceivers, 'configured' => $configured, 'state' => $state, 'generation' => $link->generation ?? 0, 'exchanged_at' => $link->exchanged_at ?? null, 'bootstrap_expires_at' => $link->bootstrap_expires_at ?? null, 'available_actions' => $actions, 'partner_acceptance_verified' => false, 'charging_commands_enabled' => false, 'billing_eligible' => false, 'operations' => DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)->orderByDesc('id')->paginate(25, ['id', 'generation', 'action', 'state', 'attempted_at', 'completed_at', 'created_at'])->toArray()])->header('Cache-Control', 'private, no-store');

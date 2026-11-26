@@ -296,6 +296,73 @@ final class OcpiPartnerContractReviewTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_credential_status_does_not_advertise_actions_or_modules_without_current_review(): void
+    {
+        config([
+            'ocpi.contract_review_required' => true,
+            'ocpi.local_credentials' => [
+                'url' => 'https://platform.example/api/roaming-protocol/versions',
+                'roles' => [['role' => 'EMSP', 'country_code' => 'AE', 'party_id' => 'EVX',
+                    'business_details' => ['name' => 'Synthetic eMSP']]],
+            ],
+            'ocpi.connections.contract-test' => [
+                'managed_credentials' => true, 'origin' => 'https://partner.example',
+                'authorization_token' => base64_encode('synthetic-private-bootstrap'),
+                'party_country' => 'NL', 'party_id' => 'ABC', 'party_role' => 'CPO',
+                'incoming_modules' => ['locations', 'sessions', 'cdrs'], 'environment' => 'sandbox',
+            ],
+        ]);
+        [$owner, $admin, $provider, $reviewPath] = $this->fixture();
+        $provider->forceFill(['authorized' => true, 'version' => '2.2.1',
+            'endpoints' => ['locations' => 'https://partner.example/locations']])->save();
+        $path = '/api/ocpi/providers/'.$provider->id.'/credentials';
+
+        $this->actingAs($admin)->getJson($path)->assertOk()
+            ->assertJsonPath('configured', true)
+            ->assertJsonPath('available_actions', []);
+        $this->postJson($reviewPath, $this->review())->assertCreated();
+        $this->getJson($path)->assertOk()->assertJsonPath('available_actions', ['register']);
+
+        $token = 'SYNTHETIC-CONTRACT-LOCAL-TOKEN';
+        DB::table('ocpi_credential_links')->insert([
+            'provider_id' => $provider->id, 'owner_id' => $owner->id, 'generation' => 1,
+            'state' => 'active', 'configuration_hash' => app(CredentialExchange::class)->configurationHash($provider),
+            'bootstrap_hash' => hash('sha256', base64_encode('synthetic-private-bootstrap')),
+            'local_token_digest' => hash('sha256', $token), 'local_token_ciphertext' => Crypt::encryptString($token),
+            'remote_token_ciphertext' => Crypt::encryptString('SYNTHETIC-CONTRACT-REMOTE-TOKEN'),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('available_actions', ['rotate', 'unregister'])
+            ->assertJsonPath('capability_matrix.credentials_current', true)
+            ->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', true)
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_active', true);
+
+        DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+            ->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('state', 'active')
+            ->assertJsonPath('available_actions', ['unregister'])
+            ->assertJsonPath('capability_matrix.credentials_current', false)
+            ->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', false)
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_configured', true)
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_active', false)
+            ->assertJsonPath('active_receiver_modules', []);
+        $this->actingAs($owner)->getJson($path)->assertOk()
+            ->assertJsonPath('available_actions', [])
+            ->assertJsonPath('capability_matrix.credentials_current', false)
+            ->assertJsonPath('active_receiver_modules', []);
+
+        // Disabling the optional policy preserves the legacy sandbox status.
+        config(['ocpi.contract_review_required' => false]);
+        $this->actingAs($admin)->getJson($path)->assertOk()
+            ->assertJsonPath('available_actions', ['rotate', 'unregister'])
+            ->assertJsonPath('capability_matrix.credentials_current', true);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_credential_links', 1);
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+    }
+
     public function test_contract_review_rejects_stale_revision_reused_key_expired_date_and_owner_suspension(): void
     {
         config(['ocpi.contract_review_required' => true]);
