@@ -92,12 +92,29 @@ final class PartnerCapabilityMatrix
             ];
         }
 
+        // Provider-level policy evidence only. A positive result never grants an
+        // individual EVSE, token, customer, reservation or command authority.
+        // Reuse the existing read-only policy checks, not a second eligibility model.
+        $sandboxCommands = false;
+        $sandboxReservations = false;
+        if ($configured && $senderCurrent && $sandbox) {
+            try {
+                app(SandboxRoaming::class)->policy($provider);
+                $sandboxCommands = true;
+                $sandboxReservations = app(ReservationRoaming::class)->supported($provider);
+            } catch (Throwable) {
+                // Missing or changed policy evidence must never advertise readiness.
+            }
+        }
+
         return [
             'evidence' => 'NEGOTIATED_AND_CONFIGURED_SOFTWARE_ONLY',
             'peer_role' => $configured && in_array($connection['party_role'] ?? null, ['CPO', 'EMSP'], true)
                 ? $connection['party_role'] : null,
             'credentials_current' => $credentialsCurrent,
             'modules' => $modules,
+            'sandbox_token_and_command_policy_ready' => $sandboxCommands,
+            'sandbox_reservation_policy_ready' => $sandboxReservations,
             'live_roaming_verified' => false,
             'physical_availability_verified' => false,
             'partner_conformance_verified' => false,

@@ -296,6 +296,75 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_sandbox_workflow_capabilities_reuse_current_policy_without_transport_or_mutation(): void
+    {
+        [$owner, $admin, $provider, $path] = $this->fixture();
+        $this->actingAs($admin)->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_token_and_command_policy_ready', false)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
+
+        config([
+            'ocpi.test_commands_enabled' => true,
+            'ocpi.connections.capability-test.test_commands' => true,
+            'ocpi.connections.capability-test.test_command_contract' => 'synthetic_commands',
+        ]);
+        $endpoints = [
+            'locations' => 'https://peer.example/locations',
+            'tariffs' => 'https://peer.example/tariffs',
+            'sessions' => 'https://peer.example/sessions',
+            'cdrs' => 'https://peer.example/cdrs',
+            'tokens_receiver' => 'https://peer.example/tokens',
+            'commands_receiver' => 'https://peer.example/commands',
+        ];
+        $provider->update(['endpoints' => $endpoints]);
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id);
+        $link->update(['configuration_hash' => app(CredentialExchange::class)->configurationHash($provider)]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_token_and_command_policy_ready', true)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
+
+        config([
+            'ocpi.connections.capability-test.test_reservations' => true,
+            'ocpi.connections.capability-test.test_reservation_contract' => 'synthetic_reservations',
+        ]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_token_and_command_policy_ready', false)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
+        $link->update(['configuration_hash' => app(CredentialExchange::class)->configurationHash($provider)]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_token_and_command_policy_ready', true)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', true)
+            ->assertJsonPath('capability_matrix.live_roaming_verified', false)
+            ->assertJsonPath('capability_matrix.physical_availability_verified', false)
+            ->assertJsonPath('capability_matrix.payment_authority', false)
+            ->assertJsonPath('charging_commands_enabled', false)
+            ->assertDontSee('synthetic_reservations')
+            ->assertDontSee('https://peer.example');
+
+        foreach (['tokens_receiver', 'commands_receiver'] as $module) {
+            $provider->update(['endpoints' => array_replace($endpoints, [$module => 'https://foreign.example/invalid'])]);
+            $this->getJson($path)->assertOk()
+                ->assertJsonPath('capability_matrix.sandbox_token_and_command_policy_ready', false)
+                ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
+        }
+        $provider->update(['endpoints' => $endpoints]);
+        $owner->forceFill(['account_status' => 'suspended'])->save();
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_token_and_command_policy_ready', false)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
+        $owner->forceFill(['account_status' => 'active'])->save();
+        $link->update(['remote_token_ciphertext' => null]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_token_and_command_policy_ready', false)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
+
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+        $this->assertDatabaseCount('ocpi_roaming_commands', 0);
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_cpo_sender_requires_current_generation_and_sandbox_delivery_remains_nonlive(): void
     {
         [$owner, $admin, $provider, $path] = $this->fixture();
