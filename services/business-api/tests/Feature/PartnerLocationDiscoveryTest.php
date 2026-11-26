@@ -105,6 +105,17 @@ class PartnerLocationDiscoveryTest extends TestCase
         $this->assertLessThan($distances[1], $distances[0]);
     }
 
+    public function test_nearby_search_excludes_bounding_box_corner_outside_exact_radius(): void
+    {
+        $provider = $this->provider();
+        $inside = $this->location($provider, 'inside', 0.03, 0.03);
+        $this->location($provider, 'corner', 0.04, 0.04);
+
+        $this->getJson('/api/roaming/locations?latitude=0&longitude=0&radius_km=5')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $inside->id)
+            ->assertJsonPath('data.0.availability', 'unknown');
+    }
+
     public function test_nearby_search_wraps_across_international_date_line(): void
     {
         $provider = $this->provider();

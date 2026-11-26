@@ -60,9 +60,10 @@ final class DiscoveryViewport
                 "CASE WHEN $latText ~ $safeNumber THEN $latText::double precision ELSE NULL END",
                 "CASE WHEN $lngText ~ $safeNumber THEN $lngText::double precision ELSE NULL END",
             ],
+            // CAST must wrap CASE so SQLite applies numeric affinity to PDO text-bound limits.
             'sqlite' => [
-                "CASE WHEN json_type(ocpi_records.normalized, '$.latitude') IN ('text', 'integer', 'real') THEN CAST(discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.latitude')) AS REAL) ELSE NULL END",
-                "CASE WHEN json_type(ocpi_records.normalized, '$.longitude') IN ('text', 'integer', 'real') THEN CAST(discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.longitude')) AS REAL) ELSE NULL END",
+                "CAST(CASE WHEN json_type(ocpi_records.normalized, '$.latitude') IN ('text', 'integer', 'real') THEN discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.latitude')) ELSE NULL END AS REAL)",
+                "CAST(CASE WHEN json_type(ocpi_records.normalized, '$.longitude') IN ('text', 'integer', 'real') THEN discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.longitude')) ELSE NULL END AS REAL)",
             ],
             default => throw new \LogicException('Discovery viewport requires PostgreSQL or SQLite.'),
         };

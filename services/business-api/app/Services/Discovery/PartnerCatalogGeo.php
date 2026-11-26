@@ -63,7 +63,7 @@ final class PartnerCatalogGeo
 
         $query->select('ocpi_records.*')
             ->selectRaw("$distance AS distance_km", $bindings)
-            ->whereRaw("$distance <= ?", [...$bindings, $radiusKm])
+            ->whereRaw("$distance <= CAST(? AS DOUBLE PRECISION)", [...$bindings, $radiusKm])
             ->orderBy('distance_km');
     }
 }
