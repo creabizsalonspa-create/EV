@@ -93,12 +93,28 @@ final class PartnerCapabilityMatrix
             ];
         }
 
+        // Read the existing sandbox policies; never dispatch a command or
+        // infer target, customer consent, physical availability or billing.
+        $commandPolicyReady = false;
+        $reservationPolicyReady = false;
+        if ($sandbox && $configured && $senderCurrent) {
+            try {
+                app(SandboxRoaming::class)->policy($provider);
+                $commandPolicyReady = true;
+                $reservationPolicyReady = app(ReservationRoaming::class)->supported($provider);
+            } catch (Throwable) {
+                // Missing, stale or invalid policy evidence stays unavailable.
+            }
+        }
+
         return [
             'evidence' => 'NEGOTIATED_AND_CONFIGURED_SOFTWARE_ONLY',
             'peer_role' => $configured && in_array($connection['party_role'] ?? null, ['CPO', 'EMSP'], true)
                 ? $connection['party_role'] : null,
             'credentials_current' => $credentialsCurrent,
             'modules' => $modules,
+            'sandbox_command_policy_ready' => $commandPolicyReady,
+            'sandbox_reservation_policy_ready' => $reservationPolicyReady,
             'live_roaming_verified' => false,
             'physical_availability_verified' => false,
             'partner_conformance_verified' => false,

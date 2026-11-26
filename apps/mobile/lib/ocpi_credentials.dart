@@ -112,6 +112,19 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView>
             (matrix['modules'] as List).length != 4) {
           throw const FormatException('Invalid partner capability evidence');
         }
+        if (matrix.containsKey('sandbox_command_policy_ready') ||
+            matrix.containsKey('sandbox_reservation_policy_ready')) {
+          final commands = matrix['sandbox_command_policy_ready'];
+          final reservations = matrix['sandbox_reservation_policy_ready'];
+          if (commands is! bool ||
+              reservations is! bool ||
+              (commands &&
+                  (matrix['credentials_current'] != true ||
+                      matrix['peer_role'] != 'CPO')) ||
+              (reservations && !commands)) {
+            throw const FormatException('Invalid sandbox policy evidence');
+          }
+        }
         final seen = <String>{};
         for (final item in matrix['modules'] as List) {
           if (item is! Map ||
@@ -309,6 +322,12 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView>
                 'Configured/negotiated source modules only. No live roaming, charging or payment approval.',
                 'وحدات المصدر المهيأة أو المتفاوض عليها فقط، دون موافقة على التجوال أو الشحن أو الدفع الفعلي.',
               )),
+              if (status!['capability_matrix']['sandbox_command_policy_ready']
+                  is bool)
+                Text(
+                  '${tr('Sandbox command policy', 'سياسة أوامر الاختبار')}: ${status!['capability_matrix']['sandbox_command_policy_ready'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '
+                  '${tr('Sandbox reservation policy', 'سياسة الحجز التجريبي')}: ${status!['capability_matrix']['sandbox_reservation_policy_ready'] == true ? tr('yes', 'نعم') : tr('no', 'لا')}',
+                ),
               for (final row in status!['capability_matrix']['modules'] as List)
                 Text(
                   '${row['module']}: ${tr('Partner read', 'قراءة الشريك')} ${row['partner_sender_negotiated'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '

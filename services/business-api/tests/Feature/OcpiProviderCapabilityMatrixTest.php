@@ -54,6 +54,63 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
         return [$owner, $admin, $provider, '/api/ocpi/providers/'.$provider->id.'/credentials'];
     }
 
+    public function test_sandbox_policy_capabilities_are_read_only_and_require_current_approved_contracts(): void
+    {
+        [$owner, $admin, $provider, $path] = $this->fixture();
+        $this->actingAs($owner)->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', false)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
+        config([
+            'ocpi.test_commands_enabled' => true,
+            'ocpi.connections.capability-test.test_commands' => true,
+            'ocpi.connections.capability-test.test_command_contract' => 'synthetic-command-contract',
+        ]);
+        $provider->update(['endpoints' => [
+            'locations' => 'https://peer.example/locations',
+            'tariffs' => 'https://peer.example/tariffs',
+            'sessions' => 'https://peer.example/sessions',
+            'cdrs' => 'https://peer.example/cdrs',
+            'tokens_receiver' => 'https://peer.example/tokens',
+            'commands_receiver' => 'https://peer.example/commands',
+        ]]);
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', false);
+        $link->update(['configuration_hash' => app(CredentialExchange::class)->configurationHash($provider)]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', true)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false)
+            ->assertJsonPath('charging_commands_enabled', false);
+        config([
+            'ocpi.connections.capability-test.test_reservations' => true,
+            'ocpi.connections.capability-test.test_reservation_contract' => 'synthetic-reservation-contract',
+        ]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', false)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
+        $link->update(['configuration_hash' => app(CredentialExchange::class)->configurationHash($provider)]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', true)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', true)
+            ->assertJsonPath('capability_matrix.live_roaming_verified', false)
+            ->assertJsonPath('billing_eligible', false)
+            ->assertDontSee('synthetic-reservation-contract');
+        $endpoints = $provider->endpoints;
+        $provider->update(['endpoints' => array_replace($endpoints, ['commands_receiver' => 'https://foreign.example/commands'])]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', false)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
+        $provider->update(['endpoints' => $endpoints]);
+        $owner->update(['account_status' => 'suspended']);
+        $this->actingAs($admin)->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', false)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+        $this->assertDatabaseCount('ocpi_roaming_commands', 0);
+    }
+
     public function test_network_read_scope_restricts_sender_evidence_without_granting_receiver_authority(): void
     {
         [$owner, $admin, $provider, $path] = $this->fixture();
