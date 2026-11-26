@@ -67,7 +67,7 @@
         if (!zone || typeof value !== "string") return null;
         // Laravel may serialize its UTC timestamp with a space and no suffix.
         // An explicit offset must never be interpreted in the device timezone.
-        const utc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
+        const utc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/.test(value)
             ? value.replace(" ", "T") + "Z" : value;
         // Date.parse silently rolls over impossible calendar dates on some
         // platforms (e.g., February 30 becomes March 2). Never fabricate a

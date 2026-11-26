@@ -51,6 +51,8 @@ void main(){
       final valid=supportMessageTime(context,'2026-11-25T15:32:00.000000Z');
       expect(valid,contains('UTC'));
       expect(valid,supportMessageTime(context,'2026-11-25 15:32:00'));
+      expect(valid,supportMessageTime(context,'2026-11-25 15:32:00.123456'));
+      expect(valid,supportMessageTime(context,'2026-11-25T15:32:00.123456Z'));
       final unavailable=ar?'وقت الرسالة غير متاح':'Message time unavailable';
       for(final raw in [null,'2026-02-30T15:32:00Z','2026-11-25T25:32:00Z','unknown']){
         expect(supportMessageTime(context,raw),unavailable);

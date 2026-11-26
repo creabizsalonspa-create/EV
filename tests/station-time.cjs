@@ -105,3 +105,20 @@ test("station-local time errors respect current English/Arabic language without 
     assert.match(arabicInvalid, /اختر تاريخاً صحيحاً/);
     assert.doesNotMatch(arabicInvalid, /valid calendar date/);
 });
+
+test("fractional PostgreSQL UTC timestamps preserve the same localized minute without rollover", () => {
+    const { displayStationTime } = subject();
+    for (const language of ["en", "ar"]) {
+        for (const zone of ["UTC", "Asia/Dubai", "America/Toronto"]) {
+            const iso = displayStationTime("2026-11-25T15:32:00.123456Z", zone, language);
+            assert.ok(iso);
+            for (const fraction of ["1", "123", "123456"]) {
+                assert.equal(displayStationTime("2026-11-25 15:32:00." + fraction, zone, language), iso);
+            }
+            for (const malformed of ["2026-02-30 15:32:00.123456", "2026-11-25 25:32:00.123456",
+                "2026-11-25 15:32:00.1234567", "2026-11-25 15:32:00.", "2026-11-25T15:32:00.123456"]) {
+                assert.equal(displayStationTime(malformed, zone, language), null);
+            }
+        }
+    }
+});
