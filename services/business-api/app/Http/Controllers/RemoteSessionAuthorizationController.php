@@ -34,7 +34,7 @@ class RemoteSessionAuthorizationController extends Controller
                 $binding = DB::table('csms_bindings')->where('id', $link->binding_id)->first();
                 $map = ConnectorMapping::find($link->connector_mapping_id);
                 $evse = $map ? Evse::find($map->evse_id) : null;
-                if ($binding && $evse && $evse->binding_id === $binding->id && $map->station_id === $binding->station_id && app(RiderSourceController::class)->targetMatches($binding, $map, $evse, $v)) {
+                if ($binding && $evse && $evse->binding_id === $binding->id && $map->station_id === $binding->station_id && app(RiderSourceController::class)->remoteSessionTargetMatches($binding, $map, $evse, $v)) {
                     $hintOwner = Reservation::findOrFail(ChargingSession::findOrFail($link->charging_session_id)->reservation_id)->user_id;
                     $allowed = DB::transaction(function () use ($link, $binding, $v, $hintOwner) {
                         $owner = User::whereKey($hintOwner)->lockForUpdate()->firstOrFail();
