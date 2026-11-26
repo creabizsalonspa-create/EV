@@ -95,6 +95,8 @@ const assert = require("node:assert/strict");
       })
       .click();
     const vc = vp.locator(`[data-payout-record="${account.id}"]`);
+    await vc.getByText(account.required_consent_version, { exact: true }).waitFor();
+    const consentResponse = vendor.waitForResponse(r => r.url().endsWith(`/commercial/payout-accounts/${account.id}/consent`) && r.request().method() === "POST");
     await vc.locator("[type=checkbox]").check();
     await vc
       .getByRole("button", {
@@ -102,6 +104,9 @@ const assert = require("node:assert/strict");
         exact: true,
       })
       .click();
+    const consentReceipt = await consentResponse;
+    assert.equal(consentReceipt.request().postDataJSON().consent_version, account.required_consent_version);
+    assert.equal((await consentReceipt.json()).account.consent_version, account.required_consent_version);
     await vc.locator('[data-payout-state="pending_verification"]').waitFor();
     await mp
       .getByRole("button", { name: "Refresh payouts", exact: true })

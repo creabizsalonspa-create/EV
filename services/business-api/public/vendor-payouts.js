@@ -9,7 +9,7 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
         currentKind = "accounts",
         currentPage = 1;
     container.dataset.vendorPayouts = "true";
-    const alive = () => container.isConnected && actor()?.id === identity;
+    const alive = () => container.isConnected && actor()?.id === identity && actor()?.role === role;
     const observer = new MutationObserver(() => {
         if (!alive()) {
             generation++;
@@ -89,7 +89,7 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
     function button(parent, en, ar, action) {
         const b = t("button", en, ar);
         b.type = "button";
-        b.onclick = () => perform(action);
+        b.onclick = () => { if (container.contains(b) && !b.disabled) return perform(action); };
         parent.append(b);
         return b;
     }
@@ -394,7 +394,13 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
             date(card, "Consent recorded", "سُجلت الموافقة", row.consented_at);
             date(card, "Provider verification", "تحقق المزود", row.verified_at);
             card.append(actions);
-            if (role === "vendor" && row.status === "pending_consent") {
+            const version = row.required_consent_version;
+            const validVersion = typeof version === "string" && version.length > 0 &&
+                version.length <= 50 && version.trim() === version;
+            if (role === "vendor" && row.status === "pending_consent" &&
+                row.vendor_id === identity && Number.isSafeInteger(row.id) && row.id > 0 &&
+                row.real_money_moved === false && row.consent_version === null && validVersion) {
+                value(card, "Consent version", "إصدار الموافقة", version);
                 const label = document.createElement("label"),
                     consent = document.createElement("input");
                 consent.type = "checkbox";
@@ -402,8 +408,8 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
                     consent,
                     t(
                         "span",
-                        "I authorize this provider test payout account for my vendor settlements (vendor-payout-v1).",
-                        "أفوض حساب التحويل التجريبي هذا لتسوياتي كمورد (vendor-payout-v1).",
+                        "I authorize this provider test payout account for my vendor settlements under the displayed consent version.",
+                        "أفوض حساب التحويل التجريبي هذا لتسوياتي كمورد وفق إصدار الموافقة المعروض.",
                     ),
                 );
                 actions.append(label);
@@ -419,15 +425,36 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
                             );
                             return;
                         }
-                        await request(
-                            "commercial/payout-accounts/" + row.id + "/consent",
-                            "POST",
-                            {
-                                consent: true,
-                                consent_version: "vendor-payout-v1",
-                            },
-                        );
-                        if (alive()) await load("accounts", currentPage);
+                        // Consume the reviewed consent before dispatch. A failed or
+                        // uncertain receipt must never leave the old action usable.
+                        consent.checked = false;
+                        const reviewed = generation;
+                        actions.replaceChildren();
+                        let receipt;
+                        try {
+                            receipt = await request(
+                                "commercial/payout-accounts/" + row.id + "/consent",
+                                "POST", { consent: true, consent_version: version },
+                            );
+                        } catch {
+                            if (alive() && reviewed === generation) message(
+                                "Consent outcome unconfirmed. Refresh recipients before reviewing again.",
+                                "نتيجة الموافقة غير مؤكدة. حدّث المستلمين قبل المراجعة مجدداً.",
+                            );
+                            return;
+                        }
+                        if (!alive() || reviewed !== generation) return;
+                        const saved = receipt?.account;
+                        if (!saved || saved.id !== row.id || saved.vendor_id !== identity ||
+                            saved.provider !== row.provider || saved.currency !== row.currency ||
+                            saved.real_money_moved !== false || saved.consent_version !== version ||
+                            saved.required_consent_version !== version ||
+                            saved.status !== "pending_verification") {
+                            message("Consent outcome unconfirmed. Refresh recipients before reviewing again.",
+                                "نتيجة الموافقة غير مؤكدة. حدّث المستلمين قبل المراجعة مجدداً.");
+                            return;
+                        }
+                        await load("accounts", currentPage);
                     },
                 );
             }
