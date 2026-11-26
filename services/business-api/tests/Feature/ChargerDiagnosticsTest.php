@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class ChargerDiagnosticsTest extends TestCase
@@ -198,7 +199,7 @@ class ChargerDiagnosticsTest extends TestCase
     }
 
     #[DataProvider('protocols')]
-    public function test_only_explicit_noerror_recovers_ocpp16_fault_and_advertises_available(string $protocol): void
+    public function test_only_valid_protocol_receipts_recover_faults_and_advertise_available(string $protocol): void
     {
         [, , $charger] = $this->fixture($protocol);
         $binding = DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->first();
@@ -210,46 +211,49 @@ class ChargerDiagnosticsTest extends TestCase
         $ambiguous = $this->statusEvent(20, 'Available', 2);
         $ambiguous['errorCode'] = null;
         $cleared = $this->statusEvent(30, 'Available', 1);
-        DB::transaction(function () use ($monitor, $binding, $generation, $protocol, $fault, $ambiguous, $cleared) {
-            $this->assertSame(1, $monitor->ingest($binding, [
-                'source_generation' => $generation, 'events' => [$fault, $ambiguous],
-            ]));
-            $alert = DB::table('charging_fault_alerts')->first();
-            $this->assertNotNull($alert);
-            if ($protocol === '1.6') {
-                $this->assertNull($alert->recovery_observation_id,
-                    'A missing 1.6 fault code cannot prove a cleared charger fault.');
-            } else {
-                $this->assertNotNull($alert->recovery_observation_id,
-                    '2.0.1 status does not require a 1.6 errorCode.');
+        $ingest = fn (array $events) => DB::transaction(fn () => $monitor->ingest($binding, [
+            'source_generation' => $generation, 'events' => $events,
+        ]));
+        if ($protocol === '1.6') {
+            // A malformed page must not even persist its otherwise valid prefix.
+            try {
+                $ingest([$fault, $ambiguous]);
+                $this->fail('An incomplete OCPP 1.6 receipt was accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(503, $error->getStatusCode());
             }
-            $view = app(ConnectorFreshness::class)
-                ->present($binding, 1, 1);
-            $this->assertSame($protocol === '1.6' ? 'unknown' : 'recent', $view['state']);
-            $this->assertSame($protocol === '1.6' ? null : 'Available', $view['reported_status']);
-            if ($protocol === '1.6') {
-                $contradictory = $this->statusEvent(25, 'Available', 2);
-                $contradictory['timestamp'] = now()->subSeconds(90)->toISOString();
-                $contradictory['errorCode'] = 'GroundFailure';
-                $this->assertSame(1, $monitor->ingest($binding, [
-                    'source_generation' => $generation, 'events' => [$contradictory],
-                ]));
-                $faulted = app(ConnectorFreshness::class)->present($binding, 1, 1);
-                $this->assertSame('recent', $faulted['state']);
-                $this->assertSame('Faulted', $faulted['reported_status']);
-                $this->assertSame(0, DB::table('charging_fault_alerts')->whereNotNull('recovery_observation_id')->count());
+            $this->assertDatabaseCount('charging_status_observations', 0);
+            $this->assertDatabaseCount('charging_fault_alerts', 0);
+            $this->assertSame(1, $ingest([$fault]));
+            $contradictory = $this->statusEvent(25, 'Available', 2);
+            $contradictory['errorCode'] = 'GroundFailure';
+            foreach ([$ambiguous, $contradictory] as $invalid) {
+                try {
+                    $ingest([$invalid]);
+                    $this->fail('An invalid OCPP 1.6 receipt was accepted.');
+                } catch (HttpException $error) {
+                    $this->assertSame(503, $error->getStatusCode());
+                }
+                $this->assertDatabaseCount('charging_status_observations', 1);
+                $this->assertDatabaseCount('charging_fault_alerts', 1);
+                $this->assertNull(DB::table('charging_fault_alerts')->value('recovery_observation_id'));
+                $view = app(ConnectorFreshness::class)->present($binding, 1, 1);
+                $this->assertNotSame('Available', $view['reported_status']);
             }
-            $this->assertSame(0, $monitor->ingest($binding, [
-                'source_generation' => $generation, 'events' => [$cleared],
-            ]));
+        } else {
+            $this->assertSame(1, $ingest([$fault, $ambiguous]));
             $this->assertNotNull(DB::table('charging_fault_alerts')->value('recovery_observation_id'));
-            $available = app(ConnectorFreshness::class)
-                ->present($binding, 1, 1);
-            $this->assertSame('recent', $available['state']);
-            $this->assertSame('Available', $available['reported_status']);
-        });
-        $this->assertDatabaseCount('charging_status_observations', $protocol === '1.6' ? 4 : 3);
-        $this->assertDatabaseCount('charging_fault_alerts', $protocol === '1.6' ? 2 : 1);
+            $view = app(ConnectorFreshness::class)->present($binding, 1, 1);
+            $this->assertSame('recent', $view['state']);
+            $this->assertSame('Available', $view['reported_status']);
+        }
+        $this->assertSame(0, $ingest([$cleared]));
+        $this->assertNotNull(DB::table('charging_fault_alerts')->value('recovery_observation_id'));
+        $available = app(ConnectorFreshness::class)->present($binding, 1, 1);
+        $this->assertSame('recent', $available['state']);
+        $this->assertSame('Available', $available['reported_status']);
+        $this->assertDatabaseCount('charging_status_observations', $protocol === '1.6' ? 2 : 3);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
         Http::assertNothingSent();

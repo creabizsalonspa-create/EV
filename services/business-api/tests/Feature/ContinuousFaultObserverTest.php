@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Console\Commands\ObserveChargerFaults;
 use App\Models\InboxNotification;
 use App\Models\Station;
 use App\Models\User;
@@ -15,6 +16,7 @@ use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 use Throwable;
@@ -1061,7 +1063,7 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('charging_fault_alerts', 0);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
-        $command = \App\Console\Commands\ObserveChargerFaults::class;
+        $command = ObserveChargerFaults::class;
         foreach ([
             [503, 'Malformed source component identity.', 'component_identity'],
             [503, 'Conflicting same-time source status receipts.', 'same_time_conflict'],
@@ -1071,6 +1073,6 @@ class ContinuousFaultObserverTest extends TestCase
         ] as [$status, $message, $expected]) {
             $this->assertSame($expected, $command::reviewCode(new HttpException($status, $message)));
         }
-        $this->assertSame('worker_internal_failure', $command::reviewCode(new \RuntimeException('PRIVATE-DATABASE-CREDENTIAL')));
+        $this->assertSame('worker_internal_failure', $command::reviewCode(new RuntimeException('PRIVATE-DATABASE-CREDENTIAL')));
     }
 }

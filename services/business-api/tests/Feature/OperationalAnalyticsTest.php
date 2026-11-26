@@ -90,7 +90,7 @@ class OperationalAnalyticsTest extends TestCase
             'source_generation' => FaultMonitor::generation($binding),
             'events' => [
                 ['id' => 1, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Unavailable', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:00:00Z'],
-                ['id' => 2, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Unavailable', 'errorCode' => 'GroundFailure', 'timestamp' => '2026-11-06T10:06:00Z'],
+                ['id' => 2, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => '2026-11-06T10:06:00Z'],
                 ['id' => 3, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:07:00Z'],
             ],
         ]);
