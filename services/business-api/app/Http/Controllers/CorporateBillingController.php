@@ -36,6 +36,16 @@ class CorporateBillingController extends Controller
         }
         $data = (array) $row;
         unset($data['request_key'], $data['fingerprint']);
+        // Historic statements retain the complete immutable agreement row
+        // as a JSON string, including its original internal replay identity.
+        // Sanitize the returned copy, not the stored financial evidence.
+        if (array_key_exists('agreement_snapshot', $data)) {
+            abort_unless(is_string($data['agreement_snapshot']), 409, 'Invalid corporate agreement snapshot.');
+            $snapshot = json_decode($data['agreement_snapshot'], true);
+            abort_unless(is_array($snapshot) && ! array_is_list($snapshot), 409, 'Invalid corporate agreement snapshot.');
+            unset($snapshot['request_key'], $snapshot['fingerprint']);
+            $data['agreement_snapshot'] = json_encode($snapshot, JSON_THROW_ON_ERROR);
+        }
 
         return $data;
     }

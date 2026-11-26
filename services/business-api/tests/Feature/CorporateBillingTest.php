@@ -233,12 +233,25 @@ class CorporateBillingTest extends TestCase
         $statement = $this->issue($agreement, [$claim])->assertCreated()
             ->assertJsonMissingPath('statement.request_key')
             ->assertJsonMissingPath('statement.fingerprint')->json('statement');
-        $this->getJson($this->url('agreements/'.$agreement['id'].'/statements'))
+        $listed = $this->getJson($this->url('agreements/'.$agreement['id'].'/statements'))
             ->assertOk()->assertJsonMissingPath('data.0.request_key')
-            ->assertJsonMissingPath('data.0.fingerprint');
-        $this->getJson($this->url('statements/'.$statement['id']))
+            ->assertJsonMissingPath('data.0.fingerprint')->json('data.0');
+        $detail = $this->getJson($this->url('statements/'.$statement['id']))
             ->assertOk()->assertJsonMissingPath('statement.request_key')
-            ->assertJsonMissingPath('statement.fingerprint');
+            ->assertJsonMissingPath('statement.fingerprint')->json('statement');
+        $rawSnapshot = DB::table('corporate_statements')
+            ->where('id', $statement['id'])->value('agreement_snapshot');
+        $originalSnapshot = json_decode($rawSnapshot, true, 512, JSON_THROW_ON_ERROR);
+        $this->assertArrayHasKey('request_key', $originalSnapshot);
+        $this->assertArrayHasKey('fingerprint', $originalSnapshot);
+        $expected = $originalSnapshot;
+        unset($expected['request_key'], $expected['fingerprint']);
+        foreach ([$statement, $listed, $detail] as $projection) {
+            $this->assertIsString($projection['agreement_snapshot']);
+            $this->assertSame($expected, json_decode($projection['agreement_snapshot'], true, 512, JSON_THROW_ON_ERROR));
+        }
+        $this->assertSame($rawSnapshot, DB::table('corporate_statements')
+            ->where('id', $statement['id'])->value('agreement_snapshot'));
 
         $this->postJson($this->url('statements/'.$statement['id'].'/simulate-payment'), [
             'idempotency_key' => 'corporate-secret-output',
