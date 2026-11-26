@@ -117,6 +117,101 @@ class ChargerSourceRegistrationTest extends TestCase
         $this->assertDatabaseHas('stations', ['id' => $f['station']->id, 'source' => 'direct_unverified']);
     }
 
+    #[DataProvider('protocols')]
+    public function test_registered_direct_inventory_gates_production_tls_credential_and_ingress_lifecycle(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $source = 'https://registration.example.test/v1/graphql';
+        $key = 'synthetic-registration-ingress-contract-key';
+        config([
+            'csms.graphql_url' => $source,
+            'csms.ingress_enabled' => true,
+            'csms.ingress_allow_local_http' => false,
+            'csms.ingress_secret' => $key,
+            'cache.default' => 'database',
+        ]);
+        \Illuminate\Support\Facades\Cache::purge('database');
+        $this->source();
+        $id = $this->prepare($f);
+        $controller = app(\App\Http\Controllers\ChargerAdmissionController::class);
+        $credential = function (int $version) use ($controller, $f) {
+            $request = \Illuminate\Http\Request::create('https://localhost/credential', 'POST', ['expected_version' => $version, 'days' => 1]);
+            $request->setUserResolver(fn () => $f['owner']);
+
+            return $controller->credential($request, $f['company'], $f['charger']);
+        };
+        $authenticate = function (string $secret, ?string $nonce = null, ?string $reportedProtocol = null) use ($protocol, $key) {
+            $body = json_encode(['identity' => 'CB-OWNED-001', 'protocol' => $reportedProtocol ?? $protocol, 'tls' => true, 'certificate_sha256' => null], JSON_THROW_ON_ERROR);
+            $auth = 'Basic '.base64_encode('CB-OWNED-001:'.$secret);
+            $timestamp = (string) time();
+            $nonce ??= (string) Str::uuid();
+            $headers = [
+                'CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTPS' => 'on',
+                'HTTP_AUTHORIZATION' => $auth, 'HTTP_X_EV_INGRESS_TIME' => $timestamp,
+                'HTTP_X_EV_INGRESS_NONCE' => $nonce,
+                'HTTP_X_EV_INGRESS_SIGNATURE' => hash_hmac('sha256', $timestamp."\n".$nonce."\n".$auth."\n".$body, $key),
+            ];
+
+            return $this->call('POST', 'https://localhost/api/internal/charger-ingress/authenticate', [], [], [], $headers, $body);
+        };
+        try {
+            // Exercise production policy locally with fake upstream HTTPS and a durable nonce store.
+            $this->app->instance('env', 'production');
+            try {
+                $credential(0);
+                $this->fail('Prepared source metadata must not enable direct production admission.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+            $this->assertFalse(AdmissionProfile::firstOrFail()->enabled);
+            $this->assertSame(0, AdmissionProfile::firstOrFail()->credential_version);
+            Http::assertNothingSent();
+
+            $this->app->instance('env', 'testing');
+            $this->postJson($f['path'].'/'.$id.'/register')->assertOk()->assertJsonPath('state', 'registered')
+                ->assertJsonPath('charging_capability_granted', false)->assertJsonPath('charger_hardware_verified', false);
+            $this->assertFalse(AdmissionProfile::firstOrFail()->enabled);
+            $this->app->instance('env', 'production');
+            $reply = $credential(0);
+            $this->assertSame(201, $reply->getStatusCode());
+            $secret = $reply->getData(true)['secret'];
+            $nonce = (string) Str::uuid();
+            $authenticate($secret, $nonce)->assertNoContent();
+            $authenticate($secret, $nonce)->assertUnauthorized();
+            $authenticate($secret, reportedProtocol: $protocol === '1.6' ? '2.0.1' : '1.6')->assertUnauthorized();
+
+            config(['csms.graphql_url' => 'https://different.example.test/v1/graphql']);
+            $authenticate($secret)->assertUnauthorized();
+            try {
+                $credential(1);
+                $this->fail('A changed source generation must not mint another credential.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+            $this->assertSame(1, AdmissionProfile::firstOrFail()->credential_version);
+            config(['csms.graphql_url' => $source]);
+            $new = $credential(1)->getData(true)['secret'];
+            $authenticate($secret)->assertUnauthorized();
+            $authenticate($new)->assertNoContent();
+            $revoke = \Illuminate\Http\Request::create('https://localhost/credential', 'DELETE');
+            $revoke->setUserResolver(fn () => $f['owner']);
+            $this->assertSame(200, $controller->revoke($revoke, $f['company'], $f['charger'])->getStatusCode());
+            $authenticate($new)->assertUnauthorized();
+            $this->assertFalse(AdmissionProfile::firstOrFail()->enabled);
+            $this->assertNull(AdmissionProfile::firstOrFail()->credential_digest);
+            $this->assertSame(3, AdmissionProfile::firstOrFail()->credential_version);
+            Http::assertSentCount(3);
+            $this->assertSame(1, $this->writes);
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('charging_sessions', 0);
+            $this->assertDatabaseCount('finance_journals', 0);
+            $this->assertDatabaseHas('stations', ['id' => $f['station']->id, 'source' => 'direct_unverified']);
+        } finally {
+            $this->app->instance('env', 'testing');
+            config(['cache.default' => 'array', 'csms.graphql_url' => $source]);
+        }
+    }
+
     public static function failures(): array
     {
         $out = [];
