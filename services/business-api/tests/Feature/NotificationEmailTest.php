@@ -190,6 +190,48 @@ class NotificationEmailTest extends TestCase
         Mail::assertNothingSent();
     }
 
+    public function test_sender_identity_change_invalidates_queued_consent_without_sending(): void
+    {
+        $user = $this->fixture();
+        config(['mail.from.name' => 'Original sender']);
+        $this->enable($user);
+        $this->notice($user);
+        $service = app(EmailNotices::class);
+        $this->assertSame(1, $service->prepare());
+        $row = DB::table('notification_email_outbox')->where('user_id', $user->id)->first();
+        config(['mail.from.name' => 'Different sender']);
+        $this->assertFalse($service->status($user)['consent_current']);
+        $this->assertSame('cancelled', $service->deliver($row->id));
+        Mail::assertNothingSent();
+    }
+
+    public function test_effective_smtp_transport_fingerprint_changes_with_authority_without_sending(): void
+    {
+        $this->fixture();
+        $this->app->instance('env', 'production');
+        config(['app.url' => 'https://platform.crea-biz.com', 'mail.default' => 'smtp',
+            'mail.from.name' => 'Original sender', 'mail.mailers.smtp' => [
+                'transport' => 'smtp', 'scheme' => 'smtp', 'host' => 'smtp.example.test',
+                'port' => 587, 'username' => 'synthetic-user', 'password' => 'synthetic-password',
+            ]]);
+        $service = app(EmailNotices::class);
+        $initial = $service->configuration()['hash'];
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $initial);
+        $this->assertSame($initial, $service->configuration()['hash']);
+
+        $original = config('mail.mailers.smtp');
+        config(['mail.mailers.smtp' => array_reverse($original, true)]);
+        $this->assertSame($initial, $service->configuration()['hash']);
+        foreach (['username' => 'different-user', 'password' => 'different-password',
+            'scheme' => 'smtps', 'local_domain' => 'different.example.test'] as $key => $value) {
+            config(['mail.mailers.smtp' => array_replace($original, [$key => $value])]);
+            $this->assertNotSame($initial, $service->configuration()['hash'], $key);
+        }
+        config(['mail.mailers.smtp' => $original, 'app.key' => '']);
+        $this->assertNull($service->configuration());
+        Mail::assertNothingSent();
+    }
+
     public function test_production_configuration_requires_tls_and_public_https_without_sending(): void
     {
         $this->fixture();
