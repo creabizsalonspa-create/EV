@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ChargerAdmissionController;
 use App\Models\Charging\AdmissionProfile;
 use App\Models\Station;
 use App\Models\User;
@@ -13,10 +14,14 @@ use App\Services\Charging\ChargerSourceRegistration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Http\Request as ServerRequest;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -130,12 +135,12 @@ class ChargerSourceRegistrationTest extends TestCase
             'csms.ingress_secret' => $key,
             'cache.default' => 'database',
         ]);
-        \Illuminate\Support\Facades\Cache::purge('database');
+        Cache::purge('database');
         $this->source();
         $id = $this->prepare($f);
-        $controller = app(\App\Http\Controllers\ChargerAdmissionController::class);
+        $controller = app(ChargerAdmissionController::class);
         $credential = function (int $version) use ($controller, $f) {
-            $request = \Illuminate\Http\Request::create('https://localhost/credential', 'POST', ['expected_version' => $version, 'days' => 1]);
+            $request = ServerRequest::create('https://localhost/credential', 'POST', ['expected_version' => $version, 'days' => 1]);
             $request->setUserResolver(fn () => $f['owner']);
 
             return $controller->credential($request, $f['company'], $f['charger']);
@@ -171,6 +176,10 @@ class ChargerSourceRegistrationTest extends TestCase
             $this->postJson($f['path'].'/'.$id.'/register')->assertOk()->assertJsonPath('state', 'registered')
                 ->assertJsonPath('charging_capability_granted', false)->assertJsonPath('charger_hardware_verified', false);
             $this->assertFalse(AdmissionProfile::firstOrFail()->enabled);
+            // Charger ingress is an independent signed machine request, not the
+            // Administrator's registration session. Keep production MFA active.
+            Auth::forgetGuards();
+            $this->assertTrue(Auth::guard('web')->guest());
             $this->app->instance('env', 'production');
             $reply = $credential(0);
             $this->assertSame(201, $reply->getStatusCode());
@@ -193,7 +202,7 @@ class ChargerSourceRegistrationTest extends TestCase
             $new = $credential(1)->getData(true)['secret'];
             $authenticate($secret)->assertUnauthorized();
             $authenticate($new)->assertNoContent();
-            $revoke = \Illuminate\Http\Request::create('https://localhost/credential', 'DELETE');
+            $revoke = ServerRequest::create('https://localhost/credential', 'DELETE');
             $revoke->setUserResolver(fn () => $f['owner']);
             $this->assertSame(200, $controller->revoke($revoke, $f['company'], $f['charger'])->getStatusCode());
             $authenticate($new)->assertUnauthorized();
@@ -286,7 +295,7 @@ class ChargerSourceRegistrationTest extends TestCase
         $this->source();
         $id = $this->prepare($f);
         DB::table('users')->where('id', $f['admin']->id)->update(['auth_epoch' => 2]);
-        $request = \Illuminate\Http\Request::create('/registration', 'POST');
+        $request = ServerRequest::create('/registration', 'POST');
         $request->setUserResolver(fn () => $f['admin']);
         try {
             app(ChargerSourceRegistration::class)->register($request, $f['company'], $f['charger'], $id);
@@ -425,7 +434,7 @@ class ChargerSourceRegistrationTest extends TestCase
         try {
             $migration->down();
             $this->fail('Populated source registration provenance dropped.');
-        } catch (\RuntimeException $error) {
+        } catch (RuntimeException $error) {
             $this->assertStringContainsString('Retain upstream registration provenance', $error->getMessage());
         }
         $this->assertDatabaseHas('charger_source_registrations', ['id' => $id, 'state' => 'prepared']);
