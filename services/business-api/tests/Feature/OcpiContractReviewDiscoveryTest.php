@@ -55,7 +55,7 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
 
     private function approve(User $admin, OcpiProvider $provider, int $revision = 0, int $status = 201): void
     {
-        $this->actingAs($admin)->postJson(
+        $response = $this->actingAs($admin)->postJson(
             '/api/ocpi/providers/'.$provider->id.'/contract-review',
             [
                 'decision' => 'review',
@@ -68,6 +68,7 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
             ]
         )->assertStatus($status);
         if ($status === 201) {
+            $response->assertJsonPath('external_partner_acceptance_verified', false);
             $this->assertTrue(app(ContractReviewGate::class)->canReviewSource(
                 $provider->fresh(), \App\Services\Ocpi\ContractCounterpartyIdentity::current($provider->connection_key)));
         }
@@ -163,6 +164,10 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
         $this->actingAs($customer);
         $this->expectPartnerCount(0);
 
+        config(['ocpi.contract_review_required' => false]);
+        $this->expectPartnerCount(0);
+        $this->assertFalse(app(ContractReviewGate::class)->current($provider));
+        config(['ocpi.contract_review_required' => true]);
         // A rejected change did not overwrite the original approval or archive.
         $provider->update(['connection_key' => 'contract-discovery-test']);
         $this->expectPartnerCount(1);
@@ -172,7 +177,7 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_same_alias_reconfiguration_hides_public_records_and_saved_location_until_reviewed(): void
+    public function test_same_alias_reconfiguration_cannot_reassign_public_records_and_saved_location(): void
     {
         [$customer, $owner, $admin, $provider, $record] = $this->fixture();
         config(['ocpi.contract_review_required' => true]);

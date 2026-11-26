@@ -52,7 +52,7 @@ final class ContractReviewGate
      * pagination and before hydration. An old owner or revoked latest review
      * never makes a partner station public through an earlier approved row.
      *
-     * No change to the public catalog unless explicitly enabled by operator.
+     * Unbound legacy sources retain policy-off behavior; reviewed identity never changes.
      * This never certifies physical freshness or the partner's legal rights.
      */
     public function eligiblePublic(Builder $providers): Builder
@@ -68,7 +68,10 @@ final class ContractReviewGate
                 ->whereColumn('source_binding.provider_id', 'ocpi_providers.id')
                 ->whereNotNull('source_binding.counterparty_hash');
             if ($fingerprints !== []) {
-                $binding->whereNotIn('source_binding.counterparty_hash', $fingerprints);
+                $binding->where(function ($mismatch) use ($fingerprints) {
+                    $mismatch->whereColumn('source_binding.connection_key', '!=', 'ocpi_providers.connection_key')
+                        ->orWhereNotIn('source_binding.counterparty_hash', $fingerprints);
+                });
             }
         });
         if (config('ocpi.contract_review_required') !== true) {
