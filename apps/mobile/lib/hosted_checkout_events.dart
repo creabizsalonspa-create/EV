@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'api.dart';
@@ -80,7 +82,16 @@ class _HostedCheckoutEventsState extends State<HostedCheckoutEventsView>
 
   late final bool Function() ownsSession;
   late bool foreground;
+  bool retired = false;
+  StreamSubscription<int>? sessionSubscription;
   int generation = 0;
+  bool get active => mounted && foreground && !retired && ownsSession();
+  void redact() {
+    events = null;
+    busy = false;
+    failed = false;
+    target = 1;
+  }
   int target = 1;
   bool busy = false;
   bool failed = false;
@@ -97,11 +108,31 @@ class _HostedCheckoutEventsState extends State<HostedCheckoutEventsView>
         WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    if (foreground) load(1);
+    sessionSubscription = widget.api.sessionEvents.listen((_) {
+      if (mounted && !ownsSession()) {
+        setState(() { retired = true; redact(); });
+      }
+    });
+    if (active) load(1);
+  }
+
+  @override
+  void didUpdateWidget(covariant HostedCheckoutEventsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        oldWidget.checkoutId != widget.checkoutId ||
+        oldWidget.corporate != widget.corporate) {
+      // A reused private route never adopts the successor's authority.
+      generation++;
+      retired = true;
+      redact();
+    }
   }
 
   @override
   void dispose() {
+    generation++;
+    unawaited(sessionSubscription?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -109,38 +140,43 @@ class _HostedCheckoutEventsState extends State<HostedCheckoutEventsView>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final next = state == AppLifecycleState.resumed;
-    if (foreground == next) return;
+    if (!mounted || foreground == next) return;
     setState(() {
       foreground = next;
       generation++;
-      events = null;
-      busy = false;
-      failed = false;
+      redact();
     });
   }
 
-  bool current(int epoch) =>
-      mounted && foreground && generation == epoch && ownsSession();
+  bool current(int epoch) => active && generation == epoch;
+
+  DateTime? utcInstant(dynamic value) {
+    if (value is! String) return null;
+    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?Z?$').firstMatch(value);
+    if (match == null) return null;
+    final fields = [for (var i=1; i<=6; i++) int.parse(match.group(i)!)];
+    final utc = DateTime.utc(fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]);
+    if (fields[0] < 1 || utc.year != fields[0] || utc.month != fields[1] ||
+        utc.day != fields[2] || utc.hour != fields[3] ||
+        utc.minute != fields[4] || utc.second != fields[5]) return null;
+    return DateTime.tryParse(value.endsWith('Z') ? value : '${value}Z')?.toUtc();
+  }
 
   (String, DateTime) parse(Map<String, dynamic> row) {
     final identity = widget.corporate ? 'checkout_id' : 'hosted_checkout_id';
-    final wire = row['created_at'];
-    if (row[identity] != widget.checkoutId ||
+    final instant = utcInstant(row['created_at']);
+    if (row[identity] is! int || row[identity] != widget.checkoutId ||
         row['id'] is! int ||
         (row['id'] as int) < 1 ||
         row['kind'] is! String ||
-        wire is! String ||
-        !RegExp(
-          r'^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$',
-        ).hasMatch(wire)) {
+        instant == null) {
       throw const FormatException('Invalid checkout event');
     }
-    final instant = DateTime.parse(wire.endsWith('Z') ? wire : '${wire}Z');
     return (row['kind'] as String, instant);
   }
 
   Future<void> load(int page) async {
-    if (!foreground || !ownsSession() || busy) return;
+    if (!active || busy || page < 1 || widget.checkoutId < 1) return;
     final epoch = ++generation;
     setState(() {
       target = page;
@@ -157,8 +193,16 @@ class _HostedCheckoutEventsState extends State<HostedCheckoutEventsView>
         query: {'page': '$page'},
       );
       if (!current(epoch)) return;
-      final parsed = ApiPage.fromJson(response, parse);
-      if (parsed.current != page || parsed.last < 1) {
+      final ids = <int>{};
+      final parsed = ApiPage.fromJson(response, (row) {
+        final event = parse(row);
+        if (!ids.add(row['id'] as int)) {
+          throw const FormatException('Duplicate checkout event');
+        }
+        return event;
+      });
+      if (parsed.current != page || parsed.last < 1 ||
+          parsed.total < 0 || parsed.items.length > parsed.total) {
         throw const FormatException('Invalid checkout event page');
       }
       setState(() => events = parsed);
@@ -192,8 +236,12 @@ class _HostedCheckoutEventsState extends State<HostedCheckoutEventsView>
 
   @override
   Widget build(BuildContext context) {
-    if (!foreground || !ownsSession()) return const Scaffold();
+    if (!active) return const Scaffold();
+    final rendered = generation;
     final page = events;
+    void read(int number) {
+      if (current(rendered) && !busy && (ModalRoute.of(context)?.isCurrent ?? true)) load(number);
+    }
     return Scaffold(
       appBar: AppBar(title: Text(t('Checkout activity', 'نشاط عملية الدفع'))),
       body: ListView(
@@ -206,7 +254,7 @@ class _HostedCheckoutEventsState extends State<HostedCheckoutEventsView>
             ),
           ),
           TextButton(
-            onPressed: busy ? null : () => load(target),
+            onPressed: busy ? null : () => read(target),
             child: Text(t('Refresh activity', 'تحديث النشاط')),
           ),
           if (busy) const LinearProgressIndicator(),
@@ -233,12 +281,12 @@ class _HostedCheckoutEventsState extends State<HostedCheckoutEventsView>
               children: [
                 if (page.current > 1)
                   TextButton(
-                    onPressed: () => load(page.current - 1),
+                    onPressed: () => read(page.current - 1),
                     child: Text(t('Previous', 'السابق')),
                   ),
                 if (page.current < page.last)
                   TextButton(
-                    onPressed: () => load(page.current + 1),
+                    onPressed: () => read(page.current + 1),
                     child: Text(t('Next', 'التالي')),
                   ),
               ],

@@ -789,6 +789,13 @@ class _HostedState extends State<HostedCheckoutView>
     );
     final r = record;
     final own = r != null && ownRecord(r);
+    final activityEpoch = generation, activityApi = widget.api;
+    final activityCorporate = widget.corporate;
+    final activityFence = activityApi.sessionFence();
+    final activityExpired = widget.onExpired;
+    bool activityCurrent() => current && activityFence() &&
+        generation == activityEpoch && identical(record,r) &&
+        identical(widget.api,activityApi) && widget.corporate == activityCorporate;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -908,16 +915,21 @@ class _HostedState extends State<HostedCheckoutView>
                     OutlinedButton(
                       onPressed: busy
                           ? null
-                          : () => Navigator.of(c).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => HostedCheckoutEventsView(
-                                  api: widget.api,
-                                  checkoutId: r.id,
-                                  corporate: widget.corporate,
-                                  onExpired: widget.onExpired,
+                          : () {
+                              if (!activityCurrent() || !top || busy) return;
+                              Navigator.of(c).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => !activityCurrent()
+                                      ? const Scaffold(body:SizedBox.shrink())
+                                      : HostedCheckoutEventsView(
+                                          api: activityApi,
+                                          checkoutId: r.id,
+                                          corporate: activityCorporate,
+                                          onExpired: activityExpired,
+                                        ),
                                 ),
-                              ),
-                            ),
+                              );
+                            },
                       child: Text(
                         Localizations.localeOf(c).languageCode == 'ar'
                             ? 'نشاط عملية الدفع'
