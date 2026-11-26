@@ -1,0 +1,88 @@
+{
+  "pr": 337,
+  "source_sha": "37ff9816b6dcd59c0693f3a2d1ed1b8b20e4f422",
+  "integrated_sha": "a25e7cf1668a30cc0d98c24bf9449d5de5664525",
+  "atom_ids": [
+    "2.3.8"
+  ],
+  "scope": "Private favorites for canonical stations and authorized normalized OCPI partner locations on customer web and Flutter Android/iOS. Independent licensed transient reports remain discovery-only; favorites never grant charging authority.",
+  "verified_source_paths": [
+    "services/business-api/app/Http/Controllers/PartnerLocationFavoriteController.php",
+    "services/business-api/app/Http/Controllers/UnifiedDiscoveryController.php",
+    "services/business-api/tests/Feature/UnifiedDiscoveryTest.php",
+    "services/business-api/public/unified-discovery.js",
+    "apps/mobile/lib/unified_discovery.dart",
+    "apps/mobile/lib/roaming.dart",
+    "apps/mobile/test/unified_discovery_test.dart",
+    "apps/mobile/test/partner_favorites_test.dart",
+    "apps/mobile/test/station_favorites_test.dart",
+    "tests/unified-discovery.cjs",
+    "tests/unified-discovery-e2e.cjs"
+  ],
+  "required_checks": [
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45476155369/job/138736835320"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45476155369/job/138736835692"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45476155405/job/138737013393"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45476155405/job/138737013619"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45476155405/job/138737013855"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45476155405/job/138737013950"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45476155405/job/138737013953"
+    },
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45476155405/job/138824186555"
+    }
+  ],
+  "verification": {
+    "canonical_tree_diff_paths": 0,
+    "laravel": "2009 passed; 1 skipped; 35647 assertions",
+    "flutter_linux": "1020 passed; 40 skipped; Android debug APK built",
+    "flutter_macos": "1020 passed; 40 skipped; iOS simulator app built",
+    "browser": "Actual unified Laravel/browser bilingual search and typed favorite writes; real-Laravel partner favorites private save/list/map, provider revocation, no charging authority, public isolation and logout cleanup.",
+    "native": "Unified saved places both writers, scoped filtering, unknown-write recovery, unavailable partner redaction/removal, canonical iOS simulator favorites runtime marker. Partner-specific tests are Flutter widget tests, not live partner-device acceptance."
+  },
+  "production_accepted": false,
+  "acceptance_status": "HISTORICAL_PASS_FULL_ATOM_HELD",
+  "acceptance_hold": {
+    "atom_id": "2.3.8",
+    "pr": 370,
+    "observed_defect": "Retained native favorite row callbacks and detached map/detail session revocation",
+    "required": "Verify and merge correction, then re-evaluate full original scope. Do not use this historical evidence alone for stage credit."
+  }
+}

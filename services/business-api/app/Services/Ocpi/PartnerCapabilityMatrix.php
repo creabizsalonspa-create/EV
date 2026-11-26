@@ -13,6 +13,21 @@ final class PartnerCapabilityMatrix
 {
     private const MODULES = ['locations', 'tariffs', 'sessions', 'cdrs'];
 
+    private function approvedEndpoint(OcpiProvider $provider, string $key, bool $mutation = false): bool
+    {
+        $endpoint = $provider->endpoints[$key] ?? null;
+        if (! is_string($endpoint) || $endpoint === '') {
+            return false;
+        }
+        try {
+            $url = app(PartnerClient::class)->guardedUrl($provider, $endpoint);
+
+            return ! $mutation || parse_url($url, PHP_URL_QUERY) === null;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
     public function read(
         OcpiProvider $provider,
         bool $configured,
@@ -51,7 +66,7 @@ final class PartnerCapabilityMatrix
                 // An invalid/missing CPO contract never advertises senders.
             }
         }
-        $senderCurrent = $negotiated && $credentialsCurrent;
+        $senderCurrent = $negotiated && $credentialsCurrent && $connectionCurrent;
         $sandbox = app()->environment(['local', 'testing'])
             && ($connection['environment'] ?? null) === 'sandbox';
 
@@ -59,15 +74,22 @@ final class PartnerCapabilityMatrix
         foreach (self::MODULES as $module) {
             $modules[] = [
                 'module' => $module,
-                'partner_sender_negotiated' => $outbound && PartnerReadProfile::allows($connection, $module) && is_string($provider->endpoints[$module] ?? null),
+                'partner_sender_negotiated' => $outbound && PartnerReadProfile::allows($connection, $module)
+                    && $this->approvedEndpoint($provider, $module),
                 'local_receiver_configured' => in_array($module, $configuredReceivers, true),
                 'local_receiver_active' => in_array($module, $activeReceivers, true),
+                // Active credential reception can precede version negotiation.
+                // Keep that backward-compatible flag distinct from request readiness.
+                'local_receiver_request_ready' => $configured && $provider->authorized
+                    && $provider->version === '2.2.1' && in_array($module, $activeReceivers, true)
+                    && in_array($module, $configuredReceivers, true)
+                    && $this->approvedEndpoint($provider, $module),
                 'local_sender_configured' => in_array($module, $cpoModules, true),
                 'local_sender_active' => $senderCurrent && in_array($module, $cpoModules, true),
                 'sandbox_delivery_software_enabled' => $sandbox && $senderCurrent
                     && config('ocpi.cpo_push_enabled') === true
                     && in_array($module, $cpoModules, true)
-                    && is_string($provider->endpoints[$module.'_receiver'] ?? null),
+                    && $this->approvedEndpoint($provider, $module.'_receiver', true),
             ];
         }
 
