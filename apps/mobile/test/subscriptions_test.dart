@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,7 +12,7 @@ import 'vendor_finance_test.dart' show VendorOperationStore, PausedVendorStore;
 class SubscriptionApi extends FixtureApi {
   bool lost = false, wrongOwner = false;
   int? forgedPlanId, forgedCurrentPage, forgedTotal;
-  Map<String, dynamic>? historyOverride, writeReceiptOverride;
+  Map<String, dynamic>? historyOverride, writeReceiptOverride, operationReceiptOverride;
   int writes = 0;
   Completer<dynamic>? meWait, detailWait, eventsWait, postWait;
   final bodies = <Map<String, dynamic>>[];
@@ -69,7 +71,22 @@ class SubscriptionApi extends FixtureApi {
       writes++;
       bodies.add({...body!});
       if (lost) throw const ApiException(0, 'private-subscription-diagnostic');
-      return postWait?.future ?? writeReceiptOverride ?? summary;
+      if (postWait != null) return postWait!.future;
+      final result = writeReceiptOverride ?? summary;
+      final saved = bodies.last;
+      final action = saved['action'] ?? 'enroll';
+      final planId = saved['plan_id'];
+      final key = saved['idempotency_key'];
+      return {
+        ...result,
+        'operation_receipt': operationReceiptOverride ?? {
+          'event_id': 19, 'actor_id': 1, 'subscription_id': 4,
+          'action': action, 'plan_id': planId,
+          'request_receipt': sha256.convert(utf8.encode(
+            'subscription-operation-v1:1:4:19:$action:${planId ?? 0}:$key',
+          )).toString(),
+        },
+      };
     }
     if (path == 'commercial/plans')
       return {
@@ -107,6 +124,69 @@ Future<void> confirm(WidgetTester t) async {
 }
 
 void main() {
+  test('all lifecycle acknowledgements bind the original immutable event and key', () {
+    final api = SubscriptionApi();
+    addTearDown(api.close);
+    for (final action in ['enroll', 'change_plan', 'cancel_at_period_end', 'resume', 'cancel_now']) {
+      final planId = ['enroll', 'change_plan'].contains(action) ? 7 : null;
+      final saved = <String, dynamic>{
+        if (action != 'enroll') 'action': action,
+        if (planId != null) 'plan_id': planId,
+        'idempotency_key': 'original-intent',
+      };
+      final receipt = <String, dynamic>{
+        'event_id': 19, 'actor_id': 1, 'subscription_id': 4,
+        'action': action, 'plan_id': planId,
+        'request_receipt': sha256.convert(utf8.encode(
+          'subscription-operation-v1:1:4:19:$action:${planId ?? 0}:original-intent',
+        )).toString(),
+      };
+      final summary = {...api.summary, 'operation_receipt': receipt};
+      expect(subscriptionOperationAcknowledged(summary, saved, owner: 1, action: action), isTrue);
+      for (final bad in [
+        {'event_id': 20}, {'event_id': 19.0}, {'actor_id': 2},
+        {'subscription_id': 5}, {'action': 'other'}, {'plan_id': 8},
+        {'request_receipt': 'unbound'}, {'request_key': 'secret'},
+        {'fingerprint': 'private'},
+      ]) {
+        expect(subscriptionOperationAcknowledged({
+          ...summary, 'operation_receipt': {...receipt, ...bad},
+        }, saved, owner: 1, action: action), isFalse);
+      }
+      expect(subscriptionOperationAcknowledged(api.summary, saved, owner: 1, action: action), isFalse);
+      expect(subscriptionOperationAcknowledged(summary, {
+        ...saved, 'idempotency_key': 'replacement',
+      }, owner: 1, action: action), isFalse);
+    }
+  });
+
+  testWidgets('unbound lifecycle response preserves the original key until exact event acknowledgement',
+      (t) async {
+    final api = SubscriptionApi()..operationReceiptOverride = {'action': 'resume'};
+    final store = VendorOperationStore();
+    addTearDown(api.close);
+    await t.pumpWidget(host(SubscriptionActionView(
+      api: api, onExpired: () {}, action: 'cancel_at_period_end',
+      subscriptionId: 4, store: store,
+    )));
+    await t.pumpAndSettle();
+    await confirm(t);
+    expect(api.writes, 1);
+    expect(store.values.length, 1);
+    expect(find.text(subscriptionEn['done']!), findsNothing);
+    final original = Map<String, dynamic>.from(api.bodies.single);
+    api.operationReceiptOverride = null;
+    // Explicit same-intent retry may resolve the original event even if a
+    // later action has changed the mutable subscription summary.
+    await t.ensureVisible(find.byType(FilledButton));
+    await t.tap(find.byType(FilledButton));
+    await t.pumpAndSettle();
+    expect(api.writes, 2);
+    expect(api.bodies.last, original);
+    expect(store.values, isEmpty);
+    expect(find.text(subscriptionEn['done']!), findsOneWidget);
+  });
+
   testWidgets('catalog freezes accepted private plan and entitlement metadata',
       (t) async {
     final api = SubscriptionApi();

@@ -194,6 +194,39 @@ class SubscriptionTest extends TestCase
         $this->assertDatabaseCount('commercial_subscription_events', 2);
     }
 
+    public function test_subscription_operation_receipts_bind_immutable_event_after_later_lifecycle_change(): void
+    {
+        $f = $this->subscribe($this->plan());
+        $id = $f[1]['subscription']['id'];
+        $owner = $f[0]->id;
+        $enrollment = $f[1]['operation_receipt'];
+        $this->assertSame('enroll', $enrollment['action']);
+        $this->assertSame($f[1]['plan']['id'], $enrollment['plan_id']);
+        $this->assertSame(hash('sha256', "subscription-operation-v1:{$owner}:{$id}:{$enrollment['event_id']}:enroll:{$enrollment['plan_id']}:enroll"), $enrollment['request_receipt']);
+        $this->pay($f);
+        $payload = ['action' => 'cancel_at_period_end', 'idempotency_key' => 'receipt-cancel'];
+        $first = $this->postJson($f[2].'/change', $payload)->assertOk()
+            ->assertJsonPath('subscription.cancel_at_period_end', true)
+            ->assertJsonPath('operation_receipt.actor_id', $owner)
+            ->assertJsonPath('operation_receipt.subscription_id', $id)
+            ->assertJsonPath('operation_receipt.action', 'cancel_at_period_end')
+            ->assertJsonPath('operation_receipt.plan_id', null)
+            ->assertJsonMissingPath('operation_receipt.request_key')
+            ->assertJsonMissingPath('operation_receipt.fingerprint')
+            ->json('operation_receipt');
+        $this->assertSame(hash('sha256', "subscription-operation-v1:{$owner}:{$id}:{$first['event_id']}:cancel_at_period_end:0:receipt-cancel"), $first['request_receipt']);
+        $this->postJson($f[2].'/change', ['action' => 'resume', 'idempotency_key' => 'receipt-resume'])
+            ->assertOk()->assertJsonPath('operation_receipt.action', 'resume');
+        $this->postJson($f[2].'/change', $payload)->assertOk()
+            ->assertJsonPath('subscription.cancel_at_period_end', false)
+            ->assertJsonPath('operation_receipt', $first);
+        $this->postJson($f[2].'/change', ['action' => 'resume', 'idempotency_key' => 'receipt-cancel'])->assertConflict();
+        $this->getJson($f[2])->assertOk()->assertJsonMissingPath('operation_receipt');
+        $this->assertDatabaseCount('commercial_subscription_events', 4);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->actingAs(User::factory()->create(['role' => 'vendor']))->postJson($f[2].'/change', $payload)->assertNotFound();
+    }
+
     public function test_payment_failure_retry_and_period_expiry_never_grant_unpaid_features(): void
     {
         $f = $this->subscribe($this->plan());

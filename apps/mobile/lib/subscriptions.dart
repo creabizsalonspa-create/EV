@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'subscription_preview.dart';
 import 'hosted_checkout.dart';
 import 'package:flutter/material.dart';
@@ -167,6 +169,41 @@ Map<String, dynamic> subscriptionSummary(dynamic value, int owner, {int? id}) {
     }
   }
   return _immutableSubscriptionValue(data) as Map<String, dynamic>;
+}
+
+/// The current summary is not proof of a particular lifecycle mutation.
+/// The immutable event receipt binds the actor, target, action and saved key.
+bool subscriptionOperationAcknowledged(
+  Map<String, dynamic> summary,
+  Map<String, dynamic> saved, {
+  required int owner,
+  required String action,
+}) {
+  final sub = summary['subscription'];
+  final receipt = summary['operation_receipt'];
+  final key = saved['idempotency_key'];
+  final plan = saved['plan_id'];
+  bool sourceId(dynamic v) => v is int && v >= 1 && v <= 9007199254740991;
+  if (sub is! Map || receipt is! Map || key is! String || key.isEmpty ||
+      !sourceId(owner) || !sourceId(sub['id']) || sub['user_id'] != owner ||
+      !const ['enroll', 'change_plan', 'cancel_at_period_end', 'resume',
+        'cancel_now'].contains(action) ||
+      (action == 'enroll' ? saved.containsKey('action') : saved['action'] != action) ||
+      (['enroll', 'change_plan'].contains(action) ? !sourceId(plan) : plan != null) ||
+      !sourceId(receipt['event_id']) || !sourceId(receipt['actor_id']) ||
+      !sourceId(receipt['subscription_id']) || receipt['actor_id'] != owner ||
+      receipt['subscription_id'] != sub['id'] || receipt['action'] != action ||
+      !receipt.containsKey('plan_id') ||
+      (plan == null ? receipt['plan_id'] != null :
+        !sourceId(receipt['plan_id']) || receipt['plan_id'] != plan) ||
+      receipt.containsKey('request_key') || receipt.containsKey('fingerprint') ||
+      receipt.containsKey('idempotency_key')) {
+    return false;
+  }
+  final binding = sha256.convert(utf8.encode(
+    'subscription-operation-v1:$owner:${sub['id']}:${receipt['event_id']}:$action:${plan ?? 0}:$key',
+  )).toString();
+  return receipt['request_receipt'] == binding;
 }
 
 List<String> subscriptionActions(Map<String, dynamic> sub, {DateTime? now}) {
@@ -725,9 +762,10 @@ class _SubscriptionActionState extends State<SubscriptionActionView>
         owner,
         id: widget.subscriptionId,
       );
-      if (widget.action == 'enroll' &&
-          summary['subscription']['plan_id'] != saved['plan_id'])
-        throw const FormatException('Wrong enrollment receipt.');
+      if (!subscriptionOperationAcknowledged(
+          summary, saved, owner: owner, action: widget.action)) {
+        throw const FormatException('Wrong subscription operation receipt.');
+      }
       await intent.confirmed();
       if (active(epoch, fence)) {
         setState(() {

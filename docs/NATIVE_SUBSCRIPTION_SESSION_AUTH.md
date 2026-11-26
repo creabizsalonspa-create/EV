@@ -281,3 +281,22 @@ automatic merchant approval is introduced. This is **partial finance
 integrity software only**. Exact-head Laravel Finance/Platform/Native
 tests and Agent 5 integration are mandatory; do not promote whole
 requirements or production acceptance from these focused checks.
+
+
+## Immutable operation acknowledgement (Agent 3 continuation)
+
+Native enrollment and lifecycle changes previously accepted a plausible current
+subscription summary as proof of a particular saved request; subsequent
+changes or an unrelated response could otherwise clear its durable key.
+The existing canonical subscribe/change methods now attach a private
+`operation_receipt` derived from the original immutable actor-scoped event,
+including event, actor, subscription, action, plan and a domain-separated
+SHA-256 binding to the original client key. Exact replays return the same
+receipt alongside the current summary even if later actions changed the
+state. No raw replay keys or fingerprints are added to the response or history.
+No new event, database table, financial authority or provider action is added.
+Native verifies the receipt before acknowledging encrypted storage. A missing,
+wrong or stale receipt retains the original key for explicit same-intent retry.
+Backend and Flutter regressions cover the original cancellation followed by
+resume, malformed response binding, actor isolation and exact replay. Fresh
+hosted source and combined validation required before Agent 5 integration.

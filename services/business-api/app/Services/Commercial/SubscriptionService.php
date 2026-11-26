@@ -95,6 +95,32 @@ class SubscriptionService
         DB::table('commercial_subscription_events')->insert(['subscription_id' => $sub, 'actor_id' => $actor, 'kind' => $kind, 'request_key' => $key, 'fingerprint' => $hash, 'data' => json_encode($data, JSON_THROW_ON_ERROR), 'created_at' => now()]);
     }
 
+    /**
+     * A current summary may reflect later actions. Acknowledge only the exact
+     * immutable event belonging to this actor and original saved intent.
+     */
+    private function operationSummary(int $id, int $actor, string $key, string $fingerprint, string $action, ?int $planId): array
+    {
+        $event = $this->prior($this->key($actor, $key), $fingerprint);
+        abort_unless($event && (int) $event->subscription_id === $id
+            && (int) $event->actor_id === $actor
+            && $event->kind === ($action === 'enroll' ? 'subscribed' : $action),
+            409, 'Subscription operation evidence requires reconciliation.');
+        $data = json_decode($event->data, true, 512, JSON_THROW_ON_ERROR);
+        abort_unless(is_array($data) && array_key_exists('plan_id', $data)
+            && ($planId === null ? $data['plan_id'] === null
+                : (is_int($data['plan_id']) || is_string($data['plan_id']))
+                    && (string) $data['plan_id'] === (string) $planId),
+            409, 'Subscription operation plan evidence requires reconciliation.');
+        $eventId = (int) $event->id;
+
+        return $this->summary($id) + ['operation_receipt' => [
+            'event_id' => $eventId, 'actor_id' => $actor, 'subscription_id' => $id,
+            'action' => $action, 'plan_id' => $planId,
+            'request_receipt' => hash('sha256', 'subscription-operation-v1:'.$actor.':'.$id.':'.$eventId.':'.$action.':'.($planId ?? 0).':'.$key),
+        ]];
+    }
+
     private function availablePlan(int $id, User $user): object
     {
         $p = $this->plan($id);
@@ -111,7 +137,7 @@ class SubscriptionService
             $k = $this->key($user->id, $key);
             $hash = $this->hash('subscribe', [$planId]);
             if ($old = $this->prior($k, $hash)) {
-                return $this->summary($old->subscription_id);
+                return $this->operationSummary((int) $old->subscription_id, $user->id, $key, $hash, 'enroll', $planId);
             }
             $p = $this->availablePlan($planId, $user);
             abort_if(DB::table('commercial_subscriptions')->where('user_id', $user->id)->where('status', '!=', 'cancelled')->exists(), 409, 'An existing subscription must be cancelled before enrolling again.');
@@ -119,7 +145,7 @@ class SubscriptionService
             $this->invoice($id, $p, CarbonImmutable::now(), 1);
             $this->event($id, $user->id, 'subscribed', ['plan_id' => $p->id], $k, $hash);
 
-            return $this->summary($id);
+            return $this->operationSummary($id, $user->id, $key, $hash, 'enroll', $planId);
         }, 3);
     }
 
@@ -263,7 +289,7 @@ class SubscriptionService
             $k = $this->key($actor->id, $key);
             $h = $this->hash('change', [$id, $action, $planId]);
             if ($this->prior($k, $h)) {
-                return $this->summary($id);
+                return $this->operationSummary($id, $actor->id, $key, $h, $action, $planId);
             }
             abort_if($s->status === 'cancelled', 409, 'Subscription is cancelled.');
             if ($action === 'change_plan') {
@@ -283,7 +309,7 @@ class SubscriptionService
             DB::table('commercial_subscriptions')->where('id', $id)->update($update + ['updated_at' => now()]);
             $this->event($id, $actor->id, $action, ['plan_id' => $planId], $k, $h);
 
-            return $this->summary($id);
+            return $this->operationSummary($id, $actor->id, $key, $h, $action, $planId);
         }, 3);
     }
 
