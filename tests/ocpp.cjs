@@ -3,6 +3,7 @@ const { randomUUID } = require("node:crypto");
 const { promisify } = require("node:util");
 const execFile = promisify(require("node:child_process").execFile);
 const { BusinessClient } = require("./helpers/business-client.cjs");
+const { graph, poll } = require("./helpers/csms-local.cjs");
 async function businessAccount(role) {
   const client = await new BusinessClient().register(role);
   if (
@@ -44,7 +45,7 @@ async function businessAccount(role) {
   }
   return client.request.bind(client);
 }
-async function protocol(version) {
+async function protocol(version, profile, actors) {
   const station =
     "ev-test-" + version.replaceAll(".", "") + "-" + randomUUID().slice(0, 8);
   const ws = new WebSocket("ws://127.0.0.1:8081/" + station, version);
@@ -115,40 +116,106 @@ async function protocol(version) {
       "BootNotification",
       version === "ocpp1.6"
         ? {
-            chargePointVendor: "CreaBiz simulator",
-            chargePointModel: "Protocol test",
+            chargePointVendor: profile.vendor,
+            chargePointModel: profile.model,
+            firmwareVersion: profile.firmware,
           }
         : {
             reason: "PowerUp",
             chargingStation: {
-              vendorName: "CreaBiz simulator",
-              model: "Protocol test",
+              vendorName: profile.vendor,
+              model: profile.model,
+              firmwareVersion: profile.firmware,
             },
           },
     );
-    assert(["Accepted", "Pending"].includes(boot.status), JSON.stringify(boot));
+    assert.equal(boot.status, "Accepted",
+      "Only an accepted local simulator Boot can prove the full status/model test matrix: " + JSON.stringify(boot));
     assert(Number.isInteger(boot.interval));
     assert(Number.isFinite(Date.parse(boot.currentTime)));
     if (boot.status === "Accepted") {
       const heartbeat = await call("Heartbeat", {});
       assert(Number.isFinite(Date.parse(heartbeat.currentTime)));
-      const status = await call(
-        "StatusNotification",
-        version === "ocpp1.6"
-          ? {
-              connectorId: 1,
-              errorCode: "NoError",
-              status: "Available",
-              timestamp: new Date().toISOString(),
-            }
-          : {
-              timestamp: new Date().toISOString(),
-              connectorStatus: "Available",
-              evseId: 1,
-              connectorId: 1,
-            },
+      // Fault, outage and recovery are simulator-status events only:
+      // never use a physical charger or infer an actual current rating.
+      const states = [
+        ["Available", "NoError"],
+        ["Faulted", "GroundFailure"],
+        ["Unavailable", "NoError"],
+        ["Available", "NoError"],
+      ];
+      const observedBefore = Date.now() - 10000;
+      for (let i = 0; i < states.length; i++) {
+        const [state, error] = states[i];
+        const timestamp = new Date(observedBefore + i * 1000).toISOString();
+        const result = await call(
+          "StatusNotification",
+          version === "ocpp1.6"
+            ? {
+                connectorId: 1,
+                errorCode: error,
+                status: state,
+                timestamp,
+              }
+            : {
+                timestamp,
+                connectorStatus: state,
+                evseId: 1,
+                connectorId: 1,
+              },
+        );
+        assert.deepEqual(result, {});
+      }
+      const source = await poll(async () => {
+        const rows = await graph(
+          "query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id chargePointVendor chargePointModel firmwareVersion protocol}}",
+          { name: station },
+        );
+        if (!Array.isArray(rows.ChargingStations) ||
+            rows.ChargingStations.length !== 1) return null;
+        const row = rows.ChargingStations[0];
+        return row.chargePointVendor === profile.vendor &&
+            row.chargePointModel === profile.model &&
+            row.firmwareVersion === profile.firmware ? row : null;
+      }, "Typed OCPP manufacturer/model/firmware lineage");
+      assert(Number.isInteger(source.id) && source.id > 0);
+      assert([version.replace("ocpp", ""), version].includes(source.protocol));
+      const notifications = await poll(async () => {
+        const rows = await graph(
+          "query($id:Int!){StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$id}},order_by:{id:desc},limit:8){id evseId connectorId connectorStatus errorCode timestamp}}",
+          { id: source.id },
+        );
+        if (!Array.isArray(rows.StatusNotifications)) return null;
+        const latest = rows.StatusNotifications.filter(
+          (entry) => entry.connectorId === 1 &&
+            // OCPP 1.6 identifies the physical connector directly and does
+            // not transmit an EVSE ID. A CSMS may normalize its EVSE field
+            // differently; do not infer a charger-side EVSE identity from it.
+            (version === "ocpp1.6" || entry.evseId === 1),
+        ).slice(0, states.length);
+        if (latest.map((e) => e.connectorStatus).join(",") !==
+            states.map((row) => row[0]).reverse().join(",")) return null;
+        return latest;
+      }, "OCPP outage/fault/recovery source-history sequence");
+      assert.equal(notifications.length, states.length);
+      if (version === "ocpp1.6") {
+        assert.equal(notifications[2].errorCode, "GroundFailure");
+      }
+      // Bounded concurrent read-only source load: every independent read
+      // must resolve the same typed authenticated station, not an adjacent
+      // model, protocol or firmware from another simulator.
+      const identityQuery =
+        "query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id chargePointVendor chargePointModel firmwareVersion protocol}}";
+      const reads = await Promise.all(
+        Array.from({length: 8}, () => graph(identityQuery, {name: station})),
       );
-      assert.deepEqual(status, {});
+      for (const read of reads) {
+        assert.equal(read.ChargingStations.length, 1);
+        assert.equal(read.ChargingStations[0].id, source.id);
+        assert.equal(read.ChargingStations[0].chargePointVendor, profile.vendor);
+        assert.equal(read.ChargingStations[0].chargePointModel, profile.model);
+        assert.equal(read.ChargingStations[0].firmwareVersion, profile.firmware);
+      }
       const tokenResponse = await fetch("http://127.0.0.1:8080/dev/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -210,8 +277,7 @@ async function protocol(version) {
         clearTimeout(timer);
       }
     }
-    const vendor = await businessAccount("vendor"),
-      admin = await businessAccount("admin");
+    const { vendor, admin } = actors;
     const location = await vendor("stations", "POST", {
       name: "Protocol adapter " + station,
       country: "AE",
@@ -252,6 +318,9 @@ async function protocol(version) {
         boot: boot.status,
         heartbeat_status_tested: boot.status === "Accepted",
         incoming_calls: incoming,
+        synthetic_profile: profile,
+        source_status_matrix: ["Available", "Faulted", "Unavailable", "Available"],
+        physical_hardware_accepted: false,
       }),
     );
   } finally {
@@ -260,8 +329,21 @@ async function protocol(version) {
   }
 }
 (async () => {
-  await protocol("ocpp1.6");
-  await protocol("ocpp2.0.1");
+  // Two bounded identity/firmware variants per protocol. Each uses a unique
+  // generated local simulator station; no production CSMS or live hardware.
+  const profiles = [
+    {vendor: "CreaBiz simulator", model: "Protocol test", firmware: "sim-fw-v1"},
+    {vendor: "Synthetic Labs", model: "Protocol Edge", firmware: "sim-fw-v2"},
+  ];
+  for (const version of ["ocpp1.6", "ocpp2.0.1"]) {
+    // Two authenticated actors per protocol, reused only within this local
+    // test family. Do not double the shared sign-in budget for model samples.
+    const actors = {
+      vendor: await businessAccount("vendor"),
+      admin: await businessAccount("admin"),
+    };
+    for (const profile of profiles) await protocol(version, profile, actors);
+  }
 })().catch((e) => {
   console.error(e.message);
   process.exitCode = 1;

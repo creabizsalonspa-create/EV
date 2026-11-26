@@ -11,6 +11,22 @@ import sys
 
 LOCKS = {'composer.lock', 'package-lock.json', 'pubspec.lock'}
 MANIFESTS = {'composer.json': 'composer.lock', 'package.json': 'package-lock.json', 'pubspec.yaml': 'pubspec.lock'}
+RELEASE_INPUTS = {
+    'Dockerfile': 'container_build',
+    'compose.yaml': 'container_deployment',
+    'compose.yml': 'container_deployment',
+    'docker-compose.yaml': 'container_deployment',
+    'docker-compose.yml': 'container_deployment',
+    'gradle-wrapper.properties': 'android_toolchain',
+    'settings.gradle': 'android_dependency_settings',
+    'settings.gradle.kts': 'android_dependency_settings',
+    'build.gradle': 'android_build',
+    'build.gradle.kts': 'android_build',
+    'Podfile': 'ios_dependencies',
+    'Podfile.lock': 'ios_dependency_lock',
+    'THIRD_PARTY_NOTICES.md': 'third_party_notices',
+}
+SOURCE_INPUTS = LOCKS | MANIFESTS.keys() | RELEASE_INPUTS.keys()
 EXCLUDED = {'.git', 'node_modules', 'vendor', '.dart_tool', 'build', 'artifacts'}
 NAME = re.compile(r'^[A-Za-z0-9_@][A-Za-z0-9_.@/-]{0,159}$')
 VERSION = re.compile(r'^(?:v?[0-9x]+(?:\.[0-9x]+){1,3}(?:[-+][A-Za-z0-9._-]+)?|dev-[A-Za-z0-9._/-]{1,120})$')
@@ -84,11 +100,21 @@ def json_components(text, lock, composer):
         for instance, package in sorted(data['packages'].items()):
             if instance == '':
                 continue  # Root source project is not a third-party dependency.
-            if not isinstance(package, dict) or not isinstance(instance, str) or '\\' in instance or '..' in instance.split('/'):
-                raise InventoryError('Invalid npm package instance.')
+            # An npm package instance must be a concrete installed dependency,
+            # not a synthetic path or workspace record masquerading as one.
+            # Workspace links require separate audited source resolution; even
+            # a supplied version is not proof of a locked package's contents.
+            if (not isinstance(package, dict) or not isinstance(instance, str)
+                    or '\\' in instance or not instance.startswith('node_modules/')
+                    or any(part in ['', '.', '..'] for part in instance.split('/'))):
+                raise InventoryError('Invalid or unsupported npm package instance.')
+            if 'link' in package and type(package['link']) is not bool:
+                raise InventoryError('Malformed npm workspace link declaration.')
+            if package.get('link') is True:
+                raise InventoryError('Unresolved npm workspace link cannot be credited as a locked dependency.')
+            if 'dev' in package and type(package['dev']) is not bool:
+                raise InventoryError('Malformed npm development-only declaration.')
             name = package.get('name') or instance.rsplit('node_modules/', 1)[-1]
-            if package.get('link') is True and package.get('version') is None:
-                raise InventoryError('Unresolved npm workspace link requires an explicit version inventory.')
             result.append(component('npm', lock, instance, name, package.get('version'), package.get('license'), package.get('dev'), 'npm_lock'))
     return result
 
@@ -177,7 +203,7 @@ def inventory(root):
                 raise InventoryError('Source commit identity is unavailable.')
             dirty = bool(git('status', '--porcelain', '--untracked-files=no'))
             selected = [Path(p) for p in git('ls-files', '-z').decode('utf-8').split('\0') if p]
-            selected = [p for p in selected if p.name in LOCKS or p.name in MANIFESTS]
+            selected = [p for p in selected if p.name in SOURCE_INPUTS]
         except (OSError, subprocess.SubprocessError):
             raise InventoryError('Source index could not be verified.') from None
     if selected is None:
@@ -186,57 +212,74 @@ def inventory(root):
             raise InventoryError('A source directory could not be inspected.')
         for folder, directories, files in os.walk(root, followlinks=False, onerror=reject_walk_error):
             directories[:] = sorted(d for d in directories if d not in EXCLUDED and not Path(folder, d).is_symlink())
-            selected.extend(Path(folder, name).relative_to(root) for name in files if name in LOCKS or name in MANIFESTS)
+            selected.extend(Path(folder, name).relative_to(root) for name in files if name in SOURCE_INPUTS)
     selected_locks = sorted(p for p in selected if p.name in LOCKS)
     locknames = {p.as_posix() for p in selected_locks}
     manifests_without_lock = sorted(p.as_posix() for p in selected if p.name in MANIFESTS
                                    and p.with_name(MANIFESTS[p.name]).as_posix() not in locknames)
     if not selected_locks or len(selected_locks) > 256:
         raise InventoryError('Supported source lockfile count is outside the inventory bound.')
+    selected_release_inputs = sorted(p for p in selected if p.name in RELEASE_INPUTS)
+    if len(selected_release_inputs) > 256:
+        raise InventoryError('Release input count exceeds the inventory bound.')
     total_bytes = 0
-    for relative in selected_locks:
+
+    def read_source(relative):
+        nonlocal total_bytes
         if relative.is_absolute() or '..' in relative.parts:
-            raise InventoryError('Invalid source lockfile path.')
+            raise InventoryError('Invalid inventory source path.')
         path = root / relative
         if any((root / Path(*relative.parts[:i])).is_symlink() for i in range(1, len(relative.parts) + 1)) or not path.resolve().is_relative_to(root) or not path.is_file() or path.stat().st_size > 20 * 1024 * 1024:
-            raise InventoryError('Unsafe or oversized lockfile.')
+            raise InventoryError('Unsafe or oversized inventory source.')
         raw = path.read_bytes()
         total_bytes += len(raw)
         if total_bytes > 64 * 1024 * 1024:
-            raise InventoryError('Lockfile bytes exceed the inventory bound.')
-        lock = relative.as_posix()
-        text = raw.decode('utf-8')
-        items = pub_components(text, lock) if path.name == 'pubspec.lock' else json_components(text, lock, path.name == 'composer.lock')
+            raise InventoryError('Source bytes exceed the inventory bound.')
         digest = hashlib.sha256(raw).hexdigest()
         matches_commit = None
         if commit:
             try:
-                ref = commit + ':' + lock
+                ref = commit + ':' + relative.as_posix()
                 size = int(git('cat-file', '-s', ref).decode().strip())
                 matches_commit = size <= 20 * 1024 * 1024 and hashlib.sha256(git('show', ref)).hexdigest() == digest
             except (ValueError, OSError, subprocess.SubprocessError):
                 matches_commit = False
-        locks.append({'path': lock, 'sha256': digest, 'component_count': len(items), 'matches_source_commit': matches_commit})
+        return raw, {'path': relative.as_posix(), 'sha256': digest, 'matches_source_commit': matches_commit}
+
+    for relative in selected_locks:
+        raw, evidence = read_source(relative)
+        text = raw.decode('utf-8')
+        lock = evidence['path']
+        items = pub_components(text, lock) if relative.name == 'pubspec.lock' else json_components(text, lock, relative.name == 'composer.lock')
+        locks.append({**evidence, 'component_count': len(items)})
         components.extend(items)
         if len(components) > 100000:
             raise InventoryError('Dependency component count exceeds the inventory bound.')
+
+    release_inputs = []
+    for relative in selected_release_inputs:
+        _, evidence = read_source(relative)
+        release_inputs.append({**evidence, 'kind': RELEASE_INPUTS[relative.name]})
+
     components.sort(key=lambda c: (c['lockfile'], c['instance'], c['name'], c['version']))
     return {'schema': 'ev.dependency-inventory.v1', 'source_commit': commit, 'tracked_checkout_dirty': dirty,
             'file_selection': 'git_index' if commit else 'filesystem_real_directories',
             'tool_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             'lockfiles': sorted(locks, key=lambda v: v['path']),
+            'release_inputs': release_inputs,
+            'release_inputs_match_source_commit': all(v['matches_source_commit'] for v in release_inputs) if commit and release_inputs else None,
             'lockfiles_match_source_commit': all(v['matches_source_commit'] for v in locks) if commit else None, 'component_count': len(components),
             'components': components, 'manifests_without_inventory_lock': manifests_without_lock,
             'dependency_constraints_verified': False, 'components_without_license_declarations': sum(not c['declared_licenses'] for c in components),
             'license_approval': False, 'security_scan_performed': False, 'runtime_installation_verified': False,
-            'production_accepted': False, 'scope': 'Lockfile declarations only; URLs, credentials and dependency scripts are never emitted or executed.'}
+            'production_accepted': False, 'scope': 'Lockfile declarations and release input hashes; URLs and credentials are never emitted and dependency scripts are never executed.'}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument('--require-source-match', action='store_true',
-                        help='Reject inventories without a clean Git checkout and commit-matched locks.')
+                        help='Require a clean Git checkout with commit-matched locks and release inputs.')
     args = parser.parse_args()
     try:
         report = inventory(args.root)
@@ -244,8 +287,9 @@ def main():
         print(json.dumps({'error': 'Dependency inventory rejected unsupported, malformed or unsafe lockfile data.'}), file=sys.stderr)
         return 2
     if args.require_source_match and (report['tracked_checkout_dirty'] is not False
-                                      or report['lockfiles_match_source_commit'] is not True):
-        print(json.dumps({'error': 'Release inventory requires a clean Git checkout with commit-matched locks.'}), file=sys.stderr)
+                                      or report['lockfiles_match_source_commit'] is not True
+                                      or report['release_inputs_match_source_commit'] is False):
+        print(json.dumps({'error': 'Release inventory requires a clean Git checkout with commit-matched inputs.'}), file=sys.stderr)
         return 2
     print(json.dumps(report, sort_keys=True, indent=2))
     return 0

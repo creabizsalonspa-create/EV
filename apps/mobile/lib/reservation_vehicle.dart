@@ -47,6 +47,15 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> wit
     widget.onExpired();
   }
 
+  bool scopedSelection(
+    EvApi source, bool Function() fence, String connector,
+    int epoch,
+  ) => mounted && !_backgroundHidden &&
+      identical(widget.api, source) &&
+      identical(accountFence, fence) &&
+      widget.connector == connector &&
+      generation == epoch && fence();
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) {
@@ -60,8 +69,13 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> wit
   void initState() {
     super.initState();
     accountFence = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    // First mount during a hidden or inactive OS window must not fetch the
+    // previous customer's private garage or briefly expose its controls.
+    _backgroundHidden = lifecycle != null &&
+        lifecycle != AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    load(1);
+    if (!_backgroundHidden) load(1);
   }
 
   @override
@@ -79,9 +93,11 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> wit
     last = 1;
     loading = false;
     error = null;
-    _backgroundHidden = false;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _backgroundHidden = lifecycle != null &&
+        lifecycle != AppLifecycleState.resumed;
     _expiredNotified = false;
-    load(1);
+    if (!_backgroundHidden) load(1);
   }
 
   Future<void> load(int target) async {
@@ -150,6 +166,15 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> wit
   @override
   Widget build(BuildContext context) {
     final showPrivate = _sameSession && !_backgroundHidden;
+    final source = widget.api, connector = widget.connector;
+    final fence = accountFence, epoch = generation;
+    bool active() => scopedSelection(source, fence, connector, epoch);
+    bool mayRefreshHidden() => mounted && _backgroundHidden &&
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
+        identical(widget.api, source) &&
+        identical(accountFence, fence) &&
+        widget.connector == connector &&
+        generation == epoch && fence();
     return AlertDialog(
     title: Text(t('Choose your vehicle', 'اختر مركبتك')),
     content: SizedBox(
@@ -170,7 +195,9 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> wit
             Text(t('Garage hidden. Refresh to reload.', 'تم إخفاء المرآب. حدّث لإعادة التحميل.')),
           if (_backgroundHidden && _sameSession)
             TextButton(
-              onPressed: () => load(1),
+              onPressed: () {
+                if (mayRefreshHidden()) load(1);
+              },
               child: Text(t('Refresh garage', 'تحديث المرآب')),
             ),
           if (loading && showPrivate) const LinearProgressIndicator(),
@@ -192,7 +219,9 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> wit
                     onTap: loading || !showPrivate
                         ? null
                         : () {
-                            if (_sameSession && !_backgroundHidden) Navigator.pop(context, vehicle);
+                            if (active()) Navigator.pop(
+                              context, Map<String, dynamic>.from(vehicle),
+                            );
                           },
                   ),
               ],
@@ -200,12 +229,16 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> wit
           ),
           if (error != null && showPrivate)
             TextButton(
-              onPressed: loading ? null : () => load(page == 0 ? 1 : page + 1),
+              onPressed: loading ? null : () {
+                if (active()) load(page == 0 ? 1 : page + 1);
+              },
               child: Text(t('Retry vehicles', 'إعادة محاولة تحميل المركبات')),
             ),
           if (showPrivate && page < last)
             TextButton(
-              onPressed: loading ? null : () => load(page + 1),
+              onPressed: loading ? null : () {
+                if (active()) load(page + 1);
+              },
               child: Text(t('More vehicles', 'المزيد من المركبات')),
             ),
         ],
@@ -216,7 +249,7 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> wit
         onPressed: loading || !showPrivate
             ? null
             : () {
-                if (_sameSession && !_backgroundHidden) Navigator.pop(context, {'add_vehicle': true});
+                if (active()) Navigator.pop(context, {'add_vehicle': true});
               },
         child: Text(t('Open garage', 'فتح المرآب')),
       ),
@@ -224,7 +257,7 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> wit
         onPressed: !showPrivate
             ? null
             : () {
-                if (_sameSession && !_backgroundHidden) Navigator.pop(context, {'unassigned': true});
+                if (active()) Navigator.pop(context, {'unassigned': true});
               },
         child: Text(t('Continue without a vehicle', 'المتابعة دون ربط مركبة')),
       ),

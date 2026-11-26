@@ -160,6 +160,18 @@
       "test_result": "passed",
       "merge_sha": "2be2a0d30868f35b6b474c297cd2d13ae5503d5d",
       "evidence": "docs/evidence/integrated-checkpoints-20261122/pr195-verified.json"
+    },
+    "pr197-licensed-frontend": {
+      "source_sha": "b5483d7b79ba35f42c40c8d528c433d6f3b9f3d9",
+      "test_result": "passed",
+      "merge_sha": "f7af52ac9c8d10b79d0627f4d1fc5242b13f18bb",
+      "evidence": "docs/evidence/integrated-checkpoints-20261123/pr197-licensed-frontend.json"
+    },
+    "pr205": {
+      "source_sha": "bf8def77164ff17da3e7c033ee1313a8f8ab7a42",
+      "test_result": "passed",
+      "merge_sha": "775b0b8e18f5f285ef613725de2dd60e9d361e36",
+      "evidence": "docs/evidence/integrated-checkpoints-20261123/pr205-verified.json"
     }
   },
   "production_acceptance": null,
@@ -355,7 +367,7 @@
           "software_atom": "Favorites",
           "coded": false,
           "checkpoint": null,
-          "note": "Canonical private favorites are merged across Laravel/web/Flutter in PR16; partner favorites remain incomplete. No whole-atom credit."
+          "note": "Canonical and authorized partner favorites implemented and historically tested through PR337; full acceptance held for retained native callback/session revocation defects identified in PR370. No whole-atom credit pending verified correction."
         },
         {
           "id": "2.3.9",
@@ -434,9 +446,9 @@
     {
       "prd": "2.5",
       "requirement": "Owned and network discovery",
-      "implemented_code_scope": "Existing station catalog plus separate web/native paginated normalized OCPI locations; fail-closed capability/provenance checks 19 November 2026 follow-on: Owned/authorized-partner unified read-only search, partial-metadata safeguards and consent-separated map exploration are integrated with explicit source provenance; no actionable partner capability is inferred.",
-      "automated_evidence_scope": "OcpiIntegrationTest, PlatformTest; roaming/native topology. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Current partial source evidence: docs/evidence/ocpp-source-admission-20261119/, docs/evidence/native-links-20261119/, docs/evidence/browser-role-quiescence-20261119/ and docs/evidence/discovery-private-presets-20261119/. These are local/module or recorded historical-merge proofs; resulting consolidated-source hosted gates remain required and no whole-atom stage credit is added.",
-      "remaining_scope": "Unified provider search/discovery adapters and authorized actionable roaming Tested read-only unified/native map and filter subsets now exist as described above; the remaining statement denotes completion of the original broad requirement, not absence of those subsets.",
+      "implemented_code_scope": "Existing station catalog plus separate web/native paginated normalized OCPI locations; fail-closed capability/provenance checks 19 November 2026 follow-on: Owned/authorized-partner unified read-only search, partial-metadata safeguards and consent-separated map exploration are integrated with explicit source provenance; no actionable partner capability is inferred. Open Charge Map is available as a separate attributed discovery-only source on web and Flutter.",
+      "automated_evidence_scope": "OcpiIntegrationTest, PlatformTest; roaming/native topology. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Current partial source evidence: docs/evidence/ocpp-source-admission-20261119/, docs/evidence/native-links-20261119/, docs/evidence/browser-role-quiescence-20261119/ and docs/evidence/discovery-private-presets-20261119/. These are local/module or recorded historical-merge proofs; resulting consolidated-source hosted gates remain required and no whole-atom stage credit is added. PR193 covers the licensed adapter and web contract. PR197 covers the shared Laravel and Flutter response fixture and authenticated customer/vendor discovery flows.",
+      "remaining_scope": "Complete unified provider search and authorized actionable roaming. Live partner authorization and operational acceptance remain external.",
       "atoms": [
         {
           "id": "2.5.1",
@@ -469,9 +481,9 @@
         {
           "id": "2.5.5",
           "software_atom": "Licensed discovery-provider adapter",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr193",
+          "note": "Open Charge Map is a consent-gated discovery-only adapter with an approved-terms gate, source attribution and bounded quota/cache handling. PR193 passed eight matching jobs and merged with an identical tree. PR197 also verified customer and vendor Flutter discovery over the same adapter."
         },
         {
           "id": "2.5.6",
@@ -694,9 +706,9 @@
     {
       "prd": "2.9",
       "requirement": "Loyalty/rewards/promotions/referrals",
-      "implemented_code_scope": "PR18 noncash Silver/Gold/Platinum tiers, immutable points ledger with refund clawback/debt/expiry, stock-limited redemption and manual fulfillment; customer/admin web/API. Production mutations disabled by default. Verified Admin coupon publication and revocation and customer discovery, private codes, idempotent claims and actor-scoped receipt recovery across web and Flutter.",
-      "automated_evidence_scope": "Verified PR18 exact-source platform and PostgreSQL financial/concurrency checks; LoyaltyEconomicsTest and browser loyalty workflows. No live economics or native parity acceptance.; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Coupon lifecycle, privacy, inventory concurrency and recovery verified on SQLite, PostgreSQL, Chromium and hosted Android/iOS.",
-      "remaining_scope": "Referrals, promotions, vendor participation, broader reward fulfillment and real operational acceptance remain open.",
+      "implemented_code_scope": "PR18 noncash Silver/Gold/Platinum tiers, immutable points ledger with refund clawback/debt/expiry, stock-limited redemption and manual fulfillment; customer/admin web/API. Production mutations disabled by default. Verified Admin coupon publication and revocation and customer discovery, private codes, idempotent claims and actor-scoped receipt recovery across web and Flutter. Referral terms, consent, code sharing, qualification, withdrawal and private reward history are integrated for Admin/customer web and Flutter. Test rewards use the canonical noncash registry.",
+      "automated_evidence_scope": "Verified PR18 exact-source platform and PostgreSQL financial/concurrency checks; LoyaltyEconomicsTest and browser loyalty workflows. No live economics or native parity acceptance.; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Coupon lifecycle, privacy, inventory concurrency and recovery verified on SQLite, PostgreSQL, Chromium and hosted Android/iOS. PR205 exact source passed the Laravel, PostgreSQL, finance browser and Android/iOS workflows. The integrated descendant with the corrected coupon test schedule passed equivalent-tree platform and native checks.",
+      "remaining_scope": "Promotions, partner rewards, vendor participation, broader reward fulfillment and real operational acceptance remain open.",
       "atoms": [
         {
           "id": "2.9.1",
@@ -729,9 +741,9 @@
         {
           "id": "2.9.5",
           "software_atom": "Referrals",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr205",
+          "note": "Referral programme terms, consent, codes, qualifying noncash rewards and private recovery history across Admin/customer web and Flutter."
         },
         {
           "id": "2.9.6",
@@ -1940,9 +1952,9 @@
     {
       "prd": "6.2",
       "requirement": "Licensed discovery providers",
-      "implemented_code_scope": "Open Charge Map licensed discovery adapter with a fixed HTTPS origin, server-only API key, explicit approved-terms and location-consent gates, per-record open-license/attribution validation and truthful source-only capabilities. Bounded results, radius/deduplication, byte/redirect/MIME/calendar validation, credential-scoped shared quota/cache/cooldown/lease and cache revalidation are integrated through PR193. Web EN/AR provider search/map/quality UI exists; complete required native integration and broader operator coverage-quality monitoring remain separate uncredited scope.",
-      "automated_evidence_scope": "OpenChargeMapDiscoveryTest24/271 plus real Laravel/Chromium licensed discovery, mixed-map and projection/transport regressions. PR193 final sourceeae11308840fc679a6b553e7c365586c76736f66 passed all8 applicable exact-source gates, including platform, both PostgreSQL matrices, CSMS, staging, both native platforms and dependent recovery, then mergedf4f22e800ad9b98dcd12a97621ba486b9e9ce047 with identical tested/integrated trees. Proof: docs/evidence/integrated-checkpoints-20261121/pr193-verified.json. No live provider access, legal activation approval, national coverage or production SLA accepted.",
-      "remaining_scope": "Complete provider-specific native frontend parity (6.2.3) and broader operator coverage-quality monitoring (6.2.4). Approved API access/key, actual licensed activation and live provider coverage/SLA acceptance remain external; these are not inferred from fixture or browser verification.",
+      "implemented_code_scope": "Open Charge Map licensed discovery adapter with a fixed HTTPS origin, server-only API key, explicit approved-terms and location-consent gates, per-record open-license/attribution validation and truthful source-only capabilities. Bounded results, radius/deduplication, byte/redirect/MIME/calendar validation, credential-scoped shared quota/cache/cooldown/lease and cache revalidation are integrated through PR193. Web EN/AR provider search/map/quality UI exists; complete required native integration and broader operator coverage-quality monitoring remain separate uncredited scope. PR #197 completes the consented Open Charge Map frontend for authenticated customers and vendors on Flutter, complementing the existing web interface.",
+      "automated_evidence_scope": "OpenChargeMapDiscoveryTest24/271 plus real Laravel/Chromium licensed discovery, mixed-map and projection/transport regressions. PR193 final sourceeae11308840fc679a6b553e7c365586c76736f66 passed all8 applicable exact-source gates, including platform, both PostgreSQL matrices, CSMS, staging, both native platforms and dependent recovery, then mergedf4f22e800ad9b98dcd12a97621ba486b9e9ce047 with identical tested/integrated trees. Proof: docs/evidence/integrated-checkpoints-20261121/pr193-verified.json. No live provider access, legal activation approval, national coverage or production SLA accepted. PR #197 passed eight exact-source hosted jobs including Linux and macOS native validation. The validated frontend source and shared contract fixture match the integrated versions.",
+      "remaining_scope": "Broader operator coverage-quality monitoring (6.2.4) and external licensing, live provider activation and coverage acceptance.",
       "atoms": [
         {
           "id": "6.2.1",
@@ -1961,9 +1973,9 @@
         {
           "id": "6.2.3",
           "software_atom": "Provider-specific frontend integration",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr197-licensed-frontend",
+          "note": "Provider-specific Open Charge Map consent-gated English and Arabic web and Flutter customer/vendor discovery."
         },
         {
           "id": "6.2.4",

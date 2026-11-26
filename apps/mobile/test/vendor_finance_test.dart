@@ -189,6 +189,23 @@ class PayableApi extends FixtureApi {
 }
 
 void main() {
+  testWidgets('already rendered vendor payout/finance source vanishes on logout event',
+      (tester) async {
+    final api = ScopedVendorApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(vendorApp(
+      VendorFinanceView(api: api, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('vendor-itemized-KWD')), findsOneWidget);
+    final reads = api.reads.length;
+    await api.forgetSession();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('vendor-itemized-KWD')), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(api.reads.length, reads);
+  });
+
   testWidgets(
     'old vendor navigation callback cannot open a route after session replacement',
     (t) async {

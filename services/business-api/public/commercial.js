@@ -1820,6 +1820,21 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             o.value = key;
             select.append(o);
         }
+        const currency = document.createElement("input");
+        currency.type = "text";
+        currency.maxLength = 3;
+        currency.autocomplete = "off";
+        currency.dataset.financeReviewCurrency = "true";
+        const currencyLabel = document.createElement("label");
+        currencyLabel.append(translated("span", "Review currency (optional)", "عملة المراجعة (اختياري)"), currency);
+        const vendor = document.createElement("input");
+        vendor.type = "text";
+        vendor.inputMode = "numeric";
+        vendor.maxLength = 16;
+        vendor.autocomplete = "off";
+        vendor.dataset.financeReviewVendor = "true";
+        const vendorLabel = document.createElement("label");
+        vendorLabel.append(translated("span", "Review vendor ID (optional)", "معرف مورد المراجعة (اختياري)"), vendor);
         parent.append(
             translated(
                 "p",
@@ -1827,6 +1842,8 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 "مراجعة موافقات اختبارية للقراءة فقط؛ المبالغ ليست مدفوعات مصرفية أو أوامر صرف.",
             ),
             select,
+            currencyLabel,
+            vendorLabel,
             list,
         );
         let generation = 0;
@@ -1835,18 +1852,39 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             list.replaceChildren();
         };
         select.addEventListener("change", clear);
+        currency.addEventListener("input", clear);
+        vendor.addEventListener("input", clear);
         document.addEventListener(
             "visibilitychange",
             () => {
-                if (document.hidden) clear();
+                if (document.hidden) {
+                    clear();
+                    currency.value = "";
+                    vendor.value = "";
+                    select.value = "all";
+                }
             },
             { signal: controller.signal },
         );
         async function show(page = 1) {
             const version = ++generation;
+            list.replaceChildren();
+            const kind = select.value;
+            const cur = currency.value.trim().toUpperCase();
+            const owner = vendor.value.trim();
+            if (!["all", "refund", "settlement", "adjustment"].includes(kind) ||
+                (cur && !/^[A-Z]{3}$/.test(cur)) ||
+                (owner && (!/^[1-9][0-9]{0,15}$/.test(owner) ||
+                    !Number.isSafeInteger(Number(owner)))) ||
+                !Number.isSafeInteger(page) || page < 1 || page > 10000)
+                throw Error("Invalid finance review filters.");
+            const query = new URLSearchParams({
+                kind, per_page: "20", page: String(page),
+            });
+            if (cur) query.set("currency", cur);
+            if (owner) query.set("vendor_id", owner);
             const payload = await api(
-                "finance/approval-queue?kind=" +
-                    encodeURIComponent(select.value) + "&per_page=20&page=" + page,
+                "finance/approval-queue?" + query.toString(),
                 "GET",
                 undefined,
                 controller.signal,
@@ -1857,18 +1895,105 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 payload.real_money_moved !== false ||
                 payload.mutations_performed !== false ||
                 payload.not_a_payment_or_payout_authority !== true ||
-                !Array.isArray(payload.data))
+                !Array.isArray(payload.data) ||
+                !Number.isSafeInteger(payload.total) || payload.total < 0 ||
+                !Number.isSafeInteger(payload.current_page) ||
+                !Number.isSafeInteger(payload.last_page) ||
+                !Number.isSafeInteger(payload.per_page) ||
+                payload.current_page !== page || payload.per_page !== 20 ||
+                payload.last_page !== Math.max(1, Math.ceil(payload.total / 20)) ||
+                payload.data.length !== Math.min(20, Math.max(0, payload.total - (page - 1) * 20)) ||
+                !payload.summary ||
+                payload.summary.scope !==
+                    "ALL_CURRENT_FILTERED_PENDING_RECORDS_NOT_PAGE" ||
+                payload.summary.currency_and_precision_isolated !== true ||
+                payload.summary.not_a_payment_or_payout_authority !== true ||
+                !Array.isArray(payload.summary.groups) ||
+                payload.summary.groups.length > 200)
                 throw Error("Financial approval queue source cannot be verified.");
-            list.replaceChildren(
-                translated("h4", "Pending financial reviews", "المراجعات المالية المعلقة"),
-                text("p", String(payload.total) + " · Pending / قيد المراجعة"),
+
+            const groupKeys = new Map();
+            let reviewed = 0;
+            const grouped = document.createElement("section");
+            grouped.dataset.financeApprovalGroupSummary = "true";
+            grouped.append(
+                translated(
+                    "h5",
+                    "All filtered pending approvals by source, currency and precision",
+                    "جميع الموافقات المعلقة المصفاة حسب المصدر والعملة والدقة",
+                ),
+                translated(
+                    "p",
+                    "Separate signed source amounts per review category. Not cash, payout or authority to approve.",
+                    "المبالغ المسجلة بإشارتها منفصلة لكل فئة مراجعة؛ وليست نقداً أو صرفاً أو صلاحية للموافقة.",
+                ),
             );
+            for (const group of payload.summary.groups) {
+                if (!group ||
+                    !["refund", "settlement", "adjustment"].includes(group.kind) ||
+                    (kind !== "all" && group.kind !== kind) ||
+                    !/^[A-Z]{3}$/.test(group.currency) ||
+                    (cur && group.currency !== cur) ||
+                    !Number.isSafeInteger(group.minor_units) ||
+                    group.minor_units < 0 || group.minor_units > 3 ||
+                    !Number.isSafeInteger(group.review_count) ||
+                    group.review_count < 1 ||
+                    !Number.isSafeInteger(group.signed_amount_minor) ||
+                    (group.kind !== "adjustment" && group.signed_amount_minor < 0) ||
+                    group.basis !== "PENDING_RECORDS_NOT_FINANCIAL_BALANCE")
+                    throw Error("Untrusted financial approval summary.");
+                const identity = [
+                    group.kind, group.currency, group.minor_units,
+                ].join(":");
+                if (groupKeys.has(identity))
+                    throw Error("Duplicated financial approval summary.");
+                groupKeys.set(identity, group.review_count);
+                reviewed += group.review_count;
+                if (!Number.isSafeInteger(reviewed))
+                    throw Error("Approval count exceeds exact bounds.");
+                const groupLine = document.createElement("article");
+                groupLine.dataset.financeApprovalGroup = group.kind;
+                groupLine.className = "finance-row";
+                groupLine.append(
+                    text("strong", group.kind + " · " + group.currency +
+                        " · " + group.minor_units + " digits"),
+                    text("p", group.review_count +
+                        " pending / قيد المراجعة · " +
+                        group.signed_amount_minor + " minor units / وحدات صغرى"),
+                );
+                grouped.append(groupLine);
+            }
+            if (reviewed !== payload.total)
+                throw Error("Approval summary differs from filtered source count.");
+
+            const rows = [];
+            const seen = new Set();
+            const pageGroups = new Map();
             for (const item of payload.data) {
-                if (!["refund", "settlement", "adjustment"].includes(item.kind) ||
-                    !Number.isSafeInteger(Number(item.record_id)) ||
-                    !Number.isSafeInteger(Number(item.amount_minor)) ||
-                    !/^[A-Z]{3}$/.test(item.currency))
+                if (!item || !["refund", "settlement", "adjustment"].includes(item.kind) ||
+                    (kind !== "all" && item.kind !== kind) ||
+                    !Number.isSafeInteger(item.record_id) || item.record_id < 1 ||
+                    !Number.isSafeInteger(item.vendor_id) || item.vendor_id < 1 ||
+                    (owner && String(item.vendor_id) !== owner) ||
+                    !Number.isSafeInteger(item.amount_minor) ||
+                    (item.kind !== "adjustment" && item.amount_minor < 0) ||
+                    !/^[A-Z]{3}$/.test(item.currency) || (cur && item.currency !== cur) ||
+                    (item.minor_units !== null &&
+                        (!Number.isSafeInteger(item.minor_units) ||
+                         item.minor_units < 0 || item.minor_units > 3)) ||
+                    (item.kind === "refund"
+                        ? !Number.isSafeInteger(item.invoice_id) || item.invoice_id < 1
+                        : item.invoice_id !== null) ||
+                    item.status !== (item.kind === "adjustment" ? "awaiting_approval" : "pending"))
                     throw Error("Unverified financial review item.");
+                const id = item.kind + ":" + item.record_id;
+                if (seen.has(id)) throw Error("Duplicated financial review item.");
+                seen.add(id);
+                const scope = [item.kind, item.currency, item.minor_units ?? 0].join(":");
+                const count = (pageGroups.get(scope) || 0) + 1;
+                if (!groupKeys.has(scope) || count > groupKeys.get(scope))
+                    throw Error("Financial review item is outside the summary scope.");
+                pageGroups.set(scope, count);
                 const line = document.createElement("article");
                 line.className = "finance-row";
                 line.dataset.financeApprovalKind = item.kind;
@@ -1878,15 +2003,22 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         " minor units / وحدات صغرى"),
                     text("p", "Vendor #" + item.vendor_id + " · " + item.status),
                 );
-                list.append(line);
+                rows.push(line);
             }
+            // Commit private DOM only after every row and summary is verified.
+            list.replaceChildren(
+                translated("h4", "Pending financial reviews", "المراجعات المالية المعلقة"),
+                text("p", String(payload.total) + " · Pending / قيد المراجعة"),
+                grouped,
+                ...rows,
+            );
             const pager = document.createElement("div");
             pager.className = "finance-pagination";
             pager.append(text("p", String(payload.current_page) + " / " + String(payload.last_page)));
             if (payload.current_page > 1)
                 button(pager, "Previous finance reviews", "المراجعات السابقة",
                     () => show(payload.current_page - 1));
-            if (payload.current_page < payload.last_page)
+            if (payload.current_page < payload.last_page && payload.current_page < 10000)
                 button(pager, "Next finance reviews", "المراجعات التالية",
                     () => show(payload.current_page + 1));
             list.append(pager);
@@ -1895,9 +2027,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 "Download current approval page CSV",
                 "تنزيل صفحة الموافقات الحالية CSV",
             );
-            exportLink.href = "/api/finance/approval-queue/export?kind=" +
-                encodeURIComponent(select.value) +
-                "&per_page=20&page=" + payload.current_page;
+            exportLink.href = "/api/finance/approval-queue/export?" + query.toString();
             exportLink.download = "simulated-pending-finance-approvals.csv";
             list.append(exportLink);
         }

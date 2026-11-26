@@ -24,14 +24,37 @@ class ContinuousFaultObserver
         $site = VendorSite::findOrFail($charger->site_id);
         $company = VendorCompany::findOrFail($charger->company_id);
         $station = Station::findOrFail($b->station_id);
-        abort_unless($charger->source === 'simulator' && $station->source === 'simulator' && $site->station_id === $station->id && $site->company_id === $company->id && $station->vendor_id === $company->owner_id && $charger->ocpp_protocol === $b->protocol && User::whereKey($company->owner_id)->where('role', 'vendor')->exists() && DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->count() === 1 && DB::table('csms_bindings')->where('identifier', $b->identifier)->count() === 1, 409);
+        // The checked source may be returned to the operator inbox. Never
+        // publish a source observation after ownership, country or account
+        // authority has changed (including between the HTTP read and commit).
+        abort_unless($charger->source === 'simulator' && $station->source === 'simulator'
+            && $site->station_id === $station->id && $site->company_id === $company->id
+            && $charger->company_id === $company->id
+            && $station->vendor_id === $company->owner_id
+            && $station->country === $site->country && $site->country === $company->country
+            && $charger->ocpp_protocol === $b->protocol
+            && User::whereKey($company->owner_id)->where('role', 'vendor')
+                ->where('account_status', 'active')->exists()
+            && DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->count() === 1
+            && DB::table('csms_bindings')->where('identifier', $b->identifier)->count() === 1, 409);
 
         return [$b, $company->id, $company->owner_id];
     }
 
-    private function graph(string $query, array $variables): array
+    private function requireSource(string $url, string $key): void
     {
-        $reply = Http::connectTimeout(5)->timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), compact('query', 'variables'));
+        abort_unless(config('csms.fault_worker_enabled') && config('csms.session_bridge_enabled')
+            && app()->environment(['local', 'testing'])
+            && app(CsmsGraphqlTransport::class)->requireApproved() === $url
+            && hash_equals($key, (string) config('csms.graphql_secret')), 503,
+            'Fault source authority changed during observation.');
+    }
+
+    private function graph(string $query, array $variables, string $url, string $key): array
+    {
+        $this->requireSource($url, $key);
+        $reply = Http::connectTimeout(5)->timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $key])->post($url, compact('query', 'variables'));
+        $this->requireSource($url, $key);
         $data = $reply->json('data');
         abort_unless($reply->successful() && ! $reply->json('errors') && is_array($data), 503);
 
@@ -41,6 +64,10 @@ class ContinuousFaultObserver
     public function observe(int $id): array
     {
         abort_unless(config('csms.fault_worker_enabled') && config('csms.session_bridge_enabled') && app()->environment(['local', 'testing']) && strlen((string) config('csms.graphql_secret')) >= 32, 503);
+        // Reject an unreviewed plaintext/credential-bearing source URL before
+        // any privileged GraphQL request or local fault cursor mutation.
+        $url = app(CsmsGraphqlTransport::class)->requireApproved();
+        $key = (string) config('csms.graphql_secret');
         [$b, $companyId, $ownerId] = $this->scope($id);
         $generation = FaultMonitor::generation($b);
         $cursor = DB::table('charging_fault_cursors')->where('source_generation', $generation)->first();
@@ -50,6 +77,8 @@ class ContinuousFaultObserver
             // a previous page contained only Available/diagnostic statuses.
             // An absent durable observation cannot certify a source cursor.
             $previousClock = null;
+            $lastClock = null;
+            $sameTimeTargets = [];
             if ($after > 0) {
                 $lastClock = DB::table('charging_status_observations')
                     ->where('source_generation', $generation)
@@ -58,7 +87,7 @@ class ContinuousFaultObserver
                 abort_unless(is_string($lastClock), 503, 'Status source cursor lacks durable clock evidence.');
                 $previousClock = CarbonImmutable::parse($lastClock, 'UTC');
             }
-            $source = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id protocol}}', ['name' => $b->identifier])['ChargingStations'] ?? null;
+            $source = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id protocol}}', ['name' => $b->identifier], $url, $key)['ChargingStations'] ?? null;
             abort_unless(is_array($source) && array_is_list($source) && count($source) <= 1, 503, 'Malformed source station projection.');
             $sourceId = $source[0]['id'] ?? null;
             if ($source) {
@@ -71,7 +100,7 @@ class ContinuousFaultObserver
             }
             $events = [];
             if ($sourceId !== null) {
-                $data = $this->graph('query($station:Int!,$after:Int!){StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},id:{_gt:$after}},order_by:{id:asc},limit:101){id connectorId evseId connectorStatus errorCode timestamp} newest:StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1){id}}', ['station' => $sourceId, 'after' => $after]);
+                $data = $this->graph('query($station:Int!,$after:Int!){StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},id:{_gt:$after}},order_by:{id:asc},limit:101){id connectorId evseId connectorStatus errorCode timestamp} newest:StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1){id}}', ['station' => $sourceId, 'after' => $after], $url, $key);
                 $events = $data['StatusNotifications'] ?? null;
                 $newest = $data['newest'] ?? null;
                 abort_unless(
@@ -101,6 +130,29 @@ class ContinuousFaultObserver
                     // of availability, faults or recovery and must not advance
                     // the durable cursor beyond an unread source event.
                     abort_unless(in_array($event['connectorStatus'], ConnectorFreshness::STATUSES, true), 503, 'Unsupported source connector status.');
+                    // A 1.6 StatusNotification includes an explicit fault
+                    // errorCode. Do not persist a healthy/status cursor from
+                    // a partial, contradictory or non-1.6 projection.
+                    if ($b->protocol === '1.6') {
+                        abort_unless(in_array($event['connectorStatus'], [
+                            'Available', 'Preparing', 'Charging', 'SuspendedEVSE',
+                            'SuspendedEV', 'Finishing', 'Reserved', 'Unavailable',
+                            'Faulted',
+                        ], true), 503, 'Invalid OCPP 1.6 status.');
+                        $code = $event['errorCode'] ?? null;
+                        abort_unless(is_string($code) && in_array($code, [
+                            'NoError', 'ConnectorLockFailure', 'EVCommunicationError',
+                            'GroundFailure', 'HighTemperature', 'InternalError',
+                            'LocalListConflict', 'OtherError', 'OverCurrentFailure',
+                            'OverVoltage', 'PowerMeterFailure', 'PowerSwitchFailure',
+                            'ReaderFailure', 'ResetFailure', 'UnderVoltage', 'WeakSignal',
+                        ], true) && (($event['connectorStatus'] === 'Faulted') === ($code !== 'NoError')),
+                            503, 'Invalid or inconsistent OCPP 1.6 fault receipt.');
+                    } else {
+                        abort_unless(in_array($event['connectorStatus'], [
+                            'Available', 'Occupied', 'Reserved', 'Unavailable', 'Faulted',
+                        ], true), 503, 'Invalid OCPP 2.0.1 status.');
+                    }
                     try {
                         // Use the same strict absolute-time contract as the
                         // persisted fault observer, including fractional future
@@ -111,6 +163,45 @@ class ContinuousFaultObserver
                         abort(503, 'Source event timestamp is invalid.');
                     }
                     abort_unless($previousClock === null || ! $eventClock->lt($previousClock), 503, 'Source status chronology regressed.');
+                    // Equal timestamps may describe distinct connectors, or
+                    // repeated identical receipts, but must never establish
+                    // two incompatible states for the same source component.
+                    // OCPP 1.6 StatusNotification has no EVSE identifier.
+                    // The GraphQL projection can explicitly return null for it.
+                    // Use the same zero sentinel as FaultMonitor persistence,
+                    // never infer a missing field or a 2.0.1 EVSE.
+                    $evse = $event['evseId'] ?? null;
+                    if ($b->protocol === '1.6' && array_key_exists('evseId', $event) && $evse === null) {
+                        $evse = 0;
+                    }
+                    $connector = $event['connectorId'] ?? null;
+                    abort_unless(is_int($evse) && $evse >= 0 && is_int($connector) && $connector >= 0, 503,
+                        'Malformed source component identity.');
+                    $target = $evse.':'.$connector;
+                    $receipt = [$event['connectorStatus'], $event['errorCode'] ?? null];
+                    if ($previousClock === null || ! $eventClock->equalTo($previousClock)) {
+                        $sameTimeTargets = [];
+                    } elseif (isset($sameTimeTargets[$target])) {
+                        abort_unless($sameTimeTargets[$target] === $receipt, 503,
+                            'Conflicting same-time source status receipts.');
+                    }
+                    if ($lastClock !== null && $eventClock->equalTo(CarbonImmutable::parse($lastClock, 'UTC'))) {
+                        $conflict = DB::table('charging_status_observations')
+                            ->where('source_generation', $generation)
+                            ->where('source_event_id', '<=', $after)
+                            ->where('occurred_at', $lastClock)
+                            ->where('evse_number', $evse)->where('connector_number', $connector)
+                            ->where(function ($q) use ($receipt) {
+                                $q->where('status', '!=', $receipt[0]);
+                                if ($receipt[1] === null) {
+                                    $q->orWhereNotNull('error_code');
+                                } else {
+                                    $q->orWhereNull('error_code')->orWhere('error_code', '!=', $receipt[1]);
+                                }
+                            })->exists();
+                        abort_if($conflict, 503, 'Conflicting same-time status crosses the durable cursor.');
+                    }
+                    $sameTimeTargets[$target] = $receipt;
                     $previousClock = $eventClock;
                     $previous = $event['id'];
                 }
@@ -135,7 +226,8 @@ class ContinuousFaultObserver
                 (count($events) > 100 || ($newest && $newest[0]['id'] > $lastRead) ? 'catching_up' : 'caught_up');
             $events = array_slice($events, 0, 100);
 
-            return $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $sourceId, $events, $state, $after, $ownerId, $companyId) {
+            return $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $sourceId, $events, $state, $after, $ownerId, $companyId, $url, $key) {
+                $this->requireSource($url, $key);
                 // The source observation, fault alert and vendor-only in-app
                 // notification commit atomically under the verified ownership lock.
                 // Historical replay never emits a second notification.

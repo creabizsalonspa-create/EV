@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/partner_report_map.dart';
@@ -20,6 +21,45 @@ class FakeMapTiles extends TileProvider {
 }
 
 void main() {
+
+  for(final ar in [false,true]){
+    for(final platform in [false,true]){
+      testWidgets('map marker screen-reader provenance is localized ($ar/$platform)',(tester)async{
+        final point=platform
+          ?PartnerMapPoint.fromPublishedCatalog({
+              'id':77,'name':'Visible source','latitude':25.2,
+              'longitude':55.3,'evidence':'DISCOVERY_ONLY',
+            })!
+          :PartnerMapPoint.fromPublishedLocation({
+              'name':'Visible source','latitude':25.2,'longitude':55.3,
+            })!;
+        final tiles=FakeMapTiles();
+        await tester.pumpWidget(MaterialApp(
+          locale:Locale(ar?'ar':'en'),
+          supportedLocales:const [Locale('en'),Locale('ar')],
+          localizationsDelegates:const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home:PartnerReportMap(points:[point],tileProvider:tiles),
+        ));
+        expect(tiles.requests,0);
+        await tester.tap(find.byKey(const Key('partner-map-enable')));
+        await tester.pumpAndSettle();
+        final suffix=ar
+          ?(platform?'كتالوج المنصة، التوفر غير مؤكد':'تقرير شريك غير مؤكد')
+          :(platform?'platform catalog, availability unverified':'unverified partner report');
+        expect(find.byWidgetPredicate((widget)=>widget is Semantics &&
+          (widget.properties.label??'').contains('Visible source — $suffix')),
+          findsOneWidget);
+        if(ar)expect(find.byWidgetPredicate((widget)=>widget is Semantics &&
+          (widget.properties.label??'').contains('availability unverified')),
+          findsNothing);
+        expect(tester.takeException(),isNull);
+      });
+    }
+  }
   test('partner map does not invent missing or unsupported coordinates', () {
     expect(PartnerMapPoint.fromPublishedLocation({'latitude': null,
       'longitude': null}), isNull);
@@ -42,7 +82,10 @@ void main() {
     final row=<String,dynamic>{'id':7,'name':'Platform source','latitude':'25.2','longitude':'55.3','evidence':'SIMULATED'};
     final point=PartnerMapPoint.fromPublishedCatalog(row)!;
     expect(point.platformCatalog,true);expect(point.catalogEvidence,'SIMULATED');expect(point.providerLabel,isNull);
-    for(final update in <Map<String,dynamic>>[{'id':0},{'latitude':89},{'evidence':'LIVE_VERIFIED'},{'name':null}])expect(PartnerMapPoint.fromPublishedCatalog({...row,...update}),isNull);
+    for(final update in <Map<String,dynamic>>[
+      {'id':0}, {'latitude':89}, {'evidence':'LIVE_VERIFIED'}, {'name':null},
+      {'evidence':'DISCOVERY_ONLY', 'reservable':true},
+    ]) expect(PartnerMapPoint.fromPublishedCatalog({...row,...update}),isNull);
   });
 
   testWidgets('mixed map keeps supplier labels and tile consent independent of source', (tester) async {

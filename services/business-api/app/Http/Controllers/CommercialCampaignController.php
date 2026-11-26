@@ -150,6 +150,16 @@ class CommercialCampaignController extends Controller
         }, 3);
     }
 
+    /**
+     * A sponsored placement page must contain eligible placements, not a
+     * page of candidate campaigns with ineligible entries removed after
+     * pagination. The old projection silently returned empty pages even when
+     * valid sponsored stations existed on the next database page.
+     *
+     * Source eligibility is dynamic (credits, uncertain PSP status, paid
+     * package entitlements, suspended vendors, delivery budget), so never
+     * replace CampaignService::eligible with a stale approval-only SQL count.
+     */
     public function eligible(Request $r, CampaignService $s)
     {
         $v = $r->validate([
@@ -157,25 +167,90 @@ class CommercialCampaignController extends Controller
             'placement' => ['required', Rule::in(['discovery_banner', 'station_detail'])],
             'region' => 'nullable|string|max:100',
             'station_id' => 'sometimes|integer|min:1|prohibits:station_ids',
-            'station_ids' => ['sometimes', 'array', 'min:1', 'max:25', Rule::prohibitedIf($r->input('placement') !== 'discovery_banner')],
+            'station_ids' => ['sometimes', 'array', 'min:1', 'max:25',
+                Rule::prohibitedIf($r->input('placement') !== 'discovery_banner')],
             'station_ids.*' => 'required|integer|min:1|distinct',
             'page' => 'sometimes|integer|between:1,100000',
+            'per_page' => 'sometimes|integer|between:1,25',
         ]);
-        $rows = DB::table('commercial_campaigns')
-            ->when(isset($v['station_id']), fn ($q) => $q->where('station_id', $v['station_id']))
-            ->when(isset($v['station_ids']), fn ($q) => $q->whereIn('station_id', $v['station_ids']))
-            ->when(isset($v['country']), fn ($q) => $q->where('country', $v['country']))
-            ->where('status', 'approved')->where('placement', $v['placement'])->where('starts_at', '<=', now())->where('ends_at', '>', now())->where(fn ($q) => $q->whereNull('region')->orWhere('region', $v['region'] ?? ''))->orderBy('id')->paginate(25)->through(function ($row) use ($s) {
-                if (! $s->eligible($row)) {
-                    return null;
-                }
+        $page = (int) ($v['page'] ?? 1);
+        $size = (int) ($v['per_page'] ?? 25);
+        if (! config('campaigns.enabled')) {
+            // A disabled sponsorship adapter never publishes an ad, and
+            // does not perform per-invoice finance lookups just to return
+            // a false approved-candidate page.
+            return response()->json([
+                'placements' => [], 'current_page' => $page,
+                'last_page' => 1, 'per_page' => $size, 'total' => 0,
+                'ranking_basis' => 'SPONSORED_ID_ORDER_NOT_PERFORMANCE',
+                'client_telemetry_billable' => false,
+            ])->header('Cache-Control', 'private, no-store');
+        }
 
-                return ['campaign_id' => $row->id, 'station_id' => $row->station_id, 'title' => $row->title, 'title_ar' => $row->title_ar, 'description' => $row->description, 'description_ar' => $row->description_ar, 'sponsored' => true, 'compatibility_verified' => false, 'availability_verified' => false, 'capability_override' => false];
-            });
+        // Cheap relational exclusions first. Never turn a paid package
+        // entitlement into a claim of real audience impressions, or assume
+        // an APPROVED row is still entitled to a delivery after a refund.
+        $candidates = DB::table('commercial_campaigns as c')
+            ->when(isset($v['station_id']),
+                fn ($q) => $q->where('c.station_id', (int) $v['station_id']))
+            ->when(isset($v['station_ids']),
+                fn ($q) => $q->whereIn('c.station_id', $v['station_ids']))
+            ->when(isset($v['country']),
+                fn ($q) => $q->where('c.country', $v['country']))
+            ->where('c.status', 'approved')
+            ->where('c.placement', $v['placement'])
+            ->where('c.starts_at', '<=', now())
+            ->where('c.ends_at', '>', now())
+            ->where(fn ($q) => $q->whereNull('c.region')
+                ->orWhere('c.region', $v['region'] ?? ''))
+            ->whereExists(fn ($q) => $q->selectRaw('1')
+                ->from('stations as st')
+                ->whereColumn('st.id', 'c.station_id')
+                ->whereColumn('st.vendor_id', 'c.vendor_id')
+                ->whereColumn('st.country', 'c.country'))
+            ->whereRaw('(SELECT COUNT(*) FROM commercial_campaign_deliveries AS d
+                WHERE d.campaign_id = c.id AND d.kind = ?) < c.budget_units',
+                ['delivery'])
+            ->orderBy('c.id')
+            ->limit(1001)
+            ->get(['c.*']);
 
-        // Filtered nulls never become placements; clients must not treat sponsored
-        // selection as charger discovery, compatibility, live state or routing proof.
-        return response()->json(['placements' => array_values(array_filter($rows->items())), 'current_page' => $rows->currentPage(), 'last_page' => $rows->lastPage(), 'ranking_basis' => 'SPONSORED_ID_ORDER_NOT_PERFORMANCE', 'client_telemetry_billable' => false])->header('Cache-Control', 'private, no-store');
+        // The exact eligibility contract requires checking live package
+        // state for every candidate. A bounded failure is safer than lying
+        // about last_page or silently skipping eligible later campaigns.
+        abort_if($candidates->count() > 1000, 422,
+            'Narrow the station catalog page or country before listing sponsored placements.');
+
+        $valid = [];
+        foreach ($candidates as $row) {
+            if (! $s->eligible($row)) {
+                continue;
+            }
+            $valid[] = [
+                'campaign_id' => $row->id, 'station_id' => $row->station_id,
+                'title' => $row->title, 'title_ar' => $row->title_ar,
+                'description' => $row->description,
+                'description_ar' => $row->description_ar,
+                'sponsored' => true,
+                'compatibility_verified' => false,
+                'availability_verified' => false,
+                'capability_override' => false,
+            ];
+        }
+
+        $total = count($valid);
+        $last = max(1, (int) ceil($total / $size));
+        $placements = array_slice($valid, ($page - 1) * $size, $size);
+
+        return response()->json([
+            'placements' => $placements,
+            'current_page' => $page,
+            'last_page' => $last,
+            'per_page' => $size,
+            'total' => $total,
+            'ranking_basis' => 'SPONSORED_ID_ORDER_NOT_PERFORMANCE',
+            'client_telemetry_billable' => false,
+        ])->header('Cache-Control', 'private, no-store');
     }
 
     public function delivery(Request $r, CampaignService $s)

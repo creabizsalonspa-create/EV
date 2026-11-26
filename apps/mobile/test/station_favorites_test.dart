@@ -123,7 +123,17 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const Key('favorite-1')));
+      // Catalog filters can place the lazily built result below the viewport.
+      // Scroll the catalog itself before inspecting the favorite control.
+      final catalogScroll = find.descendant(
+        of: find.byType(ListView),
+        matching: find.byType(Scrollable),
+      ).first;
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('favorite-1')),
+        200,
+        scrollable: catalogScroll,
+      );
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('favorite-1')).hitTestable(), findsOneWidget);
       await tester.tap(find.byKey(const Key('favorite-1')));

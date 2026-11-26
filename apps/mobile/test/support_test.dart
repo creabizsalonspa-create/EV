@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/support.dart';
@@ -718,7 +719,182 @@ class MalformedInboxFixture extends SupportFixture {
   }
 }
 
+
+class MalformedSupportPageFixture extends SupportFixture {
+  bool wrongPage = false, duplicates = false;
+  bool wrongThreadPage = false;
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    final result = await super.request(path,
+        method: method, body: body, query: query);
+    if (method == 'GET' && path == 'support' && (wrongPage || duplicates)) {
+      final data = Map<String,dynamic>.from(result as Map);
+      if (wrongPage) return {...data, 'current_page': 2, 'last_page': 2};
+      final original = List<Map<String,dynamic>>.from(data['data'] as List);
+      return {...data, 'data': [...original, ...original]};
+    }
+    if (method == 'GET' && path == 'support/1' && wrongThreadPage) {
+      final data = Map<String,dynamic>.from(result as Map);
+      final messages = Map<String,dynamic>.from(data['messages'] as Map);
+      return {...data, 'messages': {...messages,
+        'current_page': 2, 'last_page': 2}};
+    }
+    return result;
+  }
+}
+
 void main() {
+
+  for (final language in ['en', 'ar']) {
+    for (final mode in ['wrong-page', 'duplicates']) {
+      testWidgets('malformed support history cannot authorize ticket actions ($language, $mode)', (tester) async {
+        final api = MalformedSupportPageFixture()
+          ..wrongPage = mode == 'wrong-page'
+          ..duplicates = mode == 'duplicates';
+        addTearDown(api.close);
+        await tester.pumpWidget(MaterialApp(
+          locale: Locale(language),
+          supportedLocales: const [Locale('en'), Locale('ar')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+        ));
+        await tester.pumpAndSettle();
+        expect(find.text('Synthetic support thread'), findsNothing);
+        final open = find.byKey(const Key('support-new-ticket'));
+        expect(open, findsOneWidget);
+        expect(tester.widget<OutlinedButton>(open).onPressed, isNull);
+        api.wrongPage = api.duplicates = false;
+        await tester.tap(find.byKey(const Key('support-manual-refresh')));
+        await tester.pumpAndSettle();
+        expect(find.text('Synthetic support thread'), findsOneWidget);
+        expect(tester.widget<OutlinedButton>(open).onPressed, isNotNull);
+        expect(tester.takeException(), isNull);
+      });
+    }
+    testWidgets('malformed private ticket thread page cannot expose reply controls ($language)', (tester) async {
+      final api = MalformedSupportPageFixture()..wrongThreadPage = true;
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: TicketPage(api: api, id: 1, onSessionExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Original public message'), findsNothing);
+      expect(find.byKey(const Key('ticket-reply')), findsNothing);
+      api.wrongThreadPage = false;
+      await tester.tap(find.text(EvStrings(Locale(language)).t('retry')));
+      await tester.pumpAndSettle();
+      expect(find.text('Original public message'), findsOneWidget);
+      expect(find.byKey(const Key('ticket-reply')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+
+  for (final language in ['en', 'ar']) {
+    testWidgets('reused support API session changes rebind with no old-account read ($language)', (tester) async {
+      final api = ActorScopedSupportFixture();
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Synthetic support thread'), findsOneWidget);
+      expect(api.supportReads, 1);
+      final staleOpen = tester.widget<TextButton>(
+        find.widgetWithText(TextButton,
+          EvStrings(Locale(language)).t('ticket', {'id': 1}))).onPressed;
+      api.actorEpoch++;
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.supportReads, 1, reason: 'Session change must not silently fetch inbox');
+      expect(find.text('Synthetic support thread'), findsNothing);
+      expect(find.byKey(const Key('support-manual-refresh')), findsOneWidget);
+      expect(find.textContaining('PRIVATE OLD ACCOUNT'), findsNothing);
+      // An old retained callback cannot navigate into the replacement actor.
+      staleOpen?.call();
+      await tester.pump();
+      expect(api.supportReads, 1);
+      await tester.tap(find.byKey(const Key('support-manual-refresh')));
+      await tester.pumpAndSettle();
+      expect(api.supportReads, 2);
+      expect(find.text('Synthetic support thread'), findsOneWidget);
+      expect(find.byKey(const Key('support-manual-refresh')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('reused ticket API session rebinds without replaying private thread ($language)', (tester) async {
+      final api = ActorScopedTicketFixture();
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: TicketPage(api: api, id: 1, onSessionExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Original public message'), findsOneWidget);
+      expect(api.detailReads, 1);
+      await tester.enterText(find.byKey(const Key('ticket-reply')), 'PRIVATE OLD ACCOUNT DRAFT');
+      api.actorEpoch++;
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: TicketPage(api: api, id: 1, onSessionExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.detailReads, 1, reason: 'Reusing EvApi must not read on account switch');
+      expect(find.text('Original public message'), findsNothing);
+      expect(find.text('PRIVATE OLD ACCOUNT DRAFT'), findsNothing);
+      expect(find.byKey(const Key('ticket-reply')), findsNothing);
+      await tester.tap(find.text(EvStrings(Locale(language)).t('refresh')));
+      await tester.pumpAndSettle();
+      expect(api.detailReads, 2);
+      expect(find.text('Original public message'), findsOneWidget);
+      expect(find.byKey(const Key('ticket-reply')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('retained notification discovery tap is fenced to the rendered account and read', (
     tester,
   ) async {

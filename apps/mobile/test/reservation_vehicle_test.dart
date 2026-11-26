@@ -297,4 +297,107 @@ void main() {
     expect(expired, 1);
   });
 
+  testWidgets('first inactive garage mount performs no authenticated GET until explicit refresh', (
+    tester,
+  ) async {
+    final api = VehicleFixture();
+    addTearDown(api.close);
+    addTearDown(() => tester.binding.handleAppLifecycleStateChanged(
+      AppLifecycleState.resumed,
+    ));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpWidget(MaterialApp(
+      home: ReservationVehiclePicker(
+        api: api,
+        connector: 'Type2',
+        onExpired: () {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(api.queries, isEmpty);
+    expect(find.text('My EV'), findsNothing);
+    expect(find.text('Garage hidden. Refresh to reload.'), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.queries, isEmpty);
+    await tester.tap(find.text('Refresh garage'));
+    await tester.pumpAndSettle();
+    expect(api.queries, hasLength(1));
+    expect(find.text('My EV'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('old vehicle selection and garage actions cannot apply after a new API identity', (
+    tester,
+  ) async {
+    final first = VehicleFixture(), second = VehicleFixture();
+    addTearDown(first.close);
+    addTearDown(second.close);
+    Widget screen(VehicleFixture api) => MaterialApp(
+      home: ReservationVehiclePicker(
+        api: api,
+        connector: 'Type2',
+        onExpired: () {},
+      ),
+    );
+    await tester.pumpWidget(screen(first));
+    await tester.pumpAndSettle();
+    final formerSelect = tester.widget<ListTile>(
+      find.widgetWithText(ListTile, 'My EV'),
+    ).onTap!;
+    final formerOpenGarage = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, 'Open garage'),
+    ).onPressed!;
+    final formerUnassigned = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, 'Continue without a vehicle'),
+    ).onPressed!;
+    final formerMore = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, 'More vehicles'),
+    ).onPressed!;
+    await tester.pumpWidget(screen(second));
+    await tester.pumpAndSettle();
+    formerSelect();
+    formerOpenGarage();
+    formerUnassigned();
+    formerMore();
+    await tester.pumpAndSettle();
+    expect(second.queries, hasLength(1),
+        reason: "Old pagination must not re-read the new customer's garage");
+    expect(find.text('My EV'), findsOneWidget);
+    expect(find.text('Continue without a vehicle'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('backgrounded private garage rejects retained selection and delayed GET', (
+    tester,
+  ) async {
+    final api = ScopedVehicleFixture();
+    addTearDown(api.close);
+    addTearDown(() => tester.binding.handleAppLifecycleStateChanged(
+      AppLifecycleState.resumed,
+    ));
+    await tester.pumpWidget(MaterialApp(
+      home: ReservationVehiclePicker(
+        api: api,
+        connector: 'Type2',
+        onExpired: () {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+    final oldSelect = tester.widget<ListTile>(
+      find.widgetWithText(ListTile, 'My EV'),
+    ).onTap!;
+    final oldMore = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, 'More vehicles'),
+    ).onPressed!;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    oldSelect();
+    oldMore();
+    await tester.pumpAndSettle();
+    expect(api.queries, hasLength(1));
+    expect(find.text('My EV'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
 }

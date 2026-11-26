@@ -37,3 +37,64 @@ A bounded GET-only worker is available as `commercial:reconcile-disputes --provi
 The actual-Laravel `tests/external-disputes.cjs` browser uses a strictly local/testing SQLite synthetic fixture. Provider responses are faked only during CLI ingestion, never through a server bypass. It checks customer/vendor/admin history, foreign404, masked identities, evidence-control authorization, EN/AR RTL, eight light/dark390/768/1440 screenshots and logout cleanup. `tests/external-disputes-ui.cjs` separately simulates APIs to check literal evidence text, error handling, stable same-key retry across inspection, lazy reads and private draft cleanup. These browser component contracts are not provider acceptance.
 
 Remaining: external alert delivery; full subscription-payment dispute coverage (this adapter currently binds charging checkouts only); file evidence uploads; canonical chargeback/fee/reversal economic allocation and operational resolution; provider merchant sandbox/callback delivery and commercial/legal acceptance. Never mark these complete because contract fakes pass.
+
+
+## Revocation fence before durable evidence submission (Agent 3, 23 November 2026)
+
+For authenticated Admin evidence and stored retry requests, the controller passes
+the *same* current Admin credential snapshot into the canonical dispute service.
+The authoritative Stripe TEST GET deliberately runs outside database transactions.
+Immediately after that provider inspection, and before an evidence-operation row or
+retry lease is created under the dispute lock, the service locks and rechecks the
+persisted account role, active status, authentication epoch, and password hash.
+An Admin revoked during provider I/O receives HTTP 409 and the operation does not
+dispatch a new evidence POST. Account locking precedes dispute locking to preserve
+a consistent lock order. The existing exact-payload/lease/idempotency policy,
+immutable payment ledger, and non-production payment isolation remain unchanged.
+
+Two targeted Laravel regressions simulate Admin epoch and role changes during
+provider inspection for a new submission and an uncertain stored retry. They
+assert no new external POST, no unauthorized evidence reservation/lease change,
+and no finance refund. This protects the pre-dispatch authorization boundary;
+it does not claim physical concurrency acceptance, or imply revocation can undo
+a provider request already lawfully dispatched before the credential changed.
+The full original external-dispute/document/PSP requirements remain unfinished;
+do not award atom credit from this isolated hardening alone.
+
+
+## Live-Admin authority for provider dispute inspection (Agent 3 hardening)
+
+The controller's interactive `POST /commercial/external-disputes/{id}/reconcile`
+passes the original authenticated Admin snapshot into the service.
+`ExternalDisputes::apply` checks the **persisted account row** under the same
+transaction that locks the canonical invoice and may change the provider case
+or settlement hold. The check runs **after both Stripe TEST GET calls**, so
+Admin suspension, role removal, auth-epoch revocation or password rotation
+during provider IO cannot release a dispute hold or create notifications.
+
+The evidence create/retry paths also bind the same original Admin snapshot
+through the preliminary dispute reconciliation before reserving any evidence
+operation. A second check protects recovered evidence and provider-observation
+writes. All provider HTTP remains outside DB transactions and account-first
+lock ordering is retained.
+
+The signed provider webhook and explicit TEST-only CLI scan intentionally use
+the existing **noninteractive** trusted service path; neither is given an
+invented Admin user. Regressions revoke the interactive Admin after the
+dispute GET and after the separate charge GET, then assert a 409 with
+the original finance hold, case, invoice journals, events and notifications
+untouched. No live provider access, automatic chargeback allocation or original
+requirement completion is claimed; exact-head CI and Agent 5 integration
+are required.
+
+
+### Bounded Admin deadline-queue paging
+
+The read-only authenticated deadline review also requires an exact
+`page=1..10000` and `per_page=1..25`; invalid, negative or nonnumeric
+pages return 422 rather than falling back to a different private page.
+Empty high-numbered pages expose no dispute rows but retain accurate
+total and the requested page number. Deadline priority and ADMIN-only
+tenant/amount suppression are unchanged; this never polls the PSP or
+submits evidence. Added regression cases assert no new financial postings
+or provider actions.

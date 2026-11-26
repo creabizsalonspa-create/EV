@@ -10,11 +10,11 @@ import 'package:creabiz_ev/partner_report_map.dart';
 import 'test_support.dart';
 
 Map<String,dynamic> catalogRow()=>{'key':'catalog:7','kind':'catalog','station':{'id':7,'name':'Synthetic catalog','connector_type':'CCS2','power_kw':50,'evidence':'SIMULATED','reservable':false}};
-Map<String,dynamic> partnerRow()=>{'key':'partner:7','kind':'partner','record_id':7,'provider_label':'Synthetic operator','location':{'name':'Synthetic partner','address':'<img src=x>','country':'ARE'},'evidence':'PARTNER_REPORTED_UNVERIFIED','availability':'unknown','reservable':false,'remote_control':false};
+Map<String,dynamic> partnerRow()=>{'key':'partner:7','kind':'partner','record_id':7,'provider_label':'Synthetic operator','location':{'name':'Synthetic partner','address':'<img src=x>','country':'ARE','availability':'unknown','remote_control':false,'reservable':false},'evidence':'PARTNER_REPORTED_UNVERIFIED','availability':'unknown','reservable':false,'remote_control':false};
 class UnifiedApi extends FixtureApi {
   Completer<dynamic>? pending;
   bool invalid=false;
-  bool mapFixtures=false;
+  bool mapFixtures=false, forgedMapAuthority=false, duplicateIdentity=false;
   int epoch=0;
   @override
   bool Function() sessionFence(){final capture=epoch;return()=>capture==epoch;}
@@ -23,10 +23,11 @@ class UnifiedApi extends FixtureApi {
     calls.add('$method $path');queries.add(query);
     if(pending!=null)return pending!.future;
     return {'data':int.parse(query['page']!)==1?[
-      if(mapFixtures) {...catalogRow(),'station':{...Map<String,dynamic>.from(catalogRow()['station'] as Map),'latitude':25.2,'longitude':55.3}}
+      if(mapFixtures) {...catalogRow(),'station':{...Map<String,dynamic>.from(catalogRow()['station'] as Map),'latitude':25.2,'longitude':55.3,if(forgedMapAuthority)'evidence':'LIVE_VERIFIED'}}
       else catalogRow(),
-      if(mapFixtures) {...partnerRow(),'location':{...Map<String,dynamic>.from(partnerRow()['location'] as Map),'latitude':'25.25','longitude':'55.35'}}
+      if(mapFixtures) {...partnerRow(),if(forgedMapAuthority)'evidence':'LIVE_PROVIDER_VERIFIED','location':{...Map<String,dynamic>.from(partnerRow()['location'] as Map),'latitude':'25.25','longitude':'55.35'}}
       else {...partnerRow(),if(invalid)'reservable':true},
+      if(duplicateIdentity) catalogRow(),
     ]:[partnerRow()],'current_page':int.parse(query['page']!),'last_page':2,'total':3};
   }
 }
@@ -96,8 +97,78 @@ class IncompleteMetadataApi extends UnifiedApi {
     return raw;
   }
 }
+class ForgedPublishedApi extends UnifiedApi {
+  final Map<String, dynamic> stationPatch;
+  ForgedPublishedApi(this.stationPatch);
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    final response = Map<String, dynamic>.from(
+      await super.request(path, method: method, body: body, query: query) as Map,
+    );
+    final records = [
+      for (final raw in response['data'] as List)
+        Map<String, dynamic>.from(raw as Map),
+    ];
+    if (records.isNotEmpty && records.first['kind'] == 'catalog') {
+      records[0] = {
+        ...records.first,
+        'station': {
+          ...Map<String, dynamic>.from(records.first['station'] as Map),
+          'latitude': 25.2,
+          'longitude': 55.3,
+          ...stationPatch,
+        },
+      };
+    }
+    response['data'] = records;
+    return response;
+  }
+}
+
 void roomy(WidgetTester tester){tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);}
 void main(){
+
+  for (final ar in [false, true]) {
+    testWidgets('unverified union source cannot grant a map pin or saved-place action ($ar)', (tester) async {
+      roomy(tester);
+      final api=UnifiedApi()..mapFixtures=true..forgedMapAuthority=true;
+      addTearDown(api.close);
+      await tester.pumpWidget(app(api, (_)=>fail('Unverified booking'), ar:ar, customer:true));
+      await tester.ensureVisible(find.byType(FilledButton));
+      await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+      expect(find.text('Synthetic catalog'),findsOneWidget);
+      expect(find.text('Synthetic partner'),findsOneWidget);
+      expect(find.byKey(const ValueKey('unified-favorite-catalog:7')), findsNothing);
+      expect(find.byKey(const ValueKey('unified-favorite-partner:7')), findsNothing);
+      final open=find.byKey(const Key('unified-map-open'));
+      await tester.ensureVisible(open);await tester.tap(open);await tester.pumpAndSettle();
+      final map=tester.widget<PartnerReportMap>(find.byType(PartnerReportMap));
+      expect(map.points,isEmpty,reason:'No falsified live or provider location may produce a pin');
+      expect(api.calls,['GET discovery/search']);
+      expect(tester.takeException(),isNull);
+    });
+
+    testWidgets('duplicate typed source identity rejects entire native page ($ar)', (tester) async {
+      roomy(tester);
+      final api=UnifiedApi()..duplicateIdentity=true;
+      addTearDown(api.close);
+      await tester.pumpWidget(app(api, (_)=>fail('Untrusted map/booking'), ar:ar, customer:true));
+      await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+      expect(find.text('Synthetic catalog'),findsNothing);
+      expect(find.text('Synthetic partner'),findsNothing);
+      expect(find.text(ar?'تعذر البحث. أعد المحاولة صراحةً.':'Search failed. Retry explicitly.'),findsOneWidget);
+      expect(find.byKey(const ValueKey('unified-favorite-partner:7')),findsNothing);
+      expect(api.calls,['GET discovery/search']);
+      expect(tester.takeException(),isNull);
+    });
+  }
+
  testWidgets('same API object changing account epoch hides all previous native search data and private drafts',(tester)async{
    roomy(tester);
    final api=UnifiedApi(),next=UnifiedApi();
@@ -494,6 +565,62 @@ void main(){
    await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
    expect(api.queries.last['saved_only'],'0');
    expect(api.queries.last['q'],'');
+ });
+
+
+ for (final adversarial in <({String label, Map<String, dynamic> station})>[
+   (label: 'discovery-only claims reservable', station: {
+     'evidence': 'DISCOVERY_ONLY', 'reservable': true,
+   }),
+   (label: 'server returns text distance', station: {
+     'distance_km': '5.2',
+   }),
+   (label: 'server returns invalid timezone', station: {
+     'timezone': <String, dynamic>{'unexpected': 'zone'},
+   }),
+   (label: 'negative station distance', station: {
+     'distance_km': -1,
+   }),
+ ]) {
+   for (final ar in [false, true]) {
+     testWidgets('malformed optional catalog metadata remains read-only: ${adversarial.label} / $ar', (tester) async {
+       roomy(tester);
+       final api = ForgedPublishedApi(adversarial.station);
+       addTearDown(api.close);
+       await tester.pumpWidget(app(
+         api, (_) => fail('Forged catalog must never open station actions'),
+         customer: true, ar: ar,
+       ));
+       await tester.tap(find.byType(FilledButton));
+       await tester.pumpAndSettle();
+       expect(find.text('Synthetic catalog'), findsOneWidget);
+       expect(find.textContaining(ar ? 'غير مكتملة' : 'details incomplete'), findsOneWidget);
+       expect(find.byKey(const ValueKey('unified-favorite-catalog:7')), findsNothing);
+       expect(find.text(ar ? 'عرض المحطة وخيارات الحجز' : 'View station and booking options'), findsNothing);
+       expect(find.text('Synthetic partner'), findsOneWidget);
+       expect(tester.takeException(), isNull);
+     });
+   }
+ }
+
+ testWidgets('contradictory discovery-only reservation never creates a native map pin', (tester) async {
+   roomy(tester);
+   final api = ForgedPublishedApi({
+     'evidence': 'DISCOVERY_ONLY',
+     'reservable': true,
+   });
+   addTearDown(api.close);
+   await tester.pumpWidget(app(api, (_) => fail('No booking')));
+   await tester.tap(find.byType(FilledButton));
+   await tester.pumpAndSettle();
+   final open = find.byKey(const Key('unified-map-open'));
+   await tester.ensureVisible(open);
+   await tester.tap(open);
+   await tester.pumpAndSettle();
+   final map = tester.widget<PartnerReportMap>(find.byType(PartnerReportMap));
+   expect(map.points, isEmpty);
+   expect(api.calls.length, 1);
+   expect(tester.takeException(), isNull);
  });
 
  testWidgets('unrecognized live evidence with otherwise complete station metadata grants no native booking',(tester)async{

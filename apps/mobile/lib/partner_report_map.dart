@@ -72,7 +72,12 @@ class PartnerMapPoint {
 
   /// A platform pin retains its own provenance; it is never relabeled as a partner.
   static PartnerMapPoint? fromPublishedCatalog(Map<String,dynamic> row) {
-    if (row['name'] is! String || row['id'] is! int || (row['id'] as int) < 1 || !['SIMULATED','DISCOVERY_ONLY'].contains(row['evidence'])) return null;
+    if (row['name'] is! String || row['id'] is! int ||
+        (row['id'] as int) < 1 ||
+        !['SIMULATED', 'DISCOVERY_ONLY'].contains(row['evidence']) ||
+        // Discovery-only location evidence cannot assert booking rights.
+        (row['evidence'] == 'DISCOVERY_ONLY' &&
+         row['reservable'] == true)) return null;
     final point = fromPublishedLocation(row);
     if (point == null) return null;
     return PartnerMapPoint(latitude:point.latitude,longitude:point.longitude,name:point.name,platformCatalog:true,catalogEvidence:row['evidence'] as String);
@@ -670,9 +675,10 @@ class _PartnerReportMapState extends State<PartnerReportMap>
                             label: clustered
                                 ? t('${group.length} separate published locations, availability unverified',
                                     '${group.length} مواقع منشورة منفصلة، التوفر غير مؤكد')
-                                : point.name + (point.platformCatalog
-                                    ? ' — platform catalog, availability unverified'
-                                    : ' — unverified partner report'),
+                                : t(
+                                    '${point.name} — ${point.platformCatalog ? 'platform catalog, availability unverified' : 'unverified partner report'}',
+                                    '${point.name} — ${point.platformCatalog ? 'كتالوج المنصة، التوفر غير مؤكد' : 'تقرير شريك غير مؤكد'}',
+                                  ),
                             button: true,
                             child: IconButton(
                               key: ValueKey(clustered

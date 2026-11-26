@@ -43,7 +43,10 @@ void main() {
   testWidgets('old account denial cannot reveal prices or sign out a newer account',(tester) async {
     final api=CostApi()..pending=Completer<dynamic>();var expired=0;addTearDown(api.close);await tester.pumpWidget(app(api,onExpired:()=>expired++));await tester.pump();api.epoch++;
     api.pending!.completeError(const ApiException(401,'old session'));await tester.pumpAndSettle();expect(expired,0);expect(find.textContaining('KWD 0.396'),findsNothing);
-    await tester.tap(find.text('Refresh'));await tester.pumpAndSettle();expect(api.reads,1);
+    // Revoked credentials must hide stale controls, not offer a refresh
+    // capable of reading the replacement account from an old widget.
+    expect(find.text('Refresh'), findsNothing);
+    expect(api.reads, 1);
   });
   testWidgets('a stop confirmation opened before background cannot send an old command',(tester) async {
     final api=CostApi();addTearDown(api.close);await tester.pumpWidget(app(api));await tester.pumpAndSettle();

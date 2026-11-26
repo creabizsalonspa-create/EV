@@ -103,13 +103,15 @@ class LoyaltyView extends StatefulWidget {
   State<LoyaltyView> createState() => _LoyaltyState();
 }
 
-class _LoyaltyState extends State<LoyaltyView> {
+class _LoyaltyState extends State<LoyaltyView>
+    with WidgetsBindingObserver {
   String section = 'account';
-  bool busy = false;
+  bool busy = false, foreground = true;
+  late bool Function() authorized;
   Object? error;
   Map<String, dynamic>? account;
   ApiPage<Map<String, dynamic>>? page;
-  int generation = 0, target = 1;
+  int generation = 0, target = 1, formEpoch = 0;
   String t(String key) => loyaltyText(context, key);
   String n(int value) => NumberFormat.decimalPattern(
     Localizations.localeOf(context).languageCode,
@@ -117,14 +119,66 @@ class _LoyaltyState extends State<LoyaltyView> {
   @override
   void initState() {
     super.initState();
-    load();
+    authorized = widget.api.sessionFence();
+    final state = WidgetsBinding.instance.lifecycleState;
+    foreground = state == null || state == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    if (foreground) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant LoyaltyView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        !identical(oldWidget.couponStore, widget.couponStore) ||
+        !authorized()) {
+      generation++;
+      authorized = widget.api.sessionFence();
+      account = null;
+      page = null;
+      error = null;
+      busy = false;
+      section = 'account';
+      target = 1;
+      formEpoch++;
+      final api = widget.api;
+      final current = authorized;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && foreground && identical(api, widget.api) &&
+            identical(current, authorized) && current()) load();
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == foreground) return;
+    foreground = resumed;
+    if (!resumed) {
+      generation++;
+      setState(() {
+        account = null;
+        page = null;
+        error = null;
+        busy = false;
+      });
+    } else {
+      // Private points require a fresh, explicit refresh.
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
+
+  bool scoped(EvApi api, bool Function() fence) =>
+      mounted && foreground && identical(api, widget.api) &&
+      identical(fence, authorized) && fence();
 
   int integer(Map<String, dynamic> row, String key, {bool negative = false}) {
     final value = row[key];
@@ -179,7 +233,13 @@ class _LoyaltyState extends State<LoyaltyView> {
   }
 
   Future<void> load({int number = 1}) async {
+    final api = widget.api;
+    final fence = authorized;
+    if (!scoped(api, fence)) return;
+    final selected = section;
     final epoch = ++generation;
+    bool current() => epoch == generation && scoped(api, fence) &&
+        section == selected;
     target = number;
     setState(() {
       busy = true;
@@ -188,12 +248,12 @@ class _LoyaltyState extends State<LoyaltyView> {
       page = null;
     });
     try {
-      final result = await widget.api.request(
-        'commercial/loyalty/$section',
-        query: section == 'account' ? const {} : {'page': '$number'},
+      final result = await api.request(
+        'commercial/loyalty/$selected',
+        query: selected == 'account' ? const {} : {'page': '$number'},
       );
-      if (!mounted || epoch != generation) return;
-      if (section == 'account') {
+      if (!current()) return;
+      if (selected == 'account') {
         final row = Map<String, dynamic>.from(result as Map);
         checkAccount(row);
         account = row;
@@ -205,7 +265,7 @@ class _LoyaltyState extends State<LoyaltyView> {
         page = parsed;
       }
     } catch (e) {
-      if (!mounted || epoch != generation) return;
+      if (!current()) return;
       error = e;
       account = null;
       page = null;
@@ -213,7 +273,7 @@ class _LoyaltyState extends State<LoyaltyView> {
         widget.onExpired();
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current()) setState(() => busy = false);
     }
   }
 
@@ -253,21 +313,26 @@ class _LoyaltyState extends State<LoyaltyView> {
     ),
   );
   Future<void> action(String kind, {int? reward}) async {
+    final api = widget.api;
+    final fence = authorized;
+    if (!scoped(api, fence)) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => LoyaltyActionView(
-          api: widget.api,
+          api: api,
           onExpired: widget.onExpired,
           action: kind,
           reward: reward,
         ),
       ),
     );
-    if (mounted) await load(number: target);
+    if (scoped(api, fence)) await load(number: target);
   }
 
   Widget record(Map<String, dynamic> row) {
     final ar = Localizations.localeOf(context).languageCode == 'ar';
+    final api = widget.api;
+    final fence = authorized;
     if (section == 'rewards')
       return Card(
         child: Padding(
@@ -283,7 +348,11 @@ class _LoyaltyState extends State<LoyaltyView> {
               OutlinedButton(
                 onPressed: busy
                     ? null
-                    : () => action('redeem', reward: row['id'] as int),
+                    : () {
+                        if (scoped(api, fence)) {
+                          action('redeem', reward: row['id'] as int);
+                        }
+                      },
                 child: Text(loyaltyActionText(context, 'redeem')),
               ),
               Text(
@@ -309,34 +378,45 @@ class _LoyaltyState extends State<LoyaltyView> {
         title: Text('#${n(row['id'] as int)} · ${status(row['status'])}'),
         subtitle: Text('${t('cost')}: ${n(row['points_cost'] as int)}'),
         trailing: const Icon(Icons.chevron_right),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => LoyaltyRequestView(
-              api: widget.api,
-              id: row['id'] as int,
-              onExpired: widget.onExpired,
+        onTap: () {
+          if (!scoped(api, fence)) return;
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => LoyaltyRequestView(
+                api: api,
+                id: row['id'] as int,
+                onExpired: widget.onExpired,
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    if (!foreground || !authorized()) return const Scaffold();
+    final api = widget.api;
+    final fence = authorized;
+    bool same() => scoped(api, fence);
+    return Scaffold(
     appBar: AppBar(
       title: Text(t('title')),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => _CouponView(
-                api: widget.api,
-                onExpired: widget.onExpired,
-                store: widget.couponStore,
+          onPressed: () {
+            if (!same()) return;
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => _CouponView(
+                  api: api,
+                  onExpired: widget.onExpired,
+                  store: widget.couponStore,
+                ),
               ),
-            ),
-          ),
+            );
+          },
           child: Text(
             Localizations.localeOf(context).languageCode == 'ar'
                 ? 'القسائم'
@@ -351,6 +431,7 @@ class _LoyaltyState extends State<LoyaltyView> {
         Text(t('notice')),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
+          key: ValueKey('loyalty-section-$formEpoch'),
           initialValue: section,
           isExpanded: true,
           items: [
@@ -360,7 +441,7 @@ class _LoyaltyState extends State<LoyaltyView> {
           onChanged: busy
               ? null
               : (value) {
-                  if (value != null) {
+                  if (value != null && same()) {
                     section = value;
                     load();
                   }
@@ -374,13 +455,17 @@ class _LoyaltyState extends State<LoyaltyView> {
             children: [
               for (final kind in ['earn', 'reconcile'])
                 OutlinedButton(
-                  onPressed: busy ? null : () => action(kind),
+                  onPressed: busy ? null : () {
+                     if (same()) action(kind);
+                   },
                   child: Text(loyaltyActionText(context, kind)),
                 ),
             ],
           ),
         OutlinedButton.icon(
-          onPressed: busy ? null : () => load(number: target),
+          onPressed: busy ? null : () {
+             if (same()) load(number: target);
+           },
           icon: const Icon(Icons.refresh),
           label: Text(t('refresh')),
         ),
@@ -398,7 +483,7 @@ class _LoyaltyState extends State<LoyaltyView> {
               OutlinedButton(
                 onPressed: busy || page!.current <= 1
                     ? null
-                    : () => load(number: page!.current - 1),
+                    : () { if (same()) load(number: page!.current - 1); },
                 child: Text(t('previous')),
               ),
               Text(
@@ -407,7 +492,7 @@ class _LoyaltyState extends State<LoyaltyView> {
               OutlinedButton(
                 onPressed: busy || page!.current >= page!.last
                     ? null
-                    : () => load(number: page!.current + 1),
+                    : () { if (same()) load(number: page!.current + 1); },
                 child: Text(t('next')),
               ),
             ],
@@ -416,6 +501,7 @@ class _LoyaltyState extends State<LoyaltyView> {
       ],
     ),
   );
+  }
 }
 
 class LoyaltyRequestView extends StatefulWidget {
@@ -432,25 +518,79 @@ class LoyaltyRequestView extends StatefulWidget {
   State<LoyaltyRequestView> createState() => _LoyaltyRequestState();
 }
 
-class _LoyaltyRequestState extends State<LoyaltyRequestView> {
+class _LoyaltyRequestState extends State<LoyaltyRequestView>
+    with WidgetsBindingObserver {
   Map<String, dynamic>? value;
   Object? error;
-  bool busy = false;
+  bool busy = false, foreground = true;
+  late bool Function() authorized;
   int generation = 0;
   @override
   void initState() {
     super.initState();
-    load();
+    authorized = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    if (foreground) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant LoyaltyRequestView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        oldWidget.id != widget.id || !authorized()) {
+      generation++;
+      authorized = widget.api.sessionFence();
+      value = null;
+      error = null;
+      busy = false;
+      final api = widget.api;
+      final fence = authorized;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && foreground && identical(api, widget.api) &&
+            identical(fence, authorized) && fence()) load();
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == foreground) return;
+    foreground = resumed;
+    if (!resumed) {
+      generation++;
+      setState(() {
+        value = null;
+        error = null;
+        busy = false;
+      });
+    } else {
+      // No implicit reuse of a previously downloaded private reward receipt.
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
+  bool scoped(EvApi api, bool Function() fence) =>
+      mounted && foreground && identical(widget.api, api) &&
+      identical(authorized, fence) && fence();
+
   Future<void> load() async {
+    final api = widget.api;
+    final fence = authorized;
+    if (!scoped(api, fence)) return;
+    final id = widget.id;
     final epoch = ++generation;
+    bool current() => generation == epoch && scoped(api, fence) &&
+        widget.id == id;
     setState(() {
       busy = true;
       value = null;
@@ -458,38 +598,43 @@ class _LoyaltyRequestState extends State<LoyaltyRequestView> {
     });
     try {
       final result = Map<String, dynamic>.from(
-        await widget.api.request('commercial/loyalty/redemptions/${widget.id}')
-            as Map,
+        await api.request('commercial/loyalty/redemptions/$id') as Map,
       );
+      if (!current()) return;
       final redemption = result['redemption'];
       final reward = result['reward'];
       final events = result['events'];
       if (redemption is! Map ||
-          redemption['id'] != widget.id ||
+          redemption['id'] != id ||
           redemption['points_cost'] is! int ||
           reward is! Map ||
           events is! List ||
           events.any(
             (e) =>
                 e is! Map || e['action'] is! String || e['reason'] is! String,
-          ))
+          )) {
         throw const FormatException('Invalid reward history.');
-      if (mounted && epoch == generation) setState(() => value = result);
+      }
+      if (current()) setState(() => value = result);
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (current()) {
         setState(() => error = e);
-        if (e is ApiException && [401, 419].contains(e.status))
+        if (e is ApiException && [401, 419].contains(e.status)) {
           widget.onExpired();
+        }
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current()) setState(() => busy = false);
     }
   }
 
   @override
   Widget build(BuildContext c) {
+    if (!foreground || !authorized()) return const Scaffold();
     final t = (String key) => loyaltyText(c, key);
     final ar = Localizations.localeOf(c).languageCode == 'ar';
+    final api = widget.api;
+    final fence = authorized;
     return Scaffold(
       appBar: AppBar(title: Text(t('detail'))),
       body: ListView(
@@ -497,7 +642,9 @@ class _LoyaltyRequestState extends State<LoyaltyRequestView> {
         children: [
           Text(t('notice')),
           OutlinedButton(
-            onPressed: busy ? null : load,
+            onPressed: busy ? null : () {
+              if (scoped(api, fence)) load();
+            },
             child: Text(t('refresh')),
           ),
           if (busy) const Center(child: CircularProgressIndicator()),
@@ -545,7 +692,7 @@ class _CouponView extends StatefulWidget {
 
 class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
   final code = TextEditingController();
-  late final bool Function() ownsSession;
+  late bool Function() ownsSession;
   FinancialOperation? operation;
   int? owner;
   Map<String, dynamic>? get pending => operation?.pending;
@@ -559,7 +706,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
   int page = 1;
   int last = 1;
   int generation = 0;
-  bool busy = false;
+  bool busy = false, foreground = true;
   NoncashCapabilities? capability;
   String? message;
 
@@ -570,14 +717,45 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     ownsSession = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    loadCapability();
+    if (foreground) loadCapability();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CouponView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api) ||
+        !identical(oldWidget.store, widget.store) ||
+        !ownsSession()) {
+      generation++;
+      ownsSession = widget.api.sessionFence();
+      operation = null;
+      owner = null;
+      capability = null;
+      message = null;
+      code.clear();
+      clearRecords();
+      busy = false;
+      final api = widget.api;
+      final bound = ownsSession;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && foreground && identical(api, widget.api) &&
+            identical(bound, ownsSession) && bound()) {
+          loadCapability();
+        }
+      });
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      loadCapability();
+    final resumed = state == AppLifecycleState.resumed;
+    if (foreground == resumed) return;
+    foreground = resumed;
+    if (resumed) {
+      if (ownsSession()) loadCapability();
       return;
     }
     setState(() {
@@ -599,39 +777,45 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  bool scoped(EvApi api, bool Function() fence) =>
+      mounted && foreground && identical(widget.api, api) &&
+      identical(ownsSession, fence) && fence();
+
   Future<void> loadCapability() async {
-    if (!ownsSession()) return;
+    final api = widget.api;
+    final fence = ownsSession;
+    if (!scoped(api, fence)) return;
     final epoch = ++generation;
+    bool current() => generation == epoch && scoped(api, fence);
     setState(() => busy = true);
     try {
-      final me = await widget.api.request('me');
-      if (!mounted || generation != epoch || !ownsSession()) return;
+      final me = await api.request('me');
+      if (!current()) return;
       if (me['id'] is! int || me['role'] != 'customer') {
         throw const FormatException('Invalid coupon account');
       }
       final op = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
-        '${widget.api.base.origin}:${me['id']}:loyalty:coupon',
-        isCurrent: () => mounted && ownsSession(),
+        '${api.base.origin}:${me['id']}:loyalty:coupon',
+        isCurrent: () => scoped(api, fence),
       );
       await op.restore();
-      if (!mounted || generation != epoch || !ownsSession()) return;
+      if (!current()) return;
       setState(() {
         operation = op;
         owner = me['id'] as int;
       });
-      final value = await widget.api.request('commercial/noncash/status');
-      if (!mounted || generation != epoch || !ownsSession()) return;
+      final value = await api.request('commercial/noncash/status');
+      if (!current()) return;
       setState(() => capability = NoncashCapabilities.parse(value));
     } catch (error) {
-      if (mounted &&
-          generation == epoch &&
+      if (current() &&
           error is ApiException &&
           error.endsCurrentSession) {
         widget.onExpired();
       }
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (current()) setState(() => busy = false);
     }
   }
 
@@ -674,8 +858,10 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
   Future<void> run(String action, {int number = 1, int? coupon}) async {
     final op = operation;
     final ownerId = owner;
+    final api = widget.api;
+    final fence = ownsSession;
     if (busy ||
-        !ownsSession() ||
+        !scoped(api, fence) ||
         op == null ||
         ownerId == null ||
         (action == 'claim' && capability?.enabled != true))
@@ -713,15 +899,16 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
     final read = action == 'claims' || action == 'eligible';
     final endpoint = coupon == null ? action : 'eligible/$coupon/claim';
     final epoch = ++generation;
+    bool current() => generation == epoch && scoped(api, fence);
     setState(() {
       busy = true;
       message = null;
     });
     try {
       final staged = intent == null ? null : await op.prepare(intent);
-      if (!mounted || epoch != generation || !ownsSession()) return;
+      if (!current()) return;
       final key = staged?['idempotency_key'] ?? pending?['key'];
-      final result = await widget.api.request(
+      final result = await api.request(
         'commercial/coupons/$endpoint',
         method: read ? 'GET' : 'POST',
         query: read ? {'page': '$number'} : const {},
@@ -732,7 +919,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
                 if (action == 'claim' && coupon == null) 'code': entered,
               },
       );
-      if (!mounted || epoch != generation || !ownsSession()) return;
+      if (!current()) return;
       if (action == 'eligible') {
         final parsed = ApiPage.fromJson(result, offer);
         setState(() {
@@ -765,7 +952,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           }
         }
         await op.confirmed();
-        if (!mounted || epoch != generation || !ownsSession()) return;
+        if (!current()) return;
         setState(() {
           clearRecords();
           receipts = [row];
@@ -782,7 +969,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
         throw const FormatException('Missing coupon receipt');
       }
     } catch (error) {
-      if (!mounted || epoch != generation) return;
+      if (!current()) return;
       if (error is ApiException && error.endsCurrentSession) {
         setState(() {
           operation = null;
@@ -792,7 +979,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           message = null;
         });
         widget.onExpired();
-      } else if (ownsSession()) {
+      } else if (current()) {
         setState(() {
           if (read) {
             clearRecords();
@@ -816,20 +1003,23 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
         });
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current()) setState(() => busy = false);
     }
   }
 
   Future<void> clearDraft() async {
     final op = operation;
-    if (op == null || busy || !ownsSession()) return;
+    final api = widget.api;
+    final fence = ownsSession;
+    if (op == null || busy || !scoped(api, fence)) return;
     final epoch = ++generation;
+    bool current() => generation == epoch && scoped(api, fence);
     setState(() => busy = true);
     try {
       await op.confirmed();
-      if (mounted && epoch == generation && ownsSession()) code.clear();
+      if (current()) code.clear();
     } catch (_) {
-      if (mounted && epoch == generation && ownsSession()) {
+      if (current()) {
         setState(
           () => message = label(
             'Could not clear coupon draft.',
@@ -838,12 +1028,20 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
         );
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current()) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    if (!foreground || !ownsSession()) return const Scaffold();
+    final api = widget.api;
+    final fence = ownsSession;
+    bool same() => scoped(api, fence);
+    void guardedRun(String action, {int number = 1, int? coupon}) {
+      if (same()) run(action, number: number, coupon: coupon);
+    }
+    return Scaffold(
     appBar: AppBar(title: Text(label('Reward coupons', 'قسائم المكافآت'))),
     body: ListView(
       padding: const EdgeInsets.all(16),
@@ -863,7 +1061,9 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           ),
         if (capability == null && !busy)
           TextButton(
-            onPressed: loadCapability,
+            onPressed: () {
+              if (same()) loadCapability();
+            },
             child: Text(
               label(
                 'Retry coupon availability',
@@ -886,27 +1086,29 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           onPressed:
               busy || capability?.enabled != true || draft?['coupon'] != null
               ? null
-              : () => run('claim'),
+              : () => guardedRun('claim'),
           child: Text(label('Claim coupon', 'المطالبة بالقسيمة')),
         ),
         if (pending != null)
           TextButton(
-            onPressed: busy ? null : () => run('claim-receipt'),
+            onPressed: busy ? null : () => guardedRun('claim-receipt'),
             child: Text(
               label('Check last claim receipt', 'التحقق من إيصال المطالبة'),
             ),
           ),
         if (pending != null)
           TextButton(
-            onPressed: busy ? null : clearDraft,
+            onPressed: busy ? null : () {
+              if (same()) clearDraft();
+            },
             child: Text(label('Clear coupon draft', 'مسح مسودة القسيمة')),
           ),
         TextButton(
-          onPressed: busy ? null : () => run('claims'),
+          onPressed: busy ? null : () => guardedRun('claims'),
           child: Text(label('Refresh coupon history', 'تحديث سجل القسائم')),
         ),
         TextButton(
-          onPressed: busy ? null : () => run('eligible'),
+          onPressed: busy ? null : () => guardedRun('eligible'),
           child: Text(label('Browse eligible coupons', 'تصفح القسائم المؤهلة')),
         ),
         if (hasHistory && receipts.isEmpty && !busy)
@@ -926,7 +1128,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
                       offer['id'] is! int ||
                       (pending != null && draft?['coupon'] != offer['id'])
                   ? null
-                  : () => run('claim', coupon: offer['id'] as int),
+                  : () => guardedRun('claim', coupon: offer['id'] as int),
               child: Text(label('Claim', 'مطالبة')),
             ),
           ),
@@ -961,17 +1163,18 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
           TextButton(
             onPressed: busy
                 ? null
-                : () => run(browsing ? 'eligible' : 'claims', number: page - 1),
+                : () => guardedRun(browsing ? 'eligible' : 'claims', number: page - 1),
             child: Text(label('Previous', 'السابق')),
           ),
         if (page < last)
           TextButton(
             onPressed: busy
                 ? null
-                : () => run(browsing ? 'eligible' : 'claims', number: page + 1),
+                : () => guardedRun(browsing ? 'eligible' : 'claims', number: page + 1),
             child: Text(label('Next', 'التالي')),
           ),
       ],
     ),
   );
+  }
 }

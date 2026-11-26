@@ -4,6 +4,8 @@ namespace App\Services\Commercial\Disputes;
 
 use App\Models\Finance\Invoice;
 use App\Models\InboxNotification;
+use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Payments\StripeSandboxProvider;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
@@ -32,14 +34,26 @@ class ExternalDisputes
         return ['duplicate' => false, 'dispute_id' => $record->id];
     }
 
-    public function reconcile(int $id): object
+    public function reconcile(int $id, ?User $actorSnapshot = null): object
     {
+        // Internal signed webhooks and explicitly enabled TEST CLI scans have
+        // no interactive actor. All Admin-initiated inspection paths must
+        // bind the original request snapshot and recheck it after provider IO.
+        if ($actorSnapshot) {
+            abort_unless($actorSnapshot->role === 'admin', 403);
+        }
         $old = DB::table('external_disputes')->find($id);
         abort_unless($old, 404);
         $body = $this->provider->dispute($old->provider_reference);
-        $row = $this->apply($body, 'inspect:'.$id.':'.hash('sha256', json_encode($body)), hash('sha256', json_encode($body)), 'provider.inspect');
-        $this->recoverEvidence($id, $body);
-        DB::table('external_disputes')->where('id', $id)->update(['provider_observed_at' => now(), 'updated_at' => now()]);
+        $row = $this->apply($body, 'inspect:'.$id.':'.hash('sha256', json_encode($body)), hash('sha256', json_encode($body)), 'provider.inspect', $actorSnapshot);
+        DB::transaction(function () use ($id, $body, $actorSnapshot) {
+            if ($actorSnapshot) {
+                app(CurrentFinanceReader::class)->requireSnapshot($actorSnapshot);
+            }
+            $this->recoverEvidence($id, $body);
+            DB::table('external_disputes')->where('id', $id)
+                ->update(['provider_observed_at' => now(), 'updated_at' => now()]);
+        }, 3);
 
         return $row;
     }
@@ -66,7 +80,7 @@ class ExternalDisputes
         return $counts;
     }
 
-    public function apply(array $body, string $event, string $hash, string $type): object
+    public function apply(array $body, string $event, string $hash, string $type, ?User $actorSnapshot = null): object
     {
         abort_unless(($body['livemode'] ?? null) === false && preg_match('/^dp_[A-Za-z0-9]+$/D', $body['id'] ?? '') && preg_match('/^ch_[A-Za-z0-9]+$/D', $body['charge'] ?? '') && preg_match('/^pi_[A-Za-z0-9]+$/D', $body['payment_intent'] ?? ''), 422, 'Invalid provider dispute identity.');
         $status = $body['status'] ?? '';
@@ -76,7 +90,13 @@ class ExternalDisputes
         $checkout = DB::table('gateway_checkouts')->where('provider', 'stripe_test')->where('provider_reference', $body['payment_intent'])->first();
         abort_unless($checkout && $checkout->status === 'captured' && strtoupper($body['currency'] ?? '') === $checkout->currency && strtoupper($charge['currency'] ?? '') === $checkout->currency && (int) ($charge['amount_captured'] ?? -1) === (int) $checkout->amount_minor && is_int($body['amount'] ?? null) && $body['amount'] > 0 && $body['amount'] <= (int) $checkout->amount_minor, 409, 'Dispute amount, currency or captured checkout mismatch.');
 
-        return DB::transaction(function () use ($body, $event, $hash, $type, $status, $checkout) {
+        return DB::transaction(function () use ($body, $event, $hash, $type, $status, $checkout, $actorSnapshot) {
+            // No provider HTTP under locks. The account-first lock ensures
+            // a revoked request cannot alter a case/settlement hold merely
+            // because the provider inspection started while Admin was valid.
+            if ($actorSnapshot) {
+                app(CurrentFinanceReader::class)->requireSnapshot($actorSnapshot);
+            }
             $invoice = Invoice::whereKey($checkout->invoice_id)->lockForUpdate()->firstOrFail();
             if ($prior = DB::table('external_dispute_events')->where('event_reference', $event)->first()) {
                 abort_unless(hash_equals($prior->fingerprint, $hash), 409);
@@ -145,9 +165,10 @@ class ExternalDisputes
         }
     }
 
-    public function evidence(int $id, int $actor, array $evidence, bool $submit, string $key): object
+    public function evidence(int $id, int $actor, array $evidence, bool $submit, string $key, ?User $actorSnapshot = null): object
     {
-        abort_unless(DB::table('users')->where('id', $actor)->where('role', 'admin')->exists(), 403);
+        abort_unless($actorSnapshot instanceof User && $actorSnapshot->id === $actor
+            && $actorSnapshot->role === 'admin', 403, 'A current Admin session is required for provider evidence.');
         abort_unless($evidence !== [] && count(array_diff(array_keys($evidence), ['product_description', 'service_date', 'refund_policy_disclosure', 'refund_refusal_explanation', 'access_activity_log', 'uncategorized_text'])) === 0, 422);
         foreach ($evidence as $value) {
             abort_unless(is_string($value) && strlen($value) > 0 && strlen($value) <= 5000, 422);
@@ -163,8 +184,14 @@ class ExternalDisputes
         }
         // Establish the current provider deadline and recover accepted evidence
         // before deciding whether another request with the SAME key is safe.
-        $this->reconcile($id);
-        $operation = DB::transaction(function () use ($id, $actor, $evidence, $submit, $requestKey, $hash) {
+        $this->reconcile($id, $actorSnapshot);
+        $operation = DB::transaction(function () use ($id, $actor, $evidence, $submit, $requestKey, $hash, $actorSnapshot) {
+            // The provider GET above is intentionally outside the transaction.
+            // Recheck this request's original Admin credential snapshot under a
+            // live account row lock BEFORE reserving an evidence operation.
+            // A revoked Admin must not send provider evidence after the read.
+            $current = app(CurrentFinanceReader::class)->requireSnapshot($actorSnapshot);
+            abort_unless($current->id === $actor && $current->role === 'admin', 403);
             $dispute = DB::table('external_disputes')->where('id', $id)->lockForUpdate()->first();
             abort_unless($dispute, 404);
             $old = DB::table('external_dispute_evidence')->where('request_key', $requestKey)->first();
@@ -189,17 +216,22 @@ class ExternalDisputes
         return $this->sendEvidence($operation);
     }
 
-    public function retryEvidence(int $id, int $operationId, int $actor): object
+    public function retryEvidence(int $id, int $operationId, int $actor, ?User $actorSnapshot = null): object
     {
-        abort_unless(DB::table('users')->where('id', $actor)->where('role', 'admin')->exists(), 403);
+        abort_unless($actorSnapshot instanceof User && $actorSnapshot->id === $actor
+            && $actorSnapshot->role === 'admin', 403, 'A current Admin session is required for provider evidence.');
         $initial = DB::table('external_dispute_evidence')->where('id', $operationId)->where('dispute_id', $id)->first();
         abort_unless($initial, 404);
         if ($initial->status === 'confirmed') {
             return $initial;
         }
         // Explicit retry always inspects the original provider object first.
-        $this->reconcile($id);
-        $operation = DB::transaction(function () use ($id, $operationId, $actor) {
+        $this->reconcile($id, $actorSnapshot);
+        $operation = DB::transaction(function () use ($id, $operationId, $actor, $actorSnapshot) {
+            // Never claim or renew the retry lease on a cached Admin session.
+            // Lock the current actor first, before the financial dispute rows.
+            $current = app(CurrentFinanceReader::class)->requireSnapshot($actorSnapshot);
+            abort_unless($current->id === $actor && $current->role === 'admin', 403);
             $dispute = DB::table('external_disputes')->where('id', $id)->lockForUpdate()->first();
             $operation = DB::table('external_dispute_evidence')->where('id', $operationId)->where('dispute_id', $id)->lockForUpdate()->first();
             abort_unless($dispute && $operation, 404);

@@ -36,6 +36,22 @@ class HeldOpenClient implements HttpClient {
 }
 
 void main() {
+  test('auth source emits exactly one token-free synchronous native invalidation per transition', () async {
+    final api = EvApi(Uri.parse('http://127.0.0.1:9'));
+    final observed = <int>[];
+    final changes = api.sessionEvents.listen(observed.add);
+    expect(observed, isEmpty);
+    final current = api.sessionFence();
+    await api.forgetSession();
+    expect(current(), false);
+    expect(observed, [1]);
+    final second = api.sessionFence();
+    api.close();
+    expect(second(), false);
+    expect(observed, [1, 2]);
+    await changes.cancel();
+  });
+
   for (final multipart in [false, true]) {
     test(
       'session change while opening transport aborts before credentials or ${multipart ? 'multipart' : 'JSON'} body attach',

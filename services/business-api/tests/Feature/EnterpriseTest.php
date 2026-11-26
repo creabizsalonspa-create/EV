@@ -77,6 +77,53 @@ class EnterpriseTest extends TestCase
             ->assertJsonPath('data.0.id', $fleetIds[25]);
     }
 
+    public function test_stale_corporate_fleet_sessions_cannot_read_create_or_keep_former_membership(): void
+    {
+        $owner = User::factory()->create();
+        $driver = User::factory()->create();
+        $fleet = Fleet::create([
+            'owner_id' => $owner->id, 'name' => 'Corporate private read',
+            'country' => 'AE',
+        ]);
+        $membership = FleetMember::create([
+            'fleet_id' => $fleet->id, 'user_id' => $driver->id,
+            'status' => 'active', 'role' => 'driver',
+        ]);
+        $this->actingAs($owner);
+        $this->getJson('/api/fleets')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson('/api/fleets/'.$fleet->id)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->getJson('/api/fleet-invitations')->assertOk();
+
+        $snapshot = DB::table('users')->where('id', $owner->id)
+            ->first(['account_status', 'role', 'auth_epoch', 'password']);
+        $restore = (array) $snapshot;
+        $before = DB::table('fleets')->count();
+        foreach ([
+            ['account_status' => 'suspended'],
+            ['role' => 'vendor'],
+            ['auth_epoch' => (int) $snapshot->auth_epoch + 1],
+            ['password' => Hash::make('rotated-fleet-owner-password')],
+        ] as $revocation) {
+            DB::table('users')->where('id', $owner->id)->update($revocation);
+            $this->getJson('/api/fleets')->assertConflict();
+            $this->getJson('/api/fleets/'.$fleet->id)->assertConflict();
+            $this->getJson('/api/fleet-invitations')->assertConflict();
+            $this->postJson('/api/fleets', [
+                'name' => 'Must not create from revoked session', 'country' => 'AE',
+            ])->assertConflict();
+            DB::table('users')->where('id', $owner->id)->update($restore);
+        }
+        $this->assertSame($before, DB::table('fleets')->count());
+
+        $this->actingAs($driver)->getJson('/api/fleets/'.$fleet->id)
+            ->assertOk()->assertJsonCount(0, 'members');
+        DB::table('fleet_members')->where('id', $membership->id)
+            ->update(['status' => 'revoked']);
+        $this->getJson('/api/fleets/'.$fleet->id)->assertNotFound();
+        $this->getJson('/api/fleets')->assertOk()->assertJsonPath('total', 0);
+    }
+
     public function test_customer_invitation_pagination_covers_more_than_twenty_five_without_cross_account_leaks(): void
     {
         $recipient = User::factory()->create();

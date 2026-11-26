@@ -8,9 +8,9 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 
 | Stage | Weighted coverage |
 |---|---:|
-| coded | 60.13% |
-| tested | 60.13% |
-| merged | 60.13% |
+| coded | 61.46% |
+| tested | 61.46% |
+| merged | 61.46% |
 | production_accepted | 0.00% |
 
 Production acceptance: 0.00% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.
@@ -21,11 +21,11 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 2.2 | EV garage and driver preferences | 7 | 6/7 | 6/7 | 6/7 | 0/7 |
 | 2.3 | Search, maps, routes, favorites, reviews | 9 | 5/9 | 5/9 | 5/9 | 0/9 |
 | 2.4 | Location/connector details and pricing terms | 8 | 6/8 | 6/8 | 6/8 | 0/8 |
-| 2.5 | Owned and network discovery | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
+| 2.5 | Owned and network discovery | 6 | 4/6 | 4/6 | 4/6 | 0/6 |
 | 2.6 | Reservations and occupancy policy | 7 | 6/7 | 6/7 | 6/7 | 0/7 |
 | 2.7 | Remote charging and monitoring | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
 | 2.8 | Checkout, wallet, invoices, disputes | 10 | 6/10 | 6/10 | 6/10 | 0/10 |
-| 2.9 | Loyalty/rewards/promotions/referrals | 7 | 4/7 | 4/7 | 4/7 | 0/7 |
+| 2.9 | Loyalty/rewards/promotions/referrals | 7 | 5/7 | 5/7 | 5/7 | 0/7 |
 | 2.10 | Localization/accessibility/formatting | 8 | 4/8 | 4/8 | 4/8 | 0/8 |
 | 3.1 | Vendor onboarding/KYC/staff | 8 | 7/8 | 7/8 | 7/8 | 0/8 |
 | 3.2 | Vendor inventory/provisioning | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
@@ -46,7 +46,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 5.3 | Reliable events/state/reconciliation | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 5.4 | Simulator/hardware compatibility QA | 5 | 3/5 | 3/5 | 3/5 | 0/5 |
 | 6.1 | Normalized catalog/freshness | 6 | 5/6 | 5/6 | 5/6 | 0/6 |
-| 6.2 | Licensed discovery providers | 4 | 2/4 | 2/4 | 2/4 | 0/4 |
+| 6.2 | Licensed discovery providers | 4 | 3/4 | 3/4 | 3/4 | 0/4 |
 | 6.3 | Complete CPO/eMSP OCPI | 8 | 3/8 | 3/8 | 3/8 | 0/8 |
 | 6.4 | Partner access/capability/error handling | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 6.5 | Truthful partner availability/controls | 3 | 3/3 | 3/3 | 3/3 | 0/3 |
@@ -115,7 +115,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `2.5.2` [CTM] Read-only normalized partner discovery web/native (evidence: main638).
 - `2.5.3` [CTM] Fail-closed remote capability labels (evidence: main638).
 - `2.5.4` [—] Unified provider search (evidence: none).
-- `2.5.5` [—] Licensed discovery-provider adapter (evidence: none).
+- `2.5.5` [CTM] Licensed discovery-provider adapter (evidence: pr193).
 - `2.5.6` [—] Authorized actionable roaming (evidence: none).
 
 ### 2.6 Reservations and occupancy policy
@@ -159,7 +159,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `2.9.2` [CTM] Points ledger (evidence: pr18).
 - `2.9.3` [CTM] Redemption and rewards (evidence: pr18).
 - `2.9.4` [CTM] Coupons (evidence: pr194).
-- `2.9.5` [—] Referrals (evidence: none).
+- `2.9.5` [CTM] Referrals (evidence: pr205).
 - `2.9.6` [—] Promotions (evidence: none).
 - `2.9.7` [—] Partner reward governance (evidence: none).
 
@@ -371,7 +371,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 
 - `6.2.1` [CTM] Licensed discovery-provider adapter (evidence: pr193).
 - `6.2.2` [CTM] Attribution/rate/cache policies (evidence: pr193).
-- `6.2.3` [—] Provider-specific frontend integration (evidence: none).
+- `6.2.3` [CTM] Provider-specific frontend integration (evidence: pr197-licensed-frontend).
 - `6.2.4` [—] Coverage-quality monitoring (evidence: none).
 
 ### 6.3 Complete CPO/eMSP OCPI

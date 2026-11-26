@@ -8,6 +8,26 @@ use Illuminate\Support\Facades\DB;
 /** Source-only integrity audit; never performs external payment or ledger mutations. */
 final class InvoiceReconciliationAudit
 {
+    private const MAX_EXACT_MINOR = 9_007_199_254_740_991;
+
+    /**
+     * Never let a floating-point or string-coerced minor-unit amount turn a
+     * damaged financial record into an apparently balanced reconciliation.
+     * Audit sources may be signed so negative accounting errors remain visible.
+     */
+    private static function exactMinor(mixed $value): int
+    {
+        abort_unless(is_int($value) || is_string($value), 409,
+            'Financial reconciliation source is not an exact integer.');
+        $number = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($number !== false
+            && $number <= self::MAX_EXACT_MINOR
+            && $number >= -self::MAX_EXACT_MINOR,
+            409, 'Financial reconciliation source exceeds exact integer bounds.');
+
+        return $number;
+    }
+
     public function inspect(Invoice $invoice): array
     {
         $issues = [];
@@ -21,6 +41,37 @@ final class InvoiceReconciliationAudit
         $payments = DB::table('finance_payments')->where('invoice_id', $invoice->id)->get();
         $refunds = DB::table('finance_refunds')->where('invoice_id', $invoice->id)->get();
         $credits = DB::table('finance_unpaid_credits')->where('invoice_id', $invoice->id)->get();
+        // Casts below must never erase fractional, coerced or unsafe amounts
+        // before audit classification or provider-facing JSON/CSV serialization.
+        foreach (['subtotal_minor', 'tax_minor', 'commission_minor',
+            'vendor_minor', 'total_minor'] as $field) {
+            self::exactMinor($invoice->{$field});
+        }
+        foreach ($journals as $journal) {
+            self::exactMinor($journal->amount_minor);
+        }
+        foreach ($entries as $group) {
+            foreach ($group as $entry) {
+                self::exactMinor($entry->debit_minor);
+                self::exactMinor($entry->credit_minor);
+            }
+        }
+        foreach ($payments as $payment) {
+            self::exactMinor($payment->amount_minor);
+        }
+        foreach ($refunds as $refund) {
+            foreach (['amount_minor', 'tax_minor', 'commission_minor',
+                'vendor_minor'] as $field) {
+                self::exactMinor($refund->{$field});
+            }
+        }
+        foreach ($credits as $credit) {
+            foreach (['amount_minor', 'tax_minor', 'commission_minor',
+                'vendor_minor'] as $field) {
+                self::exactMinor($credit->{$field});
+            }
+        }
+
         $byId = $journals->keyBy('id');
         $linked = [];
         $expectedAccounts = [];
@@ -147,6 +198,14 @@ final class InvoiceReconciliationAudit
                     $flag('journal_accounts_mismatch');
                 }
             }
+            // Aggregate a journal only while every posted total remains
+            // representable; otherwise refuse a potentially false green audit.
+            self::exactMinor($debits);
+            self::exactMinor($creditsSum);
+            foreach ($postedAccounts as [$accountDebit, $accountCredit]) {
+                self::exactMinor($accountDebit);
+                self::exactMinor($accountCredit);
+            }
             if (($lines->isEmpty() && (int) $journal->amount_minor !== 0) ||
                 $debits !== $creditsSum || $debits !== (int) $journal->amount_minor) {
                 $flag('journal_unbalanced');
@@ -161,9 +220,12 @@ final class InvoiceReconciliationAudit
             }
         }
 
-        $paid = (int) $payments->sum('amount_minor');
-        $refunded = (int) $refunds->sum('amount_minor');
-        $credited = (int) $credits->sum('amount_minor');
+        self::exactMinor($refundedTax);
+        self::exactMinor($refundedCommission);
+        self::exactMinor($refundedVendor);
+        $paid = self::exactMinor($payments->sum('amount_minor'));
+        $refunded = self::exactMinor($refunds->sum('amount_minor'));
+        $credited = self::exactMinor($credits->sum('amount_minor'));
         if ($paid < 0 || $refunded < 0 || $credited < 0 || $paid + $credited > $total ||
             $refunded > $paid || $credited > $total) {
             $flag('collection_out_of_bounds');

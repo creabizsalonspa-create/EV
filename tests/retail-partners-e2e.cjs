@@ -175,6 +175,54 @@ const fs = require("node:fs");
       .filter({ hasText: /^Approved$/ })
       .waitFor();
     checks++;
+    const rewards = (page) => page.locator("[data-reward-reviews]");
+    const openRewards = (page) => page.getByRole("button", { name: "Partner reward reviews", exact: true }).click();
+    await openRewards(b);
+    await rewards(b).getByLabel("Existing reward ID").fill(String(fixture.reward_id));
+    await rewards(b).locator("textarea").fill("Review a synthetic reward");
+    await rewards(b).getByRole("button", { name: "Propose reward", exact: true }).click();
+    await rewards(b).locator("[data-reward-review]").waitFor();
+    await a.locator("#partners article").filter({
+      has: a.locator("#retail-partner-status-" + createdPartnerId),
+    }).getByRole("button", { name: "Review partner", exact: true }).click();
+    await openRewards(a);
+    const reviewCard = rewards(a).locator("[data-reward-review]");
+    await reviewCard.locator("textarea").fill("Independent reward review");
+    await reviewCard.getByRole("button", { name: "Approve reward proposal", exact: true }).click();
+    await reviewCard.getByRole("button", { name: "Revoke reward approval", exact: true }).waitFor();
+    await reviewCard.getByRole("button", { name: "Reward decision history", exact: true }).click();
+    await reviewCard.getByText(/^2 · .* · Independent reward review$/).waitFor();
+    await rewards(a).getByText(/Partner fulfillment is disabled/).waitFor();
+    checks++;
+    const customer = await login("customer");
+    const c = customer.page;
+    assert.equal(await c.locator("#partner-form").count(), 0);
+    await c.goto(base);
+    await c.locator('a[href="#commercial-finance"]').click();
+    const customerRewards = c.locator("[data-partner-reward-panel]");
+    await customerRewards.getByRole("button", { name: "Browse partner rewards", exact: true }).click();
+    const offer = customerRewards.locator("article").filter({ hasText: "Synthetic partner reward" });
+    let receipt;
+    const claimPath = "**/api/commercial/partner-rewards/offers/*/claim";
+    await c.route(claimPath, async (route) => {
+      const response = await route.fetch();
+      assert.equal(response.status(), 201, await response.text());
+      receipt = (await response.json()).claim;
+      await route.abort("failed");
+    }, { times: 1 });
+    await offer.getByRole("button", { name: "Claim partner reward", exact: true }).click();
+    await customerRewards.getByText(/Claim could not be confirmed/).waitFor();
+    const reloadedAt = Date.now();
+    await c.reload();
+    await c.locator('a[href="#commercial-finance"]').click();
+    await c.waitForTimeout(Math.max(0, 61000 - (Date.now() - reloadedAt)));
+    await customerRewards.getByRole("button", { name: "Check partner reward receipt", exact: true }).click();
+    await customerRewards.getByText("#" + receipt.id, { exact: true }).waitFor();
+    await c.locator("#language").click();
+    await customerRewards.getByText("بانتظار التسليم اليدوي", { exact: true }).waitFor();
+    checks++;
+    await b.locator("#detail").getByRole("button", { name: "Refresh records", exact: true }).click();
+    await b.getByRole("button", { name: "Suspend", exact: true }).waitFor();
     await b.locator("#detail textarea").fill("Suspend synthetic partner");
     await b.getByRole("button", { name: "Suspend", exact: true }).click();
     await b
@@ -307,8 +355,6 @@ const fs = require("node:fs");
     await b.locator("#workspace").waitFor({ state: "hidden" });
     assert.equal(await b.locator("#partners article").count(), 0);
     checks++;
-    const customer = await login("customer");
-    assert.equal(await customer.page.locator("#partner-form").count(), 0);
     checks++;
     assert.deepEqual(errors, []);
     console.log(

@@ -38,3 +38,131 @@ Request keys are actor-scoped and bound to vendor, currency and economic payload
 `tests/Postgres/SettlementConcurrencyTest.php` runs only against a guarded disposable PostgreSQL database and starts two actual PHP worker processes behind a barrier. It tests simultaneous different-key drafts (one reserve, one conflict) and identical-key retries (one persisted settlement, both resolve). Execute via the PostgreSQL finance runner; passing evidence must be recorded by the task that actually executes it. SQLite feature results alone do not prove PostgreSQL concurrency.
 
 No PSP or bank settlement provider is connected by this module. Actual payout-provider integration, merchant onboarding, bank beneficiary validation, jurisdiction-specific commission/tax/legal review and external bank statement reconciliation remain distinct gates. This module does not claim those gates complete.
+
+
+## Earnings CSV source and Unicode formula safeguards (Agent 3 follow-up)
+
+The existing read-only Vendor/Admin earnings JSON and page-bounded CSV use
+`VendorEarningsController::minor()` for exact source amounts. The primitive
+now explicitly refuses PHP floats/booleans **before** integer conversion:
+`100.0` and `true` used to pass integer validation although the original
+source may already have been rounded or coerced. Integer and canonical
+decimal-string minor units are supported; sources outside the signed/unsigned
+2^53−1 browser-safe bound remain rejected with 409.
+
+Invoice numbers **and source evidence labels** in the **CSV only**, never
+in the immutable database or JSON, are prefixed as spreadsheet literals
+when a formula introducer
+(`=`, `+`, `-`, `@`) is preceded by Unicode whitespace, controls,
+format or bidirectional markers. This includes invisible zero-width,
+BOM, RTL override and nonbreaking-space prefixes, in addition to
+ASCII controls. The page exporter remains private, no-store, nosniff,
+UTF-8 and no custom backslash CSV escaping.
+
+Added `SettlementTest` source-primitive regressions for whole-valued
+floats/booleans and invisible Unicode-formula prefixes, while preserving
+auth and genuine immutable issued-invoice access tests. The changes do
+not create payment/refund/settlement transactions, edit canonical journals
+or enable real payouts. Exact-head Finance/Platform CI and Agent 5 merge
+are still required; original 3.5.9 remains partial until all required
+surfaces and integrated verification are complete.
+
+
+## Reconciliation audit exact-source safety (Agent 3 continuation)
+
+`InvoiceReconciliationAudit::inspect()` now verifies exact signed
+minor-unit source values **before** its legacy integer casts, for the
+immutable invoice components, source journals, posted debit/credit entries,
+payments, refunds and unpaid credits. It rejects PHP float/boolean,
+non-integral decimal strings and source totals outside the ±(2^53−1)
+browser-safe bound with HTTP 409 rather than misreporting a rounded damaged
+source as `reconciled`. Signed negative accounting anomalies inside the
+exact range remain available for the original mismatch classifiers; no
+journal is silently corrected, recalculated or written. Per-invoice
+refunded component, journal-entry and collection aggregate sums receive
+the same exact-bound checks before serialization.
+
+The finance reconciliation CSV formula-literal guard now also recognizes
+Unicode separation/format/control characters such as nonbreaking space,
+zero-width space, bidi controls and BOM preceding an initial formula
+introducer. Added private audit feature regressions for exact numeric
+limits, rejected float/boolean/exponent sources and Unicode-hidden
+formula prefixes; existing legitimate API and immutable journal tests
+remain the required regression gates. This remains an internal
+simulation-backed audit, **not** automatic live PSP/bank reconciliation.
+All changes require exact-head Finance/Platform CI and Agent 5 integration.
+
+
+## Canonical settlement balance checked arithmetic (Agent 3 continuation)
+
+The **underlying** `SettlementService::balances()` now validates every
+authoritative payment, refund, reserved settlement line, invoice
+component, approved adjustment and completed settlement aggregate as an
+exact integer *before* applying arithmetic or serializing a private
+statement. It rejects PHP float/boolean, malformed or browser-inexact
+money, and verifies each running gross/commission/tax/refund/available
+sum against ±(2^53−1). The former `array_sum` of signed payable lines
+could turn a large otherwise valid collection of line items into an
+inexact floating-point total; the new checked accumulation fails closed
+with HTTP 409. All historical signed negative refund debts and payable
+adjustments within range remain supported.
+
+A real authenticated feature regression creates two individually
+representable, synthetic test-only signed approved adjustment records
+whose total is exactly 2^53. It requires 409 from the Vendor statement,
+Vendor earnings report and settlement draft, **before** any payable
+reservation is created. A second regression covers exact positive and
+negative range bounds, float/boolean source rejection and grouped
+addition. No financial journal, payable settlement or actual payout is
+created. This is defensive software verification; source approval
+authenticity, merchant acceptance, exact-head CI and Agent 5 merge
+remain independent requirements.
+
+
+## Private settlement and adjustment receipts (Agent 3 continuation)
+
+The Vendor/Admin settlements list, direct settlement detail, newly drafted
+settlement, exact idempotent draft replay, adjustment creation and adjustment
+replay now **redact the server-owned `request_key` and `fingerprint`**
+from every public response. Persisted immutable hashes remain in their
+original database records and continue to enforce same-key idempotency.
+No change to who can read, draft, reject, approve or simulate a payout;
+this is a privacy-only DTO boundary.
+
+A settlement detail's `reconciled` boolean now calls the canonical
+`SettlementService::reconciles` exact, signed accumulator instead of
+casting the immutable source and an unchecked collection sum to ints.
+Refund-debt lines remain legal and are checked against the payable
+amount. Any oversized or inexact source fails 409 instead of returning
+an incorrect green reconciliation. End-to-end tests exercise owner
+list/detail/draft retries and Admin adjustment replay, verify request
+keys remain server-owned, and test signed-detail arithmetic and overflow
+without modifying the canonical cash ledger.
+
+These are partial backend authority and integrity improvements, not
+external payout confirmation or production acceptance. Tests require
+exact-source CI, Agent 5 merge and integrated checks.
+
+
+## Live vendor-account payout authority (Agent 3 continuation)
+
+The settlement writer now checks the persisted owning vendor's
+`account_status=active` under the same vendor row lock when drafting a
+new payable, rather than merely checking the `vendor` role. An
+administrator cannot reserve new funds for a suspended merchant.
+Approval and simulated execution also recheck that the payee remains
+an active vendor under lock; a demoted or suspended merchant cannot
+receive a subsequent state advancement.
+
+**Rejection remains available** to a current administrator even while
+the vendor is suspended/demoted, so an existing pending or approved
+claim can be cancelled safely and reserved funds released for supervised
+review. Historical settlement, invoice and audit records are preserved;
+no automatic real payout is enabled.
+
+`SettlementTest` exercises suspension before approval and drafting,
+then reinstatement, approval, post-approval role demotion, blocked
+execution and successful Admin rejection with the original event trail.
+It verifies no new payment, bank claim, refund or finance journal
+mutation. Agent 5 should reconcile this gate with the independent
+TEST-only payout workflow and validate exact-head CI before integration.
