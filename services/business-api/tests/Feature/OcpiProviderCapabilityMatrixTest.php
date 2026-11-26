@@ -95,6 +95,16 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
             ->assertJsonPath('capability_matrix.live_roaming_verified', false)
             ->assertJsonPath('billing_eligible', false)
             ->assertDontSee('synthetic-reservation-contract');
+        config(['ocpi.connections.capability-test.read_modules' => ['locations', 'tariffs', 'sessions']]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', false)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false)
+            ->assertJsonPath('capability_matrix.modules.3.partner_sender_negotiated', false)
+            ->assertJsonPath('capability_matrix.modules.3.local_receiver_active', true);
+        config(['ocpi.connections.capability-test.read_modules' => ['cdrs', 'sessions', 'tariffs', 'locations']]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', true)
+            ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', true);
         $endpoints = $provider->endpoints;
         $provider->update(['endpoints' => array_replace($endpoints, ['commands_receiver' => 'https://foreign.example/commands'])]);
         $this->getJson($path)->assertOk()

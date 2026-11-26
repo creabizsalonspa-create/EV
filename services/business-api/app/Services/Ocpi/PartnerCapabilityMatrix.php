@@ -99,7 +99,7 @@ final class PartnerCapabilityMatrix
         $reservationPolicyReady = false;
         if ($sandbox && $configured && $senderCurrent) {
             try {
-                app(SandboxRoaming::class)->policy($provider);
+                app(SandboxRoaming::class)->newWorkPolicy($provider);
                 $commandPolicyReady = true;
                 $reservationPolicyReady = app(ReservationRoaming::class)->supported($provider);
             } catch (Throwable) {
