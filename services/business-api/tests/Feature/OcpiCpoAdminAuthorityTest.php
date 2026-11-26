@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\ContractCounterpartyIdentity;
 use App\Services\Ocpi\CpoCatalogPublisher;
 use App\Services\Ocpi\CredentialExchange;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -166,6 +167,7 @@ final class OcpiCpoAdminAuthorityTest extends TestCase
             'provider_id' => $provider->id, 'owner_id' => $owner->id,
             'reviewer_id' => $admin->id, 'revision' => 1,
             'connection_key' => $provider->connection_key,
+            'counterparty_hash' => ContractCounterpartyIdentity::current($provider->connection_key),
             'decision' => 'review', 'reference_id' => 'SYNTHETIC-CPO-001',
             'evidence_sha256' => str_repeat('a', 64),
             'valid_until' => now('UTC')->addDay()->toDateString(),

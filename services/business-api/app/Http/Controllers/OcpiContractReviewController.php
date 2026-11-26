@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\ContractCounterpartyIdentity;
 use App\Services\Ocpi\ContractReviewGate;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -58,7 +59,10 @@ final class OcpiContractReviewController extends Controller
 
     private static function effective(?object $review, User $owner, OcpiProvider $provider): bool
     {
-        return $review && $review->owner_id === $owner->id
+        $identity = ContractCounterpartyIdentity::current($provider->connection_key);
+
+        return $identity !== null && $review && $review->counterparty_hash === $identity
+            && (int) $review->owner_id === (int) $owner->id
             && $review->connection_key === $provider->connection_key
             && $review->decision === 'review'
             && $owner->role === 'vendor' && $owner->account_status === 'active'
@@ -162,6 +166,9 @@ final class OcpiContractReviewController extends Controller
                 'idempotency_key' => ['required', 'string', 'regex:/^[A-Za-z0-9_-]{16,100}$/D'],
                 'reason' => 'required|string|min:15|max:1000',
             ]);
+            $identity = ContractCounterpartyIdentity::current($current->connection_key);
+            abort_if($v['decision'] === 'review' && $identity === null, 409,
+                'Approved counterparty identity is not configured.');
             $hash = hash('sha256', json_encode([
                 $v['decision'], $v['reference_id'] ?? null, $v['evidence_sha256'] ?? null,
                 $v['valid_until'] ?? null, (int) $v['expected_revision'], $v['reason'],
@@ -172,6 +179,7 @@ final class OcpiContractReviewController extends Controller
             if ($prior) {
                 abort_unless((int) $prior->owner_id === (int) $owner->id
                     && $prior->connection_key === $current->connection_key
+                    && ($v['decision'] === 'revoke' || $prior->counterparty_hash === $identity)
                     && (int) $prior->reviewer_id === (int) $actor->id
                     && hash_equals($prior->payload_hash, $hash), 409,
                     'Contract review idempotency identity is already bound.');
@@ -205,6 +213,7 @@ final class OcpiContractReviewController extends Controller
                 'owner_id' => $owner->id,
                 'reviewer_id' => $actor->id,
                 'connection_key' => $current->connection_key,
+                'counterparty_hash' => $v['decision'] === 'review' ? $identity : $last->counterparty_hash,
                 'revision' => $revision,
                 'decision' => $v['decision'],
                 'reference_id' => $v['reference_id'] ?? null,

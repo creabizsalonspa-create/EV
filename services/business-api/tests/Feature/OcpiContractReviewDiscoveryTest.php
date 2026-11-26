@@ -23,6 +23,10 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
     private function fixture(): array
     {
         Http::preventStrayRequests();
+        $identity = ['origin' => 'https://partner.example', 'party_country' => 'AE',
+            'party_id' => 'TST', 'party_role' => 'CPO', 'environment' => 'sandbox'];
+        config(['ocpi.connections.contract-discovery-test' => $identity,
+            'ocpi.connections.contract-discovery-rebound' => $identity]);
         $customer = User::factory()->create(['role' => 'customer', 'account_status' => 'active']);
         $owner = User::factory()->create(['role' => 'vendor', 'account_status' => 'active']);
         $admin = User::factory()->create(['role' => 'admin', 'account_status' => 'active']);
@@ -163,6 +167,31 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
         $this->assertFalse(app(ContractReviewGate::class)->current($provider));
         $this->assertDatabaseCount('ocpi_partner_contract_reviews', 2);
         $this->assertDatabaseCount('finance_payments', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_same_alias_reconfiguration_hides_public_records_and_saved_location_until_reviewed(): void
+    {
+        [$customer, $owner, $admin, $provider, $record] = $this->fixture();
+        config(['ocpi.contract_review_required' => true]);
+        $this->approve($admin, $provider);
+        $this->actingAs($customer);
+        $this->expectPartnerCount(1);
+        $this->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
+
+        config(['ocpi.connections.contract-discovery-test.party_id' => 'NEW']);
+        $this->expectPartnerCount(0);
+        $this->getJson('/api/roaming/favorites')->assertOk()
+            ->assertJsonPath('data.0.location_available', false)
+            ->assertJsonPath('data.0.location', null);
+        $this->putJson('/api/roaming/favorites/'.$record->id)->assertNotFound();
+        $this->approve($admin, $provider, 1);
+        $this->actingAs($customer);
+        $this->expectPartnerCount(1);
+        config(['ocpi.connections.contract-discovery-test' => null]);
+        $this->expectPartnerCount(0);
+        $this->getJson('/api/roaming/favorites')->assertOk()
+            ->assertJsonPath('data.0.location_available', false);
         Http::assertNothingSent();
     }
 

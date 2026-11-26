@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Controllers\OcpiContractReviewController;
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\ContractReviewGate;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerClient;
@@ -30,11 +31,13 @@ final class OcpiPartnerContractReviewTest extends TestCase
                 'origin' => 'https://partner.example',
                 'authorization_token' => base64_encode('synthetic-private-bootstrap'),
                 'environment' => 'sandbox',
+                'party_country' => 'AE', 'party_id' => 'TST', 'party_role' => 'CPO',
             ],
             'ocpi.connections.contract-test-unassigned' => [
                 'origin' => 'https://partner.example',
                 'authorization_token' => base64_encode('synthetic-private-bootstrap'),
                 'environment' => 'sandbox',
+                'party_country' => 'AE', 'party_id' => 'TST', 'party_role' => 'CPO',
             ],
         ]);
     }
@@ -294,6 +297,48 @@ final class OcpiPartnerContractReviewTest extends TestCase
         $this->assertDatabaseCount('ocpi_credential_operations', 0);
         $this->assertDatabaseCount('ocpi_credential_links', 0);
         $this->assertDatabaseCount('finance_payments', 0);
+    }
+
+    public function test_same_alias_counterparty_change_requires_new_review_but_token_rotation_does_not(): void
+    {
+        config(['ocpi.contract_review_required' => true]);
+        [$owner, $admin, $provider, $path] = $this->fixture();
+        $this->actingAs($admin)->postJson($path, $this->review())->assertCreated();
+        $this->patchJson('/api/ocpi/providers/'.$provider->id.'/authorization',
+            ['authorized' => true])->assertOk();
+        $gate = app(ContractReviewGate::class);
+        $this->assertTrue($gate->current($provider->fresh()));
+        $original = config('ocpi.connections.contract-test');
+        config(['ocpi.connections.contract-test.authorization_token' => base64_encode('new-synthetic-token')]);
+        $this->assertTrue($gate->current($provider->fresh()));
+
+        foreach ([
+            ['origin' => 'https://replacement.example'],
+            ['party_country' => 'NL'],
+            ['party_id' => 'NEW'],
+            ['party_role' => 'EMSP'],
+            ['environment' => 'production'],
+        ] as $change) {
+            config(['ocpi.connections.contract-test' => array_replace($original, $change)]);
+            $this->assertFalse($gate->current($provider->fresh()));
+            $this->getJson($path)->assertOk()->assertJsonPath('review_valid_for_current_owner', false);
+            $this->postJson($path, $this->review())->assertConflict();
+            try {
+                app(PartnerClient::class)->negotiate($provider->fresh());
+                $this->fail('Old internal review authorized a replacement counterparty.');
+            } catch (OcpiException $error) {
+                $this->assertStringContainsString('internal contract review', $error->getMessage());
+            }
+        }
+        $this->postJson($path, $this->review(1, 'replacement-contract-review-001'))->assertCreated()
+            ->assertJsonPath('review_valid_for_current_owner', true);
+        config(['ocpi.connections.contract-test' => $original]);
+        $this->assertFalse($gate->current($provider->fresh()));
+        DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+            ->where('revision', 2)->update(['counterparty_hash' => null]);
+        $this->assertFalse($gate->current($provider->fresh()));
+        $this->assertDatabaseCount('ocpi_partner_contract_reviews', 2);
+        Http::assertNothingSent();
     }
 
     public function test_contract_review_rejects_stale_revision_reused_key_expired_date_and_owner_suspension(): void

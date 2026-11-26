@@ -42,15 +42,20 @@ final class ContractReviewGate
             return $providers;
         }
 
+        $fingerprints = ContractCounterpartyIdentity::configuredFingerprints();
+        if ($fingerprints === []) {
+            return $providers->whereRaw('1 = 0');
+        }
         $checkedAt = now('UTC');
         $sqlite = $providers->getModel()->getConnection()->getDriverName() === 'sqlite';
 
-        return $providers->whereExists(function ($evidence) use ($checkedAt, $sqlite) {
+        return $providers->whereExists(function ($evidence) use ($checkedAt, $sqlite, $fingerprints) {
             $evidence->selectRaw('1')->from('ocpi_partner_contract_reviews as review')
                 ->whereColumn('review.provider_id', 'ocpi_providers.id')
                 ->whereColumn('review.owner_id', 'ocpi_providers.owner_id')
                 ->whereColumn('review.connection_key', 'ocpi_providers.connection_key')
                 ->where('review.decision', 'review')
+                ->whereIn('review.counterparty_hash', $fingerprints)
                 ->whereBetween('review.valid_until', [$checkedAt->toDateString(), $checkedAt->copy()->addYears(3)->toDateString()])
                 // SQLite DATE affinity permits malformed calendar strings.
                 // PostgreSQL's typed date column already enforces calendar validity.
@@ -76,7 +81,10 @@ final class ContractReviewGate
         $latest = DB::table('ocpi_partner_contract_reviews')
             ->where('provider_id', $provider->id)->orderByDesc('revision')->first();
 
-        return $latest && (int) $latest->owner_id === (int) $owner->id
+        $identity = ContractCounterpartyIdentity::current($provider->connection_key);
+
+        return $identity !== null && $latest && $latest->counterparty_hash === $identity
+            && (int) $latest->owner_id === (int) $owner->id
             && $latest->connection_key === $provider->connection_key
             && $latest->decision === 'review'
             && self::validUntil($latest->valid_until, now('UTC'));
