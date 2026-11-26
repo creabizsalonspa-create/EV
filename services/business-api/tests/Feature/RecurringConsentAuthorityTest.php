@@ -19,7 +19,7 @@ class RecurringConsentAuthorityTest extends TestCase
     {
         Http::fake();
         Http::preventStrayRequests();
-        config(['payments.provider' => 'stripe_test', 'payments.hosted_return_url' => 'https://example.test/return']);
+        config(['payments.provider' => 'stripe_test', 'payments.stripe_test_secret' => 'sk_test_contractonly', 'payments.hosted_return_url' => 'https://example.test/return']);
         Route::middleware(['web', 'auth'])->prefix('recurring-authority-test')->group(base_path('routes/recurring_payments.php'));
         $owner = User::factory()->create();
         $admin = User::factory()->create(['role' => 'admin']);
@@ -29,7 +29,16 @@ class RecurringConsentAuthorityTest extends TestCase
         $base = '/recurring-authority-test/commercial/';
         $policy = $base.'subscriptions/'.$id.'/collection-policy';
         $this->actingAs($owner, 'web');
-        $this->putJson($policy, ['enabled' => false, 'expected_version' => 0])->assertOk()->assertJsonPath('version', 1);
+        foreach ([[], ['consent' => false], ['consent' => 'no']] as $consent) {
+            $this->putJson($policy, ['enabled' => true, 'mandate_id' => 999, 'expected_version' => 0] + $consent)
+                ->assertUnprocessable()->assertJsonValidationErrors('consent');
+        }
+        $this->assertDatabaseCount('subscription_collection_policies', 0);
+        // Both clients send the disable request without any consent field.
+        $this->putJson($policy, ['enabled' => false, 'expected_version' => 0])->assertOk()
+            ->assertJsonPath('version', 1)->assertJsonPath('enabled', false);
+        $this->putJson($policy, ['enabled' => false, 'consent' => false, 'expected_version' => 1])->assertOk()
+            ->assertJsonPath('version', 2)->assertJsonPath('enabled', false);
         $this->getJson($base.'recurring-subscriptions')->assertOk()->assertJsonPath('data.0.id', $id);
         $before = DB::table('recurring_payment_events')->count();
 
@@ -45,7 +54,7 @@ class RecurringConsentAuthorityTest extends TestCase
             foreach (['payment-methods', 'payment-enrollments', 'recurring-subscriptions', 'recurring-events'] as $endpoint) {
                 $this->getJson($base.$endpoint)->assertConflict();
             }
-            $this->putJson($policy, ['enabled' => false, 'expected_version' => 1])->assertConflict();
+            $this->putJson($policy, ['enabled' => false, 'expected_version' => 2])->assertConflict();
             $this->postJson($base.'payment-methods/999/default', [])->assertConflict();
             $this->deleteJson($base.'payment-methods/999', [])->assertConflict();
             $this->postJson($base.'payment-enrollments', [
@@ -59,7 +68,7 @@ class RecurringConsentAuthorityTest extends TestCase
 
         DB::table('users')->where('id', $owner->id)->update($original);
 
-        $this->assertDatabaseHas('subscription_collection_policies', ['subscription_id' => $id, 'version' => 1, 'enabled' => false]);
+        $this->assertDatabaseHas('subscription_collection_policies', ['subscription_id' => $id, 'version' => 2, 'enabled' => false]);
         $this->assertDatabaseCount('recurring_payment_events', $before);
         $this->assertDatabaseCount('commercial_subscription_receipts', 0);
         $this->assertDatabaseCount('payment_enrollments', 0);
