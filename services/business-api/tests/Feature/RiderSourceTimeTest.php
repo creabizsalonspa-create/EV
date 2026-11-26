@@ -23,14 +23,14 @@ class RiderSourceTimeTest extends TestCase
         Http::preventStrayRequests();
         $binding = (object) ['identifier' => 'ev-test-source-clock', 'protocol' => $protocol];
         $map = new ConnectorMapping(['source_connector_number' => 1]);
-        $evse = new Evse(['source_evse_number' => 1]);
+        $evse = new Evse(['source_evse_number' => $protocol === '1.6' ? 0 : 1]);
         $statusTime = 'now';
         Http::fake(function ($request) use ($protocol, &$statusTime) {
             if (str_contains($request['query'], 'ChargingStations')) {
                 return Http::response(['data' => ['ChargingStations' => [['id' => 42, 'protocol' => $protocol, 'isOnline' => true]]]]);
             }
 
-            return Http::response(['data' => ['Connectors' => [['id' => 7]], 'StatusNotifications' => [['evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => $statusTime]]]]);
+            return Http::response(['data' => ['Connectors' => [['id' => 7, 'evseId' => 77]], 'StatusNotifications' => [['evseId' => $protocol === '1.6' ? 0 : 1, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => $statusTime]]]]);
         });
         $guard = app(RiderSourceController::class);
         $this->assertFalse($guard->targetMatches($binding, $map, $evse, ['connectorId' => 7]));
@@ -66,7 +66,7 @@ class RiderSourceTimeTest extends TestCase
                 && ($request['variables']['connector'] ?? null) === 8;
 
             return Http::response(['data' => [
-                'Connectors' => $selected ? [['id' => 8]] : [['id' => 7], ['id' => 8]],
+                'Connectors' => $selected ? [['id' => 8, 'evseId' => 77]] : [['id' => 7, 'evseId' => 77], ['id' => 8, 'evseId' => 77]],
                 'StatusNotifications' => [[
                     'evseId' => $evseNumber, 'connectorId' => 2,
                     'connectorStatus' => 'Available', 'errorCode' => 'NoError',
@@ -76,9 +76,9 @@ class RiderSourceTimeTest extends TestCase
         });
         $source = app(RiderSourceController::class);
         $this->assertTrue($source->targetMatches($binding, $map, $evse,
-            ['connectorId' => 8, 'evseId' => $evseNumber]));
+            ['connectorId' => 8, 'evseId' => 77]));
         $this->assertFalse($source->targetMatches($binding, $map, $evse,
-            ['connectorId' => 7, 'evseId' => $evseNumber]));
+            ['connectorId' => 7, 'evseId' => 77]));
         Http::assertSentCount(4);
     }
 
@@ -89,9 +89,9 @@ class RiderSourceTimeTest extends TestCase
         Http::preventStrayRequests();
         $binding = (object) ['identifier' => 'ev-test-bounded-rider-status', 'protocol' => $protocol];
         $map = new ConnectorMapping(['source_connector_number' => 1]);
-        $evse = new Evse(['source_evse_number' => 1]);
+        $evse = new Evse(['source_evse_number' => $protocol === '1.6' ? 0 : 1]);
         $source = ['connectorStatus' => 'Available', 'errorCode' => 'NoError',
-            'evseId' => 1, 'connectorId' => 1, 'timestamp' => now()->subSecond()->toISOString()];
+            'evseId' => $protocol === '1.6' ? 0 : 1, 'connectorId' => 1, 'timestamp' => now()->subSecond()->toISOString()];
         Http::fake(function ($request) use ($protocol, &$source) {
             if (str_contains($request['query'], 'ChargingStations')) {
                 return Http::response(['data' => ['ChargingStations' => [
@@ -100,11 +100,11 @@ class RiderSourceTimeTest extends TestCase
             }
 
             return Http::response(['data' => [
-                'Connectors' => [['id' => 7]], 'StatusNotifications' => [$source],
+                'Connectors' => [['id' => 7, 'evseId' => 77]], 'StatusNotifications' => [$source],
             ]]);
         });
         $target = app(RiderSourceController::class);
-        $scope = ['connectorId' => 7, 'evseId' => 1];
+        $scope = ['connectorId' => 7, 'evseId' => 77];
         $this->assertTrue($target->targetMatches($binding, $map, $evse, $scope));
         foreach (['Reserved', 'Occupied', 'Charging', 'Preparing',
             'Finishing', 'Unavailable', 'Faulted', 'Unknown', '<script>'] as $status) {
@@ -133,6 +133,13 @@ class RiderSourceTimeTest extends TestCase
         }
         $source['connectorId'] = 2;
         $this->assertFalse($target->targetMatches($binding, $map, $evse, $scope));
-        Http::assertSentCount($protocol === '1.6' ? 34 : 28);
+        $source['connectorId'] = 1;
+        $source['evseId'] = $protocol === '1.6' ? 1 : 2;
+        $this->assertFalse($target->targetMatches($binding, $map, $evse, $scope));
+        $source['evseId'] = $protocol === '1.6' ? 0 : 1;
+        $this->assertFalse($target->targetMatches($binding, $map, $evse,
+            ['connectorId' => 7, 'evseId' => $source['evseId']]));
+        $this->assertTrue($target->targetMatches($binding, $map, $evse, $scope));
+        Http::assertSentCount($protocol === '1.6' ? 40 : 34);
     }
 }
