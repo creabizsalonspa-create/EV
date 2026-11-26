@@ -74,6 +74,38 @@ class LicensedCoverageHistoryTest extends TestCase
         Http::assertSentCount(3);
     }
 
+    public function test_history_counts_validated_source_quality_and_not_private_records(): void
+    {
+        $point = [
+            'ID' => 12345,
+            'DataProvider' => ['Title' => 'Synthetic contributor', 'License' => 'CC BY-SA 4.0', 'IsOpenDataLicensed' => true],
+            'SubmissionStatusTypeID' => 200,
+            'AddressInfo' => [
+                'Title' => 'Synthetic station', 'Latitude' => 25.2, 'Longitude' => 55.3,
+                'Country' => ['ISOCode' => 'AE'],
+            ],
+            'Connections' => [['ConnectionType' => ['Title' => 'Type 2'], 'PowerKW' => 22]],
+            'DateLastStatusUpdate' => '2026-11-24T06:15:00Z',
+        ];
+        $unknown = array_replace($point, ['ID' => 12346, 'DateLastStatusUpdate' => 'invalid']);
+        $unlicensed = array_replace($point, ['ID' => 12347, 'DataProvider' => ['IsOpenDataLicensed' => false]]);
+        Http::fake(['api.openchargemap.io/*' => Http::response([$point, $unknown, $unlicensed], 200, ['Content-Type' => 'application/json'])]);
+        $this->populate(0);
+        $history = app(LicensedCoverageHistory::class);
+        $this->assertSame('captured', $history->capture()['state']);
+        $sample = $history->report()['samples'][0];
+        $this->assertSame(1, $sample['areas_with_reports']);
+        $this->assertSame(2, $sample['returned_record_observations']);
+        $this->assertSame(1, $sample['older_than_24h_observations']);
+        $this->assertSame(1, $sample['unknown_time_observations']);
+        $this->assertSame(2, $sample['unknown_operating_observations']);
+        $encoded = json_encode($sample, JSON_THROW_ON_ERROR);
+        foreach (['12345', '12346', '12347', 'Synthetic station', 'Synthetic contributor'] as $private) {
+            $this->assertStringNotContainsString($private, $encoded);
+        }
+        Http::assertSentCount(1);
+    }
+
     public function test_history_is_scoped_to_current_approval_and_benchmark_configuration(): void
     {
         Http::fake(['api.openchargemap.io/*' => Http::response([], 200, ['Content-Type' => 'application/json'])]);
