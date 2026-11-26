@@ -97,6 +97,52 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
         $this->assertDatabaseCount('charging_sessions', 0);
     }
 
+    public function test_contract_expiry_hides_current_capabilities_and_preserves_explicit_unregister(): void
+    {
+        [$owner, $admin, $provider, $path] = $this->fixture();
+        $this->actingAs($admin)->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.credentials_current', true);
+        config(['ocpi.contract_review_required' => true]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('available_actions', ['unregister'])
+            ->assertJsonPath('active_receiver_modules', [])
+            ->assertJsonPath('capability_matrix.credentials_current', false)
+            ->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', false)
+            ->assertJsonPath('capability_matrix.modules.0.local_receiver_configured', true);
+        $review = [
+            'decision' => 'review', 'reference_id' => 'SYNTHETIC-CAPABILITY-001',
+            'evidence_sha256' => str_repeat('a', 64), 'valid_until' => now('UTC')->addDay()->toDateString(),
+            'expected_revision' => 0, 'idempotency_key' => 'synthetic-capability-review-001',
+            'reason' => 'Synthetic internal review for capability projection regression only.',
+        ];
+        $this->postJson('/api/ocpi/providers/'.$provider->id.'/contract-review', $review)->assertCreated();
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.credentials_current', true)
+            ->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', true);
+        DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+            ->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('state', 'active')
+            ->assertJsonPath('available_actions', ['unregister'])
+            ->assertJsonPath('active_receiver_modules', [])
+            ->assertJsonPath('capability_matrix.credentials_current', false)
+            ->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', false)
+            ->assertJsonPath('capability_matrix.modules.2.local_receiver_active', false)
+            ->assertJsonPath('capability_matrix.live_roaming_verified', false);
+        $this->actingAs($owner)->getJson($path)->assertOk()
+            ->assertJsonPath('available_actions', [])
+            ->assertJsonPath('active_receiver_modules', []);
+        config(['ocpi.contract_review_required' => false]);
+        config(['ocpi.connections.capability-test.party_id' => 'NEW']);
+        $this->actingAs($admin)->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.credentials_current', false)
+            ->assertJsonPath('active_receiver_modules', [])
+            ->assertJsonPath('capability_matrix.modules.0.partner_sender_negotiated', false);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_credential_links', 1);
+        $this->assertDatabaseCount('ocpi_partner_contract_reviews', 1);
+    }
+
     public function test_status_denies_revoked_vendor_snapshot_and_reassigned_provider_without_exposing_credentials(): void
     {
         [$owner, $admin, $provider, $path] = $this->fixture();
