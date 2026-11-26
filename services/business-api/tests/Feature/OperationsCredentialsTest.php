@@ -116,6 +116,79 @@ class OperationsCredentialsTest extends TestCase
         app(OperationsCredentials::class)->token('https://csms.example.test');
     }
 
+    public static function changedTrustPolicy(): array
+    {
+        return [
+            ['operations_auth_mode', 'development'],
+            ['operations_oauth_token_url', 'https://alternate.example.test/token'],
+            ['operations_oauth_client_id', 'replacement-client'],
+            ['operations_oauth_client_secret', 'replacement-secret-replacement-secret'],
+            ['operations_oauth_scope', 'another:scope'],
+            ['operations_oauth_issuer', 'https://alternate.example.test'],
+            ['operations_oauth_audience', 'https://alternate.example.test'],
+            ['operations_oauth_public_keys', []],
+        ];
+    }
+
+    #[DataProvider('changedTrustPolicy')]
+    public function test_inflight_oauth_trust_policy_change_never_returns_a_token(string $field, mixed $value): void
+    {
+        $jwt = $this->jwt();
+        Http::fake(function (Request $request) use ($field, $value, $jwt) {
+            $this->assertSame('https://identity.example.test/token', $request->url());
+            config(['csms.'.$field => $value]);
+
+            return Http::response(['token_type' => 'Bearer', 'access_token' => $jwt]);
+        });
+        try {
+            app(OperationsCredentials::class)->token('https://csms.example.test');
+            $this->fail('In-flight service authority change returned an access token.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+            $this->assertStringNotContainsString($jwt, $error->getMessage());
+            $this->assertStringNotContainsString('private-secret', $error->getMessage());
+        }
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), 'alternate.example.test')
+            || str_contains($r->url(), '/dev/token') || str_contains($r->url(), '/ocpp/'));
+    }
+
+    public function test_development_plaintext_token_origin_is_restricted_to_fixed_local_hosts(): void
+    {
+        config(['csms.operations_auth_mode' => 'development']);
+        foreach (['http://external.example.test', 'http://citrine.example.test', 'http://127.0.0.1:0',
+            'http://127.0.0.1@external.example.test', 'http://127%2e0%2e0%2e1:8080'] as $url) {
+            try {
+                app(OperationsCredentials::class)->token($url);
+                $this->fail('Unsafe development token origin was accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(503, $error->getStatusCode());
+            }
+        }
+        Http::assertNothingSent();
+        Http::fake(['http://citrine:8080/dev/token' => Http::response(['accessToken' => 'fixture-token'])]);
+        $this->assertSame('fixture-token', app(OperationsCredentials::class)->token('http://citrine:8080'));
+        Http::assertSentCount(1);
+    }
+
+    public function test_development_token_is_discarded_when_auth_mode_changes_during_request(): void
+    {
+        config(['csms.operations_auth_mode' => 'development']);
+        Http::fake(function (Request $request) {
+            $this->assertSame('http://127.0.0.1:8080/dev/token', $request->url());
+            config(['csms.operations_auth_mode' => 'oauth2']);
+
+            return Http::response(['accessToken' => 'fixture-token']);
+        });
+        try {
+            app(OperationsCredentials::class)->token('http://127.0.0.1:8080');
+            $this->fail('A development token survived a trust mode change.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        Http::assertSentCount(1);
+    }
+
     public function test_production_never_uses_development_issuer(): void
     {
         config(['csms.operations_auth_mode' => 'development']);
@@ -163,6 +236,37 @@ class OperationsCredentialsTest extends TestCase
         Http::assertSentCount(2);
         Http::assertSent(fn (Request $r) => str_contains($r->url(), '/ocpp/'.$protocol.'/evdriver/') && $r->hasHeader('Authorization', 'Bearer '.$jwt));
         $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('csms_inbox_events', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_inflight_service_key_revocation_never_dispatches_or_retries_either_protocol(string $protocol): void
+    {
+        config(['csms.simulator_enabled' => true, 'csms.base_url' => 'https://csms.example.test']);
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = Station::create(['vendor_id' => $vendor->id, 'name' => 'Revoked OAuth fixture',
+            'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25,
+            'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
+        DB::table('csms_bindings')->insert(['station_id' => $station->id, 'identifier' => 'ev-test-oauth-revoked',
+            'protocol' => $protocol, 'created_at' => now(), 'updated_at' => now()]);
+        $command = ChargerCommand::create(['consent_auth_epoch' => 0, 'actor_id' => $vendor->id,
+            'station_id' => $station->id, 'action' => 'start', 'payload' => [],
+            'payload_hash' => str_repeat('c', 64), 'idempotency_key' => 'oauth-revoked']);
+        $jwt = $this->jwt();
+        $keys = config('csms.operations_oauth_public_keys');
+        Http::fake(function (Request $request) use ($jwt) {
+            $this->assertSame('https://identity.example.test/token', $request->url());
+            config(['csms.operations_oauth_public_keys' => []]);
+
+            return Http::response(['token_type' => 'Bearer', 'access_token' => $jwt]);
+        });
+        $this->assertSame('outcome_unknown', app(CsmsDispatcher::class)->dispatch($command->id)->status);
+        config(['csms.operations_oauth_public_keys' => $keys]);
+        app(CsmsDispatcher::class)->dispatch($command->id);
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), '/dev/token'));
         $this->assertDatabaseCount('csms_inbox_events', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('finance_journals', 0);

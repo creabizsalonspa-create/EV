@@ -76,6 +76,13 @@ final class SourceReportFilter
             $q->whereNotExists(function ($later) {
                 $this->component($later);
                 $later->where(fn ($newer) => $newer->whereColumn('later.occurred_at', '>', 'o.occurred_at')->orWhere(fn ($tie) => $tie->whereColumn('later.occurred_at', 'o.occurred_at')->whereColumn('later.id', '>', 'o.id')));
+            })->whereNotExists(function ($sourceRollback) {
+                // The connector projection also requires the latest source ID
+                // and latest source timestamp to identify the same observation.
+                // A newer authenticated ID with a regressed clock must not
+                // match any recent-status filter, even before pagination.
+                $this->component($sourceRollback);
+                $sourceRollback->whereColumn('later.source_event_id', '>', 'o.source_event_id');
             })->whereNotExists(function ($conflict) {
                 $this->component($conflict);
                 $conflict->whereColumn('later.occurred_at', 'o.occurred_at')->where(fn ($different) => $different->whereColumn('later.status', '!=', 'o.status')->orWhereRaw('COALESCE(later.error_code, ?) <> COALESCE(o.error_code, ?)', ['NoError', 'NoError']));
