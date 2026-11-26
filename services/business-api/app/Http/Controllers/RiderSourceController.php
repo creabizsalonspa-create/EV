@@ -23,25 +23,61 @@ class RiderSourceController extends Controller
     public function targetMatches(object $binding, ConnectorMapping $map, Evse $evse, array $v): bool
     {
         $url = config('csms.graphql_url');
-        if (empty($v['connectorId']) || strlen((string) config('csms.graphql_secret')) < 32
+        $secret = (string) config('csms.graphql_secret');
+        if (empty($v['connectorId']) || strlen($secret) < 32
             || ! app(CsmsGraphqlTransport::class)->approved($url)) {
             return false;
         }
         try {
-            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol}}', 'variables' => ['name' => $binding->identifier]]);
+            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $secret])->post($url, ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol}}', 'variables' => ['name' => $binding->identifier]]);
+            if (config('csms.graphql_url') !== $url || ! hash_equals($secret, (string) config('csms.graphql_secret'))
+                || ! app(CsmsGraphqlTransport::class)->approved($url)) {
+                return false;
+            }
             $stations = $reply->json('data.ChargingStations');
             if (! $reply->successful() || $reply->json('errors') || ! is_array($stations) || count($stations) !== 1 || $stations[0]['isOnline'] !== true || ! in_array($stations[0]['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true)) {
                 return false;
             }
-            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, ['query' => 'query($station:Int!,$connector:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:2){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},connectorDatabaseId:{_eq:$connector}},order_by:{id:desc},limit:1){evseId connectorId connectorStatus timestamp}}', 'variables' => ['station' => $stations[0]['id'], 'connector' => (int) $v['connectorId']]]);
+            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $secret])->post($url, ['query' => 'query($station:Int!,$connector:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station},id:{_eq:$connector}},limit:2){id evseId} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},connectorDatabaseId:{_eq:$connector}},order_by:{id:desc},limit:1){evseId connectorId connectorStatus errorCode timestamp}}', 'variables' => ['station' => $stations[0]['id'], 'connector' => (int) $v['connectorId']]]);
+            if (config('csms.graphql_url') !== $url || ! hash_equals($secret, (string) config('csms.graphql_secret'))
+                || ! app(CsmsGraphqlTransport::class)->approved($url)) {
+                return false;
+            }
             $connectors = $reply->json('data.Connectors');
             $status = $reply->json('data.StatusNotifications.0');
             if (! $reply->successful() || $reply->json('errors') || ! is_array($connectors) || count($connectors) !== 1 || (int) $connectors[0]['id'] !== (int) $v['connectorId'] || ! is_array($status)) {
                 return false;
             }
             $at = SourceStatusTime::parse($status['timestamp'] ?? null);
+            // A negative status blacklist permits malformed, Reserved,
+            // Charging and Occupied source receipts to authorize another
+            // rider. Only an explicit fresh Available connector is eligible.
+            // OCPP 1.6 also requires an explicit NoError receipt: an
+            // Available/GroundFailure contradiction must never authorize.
+            $errorCode = $status['errorCode'] ?? null;
+            if (($status['connectorStatus'] ?? null) !== 'Available'
+                || ($binding->protocol === '1.6'
+                    ? $errorCode !== 'NoError'
+                    : ! in_array($errorCode, [null, 'NoError'], true))) {
+                return false;
+            }
+            // CitrineOS v2.1.0 RealTimeAuthorizer sends database EVSE and
+            // connector primary keys, not OCPP wire numbers. Match the
+            // supplied EVSE key to the selected connector's actual FK;
+            // separately match wire numbers from the status notification.
+            $sourceEvseId = $connectors[0]['evseId'] ?? null;
+            if (! is_int($sourceEvseId) || $sourceEvseId < 1
+                || (isset($v['evseId']) && (int) $v['evseId'] !== $sourceEvseId)) {
+                return false;
+            }
+            $wireEvse = $evse->source_evse_number;
+            if (! is_int($wireEvse) || ($binding->protocol === '1.6' ? $wireEvse !== 0 : $wireEvse < 1)) {
+                return false;
+            }
 
-            return (int) ($status['evseId'] ?? 0) === (int) $evse->source_evse_number && (int) $status['connectorId'] === (int) $map->source_connector_number && ! in_array($status['connectorStatus'], ['Faulted', 'Unavailable'], true) && $at->lte(now()) && $at->gte(now()->subMinutes(5));
+            return ($status['evseId'] ?? 0) === $wireEvse
+                && ($status['connectorId'] ?? null) === $map->source_connector_number
+                && $at->lte(now()) && $at->gte(now()->subMinutes(5));
         } catch (Throwable) {
             return false;
         }

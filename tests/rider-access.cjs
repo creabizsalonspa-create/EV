@@ -4,6 +4,66 @@ const { randomBytes, randomUUID } = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const { SimulatedCharger, graph, poll } = require("./helpers/csms-local.cjs");
+// A StatusNotification acknowledgement is not proof of a durable source
+// receipt. Inspect the exact local simulator target before the one-shot
+// rider authorization; never retry a denied authorization to make CI pass.
+async function proveRiderSourceReceipt(f, graphRead = graph, wait = poll) {
+  const station = await wait(async () => {
+    const data = await graphRead(
+      "query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id protocol isOnline}}",
+      { name: f.identity },
+    );
+    assert(Array.isArray(data.ChargingStations));
+    assert(data.ChargingStations.length <= 1, "Ambiguous rider source station");
+    const row = data.ChargingStations[0];
+    if (!row) return null;
+    assert(Number.isInteger(row.id) && row.id > 0, "Invalid rider source ID");
+    assert([f.protocol, "ocpp" + f.protocol].includes(row.protocol), "Rider protocol mismatch");
+    return row.isOnline === true ? row : null;
+  }, "Durable rider source station");
+  const connector = await wait(async () => {
+    const data = await graphRead(
+      "query($station:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:2){id}}",
+      { station: station.id },
+    );
+    assert(Array.isArray(data.Connectors));
+    assert(data.Connectors.length <= 1, "Rider fixture must have exactly one source connector");
+    const row = data.Connectors[0];
+    if (!row) return null;
+    assert(Number.isInteger(row.id) && row.id > 0, "Invalid rider connector identity");
+    return row;
+  }, "Durable rider source connector");
+  const status = await wait(async () => {
+    const data = await graphRead(
+      "query($station:Int!,$connector:Int!){StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},connectorDatabaseId:{_eq:$connector}},order_by:{id:desc},limit:1){evseId connectorId connectorStatus errorCode timestamp}}",
+      { station: station.id, connector: connector.id },
+    );
+    assert(Array.isArray(data.StatusNotifications) && data.StatusNotifications.length <= 1);
+    return data.StatusNotifications[0] ?? null;
+  }, "Durable rider connector status");
+  const clock = typeof status.timestamp === "string" ? Date.parse(status.timestamp) : NaN;
+  const now = Date.now();
+  const proof = {
+    protocol: f.protocol,
+    exact_connector: status.connectorId === 1,
+    exact_evse: (status.evseId ?? 0) === (f.protocol === "1.6" ? 0 : 1),
+    available: status.connectorStatus === "Available",
+    fault_clear: f.protocol === "1.6"
+      ? status.errorCode === "NoError"
+      : [null, undefined, "NoError"].includes(status.errorCode),
+    current_clock: Number.isFinite(clock) && clock <= now && clock >= now - 300000,
+  };
+  // Only fixed booleans and protocol are reported; no station, token,
+  // credential, raw source receipt or response body is exposed.
+  console.log(JSON.stringify({ evidence: "SIMULATED_RIDER_SOURCE_PREFLIGHT", ...proof }));
+  assert(
+    proof.exact_connector && proof.exact_evse && proof.available &&
+      proof.fault_clear && proof.current_clock,
+    "Rider source receipt does not satisfy the current authorization contract",
+  );
+  return proof;
+}
+
 (async () => {
   await require("./rider-access-history.cjs")();
   execFileSync("./scripts/rider-auth-setup", { stdio: "pipe" });
@@ -68,6 +128,7 @@ const { SimulatedCharger, graph, poll } = require("./helpers/csms-local.cjs");
       await charger.connect();
       await charger.boot();
       await charger.status();
+      await proveRiderSourceReceipt(f);
       const auth = () =>
         charger.call(
           "Authorize",

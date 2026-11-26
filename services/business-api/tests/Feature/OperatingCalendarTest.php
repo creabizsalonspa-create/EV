@@ -251,7 +251,7 @@ class OperatingCalendarTest extends TestCase
                 return Http::response(['data' => ['ChargingStations' => [['id' => 10, 'isOnline' => true, 'protocol' => $protocol]]]]);
             }
 
-            return Http::response(['data' => ['Connectors' => [['id' => 7]], 'StatusNotifications' => [['evseId' => $protocol === '1.6' ? 0 : 1, 'connectorId' => 1, 'connectorStatus' => 'Available', 'timestamp' => now()->toISOString()]]]]);
+            return Http::response(['data' => ['Connectors' => [['id' => 7, 'evseId' => 77]], 'StatusNotifications' => [['evseId' => $protocol === '1.6' ? 0 : 1, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => $protocol === '1.6' ? 'NoError' : null, 'timestamp' => now()->toISOString()]]]]);
         });
         $token = $this->postJson('/api/internal/rider-oauth/token', ['grant_type' => 'client_credentials', 'client_id' => 'calendar-source', 'client_secret' => str_repeat('s', 64), 'audience' => 'creabiz-rider-authorize'])->assertOk()->json('access_token');
         $body = ['idToken' => $command->payload['id_token'], 'idTokenType' => 'Central', 'ocppConnectionName' => $link->identifier, 'connectorId' => 7];
