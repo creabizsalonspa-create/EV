@@ -12,10 +12,24 @@ window.EvStationBlocks = (() => {
     function mount(root, {api, stationId, current, initialRows = null}) {
         let rows = [], busy = false, pending = null, renderVersion = 0;
         const path = 'stations/' + stationId + '/availability-blocks';
+        const validatedRows = data => data?.station_id === stationId &&
+            Array.isArray(data.data) && data.data.length <= 50 &&
+            data.data.every(row => row && typeof row === 'object' &&
+                row.station_id === stationId &&
+                typeof row.id === 'string' &&
+                /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(row.id) &&
+                typeof row.starts_at === 'string' &&
+                typeof row.ends_at === 'string' &&
+                typeof row.reason_en === 'string' &&
+                typeof row.reason_ar === 'string' &&
+                Number.isSafeInteger(row.revision) && row.revision > 0 &&
+                row.scope === 'STATION_WIDE_OPERATOR_POLICY' &&
+                row.cancelled === false &&
+                row.physical_availability_verified === false);
         async function read() {
             const data = await api(path);
             if (!current()) return;
-            if (data?.station_id !== stationId || !Array.isArray(data.data)) throw Error('Invalid station block response');
+            if (!validatedRows(data)) throw Error('Invalid station block response');
             rows = data.data; render();
         }
         function render() {
@@ -29,7 +43,18 @@ window.EvStationBlocks = (() => {
             async function act(task) {
                 if (busy || !current() || view !== renderVersion) return; busy = true; root.querySelectorAll('button').forEach(b => b.disabled = true);
                 try { await task(); }
-                catch (error) { if (current()) { if (error.status === 422) { pending = null; root.querySelectorAll('input').forEach(input => input.disabled = false); } else if (pending) render(); root.prepend(text('p', 'Action not confirmed. Refresh status or retry the same request.', 'لم يتأكد الإجراء. حدّث الحالة أو أعد محاولة الطلب نفسه.')); } }
+                catch (error) {
+                    if (current()) {
+                        // A failed source read or rejected write makes previous
+                        // cancel targets uncertain. Never retain them as live.
+                        rows = [];
+                        if (error.status === 422) pending = null;
+                        render();
+                        root.prepend(text('p',
+                            'Action not confirmed. Refresh status or retry the same request.',
+                            'لم يتأكد الإجراء. حدّث الحالة أو أعد محاولة الطلب نفسه.'));
+                    }
+                }
                 finally { if (current()) { busy = false; root.querySelectorAll('button').forEach(b => b.disabled = false); } }
             }
             const refresh = text('button', 'Refresh station blocks', 'تحديث فترات الحجب'); refresh.type = 'button'; refresh.onclick = () => act(read); root.append(refresh);
@@ -54,8 +79,16 @@ window.EvStationBlocks = (() => {
             };
             root.append(form);
         }
-        if (Array.isArray(initialRows)) { rows = initialRows; render(); }
-        else read().catch(() => { if (current()) root.replaceChildren(text('p', 'Station blocks are unavailable. Refresh the station before editing.', 'فترات الحجب غير متاحة. حدّث المحطة قبل التعديل.')); });
+        if (Array.isArray(initialRows) && validatedRows({ station_id: stationId, data: initialRows })) {
+            rows = initialRows;
+            render();
+        } else {
+            read().catch(() => {
+                if (current()) root.replaceChildren(text('p',
+                    'Station blocks are unavailable. Refresh the station before editing.',
+                    'فترات الحجب غير متاحة. حدّث المحطة قبل التعديل.'));
+            });
+        }
     }
     return {show, mount};
 })();
