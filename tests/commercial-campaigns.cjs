@@ -134,6 +134,34 @@ const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
     );
     await v.getByText("Awaiting review", { exact: true }).waitFor();
     const { p: admin, panel: a } = await login("admin");
+    // Verify the real server-filtered review page, and reject a forged scope.
+    const reviewFilters = a.locator("[data-campaign-filters]");
+    await reviewFilters.locator("[name=status]").selectOption("submitted");
+    assert.equal(await a.locator("[data-campaign-record]").count(), 0);
+    const reviewFiltered = admin.waitForResponse(response =>
+      response.url().includes("/api/commercial/campaigns?") &&
+      new URL(response.url()).searchParams.get("status") === "submitted");
+    await reviewFilters.getByRole("button", { name: "Apply campaign filters", exact: true }).click();
+    const reviewFilteredResponse = await reviewFiltered;
+    assert.equal(reviewFilteredResponse.status(), 200);
+    const reviewFilteredData = await reviewFilteredResponse.json();
+    assert.equal(reviewFilteredData.scope.status, "submitted");
+    assert.ok(reviewFilteredData.data.every(c => c.status === "submitted"));
+    await a.locator(`[data-campaign-record="${id}"]`).waitFor();
+    const reviewBadScopePattern = /\/api\/commercial\/campaigns\?page=1&status=approved$/;
+    await admin.route(reviewBadScopePattern, async route => {
+      const response = await route.fetch();
+      const data = await response.json();
+      data.scope.status = "submitted";
+      await route.fulfill({ response, json: data });
+    });
+    await reviewFilters.locator("[name=status]").selectOption("approved");
+    await reviewFilters.getByRole("button", { name: "Apply campaign filters", exact: true }).click();
+    await a.getByText("Campaign filter source cannot be verified.", { exact: true }).waitFor();
+    assert.equal(await a.locator("[data-campaign-record]").count(), 0);
+    await admin.unroute(reviewBadScopePattern);
+    await reviewFilters.getByRole("button", { name: "Clear campaign filters", exact: true }).click();
+    await a.locator(`[data-campaign-record="${id}"]`).waitFor();
     // A stale/forged private detail must not expose an approval form.
     const detailPattern = new RegExp("/api/commercial/campaigns/" + id + "\\?page=1$");
     await admin.route(detailPattern, async route => {
