@@ -297,6 +297,38 @@ class PartnerLocationDiscoveryTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_public_coordinate_projection_rejects_control_bearing_and_unbounded_numeric_strings(): void
+    {
+        $record = $this->location($this->provider(), 'bounded-coordinate', 25.2, 55.3);
+        $customer = User::factory()->create(['role' => 'customer', 'account_status' => 'active']);
+        $this->actingAs($customer)->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
+        $original = $record->normalized;
+        $paths = ['/api/roaming/locations', '/api/discovery/search?scope=partner',
+            '/api/v1/discovery/search?scope=partner', '/api/roaming/favorites'];
+        foreach (["\t25.2", "25.2\n", "25.2\r", str_repeat('0', 41), '1e-999'] as $invalid) {
+            $record->update(['normalized' => array_replace($original, [
+                'latitude' => $invalid, 'longitude' => $invalid,
+            ])]);
+            foreach ($paths as $path) {
+                $this->getJson($path)->assertOk()->assertJsonCount(1, 'data')
+                    ->assertJsonPath('data.0.location.latitude', null)
+                    ->assertJsonPath('data.0.location.longitude', null)
+                    ->assertJsonPath('data.0.location.availability', 'unknown')
+                    ->assertJsonPath('data.0.location.remote_control', false);
+            }
+        }
+        $record->update(['normalized' => array_replace($original, [
+            'latitude' => ' 25.2 ', 'longitude' => '5.53e1',
+        ])]);
+        foreach ($paths as $path) {
+            $this->getJson($path)->assertOk()->assertJsonCount(1, 'data')
+                ->assertJsonPath('data.0.location.latitude', '25.2')
+                ->assertJsonPath('data.0.location.longitude', '5.53e1');
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_catalog_age_never_normalizes_corrupt_dates_or_rounds_up_partial_minutes(): void
     {
         config(['partner_catalog.max_age_seconds' => 3600]);
