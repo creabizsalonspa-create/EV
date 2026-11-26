@@ -88,6 +88,31 @@ class SandboxRoamingTest extends TestCase
         $this->assertDatabaseCount('charging_sessions', 0);
     }
 
+    public function test_future_local_location_or_tariff_receipt_cannot_grant_new_roaming_consent(): void
+    {
+        [, $driver, , , $location] = $this->fixture();
+        $tariff = OcpiRecord::where('module', 'tariffs')->firstOrFail();
+        $url = '/api/roaming/locations/'.$location->id;
+        $offer = $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->json('offers.0');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true];
+
+        foreach ([$location, $tariff] as $record) {
+            DB::table('ocpi_records')->where('id', $record->id)->update(['received_at' => now()->addDay()->utc()->format('Y-m-d H:i:s.u')]);
+            $this->getJson($url.'/sandbox-offers')->assertOk()->assertJsonCount(0, 'offers');
+            $this->postJson($url.'/sandbox-orders', $body)->assertConflict();
+            $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+            $this->assertDatabaseCount('ocpi_roaming_commands', 0);
+            $this->assertCount(0, $this->writes);
+            DB::table('ocpi_records')->where('id', $record->id)->update(['received_at' => $record->getRawOriginal('received_at')]);
+        }
+
+        $this->getJson($url.'/sandbox-offers')->assertOk()->assertJsonCount(1, 'offers');
+        $this->postJson($url.'/sandbox-orders', $body)->assertCreated()->assertJsonPath('state', 'start_accepted');
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
     public function test_explicit_sandbox_consent_registers_never_offline_token_and_dispatches_once_without_financial_writes(): void
     {
         [$owner,$driver,$other,$p,$location] = $this->fixture();
