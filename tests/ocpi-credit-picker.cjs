@@ -32,6 +32,8 @@ withSource(async (f) => {
       })),
     );
     const page = await context.newPage();
+    page.setDefaultTimeout(45000);
+    page.setDefaultNavigationTimeout(45000);
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     let firstBody, secondBody, created;
@@ -120,39 +122,49 @@ withSource(async (f) => {
       ),
       false,
     );
-    // Private UI is cleared immediately, before asynchronous logout is
-    // acknowledged. Observe the actual authenticated POST and its completion,
-    // not just the optimistic redaction. Probe the exact outgoing cookie,
-    // rather than the fixture client's potentially superseded cookie jar.
+    // The UI erases private views immediately, before the logout request
+    // completes. Closing the context at that point can cancel server logout.
+    // Wait for the exact same-origin POST acknowledgement, not just hiding.
     checkpoint("logout-session-revocation");
-    const loggedOut = page.waitForResponse(
-      (response) => new URL(response.url()).pathname === "/api/logout" &&
-        response.request().method() === "POST",
-    );
-    await page.locator("#logout").click();
-    const logoutResponse = await loggedOut;
-    assert.equal(logoutResponse.ok(), true, "Logout must be acknowledged");
-    await logoutResponse.finished();
-    const sentCookie = (await logoutResponse.request().allHeaders()).cookie;
-    assert.ok(sentCookie, "Logout must carry authenticated session cookies");
+    const logoutUrl = new URL("/api/logout", f.base).href;
+    const [logout] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url() === logoutUrl &&
+          response.request().method() === "POST",
+        { timeout: 45000 },
+      ),
+      page.locator("#logout").click({ timeout: 45000 }),
+    ]);
+    assert.equal(logout.status(), 204, "Browser logout must be acknowledged");
+    checkpoint("logout-acknowledged");
+    const logoutHeaders = await logout.request().allHeaders();
+    const revokedCookie = logoutHeaders.cookie;
+    assert(Boolean(revokedCookie), "Logout must carry the browser session");
+    checkpoint("logout-ui-confirmation");
     await page.waitForFunction(
-      () => document.querySelector("#commercial-finance").hidden,
+      () =>
+        document.querySelector("#commercial-finance").hidden &&
+        document.querySelector("#logout-retry").hidden &&
+        sessionStorage.getItem("creabiz.logout-pending") !== "1",
+      undefined,
+      { timeout: 45000 },
     );
     assert.equal(await root.textContent(), "");
+    // Independently replay the exact cookie that was sent on logout.
+    // Assert only the status; never print cookies or private invoice content.
+    checkpoint("revoked-cookie-probe");
+    const revokedRead = await fetch(
+      new URL(`/api/finance/invoices/${invoice.id}`, f.base),
+      {
+        headers: { Accept: "application/json", Cookie: revokedCookie },
+        redirect: "error",
+        signal: AbortSignal.timeout(30000),
+      },
+    );
+    assert.equal(revokedRead.status, 401, "Logged-out browser cookie must be denied");
     checkpoint("customer-context-close");
     await context.close();
-    checkpoint("revoked-cookie-probe");
-    const retired = new BusinessClient({ base: f.base });
-    for (const pair of sentCookie.split(";")) {
-      const entry = pair.trim(), index = entry.indexOf("=");
-      assert.ok(index > 0, "Invalid synthetic session cookie");
-      retired.cookies.set(entry.slice(0, index), entry.slice(index + 1));
-    }
-    await assert.rejects(
-      () => retired.request(`finance/invoices/${invoice.id}`),
-      /failed \(401\)/,
-      "The exact acknowledged logout session must be rejected",
-    );
     checkpoint("vendor-review");
     const owner = new BusinessClient({ base: f.base });
     owner.csrf = (await owner.request("csrf")).token;
@@ -166,6 +178,8 @@ withSource(async (f) => {
       [...owner.cookies].map(([name, value]) => ({ name, value, url: f.base })),
     );
     const vendor = await vendorContext.newPage();
+    vendor.setDefaultTimeout(45000);
+    vendor.setDefaultNavigationTimeout(45000);
     vendor.on("pageerror", (e) => errors.push(e.message));
     await vendor.goto(f.base + "#commercial-finance");
     const review = vendor
