@@ -42,6 +42,26 @@ def read_strict_json(payload):
         require(math.isfinite(result), 'Non-finite recovery evidence number')
         return result
 
+    # Bound container depth before parsing, independent of the Python runtime's
+    # recursion behavior. Ignore braces and brackets inside JSON strings.
+    depth = 0
+    in_string = False
+    escaped = False
+    for ch in payload.decode('utf-8'):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == '\\':
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in '[{':
+            depth += 1
+            require(depth <= 32, 'Recovery evidence nesting exceeds limit')
+        elif ch in ']}':
+            depth -= 1
     return json.loads(payload.decode('utf-8'), object_pairs_hook=unique,
                       parse_constant=nonfinite, parse_float=finite_float)
 

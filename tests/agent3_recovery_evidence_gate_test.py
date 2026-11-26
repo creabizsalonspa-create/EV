@@ -220,6 +220,15 @@ class GateTest(unittest.TestCase):
             with self.assertRaises(gate.EvidenceError):
                 gate.read_proof(path)
 
+    def test_nesting_limit_ignores_escaped_string_content(self):
+        value = {'quoted': '[{' * 100 + '"\\' + ']}' * 100}
+        self.assertEqual(gate.read_strict_json(json.dumps(value).encode()), value)
+        self.assertIsInstance(gate.read_strict_json(
+            ('{"v":' + '[' * 31 + '0' + ']' * 31 + '}').encode()), dict)
+        with self.assertRaises(gate.EvidenceError):
+            gate.read_strict_json(
+                ('{"v":' + '[' * 32 + '0' + ']' * 32 + '}').encode())
+
     def test_named_pipe_evidence_is_rejected_without_waiting_for_a_writer(self):
         import os
         if not hasattr(os, 'mkfifo'):
