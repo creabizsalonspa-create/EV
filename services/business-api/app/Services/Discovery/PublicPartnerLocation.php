@@ -14,6 +14,14 @@ final class PublicPartnerLocation
 
     private static function coordinate(mixed $value, int $max): string|int|float|null
     {
+        if (is_string($value)) {
+            // Match the bounded SQL viewport/proximity grammar. Normalize only
+            // ASCII spaces, never control characters or arbitrary numeric text.
+            $value = trim($value, ' ');
+            if (preg_match('/^[+-]?([0-9]{1,40}([.][0-9]{0,40})?|[.][0-9]{1,40})([eE][+-]?[0-9]{1,2})?$/D', $value) !== 1) {
+                return null;
+            }
+        }
         if ((! is_string($value) && ! is_int($value) && ! is_float($value))
             || ! is_numeric($value) || ! is_finite((float) $value) || abs((float) $value) > $max) {
             return null;
