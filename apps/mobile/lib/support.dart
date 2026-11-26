@@ -12,7 +12,7 @@ import 'charging_operations.dart';
 
 /// Server UTC, independent of device and station timezone.
 String supportMessageTime(BuildContext context, dynamic raw) {
-  final formatted=reservationTime(context,{'created_at':raw},'created_at');
+  final formatted=serverUtcTime(context,raw);
   if(formatted!='—')return formatted;
   return EvStrings.of(context).arabic?'وقت الرسالة غير متاح':'Message time unavailable';
 }

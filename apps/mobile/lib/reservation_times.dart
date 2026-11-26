@@ -84,3 +84,31 @@ String reservationTime(
   );
   return '$date · $time · \u2068$zoneLabel\u2069';
 }
+
+/// Server event timestamps carry an explicit offset, or use Laravel's UTC SQL
+/// serialization. A timezone-less ISO wall clock is not an authoritative instant.
+/// Normalize before display; never interpret source data in the device timezone.
+String serverUtcTime(BuildContext context, dynamic raw) {
+  if (raw is! String || !_validCalendarClock(raw)) return '—';
+  final sql = RegExp(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$').firstMatch(raw);
+  final iso = RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$').firstMatch(raw);
+  String wire;
+  if (sql != null && sql.end == raw.length) {
+    wire = raw.replaceFirst(' ', 'T') + 'Z';
+  } else if (iso != null && iso.end == raw.length) {
+    final offset = iso.group(1)!;
+    if (offset != 'Z') {
+      final hours = int.parse(offset.substring(1, 3));
+      final minutes = int.parse(offset.substring(4, 6));
+      if (hours > 14 || minutes > 59 || (hours == 14 && minutes != 0)) {
+        return '—';
+      }
+    }
+    wire = raw;
+  } else {
+    return '—';
+  }
+  final instant = DateTime.tryParse(wire);
+  if (instant == null) return '—';
+  return reservationTime(context, {'event': instant.toUtc().toIso8601String()}, 'event');
+}
