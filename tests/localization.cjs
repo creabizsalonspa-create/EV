@@ -205,6 +205,54 @@ const fs = require("node:fs"),
     await page.reload();
     await page.locator("#stations h3").waitFor();
     assert.equal(await page.locator("html").getAttribute("lang"), "ar");
+    // Test the actual account keyboard path at narrow reflow widths, in
+    // both directions. A wrapping sticky header must not cover focused inputs.
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const language of ["en", "ar"]) {
+        await page.evaluate(language => {
+          window.EvLocale.set(language);
+          window.scrollTo(0, 0);
+        }, language);
+        const skip = page.locator(".skip-link");
+        await skip.focus();
+        assert.equal(await skip.evaluate(node => document.activeElement === node), true);
+        await page.keyboard.press("Enter");
+        assert.equal(await page.evaluate(() => document.activeElement.id), "workspace",
+          width + "/" + language + " skip link focuses the main landmark");
+        const input = page.locator("#account input[name=email]");
+        await input.focus();
+        const keyboard = await input.evaluate(node => {
+          node.scrollIntoView({block:"center", inline:"nearest"});
+          const rect = node.getBoundingClientRect();
+          const center = document.elementFromPoint(rect.left + rect.width / 2,
+            rect.top + rect.height / 2);
+          const style = getComputedStyle(node);
+          return {
+            focused: document.activeElement === node,
+            hit: center === node,
+            height: rect.height,
+            headerPosition: getComputedStyle(document.querySelector("header")).position,
+            outlineWidth: parseFloat(style.outlineWidth),
+            outlineStyle: style.outlineStyle,
+            direction: document.documentElement.dir,
+          };
+        });
+        assert.equal(keyboard.headerPosition, "static", "Narrow header stays in document flow");
+        assert(keyboard.focused && keyboard.hit, width + "/" + language + " focus unobscured");
+        assert(keyboard.height >= 44, width + "/" + language + " account target height");
+        assert(keyboard.outlineWidth >= 3 && keyboard.outlineStyle !== "none",
+          width + "/" + language + " visible keyboard focus");
+        assert.equal(keyboard.direction, language === "ar" ? "rtl" : "ltr");
+        const summary = page.locator("#account [data-second-factor-login] summary");
+        await summary.focus();
+        await page.keyboard.press("Enter");
+        assert.equal(await summary.evaluate(node => node.parentElement.open), true);
+        await page.keyboard.press("Enter");
+        assert.equal(await summary.evaluate(node => node.parentElement.open), false);
+      }
+    }
+    await page.evaluate(() => window.EvLocale.set("ar"));
     await page.setViewportSize({ width: 390, height: 844 });
     assert(
       await page.evaluate(

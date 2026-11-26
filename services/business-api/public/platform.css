@@ -482,6 +482,15 @@ form label {
     top: 0.5rem;
 }
 @media (max-width: 1050px) {
+    /* At narrow/zoomed widths the header wraps into multiple rows. A fixed
+       110px scroll offset cannot reserve its variable height, so keep the
+       header in document flow and leave keyboard targets unobscured. */
+    html {
+        scroll-padding-top: 1rem;
+    }
+    header {
+        position: static;
+    }
     .workspace-nav {
         position: static;
         width: auto;
