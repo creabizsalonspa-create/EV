@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'api.dart';
+import 'hosted_checkout_events.dart';
 import 'strings.dart';
 import 'invoice.dart';
 import 'subscriptions.dart';
@@ -862,6 +863,13 @@ class _HostedState extends State<HostedCheckoutView>
     bool activeView() => current && top && renderedEpoch == generation && !confirming;
     final r = record;
     final own = r != null && ownRecord(r);
+    final activityEpoch = generation, activityApi = widget.api;
+    final activityCorporate = widget.corporate;
+    final activityFence = activityApi.sessionFence();
+    final activityExpired = widget.onExpired;
+    bool activityCurrent() => current && activityFence() &&
+        generation == activityEpoch && identical(record,r) &&
+        identical(widget.api,activityApi) && widget.corporate == activityCorporate;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -979,6 +987,30 @@ class _HostedState extends State<HostedCheckoutView>
                       child: Text(t('sourceDetails')),
                     ),
                     Text('${t('expires')}: ${r.source['expires_at'] ?? '—'}'),
+                    OutlinedButton(
+                      onPressed: busy
+                          ? null
+                          : () {
+                              if (!activeView() || !activityCurrent() || busy) return;
+                              Navigator.of(c).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => !activityCurrent()
+                                      ? const Scaffold(body:SizedBox.shrink())
+                                      : HostedCheckoutEventsView(
+                                          api: activityApi,
+                                          checkoutId: r.id,
+                                          corporate: activityCorporate,
+                                          onExpired: activityExpired,
+                                        ),
+                                ),
+                              );
+                            },
+                      child: Text(
+                        Localizations.localeOf(c).languageCode == 'ar'
+                            ? 'نشاط عملية الدفع'
+                            : 'Checkout activity',
+                      ),
+                    ),
                     if (!own) Text(t('ownerOnly')),
                     if (own) ...[
                       if (creation != null && r.permits('retry'))

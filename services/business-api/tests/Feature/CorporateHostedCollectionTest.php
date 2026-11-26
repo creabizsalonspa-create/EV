@@ -40,6 +40,21 @@ class CorporateHostedCollectionTest extends TestCase
         return $this->actingAs($f['owner'])->postJson(self::URL, ['statement_id' => $f['statement']->id, 'consent' => true, 'idempotency_key' => $key])->assertCreated()->json('checkout');
     }
 
+    public function test_native_corporate_activity_is_available_to_the_current_statement_owner(): void
+    {
+        $f = $this->f();
+        $h = $this->create($f);
+        $id = $h['id'];
+        $url = "/api/v1/commercial/corporate/hosted-checkouts/$id/events?page=1";
+        $this->getJson($url)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('data.0.checkout_id', $id)
+            ->assertJsonPath('data.0.kind', 'mock_opened');
+        $this->actingAs($f['driver'])->getJson($url)->assertNotFound();
+        $this->actingAs(User::factory()->create())->getJson($url)->assertNotFound();
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     private function fake(callable $fn): void
     {
         Http::swap(new Factory);
@@ -263,6 +278,43 @@ class CorporateHostedCollectionTest extends TestCase
         $this->postJson(self::URL.'/'.$row->id.'/retry-preparation')->assertOk()->assertJsonPath('checkout.status', 'open');
         $this->assertSame($sent[0], $sent[1]);
         $this->assertDatabaseCount('corporate_hosted_checkouts', 1);
+    }
+
+    public function test_capture_rechecks_original_statement_and_checkout_amount_before_provider_io(): void
+    {
+        $f = $this->f();
+        $this->stripe();
+        $statement = $f['statement'];
+        $lines = DB::table('corporate_statement_lines')
+            ->where('statement_id', $statement->id)->orderBy('invoice_id')->get();
+        $source = app(CorporateBilling::class)->statement($statement->id, $f['owner']->id);
+
+        // Exercise a malformed in-memory source without rewriting
+        // the immutable checkout record or disabling database triggers.
+        $valid = $this->stripeCreate($f);
+        $original = DB::table('corporate_hosted_checkouts')->find($valid['id']);
+        $service = app(CorporateHostedCollection::class);
+        $invoiceMap = collect($f['invoices'])->keyBy('id')->all();
+        $preflight = new \ReflectionMethod($service, 'validateCollectionSource');
+        $preflight->invoke($service, $statement, $lines, $invoiceMap, $original);
+        $bad = clone $original;
+        $bad->amount_minor = 2101;
+
+        $before = DB::table('finance_journals')->count();
+        $this->fake(fn () => Http::response($this->pi($valid, 'succeeded')));
+        try {
+            $preflight->invoke($service, $statement, $lines, $invoiceMap, $bad);
+            $this->fail('Inconsistent checkout source was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+
+        Http::assertNothingSent();
+        $this->assertSame($source['line_fingerprint'], $original->line_fingerprint);
+        $this->assertDatabaseCount('corporate_hosted_operations', 0);
+        $this->assertDatabaseCount('corporate_receipts', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertSame($before, DB::table('finance_journals')->count());
     }
 
     public function test_stripe_contract_authorizes_captures_and_allocates_one_original_statement(): void

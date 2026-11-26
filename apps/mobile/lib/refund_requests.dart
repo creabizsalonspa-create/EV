@@ -144,6 +144,21 @@ List<Widget> _sourceCreditEvidence(BuildContext context, Map row) {
   ];
 }
 
+Map<String, dynamic> nativeRefundHistoryRecord(Map<String, dynamic> row) {
+  final amount = row['amount_minor'];
+  final reason = row['reason'];
+  final credit = row['ocpi_credit_record_id'];
+  if (!_refundId(row['id']) ||
+      !_refundId(row['invoice_id']) ||
+      amount is! int || amount < 1 || amount > 2000000000 ||
+      reason is! String || reason.trim().isEmpty || reason.length > 500 ||
+      !['pending', 'approved', 'rejected'].contains(row['status']) ||
+      (credit != null && !_refundId(credit))) {
+    throw const FormatException('Invalid private refund history.');
+  }
+  return row;
+}
+
 class RefundRequestsView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
@@ -174,6 +189,8 @@ class _RefundListState extends State<RefundRequestsView>
   void initState() {
     super.initState();
     ownsSession = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     session = widget.api.sessionEvents.listen((_) {
       if (mounted) setState(() {
@@ -233,7 +250,7 @@ class _RefundListState extends State<RefundRequestsView>
           'finance/refund-requests',
           query: {'page': '$number'},
         ),
-        (r) => r,
+        nativeRefundHistoryRecord,
       );
       if (current(epoch)) setState(() => page = result);
     } catch (e) {
@@ -248,7 +265,9 @@ class _RefundListState extends State<RefundRequestsView>
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
+  Widget build(BuildContext c) {
+    final view = generation;
+    return Scaffold(
     appBar: AppBar(title: Text(t('title'))),
     body: ListView(
       padding: const EdgeInsets.all(16),
@@ -256,7 +275,9 @@ class _RefundListState extends State<RefundRequestsView>
         Text(t('notice')),
         if (visible) ...[
         OutlinedButton(
-          onPressed: busy ? null : () => load(number: target),
+          onPressed: busy ? null : () {
+            if (current(view)) load(number: target);
+          },
           child: Text(t('refresh')),
         ),
         if (busy) const Center(child: CircularProgressIndicator()),
@@ -289,16 +310,18 @@ class _RefundListState extends State<RefundRequestsView>
                         onPressed: busy
                             ? null
                             : () async {
+                                if (!current(view)) return;
+                                final api = widget.api;
                                 await Navigator.of(c).push(
                                   MaterialPageRoute<void>(
                                     builder: (_) => RefundDecisionView(
-                                      api: widget.api,
+                                      api: api,
                                       onExpired: widget.onExpired,
                                       requestId: row['id'] as int,
                                     ),
                                   ),
                                 );
-                                if (mounted && visible) load(number: target);
+                                if (current(view)) load(number: target);
                               },
                         child: Text(t('review')),
                       ),
@@ -312,14 +335,14 @@ class _RefundListState extends State<RefundRequestsView>
               OutlinedButton(
                 onPressed: busy || page!.current <= 1
                     ? null
-                    : () => load(number: page!.current - 1),
+                    : () { if (current(view)) load(number: page!.current - 1); },
                 child: Text(t('previous')),
               ),
               Text('${page!.current} / ${page!.last}'),
               OutlinedButton(
                 onPressed: busy || page!.current >= page!.last
                     ? null
-                    : () => load(number: page!.current + 1),
+                    : () { if (current(view)) load(number: page!.current + 1); },
                 child: Text(t('next')),
               ),
             ],
@@ -328,7 +351,8 @@ class _RefundListState extends State<RefundRequestsView>
         ],
       ],
     ),
-  );
+    );
+  }
 }
 
 class RefundRequestView extends StatefulWidget {
@@ -371,6 +395,8 @@ class _RefundRequestState extends State<RefundRequestView>
   void initState() {
     super.initState();
     ownsSession = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     session = widget.api.sessionEvents.listen((_) {
       if (mounted) setState(() { revoked = true; clearPrivate(); });
@@ -392,10 +418,20 @@ class _RefundRequestState extends State<RefundRequestView>
     credit.clear();
   }
 
+  void redactRevokedSession() {
+    if (mounted && !revoked && !ownsSession()) {
+      setState(() {
+        revoked = true;
+        clearPrivate();
+      });
+    }
+  }
+
   @override
   void didUpdateWidget(covariant RefundRequestView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.api, widget.api) ||
+        !identical(oldWidget.store, widget.store) ||
         oldWidget.invoiceId != widget.invoiceId ||
         oldWidget.currency != widget.currency || oldWidget.digits != widget.digits) {
       revoked = true;
@@ -435,6 +471,7 @@ class _RefundRequestState extends State<RefundRequestView>
         throw const FormatException('Unsupported precision.');
       final me = await widget.api.request('me');
       if (!current(epoch)) return;
+      if (me is! Map) throw const FormatException('Invalid refund owner.');
       final owner = me['id'];
       if (!_refundId(owner) || me['role'] != 'customer')
         throw const ApiException(403, 'Customer invoice ownership required.');
@@ -470,12 +507,13 @@ class _RefundRequestState extends State<RefundRequestView>
           widget.onExpired();
       }
     } finally {
+      redactRevokedSession();
       if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> submit() async {
-    if (!visible || busy || operation == null || ownerId == null) return;
+    if (!mounted || !visible || busy || confirmed || operation == null || ownerId == null) return;
     final formGeneration = generation;
     final op = operation!;
     final owner = ownerId!;
@@ -510,8 +548,12 @@ class _RefundRequestState extends State<RefundRequestView>
         ],
       ),
     );
+    redactRevokedSession();
     if (consent != true || !current(formGeneration) ||
-        !identical(op, operation) || busy) return;
+        !identical(op, operation) || busy || confirmed ||
+        decimalMinor(amount.text, widget.digits, maximum: 2000000000) != minor ||
+        reason.text.trim() != originalReason ||
+        credit.text.trim() != (creditId?.toString() ?? '')) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -545,12 +587,15 @@ class _RefundRequestState extends State<RefundRequestView>
           widget.onExpired();
       }
     } finally {
+      redactRevokedSession();
       if (current(epoch)) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
+  Widget build(BuildContext c) {
+    final view = generation;
+    return Scaffold(
     appBar: AppBar(title: Text(t('new'))),
     body: ListView(
       padding: const EdgeInsets.all(16),
@@ -585,19 +630,23 @@ class _RefundRequestState extends State<RefundRequestView>
           onPressed: busy || uncertain || confirmed
               ? null
               : () async {
-                  final current = widget.api.sessionFence();
+                  if (!current(view) || busy || uncertain || confirmed) return;
+                  final api = widget.api;
+                  final invoice = widget.invoiceId;
+                  final fence = ownsSession;
                   final selected = await Navigator.of(c).push<int>(
                     MaterialPageRoute(
-                      builder: (_) => SourceCreditPickerView(
-                        api: widget.api,
-                        invoiceId: widget.invoiceId,
+                      builder: (_) => current(view) ? SourceCreditPickerView(
+                        api: api,
+                        invoiceId: invoice,
                         onExpired: widget.onExpired,
-                      ),
+                      ) : const SizedBox.shrink(),
                     ),
                   );
-                  if (!mounted || !visible ||
-                      !current() ||
-                      selected == null ||
+                  redactRevokedSession();
+                  if (!current(view) || !fence() ||
+                      !identical(api, widget.api) ||
+                      selected == null || (selected != 0 && !_refundId(selected)) ||
                       busy ||
                       uncertain ||
                       confirmed)
@@ -623,27 +672,30 @@ class _RefundRequestState extends State<RefundRequestView>
             ),
           ),
         FilledButton(
-          onPressed: busy || confirmed || operation == null ? null : submit,
+          onPressed: busy || confirmed || operation == null ? null : () {
+              if (current(view)) submit();
+            },
           child: Text(t(uncertain ? 'resume' : 'submit')),
         ),
         OutlinedButton(
           onPressed: busy
               ? null
-              : () => Navigator.of(c).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => RefundRequestsView(
-                      api: widget.api,
-                      onExpired: widget.onExpired,
-                      role: 'customer',
-                    ),
-                  ),
-                ),
+              : () {
+                  if (!current(view) || busy) return;
+                  final api = widget.api;
+                  Navigator.of(c).push(MaterialPageRoute<void>(
+                    builder: (_) => current(view) ? RefundRequestsView(
+                      api: api, onExpired: widget.onExpired, role: 'customer',
+                    ) : const SizedBox.shrink(),
+                  ));
+                },
           child: Text(t('title')),
         ),
         ],
       ],
     ),
-  );
+    );
+  }
 }
 
 class RefundDecisionView extends StatefulWidget {
@@ -679,6 +731,8 @@ class _RefundDecisionState extends State<RefundDecisionView>
   void initState() {
     super.initState();
     ownsSession = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     session = widget.api.sessionEvents.listen((_) {
       if (mounted) setState(() {
@@ -701,10 +755,20 @@ class _RefundDecisionState extends State<RefundDecisionView>
     note.clear();
   }
 
+  void redactRevokedSession() {
+    if (mounted && !revoked && !ownsSession()) {
+      setState(() {
+        revoked = true;
+        clearPrivate();
+      });
+    }
+  }
+
   @override
   void didUpdateWidget(covariant RefundDecisionView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.api, widget.api) ||
+        !identical(oldWidget.store, widget.store) ||
         oldWidget.requestId != widget.requestId) {
       revoked = true;
       clearPrivate();
@@ -740,7 +804,7 @@ class _RefundDecisionState extends State<RefundDecisionView>
       }
       final me = await widget.api.request('me');
       if (!current(epoch)) return;
-      if (!_refundId(me['id']) || me['role'] != 'vendor')
+      if (me is! Map || !_refundId(me['id']) || me['role'] != 'vendor')
         throw const ApiException(403, 'Vendor ownership required.');
       final sourceEpoch = privateEpoch;
       final op = FinancialOperation(
@@ -770,12 +834,13 @@ class _RefundDecisionState extends State<RefundDecisionView>
           widget.onExpired();
       }
     } finally {
+      redactRevokedSession();
       if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> submit() async {
-    if (!visible || busy || operation == null) return;
+    if (!mounted || !visible || busy || confirmed || operation == null) return;
     final formGeneration = generation;
     final op = operation!;
     final selectedDecision = decision;
@@ -800,8 +865,10 @@ class _RefundDecisionState extends State<RefundDecisionView>
         ],
       ),
     );
+    redactRevokedSession();
     if (yes != true || !current(formGeneration) ||
-        !identical(op, operation) || busy) return;
+        !identical(op, operation) || busy || confirmed ||
+        decision != selectedDecision || note.text.trim() != selectedNote) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -840,12 +907,14 @@ class _RefundDecisionState extends State<RefundDecisionView>
           widget.onExpired();
       }
     } finally {
+      redactRevokedSession();
       if (current(epoch)) setState(() => busy = false);
     }
   }
 
   @override
   Widget build(BuildContext c) {
+    final view = generation;
     final t = (String k) => refundText(c, k);
     return Scaffold(
       appBar: AppBar(title: Text(t('review'))),
@@ -866,7 +935,12 @@ class _RefundDecisionState extends State<RefundDecisionView>
             ],
             onChanged: busy || uncertain || confirmed
                 ? null
-                : (v) => setState(() => decision = v!),
+                : (v) {
+                    if (current(view) && !busy && !uncertain && !confirmed &&
+                        ['approve', 'reject'].contains(v)) {
+                      setState(() => decision = v!);
+                    }
+                  },
           ),
           TextField(
             controller: note,
@@ -875,7 +949,9 @@ class _RefundDecisionState extends State<RefundDecisionView>
             decoration: InputDecoration(labelText: t('note')),
           ),
           FilledButton(
-            onPressed: busy || confirmed || operation == null ? null : submit,
+            onPressed: busy || confirmed || operation == null ? null : () {
+              if (current(view)) submit();
+            },
             child: Text(t(uncertain ? 'resume' : 'confirm')),
           ),
           ],

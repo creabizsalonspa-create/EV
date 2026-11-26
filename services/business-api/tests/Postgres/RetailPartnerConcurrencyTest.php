@@ -131,6 +131,62 @@ class RetailPartnerConcurrencyTest extends TestCase
         $this->assertContains($final['status'], ['active', 'rejected']);
     }
 
+    public function test_concurrent_claim_and_cancellation_preserve_only_one_durable_outcome(): void
+    {
+        config(['loyalty.enabled' => true]);
+        $maker = User::factory()->create(['role' => 'admin']);
+        $approver = User::factory()->create(['role' => 'admin']);
+        $customer = User::factory()->create();
+        $registry = app(PartnerRegistry::class);
+        $partner = $registry->mutate($maker, null, 'create', $this->terms())['id'];
+        $registry->mutate($approver, $partner, 'approve', [
+            'reason' => 'Independent synthetic review', 'expected_revision' => 1,
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+        $service = app(LoyaltyService::class);
+        $reward = $service->publish('loyalty_rewards', $maker, [
+            'name' => 'Synthetic race reward', 'name_ar' => 'مكافأة تجريبية',
+            'description' => 'Race review only', 'description_ar' => 'مراجعة تجريبية',
+            'currency' => 'AED', 'points_cost' => 1, 'stock' => 2, 'per_user_limit' => 1,
+            'starts_at' => now()->utc()->subMinute()->toDateTimeString(),
+            'ends_at' => now()->utc()->addDay()->toDateTimeString(),
+        ], 'retail-claim-race-reward');
+        $service->publish('loyalty_policies', $maker, [
+            'currency' => 'AED', 'minor_units' => 2, 'enabled' => true,
+            'points_numerator' => 1, 'minor_denominator' => 10,
+            'gold_threshold' => 100, 'platinum_threshold' => 500,
+            'gold_multiplier_bps' => 12500, 'platinum_multiplier_bps' => 15000,
+            'invoice_cap' => 1000, 'daily_cap' => 10000,
+            'expiry_days' => 30, 'daily_redemption_limit' => 5,
+            'effective_from' => now()->subDay()->toDateTimeString(),
+        ], 'retail-claim-race-policy');
+        $governance = app(PartnerRewardGovernance::class);
+        $review = $governance->record($maker, $partner, null, 'propose', [
+            'reason' => 'Synthetic claim race proposal', 'expected_partner_revision' => 2,
+            'reward_id' => $reward->id, 'idempotency_key' => (string) Str::uuid(),
+        ])['id'];
+        $governance->record($approver, $partner, $review, 'approve', [
+            'reason' => 'Synthetic claim race approval', 'expected_revision' => 1,
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+
+        $payload = ['review' => $review, 'key' => 'same-uncertain-claim'];
+        $statuses = $this->race([
+            [$customer->id, $partner, 'claim', $payload],
+            [$customer->id, $partner, 'cancel-claim', $payload],
+        ]);
+        $claims = DB::table('partner_reward_claims')->count();
+        $cancelled = DB::table('partner_reward_cancelled_intents')->count();
+        $this->assertSame(1, $claims + $cancelled);
+        $this->assertSame($claims === 1 ? ['200', '200'] : ['200', '409'], $statuses);
+        $this->assertDatabaseCount('loyalty_redemptions', $claims);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+        $resolved = $service->cancelPartnerRewardIntent($customer->id, $review, $payload['key']);
+        $this->assertSame($claims === 1 ? 'accepted' : 'cancelled', $resolved['state']);
+        $this->assertSame($claims === 1, $resolved['claim'] !== null);
+    }
+
     public function test_competing_reward_decisions_record_one_review_event_without_fulfillment(): void
     {
         config(['loyalty.enabled' => true]);
