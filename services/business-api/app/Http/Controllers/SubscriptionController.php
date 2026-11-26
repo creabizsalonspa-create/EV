@@ -133,7 +133,7 @@ class SubscriptionController extends Controller
     {
         return DB::transaction(function () use ($r, $subscription, $s) {
             $current = $this->currentActor($r);
-            $s->access($current, $subscription);
+            $s->access($current, $subscription, true);
 
             return response()->json($s->summary($subscription))
                 ->header('Cache-Control', 'private, no-store');
@@ -150,7 +150,7 @@ class SubscriptionController extends Controller
             $current = $this->currentActor($r);
 
             // Authorize the CURRENT owner/Admin before resolving target terms.
-            $s->access($current, $subscription);
+            $s->access($current, $subscription, true);
             $v = $r->validate(['plan_id' => 'required|integer|between:1,999999999999999999']);
 
             return response()->json($s->previewChange($current, $subscription, (int) $v['plan_id']))
