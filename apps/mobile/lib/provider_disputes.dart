@@ -6,11 +6,14 @@ import 'vendor_finance.dart' show nativeFinancialAmount;
 String providerDisputeText(BuildContext context, String en, String ar) =>
     Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
 
+bool _providerId(dynamic id) => id is int && id > 0 && id <= 9007199254740991;
+
 /// Provider receipts remain distinct from internal complaints and ledger entries.
 Map<String, dynamic> providerDispute(dynamic value, {int? expectedId}) {
-  final row = Map<String, dynamic>.from(value as Map);
-  if (row['id'] is! int ||
-      row['invoice_id'] is! int ||
+  if (value is! Map) throw const FormatException('Invalid provider receipt.');
+  final row = Map<String, dynamic>.from(value);
+  if (!_providerId(row['id']) ||
+      !_providerId(row['invoice_id']) ||
       (expectedId != null && row['id'] != expectedId) ||
       row['evidence'] != 'STRIPE_TEST_CONTRACT' ||
       row['real_money_moved'] != false ||
@@ -23,6 +26,28 @@ Map<String, dynamic> providerDispute(dynamic value, {int? expectedId}) {
     throw const FormatException('Unsupported provider dispute receipt.');
   }
   return row;
+}
+
+/// The canonical list is a fixed 25-row Laravel paginator. An obsolete or
+/// inconsistent page must not expose receipt actions or navigation.
+ApiPage<Map<String, dynamic>> providerDisputePage(dynamic raw, int requested) {
+  final result = ApiPage.fromJson(raw, (row) => providerDispute(row));
+  if (requested < 1 || requested > 100000 ||
+      result.current != requested || result.last < 1 ||
+      result.total < 0 || result.total > 2500000 ||
+      result.last != (result.total == 0 ? 1 : (result.total + 24) ~/ 25) ||
+      requested > result.last ||
+      (raw is Map && raw.containsKey('per_page') && raw['per_page'] != 25)) {
+    throw const FormatException('Invalid provider dispute page.');
+  }
+  final remaining = result.total - (requested - 1) * 25;
+  final expected = remaining < 25 ? remaining : 25;
+  final ids = <int>{};
+  if (result.items.length != expected ||
+      result.items.any((row) => !ids.add(row['id'] as int))) {
+    throw const FormatException('Inconsistent provider dispute page.');
+  }
+  return result;
 }
 
 class ProviderDisputesView extends StatefulWidget {
@@ -130,7 +155,8 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
   }
 
   Future<void> load({int number = 1, int? id}) async {
-    if (!mounted || !foreground || !authorized()) return;
+    if (!mounted || !foreground || !authorized() ||
+        (id != null && !_providerId(id)) || number < 1 || number > 100000) return;
     final source = widget.api;
     final fence = authorized;
     final request = ++generation;
@@ -152,7 +178,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
       ApiPage<Map<String, dynamic>>? result;
       Map<String, dynamic>? receipt;
       if (id == null) {
-        result = ApiPage.fromJson(raw, (row) => providerDispute(row));
+        result = providerDisputePage(raw, number);
       } else {
         receipt = providerDispute((raw as Map)['dispute'], expectedId: id);
         final events = raw['events'];
@@ -202,12 +228,13 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
         if (e is ApiException && [401, 419].contains(e.status)) {
           widget.onExpired();
         } else {
-          setState(
-            () => error = t(
+          setState(() {
+            if (id == null) target = 1;
+            error = t(
               'Could not load provider receipts. Refresh to retry.',
               'تعذر تحميل إيصالات المزود. حدّث للمحاولة مجددًا.',
-            ),
-          );
+            );
+          });
         }
       }
     } finally {

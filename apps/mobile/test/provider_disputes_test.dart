@@ -27,6 +27,7 @@ class DisputeApi extends FixtureApi {
   void rotate() { epoch++; changes.add(epoch); }
   final methods = <String>[];
   Completer<dynamic>? pending;
+  Map<String, dynamic>? listResponse;
   final queries = <Map<String, String>>[];
   @override
   bool Function() sessionFence() {
@@ -72,7 +73,7 @@ class DisputeApi extends FixtureApi {
               ]
             : [],
       };
-    return {
+    return listResponse ?? {
       'data': [receipt()],
       'current_page': 1,
       'last_page': 1,
@@ -82,6 +83,50 @@ class DisputeApi extends FixtureApi {
 }
 
 void main() {
+  test('provider dispute page binds requested page and exact unique receipt IDs', () {
+    final first = <String, dynamic>{
+      'data': [for (var i = 1; i <= 25; i++) {...receipt(), 'id': i}],
+      'current_page': 1, 'last_page': 2, 'total': 26, 'per_page': 25,
+    };
+    expect(providerDisputePage(first, 1).items.length, 25);
+    final last = {...first, 'data': [{...receipt(), 'id': 26}], 'current_page': 2};
+    expect(providerDisputePage(last, 2).items.single['id'], 26);
+    expect(providerDisputePage({'data': [], 'current_page': 1, 'last_page': 1,
+      'total': 0}, 1).items, isEmpty);
+    for (final invalid in [
+      {...first, 'current_page': 2},
+      {...first, 'last_page': 3},
+      {...first, 'total': -1},
+      {...first, 'per_page': 20},
+      {...first, 'data': [for (var i = 0; i < 25; i++) receipt()]},
+      {...first, 'data': [receipt()]},
+      {...last, 'data': [{...receipt(), 'id': 0}]},
+    ]) {
+      expect(() => providerDisputePage(invalid, 1), throwsFormatException);
+    }
+    expect(() => providerDisputePage({...last, 'data': [{...receipt(), 'id': 0}]}, 2),
+      throwsFormatException);
+    expect(() => providerDisputePage({...last, 'data': [{...receipt(), 'invoice_id': -1}]}, 2),
+      throwsFormatException);
+  });
+  testWidgets('invalid receipt page has no private actions; explicit refresh recovers', (tester) async {
+    final api = DisputeApi()..listResponse = {
+      'data': [receipt(), receipt()], 'current_page': 1, 'last_page': 1, 'total': 2,
+    };
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await tester.pumpWidget(MaterialApp(home: ProviderDisputesView(api: api, onExpired: () {})));
+    await tester.pumpAndSettle();
+    expect(find.text('Invoice #19'), findsNothing);
+    expect(find.text('Inspect receipt'), findsNothing);
+    expect(find.text('Could not load provider receipts. Refresh to retry.'), findsOneWidget);
+    api.listResponse = null;
+    await tester.tap(find.text('Refresh list'));
+    await tester.pumpAndSettle();
+    expect(find.text('Invoice #19'), findsOneWidget);
+    expect(api.queries.last['page'], '1');
+    expect(api.methods.every((method) => method == 'GET'), isTrue);
+  });
   test('rejects live, secret-bearing and wrong-identity provider receipts', () {
     expect(
       () => providerDispute({...receipt(), 'real_money_moved': true}),
