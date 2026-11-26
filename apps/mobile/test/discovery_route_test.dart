@@ -72,6 +72,24 @@ class DeferredDiscoveryApi extends EvApi {
 }
 
 void main() {
+  testWidgets('route coordinate inputs distinguish origin and destination in their labels', (tester) async {
+    await tester.pumpWidget(MaterialApp(home:RoutePlannerView(stations:[])));
+    await tester.pumpAndSettle();
+    for (final entry in {
+      'origin-lat':'Origin: Latitude',
+      'origin-lng':'Origin: Longitude',
+      'destination-lat':'Destination: Latitude',
+      'destination-lng':'Destination: Longitude',
+    }.entries) {
+      final field=find.byKey(Key(entry.key));
+      await tester.scrollUntilVisible(field,150);
+      final textField=find.descendant(of:field,matching:find.byType(TextField));
+      expect(tester.widget<TextField>(textField).decoration!.labelText,
+        startsWith(entry.value));
+    }
+    expect(tester.takeException(),isNull);
+  });
+
   test(
     'current expiry clears the owning native session; stale-generation conflicts never sign it out',
     () async {

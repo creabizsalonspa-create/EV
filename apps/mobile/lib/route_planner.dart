@@ -371,7 +371,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
     }
   }
 
-  Widget field(String key, TextEditingController value, bool latitude) =>
+  Widget field(String key, TextEditingController value, bool latitude, String endpointTitle) =>
       TextFormField(
         key: Key(key),
         controller: value,
@@ -382,9 +382,9 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
         textDirection: TextDirection.ltr,
         onChanged: (_) => invalidate(),
         decoration: InputDecoration(
-          labelText: latitude
+          labelText: '$endpointTitle: ${latitude
               ? t('Latitude (−90 to 90)', 'خط العرض (−90 إلى 90)')
-              : t('Longitude (−180 to 180)', 'خط الطول (−180 إلى 180)'),
+              : t('Longitude (−180 to 180)', 'خط الطول (−180 إلى 180)')}',
         ),
         validator: (text) {
           final n = double.tryParse(vendorDigits(text?.trim() ?? ''));
@@ -407,9 +407,9 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: Theme.of(context).textTheme.titleLarge),
-          field('$prefix-lat', lat, true),
-          field('$prefix-lng', lng, false),
+          Semantics(header: true, child: Text(title, style: Theme.of(context).textTheme.titleLarge)),
+          field('$prefix-lat', lat, true, title),
+          field('$prefix-lng', lng, false, title),
           if (capabilities?.geocoding == true && widget.client != null)
             ExpansionTile(
               title: Text(t('Find an address', 'البحث عن عنوان')),
@@ -748,7 +748,13 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
               icon: const Icon(Icons.route),
               label: Text(t('Preview provider route', 'معاينة مسار المزود')),
             ),
-            if (loading) const LinearProgressIndicator(),
+            if (loading)
+              Semantics(
+                liveRegion: true,
+                child: LinearProgressIndicator(
+                  semanticsLabel: t('Estimating route', 'جارٍ تقدير المسار'),
+                ),
+              ),
             if (error != null)
               Semantics(
                 liveRegion: true,

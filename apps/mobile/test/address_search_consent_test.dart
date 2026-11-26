@@ -13,6 +13,45 @@ Map<String,dynamic> reply(List<Map<String,dynamic>> places) => {
 };
 
 void main() {
+  for (final ar in [false,true]) {
+    testWidgets('address progress has a localized accessible label at large text size ($ar)', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390,844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final semantics = tester.ensureSemantics();
+      addTearDown(semantics.dispose);
+      final pending = Completer<dynamic>();
+      final client = DiscoveryClient.withRequest((_,__,___) => pending.future);
+      await tester.pumpWidget(MaterialApp(
+        locale:Locale(ar?'ar':'en'),
+        supportedLocales:const [Locale('en'),Locale('ar')],
+        localizationsDelegates:GlobalMaterialLocalizations.delegates,
+        builder:(context,child)=>MediaQuery(
+          data:MediaQuery.of(context).copyWith(textScaler:TextScaler.linear(2)),
+          child:child!),
+        home:Scaffold(body:SingleChildScrollView(child:AddressSearch(
+          client:client,onSelected:(_){},
+        ))),
+      ));
+      await tester.tap(find.byKey(const Key('address-consent')));
+      await tester.pump();
+      final input=find.byKey(const Key('address-query'));
+      await tester.ensureVisible(input);
+      await tester.enterText(input,'Dubai');
+      await tester.pump(const Duration(milliseconds:650));
+      final progress = find.byType(LinearProgressIndicator);
+      expect(tester.widget<LinearProgressIndicator>(progress).semanticsLabel,
+        ar?'جارٍ البحث عن العناوين':'Searching addresses');
+      expect(find.ancestor(of:progress,matching:find.byWidgetPredicate(
+        (w)=>w is Semantics && w.properties.liveRegion == true)),findsWidgets);
+      pending.complete(reply([]));
+      await tester.pumpAndSettle();
+      expect(progress,findsNothing);
+      expect(find.text(ar?'لا توجد عناوين مطابقة. جرب الإحداثيات اليدوية.':
+        'No address matches. Try manual coordinates.'),findsOneWidget);
+      expect(tester.takeException(),isNull);
+    });
+  }
+
   test('malformed or duplicate provider identities cannot supply a selection',() async {
     for(final places in [
       [address('First'),address('Second')],

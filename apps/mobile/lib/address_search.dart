@@ -200,7 +200,13 @@ class _AddressSearchState extends State<AddressSearch> with WidgetsBindingObserv
             prefixIcon: const Icon(Icons.search),
           ),
         ),
-        if (loading) const LinearProgressIndicator(),
+        if (loading)
+          Semantics(
+            liveRegion: true,
+            child: LinearProgressIndicator(
+              semanticsLabel: t('Searching addresses', 'جارٍ البحث عن العناوين'),
+            ),
+          ),
         if (empty)
           Semantics(liveRegion:true,child:Text(t(
             'No address matches. Try manual coordinates.',
