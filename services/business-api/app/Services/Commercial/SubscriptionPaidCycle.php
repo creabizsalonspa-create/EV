@@ -20,6 +20,26 @@ final class SubscriptionPaidCycle
         return $amount;
     }
 
+    /** A receipt must be backed by its original balanced payment journal. */
+    private static function paymentPosted(iterable $rows, int $total, string $evidence): bool
+    {
+        $account = $evidence === 'STRIPE_TEST_CONTRACT'
+            ? 'cash:stripe_test_subscription' : 'cash:mock_subscription';
+        $expected = $total === 0 ? [] : [
+            $account => [$total, 0],
+            'subscription_receivable' => [0, $total],
+        ];
+        foreach ($rows as $row) {
+            if (! isset($expected[$row->account])
+                || $expected[$row->account] !== [self::exactMinor($row->debit_minor), self::exactMinor($row->credit_minor)]) {
+                return false;
+            }
+            unset($expected[$row->account]);
+        }
+
+        return $expected === [];
+    }
+
     public static function current(object $s): bool
     {
         if ($s->status !== 'active' || ! $s->period_start || ! $s->period_end) {
@@ -39,6 +59,10 @@ final class SubscriptionPaidCycle
         abort_unless($received === $total && $r->currency === $i->currency
             && in_array($r->evidence, ['MOCK_PROVIDER', 'STRIPE_TEST_CONTRACT'], true),
             409, 'Subscription receipt requires reconciliation.');
+        $paymentEntries = DB::table('commercial_subscription_ledger')->where('invoice_id', $i->id)
+            ->where('kind', 'payment')->get(['account', 'debit_minor', 'credit_minor']);
+        abort_unless(self::paymentPosted($paymentEntries, $total, $r->evidence),
+            409, 'Subscription payment journal requires reconciliation.');
         $refunded = 0;
         foreach (DB::table('subscription_credits')->where('invoice_id', $i->id)->get() as $credit) {
             $amount = self::exactMinor($credit->amount_minor);

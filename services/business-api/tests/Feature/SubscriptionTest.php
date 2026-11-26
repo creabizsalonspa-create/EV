@@ -171,6 +171,34 @@ class SubscriptionTest extends TestCase
         $this->assertDatabaseCount('commercial_subscription_events', 1);
     }
 
+    public function test_unposted_receipt_cannot_authorize_paid_marketing_entitlements(): void
+    {
+        $p = $this->plan(['entitlements' => ['campaign_slots' => 2, 'campaign_units' => 5]]);
+        $target = $this->plan(['code' => 'marketing-target']);
+        $f = $this->subscribe($p);
+        $invoice = $f[1]['invoices'][0];
+        DB::table('commercial_subscriptions')->where('id', $f[1]['subscription']['id'])->update([
+            'status' => 'active', 'cycle_number' => 1,
+            'period_start' => $invoice['period_start'], 'period_end' => $invoice['period_end'],
+        ]);
+        // Exact denomination and amount alone are insufficient. Preserve
+        // existing immutable guards and insert only synthetic source evidence.
+        DB::table('commercial_subscription_receipts')->insert([
+            'invoice_id' => $invoice['id'], 'provider_reference' => 'synthetic-unposted-receipt',
+            'amount_minor' => $invoice['total_minor'], 'currency' => $invoice['currency'],
+            'evidence' => 'MOCK_PROVIDER', 'created_at' => now(),
+        ]);
+        $ledgerCount = DB::table('commercial_subscription_ledger')->count();
+        $this->getJson($f[2])->assertConflict();
+        $this->getJson($f[2].'/change-preview?plan_id='.$target['id'])->assertConflict();
+        $this->postJson($f[2].'/change', [
+            'action' => 'change_plan', 'plan_id' => $target['id'], 'idempotency_key' => 'unposted-change',
+        ])->assertConflict();
+        $this->assertDatabaseCount('commercial_subscription_events', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $ledgerCount);
+    }
+
     public function test_paid_cycle_amount_boundary_does_not_coerce_inexact_financial_sources(): void
     {
         $exact = new \ReflectionMethod(SubscriptionPaidCycle::class, 'exactMinor');
