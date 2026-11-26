@@ -92,7 +92,7 @@ class OcpiProtocolCredentialsController extends Controller
                 $active = DB::table('ocpi_credential_links')->where('id', $link->id)->lockForUpdate()->firstOrFail();
                 abort_unless($current->authorized && $current->owner_id === $p->owner_id && $current->connection_key === $p->connection_key
                     && $current->authorization_revision === $p->authorization_revision && $active->owner_id === $owner->id
-                    && $active->state === 'active' && $active->generation === $link->generation && $active->local_token_digest === $link->local_token_digest
+                    && $active->state === 'active' && $exchange->sameLink($link, $active)
                     && hash_equals($link->configuration_hash, $active->configuration_hash)
                     && hash_equals($active->configuration_hash, $exchange->configurationHash($current)), 401);
                 if ($peer) {

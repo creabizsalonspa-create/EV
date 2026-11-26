@@ -152,8 +152,7 @@ class CredentialExchange
             $currentLink = DB::table('ocpi_credential_links')->where('id', $peerLink->id)->first();
             abort_unless(User::whereKey($p->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists()
                 && $currentLink && $currentLink->owner_id === $p->owner_id
-                && $currentLink->state === $peerLink->state && $currentLink->generation === $peerLink->generation
-                && $currentLink->local_token_digest === $peerLink->local_token_digest
+                && $this->sameLink($peerLink, $currentLink)
                 && ($currentLink->state === 'active' || ($currentLink->state === 'awaiting_registration'
                     && $currentLink->bootstrap_expires_at && CarbonImmutable::parse($currentLink->bootstrap_expires_at)->isFuture()))
                 && hash_equals($peerLink->configuration_hash, $currentLink->configuration_hash)
@@ -211,13 +210,13 @@ class CredentialExchange
     }
 
     /** Compare the source generation and all credential authority bytes, never only its state label. */
-    private function sameLink(?object $expected, ?object $current): bool
+    public function sameLink(?object $expected, ?object $current): bool
     {
         if ($expected === null || $current === null) {
             return $expected === $current;
         }
         foreach (['id', 'provider_id', 'owner_id', 'generation', 'state', 'configuration_hash',
-            'bootstrap_hash', 'local_token_digest', 'local_token_ciphertext', 'remote_token_ciphertext'] as $field) {
+            'bootstrap_hash', 'bootstrap_expires_at', 'local_token_digest', 'local_token_ciphertext', 'remote_token_ciphertext'] as $field) {
             if ($expected->$field !== $current->$field) {
                 return false;
             }
