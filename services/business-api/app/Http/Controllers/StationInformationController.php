@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Station;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\Discovery\StationInformation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -94,6 +95,9 @@ final class StationInformationController extends Controller
         }
 
         return DB::transaction(function () use ($request, $station, $v, $noticeChanged) {
+            // Pin the original authenticated login before the station lock.
+            // A fresh account cannot lend its authority to a stale request.
+            app(MaintenanceActor::class)->check($request->user());
             // Serializes first-time creates as well as concurrent revisions.
             $owned = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
             abort_unless((int) $owned->vendor_id === (int) $request->user()->id && $request->user()->role === 'vendor', 404);

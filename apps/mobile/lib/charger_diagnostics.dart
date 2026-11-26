@@ -32,6 +32,8 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
     with WidgetsBindingObserver {
   Map<String, dynamic>? data;
   Map<String, dynamic>? alerts;
+  Map<String, dynamic>? liveConnectorData;
+  String? liveConnectorError;
   int? inspectionCursor;
   Object? error;
   bool busy = false;
@@ -64,6 +66,8 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
     generation++;
     data = null;
     alerts = null;
+    liveConnectorData = null;
+    liveConnectorError = null;
     inspectionCursor = null;
     error = null;
     busy = false;
@@ -103,6 +107,8 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
     setState(() {
       busy = true;
       data = null;
+      liveConnectorData = null;
+      liveConnectorError = null;
       error = null;
     });
     try {
@@ -118,6 +124,93 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
         setState(() => error = e);
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
+      }
+    } finally {
+      if (current(epoch)) setState(() => busy = false);
+    }
+  }
+
+  Future<void> readLiveConnectors() async {
+    if (!foreground || !authorized() || busy) return;
+    final epoch = ++generation;
+    setState(() {
+      busy = true;
+      liveConnectorData = null;
+      liveConnectorError = null;
+    });
+    try {
+      final reply = await widget.api.request('$path/live-connectors');
+      if (!current(epoch)) return;
+      if (reply is! Map ||
+          reply['company_id'] != widget.companyId ||
+          reply['charger_id'] != widget.chargerId ||
+          !['1.6', '2.0.1'].contains(reply['protocol']) ||
+          reply['evidence'] != 'SIMULATED_CSMS_SOURCE' ||
+          reply['source_online'] is! bool ||
+          reply['source_topology_matches_local'] is! bool ||
+          reply['source_identity_rechecked'] != true ||
+          reply['source_last_message_at'] is! String ||
+          reply['observed_at'] is! String ||
+          reply['physical_availability_verified'] != false ||
+          reply['remote_control_authorized'] != false ||
+          reply['commands_sent'] != false ||
+          reply['connectors'] is! List ||
+          (reply['connectors'] as List).isEmpty ||
+          (reply['connectors'] as List).length > 100) {
+        throw const FormatException('Untrusted connector source');
+      }
+      const statuses = [
+        'Available', 'Occupied', 'Preparing', 'Charging', 'SuspendedEV',
+        'SuspendedEVSE', 'Finishing', 'Reserved', 'Unavailable', 'Faulted',
+      ];
+      final rows = <Map<String, dynamic>>[];
+      for (final entry in reply['connectors'] as List) {
+        if (entry is! Map ||
+            entry['mapping_id'] is! int ||
+            entry['mapping_id'] <= 0 ||
+            entry['source_evse_number'] is! int ||
+            entry['source_evse_number'] < 0 ||
+            (reply['protocol'] == '2.0.1' && entry['source_evse_number'] == 0) ||
+            entry['source_connector_number'] is! int ||
+            entry['source_connector_number'] <= 0 ||
+            entry['operator_maintenance_blocked'] is! bool ||
+            !['recent', 'stale', 'unknown'].contains(entry['state']) ||
+            (entry['state'] == 'recent'
+                ? (!statuses.contains(entry['reported_status']) ||
+                    reply['source_online'] != true ||
+                    reply['source_topology_matches_local'] != true ||
+                    entry['source_event_at'] is! String)
+                : entry['reported_status'] != null) ||
+            (entry['error_code'] != null &&
+                (entry['error_code'] is! String ||
+                    (entry['error_code'] as String).length > 80 ||
+                    (!['', 'NoError'].contains(entry['error_code']) &&
+                        entry['reported_status'] != 'Faulted'))) ||
+            (entry['source_event_at'] != null &&
+                entry['source_event_at'] is! String) ||
+            entry['physical_available'] != false ||
+            entry['remote_control_authorized'] != false) {
+          throw const FormatException('Untrusted connector source row');
+        }
+        rows.add(Map<String, dynamic>.from(entry));
+      }
+      if (current(epoch)) {
+        setState(() => liveConnectorData = <String, dynamic>{
+          ...Map<String, dynamic>.from(reply),
+          'connectors': rows,
+        });
+      }
+    } catch (e) {
+      if (!current(epoch)) return;
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        setState(() {
+          liveConnectorData = null;
+          liveConnectorError = null;
+        });
+        widget.onExpired();
+      } else {
+        setState(() => liveConnectorError =
+            'Live connector source unavailable; no command is authorized.');
       }
     } finally {
       if (current(epoch)) setState(() => busy = false);
@@ -279,6 +372,45 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
           ),
           if (busy) const LinearProgressIndicator(),
           if (error != null) Text(EvStrings.of(context).t(errorKey(error!))),
+          TextButton(
+            key: const Key('read-live-connector-source'),
+            onPressed: busy ? null : readLiveConnectors,
+            child: Text(tr('Read live connector source',
+                'قراءة حالة موصلات المصدر المباشر')),
+          ),
+          if (liveConnectorError != null)
+            Text(tr('Live connector source unavailable; no command is authorized.',
+                'مصدر الموصلات المباشر غير متاح؛ لا يُسمح بأي أمر.')),
+          if (liveConnectorData != null) ...[
+            Text(tr(
+                'Current CSMS simulator source only; no physical connector availability is verified.',
+                'بيانات محاكي إدارة الشحن فقط؛ لم يُتحقق من توفر الموصلات فعلياً.')),
+            Text(liveConnectorData!['source_topology_matches_local'] == true
+                ? tr('Source matches owned connector mappings',
+                    'المصدر يطابق موصلات المخزون المملوك')
+                : tr('Connector topology requires review',
+                    'تحتاج موصلات المصدر إلى مراجعة')),
+            for (final row in liveConnectorData!['connectors'] as List)
+              Card(child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('#${row['mapping_id']} · ${row['source_evse_number']}/${row['source_connector_number']}'),
+                    Text(row['state'] == 'recent'
+                        ? '${tr('Recent CSMS report', 'تقرير حديث من نظام الشحن')}: ${row['reported_status']}'
+                        : row['state'] == 'stale'
+                            ? tr('Stale source; live status unknown',
+                                'المصدر قديم؛ الحالة المباشرة مجهولة')
+                            : tr('Connector status unknown',
+                                'حالة الموصل مجهولة')),
+                    if (row['operator_maintenance_blocked'] == true)
+                      Text(tr('Operator maintenance block active',
+                          'حظر الصيانة من المشغل مفعّل')),
+                  ],
+                ),
+              )),
+          ],
           TextButton(
             onPressed: busy ? null : () => load(),
             child: Text(tr('Refresh', 'تحديث')),

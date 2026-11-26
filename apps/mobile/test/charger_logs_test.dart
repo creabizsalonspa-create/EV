@@ -42,6 +42,8 @@ class LogsApi extends FixtureApi {
       'can_request': true,
       'can_manage': true,
       'maximum_file_bytes': 524288,
+      'upload_lifetime_seconds': 900,
+      'file_retention_seconds': 86400,
       'evidence': 'SIMULATED_SOURCE',
       'charging_capacity_changed': unsafe,
       'current_page': 1,
