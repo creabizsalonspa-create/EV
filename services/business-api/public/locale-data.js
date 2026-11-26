@@ -2646,6 +2646,50 @@ window.EV_MESSAGES = {
         en: "Credential revoked",
         ar: "أُبطلت بيانات الدخول",
     },
+    "Read live connector source": {
+        en: "Read live connector source",
+        ar: "قراءة حالة موصلات المصدر المباشر",
+    },
+    "Checking authenticated local connector source…": {
+        en: "Checking authenticated local connector source…",
+        ar: "جارٍ فحص مصدر الموصلات المحلي الموثق…",
+    },
+    "Local CSMS connector source snapshot": {
+        en: "Local CSMS connector source snapshot",
+        ar: "لقطة موصلات نظام إدارة الشحن المحلي",
+    },
+    "No physical connector availability or command authorization is verified.": {
+        en: "No physical connector availability or command authorization is verified.",
+        ar: "لم يُتحقق من التوفر الفعلي للموصلات أو صلاحية إرسال الأوامر.",
+    },
+    "Source connector targets match the local inventory": {
+        en: "Source connector targets match the local inventory",
+        ar: "أهداف موصلات المصدر تطابق المخزون المحلي",
+    },
+    "Source connector topology requires review": {
+        en: "Source connector topology requires review",
+        ar: "يلزم فحص مطابقة موصلات المصدر",
+    },
+    "Recent source status: {status}": {
+        en: "Recent source status: {status}",
+        ar: "حالة حديثة من المصدر: {status}",
+    },
+    "Stale source; live status unknown": {
+        en: "Stale source; live status unknown",
+        ar: "بيانات المصدر قديمة؛ الحالة المباشرة مجهولة",
+    },
+    "Source connector status unknown": {
+        en: "Source connector status unknown",
+        ar: "حالة موصل المصدر مجهولة",
+    },
+    "Operator maintenance block active": {
+        en: "Operator maintenance block active",
+        ar: "حظر الصيانة من المشغل مفعّل",
+    },
+    "Local connector source unavailable; no control is authorized.": {
+        en: "Local connector source unavailable; no control is authorized.",
+        ar: "مصدر الموصلات المحلي غير متاح؛ لا يُسمح بأي تحكم.",
+    },
     "Source diagnostics": { en: "Source diagnostics", ar: "تشخيص المصدر" },
     "Cancel firmware before dispatch": {
         en: "Cancel firmware before dispatch",
@@ -2654,6 +2698,18 @@ window.EV_MESSAGES = {
     "Signed firmware releases": {
         en: "Signed firmware releases",
         ar: "إصدارات البرامج الثابتة الموقعة",
+    },
+    "Manage station availability blocks": {
+        en: "Manage station availability blocks",
+        ar: "إدارة فترات حجب المحطة",
+    },
+    "Close station availability blocks": {
+        en: "Close station availability blocks",
+        ar: "إغلاق إدارة فترات حجب المحطة",
+    },
+    "Station blocks unavailable": {
+        en: "Station blocks unavailable",
+        ar: "فترات حجب المحطة غير متاحة",
     },
     "Signed firmware operations": {
         en: "Signed firmware operations",
@@ -3014,9 +3070,17 @@ window.EV_MESSAGES = {
         ar: "مسح النموذج المعلق بعد مراجعة سجل الإصلاح",
     },
     "Diagnostic files": { en: "Diagnostic files", ar: "ملفات التشخيص" },
+    "Registered diagnostic source": {
+        en: "Registered source diagnostics; physical device unverified.",
+        ar: "تشخيص مصدر مسجل؛ الجهاز الفعلي غير متحقق.",
+    },
+    "Simulated diagnostic source": {
+        en: "Simulator source diagnostics; no physical acceptance.",
+        ar: "تشخيص مصدر محاكي؛ لا اعتماد لجهاز فعلي.",
+    },
     "Diagnostic files privacy notice": {
-        en: "Private simulator logs. Uploads expire after 15 minutes; stored content after 24 hours. OCPP 1.6 upload-status notifications have no request ID and remain unattributed. Exported files remain under your device control.",
-        ar: "سجلات محاكي خاصة. تنتهي صلاحية الرفع بعد ١٥ دقيقة والمحتوى المخزن بعد ٢٤ ساعة. إشعارات رفع OCPP 1.6 بلا معرّف طلب وتبقى غير منسوبة. الملفات المصدرة تحت تحكم جهازك.",
+        en: "Private diagnostic logs. Physical device acceptance is unverified. Uploads expire after 15 minutes; stored content after 24 hours. OCPP 1.6 upload-status notifications have no request ID and remain unattributed. Exported files remain under your device control.",
+        ar: "سجلات تشخيص خاصة. اعتماد الجهاز الفعلي غير متحقق. تنتهي صلاحية الرفع بعد ١٥ دقيقة والمحتوى المخزن بعد ٢٤ ساعة. إشعارات رفع OCPP 1.6 بلا معرّف طلب وتبقى غير منسوبة. الملفات المصدرة تحت تحكم جهازك.",
     },
     "Refresh diagnostic history": {
         en: "Refresh diagnostic history",
@@ -3165,6 +3229,10 @@ window.EV_MESSAGES = {
     "Reported fault seconds": {
         en: "Reported fault seconds",
         ar: "ثواني الأعطال المبلغ عنها",
+    },
+    "Reported unavailable seconds without a fault": {
+        en: "Reported unavailable seconds without a fault",
+        ar: "ثواني عدم التوفر المبلغ عنها دون عطل",
     },
     "Maximum observed session interval average (W)": {
         en: "Maximum observed session interval average (W)",

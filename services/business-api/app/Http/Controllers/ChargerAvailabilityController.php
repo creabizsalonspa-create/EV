@@ -88,26 +88,30 @@ final class ChargerAvailabilityController extends Controller
         $attempt = null;
         $state = 'not_dispatched';
         try {
-            $source->enabled(true);
+            $authority = $source->authority(true);
             $station = $source->station($binding);
-            $token = $source->token();
+            $source->requireAuthority($authority, true);
+            $token = $source->token($authority);
+            $source->requireAuthority($authority, true);
             $watermark = $source->watermark($station);
+            $source->requireAuthority($authority, true);
             abort_unless($source->station($binding) === $station, 409);
+            $source->requireAuthority($authority, true);
             $prepared = DB::table(self::TABLE)->where('id', $operation->id)->where('status', 'dispatching')->whereNull('attempted_at')->update([
                 'source_station_id' => $station, 'source_watermark' => $watermark,
                 'attempted_at' => now()->utc()->format('Y-m-d H:i:s.u'), 'updated_at' => now(),
             ]);
             abort_unless($prepared === 1, 409);
-            DB::transaction(function () use ($request, $company, $charger, $source, $binding, $operation, $token, &$attempt, &$state) {
+            DB::transaction(function () use ($request, $company, $charger, $source, $binding, $operation, $token, $authority, &$attempt, &$state) {
                 $current = $this->locked($request, $company, $charger, $binding, true);
-                $source->enabled(true);
+                $source->requireAuthority($authority, true);
                 abort_unless(hash_equals($operation->source_generation, FaultMonitor::generation($current)), 409);
                 $payload = $this->payload($current, $operation->requested_state, $operation->connector_id);
                 abort_unless($payload === json_decode($operation->source_payload, true, flags: JSON_THROW_ON_ERROR), 409);
                 $row = DB::table(self::TABLE)->where('id', $operation->id)->lockForUpdate()->firstOrFail();
                 abort_unless($row->status === 'dispatching' && $row->attempted_at !== null && now()->subSeconds(25)->lt($row->created_at), 409);
                 $attempt = $row->attempted_at;
-                $state = $source->submit($current, $token, $payload) ? 'transport_submitted' : 'outcome_unknown';
+                $state = $source->submit($current, $token, $payload, $authority) ? 'transport_submitted' : 'outcome_unknown';
             });
         } catch (Throwable) {
             $state = $attempt === null ? 'not_dispatched' : 'outcome_unknown';
@@ -156,12 +160,17 @@ final class ChargerAvailabilityController extends Controller
         $binding = app(ChargerResetController::class)->scope($request, $company, $charger->fresh(), $write);
         if ($write) {
             app(VendorAccess::class)->operational($company);
-            $token = $request->user()->currentAccessToken();
-            if ($token instanceof PersonalAccessToken) {
-                $query = $token->newQuery()->whereKey($token->getKey());
-                $current = DB::transactionLevel() > 0 ? $query->lockForUpdate()->first() : $query->first();
-                abort_unless($current && (! $current->expires_at || $current->expires_at->isFuture()), 403);
-            }
+        }
+
+        // Mobile logout revokes the individual token without changing the account
+        // epoch. Recheck it after source I/O before persisting an observation.
+        $token = $request->user()->currentAccessToken();
+        if ($token instanceof PersonalAccessToken) {
+            $query = $token->newQuery()->whereKey($token->getKey());
+            $current = DB::transactionLevel() > 0 ? $query->lockForUpdate()->first() : $query->first();
+            $expiration = config('sanctum.expiration');
+            abort_unless($current && (! $current->expires_at || $current->expires_at->isFuture())
+                && (! $expiration || $current->created_at->gt(now()->subMinutes($expiration))), 403);
         }
 
         return $binding;
