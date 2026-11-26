@@ -1,6 +1,7 @@
 import 'package:creabiz_ev/support.dart' show providerDisputeNotificationTarget;
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/provider_disputes.dart';
 import 'test_support.dart';
@@ -19,12 +20,19 @@ Map<String, dynamic> receipt() => {
 
 class DisputeApi extends FixtureApi {
   bool live = true, admin = false;
+  int epoch = 0;
+  final changes = StreamController<int>.broadcast(sync: true);
+  @override
+  Stream<int> get sessionEvents => changes.stream;
+  void rotate() { epoch++; changes.add(epoch); }
   final methods = <String>[];
   Completer<dynamic>? pending;
   final queries = <Map<String, String>>[];
   @override
-  bool Function() sessionFence() =>
-      () => live;
+  bool Function() sessionFence() {
+    final captured = epoch;
+    return () => live && captured == epoch;
+  }
   @override
   Future<dynamic> request(
     String path, {
@@ -239,4 +247,56 @@ void main() {
     expect(api.methods.every((method) => method == 'GET'), isTrue);
   });
 
+
+  for (final ar in [false, true]) {
+    testWidgets('revoked dispute view redacts immediately and cannot reopen old receipt ($ar)', (tester) async {
+      final api = DisputeApi();
+      addTearDown(api.close);
+      addTearDown(api.changes.close);
+      Widget screen(int? id) => MaterialApp(
+        locale: Locale(ar ? 'ar' : 'en'),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: ProviderDisputesView(api: api, onExpired: () {}, initialDisputeId: id),
+      );
+      await tester.pumpWidget(screen(null));
+      await tester.pumpAndSettle();
+      final invoice = ar ? 'الفاتورة #19' : 'Invoice #19';
+      expect(find.text(invoice), findsOneWidget);
+      final staleInspect = tester.widget<TextButton>(find.widgetWithText(TextButton, ar ? 'عرض الإيصال' : 'Inspect receipt')).onPressed!;
+      final count = api.calls.length;
+      api.rotate();
+      await tester.pumpAndSettle();
+      expect(find.text(invoice), findsNothing);
+      staleInspect();
+      await tester.pumpAndSettle();
+      expect(api.calls.length, count);
+      await tester.pumpWidget(screen(8));
+      await tester.pumpAndSettle();
+      expect(api.calls.length, count, reason: 'A changed notification cannot rebind a revoked same-API route.');
+      expect(find.text(ar ? 'الفاتورة #20' : 'Invoice #20'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('retained dispute callback cannot open old target after new notification', (tester) async {
+    final api = DisputeApi();
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    Widget screen(int? id) => MaterialApp(home: ProviderDisputesView(
+      api: api, onExpired: () {}, initialDisputeId: id,
+    ));
+    await tester.pumpWidget(screen(null));
+    await tester.pumpAndSettle();
+    final inspect = tester.widget<TextButton>(find.widgetWithText(TextButton, 'Inspect receipt')).onPressed!;
+    await tester.pumpWidget(screen(8));
+    await tester.pumpAndSettle();
+    expect(find.text('Invoice #20'), findsOneWidget);
+    final count = api.calls.length;
+    inspect();
+    await tester.pumpAndSettle();
+    expect(api.calls.length, count);
+    expect(find.text('Invoice #20'), findsOneWidget);
+    expect(find.text('Invoice #19'), findsNothing);
+  });
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'vendor_finance.dart' show nativeFinancialAmount;
@@ -46,11 +47,33 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
   int generation = 0, target = 1;
   String? error;
   late bool Function() authorized;
+  StreamSubscription<int>? sessionSubscription;
+
+  void clearPrivate() {
+    generation++;
+    page = null;
+    detail = null;
+    error = null;
+    busy = false;
+    target = 1;
+    attention = false;
+  }
+
+  void bindSession() {
+    final source = widget.api;
+    authorized = source.sessionFence();
+    unawaited(sessionSubscription?.cancel());
+    sessionSubscription = source.sessionEvents.listen((_) {
+      if (mounted && identical(widget.api, source) && !authorized()) {
+        setState(clearPrivate);
+      }
+    });
+  }
   String t(String en, String ar) => providerDisputeText(context, en, ar);
   @override
   void initState() {
     super.initState();
-    authorized = widget.api.sessionFence();
+    bindSession();
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
@@ -63,20 +86,16 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
     final switchedApi = !identical(oldWidget.api, widget.api);
     final switchedTarget = oldWidget.initialDisputeId != widget.initialDisputeId;
     if (switchedApi || switchedTarget) {
-      generation++;
-      page = null;
-      detail = null;
-      error = null;
-      busy = false;
-      target = 1;
-      authorized = widget.api.sessionFence();
+      clearPrivate();
+      if (switchedApi) bindSession();
       // A new explicit notification target should open its own canonical
       // receipt, but a new account/API alone must wait for manual refresh.
       if (switchedTarget && !switchedApi && foreground && authorized()) {
         final targetId = widget.initialDisputeId;
         final api = widget.api;
+        final epoch = generation;
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && foreground && authorized() &&
+          if (mounted && foreground && authorized() && epoch == generation &&
               identical(api, widget.api) &&
               widget.initialDisputeId == targetId) {
             load(id: targetId);
@@ -105,12 +124,15 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
   @override
   void dispose() {
     generation++;
+    unawaited(sessionSubscription?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   Future<void> load({int number = 1, int? id}) async {
-    if (!foreground || !authorized()) return;
+    if (!mounted || !foreground || !authorized()) return;
+    final source = widget.api;
+    final fence = authorized;
     final request = ++generation;
     setState(() {
       busy = true;
@@ -119,7 +141,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
       page = null;
     });
     try {
-      final raw = await widget.api.request(
+      final raw = await source.request(
         id == null
             ? 'commercial/external-disputes'
             : 'commercial/external-disputes/$id',
@@ -163,7 +185,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
           return '${operation['status']} — ${operation['retry_until'] ?? ''}';
         }).toList();
       }
-      if (mounted && foreground && authorized() && request == generation) {
+      if (mounted && foreground && fence() && identical(source, widget.api) && request == generation) {
         setState(() {
           page = result;
           detail = receipt;
@@ -171,7 +193,12 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
         });
       }
     } catch (e) {
-      if (mounted && foreground && authorized() && request == generation) {
+      if (mounted && foreground && identical(source, widget.api) &&
+          e is ApiException && e.endsCurrentSession &&
+          request + 1 == generation && !fence()) {
+        widget.onExpired();
+      } else if (mounted && foreground && fence() &&
+          identical(source, widget.api) && request == generation) {
         if (e is ApiException && [401, 419].contains(e.status)) {
           widget.onExpired();
         } else {
@@ -188,7 +215,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
     }
   }
 
-  Widget receipt(Map<String, dynamic> row, {bool expanded = false}) => Card(
+  Widget receipt(Map<String, dynamic> row, {bool expanded = false, required bool Function() activeView}) => Card(
     child: Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -229,7 +256,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
             ),
           if (!expanded)
             TextButton(
-              onPressed: busy ? null : () => load(id: row['id'] as int),
+              onPressed: busy ? null : () { if (activeView()) load(id: row['id'] as int); },
               child: Text(t('Inspect receipt', 'عرض الإيصال')),
             ),
         ],
@@ -239,6 +266,9 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
   @override
   Widget build(BuildContext context) {
     final visible = authorized() && foreground;
+    final epoch = generation, source = widget.api;
+    bool activeView() => mounted && foreground && authorized() &&
+        identical(source, widget.api) && epoch == generation && !busy;
     final currentPage = visible ? page : null;
     final currentDetail = visible ? detail : null;
     return Scaffold(
@@ -258,32 +288,33 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
             onChanged: busy || !visible
                 ? null
                 : (value) {
+                    if (!activeView()) return;
                     setState(() => attention = value);
                     load();
                   },
           ),
           OutlinedButton(
-            onPressed: busy || !visible ? null : () => load(number: target),
+            onPressed: busy || !visible ? null : () { if (activeView()) load(number: target); },
             child: Text(t('Refresh list', 'تحديث القائمة')),
           ),
           if (busy) const LinearProgressIndicator(),
           if (visible && error != null) Text(error!),
-          if (currentDetail != null) receipt(currentDetail, expanded: true),
+          if (currentDetail != null) receipt(currentDetail, expanded: true, activeView: activeView),
           if (currentPage != null) ...[
             if (currentPage.items.isEmpty)
               Text(t('No provider disputes.', 'لا توجد نزاعات لدى المزود.')),
-            ...currentPage.items.map((row) => receipt(row)),
+            ...currentPage.items.map((row) => receipt(row, activeView: activeView)),
             Row(
               children: [
                 TextButton(
                   onPressed: !busy && target > 1
-                      ? () => load(number: target - 1)
+                      ? () { if (activeView()) load(number: target - 1); }
                       : null,
                   child: Text(t('Previous', 'السابق')),
                 ),
                 TextButton(
                   onPressed: !busy && currentPage.current < currentPage.last
-                      ? () => load(number: target + 1)
+                      ? () { if (activeView()) load(number: target + 1); }
                       : null,
                   child: Text(t('Next', 'التالي')),
                 ),
