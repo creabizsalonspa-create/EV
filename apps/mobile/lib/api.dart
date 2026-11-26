@@ -497,6 +497,20 @@ class EvApi {
         as PrivateDocument;
   }
 
+  /// Same authenticated, bounded scope as the displayed internal audit.
+  Future<PrivateDocument> downloadInvoiceAuditPage(Map<String, String> query) async {
+    final page = int.tryParse(query['page'] ?? '');
+    if (page == null || page < 1 || page > 10000 ||
+        query['per_page'] != '20' ||
+        !RegExp(r'^[A-Z]{3}$').hasMatch(query['currency'] ?? '') ||
+        query.keys.any((key) => !const ['currency', 'page', 'per_page', 'from', 'to'].contains(key))) {
+      throw ArgumentError('Invalid private audit export scope.');
+    }
+    return await _request('finance/reconciliation-audit/export',
+      query: query, binary: true, binaryTypes: const ['text/csv'],
+      binaryLimit: 65536) as PrivateDocument;
+  }
+
   Future<PrivateDocument> downloadPartnerBilling(
     int providerId,
     Map<String, String> query,

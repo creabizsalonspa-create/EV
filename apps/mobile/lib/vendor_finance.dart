@@ -7,6 +7,7 @@ import 'financial_documents.dart';
 import 'financial_operation_store.dart';
 import 'vendor_earnings_csv.dart';
 import 'vendor_revenue_cohorts.dart';
+import 'invoice_reconciliation.dart';
 
 const vendorFinanceEn = {
   'title': 'Vendor finance',
@@ -516,6 +517,23 @@ class _VendorFinanceState extends State<VendorFinanceView>
                         ),
                       ),
                       OutlinedButton(
+                        key: ValueKey('vendor-reconciliation-${row['currency']}'),
+                        onPressed: () => openForActor(
+                          MaterialPageRoute<void>(
+                            builder: (_) => InvoiceReconciliationView(
+                              api: widget.api,
+                              onExpired: widget.onExpired,
+                              currency: row['currency'] as String,
+                            ),
+                          ),
+                        ),
+                        child: Text(
+                          Localizations.localeOf(c).languageCode == 'ar'
+                              ? 'تدقيق تسوية الفواتير الداخلية'
+                              : 'Internal invoice reconciliation',
+                        ),
+                      ),
+                      OutlinedButton(
                         onPressed: () async {
                           await openForActor(
                             MaterialPageRoute<void>(
@@ -672,7 +690,19 @@ class PayoutRecipientActionView extends StatefulWidget {
   State<PayoutRecipientActionView> createState() => _RecipientActionState();
 }
 
-class _RecipientActionState extends State<PayoutRecipientActionView> {
+class _RecipientActionState extends State<PayoutRecipientActionView> with WidgetsBindingObserver {
+  late bool Function() authorized;
+  late final Map<String,dynamic> reviewedAccount;
+  late final String reviewedAction;
+  StreamSubscription<int>? sessionEvents;
+  bool foreground = true, retired = false, launching = false;
+  bool get active => mounted && foreground && !retired && authorized();
+  bool current(int epoch) => active && generation == epoch;
+  bool get top => ModalRoute.of(context)?.isCurrent ?? true;
+  void redact() {
+    operation = null; consent = false; confirmed = false;
+    link = null; expires = null; error = null; busy = false; launching = false;
+  }
   FinancialOperation? operation;
   Object? error;
   bool busy = true, consent = false, confirmed = false;
@@ -680,71 +710,116 @@ class _RecipientActionState extends State<PayoutRecipientActionView> {
   Uri? link;
   int? expires;
   String t(String k) => vendorFinanceText(context, k);
-  Map<String, dynamic> get body => widget.action == 'consent'
+  Map<String, dynamic> get body => reviewedAction == 'consent'
       ? {
           'consent': true,
-          'consent_version': widget.account['required_consent_version'],
+          'consent_version': reviewedAccount['required_consent_version'],
         }
       : {};
   @override
   void initState() {
     super.initState();
-    restore();
+    reviewedAccount = Map<String,dynamic>.unmodifiable(widget.account);
+    reviewedAction = widget.action;
+    final api = widget.api;
+    authorized = api.sessionFence();
+    final state = WidgetsBinding.instance.lifecycleState;
+    foreground = state == null || state == AppLifecycleState.resumed;
+    retired = !foreground;
+    WidgetsBinding.instance.addObserver(this);
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (mounted && !authorized()) setState(() { retired = true; redact(); });
+    });
+    if (active) restore();
+  }
+
+  @override
+  void didUpdateWidget(covariant PayoutRecipientActionView old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.api,widget.api) || !identical(old.store,widget.store) ||
+        reviewedAction != widget.action || ['id','vendor_id','provider','currency',
+          'minor_units','status','required_consent_version','consent_version']
+          .any((k)=>reviewedAccount[k] != widget.account[k])) {
+      generation++; retired = true; redact();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    final next = state == AppLifecycleState.resumed;
+    if (next == foreground) return;
+    setState(() {
+      foreground = next;
+      if (!next) { generation++; retired = true; redact(); }
+    });
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(sessionEvents?.cancel());
     super.dispose();
   }
 
   Future<void> restore() async {
-    final epoch = ++generation;
+    if (!active) return;
+    final epoch = ++generation, api = widget.api;
     try {
-      final me = await widget.api.request('me');
-      if (me['role'] != 'vendor' || me['id'] != widget.account['vendor_id'])
+      final me = await api.request('me');
+      if (!current(epoch)) return;
+      if (me['role'] != 'vendor' || me['id'] is! int || me['id'] <= 0 ||
+          me['id'] != reviewedAccount['vendor_id'] ||
+          reviewedAccount['id'] is! int || reviewedAccount['id'] <= 0)
         throw const ApiException(403, 'Recipient owner required.');
-      if (!['consent', 'revoke', 'onboarding'].contains(widget.action) ||
-          (widget.action == 'consent' &&
-              widget.account['required_consent_version'] is! String))
+      if (!['consent', 'revoke', 'onboarding'].contains(reviewedAction) ||
+          (reviewedAction == 'consent' &&
+              (reviewedAccount['required_consent_version'] is! String ||
+               (reviewedAccount['required_consent_version'] as String).isEmpty)) ||
+          (reviewedAction == 'onboarding' && reviewedAccount['provider'] != 'stripe_test'))
         throw const FormatException('Unsupported recipient operation.');
       final scope =
-          '${widget.api.base.origin}:${me['id']}:recipient:${widget.account['id']}:${widget.action}:${widget.action == 'consent' ? widget.account['required_consent_version'] : ''}';
+          '${api.base.origin}:${me['id']}:recipient:${reviewedAccount['id']}:$reviewedAction:${reviewedAction == 'consent' ? reviewedAccount['required_consent_version'] : ''}';
       final op = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         scope,
-        isCurrent: widget.api.sessionFence(),
+        isCurrent: () => active && identical(api,widget.api),
       );
       await op.restore();
-      if (mounted && generation == epoch) operation = op;
+      if (current(epoch)) operation = op;
     } catch (e) {
-      if (mounted && generation == epoch) {
+      if (current(epoch)) {
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
-      }
+      } else if (mounted && foreground && epoch == generation &&
+          e is ApiException && e.endsCurrentSession) widget.onExpired();
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> submit() async {
-    if (!consent) return;
-    final epoch = ++generation;
+    if (!active || !top || busy || confirmed || !consent || operation == null) return;
+    final epoch = ++generation, api = widget.api, op = operation!, reviewedBody = body;
     setState(() {
       busy = true;
+      consent = false;
       error = null;
     });
     try {
-      final payload = await operation!.prepare(body);
-      if (!mounted || generation != epoch) return;
-      final result = await widget.api.request(
-        'commercial/payout-accounts/${widget.account['id']}/${widget.action}',
+      final payload = await op.prepare(reviewedBody);
+      if (!current(epoch) || !top || !identical(op,operation)) return;
+      final result = await api.request(
+        'commercial/payout-accounts/${reviewedAccount['id']}/$reviewedAction',
         method: 'POST',
         body: payload,
       );
-      if (!mounted || generation != epoch) return;
-      if (widget.action == 'onboarding') {
+      if (!current(epoch)) return;
+      Uri? receivedLink;
+      int? receivedExpiry;
+      if (reviewedAction == 'onboarding') {
         final uri = Uri.tryParse('${result['url']}');
         final expiry = result['expires_at'];
         if (uri == null ||
@@ -759,35 +834,44 @@ class _RecipientActionState extends State<PayoutRecipientActionView> {
             result['evidence'] != 'STRIPE_TEST_HOSTED_ONBOARDING' ||
             result['real_money_moved'] != false)
           throw const ApiException(502, 'Untrusted onboarding response.');
-        link = uri;
-        expires = expiry;
+        receivedLink = uri;
+        receivedExpiry = expiry;
       } else {
         final row = result['account'];
         if (row is! Map ||
-            row['id'] != widget.account['id'] ||
-            row['vendor_id'] != widget.account['vendor_id'] ||
+            row['id'] != reviewedAccount['id'] ||
+            row['vendor_id'] != reviewedAccount['vendor_id'] ||
+            row['provider'] != reviewedAccount['provider'] ||
+            row['currency'] != reviewedAccount['currency'] ||
+            row['minor_units'] != reviewedAccount['minor_units'] ||
             row['real_money_moved'] != false)
           throw const ApiException(502, 'Unconfirmed recipient receipt.');
-        if (widget.action == 'revoke' && row['status'] != 'revoked')
+        if (reviewedAction == 'revoke' && row['status'] != 'revoked')
           throw const ApiException(502, 'Unconfirmed revocation.');
-        if (widget.action == 'consent' &&
-            row['consent_version'] != body['consent_version'])
+        if (reviewedAction == 'consent' &&
+            (row['consent_version'] != reviewedBody['consent_version'] ||
+             !['pending_verification','active'].contains(row['status'])))
           throw const ApiException(502, 'Unconfirmed consent version.');
       }
+      await op.confirmed();
+      if (!current(epoch)) return;
       confirmed = true;
-      await operation!.confirmed();
+      link = receivedLink;
+      expires = receivedExpiry;
     } catch (e) {
-      if (mounted && generation == epoch) {
+      if (current(epoch)) {
         error = e;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
-      }
+      } else if (mounted && foreground && epoch == generation &&
+          e is ApiException && e.endsCurrentSession) widget.onExpired();
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> open() async {
+    if (!active || !top || busy || launching || !confirmed) return;
     if (link == null ||
         expires == null ||
         expires! <= DateTime.now().millisecondsSinceEpoch ~/ 1000) {
@@ -796,35 +880,45 @@ class _RecipientActionState extends State<PayoutRecipientActionView> {
       );
       return;
     }
-    final epoch = generation;
+    final epoch = generation, uri = link!;
+    setState(() => launching = true);
     try {
       final launched =
-          await (widget.launch?.call(link!) ??
-              launchUrl(link!, mode: LaunchMode.externalApplication));
+          await (widget.launch?.call(uri) ??
+              launchUrl(uri, mode: LaunchMode.externalApplication));
+      if (!current(epoch)) return;
       if (!launched) throw const ApiException(0, 'Could not launch.');
+      setState(() { link = null; expires = null; });
     } catch (e) {
-      if (mounted && epoch == generation) setState(() => error = e);
+      if (current(epoch)) setState(() => error = e);
+    } finally {
+      if (current(epoch)) setState(() => launching = false);
     }
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
-    appBar: AppBar(title: Text(t(widget.action))),
+  Widget build(BuildContext c) {
+    final rendered = generation;
+    bool usable() => current(rendered) && top && !busy && !launching;
+    if (!active) return Scaffold(appBar:AppBar(title:Text(t(reviewedAction))),
+      body:Center(child:Text(t('notice'))));
+    return Scaffold(
+    appBar: AppBar(title: Text(t(reviewedAction))),
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Text(
           t(
-            widget.action == 'consent'
+            reviewedAction == 'consent'
                 ? 'consentNotice'
-                : widget.action == 'revoke'
+                : reviewedAction == 'revoke'
                 ? 'revokeNotice'
                 : 'onboardingNotice',
           ),
         ),
-        if (widget.action == 'consent')
+        if (reviewedAction == 'consent')
           Text(
-            '${t('version')}: ${widget.account['required_consent_version']}',
+            '${t('version')}: ${reviewedAccount['required_consent_version']}',
           ),
         if (operation?.pending != null && !confirmed)
           Text(t('pendingOperation')),
@@ -835,20 +929,21 @@ class _RecipientActionState extends State<PayoutRecipientActionView> {
           value: consent,
           onChanged: busy || confirmed
               ? null
-              : (v) => setState(() => consent = v!),
+              : (v) { if (usable()) setState(() => consent = v == true); },
           title: Text(t('confirm')),
         ),
         FilledButton(
           onPressed: busy || confirmed || !consent || operation == null
               ? null
-              : submit,
-          child: Text(t(widget.action)),
+              : () { if (usable()) submit(); },
+          child: Text(t(reviewedAction)),
         ),
         if (link != null)
-          OutlinedButton(onPressed: busy ? null : open, child: Text(t('open'))),
+          OutlinedButton(onPressed: busy || launching ? null : () { if (usable()) open(); }, child: Text(t('open'))),
       ],
     ),
   );
+  }
 }
 
 class VendorFinanceDetailView extends StatefulWidget {
@@ -985,7 +1080,17 @@ class VendorPayableView extends StatefulWidget {
   State<VendorPayableView> createState() => _VendorPayableState();
 }
 
-class _VendorPayableState extends State<VendorPayableView> {
+class _VendorPayableState extends State<VendorPayableView> with WidgetsBindingObserver {
+  late bool Function() authorized;
+  StreamSubscription<int>? sessionEvents;
+  bool foreground = true, retired = false;
+  bool get active => mounted && foreground && !retired && authorized();
+  bool current(int epoch) => active && epoch == generation;
+  bool get top => ModalRoute.of(context)?.isCurrent ?? true;
+  void redact() {
+    statement = null; operation = null; owner = 0;
+    consent = false; done = false; busy = false; error = null;
+  }
   Map<String, dynamic>? statement;
   FinancialOperation? operation;
   int owner = 0, generation = 0;
@@ -995,12 +1100,41 @@ class _VendorPayableState extends State<VendorPayableView> {
   @override
   void initState() {
     super.initState();
-    load();
+    authorized = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    final api = widget.api;
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (mounted && identical(api,widget.api) && !authorized()) {
+        setState(() { retired = true; redact(); });
+      }
+    });
+    if (active) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant VendorPayableView old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.api,widget.api) || old.currency != widget.currency ||
+        !identical(old.store,widget.store)) {
+      generation++; retired = true; redact();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    final next = state == AppLifecycleState.resumed;
+    if (next == foreground) return;
+    setState(() { foreground = next; generation++; redact(); });
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(sessionEvents?.cancel());
     super.dispose();
   }
 
@@ -1014,29 +1148,35 @@ class _VendorPayableState extends State<VendorPayableView> {
   }
 
   Future<void> load() async {
-    final epoch = ++generation;
+    if (!active || busy) return;
+    final epoch = ++generation, api = widget.api, currency = widget.currency;
     setState(() {
       busy = true;
       error = null;
       statement = null;
+      consent = false;
     });
     try {
-      final me = await widget.api.request('me');
+      final me = await api.request('me');
+      if (!current(epoch)) return;
       if (me['role'] != 'vendor' ||
           me['id'] is! int ||
-          !RegExp(r'^[A-Z]{3}$').hasMatch(widget.currency))
+          me['id'] <= 0 ||
+          !RegExp(r'^[A-Z]{3}$').hasMatch(currency))
         throw const ApiException(403, 'Vendor role required.');
-      owner = me['id'] as int;
+      final actor = me['id'] as int;
+      if (owner != 0 && owner != actor)
+        throw const FormatException('Vendor scope changed.');
       final data = Map<String, dynamic>.from(
-        await widget.api.request(
-              'commercial/vendors/$owner/statement',
-              query: {'currency': widget.currency},
+        await api.request(
+              'commercial/vendors/$actor/statement',
+              query: {'currency': currency},
             )
             as Map,
       );
-      if (!mounted || epoch != generation) return;
-      if (data['vendor_id'] != owner ||
-          data['currency'] != widget.currency ||
+      if (!current(epoch)) return;
+      if (data['vendor_id'] != actor ||
+          data['currency'] != currency ||
           data['real_payout_enabled'] != false ||
           data['evidence'] != 'SIMULATED' ||
           data['eligible_to_request'] is! bool)
@@ -1046,61 +1186,79 @@ class _VendorPayableState extends State<VendorPayableView> {
           operation ??
           FinancialOperation(
             widget.store ?? DeviceFinancialOperationStore(),
-            '${widget.api.base.origin}:$owner:settlement:${widget.currency}',
-            isCurrent: widget.api.sessionFence(),
+            '${api.base.origin}:$actor:settlement:$currency',
+            isCurrent: () => active && identical(api,widget.api),
           );
       if (operation == null) await op.restore();
-      if (!mounted || epoch != generation) return;
+      if (!current(epoch)) return;
+      owner = actor;
       operation = op;
       statement = data;
     } catch (e) {
-      if (mounted && epoch == generation) fail(e);
+      if (current(epoch)) fail(e);
+      else if (mounted && foreground && epoch == generation &&
+          e is ApiException && e.endsCurrentSession) widget.onExpired();
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> submit() async {
-    if (busy || !consent || operation == null || done) return;
+    if (!active || !top || busy || !consent || operation == null || done ||
+        statement == null || (statement!['eligible_to_request'] != true && operation!.pending == null)) return;
+    final epoch = ++generation, api = widget.api, actor = owner, currency = widget.currency,
+        op = operation!, reviewed = statement!;
     setState(() {
       busy = true;
+      consent = false;
       error = null;
     });
     try {
-      final body = await operation!.prepare({'currency': widget.currency});
-      if (!mounted) return;
-      final result = await widget.api.request(
-        'commercial/vendors/$owner/settlements',
+      final body = await op.prepare({'currency': currency});
+      if (!current(epoch) || !top || !identical(op,operation) || !identical(reviewed,statement)) return;
+      final result = await api.request(
+        'commercial/vendors/$actor/settlements',
         method: 'POST',
         body: body,
       );
+      if (!current(epoch)) return;
       if (result is! Map ||
-          result['id'] is! int ||
-          result['vendor_id'] != owner ||
-          result['currency'] != widget.currency ||
+          result['id'] is! int || result['id'] <= 0 ||
+          result['vendor_id'] != actor ||
+          result['currency'] != currency ||
+          result['minor_units'] != reviewed['minor_units'] ||
           result['evidence'] != 'SIMULATED')
         throw const FormatException('Unsupported settlement receipt.');
-      if (!mounted) return;
       nativeFinancialAmount(
         context,
         Map<String, dynamic>.from(result),
         'amount_minor',
       );
-      await operation!.confirmed();
-      if (mounted)
+      await op.confirmed();
+      if (current(epoch))
         setState(() {
           done = true;
           consent = false;
         });
     } catch (e) {
-      if (mounted) fail(e);
+      if (current(epoch)) {
+        fail(e);
+        // The durable original intent remains. A new review is mandatory.
+        statement = null;
+      } else if (mounted && foreground && epoch == generation &&
+          e is ApiException && e.endsCurrentSession) widget.onExpired();
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
+  Widget build(BuildContext c) {
+    final rendered = generation;
+    bool usable() => current(rendered) && top && !busy;
+    if (!active) return Scaffold(appBar:AppBar(title:Text(t('balance'))),
+      body:Center(child:Text(t('notice'))));
+    return Scaffold(
     appBar: AppBar(title: Text(t('balance'))),
     body: ListView(
       padding: const EdgeInsets.all(16),
@@ -1108,7 +1266,7 @@ class _VendorPayableState extends State<VendorPayableView> {
         Text(t('notice')),
         Text(t('requestNotice')),
         OutlinedButton(
-          onPressed: busy ? null : load,
+          onPressed: busy ? null : () { if (usable()) load(); },
           child: Text(t('refresh')),
         ),
         if (busy) const Center(child: CircularProgressIndicator()),
@@ -1125,17 +1283,18 @@ class _VendorPayableState extends State<VendorPayableView> {
                 operation?.pending != null)) ...[
           CheckboxListTile(
             value: consent,
-            onChanged: busy ? null : (v) => setState(() => consent = v!),
+            onChanged: busy ? null : (v) { if (usable()) setState(() => consent = v == true); },
             title: Text(t('requestNotice')),
           ),
           FilledButton(
-            onPressed: busy || !consent || operation == null ? null : submit,
+            onPressed: busy || !consent || operation == null ? null : () { if (usable()) submit(); },
             child: Text(t('requestSettlement')),
           ),
         ],
       ],
     ),
   );
+  }
 }
 
 /// Read-only projection of the canonical settlement service, never a ledger.

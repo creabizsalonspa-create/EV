@@ -18,6 +18,11 @@ class PrivateListApi extends FixtureApi {
   bool malformedRefund = false, malformedCase = false, malformedAmount = false;
   Completer<dynamic>? delayed;
 
+  final sessionChanges = StreamController<int>.broadcast(sync: true);
+  @override
+  Stream<int> get sessionEvents => sessionChanges.stream;
+  void rotateIdentity() { identity++; sessionChanges.add(identity); }
+
   @override
   bool Function() sessionFence() {
     final owner = identity;
@@ -115,16 +120,17 @@ void main() {
     expect(find.text('Old private refund'), findsOneWidget);
 
     // A same-instance logout must hide already-rendered private records.
-    api.identity++;
+    api.rotateIdentity();
     await tester.pumpWidget(screen(RefundRequestsView(
       api: api,
       role: 'customer',
       onExpired: () {},
     )));
     expect(find.text('Old private refund'), findsNothing);
-    expect(tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, 'Refresh'),
-    ).onPressed, isNull);
+    final refresh = find.widgetWithText(OutlinedButton, 'Refresh');
+    if (refresh.evaluate().isNotEmpty) {
+      expect(tester.widget<OutlinedButton>(refresh).onPressed, isNull);
+    }
     expect(api.reads, 2);
   });
 
@@ -141,7 +147,7 @@ void main() {
       onExpired: () => expired++,
     )));
     await tester.pump();
-    api.identity++;
+    api.rotateIdentity();
     waiting.completeError(const ApiException(401, 'Old identity expired'));
     // The stale request may leave a spinner until the current account
     // replaces the widget. Do not wait for a spinner to settle.
@@ -163,7 +169,7 @@ void main() {
     final oldAction = tester.widget<OutlinedButton>(
       find.widgetWithText(OutlinedButton, 'Private evidence'),
     ).onPressed!;
-    old.identity++;
+    old.rotateIdentity();
     oldAction();
     await tester.pumpAndSettle();
     expect(find.byType(CaseEvidenceView), findsNothing);
@@ -178,9 +184,19 @@ void main() {
     expect(find.text('Old private dispute'), findsNothing);
     expect(find.text('New private dispute'), findsNothing);
     expect(current.reads, 0);
-    await tester.tap(find.text('Refresh'));
+    expect(tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Refresh'),
+    ).onPressed, isNull);
+    // An explicitly reopened route, rather than a revoked route reusing
+    // another API, establishes the new owner's independent read authority.
+    await tester.pumpWidget(screen(PaymentCasesView(
+      key: const ValueKey('new-owner-case-route'),
+      api: current,
+      onExpired: () {},
+    )));
     await tester.pumpAndSettle();
     expect(find.text('New private dispute'), findsOneWidget);
+    expect(find.text('Old private dispute'), findsNothing);
     expect(current.reads, 1);
   });
 

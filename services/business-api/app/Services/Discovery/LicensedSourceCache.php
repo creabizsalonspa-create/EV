@@ -8,12 +8,23 @@ use Illuminate\Support\Facades\Cache;
 /** Shared egress protection; never serves stale results after provider failure. */
 final class LicensedSourceCache
 {
+    public static function identity(float $latitude, float $longitude, float $radiusKm, ?string $country, string $credential): string
+    {
+        return hash('sha256', json_encode([$latitude, $longitude, $radiusKm, $country, hash('sha256', $credential)], JSON_THROW_ON_ERROR));
+    }
+
+    /** No fetch, retry, cooldown change or quota consumption. */
+    public function peek(string $identity): mixed
+    {
+        return Cache::get('ocm-discovery:'.$identity);
+    }
+
     public function read(string $identity, string $credential, Closure $fetch): array
     {
         $key = 'ocm-discovery:'.$identity;
         $cached = Cache::get($key);
         if ($cached !== null) {
-            return $cached; // The adapter still validates every cached field.
+            return $this->cachedArray($cached); // The adapter still validates every cached field.
         }
         $cooldown = 'ocm-cooldown:'.hash('sha256', $credential);
         $this->checkCooldown($cooldown);
@@ -26,7 +37,7 @@ final class LicensedSourceCache
         try {
             $cached = Cache::get($key);
             if ($cached !== null) {
-                return $cached;
+                return $this->cachedArray($cached);
             }
             $this->checkCooldown($cooldown);
             try {
@@ -44,6 +55,15 @@ final class LicensedSourceCache
         } finally {
             $lock->release();
         }
+    }
+
+    private function cachedArray(mixed $cached): array
+    {
+        if (! is_array($cached)) {
+            throw new LookupFailure('invalid_response', 503);
+        }
+
+        return $cached;
     }
 
     private function checkCooldown(string $key): void

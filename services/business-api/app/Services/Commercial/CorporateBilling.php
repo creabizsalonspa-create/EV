@@ -13,6 +13,73 @@ use Illuminate\Support\Str;
 
 class CorporateBilling
 {
+    private const MAX_EXACT_MINOR = 9_007_199_254_740_991;
+
+    public static function exactMinor(mixed $value): int
+    {
+        abort_unless(is_int($value) || is_string($value), 409,
+            'Corporate source amount must be an exact minor-unit integer.');
+        $amount = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($amount !== false && $amount >= 0 && $amount <= self::MAX_EXACT_MINOR,
+            409, 'Corporate source amount exceeds exact minor-unit bounds.');
+
+        return $amount;
+    }
+
+    public static function addMinor(int $left, int $right): int
+    {
+        return self::exactMinor($left + $right);
+    }
+
+    private static function sumMinor(iterable $rows, string $column): int
+    {
+        $total = 0;
+        foreach ($rows as $row) {
+            $total = self::addMinor($total, self::exactMinor($row->{$column}));
+        }
+
+        return $total;
+    }
+
+    /** Validate persisted source before Eloquent's integer casts can hide bad data. */
+    public static function invoiceComponents(Invoice $invoice): array
+    {
+        $subtotal = self::exactMinor($invoice->getRawOriginal('subtotal_minor'));
+        $tax = self::exactMinor($invoice->getRawOriginal('tax_minor'));
+        $total = self::exactMinor($invoice->getRawOriginal('total_minor'));
+        abort_unless(self::addMinor($subtotal, $tax) === $total, 409,
+            'Corporate invoice components do not reconcile.');
+
+        return ['subtotal_minor' => $subtotal, 'tax_minor' => $tax, 'total_minor' => $total];
+    }
+
+    /** Shared exact source check for consolidated statement and hosted collection. */
+    public static function validateStatementLines(object $statement, iterable $lines, array $invoices): void
+    {
+        $totals = ['subtotal_minor' => 0, 'tax_minor' => 0, 'total_minor' => 0];
+        $seen = [];
+        foreach ($lines as $line) {
+            $invoice = $invoices[$line->invoice_id] ?? null;
+            abort_unless($invoice instanceof Invoice && ! isset($seen[$line->invoice_id])
+                && (int) $line->statement_id === (int) $statement->id
+                && (int) $line->driver_id === (int) $invoice->user_id
+                && $invoice->currency === $statement->currency
+                && (int) $invoice->minor_units === (int) $statement->minor_units,
+                409, 'Corporate statement invoice lineage does not reconcile.');
+            $seen[$line->invoice_id] = true;
+            foreach (self::invoiceComponents($invoice) as $field => $amount) {
+                abort_unless(self::exactMinor($line->{$field}) === $amount, 409,
+                    'Corporate statement line differs from immutable invoice components.');
+                $totals[$field] = self::addMinor($totals[$field], $amount);
+            }
+        }
+        abort_unless($totals['total_minor'] > 0, 409, 'Corporate statement has no collectible total.');
+        foreach ($totals as $field => $amount) {
+            abort_unless(self::exactMinor($statement->{$field}) === $amount, 409,
+                'Corporate statement totals do not reconcile.');
+        }
+    }
+
     public function fleet(int $id, int $actor, bool $manage = false): object
     {
         $fleet = Fleet::findOrFail($id);
@@ -104,9 +171,11 @@ class CorporateBilling
 
     private function cleanInvoice(Invoice $invoice): void
     {
+        self::invoiceComponents($invoice);
         CorporateHostedCollection::guardPayment((int) $invoice->id);
         abort_if(DB::table('finance_unpaid_credits')->where('invoice_id', $invoice->id)->exists(), 409, 'A noncash-credited invoice cannot be billed again.');
-        abort_unless((int) DB::table('finance_payments')->where('invoice_id', $invoice->id)->sum('amount_minor') === 0, 409, 'Corporate billing only accepts wholly unpaid invoices.');
+        abort_unless(self::sumMinor(DB::table('finance_payments')->where('invoice_id', $invoice->id)
+            ->get(['amount_minor']), 'amount_minor') === 0, 409, 'Corporate billing only accepts wholly unpaid invoices.');
         abort_if(DB::table('gateway_checkouts')->where('invoice_id', $invoice->id)->exists(), 409, 'An invoice with a PSP checkout must remain on its original provider collection path.');
         abort_if(DB::table('finance_refund_requests')->where('invoice_id', $invoice->id)->where('status', 'pending')->exists() || DB::table('gateway_cases')->where('invoice_id', $invoice->id)->where('status', 'open')->exists(), 409, 'Unresolved financial cases hold corporate billing.');
     }
@@ -190,14 +259,24 @@ class CorporateBilling
                 $invoice = Invoice::whereKey($claim->invoice_id)->lockForUpdate()->firstOrFail();
                 $this->cleanInvoice($invoice);
                 abort_unless(Carbon::parse($invoice->created_at)->format('Y-m') === $v['period'], 409, 'Invoice is outside statement month.');
-                abort_unless($total <= PHP_INT_MAX - (int) $invoice->total_minor, 409, 'Corporate amount overflow.');
-                $subtotal += (int) $invoice->subtotal_minor;
-                $tax += (int) $invoice->tax_minor;
-                $total += (int) $invoice->total_minor;
+                $components = self::invoiceComponents($invoice);
+                abort_unless(self::exactMinor($claim->amount_minor) === $components['total_minor']
+                    && $claim->currency === $invoice->currency && $claim->currency === $a->currency
+                    && (int) $claim->minor_units === (int) $invoice->minor_units
+                    && (int) $claim->minor_units === (int) $a->minor_units
+                    && (int) $claim->driver_id === (int) $invoice->user_id,
+                    409, 'Approved claim differs from its canonical invoice.');
+                $subtotal = self::addMinor($subtotal, $components['subtotal_minor']);
+                $tax = self::addMinor($tax, $components['tax_minor']);
+                $total = self::addMinor($total, $components['total_minor']);
                 $items[] = [$claim, $invoice];
             }
-            $open = (int) DB::table('corporate_statements')->where('fleet_id', $a->fleet_id)->where('currency', $a->currency)->whereNotIn('id', DB::table('corporate_receipts')->select('statement_id'))->sum('total_minor');
-            abort_unless($total > 0 && $total <= (int) $a->credit_limit_minor - $open, 409, 'Corporate credit limit exceeded.');
+            $open = self::sumMinor(DB::table('corporate_statements')->where('fleet_id', $a->fleet_id)
+                ->where('currency', $a->currency)->whereNotIn('id', DB::table('corporate_receipts')->select('statement_id'))
+                ->get(['total_minor']), 'total_minor');
+            $limit = self::exactMinor($a->credit_limit_minor);
+            abort_unless($total > 0 && $open <= $limit && $total <= $limit - $open,
+                409, 'Corporate credit limit exceeded.');
             $due = now()->addDays((int) $a->payment_terms_days);
             $id = DB::table('corporate_statements')->insertGetId(['agreement_id' => $a->id, 'fleet_id' => $a->fleet_id, 'issued_by' => $actor, 'payer_id' => $fleet->owner_id, 'number' => 'CB-CORP-'.Str::ulid(), 'period' => $v['period'], 'currency' => $a->currency, 'minor_units' => $a->minor_units, 'subtotal_minor' => $subtotal, 'tax_minor' => $tax, 'total_minor' => $total, 'due_at' => $due, 'agreement_snapshot' => json_encode($a, JSON_THROW_ON_ERROR), 'request_key' => $key, 'fingerprint' => $hash, 'created_at' => now()]);
             foreach ($items as [$claim,$invoice]) {
@@ -230,8 +309,11 @@ class CorporateBilling
 
         $lines = DB::table('corporate_statement_lines')->where('statement_id', $id)->orderBy('id')->get();
         $invoiceIds = $lines->pluck('invoice_id');
-        $paid = (int) DB::table('finance_payments')->whereIn('invoice_id', $invoiceIds)->sum('amount_minor');
-        $refunded = (int) DB::table('finance_refunds')->whereIn('invoice_id', $invoiceIds)->sum('amount_minor');
+        $paid = self::sumMinor(DB::table('finance_payments')->whereIn('invoice_id', $invoiceIds)
+            ->get(['amount_minor']), 'amount_minor');
+        $refunded = self::sumMinor(DB::table('finance_refunds')->whereIn('invoice_id', $invoiceIds)
+            ->get(['amount_minor']), 'amount_minor');
+        abort_unless($refunded <= $paid, 409, 'Corporate refunds exceed collected funds.');
 
         return app(CorporateHostedCollection::class)->statementContract($s, $lines, $actor) + ['statement' => $s, 'lines' => $lines, 'receipt' => $receipt, 'state' => $this->statementStatus($s), 'paid_minor' => $paid, 'refunded_minor' => $refunded, 'net_collected_minor' => $paid - $refunded, 'credit_notes' => DB::table('finance_refunds')->whereIn('invoice_id', $invoiceIds)->orderBy('id')->get(['id', 'invoice_id', 'credit_note_number', 'amount_minor', 'tax_minor', 'reason', 'evidence', 'created_at']), 'real_payment_processed' => false];
     }
@@ -253,11 +335,17 @@ class CorporateBilling
             }
             abort_if(DB::table('corporate_receipts')->where('statement_id', $id)->exists(), 409, 'Statement already paid.');
             $lines = DB::table('corporate_statement_lines')->where('statement_id', $id)->orderBy('invoice_id')->get();
-            $payments = [];
+            $invoices = [];
             foreach ($lines as $line) {
                 $invoice = Invoice::whereKey($line->invoice_id)->lockForUpdate()->firstOrFail();
                 $this->cleanInvoice($invoice);
-                $payments[] = app(FinanceService::class)->pay($invoice, $actor, (int) $line->total_minor, 'corporate-'.$id.'-'.$line->id);
+                $invoices[$line->invoice_id] = $invoice;
+            }
+            self::validateStatementLines($s, $lines, $invoices);
+            $payments = [];
+            foreach ($lines as $line) {
+                $payments[] = app(FinanceService::class)->pay($invoices[$line->invoice_id], $actor,
+                    self::exactMinor($line->total_minor), 'corporate-'.$id.'-'.$line->id);
             }
             $receipt = DB::table('corporate_receipts')->insertGetId(['statement_id' => $id, 'actor_id' => $actor, 'number' => 'SIM-CORP-RCPT-'.Str::ulid(), 'request_key' => $request, 'fingerprint' => $hash, 'amount_minor' => $s->total_minor, 'evidence' => 'SIMULATED', 'created_at' => now()]);
             foreach ($payments as $payment) {

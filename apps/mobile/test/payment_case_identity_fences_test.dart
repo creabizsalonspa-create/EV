@@ -37,6 +37,11 @@ class FencedCaseApi extends FixtureApi {
   Completer<PrivateDocument>? delayedDocument;
   final bytes = Uint8List.fromList('%PDF-1.4\nFenced fixture'.codeUnits);
 
+  final sessionChanges = StreamController<int>.broadcast(sync: true);
+  @override
+  Stream<int> get sessionEvents => sessionChanges.stream;
+  void rotateIdentity() { identity++; sessionChanges.add(identity); }
+
   @override
   bool Function() sessionFence() {
     final epoch = identity;
@@ -174,7 +179,7 @@ void main() {
     api.delayedInvoice = waiting;
     await tester.pumpWidget(caseScreen(api, store));
     await tester.pump();
-    api.identity++;
+    api.rotateIdentity();
     waiting.complete({
       'invoice': {
         'id': 3, 'user_id': 1, 'minor_units': 2, 'currency': 'AED',
@@ -206,7 +211,7 @@ void main() {
     await tapVisible(tester, 'Confirm saved request');
     expect(api.posts, 1);
     expect(store.writes, 1);
-    api.identity++;
+    api.rotateIdentity();
     waiting.complete({
       'id': 7, 'invoice_id': 3, 'user_id': 1, 'kind': 'dispute',
       'amount_minor': 125, 'reason': 'Disputed captured amount',
@@ -225,7 +230,7 @@ void main() {
     api.delayedEvidence = waiting;
     await tester.pumpWidget(evidenceScreen(api, store));
     await tester.pump();
-    api.identity++;
+    api.rotateIdentity();
     waiting.complete(api.records);
     await tester.pumpAndSettle();
     expect(find.text('View verified private file'), findsNothing);
@@ -241,7 +246,7 @@ void main() {
     await tester.pumpWidget(evidenceScreen(api, store, picker: () => waiting.future));
     await tester.pumpAndSettle();
     await tapVisible(tester, 'Choose PDF, PNG or JPEG up to4 MiB');
-    api.identity++;
+    api.rotateIdentity();
     waiting.complete(VendorEvidence(api.bytes, 'application/pdf'));
     await tester.pumpAndSettle();
     expect(find.textContaining('application/pdf ·'), findsNothing);
@@ -259,7 +264,7 @@ void main() {
     await tester.pumpAndSettle();
     await tapVisible(tester, 'View verified private file');
     expect(api.downloads, 1);
-    api.identity++;
+    api.rotateIdentity();
     waiting.complete(PrivateDocument(api.bytes, 'application/pdf'));
     await tester.pumpAndSettle();
     expect(find.byType(VendorDocumentPreview), findsNothing);
@@ -355,7 +360,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(api.uploads, 1);
     expect(store.writes, 1);
-    api.identity++;
+    api.rotateIdentity();
     waiting.complete(api.records['data']!.first);
     await tester.pumpAndSettle();
     expect(store.entries.length, 1,

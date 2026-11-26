@@ -144,24 +144,15 @@ List<Widget> _sourceCreditEvidence(BuildContext context, Map row) {
   ];
 }
 
-/// Validates the private canonical finance record before allowing review actions.
-/// A malformed server response must not silently create approval controls.
 Map<String, dynamic> nativeRefundHistoryRecord(Map<String, dynamic> row) {
-  final id = row['id'];
-  final invoice = row['invoice_id'];
   final amount = row['amount_minor'];
   final reason = row['reason'];
-  final status = row['status'];
   final credit = row['ocpi_credit_record_id'];
-  if (!_refundId(id) ||
-      !_refundId(invoice) ||
-      amount is! int ||
-      amount < 1 ||
-      amount > 2000000000 ||
-      reason is! String ||
-      reason.trim().isEmpty ||
-      reason.length > 500 ||
-      !['pending', 'approved', 'rejected'].contains(status) ||
+  if (!_refundId(row['id']) ||
+      !_refundId(row['invoice_id']) ||
+      amount is! int || amount < 1 || amount > 2000000000 ||
+      reason is! String || reason.trim().isEmpty || reason.length > 500 ||
+      !['pending', 'approved', 'rejected'].contains(row['status']) ||
       (credit != null && !_refundId(credit))) {
     throw const FormatException('Invalid private refund history.');
   }
@@ -202,11 +193,10 @@ class _RefundListState extends State<RefundRequestsView>
     foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     session = widget.api.sessionEvents.listen((_) {
-      if (mounted)
-        setState(() {
-          revoked = true;
-          clearPrivate();
-        });
+      if (mounted) setState(() {
+        revoked = true;
+        clearPrivate();
+      });
     });
     load();
   }
@@ -222,8 +212,7 @@ class _RefundListState extends State<RefundRequestsView>
   @override
   void didUpdateWidget(covariant RefundRequestsView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.api, widget.api) ||
-        oldWidget.role != widget.role) {
+    if (!identical(oldWidget.api, widget.api) || oldWidget.role != widget.role) {
       revoked = true;
       clearPrivate();
     }
@@ -277,107 +266,91 @@ class _RefundListState extends State<RefundRequestsView>
 
   @override
   Widget build(BuildContext c) {
-    final renderGeneration = generation;
-    final renderedPage = page;
+    final view = generation;
     return Scaffold(
-      appBar: AppBar(title: Text(t('title'))),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text(t('notice')),
-          if (!revoked)
-            OutlinedButton(
-              onPressed: busy || !visible
-                  ? null
-                  : () {
-                      if (current(renderGeneration)) load(number: target);
-                    },
-              child: Text(t('refresh')),
-            ),
-          if (visible) ...[
-            if (busy) const Center(child: CircularProgressIndicator()),
-            if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
-            if (renderedPage != null && renderedPage.items.isEmpty)
-              Text(t('empty')),
-            if (renderedPage != null) ...[
-              for (final row in renderedPage.items)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '#${row['id']} · ${t(['pending', 'approved', 'rejected'].contains(row['status']) ? row['status'] : 'unknown')}',
-                        ),
-                        Text('${row['reason'] ?? ''}'),
-                        if (row['ocpi_credit_record_id'] != null)
-                          Text(
-                            '${Localizations.localeOf(c).languageCode == 'ar' ? 'مرجع مصدر الإشعار الدائن' : 'Source credit record'}: ${row['ocpi_credit_record_id']}',
-                          ),
-                        Text(
-                          '${row['amount_minor']} · ${Localizations.localeOf(c).languageCode == 'ar' ? 'وحدات نقدية صغرى' : 'minor units'}',
-                        ),
-                        ..._sourceCreditEvidence(c, row),
-                        if (row['decision_note'] != null)
-                          Text('${row['decision_note']}'),
-                        if (widget.role == 'vendor' &&
-                            row['status'] == 'pending')
-                          OutlinedButton(
-                            onPressed: busy
-                                ? null
-                                : () async {
-                                    if (!current(renderGeneration)) return;
-                                    final api = widget.api;
-                                    final onExpired = widget.onExpired;
-                                    await Navigator.of(c).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) => RefundDecisionView(
-                                          api: api,
-                                          onExpired: onExpired,
-                                          requestId: row['id'] as int,
-                                        ),
-                                      ),
-                                    );
-                                    if (current(renderGeneration))
-                                      load(number: target);
-                                  },
-                            child: Text(t('review')),
-                          ),
-                      ],
+    appBar: AppBar(title: Text(t('title'))),
+    body: ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(t('notice')),
+        if (visible) ...[
+        OutlinedButton(
+          onPressed: busy ? null : () {
+            if (current(view)) load(number: target);
+          },
+          child: Text(t('refresh')),
+        ),
+        if (busy) const Center(child: CircularProgressIndicator()),
+        if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
+        if (page != null && page!.items.isEmpty) Text(t('empty')),
+        if (page != null) ...[
+          for (final row in page!.items)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '#${row['id']} · ${t(['pending', 'approved', 'rejected'].contains(row['status']) ? row['status'] : 'unknown')}',
                     ),
-                  ),
+                    Text('${row['reason'] ?? ''}'),
+                    if (row['ocpi_credit_record_id'] != null)
+                      Text(
+                        '${Localizations.localeOf(c).languageCode == 'ar' ? 'مرجع مصدر الإشعار الدائن' : 'Source credit record'}: ${row['ocpi_credit_record_id']}',
+                      ),
+                    Text(
+                      '${row['amount_minor']} · ${Localizations.localeOf(c).languageCode == 'ar' ? 'وحدات نقدية صغرى' : 'minor units'}',
+                    ),
+                    ..._sourceCreditEvidence(c, row),
+                    if (row['decision_note'] != null)
+                      Text('${row['decision_note']}'),
+                    if (widget.role == 'vendor' && row['status'] == 'pending')
+                      OutlinedButton(
+                        onPressed: busy
+                            ? null
+                            : () async {
+                                if (!current(view)) return;
+                                final api = widget.api;
+                                await Navigator.of(c).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => RefundDecisionView(
+                                      api: api,
+                                      onExpired: widget.onExpired,
+                                      requestId: row['id'] as int,
+                                    ),
+                                  ),
+                                );
+                                if (current(view)) load(number: target);
+                              },
+                        child: Text(t('review')),
+                      ),
+                  ],
                 ),
-              Wrap(
-                spacing: 12,
-                children: [
-                  OutlinedButton(
-                    onPressed: busy || renderedPage.current <= 1
-                        ? null
-                        : () {
-                            if (current(renderGeneration)) {
-                              load(number: renderedPage.current - 1);
-                            }
-                          },
-                    child: Text(t('previous')),
-                  ),
-                  Text('${renderedPage.current} / ${renderedPage.last}'),
-                  OutlinedButton(
-                    onPressed: busy || renderedPage.current >= renderedPage.last
-                        ? null
-                        : () {
-                            if (current(renderGeneration)) {
-                              load(number: renderedPage.current + 1);
-                            }
-                          },
-                    child: Text(t('next')),
-                  ),
-                ],
+              ),
+            ),
+          Wrap(
+            spacing: 12,
+            children: [
+              OutlinedButton(
+                onPressed: busy || page!.current <= 1
+                    ? null
+                    : () { if (current(view)) load(number: page!.current - 1); },
+                child: Text(t('previous')),
+              ),
+              Text('${page!.current} / ${page!.last}'),
+              OutlinedButton(
+                onPressed: busy || page!.current >= page!.last
+                    ? null
+                    : () { if (current(view)) load(number: page!.current + 1); },
+                child: Text(t('next')),
               ),
             ],
-          ],
+          ),
         ],
-      ),
+        ],
+      ],
+    ),
     );
   }
 }
@@ -498,6 +471,7 @@ class _RefundRequestState extends State<RefundRequestView>
         throw const FormatException('Unsupported precision.');
       final me = await widget.api.request('me');
       if (!current(epoch)) return;
+      if (me is! Map) throw const FormatException('Invalid refund owner.');
       final owner = me['id'];
       if (!_refundId(owner) || me['role'] != 'customer')
         throw const ApiException(403, 'Customer invoice ownership required.');
@@ -539,7 +513,7 @@ class _RefundRequestState extends State<RefundRequestView>
   }
 
   Future<void> submit() async {
-    if (!visible || busy || operation == null || ownerId == null) return;
+    if (!mounted || !visible || busy || confirmed || operation == null || ownerId == null) return;
     final formGeneration = generation;
     final op = operation!;
     final owner = ownerId!;
@@ -576,7 +550,10 @@ class _RefundRequestState extends State<RefundRequestView>
     );
     redactRevokedSession();
     if (consent != true || !current(formGeneration) ||
-        !identical(op, operation) || busy) return;
+        !identical(op, operation) || busy || confirmed ||
+        decimalMinor(amount.text, widget.digits, maximum: 2000000000) != minor ||
+        reason.text.trim() != originalReason ||
+        credit.text.trim() != (creditId?.toString() ?? '')) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -616,7 +593,9 @@ class _RefundRequestState extends State<RefundRequestView>
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
+  Widget build(BuildContext c) {
+    final view = generation;
+    return Scaffold(
     appBar: AppBar(title: Text(t('new'))),
     body: ListView(
       padding: const EdgeInsets.all(16),
@@ -651,19 +630,23 @@ class _RefundRequestState extends State<RefundRequestView>
           onPressed: busy || uncertain || confirmed
               ? null
               : () async {
-                  final current = widget.api.sessionFence();
+                  if (!current(view) || busy || uncertain || confirmed) return;
+                  final api = widget.api;
+                  final invoice = widget.invoiceId;
+                  final fence = ownsSession;
                   final selected = await Navigator.of(c).push<int>(
                     MaterialPageRoute(
-                      builder: (_) => SourceCreditPickerView(
-                        api: widget.api,
-                        invoiceId: widget.invoiceId,
+                      builder: (_) => current(view) ? SourceCreditPickerView(
+                        api: api,
+                        invoiceId: invoice,
                         onExpired: widget.onExpired,
-                      ),
+                      ) : const SizedBox.shrink(),
                     ),
                   );
-                  if (!mounted || !visible ||
-                      !current() ||
-                      selected == null ||
+                  redactRevokedSession();
+                  if (!current(view) || !fence() ||
+                      !identical(api, widget.api) ||
+                      selected == null || (selected != 0 && !_refundId(selected)) ||
                       busy ||
                       uncertain ||
                       confirmed)
@@ -689,27 +672,30 @@ class _RefundRequestState extends State<RefundRequestView>
             ),
           ),
         FilledButton(
-          onPressed: busy || confirmed || operation == null ? null : submit,
+          onPressed: busy || confirmed || operation == null ? null : () {
+              if (current(view)) submit();
+            },
           child: Text(t(uncertain ? 'resume' : 'submit')),
         ),
         OutlinedButton(
           onPressed: busy
               ? null
-              : () => Navigator.of(c).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => RefundRequestsView(
-                      api: widget.api,
-                      onExpired: widget.onExpired,
-                      role: 'customer',
-                    ),
-                  ),
-                ),
+              : () {
+                  if (!current(view) || busy) return;
+                  final api = widget.api;
+                  Navigator.of(c).push(MaterialPageRoute<void>(
+                    builder: (_) => current(view) ? RefundRequestsView(
+                      api: api, onExpired: widget.onExpired, role: 'customer',
+                    ) : const SizedBox.shrink(),
+                  ));
+                },
           child: Text(t('title')),
         ),
         ],
       ],
     ),
-  );
+    );
+  }
 }
 
 class RefundDecisionView extends StatefulWidget {
@@ -818,7 +804,7 @@ class _RefundDecisionState extends State<RefundDecisionView>
       }
       final me = await widget.api.request('me');
       if (!current(epoch)) return;
-      if (!_refundId(me['id']) || me['role'] != 'vendor')
+      if (me is! Map || !_refundId(me['id']) || me['role'] != 'vendor')
         throw const ApiException(403, 'Vendor ownership required.');
       final sourceEpoch = privateEpoch;
       final op = FinancialOperation(
@@ -854,7 +840,7 @@ class _RefundDecisionState extends State<RefundDecisionView>
   }
 
   Future<void> submit() async {
-    if (!visible || busy || operation == null) return;
+    if (!mounted || !visible || busy || confirmed || operation == null) return;
     final formGeneration = generation;
     final op = operation!;
     final selectedDecision = decision;
@@ -881,7 +867,8 @@ class _RefundDecisionState extends State<RefundDecisionView>
     );
     redactRevokedSession();
     if (yes != true || !current(formGeneration) ||
-        !identical(op, operation) || busy) return;
+        !identical(op, operation) || busy || confirmed ||
+        decision != selectedDecision || note.text.trim() != selectedNote) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -927,6 +914,7 @@ class _RefundDecisionState extends State<RefundDecisionView>
 
   @override
   Widget build(BuildContext c) {
+    final view = generation;
     final t = (String k) => refundText(c, k);
     return Scaffold(
       appBar: AppBar(title: Text(t('review'))),
@@ -947,7 +935,12 @@ class _RefundDecisionState extends State<RefundDecisionView>
             ],
             onChanged: busy || uncertain || confirmed
                 ? null
-                : (v) => setState(() => decision = v!),
+                : (v) {
+                    if (current(view) && !busy && !uncertain && !confirmed &&
+                        ['approve', 'reject'].contains(v)) {
+                      setState(() => decision = v!);
+                    }
+                  },
           ),
           TextField(
             controller: note,
@@ -956,7 +949,9 @@ class _RefundDecisionState extends State<RefundDecisionView>
             decoration: InputDecoration(labelText: t('note')),
           ),
           FilledButton(
-            onPressed: busy || confirmed || operation == null ? null : submit,
+            onPressed: busy || confirmed || operation == null ? null : () {
+              if (current(view)) submit();
+            },
             child: Text(t(uncertain ? 'resume' : 'confirm')),
           ),
           ],

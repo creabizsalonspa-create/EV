@@ -332,6 +332,29 @@ class FinanceApprovalQueueTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 2);
     }
 
+    public function test_opposite_unsafe_adjustments_outside_page_cannot_cancel_into_valid_summary(): void
+    {
+        $this->seedApprovals();
+        foreach ([9_007_199_254_740_992, -9_007_199_254_740_992] as $index => $amount) {
+            DB::table('commercial_adjustments')->insert([
+                'vendor_id' => $this->vendor->id, 'currency' => 'AED',
+                'minor_units' => 2, 'amount_minor' => $amount,
+                'reason' => 'Synthetic out-of-range source',
+                'request_key' => hash('sha256', 'unsafe-offset-'.$index),
+                'created_by' => $this->vendor->id, 'created_at' => now()->subDay(),
+            ]);
+        }
+        $before = DB::table('finance_journals')->count();
+        $query = '?kind=adjustment&per_page=1&page=1';
+        $this->actingAs($this->admin)->getJson($this->base().$query)->assertConflict();
+        $this->get($this->base().'/export'.$query)->assertConflict();
+        $this->getJson($this->base().'?kind=refund')->assertOk()->assertJsonPath('total', 1);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('commercial_adjustments', 4);
+        $this->assertDatabaseCount('commercial_adjustment_approvals', 1);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_admin_csv_export_is_same_private_single_page_and_contains_no_secret_or_approval(): void
     {
         [$invoice, $refund, $settlement, $adjustment] = $this->seedApprovals();

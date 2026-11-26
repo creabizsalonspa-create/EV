@@ -2,15 +2,22 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/refund_requests.dart';
+import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/financial_operation_store.dart';
 import 'test_support.dart';
 
 class RaceOperationStore implements FinancialOperationStore {
   final records = <String, Map<String, dynamic>>{};
   int writes = 0;
+  Completer<Map<String, dynamic>?>? delayedRead;
 
   @override
-  Future<Map<String, dynamic>?> read(String scope) async => records[scope];
+  Future<Map<String, dynamic>?> read(String scope) async {
+    final waiting = delayedRead;
+    delayedRead = null;
+    if (waiting != null) return waiting.future;
+    return records[scope];
+  }
 
   @override
   Future<void> write(String scope, Map<String, dynamic> record) async {
@@ -154,5 +161,70 @@ void main() {
     expect(api.posts, 0);
     expect(store.writes, 0);
     expect(find.byType(TextField), findsNothing);
+  });
+
+  test('revocation during durable prepare read never allocates a new key', () async {
+    final store = RaceOperationStore();
+    var authorized = true;
+    final waiting = Completer<Map<String, dynamic>?>();
+    store.delayedRead = waiting;
+    final op = FinancialOperation(store, 'refund:race:1',
+        isCurrent: () => authorized);
+    final result = op.prepare({'amount_minor': 125, 'reason': 'Fixture'});
+    final checked = expectLater(result, throwsA(isA<ApiException>()));
+    await Future<void>.delayed(Duration.zero);
+    expect(store.delayedRead, isNull);
+    authorized = false;
+    waiting.complete(null);
+    await checked;
+    expect(store.writes, 0);
+    expect(op.pending, isNull);
+    expect(store.records, isEmpty);
+  });
+
+  test('revocation during stale retry read never re-persists a key', () async {
+    final store = RaceOperationStore();
+    var authorized = true;
+    final op = FinancialOperation(store, 'refund:race:2',
+        isCurrent: () => authorized);
+    final body = {'amount_minor': 125, 'reason': 'Fixture'};
+    final original = await op.prepare(body);
+    await store.remove(op.scope);
+    final waiting = Completer<Map<String, dynamic>?>();
+    store.delayedRead = waiting;
+    final retry = op.prepare(body);
+    final checked = expectLater(retry, throwsA(isA<ApiException>()));
+    await Future<void>.delayed(Duration.zero);
+    expect(store.delayedRead, isNull);
+    authorized = false;
+    waiting.complete(null);
+    await checked;
+    expect(store.writes, 1);
+    expect(store.records, isEmpty);
+    expect(op.pending?['key'], original['idempotency_key']);
+  });
+
+  testWidgets('old submit callback cannot submit after background restore', (
+    tester,
+  ) async {
+    final api = RaceFinanceApi(), store = RaceOperationStore();
+    addTearDown(() => tester.binding
+        .handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    await tester.pumpWidget(refundScreen(api, store));
+    await tester.pumpAndSettle();
+    final action = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Submit request'),
+    ).onPressed!;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '1.25');
+    await tester.enterText(find.byType(TextField).at(1), 'Current draft');
+    action();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(api.posts, 0);
+    expect(store.writes, 0);
   });
 }
