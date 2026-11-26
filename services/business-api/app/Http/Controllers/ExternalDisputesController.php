@@ -148,18 +148,18 @@ class ExternalDisputesController extends Controller
                     ->selectRaw('COUNT(*)')->whereColumn('pending.dispute_id', 'd.id')
                     ->whereIn('pending.status', ['sending', 'uncertain']), 'uncertain_evidence_count')
                 ->where(function ($q) use ($cutoff) {
-                $q->where('d.status', 'lost')
-                    ->orWhere(function ($q) use ($cutoff) {
-                        $q->whereIn('d.status', ['needs_response', 'warning_needs_response'])
-                            ->whereNotNull('d.evidence_due_at')
-                            ->where('d.evidence_due_at', '<=', $cutoff);
-                    })
-                    ->orWhereExists(function ($q) {
-                        $q->selectRaw('1')->from('external_dispute_evidence as e')
-                            ->whereColumn('e.dispute_id', 'd.id')
-                            ->whereIn('e.status', ['sending', 'uncertain']);
-                    });
-            });
+                    $q->where('d.status', 'lost')
+                        ->orWhere(function ($q) use ($cutoff) {
+                            $q->whereIn('d.status', ['needs_response', 'warning_needs_response'])
+                                ->whereNotNull('d.evidence_due_at')
+                                ->where('d.evidence_due_at', '<=', $cutoff);
+                        })
+                        ->orWhereExists(function ($q) {
+                            $q->selectRaw('1')->from('external_dispute_evidence as e')
+                                ->whereColumn('e.dispute_id', 'd.id')
+                                ->whereIn('e.status', ['sending', 'uncertain']);
+                        });
+                });
             // SQLite sorts NULLs first while PostgreSQL sorts them last for ASC.
             // Keep active evidence deadlines ahead of unresolved lost cases on both.
             $page = $query
