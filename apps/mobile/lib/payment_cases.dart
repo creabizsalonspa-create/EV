@@ -195,9 +195,16 @@ class _CasesState extends State<PaymentCasesView>
         ),
         (r) => r,
       );
+      if (raw.current != number || raw.last < 1 || raw.total < 0 ||
+          raw.items.length > raw.total || raw.items.length > 25 ||
+          (number > raw.last && raw.items.isNotEmpty)) {
+        throw const FormatException('Invalid case history page.');
+      }
+      final seen = <int>{};
       for (final r in raw.items) {
         if (r['id'] is! int ||
             r['id'] < 1 || r['id'] > 9007199254740991 ||
+            !seen.add(r['id'] as int) ||
             r['invoice_id'] is! int ||
             r['invoice_id'] < 1 || r['invoice_id'] > 9007199254740991 ||
             r['amount_minor'] is! int ||
@@ -275,16 +282,19 @@ class _CasesState extends State<PaymentCasesView>
                         onPressed: busy || !visible
                             ? null
                             : () async {
-                                if (!current(view) ||
-                                    !boundFence() ||
+                                if (!(ModalRoute.of(c)?.isCurrent ?? true) ||
+                                    !current(view) || !boundFence() ||
                                     !identical(boundApi, widget.api)) return;
                                 await Navigator.of(c).push(
                                   MaterialPageRoute<void>(
-                                    builder: (_) => CaseEvidenceView(
-                                      api: boundApi,
-                                      onExpired: widget.onExpired,
-                                      caseId: r['id'] as int,
-                                    ),
+                                    builder: (_) => current(view) && boundFence() &&
+                                        identical(boundApi, widget.api)
+                                      ? CaseEvidenceView(
+                                          api: boundApi,
+                                          onExpired: widget.onExpired,
+                                          caseId: r['id'] as int,
+                                        )
+                                      : const Scaffold(body: SizedBox.shrink()),
                                   ),
                                 );
                                 if (current(view) &&

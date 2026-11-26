@@ -252,6 +252,13 @@ class _RefundListState extends State<RefundRequestsView>
         ),
         nativeRefundHistoryRecord,
       );
+      final ids = <int>{};
+      if (result.current != number || result.last < 1 || result.total < 0 ||
+          result.items.length > result.total || result.items.length > 25 ||
+          (number > result.last && result.items.isNotEmpty) ||
+          result.items.any((row) => !ids.add(row['id'] as int))) {
+        throw const FormatException('Invalid refund history page.');
+      }
       if (current(epoch)) setState(() => page = result);
     } catch (e) {
       if (current(epoch)) {
@@ -310,15 +317,19 @@ class _RefundListState extends State<RefundRequestsView>
                         onPressed: busy
                             ? null
                             : () async {
-                                if (!current(view)) return;
+                                if (!current(view) || !(ModalRoute.of(c)?.isCurrent ?? true)) return;
                                 final api = widget.api;
+                                final fence = api.sessionFence();
                                 await Navigator.of(c).push(
                                   MaterialPageRoute<void>(
-                                    builder: (_) => RefundDecisionView(
-                                      api: api,
-                                      onExpired: widget.onExpired,
-                                      requestId: row['id'] as int,
-                                    ),
+                                    builder: (_) => current(view) && fence() &&
+                                        identical(api, widget.api) && widget.role == 'vendor'
+                                      ? RefundDecisionView(
+                                          api: api,
+                                          onExpired: widget.onExpired,
+                                          requestId: row['id'] as int,
+                                        )
+                                      : const Scaffold(body: SizedBox.shrink()),
                                   ),
                                 );
                                 if (current(view)) load(number: target);

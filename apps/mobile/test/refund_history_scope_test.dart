@@ -6,6 +6,8 @@ import 'test_support.dart';
 
 class RefundHistoryApi extends FixtureApi {
   int identity = 0, reads = 0, writes = 0;
+  int returnedPage = 1;
+  bool duplicate = false;
   final events = StreamController<int>.broadcast(sync: true);
   Completer<dynamic>? waiting;
   Map<String, dynamic> row = {
@@ -31,10 +33,10 @@ class RefundHistoryApi extends FixtureApi {
   }
 
   Map<String, dynamic> response() => {
-    'data': [Map<String, dynamic>.from(row)],
-    'current_page': 1,
+    'data': List.generate(duplicate ? 2 : 1, (_) => Map<String, dynamic>.from(row)),
+    'current_page': returnedPage,
     'last_page': 1,
-    'total': 1,
+    'total': duplicate ? 2 : 1,
   };
 
   @override
@@ -64,6 +66,25 @@ Widget screen(RefundHistoryApi api) => MaterialApp(
 );
 
 void main() {
+  testWidgets('wrong page and duplicate refund identities never grant review navigation', (tester) async {
+    final api = RefundHistoryApi()..returnedPage = 2;
+    addTearDown(() { api.events.close(); });
+    await tester.pumpWidget(screen(api));
+    await tester.pumpAndSettle();
+    expect(find.text('Review request'), findsNothing);
+    api.returnedPage = 1;
+    api.duplicate = true;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Review request'), findsNothing);
+    api.duplicate = false;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Review request'), findsOneWidget);
+    expect(api.reads, 3);
+    expect(api.writes, 0);
+  });
+
   test('strict refund history denies malformed canonical values', () {
     final row = RefundHistoryApi().row;
     expect(nativeRefundHistoryRecord(row), same(row));

@@ -9,6 +9,8 @@ class ScopedCaseApi extends CaseApi {
   final events = StreamController<int>.broadcast(sync: true);
   Completer<dynamic>? waiting;
   dynamic amount = 1250;
+  int returnedPage = 1;
+  bool duplicate = false;
 
   @override
   Stream<int> get sessionEvents => events.stream;
@@ -25,7 +27,7 @@ class ScopedCaseApi extends CaseApi {
   }
 
   Map<String, dynamic> response() => {
-    'data': [{
+    'data': List.generate(duplicate ? 2 : 1, (_) => {
       'id': 7,
       'invoice_id': 3,
       'amount_minor': amount,
@@ -33,10 +35,10 @@ class ScopedCaseApi extends CaseApi {
       'status': 'open',
       'evidence': 'MOCK_PROVIDER',
       'real_money_moved': false,
-    }],
-    'current_page': 1,
+    }),
+    'current_page': returnedPage,
     'last_page': 1,
-    'total': 1,
+    'total': duplicate ? 2 : 1,
   };
 
   @override
@@ -62,6 +64,24 @@ Widget screen(ScopedCaseApi api) => app(
 );
 
 void main() {
+  testWidgets('wrong page and duplicate case identities never grant evidence navigation', (t) async {
+    final api = ScopedCaseApi()..returnedPage = 2;
+    addTearDown(() { api.events.close(); });
+    await t.pumpWidget(screen(api));
+    await t.pumpAndSettle();
+    expect(find.text('Private evidence'), findsNothing);
+    api.returnedPage = 1;
+    api.duplicate = true;
+    await t.tap(find.text('Refresh'));
+    await t.pumpAndSettle();
+    expect(find.text('Private evidence'), findsNothing);
+    api.duplicate = false;
+    await t.tap(find.text('Refresh'));
+    await t.pumpAndSettle();
+    expect(find.text('Private evidence'), findsOneWidget);
+    expect(api.reads, 3);
+  });
+
   testWidgets('case history mounts inactive without private reads', (t) async {
     final api = ScopedCaseApi();
     addTearDown(() {
