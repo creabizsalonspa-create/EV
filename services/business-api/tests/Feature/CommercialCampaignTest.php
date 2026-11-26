@@ -479,6 +479,52 @@ class CommercialCampaignTest extends TestCase
         $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
     }
 
+    public function test_campaign_review_and_reactivation_require_current_station_ownership(): void
+    {
+        $f = $this->fixture();
+        $campaign = $this->create($f);
+        $path = '/campaign-test/commercial/campaigns/'.$campaign['id'];
+        $station = DB::table('stations')->where('id', $f['station']->id);
+        $events = DB::table('commercial_campaign_events')->where('campaign_id', $campaign['id']);
+        $ledger = DB::table('commercial_subscription_ledger')->count();
+
+        $station->update(['vendor_id' => $f['other']->id]);
+        $this->postJson($path.'/submit', ['reason' => 'Request review of original station'])->assertConflict();
+        $this->assertSame(1, $events->count());
+        $station->update(['vendor_id' => $f['vendor']->id]);
+        $this->postJson($path.'/submit', ['reason' => 'Request review of original station'])->assertOk();
+        $station->update(['vendor_id' => $f['other']->id]);
+        $this->actingAs($f['admin'])->postJson($path.'/approve', ['reason' => 'Reviewed original station'])->assertConflict();
+        $this->assertDatabaseHas('commercial_campaigns', ['id' => $campaign['id'], 'status' => 'submitted']);
+        $this->assertSame(2, $events->count());
+
+        $station->update(['vendor_id' => $f['vendor']->id]);
+        $approved = $this->postJson($path.'/approve', ['reason' => 'Reviewed original station'])->assertOk()->json('campaign');
+        $station->update(['vendor_id' => $f['other']->id]);
+        $paused = $this->actingAs($f['vendor'])->postJson($path.'/pause', [
+            'reason' => 'Stop former station delivery', 'expected_control_revision' => $approved['control_revision'],
+        ])->assertOk()->json('campaign');
+        $this->postJson($path.'/resume', [
+            'reason' => 'Resume original station delivery', 'expected_control_revision' => $paused['control_revision'],
+        ])->assertConflict();
+        $this->assertSame(4, $events->count());
+        $station->update(['vendor_id' => $f['vendor']->id]);
+        $this->postJson($path.'/resume', ['reason' => 'Resume original station delivery'])->assertOk();
+        $station->update(['vendor_id' => $f['other']->id]);
+        $suspended = $this->actingAs($f['admin'])->postJson($path.'/suspend', [
+            'reason' => 'Suspend transferred station',
+        ])->assertOk()->json('campaign');
+        $this->postJson($path.'/reinstate', [
+            'reason' => 'Reinstate original station', 'expected_control_revision' => $suspended['control_revision'],
+        ])->assertConflict();
+        $this->assertSame(6, $events->count());
+        $this->assertDatabaseHas('commercial_campaigns', ['id' => $campaign['id'], 'status' => 'suspended']);
+        $this->actingAs($f['vendor'])->postJson($path.'/cancel', ['reason' => 'Cancel former station campaign'])->assertOk();
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $ledger);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_uncertain_and_pending_refund_sources_hold_delivery_but_known_failure_does_not(): void
     {
         $f = $this->fixture();
