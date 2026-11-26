@@ -26,7 +26,37 @@ class BlockApi extends EvApi {
       'cancelled':false, 'physical_availability_verified':invalidReceipt};
   }
 }
+class CancellationApi extends EvApi {
+  CancellationApi():super(Uri.parse('https://example.invalid'));
+  int reads=0, writes=0;
+  final block=<String,dynamic>{
+    'station_id':7,'id':'11111111-1111-4111-8111-111111111111',
+    'starts_at':'2026-11-17T09:00:00Z','ends_at':'2026-11-17T10:00:00Z',
+    'reason_en':'Maintenance','reason_ar':'صيانة','revision':1,
+    'scope':'STATION_WIDE_OPERATOR_POLICY','cancelled':false,
+    'physical_availability_verified':false,
+  };
+  @override
+  Future<dynamic> request(String path,{String method='GET',Map<String,dynamic>? body,Map<String,String> query=const {}}) async {
+    if(method=='GET'){reads++;return {'station_id':7,'data':[block]};}
+    writes++;
+    return {...block,'id':'22222222-2222-4222-8222-222222222222',
+      'cancelled':true,'revision':2};
+  }
+}
 void main(){
+ testWidgets('mismatched cancellation receipt clears native cancel grant', (tester) async {
+  tester.view.physicalSize=const Size(900,1600);tester.view.devicePixelRatio=1;
+  addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
+  final api=CancellationApi();addTearDown(api.close);
+  await tester.pumpWidget(MaterialApp(home:StationAvailabilityBlocksView(api:api,stationId:7)));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Cancel this block'));await tester.pumpAndSettle();
+  expect(api.writes,1);expect(api.reads,1);
+  expect(find.text('Cancel this block'),findsNothing);
+  expect(find.textContaining('Action not confirmed.'),findsOneWidget);
+ });
+
  testWidgets('blocks require explicit publication and uncertain retries preserve frozen identity',(tester)async{
   tester.view.physicalSize=const Size(900,1600);tester.view.devicePixelRatio=1;
   addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
