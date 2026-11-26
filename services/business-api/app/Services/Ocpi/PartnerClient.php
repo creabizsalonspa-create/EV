@@ -4,6 +4,7 @@ namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use Closure;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -79,7 +80,10 @@ class PartnerClient
     {
         $current = OcpiProvider::find($provider->id);
         if (! $current || ! $current->authorized || $current->authorization_revision !== $provider->authorization_revision || $current->connection_key !== $provider->connection_key || $current->owner_id !== $provider->owner_id) {
-            throw new OcpiException('Operator authorization changed; refresh and negotiate again.');
+            throw new OcpiException('Operator authorization changed; stale negotiation or read discarded.');
+        }
+        if ($current->version !== $provider->version || $current->endpoints !== $provider->endpoints) {
+            throw new OcpiException('Operator connection authority changed; refresh the negotiated endpoints.');
         }
     }
 
@@ -119,13 +123,39 @@ class PartnerClient
         return $date !== false && \DateTimeImmutable::getLastErrors() === false;
     }
 
-    private function get(OcpiProvider $provider, string $url): array
+    /** In-memory fingerprint of the exact connection and managed generation
+     * used for one read operation. Never serialize it to a response or log. */
+    private function readAuthority(OcpiProvider $provider): string
+    {
+        $connection = $this->connection($provider);
+        $link = ($connection['managed_credentials'] ?? false)
+            ? DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first()
+            : null;
+
+        $current = OcpiProvider::findOrFail($provider->id);
+
+        return hash('sha256', json_encode([$connection, $current->connection_key, $current->version, $current->endpoints, $link ? [
+            $link->id, $link->owner_id, $link->generation, $link->state, $link->configuration_hash,
+            $link->bootstrap_hash, $link->local_token_digest, $link->local_token_ciphertext, $link->remote_token_ciphertext,
+        ] : null], JSON_THROW_ON_ERROR));
+    }
+
+    private function assertReadAuthority(OcpiProvider $provider, string $expected): void
+    {
+        if (! hash_equals($expected, $this->readAuthority($provider))) {
+            throw new OcpiException('Operator connection authority changed; discard the incomplete read and negotiate again.');
+        }
+    }
+
+    private function get(OcpiProvider $provider, string $url, string $authority): array
     {
         // An already dispatched read cannot be cancelled, but a revoked or superseded
         // operation cannot dispatch another page or commit a stale result.
         $this->assertCurrent($provider);
+        $this->assertReadAuthority($provider, $authority);
         $url = $this->guardedUrl($provider, $url);
         $c = $this->connection($provider);
+        $this->assertReadAuthority($provider, $authority);
         try {
             $trace = ['X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()];
             $response = Http::connectTimeout(5)->timeout(20)->withoutRedirecting()->withOptions(['stream' => true])->withHeaders(['Accept' => 'application/json', 'Authorization' => 'Token '.$c['authorization_token']] + $trace)->get($url);
@@ -136,7 +166,11 @@ class PartnerClient
             $text = '';
             try {
                 while (! $stream->eof() && strlen($text) <= 2_000_000) {
-                    $text .= $stream->read(min(8192, 2_000_001 - strlen($text)));
+                    $chunk = $stream->read(min(8192, 2_000_001 - strlen($text)));
+                    if (! $stream->eof() && strlen($chunk) === 0) {
+                        throw new OcpiException('Operator response stream stopped before completion.');
+                    }
+                    $text .= $chunk;
                 }
             } finally {
                 $stream->close();
@@ -150,6 +184,9 @@ class PartnerClient
                 throw new OcpiException('Operator OCPI response was unsuccessful or malformed.');
             }
 
+            $this->assertCurrent($provider);
+            $this->assertReadAuthority($provider, $authority);
+
             return ['data' => $body['data'], 'next' => $this->next($response->header('Link'))];
         } catch (OcpiException $e) {
             throw $e;
@@ -158,25 +195,81 @@ class PartnerClient
         }
     }
 
+    /**
+     * Parse the bounded HTTP Link list, rather than silently treating a valid
+     * next relation after other parameters as an end-of-catalog response.
+     */
     private function next(?string $link): ?string
     {
-        if (! $link) {
+        if ($link === null || trim($link, " \t") === '') {
             return null;
         }
-
-        preg_match_all('/<([^>]+)>;\s*rel=(?:"next"|next)(?=\s*[,;]|\s*$)/i', $link, $matches);
-        if (count($matches[1]) > 1) {
-            throw new OcpiException('Ambiguous partner pagination links require source review.');
+        if (strlen($link) > 16384 || preg_match('/[\x00-\x08\x0a-\x1f\x7f]/', $link)) {
+            throw new OcpiException('Malformed partner pagination link.');
         }
+        $targetPattern = '/\G[ \t]*<([^<>\x00-\x20\x7f]+)>[ \t]*/';
+        $parameterPattern = <<<'REGEX'
+@\G;[ \t]*([A-Za-z0-9!#$%&'*+\-.^_\x60|~]+)[ \t]*(?:=[ \t]*(?:"((?:[^"\\\x00-\x1f\x7f]|\\[\x20-\x7e])*)"|([A-Za-z0-9!#$%&'*+\-.^_\x60|~]+))[ \t]*)?@
+REGEX;
+        $offset = 0;
+        $next = null;
+        $entries = 0;
+        do {
+            if (++$entries > 64 || ! preg_match($targetPattern, $link, $target, 0, $offset)) {
+                throw new OcpiException('Malformed partner pagination link.');
+            }
+            $offset += strlen($target[0]);
+            $relations = null;
+            $anchored = false;
+            while (($link[$offset] ?? '') === ';') {
+                if (! preg_match($parameterPattern, $link, $parameter, PREG_UNMATCHED_AS_NULL, $offset)) {
+                    throw new OcpiException('Malformed partner pagination link parameter.');
+                }
+                $offset += strlen($parameter[0]);
+                $name = strtolower($parameter[1]);
+                if ($name === 'anchor') {
+                    $anchored = true;
+                }
+                if ($name !== 'rel') {
+                    continue;
+                }
+                $value = $parameter[2] !== null
+                    ? preg_replace('/\\\\(.)/s', '$1', $parameter[2]) : $parameter[3];
+                if ($relations !== null || ! is_string($value) || trim($value) === '') {
+                    throw new OcpiException('Ambiguous partner pagination relation.');
+                }
+                $relations = preg_split('/ +/', strtolower(trim($value)));
+            }
+            if ($relations === null) {
+                throw new OcpiException('Partner pagination link has no relation.');
+            }
+            if (in_array('next', $relations, true)) {
+                if ($next !== null || $anchored) {
+                    throw new OcpiException('Ambiguous partner pagination links require source review.');
+                }
+                $next = $target[1];
+            }
+            if ($offset === strlen($link)) {
+                return $next;
+            }
+            if ($link[$offset] !== ',') {
+                throw new OcpiException('Malformed partner pagination link separator.');
+            }
+            $offset++;
+        } while ($offset < strlen($link));
 
-        return $matches[1][0] ?? null;
+        throw new OcpiException('Malformed partner pagination link.');
     }
 
     public function negotiate(OcpiProvider $provider): array
     {
+        $authority = $this->readAuthority($provider);
         $c = $this->connection($provider);
-        $versions = $this->get($provider, $c['versions_path'] ?? '/ocpi/versions')['data'];
-        if (! is_array($versions) || ! array_is_list($versions)) {
+        // Versions and version details are single-response OCPI discovery
+        // resources. A continuation cannot establish a complete capability set.
+        $versionReply = $this->get($provider, $c['versions_path'] ?? '/ocpi/versions', $authority);
+        $versions = $versionReply['data'];
+        if ($versionReply['next'] !== null || ! is_array($versions) || ! array_is_list($versions) || count($versions) > 20) {
             throw new OcpiException('Malformed operator versions response.');
         }
         $selected = null;
@@ -191,8 +284,10 @@ class PartnerClient
         if (! $selected || ! is_string($selected['url'] ?? null)) {
             throw new OcpiException('Operator does not advertise OCPI 2.2.1.');
         }
-        $details = $this->get($provider, $selected['url'])['data'];
-        if (! is_array($details) || ($details['version'] ?? null) !== '2.2.1' || ! is_array($details['endpoints'] ?? null)) {
+        $detailsReply = $this->get($provider, $selected['url'], $authority);
+        $details = $detailsReply['data'];
+        if ($detailsReply['next'] !== null || ! is_array($details) || ($details['version'] ?? null) !== '2.2.1'
+            || ! is_array($details['endpoints'] ?? null) || ! array_is_list($details['endpoints']) || count($details['endpoints']) > 30) {
             throw new OcpiException('Malformed OCPI 2.2.1 details.');
         }
         $endpoints = [];
@@ -226,7 +321,7 @@ class PartnerClient
         if (! isset($endpoints['locations']) && ! ($cpo && isset($endpoints['locations_receiver'], $endpoints['tariffs_receiver']))) {
             throw new OcpiException('Operator lacks the approved OCPI catalog modules.');
         }
-        DB::transaction(function () use ($provider, $endpoints) {
+        DB::transaction(function () use ($provider, $endpoints, $authority) {
             // Negotiation performs outbound I/O before this transaction. Pin the
             // owner state before provider publication, so a vendor suspended
             // during the peer response cannot leave an apparently valid catalog.
@@ -237,6 +332,7 @@ class PartnerClient
                 || $locked->connection_key !== $provider->connection_key || $locked->owner_id !== $provider->owner_id) {
                 throw new OcpiException('Operator authorization or owner activity changed; stale negotiation was discarded.');
             }
+            $this->assertReadAuthority($locked, $authority);
             if ($locked->authorization_revision >= PHP_INT_MAX) {
                 throw new OcpiException('Operator authorization revision is exhausted.');
             }
@@ -307,56 +403,72 @@ class PartnerClient
         }
     }
 
-    /** Refuse a peer pagination link that silently broadens an explicit source window. */
-    private function verifyWindowNext(string $url, array $window): void
+    /** Parse scalar query parameters without PHP's duplicate/key alias coercion. */
+    private function sourceQuery(string $url): array
     {
-        if ($window === []) {
-            return;
-        }
         $parts = parse_url($url);
         if (! is_array($parts)) {
             throw new OcpiException('Malformed OCPI source-window pagination link.');
         }
-        $observed = [];
+        $query = [];
         foreach (explode('&', $parts['query'] ?? '') as $pair) {
             if ($pair === '') {
                 continue;
             }
             [$name, $value] = array_pad(explode('=', $pair, 2), 2, '');
-            $name = rawurldecode($name);
-            if (! in_array($name, ['date_from', 'date_to'], true)) {
-                continue;
+            // Reject ambiguous names and separators before any upstream GET.
+            // Bracket notation, dots, spaces and case aliases can collapse
+            // into different parameters in partner framework query parsers.
+            if (preg_match('/%(?![a-fA-F0-9]{2})/', $pair) || str_contains($pair, ';')) {
+                throw new OcpiException('Ambiguous OCPI source-window pagination parameters.');
             }
-            if (array_key_exists($name, $observed)) {
-                throw new OcpiException('Ambiguous OCPI source-window pagination link.');
+            $name = urldecode($name);
+            $value = urldecode($value);
+            if (! preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,63}$/D', $name)
+                || array_key_exists(strtolower($name), $query)
+                || preg_match('/[\x00-\x1f\x7f]/', $value)) {
+                throw new OcpiException('Ambiguous OCPI source-window pagination parameters.');
             }
-            $observed[$name] = rawurldecode($value);
+            $query[strtolower($name)] = [$name, $value];
         }
-        if (count($observed) !== count($window)) {
-            throw new OcpiException('OCPI source-window pagination lost its bounds.');
+
+        return $query;
+    }
+
+    /** Only continuation controls may change, never negotiated query scope. */
+    private function verifySourceNext(string $url, array $scope): void
+    {
+        $observed = $this->sourceQuery($url);
+        foreach ($scope as $key => $pair) {
+            if (($observed[$key] ?? null) !== $pair) {
+                throw new OcpiException('OCPI source-window pagination changed its negotiated query scope.');
+            }
         }
-        foreach ($window as $field => $value) {
-            if (! isset($observed[$field]) || ! hash_equals($value, $observed[$field])) {
-                throw new OcpiException('OCPI source-window pagination changed its bounds.');
+        foreach ($observed as $key => $pair) {
+            if (! array_key_exists($key, $scope) && ! in_array($pair[0], ['offset', 'limit', 'page', 'cursor'], true)) {
+                throw new OcpiException('OCPI source-window pagination introduced an unapproved query parameter.');
             }
         }
     }
 
-    public function pull(OcpiProvider $provider, string $module, array $requestedWindow = []): array
+    public function pull(OcpiProvider $provider, string $module, array $requestedWindow = [], ?Closure $consent = null): array
     {
         $this->assertCurrent($provider);
         if (! in_array($module, self::MODULES, true) || $provider->version !== '2.2.1' || ! is_string($provider->endpoints[$module] ?? null)) {
             throw new OcpiException('Requested module has not been negotiated.');
         }
+        $authority = $this->readAuthority($provider);
         $window = $this->pullWindow($requestedWindow);
-        $url = $provider->endpoints[$module];
+        $url = $this->guardedUrl($provider, $provider->endpoints[$module]);
+        $path = parse_url($url, PHP_URL_PATH) ?? '/';
+        $existing = $this->sourceQuery($url);
         if ($window !== []) {
-            parse_str((string) (parse_url($url, PHP_URL_QUERY) ?? ''), $existing);
             if (array_key_exists('date_from', $existing) || array_key_exists('date_to', $existing)) {
                 throw new OcpiException('Negotiated endpoint already contains source-window bounds.');
             }
             $url .= (str_contains($url, '?') ? '&' : '?').http_build_query($window, '', '&', PHP_QUERY_RFC3986);
         }
+        $scope = array_filter($this->sourceQuery($url), fn ($pair) => ! in_array($pair[0], ['offset', 'limit', 'page', 'cursor'], true));
         $records = [];
         $seen = [];
         for ($page = 0; $page < (int) config('ocpi.max_pages', 20); $page++) {
@@ -369,10 +481,21 @@ class PartnerClient
                 throw new OcpiException('Inactive operator owner cannot synchronize public catalog modules.');
             }
             $url = $this->guardedUrl($provider, $url);
+            // Only follow pagination of this negotiated module, not an
+            // unrelated same-origin resource or a different API operation.
+            if ((parse_url($url, PHP_URL_PATH) ?? '/') !== $path) {
+                throw new OcpiException('Partner pagination escaped the negotiated module path.');
+            }
             if (isset($seen[$url])) {
                 throw new OcpiException('Operator pagination loop detected.');
             }$seen[$url] = true;
-            $result = $this->get($provider, $url);
+            if ($consent !== null && ! $consent()) {
+                throw new OcpiException('Source polling consent changed.');
+            }
+            $result = $this->get($provider, $url, $authority);
+            if ($consent !== null && ! $consent()) {
+                throw new OcpiException('Source polling consent changed.');
+            }
             if (! is_array($result['data']) || ! array_is_list($result['data'])) {
                 throw new OcpiException('Module response must contain a record list.');
             }
@@ -382,12 +505,48 @@ class PartnerClient
                 throw new OcpiException('Operator synchronization exceeded the configured record limit.');
             }
             if ($result['next'] === null) {
+                $this->assertCurrent($provider);
+                $this->assertReadAuthority($provider, $authority);
+
                 return $records;
             }
-            $this->verifyWindowNext($result['next'], $window);
-            $url = $result['next'];
+            $next = $result['next'];
+            if (str_starts_with($next, '?')) {
+                $next = explode('?', $url, 2)[0].$next;
+            }
+            $this->verifySourceNext($next, $scope);
+            $url = $next;
         }
         throw new OcpiException('Operator pagination exceeded the configured page limit.');
+    }
+
+    /** Manual synchronization must carry the same read authority through
+     * final canonical ingestion, including the interval after the last GET. */
+    public function synchronize(OcpiProvider $provider, string $module, RecordSynchronizer $synchronizer, ?Closure $consent = null): array
+    {
+        if ($consent !== null && ! $consent()) {
+            throw new OcpiException('Source synchronization consent changed.');
+        }
+        $authority = $this->readAuthority($provider);
+        $records = $this->pull($provider, $module, [], $consent);
+
+        return DB::transaction(function () use ($provider, $module, $synchronizer, $authority, $records, $consent) {
+            if ($consent !== null && ! $consent()) {
+                throw new OcpiException('Source synchronization consent changed.');
+            }
+            $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            $this->assertCurrent($provider);
+            $this->assertReadAuthority($current, $authority);
+            $counts = $synchronizer->ingest($current, $module, $records);
+            // A changed in-process configuration must also roll back a batch
+            // that has already started canonical ingestion.
+            $this->assertReadAuthority($current, $authority);
+            if ($consent !== null && ! $consent()) {
+                throw new OcpiException('Source synchronization consent changed.');
+            }
+
+            return $counts;
+        }, 3);
     }
 
     /** Fixed protocol writes only; the caller durably claims an identity before network I/O. */
