@@ -38,7 +38,7 @@ class ReportApi extends FixtureApi {
       'timezone': 'Asia/Dubai',
       'cost_center_id': 9,
     },
-    'current_inventory': {
+    'current_inventory': <String, dynamic>{
       'active_members': 2,
       'invited_members': 1,
       'assigned_vehicles': 3,
