@@ -29,6 +29,7 @@ class PartnerClient
         if (! is_array($c) || ! is_string($c['origin'] ?? null)) {
             throw new OcpiException('Approved operator connection is not configured.');
         }
+        PartnerReadProfile::modules($c);
         $incoming = ($c['managed_credentials'] ?? false) && ($c['registration_direction'] ?? 'outbound') === 'incoming';
         $configuredCredential = $incoming ? ($c['inbound_authorization_token'] ?? null) : ($c['authorization_token'] ?? null);
         if (! is_string($configuredCredential) || $configuredCredential === '') {
@@ -147,7 +148,7 @@ class PartnerClient
         }
     }
 
-    private function get(OcpiProvider $provider, string $url, string $authority): array
+    private function get(OcpiProvider $provider, string $url, string $authority, ?string $module = null): array
     {
         // An already dispatched read cannot be cancelled, but a revoked or superseded
         // operation cannot dispatch another page or commit a stale result.
@@ -155,6 +156,9 @@ class PartnerClient
         $this->assertReadAuthority($provider, $authority);
         $url = $this->guardedUrl($provider, $url);
         $c = $this->connection($provider);
+        if ($module !== null && ! PartnerReadProfile::allows($c, $module)) {
+            throw new OcpiException('Requested module is outside the approved network read scope.');
+        }
         $this->assertReadAuthority($provider, $authority);
         try {
             $trace = ['X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()];
@@ -291,6 +295,7 @@ REGEX;
             throw new OcpiException('Malformed OCPI 2.2.1 details.');
         }
         $endpoints = [];
+        $readModules = PartnerReadProfile::modules($c);
         $cpo = app(CpoCatalogContract::class)->modules($provider);
         foreach ($details['endpoints'] as $endpoint) {
             if (! is_array($endpoint) || ! is_string($endpoint['identifier'] ?? null) || ! is_string($endpoint['url'] ?? null) || ! in_array($endpoint['role'] ?? null, ['SENDER', 'RECEIVER'], true)) {
@@ -311,14 +316,18 @@ REGEX;
                 }
                 $endpoints[$name] = $url;
             }
-            if (in_array($endpoint['identifier'], self::MODULES, true) && $endpoint['role'] === 'SENDER') {
+            if (in_array($endpoint['identifier'], $readModules, true) && $endpoint['role'] === 'SENDER') {
                 if (isset($endpoints[$endpoint['identifier']])) {
                     throw new OcpiException('Ambiguous duplicate operator module endpoint.');
                 }
                 $endpoints[$endpoint['identifier']] = $url;
             }
         }
-        if (! isset($endpoints['locations']) && ! ($cpo && isset($endpoints['locations_receiver'], $endpoints['tariffs_receiver']))) {
+        // Preserve the historical default locations requirement. Explicit
+        // restricted profiles may negotiate another approved sender instead.
+        $hasReader = in_array('locations', $readModules, true)
+            ? isset($endpoints['locations']) : array_intersect($readModules, array_keys($endpoints)) !== [];
+        if (! $hasReader && ! ($cpo && isset($endpoints['locations_receiver'], $endpoints['tariffs_receiver']))) {
             throw new OcpiException('Operator lacks the approved OCPI catalog modules.');
         }
         DB::transaction(function () use ($provider, $endpoints, $authority) {
@@ -458,6 +467,10 @@ REGEX;
             throw new OcpiException('Requested module has not been negotiated.');
         }
         $authority = $this->readAuthority($provider);
+        if (! PartnerReadProfile::allows($this->connection($provider), $module)) {
+            throw new OcpiException('Requested module is outside the approved network read scope.');
+        }
+        $this->assertReadAuthority($provider, $authority);
         $window = $this->pullWindow($requestedWindow);
         $url = $this->guardedUrl($provider, $provider->endpoints[$module]);
         $path = parse_url($url, PHP_URL_PATH) ?? '/';
@@ -492,7 +505,7 @@ REGEX;
             if ($consent !== null && ! $consent()) {
                 throw new OcpiException('Source polling consent changed.');
             }
-            $result = $this->get($provider, $url, $authority);
+            $result = $this->get($provider, $url, $authority, $module);
             if ($consent !== null && ! $consent()) {
                 throw new OcpiException('Source polling consent changed.');
             }

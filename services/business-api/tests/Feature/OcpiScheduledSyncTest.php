@@ -94,6 +94,25 @@ class OcpiScheduledSyncTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_network_scope_withdrawal_revokes_existing_polling_consent_without_dispatch(): void
+    {
+        [$owner, $provider, $url] = $this->fixture();
+        $this->enable($owner, $url);
+        config(['ocpi.connections.'.$provider->connection_key.'.read_modules' => ['tariffs']]);
+        $this->getJson($url)->assertOk()
+            ->assertJsonPath('plans.0.negotiated', false)
+            ->assertJsonPath('plans.0.consent_current', false)
+            ->assertJsonPath('plans.1.negotiated', true);
+        $this->putJson($url.'/locations', ['enabled' => true, 'confirmed' => true,
+            'interval_minutes' => 15, 'expected_revision' => '1'])->assertConflict();
+        Http::fake();
+        app(ScheduledSync::class)->run();
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_opt_out_during_pull_fences_ingress_and_never_changes_charging_capacity(): void
     {
         [$owner, $provider, $url] = $this->fixture();
