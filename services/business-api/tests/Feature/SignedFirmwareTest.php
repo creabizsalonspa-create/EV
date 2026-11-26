@@ -852,7 +852,7 @@ class SignedFirmwareTest extends TestCase
         Http::swap(new Factory);
         Http::preventStrayRequests();
         Http::fake(function ($request) use ($f) {
-            $this->assertSame('http://source.test/graph', $request->url());
+            $this->assertSame('https://source.test/graph', $request->url());
             $this->assertSame(str_repeat('s', 64), $request->header('x-hasura-admin-secret')[0] ?? null);
             DB::table('vendor_chargers')->where('id', $f['charger']->id)
                 ->update(['model' => 'Reassigned while source was being read']);
@@ -977,7 +977,7 @@ class SignedFirmwareTest extends TestCase
         Http::swap(new Factory);
         Http::preventStrayRequests();
         Http::fake(function ($request) use ($f) {
-            $this->assertSame('http://source.test/graph', $request->url());
+            $this->assertSame('https://source.test/graph', $request->url());
             // Simulate account security changing while the authenticated
             // external CSMS read is in flight, after the first scope check.
             DB::table('users')->where('id', $f['owner']->id)->update(['account_status' => 'suspended']);
