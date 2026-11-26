@@ -82,7 +82,8 @@ void main() {
       'destination-lng':'Destination: Longitude',
     }.entries) {
       final field=find.byKey(Key(entry.key));
-      await tester.scrollUntilVisible(field,150);
+      await tester.scrollUntilVisible(field,150,
+        scrollable:find.descendant(of:find.byType(ListView),matching:find.byType(Scrollable)).first);
       final textField=find.descendant(of:field,matching:find.byType(TextField));
       expect(tester.widget<TextField>(textField).decoration!.labelText,
         startsWith(entry.value));
