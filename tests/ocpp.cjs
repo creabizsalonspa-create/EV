@@ -333,7 +333,7 @@ async function mixedProtocolReconnect() {
   // Four independent local clients, no extra business accounts or remote
   // commands. Keep both protocols active while one of each disconnects.
   const clients = ["1.6", "2.0.1", "1.6", "2.0.1"].map(
-    (version) => new SimulatedCharger(version, "ev-test-load-" + randomUUID()),
+    (version) => new SimulatedCharger(version, "ev-test-load-" + version.replaceAll(".", "") + "-" + randomUUID().replaceAll("-", "").slice(0, 12)),
   );
   const lookup = async (client) => {
     const data = await graph(
@@ -366,11 +366,22 @@ async function mixedProtocolReconnect() {
     return row?.isOnline === online ? row : null;
   }, "Mixed protocol online state");
   try {
-    // Await every outcome before cleanup: a failed client must not leave
-    // other connection attempts running against a closed test fixture.
-    const connected = await Promise.allSettled(clients.map((c) => c.connect()));
-    for (const result of connected) if (result.status === "rejected") throw result.reason;
-    await Promise.all(clients.map((c) => c.boot()));
+    // Enroll each unique fixture once, using the same short station identity
+    // shape as the passing protocol/session suite. Keep every socket open:
+    // the load test starts with all four durable stations active, not with
+    // simultaneous first-time database registration. Never retry a Boot RPC.
+    for (const c of clients) {
+      try {
+        await c.connect();
+        await c.boot();
+        await poll(async () => {
+          const row = await lookup(c);
+          return row?.isOnline === true ? row : null;
+        }, "Initial durable station registration");
+      } catch (error) {
+        throw Error("Mixed protocol initial enrollment (" + c.version + ", " + c.name + "): " + error.message);
+      }
+    }
     const rows = await Promise.all(clients.map((c) => poll(async () => {
       const row = await lookup(c);
       return row?.isOnline === true ? row : null;
@@ -399,10 +410,17 @@ async function mixedProtocolReconnect() {
       await status(c, "Unavailable");
     }));
     await Promise.all(live.map((c, i) => prove(c, ids[i + 2], true)));
-    const reconnects = await Promise.allSettled(clients.slice(0, 2).map((c) => c.reconnect()));
-    for (const result of reconnects) if (result.status === "rejected") throw result.reason;
-    await Promise.all(clients.slice(0, 2).map((c) => c.boot()));
-    await Promise.all(clients.slice(0, 2).map((c, i) => prove(c, ids[i], true)));
+    // Re-admit each previously disconnected client while its unaffected
+    // peers remain connected; never retry an uncertain BootNotification.
+    for (const [i, c] of clients.slice(0, 2).entries()) {
+      try {
+        await c.reconnect();
+        await c.boot();
+        await prove(c, ids[i], true);
+      } catch (error) {
+        throw Error("Mixed protocol reconnect (" + c.version + ", " + c.name + "): " + error.message);
+      }
+    }
     await Promise.all(clients.map((c) => status(c, "Available")));
 
     await Promise.all(clients.map((c, i) => poll(async () => {
