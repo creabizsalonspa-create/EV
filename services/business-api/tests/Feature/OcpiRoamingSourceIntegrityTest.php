@@ -19,6 +19,9 @@ class OcpiRoamingSourceIntegrityTest extends TestCase
     #[TestWith(['source_hash'])]
     #[TestWith(['source_projection'])]
     #[TestWith(['source_clock'])]
+    #[TestWith(['future_source_clock'])]
+    #[TestWith(['before_consent'])]
+    #[TestWith(['after_consent_expiry'])]
     public function test_invalid_stored_evidence_cannot_release_capacity_or_adopt_final_source(string $kind): void
     {
         [, $driver, $other, $provider, $location] = $this->fixture();
@@ -34,6 +37,9 @@ class OcpiRoamingSourceIntegrityTest extends TestCase
             'source_hash' => ['ocpi_records', $session->id, 'content_hash', str_repeat('a', 64), $session->content_hash],
             'source_projection' => ['ocpi_records', $session->id, 'normalized', json_encode(array_replace($session->normalized, ['energy_kwh' => '99']), JSON_THROW_ON_ERROR), $session->getRawOriginal('normalized')],
             'source_clock' => ['ocpi_records', $session->id, 'received_at', now()->subDay(), $session->getRawOriginal('received_at')],
+            'future_source_clock' => ['ocpi_records', $session->id, 'received_at', now()->addDay(), $session->getRawOriginal('received_at')],
+            'before_consent' => ['ocpi_roaming_commands', $command->id, 'attempted_at', now()->subDay(), $command->attempted_at],
+            'after_consent_expiry' => ['ocpi_roaming_orders', $order->id, 'expires_at', now()->subDay(), $order->expires_at],
         };
         DB::table($table)->where('id', $key)->update([$field => $value]);
         $url = '/api/roaming/sandbox-orders/'.$id.'/reconcile';
@@ -117,6 +123,34 @@ class OcpiRoamingSourceIntegrityTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_disputed_active_source_can_be_stopped_but_terminal_timing_cannot_release_capacity(): void
+    {
+        [, $driver, , $provider, $location] = $this->fixture();
+        [$id] = $this->start($driver, $location);
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        $raw = $this->sourceSessionFixture($provider, $order, $this->writes[0]['body']);
+        $raw['start_date_time'] = now()->subDay()->toISOString();
+        $service = app(RecordSynchronizer::class);
+        $service->ingest($provider, 'sessions', [$raw]);
+        $url = '/api/roaming/sandbox-orders/'.$id.'/reconcile';
+        $this->postJson($url)->assertOk()->assertJsonPath('state', 'source_active')
+            ->assertJsonPath('reconciliation_state', 'requires_review')->assertJsonPath('can_stop', true);
+        $active = DB::table('ocpi_roaming_orders')->find($id);
+        $this->travel(1)->seconds();
+        $raw['last_updated'] = now()->toISOString();
+        $raw['end_date_time'] = now()->toISOString();
+        $raw['status'] = 'COMPLETED';
+        $service->ingest($provider, 'sessions', [$raw]);
+        $this->postJson($url)->assertOk()->assertJsonPath('state', 'source_active')
+            ->assertJsonPath('source_status', 'ACTIVE')->assertJsonPath('reconciliation_state', 'requires_review');
+        $held = DB::table('ocpi_roaming_orders')->find($id);
+        $this->assertSame($active->active_target_key, $held->active_target_key);
+        $this->assertSame($active->source_session_hash, $held->source_session_hash);
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
     public function test_corrupt_cdr_projection_cannot_become_consistent_financial_lineage(): void
     {
         [, $driver, , $provider, $location] = $this->fixture();
@@ -138,6 +172,11 @@ class OcpiRoamingSourceIntegrityTest extends TestCase
         DB::table('ocpi_records')->where('id', $source->id)->update(['normalized' => $source->getRawOriginal('normalized')]);
         $this->postJson($url)->assertOk()->assertJsonPath('reconciliation_state', 'source_consistent');
         $this->assertEquals($source->id, DB::table('ocpi_roaming_orders')->find($id)->source_cdr_record_id);
+        DB::table('ocpi_records')->where('id', $source->id)->update(['received_at' => now()->addDay()]);
+        $this->postJson($url)->assertOk()->assertJsonPath('reconciliation_state', 'requires_review');
+        $this->assertEquals($source->id, DB::table('ocpi_roaming_orders')->find($id)->source_cdr_record_id);
+        DB::table('ocpi_records')->where('id', $source->id)->update(['received_at' => $source->getRawOriginal('received_at')]);
+        $this->postJson($url)->assertOk()->assertJsonPath('reconciliation_state', 'source_consistent');
         $this->assertCount(2, $this->writes);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charging_sessions', 0);

@@ -86,6 +86,13 @@ class RoamingReconciler
             abort_if($records->count() > 1000, 409, 'Partner history needs bounded manual review.');
             $attempt = $this->attemptedIntent($row, $target, $local, $uid);
             $attemptedAt = self::storedInstant($attempt?->attempted_at);
+            $consentedAt = self::storedInstant($row->consented_at);
+            $expiresAt = self::storedInstant($row->expires_at);
+            $observedAt = CarbonImmutable::now('UTC');
+            if ($attemptedAt !== null && ($consentedAt === null || $expiresAt === null
+                || $attemptedAt->lt($consentedAt) || $attemptedAt->gt($expiresAt) || $attemptedAt->gt($observedAt))) {
+                $attemptedAt = null;
+            }
             if ($attemptedAt === null && ($records->isNotEmpty() || $row->source_session_record_id !== null)) {
                 return $this->review($row);
             }
@@ -104,7 +111,8 @@ class RoamingReconciler
             $session = $matches->first();
             $integrity = app(StoredSourceIntegrity::class);
             $sessionReceived = self::storedInstant($session->getRawOriginal('received_at'));
-            if (! $integrity->consistent($session) || $sessionReceived === null || $sessionReceived->lt($attemptedAt)) {
+            if (! $integrity->consistent($session) || $sessionReceived === null
+                || $sessionReceived->lt($attemptedAt) || $sessionReceived->gt($observedAt)) {
                 return $this->review($row);
             }
             $n = $session->normalized;
@@ -119,7 +127,16 @@ class RoamingReconciler
                 return DB::table('ocpi_roaming_orders')->find($row->id);
             }
             abort_unless($row->source_session_record_id === null || $row->source_session_record_id === $session->id, 409, 'Session identity requires review.');
-            $review = $n['currency'] !== $target['tariff']['currency'] || ! CarbonImmutable::parse($n['start_date_time'])->betweenIncluded(CarbonImmutable::parse($row->created_at)->subSeconds(2), CarbonImmutable::parse($row->expires_at));
+            $start = self::storedInstant($n['start_date_time'] ?? null);
+            // Keep the existing two-second source-clock tolerance. A disputed
+            // active session may still need a safe stop, but contradictory
+            // terminal timing must never release the held target.
+            $sourceTimeValid = $start !== null && $start->betweenIncluded($consentedAt->subSeconds(2), $expiresAt)
+                && $start->lte($sessionReceived->addSeconds(2));
+            if ($n['status'] === 'COMPLETED' && ! $sourceTimeValid) {
+                return $this->review($row);
+            }
+            $review = $n['currency'] !== $target['tariff']['currency'] || ! $sourceTimeValid;
             try {
                 $wh = SourceConsumer::wh($n['energy_kwh'], 'kWh');
                 if ($wh < $row->energy_wh || $wh > 1000000) {
@@ -170,7 +187,8 @@ class RoamingReconciler
             } elseif ($claims->count() === 1) {
                 $cdr = $claims->first();
                 $cdrReceived = self::storedInstant($cdr->getRawOriginal('received_at'));
-                if (! $integrity->consistent($cdr) || $cdrReceived === null || $cdrReceived->lt($attemptedAt)) {
+                if (! $integrity->consistent($cdr) || $cdrReceived === null
+                    || $cdrReceived->lt($attemptedAt) || $cdrReceived->gt(CarbonImmutable::now('UTC'))) {
                     $review = true;
                 } else {
                     $comparison = app(CdrReconciler::class)->inspect($p, $cdr);
