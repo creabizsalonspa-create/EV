@@ -20,14 +20,35 @@ class RemoteSessionAuthorization
 {
     public const CALLBACK = 'http://ev-business-api:8000/api/internal/remote-session-authorize';
 
-    public function graph(string $query, array $variables): array
+    private function sourceAuthority(): array
     {
-        abort_unless(strlen((string) config('csms.graphql_secret')) >= 32, 503);
+        $this->enabled();
+
+        return [app(CsmsGraphqlTransport::class)->requireApproved(), (string) config('csms.graphql_secret'),
+            (string) config('csms.rider_source_api_url'), (string) config('csms.rider_client_secret')];
+    }
+
+    private function requireAuthority(array $expected): void
+    {
+        abort_unless($this->sourceAuthority() === $expected, 503, 'Remote source authority changed during inspection.');
+    }
+
+    public function graph(string $query, array $variables, ?array $authority = null): array
+    {
+        $url = app(CsmsGraphqlTransport::class)->requireApproved();
+        $key = (string) config('csms.graphql_secret');
+        abort_unless(strlen($key) >= 32, 503);
+        if ($authority !== null) {
+            $this->requireAuthority($authority);
+        }
         try {
-            $r = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post(config('csms.graphql_url'), compact('query', 'variables'));
+            $r = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $key])->post($url, compact('query', 'variables'));
             $data = $r->json('data');
         } catch (Throwable) {
             abort(503, 'Authenticated source is unavailable.');
+        }
+        if ($authority !== null) {
+            $this->requireAuthority($authority);
         }
         abort_unless($r->successful() && ! $r->json('errors') && is_array($data), 503, 'Authenticated source outcome requires inspection.');
 
@@ -39,9 +60,9 @@ class RemoteSessionAuthorization
         abort_unless(config('csms.remote_authorization_enabled') && config('csms.rider_enabled') && config('csms.session_bridge_enabled') && app()->environment(['local', 'testing']), 503, 'Online remote-session authorizer is disabled.');
     }
 
-    private function source(SessionLink $link, string $tag): ?array
+    private function source(SessionLink $link, string $tag, array $authority): ?array
     {
-        $rows = $this->graph('query($tag:citext!){Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id idToken idTokenType status additionalInfo realTimeAuth realTimeAuthUrl realTimeAuthTimeout cacheExpiryDateTime concurrentTransaction isPrepaid}}', ['tag' => $tag])['Authorizations'] ?? null;
+        $rows = $this->graph('query($tag:citext!){Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id idToken idTokenType status additionalInfo realTimeAuth realTimeAuthUrl realTimeAuthTimeout cacheExpiryDateTime concurrentTransaction isPrepaid}}', ['tag' => $tag], $authority)['Authorizations'] ?? null;
         // GraphQL shape is untrusted even when the HTTP request succeeds.
         // An object-shaped one-row response must not masquerade as "absent"
         // and trigger creation of a second authorization in publish().
@@ -70,18 +91,19 @@ class RemoteSessionAuthorization
 
     public function publish(ChargerCommand $command): void
     {
-        $this->enabled();
+        $authority = $this->sourceAuthority();
         $link = SessionLink::where('start_command_id', $command->id)->firstOrFail();
         $tag = $command->payload['id_token'] ?? null;
         abort_unless(is_string($tag) && preg_match('/^EV-[A-F0-9]{16}$/D', $tag) && is_string($link->remote_token_digest) && hash_equals($link->remote_token_digest, hash('sha256', $tag)) && Str::isUuid($link->remote_registration_nonce), 409, 'Canonical remote credential is unavailable.');
         $nonce = (string) Str::uuid();
         try {
-            $r = Http::timeout(8)->withoutRedirecting()->get(rtrim(config('csms.rider_source_api_url'), '/').'/creabiz/rider-auth/capabilities', ['nonce' => $nonce]);
+            $r = Http::timeout(8)->withoutRedirecting()->get(rtrim($authority[2], '/').'/creabiz/rider-auth/capabilities', ['nonce' => $nonce]);
             $proof = $r->json('proof');
         } catch (Throwable) {
             abort(503, 'Source online authorizer is unavailable.');
         }
-        $secret = (string) config('csms.rider_client_secret');
+        $this->requireAuthority($authority);
+        $secret = $authority[3];
         abort_unless(strlen($secret) >= 32 && $r->successful() && $r->json('remote_session_authorization') === true && $r->json('ready') === true && $r->json('tenant_id') === 1 && $r->json('offline_fallback') === false && $r->json('cache_seconds') === 0 && is_string($proof) && hash_equals(hash_hmac('sha256', "creabiz-rider-v1\n".$nonce, $secret), $proof), 503, 'Source online authorizer is not verified.');
         $reservation = DB::transaction(function () use ($link, $command) {
             $session = ChargingSession::findOrFail($link->charging_session_id);
@@ -98,11 +120,13 @@ class RemoteSessionAuthorization
             return $reservation;
         });
         $expiry = CarbonImmutable::parse($reservation->starts_at)->addMinutes(30);
-        $row = $this->source($link, $tag);
+        $row = $this->source($link, $tag, $authority);
         if (! $row) {
             $object = ['tenantId' => 1, 'idToken' => $tag, 'idTokenType' => 'Central', 'status' => 'Blocked', 'additionalInfo' => [['additionalIdToken' => $link->remote_registration_nonce, 'type' => 'CREABIZ_REMOTE']], 'realTimeAuth' => 'Never', 'realTimeAuthUrl' => self::CALLBACK, 'realTimeAuthTimeout' => 0, 'cacheExpiryDateTime' => $expiry->toISOString(), 'concurrentTransaction' => false, 'isPrepaid' => false, 'createdAt' => now()->toISOString(), 'updatedAt' => now()->toISOString()];
-            $this->graph('mutation($object:Authorizations_insert_input!){insert_Authorizations_one(object:$object){id}}', compact('object'));
-            $row = $this->source($link, $tag);
+            $created = $this->graph('mutation($object:Authorizations_insert_input!){insert_Authorizations_one(object:$object){id}}', compact('object'), $authority)['insert_Authorizations_one']['id'] ?? null;
+            abort_unless(is_int($created) && $created > 0, 409, 'Malformed remote source creation identity.');
+            $row = $this->source($link, $tag, $authority);
+            abort_unless($row !== null && $row['id'] === $created, 409, 'Remote source creation identity changed.');
         }
         abort_unless($row, 503);
         $this->owned($link, $row, $tag);
@@ -110,13 +134,13 @@ class RemoteSessionAuthorization
         abort_unless($link->remote_authorization_id === null || (int) $link->remote_authorization_id === $row['id'], 409, 'Remote source registration changed.');
         SessionLink::whereKey($link->id)->whereNull('remote_authorization_id')->update(['remote_authorization_id' => $row['id']]);
         $set = ['status' => 'Accepted', 'realTimeAuth' => 'Never', 'realTimeAuthUrl' => self::CALLBACK, 'realTimeAuthTimeout' => 0, 'realTimeAuthLastAttempt' => null, 'cacheExpiryDateTime' => $expiry->toISOString(), 'concurrentTransaction' => false, 'isPrepaid' => false, 'updatedAt' => now()->toISOString()];
-        $changed = $this->graph('mutation($id:Int!,$marker:jsonb!,$set:Authorizations_set_input!){update_Authorizations(where:{id:{_eq:$id},tenantId:{_eq:1},additionalInfo:{_eq:$marker}},_set:$set){affected_rows}}', ['id' => $row['id'], 'marker' => $row['additionalInfo'], 'set' => $set]);
+        $changed = $this->graph('mutation($id:Int!,$marker:jsonb!,$set:Authorizations_set_input!){update_Authorizations(where:{id:{_eq:$id},tenantId:{_eq:1},additionalInfo:{_eq:$marker}},_set:$set){affected_rows}}', ['id' => $row['id'], 'marker' => $row['additionalInfo'], 'set' => $set], $authority);
         abort_unless(($changed['update_Authorizations']['affected_rows'] ?? null) === 1, 409, 'Source ownership changed.');
-        abort_unless($this->verified($link->fresh(), $tag), 503, 'Remote publication requires inspection.');
+        abort_unless($this->verified($link->fresh(), $tag, $authority, $expiry), 503, 'Remote publication requires inspection.');
     }
 
     /** Require a real absolute expiry, never Carbon's relative date grammar. */
-    private function validSourceExpiry(mixed $value): bool
+    private function validSourceExpiry(mixed $value, ?CarbonImmutable $expected = null): bool
     {
         if (! is_string($value) || ! preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/D', $value, $parts)) {
             return false;
@@ -126,17 +150,19 @@ class RemoteSessionAuthorization
         $errors = DateTimeImmutable::getLastErrors();
 
         return $parsed !== false && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))
-            && CarbonImmutable::instance($parsed)->isFuture();
+            && CarbonImmutable::instance($parsed)->isFuture()
+            && ($expected === null || CarbonImmutable::instance($parsed)->equalTo($expected));
     }
 
-    public function verified(SessionLink $link, string $tag): bool
+    public function verified(SessionLink $link, string $tag, ?array $authority = null, ?CarbonImmutable $expiry = null): bool
     {
-        $row = $this->source($link, $tag);
+        $authority ??= $this->sourceAuthority();
+        $row = $this->source($link, $tag, $authority);
         if (! $row) {
             return false;
         }
         $this->owned($link, $row, $tag);
 
-        return (int) $link->remote_authorization_id === $row['id'] && $row['status'] === 'Accepted' && $row['realTimeAuth'] === 'Never' && $row['realTimeAuthUrl'] === self::CALLBACK && $row['realTimeAuthTimeout'] === 0 && $row['concurrentTransaction'] === false && $row['isPrepaid'] === false && $this->validSourceExpiry($row['cacheExpiryDateTime'] ?? null);
+        return (int) $link->remote_authorization_id === $row['id'] && $row['status'] === 'Accepted' && $row['realTimeAuth'] === 'Never' && $row['realTimeAuthUrl'] === self::CALLBACK && $row['realTimeAuthTimeout'] === 0 && $row['concurrentTransaction'] === false && $row['isPrepaid'] === false && $this->validSourceExpiry($row['cacheExpiryDateTime'] ?? null, $expiry);
     }
 }

@@ -6,13 +6,14 @@ import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/vendor_inventory.dart';
 import 'test_support.dart';
 
-Map<String, dynamic> company({bool writer = true, bool operational = true}) => {
+Map<String, dynamic> company({bool writer = true, bool operational = true, bool owner = true}) => {
   'id': 1,
   'legal_name': 'Literal <company>',
   'country': 'AE',
   'status': 'approved',
   'capabilities': {
     'inventory_read': true,
+    'owner': owner,
     'inventory_write': writer,
     'inventory_operational': operational,
   },
@@ -20,7 +21,7 @@ Map<String, dynamic> company({bool writer = true, bool operational = true}) => {
 
 class InventoryApi extends FixtureApi {
   final requests = <String>[];
-  bool blocked = false, fail = false, loseAck = false;
+  bool blocked = false, fail = false, loseAck = false, siteLinked = true;
   int writes = 0;
   Completer<dynamic>? pending;
   Map<String, dynamic> page(
@@ -44,6 +45,9 @@ class InventoryApi extends FixtureApi {
     if (expired) throw const ApiException(401, 'private diagnostic');
     if (pending != null) return pending!.future;
     if (fail) throw const ApiException(404, 'private diagnostic');
+    if (path == 'stations/7/availability-blocks' && method == 'GET') {
+      return {'station_id': 7, 'data': <dynamic>[]};
+    }
     if (method == 'PATCH') {
       expect(
         path,
@@ -61,6 +65,7 @@ class InventoryApi extends FixtureApi {
       return page([
         {
           'id': 2,
+          'station_id': siteLinked ? 7 : null,
           'name': 'Literal site',
           'address': 'Synthetic address',
           'country': 'AE',
@@ -142,6 +147,76 @@ void main() {
         api.requests,
         contains('GET vendor-ops/companies/1/sites/2/chargers'),
       );
+      expect(api.requests.every((v) => v.startsWith('GET ')), isTrue);
+    },
+  );
+  testWidgets(
+    'linked station site offers an owner-only policy editor with current source GET',
+    (tester) async {
+      final api = InventoryApi();
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        app(VendorInventoryView(
+          api: api,
+          onExpired: () {},
+          company: company(),
+          metadataEditor: true,
+        )),
+      );
+      await tester.pumpAndSettle();
+      final open = find.text('Manage station availability blocks');
+      expect(open, findsOneWidget);
+      await tester.ensureVisible(open);
+      await tester.tap(open);
+      await tester.pumpAndSettle();
+      expect(find.text('Station availability blocks'), findsOneWidget);
+      expect(api.requests, contains('GET stations/7/availability-blocks'));
+      expect(api.requests.every((v) => v.startsWith('GET ')), isTrue);
+    },
+  );
+  testWidgets(
+    'invited staff and unlinked sites never expose station-wide policy writes',
+    (tester) async {
+      final api = InventoryApi();
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        app(VendorInventoryView(
+          api: api,
+          onExpired: () {},
+          company: company(owner: false),
+          metadataEditor: true,
+        )),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Manage station availability blocks'), findsNothing);
+      api.siteLinked = false;
+      await tester.tap(find.byTooltip('Refresh'));
+      await tester.pumpAndSettle();
+      expect(find.text('Manage station availability blocks'), findsNothing);
+      expect(api.requests.where((v) => v.contains('/availability-blocks')), isEmpty);
+    },
+  );
+  testWidgets(
+    'linked station management is localized and does not auto-publish',
+    (tester) async {
+      final api = InventoryApi();
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        app(VendorInventoryView(
+          api: api,
+          onExpired: () {},
+          company: company(),
+          metadataEditor: true,
+        ), arabic: true),
+      );
+      await tester.pumpAndSettle();
+      final open = find.text('إدارة فترات حجب المحطة');
+      expect(open, findsOneWidget);
+      await tester.ensureVisible(open);
+      await tester.tap(open);
+      await tester.pumpAndSettle();
+      expect(find.text('فترات حجب المحطة'), findsOneWidget);
+      expect(api.requests, contains('GET stations/7/availability-blocks'));
       expect(api.requests.every((v) => v.startsWith('GET ')), isTrue);
     },
   );
