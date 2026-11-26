@@ -77,6 +77,31 @@ class ChargerCertificateTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 0);
     }
 
+    #[TestWith(['1.6', 'account_status', 'suspended'])]
+    #[TestWith(['2.0.1', 'role', 'customer'])]
+    public function test_inactive_vendor_owner_blocks_certificate_enrollment_and_ingress_but_admin_can_revoke(string $protocol, string $field, string $value): void
+    {
+        [$owner, $base, $profile, $intent] = $this->fixture($protocol);
+        $result = $this->postJson($base.'/certificates/enroll', $intent)->assertOk()->json();
+        $rotation = $this->postJson($base.'/credential', ['expected_version' => 1, 'days' => 1])->assertCreated()->json();
+        $this->ingress($protocol, $rotation['secret'], $result['certificate']['fingerprint'])->assertNoContent();
+        DB::table('users')->where('id', $owner->id)->update([$field => $value]);
+        $this->ingress($protocol, $rotation['secret'], $result['certificate']['fingerprint'])->assertUnauthorized();
+        $admin = User::factory()->create(['role' => 'admin']);
+        [$pem] = $this->certificatePair();
+        $renew = array_replace($intent, ['idempotency_key' => (string) Str::uuid(), 'expected_actor_id' => $admin->id, 'expected_version' => 2, 'public_certificate' => $pem]);
+        $this->actingAs($admin)->postJson($base.'/certificates/enroll', $renew)->assertConflict();
+        $this->postJson($base.'/credential', ['expected_version' => 2, 'days' => 1])->assertConflict();
+        $this->assertDatabaseCount('charger_certificates', 1);
+        $this->assertDatabaseCount('charger_certificate_actions', 1);
+        $this->assertDatabaseHas('charger_admission_profiles', ['id' => $profile['id'], 'credential_version' => 2]);
+        $revoke = ['idempotency_key' => (string) Str::uuid(), 'expected_actor_id' => $admin->id, 'expected_profile_id' => $profile['id'], 'expected_version' => 2, 'reason' => 'Revoke certificate for inactive vendor', 'consent' => true, 'certificate_id' => $result['certificate_id']];
+        $this->postJson($base.'/certificates/revoke', $revoke)->assertOk()->assertJsonPath('result_version', 3);
+        $this->assertDatabaseHas('charger_admission_profiles', ['id' => $profile['id'], 'enabled' => false, 'credential_digest' => null]);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_renewal_retains_history_invalidates_old_pin_and_does_not_restore_old_credentials(): void
     {
         [, $base, $profile, $intent] = $this->fixture('2.0.1');
