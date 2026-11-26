@@ -1,0 +1,84 @@
+{
+  "pr": 397,
+  "source_sha": "3cf94fa29b915c844885843dc23d7815f4593ce0",
+  "integrated_sha": "ae92e14eb211eed52b0bb74775e8e1363cede168",
+  "atom_ids": [
+    "2.3.4",
+    "2.3.8"
+  ],
+  "scope": "Interactive maps for platform catalog, authorized normalized partner records and separately consented licensed discovery reports; private customer favorites for canonical stations and authorized normalized partner locations on web and Flutter Android/iOS. Licensed transient reports remain read-only and do not create canonical saved identities. Neither maps nor favorites grant booking/charging rights.",
+  "prior_evidence": [
+    "docs/evidence/integrated-checkpoints-20261125/pr337-favorites.json",
+    "docs/evidence/integrated-checkpoints-20261123/pr197-licensed-frontend.json"
+  ],
+  "required_checks": [
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45720142124/job/139576121959"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45720142124/job/139576122449"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45720142130/job/139576122559"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45720142130/job/139576122937"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45720142130/job/139576122948"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45720142130/job/139576122953"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45720142130/job/139576122989"
+    },
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45720142130/job/139640299856"
+    }
+  ],
+  "verification": {
+    "canonical_parent": "315396abd028ea567acf5047d6a005004a31a595",
+    "verified_source_paths": [
+      "apps/mobile/lib/partner_report_map.dart",
+      "apps/mobile/lib/unified_discovery.dart",
+      "apps/mobile/test/unified_discovery_test.dart",
+      "services/business-api/app/Http/Controllers/StationInformationController.php",
+      "services/business-api/tests/Feature/StationInformationTest.php"
+    ],
+    "tested_paths_preserved": 5,
+    "intervening_disjoint_paths": 96,
+    "unexpected_candidate_path_changes": 0,
+    "laravel": "2024 passed; 1 skipped; 35938 assertions",
+    "flutter": "1044 passed; 40 skipped; Linux and macOS native gates successful; iOS simulator app built",
+    "browser": "Actual unified Laravel mixed catalog/partner results, consented map pins, disable/re-enable and GPS/refit/privacy, EN/AR and phone layout; real Laravel canonical and partner favorite scoping, lost response recovery, public isolation, revocation and logout.",
+    "native": "Exact source unified saved places both writers, unknown-write recovery, explicit viewport searches and manual center, retained favorite/catalog callbacks cannot act on successor page, EN/AR revoked map hides pins and open details. Prior licensed-source map consent and map privacy evidence in #197.",
+    "acceptance_hold_resolution": "PR370 exact source c555d96566959b5f1eeec982af7e3c580469143f integrated through PR397. Former PR337 hold resolved by verified correction; only map and favorites atoms credited, not full discovery/filter/route recommendation scope."
+  },
+  "production_accepted": false,
+  "acceptance_status": "VERIFIED_SOFTWARE_SCOPE"
+}
