@@ -137,3 +137,26 @@ A pilot remains **BLOCKED** unless every required protocol/model row is explicit
 ### Source authority continuity
 
 The read-only pilot probe binds its station and connector evidence to the same preflight-approved GraphQL endpoint, source credential, inbox credential and enabled local simulator adapter. Each request checks that authority before and after the read; an in-flight endpoint change, key rotation or adapter disablement blocks the report rather than combining evidence from different sources. No alternate source receives the captured credential. The offline preflight rejects ambiguous URL control characters, backslashes and malformed authorities. Dual-protocol regression cases exercise these boundaries. This is a software-only criterion, not a physical or production acceptance result; exact-head CI and canonical integration remain required.
+
+### Offline production configuration audit
+
+Run `php artisan csms:production-config-audit` against the intended production configuration using a restricted operator shell. This independent configuration-only check does not request an OAuth token, connect to a source or charger, read a certificate chain, enable an adapter, or mutate the database. It checks the production environment, disabled simulator/session-bridge and local-HTTP exceptions, HTTPS source/operations/identity endpoints and exact operations audience, OAuth client and scope formats, independent service secrets, pinned RSA public keys, lowercase issuer fingerprint syntax with at least one non-denied configured pin, a bounded HTTPS GraphQL path, an operations base/audience without a trailing slash, and presence of canonical charging tables.
+
+A successful exit means **configuration checks passed, live validation required**; a failing exit means one or more checks are blocked. Output contains only named check booleans, no credentials or endpoint values. The command is not a readiness approval: actual endpoint ownership, TLS certificate trust, issuer key validity, OAuth claims, migration/index parity, worker health, real source interoperability and production transport coverage require independent validation. Existing local-only operational paths remain disabled in production and this audit does not implement or authorize them. Do not enable production transport or connect hardware based on this result.
+
+### Offline evidence manifest audit
+
+For each independently approved pilot scope, keep the manifest and the referenced evidence in the restricted evidence store. Run `node scripts/pilot-evidence-audit.cjs /private/path/manifest.json` on the local manifest; do not commit it. The validator reads a bounded regular JSON file, emits only fixed issue codes and boolean evidence limitations, and does not connect to a charger, CSMS, database, payment provider or evidence store.
+
+Version 1 expects these exact top-level fields: `schema_version` (1), `release_sha` (40 lowercase hex characters), `ci_evidence_sha256`, `csms_version` ("2.1.0"), `scope` ("supervised_hardware_pilot"), `approval_scope_sha256`, `approvals`, `preflight`, `models`, and `signoffs`. Hashes are lowercase 64-character SHA-256 digests of privately retained evidence. Each gate object has exactly `state` (PASS, FAIL, BLOCKED, NOT TESTED) and `evidence_sha256` (digest required for PASS, otherwise nullable). The exact keys are exported by the script:
+
+- `APPROVALS`: eight written approvals in Section 1.
+- `PREFLIGHT`: eleven checks in Section 3.
+- `GATES`: fourteen protocol/model acceptance rows in Section 4.
+- `SIGNOFFS`: seven acceptance sign-offs in Section 7.
+
+Each entry in `models` has exactly `scope_id` (private opaque alias, no actual serial or PII), `protocol` ("1.6" or "2.0.1"), `model_firmware_topology_sha256` (digest of the approved exact device tuple record), `evidence_kind` ("supervised_physical_observation"), and `gates` (all GATES). Both protocols and every approved tuple require distinct scope records. The local checker rejects missing gates, repeated tuple records, simulator labels, malformed digests, unexpected fields, duplicate JSON member names (including escaped aliases), and invalid UTF-8. Contradictory duplicate evidence cannot silently become a PASS through last-value-wins parsing. It does not know the actual approved inventory; the reviewer must reconcile the manifest against the privately retained signed scope and verify every referenced digest, actual artifact and signature. No manifest field or digest is a substitute for that review.
+
+Exit code 2 means blocked; exit code 0 means **structurally complete, independent review still required**. Both results explicitly keep hardware, pilot, production, evidence authenticity and approved inventory acceptance false. Never use this exit code as an approval or deployment trigger. `npm run test:pilot-evidence` exercises the schema and redaction behavior with synthetic data only; the existing OCPP validation script also runs these tests.
+
+**Unexecuted/blocked gates are not passes.** Track simulator code/test/merge evidence separately from physical-pilot acceptance and production sign-off; do not mark requirement `5.4.5` or overall production readiness complete merely because this runbook exists.
