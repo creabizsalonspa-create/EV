@@ -40,6 +40,21 @@ class CorporateHostedCollectionTest extends TestCase
         return $this->actingAs($f['owner'])->postJson(self::URL, ['statement_id' => $f['statement']->id, 'consent' => true, 'idempotency_key' => $key])->assertCreated()->json('checkout');
     }
 
+    public function test_native_corporate_activity_is_available_to_the_current_statement_owner(): void
+    {
+        $f = $this->f();
+        $h = $this->create($f);
+        $id = $h['id'];
+        $url = "/api/v1/commercial/corporate/hosted-checkouts/$id/events?page=1";
+        $this->getJson($url)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('data.0.checkout_id', $id)
+            ->assertJsonPath('data.0.kind', 'mock_opened');
+        $this->actingAs($f['driver'])->getJson($url)->assertNotFound();
+        $this->actingAs(User::factory()->create())->getJson($url)->assertNotFound();
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     private function fake(callable $fn): void
     {
         Http::swap(new Factory);

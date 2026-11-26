@@ -42,6 +42,11 @@ Map<String, dynamic> hostedFixture({String status = 'open', bool own = true}) =>
     };
 
 class HostedApi extends FixtureApi {
+  int epoch = 0;
+  final changes = StreamController<int>.broadcast(sync:true);
+  @override Stream<int> get sessionEvents => changes.stream;
+  @override bool Function() sessionFence() { final captured=epoch; return () => captured==epoch; }
+  void rotate() { epoch++; changes.add(epoch); }
   Map<String, dynamic>? row;
   bool lose = false, deny = false;
   final requests = <Map<String, dynamic>>[];
@@ -86,6 +91,17 @@ class HostedApi extends FixtureApi {
         'last_page': 1,
         'total': row == null ? 0 : 1,
       };
+    if (path == 'commercial/hosted-checkouts/7/events') {
+      expect(method, 'GET');
+      return {
+        'data': [
+          {'id': 1, 'hosted_checkout_id': 7, 'kind': 'prepared',
+           'created_at': '2026-11-23T04:30:00Z',
+           'provider_event_id': 'private-provider-event-never-render'},
+        ],
+        'current_page': 1, 'last_page': 1, 'total': 1,
+      };
+    }
     if (paused != null) return paused!.future;
     return {'checkout': row};
   }
@@ -190,6 +206,24 @@ void main() {
       }
     },
   );
+  test('checkout immutable identity includes canonical payment and subscription', () {
+    final row = hostedFixture()
+      ..['scope'] = 'subscription'
+      ..['subscription_id'] = 17;
+    final original = HostedCheckoutRecord(row);
+    final statusChanged = {...row, 'status':'authorized', 'canonical_status':'authorized'};
+    expect(original.sameFinancialSource(HostedCheckoutRecord(statusChanged)),isTrue);
+    for (final change in [
+      {'canonical_checkout_id': 99},
+      {'subscription_id': 18},
+      {'user_id':2},
+      {'amount_minor':1235},
+      {'invoice_id':4},
+    ]) {
+      expect(original.sameFinancialSource(HostedCheckoutRecord({...row,...change})),isFalse);
+    }
+  });
+
   testWidgets(
     'creation requires explicit consent and privately stores exact intent before any POST',
     (tester) async {
@@ -340,6 +374,22 @@ void main() {
       expect(api.requests.where((r) => r['method'] == 'POST').length, 1);
     },
   );
+  testWidgets('terminal retry rejects a different canonical payment and retains durable intent', (tester) async {
+    final api=HostedApi()..row=hostedFixture(status:'cancelled');
+    final store=VendorOperationStore();
+    final scope='${api.base.origin}:1:hosted:create:charging:3';
+    final saved={'key':'original-payment-request','body':{'scope':'charging','invoice_id':3,'consent':true}};
+    await store.write(scope,saved);
+    await mount(tester,api,store:store);
+    await tap(tester,'hosted-retry');
+    api.row={...api.row!,'canonical_checkout_id':99};
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('hosted-error')),findsOneWidget);
+    expect(find.byKey(const Key('hosted-create')),findsNothing);
+    expect(api.requests.where((r)=>r['method']=='POST'),isEmpty);
+    expect(await store.read(scope),saved);
+  });
   testWidgets(
     'unknown preparation resumes only on explicit same-record action after foreground GET',
     (tester) async {
@@ -387,6 +437,74 @@ void main() {
     await mount(tester, api, onExpired: () => expired++);
     expect(expired, 1);
     expect(find.textContaining('private-payment-diagnostic'), findsNothing);
+  });
+  testWidgets('hosted checkout activity opens exact private record and redacts on rotation', (tester) async {
+    final api = HostedApi()..row = hostedFixture(status: 'authorized');
+    await mount(tester, api);
+    await tap(tester, 'hosted-activity');
+    expect(find.text('Checkout prepared'), findsOneWidget);
+    expect(find.textContaining('private-provider-event-never-render'), findsNothing);
+    expect(api.requests.where((r) => r['path'] == 'commercial/hosted-checkouts/7/events' && r['method'] == 'GET').length, 1);
+    api.rotate();
+    await tester.pumpAndSettle();
+    expect(find.text('Checkout prepared'), findsNothing);
+  });
+  testWidgets('retained activity button cannot dispatch after checkout authority rotates', (tester) async {
+    final api = HostedApi()..row = hostedFixture(status: 'authorized');
+    await mount(tester, api);
+    final finder = find.byKey(const Key('hosted-activity'));
+    await tester.scrollUntilVisible(finder, 150, scrollable: find.byType(Scrollable).first);
+    final stale = tester.widget<OutlinedButton>(finder).onPressed!;
+    final reads = api.requests.length;
+    api.rotate();
+    await tester.pumpAndSettle();
+    stale();
+    await tester.pumpAndSettle();
+    expect(api.requests.length, reads);
+    expect(find.text('Checkout activity'), findsNothing);
+  });
+  testWidgets('revoked checkout immediately redacts rows and retained callbacks cannot POST or read', (tester) async {
+    final api=HostedApi()..row=hostedFixture(status:'authorized');
+    await mount(tester,api);
+    final stale=tester.widget<OutlinedButton>(find.byKey(const Key('hosted-capture'))).onPressed!;
+    final reads=api.requests.length;
+    api.rotate();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('KWD'),findsNothing);
+    expect(find.byKey(const Key('hosted-capture')),findsNothing);
+    stale();
+    HostedPaymentReturnBridge.changes.signal();
+    await tester.pumpAndSettle();
+    expect(api.requests.length,reads);
+    expect(tester.takeException(),isNull);
+  });
+  testWidgets('backgrounded capture confirmation cannot dispatch after foreground reload', (tester) async {
+    final api=HostedApi()..row=hostedFixture(status:'authorized');
+    await mount(tester,api);
+    await tap(tester,'hosted-capture');
+    expect(find.byType(AlertDialog),findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    expect(api.requests.where((r)=>r['method']=='POST'),isEmpty);
+    expect(tester.takeException(),isNull);
+  });
+  testWidgets('initial inactive checkout does not fetch private history or process wake-up', (tester) async {
+    final api=HostedApi()..row=hostedFixture();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    addTearDown(()=>tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    await mount(tester,api);
+    HostedPaymentReturnBridge.changes.signal();
+    await tester.pumpAndSettle();
+    expect(api.requests,isEmpty);
+    expect(find.textContaining('KWD'),findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.requests,isNotEmpty);
+    expect(api.requests.every((r)=>r['method']=='GET'),isTrue);
   });
   testWidgets('Arabic dark payment state is responsive and RTL at390px', (
     tester,
