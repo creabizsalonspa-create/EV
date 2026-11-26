@@ -39,7 +39,8 @@ class RecurringConsentAuthorityTest extends TestCase
             ->assertJsonPath('version', 1)->assertJsonPath('enabled', false);
         $this->putJson($policy, ['enabled' => false, 'consent' => false, 'expected_version' => 1])->assertOk()
             ->assertJsonPath('version', 2)->assertJsonPath('enabled', false);
-        $this->getJson($base.'recurring-subscriptions')->assertOk()->assertJsonPath('data.0.id', $id);
+        $this->getJson($base.'recurring-subscriptions')->assertOk()->assertJsonPath('data.0.id', $id)
+            ->assertJsonPath('data.0.collection_policy.enabled', false);
         $before = DB::table('recurring_payment_events')->count();
 
         $original = (array) DB::table('users')->where('id', $owner->id)

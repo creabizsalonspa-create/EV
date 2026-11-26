@@ -88,6 +88,9 @@ class RecurringPaymentController extends Controller
 
             return response()->json(DB::table('commercial_subscriptions as s')->where('s.user_id', $actor->id)->orderByDesc('s.id')->paginate(25)->through(function ($s) {
                 $s->collection_policy = DB::table('subscription_collection_policies')->where('subscription_id', $s->id)->first();
+                if ($s->collection_policy !== null) {
+                    $s->collection_policy->enabled = (bool) $s->collection_policy->enabled;
+                }
                 $s->latest_collection = DB::table('subscription_collections')->where('subscription_id', $s->id)->orderByDesc('id')->first(['id', 'invoice_id', 'checkout_id', 'attempts', 'state', 'failure_code', 'next_attempt_at', 'updated_at']);
 
                 return $s;
@@ -103,7 +106,12 @@ class RecurringPaymentController extends Controller
             abort_unless($owned->user_id === $actor->id, 404);
             $v = $r->validate(['enabled' => 'required|boolean', 'mandate_id' => 'required_if:enabled,true|nullable|integer|min:1', 'consent' => 'exclude_unless:enabled,true|required|accepted', 'expected_version' => 'required|integer|min:0']);
 
-            return response()->json($c->policy($actor, $subscription, $v['enabled'], isset($v['mandate_id']) ? (int) $v['mandate_id'] : null, (int) $v['expected_version']))->header('Cache-Control', 'private, no-store');
+            $policy = $c->policy($actor, $subscription, $v['enabled'], isset($v['mandate_id']) ? (int) $v['mandate_id'] : null, (int) $v['expected_version']);
+            // SQLite hydrates boolean columns as integers; PostgreSQL may
+            // return booleans. Keep the public consent contract identical.
+            $policy->enabled = (bool) $policy->enabled;
+
+            return response()->json($policy)->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
