@@ -235,14 +235,17 @@ export function mountHostedCheckout({
         const utc = new Date(value.replace(" ", "T").replace(/Z?$/, "Z"));
         return Number.isFinite(utc.getTime()) ? utc : null;
     }
-    async function loadEvents(area, id, number, rendered = epoch) {
+    async function loadEvents(area, id, number) {
+        // History list pagination has its own epoch and does not retire the
+        // still-mounted checkout detail. The exact activity node is the scope;
+        // replacement, hidden-tab cleanup or actor revocation retires it.
         const current = () => alive() && !document.hidden && area.isConnected
-            && selected === id && rendered === epoch;
+            && selected === id && detail.contains(area);
         // Retired, detached and hidden activity controls may not dispatch a read.
         if (!current() || !Number.isSafeInteger(number) || number < 1) return;
         area.replaceChildren();
         const refresh = () => button(
-            area, "Refresh activity", "تحديث النشاط", () => loadEvents(area, id, number, rendered),
+            area, "Refresh activity", "تحديث النشاط", () => loadEvents(area, id, number),
         );
         try {
             const response = await api(
@@ -284,8 +287,8 @@ export function mountHostedCheckout({
             } else {
                 area.append(t("p", "No checkout activity recorded.", "لا يوجد نشاط مسجل لعملية الدفع."));
             }
-            if (number > 1) button(area, "Previous activity", "النشاط السابق", () => loadEvents(area, id, number - 1, rendered));
-            if (number < response.last_page) button(area, "Next activity", "النشاط التالي", () => loadEvents(area, id, number + 1, rendered));
+            if (number > 1) button(area, "Previous activity", "النشاط السابق", () => loadEvents(area, id, number - 1));
+            if (number < response.last_page) button(area, "Next activity", "النشاط التالي", () => loadEvents(area, id, number + 1));
         } catch (error) {
             if (!current() || ["AbortError", "SessionChangedError"].includes(error.name)) return;
             const feedback = t("p", "Could not load checkout activity.", "تعذر تحميل نشاط عملية الدفع.");
@@ -312,8 +315,7 @@ export function mountHostedCheckout({
         );
         const activity = n("section", "");
         activity.dataset.checkoutActivity = "";
-        const activityEpoch = epoch;
-        button(card, "View checkout activity", "عرض نشاط عملية الدفع", () => loadEvents(activity, row.id, 1, activityEpoch));
+        button(card, "View checkout activity", "عرض نشاط عملية الدفع", () => loadEvents(activity, row.id, 1));
         card.append(activity);
         if (row.hosted_url) {
             const url = new URL(row.hosted_url);

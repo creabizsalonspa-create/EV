@@ -357,6 +357,20 @@ const { chromium } = require("playwright"),
     const vh = (await (await vendorCreation).json()).checkout;
     assert.equal(vh.scope, "subscription");
     assert.equal(vh.subscription_id, f.vendor_subscription);
+    // Creating a checkout refreshes the history list. That independent read
+    // must not retire the current detail or require a second selection.
+    await vendor.waitForFunction(() => {
+      const panel = document.querySelector("[data-hosted-checkout]");
+      return panel && !panel.hasAttribute("aria-busy");
+    });
+    const createdActivity = vendor.waitForResponse((r) => {
+      const url = new URL(r.url());
+      return url.pathname === `/api/commercial/hosted-checkouts/${vh.id}/events` &&
+        url.searchParams.get("page") === "1" && r.request().method() === "GET";
+    });
+    await vendorPanel.getByRole("button", { name: "View checkout activity", exact: true }).click();
+    assert.equal((await createdActivity).status(), 200);
+    await vendorPanel.locator("[data-checkout-activity]").getByText("Checkout activity", { exact: true }).waitFor();
     assert.equal(
       (
         await api(
