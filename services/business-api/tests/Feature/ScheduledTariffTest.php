@@ -7,6 +7,7 @@ use App\Models\Finance\SessionQuote;
 use App\Models\Finance\TariffVersion;
 use App\Models\Station;
 use App\Models\User;
+use App\Security\AdminTotp;
 use App\Services\Finance\FinanceService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -57,9 +58,22 @@ class ScheduledTariffTest extends TestCase
         config(['charging_tariffs.scheduled_enabled' => false]);
         $this->actingAs($f['admin'])->postJson($f['path'], $f['body'])->assertServiceUnavailable();
         config(['charging_tariffs.scheduled_enabled' => true]);
-        // Leaving the testing environment also enables real CSRF checks.
-        // Supply a matching session token so the POST reaches the production
-        // feature guard rather than failing earlier in middleware.
+        // Production requires both current Admin MFA and real CSRF. Exercise
+        // the genuine enrollment flow before asserting the feature's own gate.
+        config(['admin_security.enforce_in_local_tests' => true]);
+        $this->postJson('/api/login', [
+            'email' => $f['admin']->email, 'password' => 'password',
+        ])->assertOk()->assertJsonPath('admin_second_factor_required', true);
+        $this->getJson($f['path'])->assertForbidden()
+            ->assertJsonPath('admin_second_factor_required', true);
+        $secret = $this->postJson('/api/admin/second-factor/begin', [
+            'password' => 'password',
+        ])->assertOk()->json('secret');
+        $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertOk()->assertJsonPath('verified', true);
+        $this->getJson($f['path'])->assertOk()->assertJsonPath('pending_tariff', null);
+        // Supply the matching CSRF token after enrollment regenerates session.
         $csrf = Str::random(40);
         $this->withSession(['_token' => $csrf]);
         $this->app->instance('env', 'production');
