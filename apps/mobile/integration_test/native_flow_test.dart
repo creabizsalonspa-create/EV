@@ -453,6 +453,18 @@ void main() {
             'entitlements_active': false,
             'ledger_balanced': true,
             'real_payment_processed': false,
+            // Synthetic server receipt must satisfy the same immutable
+            // enrollment identity contract as the real Laravel endpoint.
+            'operation_receipt': {
+              'event_id': 73,
+              'actor_id': authenticated,
+              'subscription_id': 72,
+              'action': 'enroll',
+              'plan_id': 71,
+              'request_receipt': sha256.convert(utf8.encode(
+                'subscription-operation-v1:$authenticated:72:73:enroll:71:${payload['idempotency_key']}',
+              )).toString(),
+            },
           };
         } else if (path == '/api/commercial/loyalty/account') {
           result = {
