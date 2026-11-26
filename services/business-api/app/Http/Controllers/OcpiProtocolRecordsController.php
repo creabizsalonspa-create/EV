@@ -6,6 +6,7 @@ use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\OcpiMessageHeaders;
+use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\StoredSourceIntegrity;
 use Carbon\CarbonImmutable;
@@ -52,6 +53,7 @@ class OcpiProtocolRecordsController extends Controller
             [$provider, $link] = app(OcpiProtocolCredentialsController::class)->authenticate($r, $exchange, $resource);
             [$connection] = $exchange->configuration($provider);
             abort_unless(in_array($module, $exchange->receiverModules($provider), true) && $provider->version === '2.2.1' && is_string($provider->endpoints[$module] ?? null), 403);
+            $this->assertApprovedEndpoint($provider, $module);
             $country ??= $connection['party_country'];
             $party ??= $connection['party_id'];
             abort_unless($country === $connection['party_country'] && $party === $connection['party_id'], 403);
@@ -175,6 +177,21 @@ class OcpiProtocolRecordsController extends Controller
             && $current->endpoints[$module] === ($provider->endpoints[$module] ?? null)
             && $identity['country_code'] === $connection['party_country']
             && $identity['party_id'] === $connection['party_id'], 403);
+        $this->assertApprovedEndpoint($current, $module);
+    }
+
+    /** Receiver admission uses the same origin guard as negotiation and capability evidence. */
+    private function assertApprovedEndpoint(OcpiProvider $provider, string $module): void
+    {
+        try {
+            $endpoint = $provider->endpoints[$module] ?? null;
+            if (! is_string($endpoint) || $endpoint === '') {
+                abort(403);
+            }
+            app(PartnerClient::class)->guardedUrl($provider, $endpoint);
+        } catch (Throwable) {
+            abort(403);
+        }
     }
 
     private function component(array $location, string $evse, ?string $connector): array

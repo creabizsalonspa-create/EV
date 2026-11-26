@@ -38,6 +38,26 @@ class OcpiProtocolRecordsTest extends TestCase
         return ['country_code' => 'NL', 'party_id' => 'ABC', 'id' => 'cdr-1', 'session_id' => $s['id'], 'last_updated' => $s['last_updated'], 'start_date_time' => $s['start_date_time'], 'end_date_time' => $s['end_date_time'], 'currency' => $s['currency'], 'total_energy' => $s['kwh'], 'total_time' => '1', 'total_cost' => $s['total_cost'], 'cdr_location' => ['id' => $s['location_id'], 'evse_uid' => $s['evse_uid'], 'connector_id' => $s['connector_id']], 'cdr_token' => ['uid' => 'PRIVATE-SOURCE-TAG']];
     }
 
+    public function test_historical_receiver_rejects_invalid_endpoint_but_retains_independent_authority(): void
+    {
+        [$provider, $headers] = $this->context();
+        Http::preventStrayRequests();
+        $session = $this->sessionPayload();
+        $path = '/api/roaming-protocol/2.2.1/sessions/NL/ABC/session-1';
+        $this->putJson($path, $session, $headers)->assertCreated();
+        $endpoints = $provider->endpoints;
+        $provider->update(['endpoints' => array_replace($endpoints, ['cdrs' => 'https://foreign.example/cdrs'])]);
+        $this->postJson('/api/roaming-protocol/2.2.1/cdrs', $this->cdr($session), $headers)->assertForbidden();
+        $this->getJson($path, $headers)->assertOk();
+        $this->assertDatabaseCount('ocpi_records', 1);
+        $this->assertDatabaseCount('ocpi_record_receipts', 1);
+        $provider->update(['endpoints' => $endpoints]);
+        $this->postJson('/api/roaming-protocol/2.2.1/cdrs', $this->cdr($session), $headers)->assertCreated();
+        $this->assertDatabaseCount('ocpi_records', 2);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_managed_pull_rejects_foreign_party_in_any_page_without_partial_ingestion(): void
     {
         [$provider] = $this->context();

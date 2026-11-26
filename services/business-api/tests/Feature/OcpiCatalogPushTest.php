@@ -76,6 +76,34 @@ class OcpiCatalogPushTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_receiver_rejects_invalid_negotiated_catalog_endpoints_without_affecting_independent_modules(): void
+    {
+        [$provider, , $headers, $path] = $this->context();
+        $this->putJson($path, $this->location(), $headers)->assertCreated();
+        $tariffPath = '/api/roaming-protocol/2.2.1/tariffs/NL/ABC/tariff-fence';
+        $tariff = ['country_code' => 'NL', 'party_id' => 'ABC', 'id' => 'tariff-fence',
+            'last_updated' => now()->subMinute()->toISOString(), 'currency' => 'EUR',
+            'elements' => [['price_components' => [['type' => 'ENERGY', 'price' => '0.45', 'step_size' => 1]]]]];
+        $this->putJson($tariffPath, $tariff, $headers)->assertCreated();
+        $endpoints = $provider->endpoints;
+        foreach (['', 'http://partner.example/module', 'https://foreign.example/module',
+            'https://partner.example:8443/module', 'https://partner.example/module#private'] as $invalid) {
+            $provider->update(['endpoints' => array_replace($endpoints, ['locations' => $invalid])]);
+            $this->getJson($path, $headers)->assertForbidden()->assertJsonPath('data', null);
+            $this->putJson($path, $this->location(), $headers)->assertForbidden();
+            $this->patchJson($path, ['name' => 'Unapproved change', 'last_updated' => now()->toISOString()], $headers)->assertForbidden();
+            $this->getJson($tariffPath, $headers)->assertOk();
+        }
+        $provider->update(['endpoints' => array_replace($endpoints, ['tariffs' => 'https://foreign.example/tariff'])]);
+        $this->deleteJson($tariffPath, [], $headers)->assertForbidden();
+        $this->getJson($path, $headers)->assertOk();
+        $this->assertDatabaseCount('ocpi_record_receipts', 2);
+        $this->assertDatabaseCount('ocpi_catalog_retirements', 0);
+        $this->assertSame('Pushed partner station', OcpiRecord::where('module', 'locations')->firstOrFail()->normalized['name']);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_receiver_cannot_read_write_or_withdraw_after_negotiated_endpoint_changes_inside_request(): void
     {
         [$provider, , $headers, $path] = $this->context();
