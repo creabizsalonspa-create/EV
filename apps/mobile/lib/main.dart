@@ -32,6 +32,7 @@ import 'partner_rewards.dart';
 import 'referrals.dart';
 import 'financial_documents.dart';
 import 'financial_analytics.dart';
+import 'finance_approval_queue.dart';
 import 'hosted_checkout.dart';
 import 'refund_requests.dart';
 import 'vendor_finance.dart';
@@ -649,11 +650,14 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
       setState(() => tab = 3);
       return;
     }
+    // The slot picker is explicitly UTC, so its calendar bounds must be UTC too.
+    final todayUtc = reservationUtcCalendarDay(DateTime.now());
     final date = await showDatePicker(
       context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 29)),
+      currentDate: todayUtc,
+      initialDate: todayUtc.add(const Duration(days: 1)),
+      firstDate: todayUtc,
+      lastDate: todayUtc.add(const Duration(days: 29)),
     );
     if (date == null || !current()) return;
     final time = await showTimePicker(
@@ -682,7 +686,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
               : '${s.t('reserveConfirm')} · ${vehicle['name']}',
         ),
         content: SingleChildScrollView(child: Text(
-          '${station.name}${station.mappingId != null ? ' · EVSE ${station.evseNumber} · ${station.connectorNumber}' : ''}\n${slot.toIso8601String()}\n${terms == null ? s.t('reservationTerms') : reservationPolicyText(s.arabic,priceAcceptanceRequired:terms['price_acceptance_required']==true)}',
+          '${station.name}${station.mappingId != null ? ' · EVSE ${station.evseNumber} · ${station.connectorNumber}' : ''}\n${reservationTime(context, {'starts_at': slot.toIso8601String()}, 'starts_at')}\n${terms == null ? s.t('reservationTerms') : reservationPolicyText(s.arabic,priceAcceptanceRequired:terms['price_acceptance_required']==true)}',
         )),
         actions: [
           TextButton(
@@ -1526,6 +1530,15 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                       ),
                     ),
                   );
+                } else if (value == 'financeApprovalQueue' && account?.role == 'admin') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => FinanceApprovalQueueView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'financialAnalytics') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1768,6 +1781,12 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                   enabled: !busy,
                   child: Text(analyticsText(context, 'title')),
                 ),
+                if (account!.role == 'admin')
+                  PopupMenuItem(
+                    value: 'financeApprovalQueue',
+                    enabled: !busy,
+                    child: Text(financeReviewText(context, 'Pending finance reviews', 'المراجعات المالية المعلقة')),
+                  ),
                 if (account!.role == 'vendor')
                   PopupMenuItem(
                     value: 'vendorCampaigns',

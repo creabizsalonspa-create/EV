@@ -36,6 +36,13 @@ class DisputeApi extends FixtureApi {
     methods.add(method);
     queries.add(query);
     if (pending != null) return pending!.future;
+    if (path.contains('/8'))
+      return {
+        'dispute': {...receipt(), 'id': 8, 'invoice_id': 20},
+        'can_reconcile': false,
+        'events': [],
+        'evidence_submissions': [],
+      };
     if (path.contains('/7'))
       return {
         'dispute': receipt(),
@@ -209,4 +216,27 @@ void main() {
     expect(api.calls.single, 'commercial/external-disputes/7');
     expect(find.text('Invoice #19'), findsOneWidget);
   });
+  testWidgets('reused notification view never displays a prior dispute ID', (
+    tester,
+  ) async {
+    final api = DisputeApi();
+    Widget screen(int id) => MaterialApp(
+      home: ProviderDisputesView(
+        api: api,
+        onExpired: () {},
+        initialDisputeId: id,
+      ),
+    );
+    await tester.pumpWidget(screen(7));
+    await tester.pumpAndSettle();
+    expect(find.text('Invoice #19'), findsOneWidget);
+    await tester.pumpWidget(screen(8));
+    expect(find.text('Invoice #19'), findsNothing);
+    await tester.pumpAndSettle();
+    expect(api.calls.last, 'commercial/external-disputes/8');
+    expect(find.text('Invoice #20'), findsOneWidget);
+    expect(find.text('Invoice #19'), findsNothing);
+    expect(api.methods.every((method) => method == 'GET'), isTrue);
+  });
+
 }
