@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
@@ -84,7 +85,16 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
   Object? error;
   bool busy = false, recorded = false, foreground = true;
   int generation = 0;
-  late bool Function() ownSession;
+  late final bool Function() ownSession;
+  StreamSubscription<int>? sessionSubscription;
+  bool retired = false;
+  bool get active => mounted && foreground && !retired && ownSession();
+  bool get top => ModalRoute.of(context)?.isCurrent ?? true;
+  void redact() {
+    token = null; estimate = null; error = null;
+    recorded = false; busy = false;
+    energy.text = '10000';
+  }
   @override
   void initState() {
     super.initState();
@@ -92,6 +102,11 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
     final lifecycle=WidgetsBinding.instance.lifecycleState;
     foreground=lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
+    sessionSubscription = widget.api.sessionEvents.listen((_) {
+      if (mounted && !ownSession()) {
+        setState(() { retired = true; generation++; redact(); });
+      }
+    });
   }
   @override
   void didUpdateWidget(covariant PrechargePricingDialog oldWidget) {
@@ -99,14 +114,12 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
     if (!identical(oldWidget.api,widget.api) ||
         oldWidget.reservation != widget.reservation || !ownSession()) {
       generation++;
-      ownSession = widget.api.sessionFence();
-      token = null; estimate = null; error = null;
-      recorded = false; busy = false;
-      energy.text = '10000';
+      retired = true;
+      redact();
     }
   }
   @override
-  void dispose() { generation++; WidgetsBinding.instance.removeObserver(this); energy.dispose(); token = null; estimate = null; super.dispose(); }
+  void dispose() { generation++; unawaited(sessionSubscription?.cancel()); WidgetsBinding.instance.removeObserver(this); energy.dispose(); token = null; estimate = null; super.dispose(); }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!mounted) return;
@@ -116,25 +129,22 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
       foreground=resumed;
       if (!resumed) {
         generation++;
-        token = null; estimate = null; busy = false; error = null;
+        redact();
       }
     });
     // No automatic private pricing POST merely because the OS resumed.
   }
   Future<void> load() async {
-    if (!foreground || busy) return;
-    if (!ownSession()) {
-      setState(() { token = null; estimate = null; error = const ApiException(401,'Session changed'); });
-      return;
-    }
+    if (!active || !top || busy) return;
     final amount = decimalMinor(energy.text,0,maximum:1000000);
     if (amount == null || amount < 1) {
       setState(() => error = const ApiException(422,'Invalid energy')); return;
     }
-    final epoch = ++generation, current = ownSession;
+    final epoch = ++generation, api = widget.api, reservation = widget.reservation;
+    bool current() => active && epoch == generation;
     setState(() { busy = true; estimate = null; token = null; error = null; recorded = false; });
     try {
-      final reply = await widget.api.request('reservations/${widget.reservation}/price-estimate',method:'POST',body:{'energy_wh':amount});
+      final reply = await api.request('reservations/$reservation/price-estimate',method:'POST',body:{'energy_wh':amount});
       if (!mounted || epoch != generation || !current()) return;
       if (reply is Map && reply['start_already_recorded'] == true) { setState(() => recorded = true); return; }
       if (reply is! Map || !validPrechargeEstimate(reply['estimate']) ||
@@ -150,11 +160,7 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
     finally { if (mounted && epoch == generation) setState(() => busy = false); }
   }
   Future<void> accept() async {
-    if (!foreground || busy) return;
-    if (!ownSession()) {
-      setState(() { token = null; estimate = null; error = const ApiException(401,'Session changed'); });
-      return;
-    }
+    if (!active || !top || busy) return;
     final confirmation = token;
     final reviewedEstimate = estimate;
     if (confirmation == null || reviewedEstimate == null) return;
@@ -167,23 +173,26 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
       });
       return;
     }
-    final epoch = ++generation, current = ownSession;
+    final epoch = ++generation, api = widget.api, reservation = widget.reservation;
+    bool current() => active && epoch == generation;
     setState(() { busy = true; error = null; });
     try {
-      final receipt=await widget.api.request('reservations/${widget.reservation}/price-consent',
+      final receipt=await api.request('reservations/$reservation/price-consent',
           method:'POST',body:{'quote_token':confirmation,'accepted':true});
       if (!mounted || epoch != generation || !current() || !foreground) return;
       if (!confirmedPrechargeReceipt(receipt,reviewedEstimate)) {
         throw const ApiException(503,'Price consent not confirmed; check session history before retrying');
       }
-      if (mounted) Navigator.of(context).pop(true);
+      if (top) { Navigator.of(context).pop(true); }
+      else { setState(() { token = null; estimate = null; error = const ApiException(409,'Review current price again'); }); }
     } catch (e) { if (mounted && epoch == generation && current()) setState(() { error = e; token = null; estimate = null; }); }
     finally { if (mounted && epoch == generation) setState(() => busy = false); }
   }
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context);
-    final authorized=foreground && ownSession();
+    final authorized=active;
+    final rendered = generation, reviewed = estimate, reviewedToken = token;
     String tr(String en,String ar) => s.arabic ? ar : en;
     return AlertDialog(
       title:Text(tr('Review simulated charging price','مراجعة سعر محاكاة الشحن')),
@@ -191,7 +200,7 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
         TextField(controller:energy,enabled:authorized && !busy,
           keyboardType:TextInputType.number,maxLength:7,
           decoration:InputDecoration(labelText:tr('Estimated energy (Wh)','الطاقة المتوقعة (Wh)')),
-          onChanged:(_) { generation++; setState(() { token = null; estimate = null; error = null; }); }),
+          onChanged:(_) { if (!active || busy) return; generation++; setState(() { token = null; estimate = null; error = null; }); }),
         if (busy) const LinearProgressIndicator(),
         if (error != null) Text(s.t(errorKey(error!))),
         if (recorded) Text(tr('A session is already recorded. Refresh session history; do not submit another start.','تم تسجيل جلسة بالفعل. حدّث سجل الجلسات ولا ترسل طلب بدء آخر.')),
@@ -202,7 +211,13 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
         TextButton(onPressed:!authorized || busy ? null : load,
           child:Text(tr('Get estimate','عرض التقدير'))),
         FilledButton(onPressed:!authorized || busy || token == null ||
-            estimate == null ? null : accept,
+            estimate == null ? null : () {
+              if (!ownSession() && mounted) {
+                setState(() { retired = true; generation++; redact(); });
+                return;
+              }
+              if (active && top && rendered == generation && identical(reviewed,estimate) && reviewedToken == token) accept();
+            },
           child:Text(tr('Accept price','قبول السعر'))),
       ],
     );
