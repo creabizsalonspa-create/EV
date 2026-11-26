@@ -20,6 +20,15 @@ test('offline inventory preserves package instances, hashes and unknown licenses
 });
 test('repository inventory covers every current language lock and never infers approval',()=>{
  const result=run(path.resolve('.'));assert.equal(result.status,0,result.stderr);const data=JSON.parse(result.stdout);assert(data.lockfiles.length>=4);assert.equal(data.file_selection,'git_index');assert.equal(data.lockfiles_match_source_commit,true);assert(data.component_count>=300);assert(data.components.some(c=>c.ecosystem==='pub'));assert(data.components.some(c=>c.ecosystem==='composer'));assert(data.components.some(c=>c.ecosystem==='npm'));assert(data.components_without_license_declarations>0);assert.equal(data.production_accepted,false);
+ for (const [file, kind] of [
+  ['infra/staging/Dockerfile', 'container_build'],
+  ['infra/staging/compose.yaml', 'container_deployment'],
+  ['apps/mobile/android/gradle/wrapper/gradle-wrapper.properties', 'android_toolchain'],
+  ['apps/mobile/ios/Podfile', 'ios_dependencies'],
+  ['THIRD_PARTY_NOTICES.md', 'third_party_notices'],
+ ]) {
+  assert(data.release_inputs.some(input => input.path === file && input.kind === kind));
+ }
 });
 test('duplicate JSON keys and malformed Flutter structure reject the entire inventory without source text',t=>{
  const root=fixture(t);write(root,'package-lock.json','{"lockfileVersion":3,"lockfileVersion":"DO-NOT-LEAK","packages":{}}');let result=run(root);assert.equal(result.status,2);assert.equal(result.stdout,'');assert.doesNotMatch(result.stderr,/DO-NOT-LEAK/);
@@ -60,6 +69,48 @@ test('changed checkout locks stay distinct from the recorded source commit',t=>{
 });
 test('oversized source locks fail before parsing and never return a partial inventory',t=>{
  const root=fixture(t),file=path.join(root,'package-lock.json');fs.writeFileSync(file,'');fs.truncateSync(file,21*1024*1024);const result=run(root);assert.equal(result.status,2);assert.equal(result.stdout,'');assert.doesNotMatch(result.stderr,/Traceback/);
+});
+
+test('release input hashes detect changes independently of language locks without emitting contents', t => {
+ const root = fixture(t);
+ inputs(root);
+ const compose = 'infra/compose.yaml';
+ write(root, compose, 'internal release configuration DO-NOT-EMIT');
+ const archive = JSON.parse(run(root).stdout);
+ assert.equal(archive.release_inputs_match_source_commit, null);
+ assert.equal(archive.release_inputs[0].matches_source_commit, null);
+
+ function git(...args) {
+  const result = spawnSync('git', args, {cwd: root, encoding: 'utf8', timeout: 10000});
+  assert.equal(result.status, 0, result.stderr);
+ }
+ git('init', '-q');
+ git('add', '.');
+ git('-c', 'user.name=Inventory fixture', '-c', 'user.email=fixture@example.test',
+  '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Fixture inputs');
+ const clean = run(root, '--require-source-match');
+ assert.equal(clean.status, 0, clean.stderr);
+ assert.doesNotMatch(clean.stdout, /DO-NOT-EMIT/);
+ const original = JSON.parse(clean.stdout);
+ assert.equal(original.release_inputs_match_source_commit, true);
+
+ write(root, compose, 'changed DO-NOT-EMIT');
+ write(root, 'untracked/Dockerfile', 'untracked DO-NOT-EMIT');
+ const changed = JSON.parse(run(root).stdout);
+ assert.equal(changed.lockfiles_match_source_commit, true);
+ assert.equal(changed.release_inputs_match_source_commit, false);
+ assert.equal(changed.release_inputs.length, 1);
+ assert.notEqual(changed.release_inputs[0].sha256, original.release_inputs[0].sha256);
+ assert.equal(run(root, '--require-source-match').status, 2);
+
+ const outside = fixture(t);
+ write(outside, 'external', 'outside DO-NOT-EMIT');
+ fs.unlinkSync(path.join(root, compose));
+ fs.symlinkSync(path.join(outside, 'external'), path.join(root, compose));
+ const symlink = run(root);
+ assert.equal(symlink.status, 2);
+ assert.equal(symlink.stdout, '');
+ assert.doesNotMatch(symlink.stderr, /DO-NOT-EMIT/);
 });
 
 test('npm lock inventory rejects invented package paths, versioned links and malformed scope flags',t=>{

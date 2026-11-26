@@ -99,6 +99,66 @@ class RetailPartnerRewardGovernanceTest extends TestCase
         DB::table('partner_reward_claims')->where('id', $claim['id'])->delete();
     }
 
+    public function test_cancelled_partner_claim_fences_delayed_dispatch_and_is_idempotent_without_reserving_inventory(): void
+    {
+        [, $review] = $this->sandboxOffer();
+        $customer = User::factory()->create();
+        $foreign = User::factory()->create();
+        $base = '/api/commercial/partner-rewards';
+        $payload = ['review_id' => $review, 'idempotency_key' => 'uncertain-cancel'];
+        $key = hash('sha256', 'partner-reward-claim:'.$customer->id.':uncertain-cancel');
+        $binding = hash('sha256', 'partner-reward-cancel-v1:'.$review.':'.$key);
+        $this->actingAs($customer)->postJson("$base/claim-intents/cancel", $payload)
+            ->assertOk()->assertJsonPath('state', 'cancelled')
+            ->assertJsonPath('review_id', $review)->assertJsonPath('claim', null)
+            ->assertJsonPath('request_binding', $binding)
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonMissingPath('request_key');
+        $this->postJson("$base/claim-intents/cancel", $payload)
+            ->assertOk()->assertJsonPath('request_binding', $binding);
+        $this->postJson("$base/claim-intents/cancel", array_replace($payload, ['review_id' => $review + 1]))
+            ->assertConflict();
+        $this->postJson("$base/offers/$review/claim", ['idempotency_key' => 'uncertain-cancel'])
+            ->assertConflict();
+        $this->assertDatabaseCount('partner_reward_cancelled_intents', 1);
+        $this->assertDatabaseCount('partner_reward_claims', 0);
+        $this->assertDatabaseCount('loyalty_redemptions', 0);
+
+        // The same client key is independent for another authenticated member.
+        $this->actingAs($foreign)->postJson("$base/offers/$review/claim", ['idempotency_key' => 'uncertain-cancel'])
+            ->assertCreated()->assertJsonPath('claim.status', 'pending');
+        $this->assertDatabaseCount('partner_reward_claims', 1);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+
+        $this->expectException(QueryException::class);
+        DB::table('partner_reward_cancelled_intents')->where('request_key', $key)->delete();
+    }
+
+    public function test_cancellation_returns_already_accepted_claim_even_after_activation_disabled(): void
+    {
+        [$reviewer, $review] = $this->sandboxOffer();
+        $customer = User::factory()->create();
+        $base = '/api/commercial/partner-rewards';
+        $payload = ['review_id' => $review, 'idempotency_key' => 'accepted-first'];
+        $claim = $this->actingAs($customer)->postJson("$base/offers/$review/claim", ['idempotency_key' => $payload['idempotency_key']])
+            ->assertCreated()->json('claim');
+
+        config(['loyalty.enabled' => false]);
+        $this->postJson("$base/claim-intents/cancel", $payload)->assertOk()
+            ->assertJsonPath('state', 'accepted')->assertJsonPath('claim.id', $claim['id'])
+            ->assertJsonPath('claim.status', 'pending')->assertJsonMissingPath('claim.request_key')
+            ->assertJsonPath('claim.external_fulfillment_verified', false);
+        $this->postJson("$base/claim-intents/cancel", array_replace($payload, ['review_id' => $review + 1]))
+            ->assertConflict();
+        $this->actingAs($reviewer)->postJson("$base/claim-intents/cancel", $payload)->assertForbidden();
+        $this->assertDatabaseCount('partner_reward_cancelled_intents', 0);
+        $this->assertDatabaseCount('partner_reward_claims', 1);
+        $this->assertDatabaseCount('loyalty_redemptions', 1);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_revoked_review_blocks_new_claims_and_fulfillment_but_preserves_receipt_and_release(): void
     {
         [$reviewer, $review, $path] = $this->sandboxOffer();
