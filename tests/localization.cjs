@@ -43,6 +43,10 @@ const fs = require("node:fs"),
     const expressions = [
       /\bui\(\s*["'][a-z]+["']\s*,\s*["']([^"']+)["']/g,
       /\bbutton\([^,]+,\s*["']([^"']+)["']/g,
+      // A literal complete translation lookup can also appear inside a native
+      // browser confirm dialog rather than a rendered element. Exclude
+      // concatenated state/action prefixes, which are dynamic resource keys.
+      /\bEvLocale\.text\(\s*["']([^"']+)["']\s*[,)]/g,
     ];
     for (const expression of expressions)
       for (const match of source.matchAll(expression))
@@ -173,6 +177,10 @@ const fs = require("node:fs"),
     await page.waitForFunction(() => document.documentElement.lang === "ar");
     assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
     await verifyInterpolation('ar');
+    const replaceGrant = "Replace the existing grant? The staff member loses access until accepting the new permissions.";
+    assert.equal(await page.evaluate(k => window.EvLocale.text(k), replaceGrant),
+      "هل تريد استبدال الصلاحيات الحالية؟ سيفقد الموظف إمكانية الوصول إلى أن يقبل الصلاحيات الجديدة.");
+
     assert.equal(
       await page.locator("#account input[name=name]").inputValue(),
       "Unchanged draft",
