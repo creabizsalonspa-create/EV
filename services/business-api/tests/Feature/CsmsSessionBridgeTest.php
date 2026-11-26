@@ -8,6 +8,10 @@ use App\Models\Finance\TariffVersion;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Models\VendorOps\VendorCharger;
+use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorConnector;
+use App\Models\VendorOps\VendorSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\TestWith;
@@ -48,7 +52,7 @@ class CsmsSessionBridgeTest extends TestCase
     private function send(array $event, ?string $timestamp = null, ?string $key = null)
     {
         $raw = json_encode($event, JSON_THROW_ON_ERROR);
-        $ts = $timestamp ?? (string) time();
+        $ts = $timestamp ?? (string) now()->timestamp;
 
         return $this->call('POST', '/api/internal/csms/events', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTP_X_EV_TIMESTAMP' => $ts, 'HTTP_X_EV_SIGNATURE' => hash_hmac('sha256', $ts.'.'.$raw, $key ?? self::KEY)], $raw);
     }
@@ -147,7 +151,7 @@ class CsmsSessionBridgeTest extends TestCase
         $id = ChargingSession::first()->id;
         $started = $this->event($id, 'started', 0, 1000);
         $this->send($started, key: 'wrong-key')->assertUnauthorized();
-        $this->send($started, timestamp: (string) (time() - 301))->assertUnauthorized();
+        $this->send($started, timestamp: (string) (now()->timestamp - 301))->assertUnauthorized();
         $this->send($started + [], key: self::KEY)->assertOk();
         $this->send($this->event($id, 'meter', 1, 2000, ['identifier' => 'ev-test-different']))->assertConflict();
         $this->send($this->event($id, 'meter', 1, 2000, ['transaction_id' => '456']))->assertConflict();
@@ -189,6 +193,138 @@ class CsmsSessionBridgeTest extends TestCase
         $r->update(['starts_at' => now()->subHours(2)]);
         $new = Reservation::create(['station_id' => $station->id, 'user_id' => $u->id, 'starts_at' => now()->subMinutes(5), 'idempotency_key' => 'second']);
         $this->postJson('/api/reservations/'.$new->id.'/csms-start')->assertConflict();
+    }
+
+    #[TestWith(['1.6'])]
+    #[TestWith(['2.0.1'])]
+    public function test_signed_inbox_refuses_rebound_station_identity_and_source_before_meter_reconciliation(string $protocol): void
+    {
+        [, $customer, $station, $reservation] = $this->fixture($protocol);
+        $this->actingAs($customer)->postJson('/api/reservations/'.$reservation->id.'/csms-start')->assertAccepted();
+        $session = ChargingSession::firstOrFail();
+        $started = $this->event($session->id, 'started', 0, 1000);
+        $original = DB::table('csms_bindings')->where('station_id', $station->id)->first();
+
+        DB::table('csms_bindings')->where('id', $original->id)
+            ->update(['identifier' => 'ev-test-repointed-identity']);
+        $this->send($started)->assertConflict();
+        $this->assertDatabaseCount('csms_inbox_events', 0);
+        $this->assertSame('pending_start', $session->fresh()->status);
+        $this->assertDatabaseCount('finance_invoices', 0);
+
+        DB::table('csms_bindings')->where('id', $original->id)
+            ->update(['identifier' => $original->identifier]);
+        $this->send($started)->assertOk()->assertJsonPath('outcome', 'applied');
+        $this->assertSame('charging', $session->fresh()->status);
+
+        $meter = $this->event($session->id, 'meter', 1, 2000);
+        $station->update(['source' => 'partner']);
+        $this->send($meter)->assertConflict();
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertSame(0, (int) $session->fresh()->energy_wh);
+        $this->assertDatabaseCount('finance_invoices', 0);
+
+        $station->update(['source' => 'simulator']);
+        $this->send($meter)->assertOk()->assertJsonPath('outcome', 'applied');
+        $this->assertSame(1000, (int) $session->fresh()->energy_wh);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[TestWith(['1.6'])]
+    #[TestWith(['2.0.1'])]
+    public function test_signed_meter_receipt_rejects_canonical_charger_owner_transfer_and_recovers_with_original_owner(string $protocol): void
+    {
+        [$owner, $customer, $station, $reservation] = $this->fixture($protocol);
+        $company = VendorCompany::create([
+            'owner_id' => $owner->id, 'legal_name' => 'CSMS source event owner',
+            'country' => 'AE', 'trade_license_number' => 'SIMULATOR-ONLY',
+            'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved',
+        ]);
+        $site = VendorSite::create([
+            'company_id' => $company->id, 'station_id' => $station->id,
+            'name' => 'CSMS event site', 'country' => 'AE',
+            'timezone' => 'Asia/Dubai', 'address' => 'Synthetic',
+            'latitude' => 25, 'longitude' => 55,
+        ]);
+        $charger = VendorCharger::create([
+            'company_id' => $company->id, 'site_id' => $site->id,
+            'asset_reference' => 'EVENT-OWNER', 'manufacturer' => 'Synthetic',
+            'model' => 'CSMS receipt fixture', 'source' => 'simulator',
+            'ocpp_protocol' => $protocol,
+        ]);
+        // The legacy simulator start gate requires exactly one operated
+        // physical inventory connector on the newly claimed site.
+        VendorConnector::create([
+            'charger_id' => $charger->id, 'connector_number' => 1,
+            'connector_type' => 'CCS2', 'max_power_kw' => 50,
+        ]);
+        DB::table('csms_bindings')->where('station_id', $station->id)
+            ->update(['vendor_charger_id' => $charger->id]);
+        $this->actingAs($customer)->postJson('/api/reservations/'.$reservation->id.'/csms-start')->assertAccepted();
+        $session = ChargingSession::firstOrFail();
+        $this->send($this->event($session->id, 'started', 0, 1000))->assertOk();
+        $event = $this->event($session->id, 'meter', 1, 2000);
+        $newOwner = User::factory()->create(['role' => 'vendor']);
+        $company->update(['owner_id' => $newOwner->id]);
+        $this->send($event)->assertConflict();
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertSame(0, (int) $session->fresh()->energy_wh);
+        $this->assertDatabaseCount('finance_invoices', 0);
+
+        $company->update(['owner_id' => $owner->id]);
+        $this->send($event)->assertOk()->assertJsonPath('outcome', 'applied');
+        $this->assertSame(1000, (int) $session->fresh()->energy_wh);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[TestWith(['1.6', 'expire'])]
+    #[TestWith(['2.0.1', 'expire'])]
+    #[TestWith(['1.6', 'rotate'])]
+    #[TestWith(['2.0.1', 'rotate'])]
+    public function test_signed_terminal_receipt_rechecks_authority_after_session_lock(string $protocol, string $change): void
+    {
+        [, $customer, , $reservation] = $this->fixture($protocol);
+        $this->actingAs($customer)->postJson('/api/reservations/'.$reservation->id.'/csms-start')->assertAccepted();
+        $session = ChargingSession::firstOrFail();
+        $this->send($this->event($session->id, 'started', 0, 1000))->assertOk();
+        $end = $this->event($session->id, 'ended', 1, 3500);
+        $mutated = false;
+        $sessionReads = 0;
+        DB::listen(function ($query) use (&$mutated, &$sessionReads, $change) {
+            // The third charging_sessions SELECT is the final session lock:
+            // hint, link-correlated read, then the write-boundary lock.
+            if (! $mutated && str_contains(strtolower($query->sql), 'select')
+                && str_contains($query->sql, 'charging_sessions')
+                && ++$sessionReads === 3) {
+                $mutated = true;
+                if ($change === 'expire') {
+                    $this->travel(301)->seconds();
+                } else {
+                    config(['csms.event_secret' => str_repeat('r', 64)]);
+                }
+            }
+        });
+        try {
+            $this->send($end)->assertUnauthorized();
+            $this->assertTrue($mutated, 'The simulated lock-boundary change must occur.');
+            $this->assertDatabaseCount('csms_inbox_events', 1);
+            $this->assertDatabaseCount('finance_invoices', 0);
+            $this->assertSame('charging', $session->fresh()->status);
+            $this->assertSame(0, (int) $session->fresh()->energy_wh);
+
+            // The unchanged receipt can be signed afresh by current authority.
+            $key = $change === 'rotate' ? str_repeat('r', 64) : self::KEY;
+            $this->send($end, key: $key)->assertOk()->assertJsonPath('outcome', 'applied');
+            $this->send($end, key: $key)->assertOk()->assertJsonPath('outcome', 'duplicate');
+            $this->assertDatabaseCount('finance_invoices', 1);
+            $this->assertDatabaseCount('csms_inbox_events', 2);
+            $this->assertSame(2500, (int) $session->fresh()->energy_wh);
+            $this->assertSame('stopped', $session->fresh()->status);
+        } finally {
+            config(['csms.event_secret' => self::KEY]);
+            $this->travelBack();
+        }
     }
 
     public function test_disabled_or_production_bridge_never_accepts_events(): void
