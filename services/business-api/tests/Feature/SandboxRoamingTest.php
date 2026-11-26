@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\OcpiRecord;
+use App\Services\Ocpi\RecordNormalizer;
 use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\SandboxRoaming;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -86,6 +87,50 @@ class SandboxRoamingTest extends TestCase
         $this->assertSame('S1', $this->writes[2]['body']['session_id']);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_corrupted_roaming_offer_projection_never_exposes_nested_private_source_or_decryption_error(): void
+    {
+        [, $driver, , , $location] = $this->fixture();
+        $url = '/api/roaming/locations/'.$location->id.'/sandbox-offers';
+        $this->actingAs($driver)->getJson($url)->assertOk()->assertJsonCount(1, 'offers');
+        $original = $location->getRawOriginal('normalized');
+        DB::table('ocpi_records')->where('id', $location->id)->update([
+            'normalized' => json_encode(array_replace($location->normalized, ['name' => ['private' => 'NEVER_PUBLIC_OFFER_MARKER']]), JSON_THROW_ON_ERROR),
+        ]);
+        $this->getJson($url)->assertOk()->assertJsonCount(0, 'offers')
+            ->assertJsonPath('location_name', '')->assertDontSee('NEVER_PUBLIC_OFFER_MARKER');
+        DB::table('ocpi_records')->where('id', $location->id)->update(['normalized' => $original, 'payload' => 'NEVER_PUBLIC_INVALID_CIPHERTEXT']);
+        $this->getJson($url)->assertOk()->assertJsonCount(0, 'offers')
+            ->assertJsonPath('location_name', '')->assertDontSee('NEVER_PUBLIC_INVALID_CIPHERTEXT');
+        DB::table('ocpi_records')->where('id', $location->id)->update(['payload' => $location->getRawOriginal('payload')]);
+        $this->getJson($url)->assertOk()->assertJsonCount(1, 'offers')->assertJsonPath('location_name', 'Sandbox location');
+        $this->assertCount(0, $this->writes);
+        $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+    }
+
+    public function test_malformed_connector_tariff_lists_fail_closed_for_offers_and_direct_consent(): void
+    {
+        [, $driver, , , $location] = $this->fixture();
+        $url = '/api/roaming/locations/'.$location->id;
+        $offer = $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->json('offers.0');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true];
+        $original = $location->payload;
+        foreach (['T1', ['named' => 'T1'], ['T1', 7], ['T1', ''], ['T1', str_repeat('x', 65)], array_fill(0, 11, 'T1')] as $invalid) {
+            $raw = $original;
+            $raw['evses'][0]['connectors'][0]['tariff_ids'] = $invalid;
+            $location->update(['payload' => $raw, 'content_hash' => app(RecordNormalizer::class)->hash($raw)]);
+            $this->getJson($url.'/sandbox-offers')->assertOk()->assertJsonCount(0, 'offers');
+            $this->postJson($url.'/sandbox-orders', $body)->assertConflict();
+            $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+            $this->assertDatabaseCount('ocpi_roaming_commands', 0);
+            $this->assertCount(0, $this->writes);
+        }
+        $location->update(['payload' => $original, 'content_hash' => app(RecordNormalizer::class)->hash($original)]);
+        $this->getJson($url.'/sandbox-offers')->assertOk()->assertJsonCount(1, 'offers');
+        $this->postJson($url.'/sandbox-orders', $body)->assertCreated();
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_future_local_location_or_tariff_receipt_cannot_grant_new_roaming_consent(): void
