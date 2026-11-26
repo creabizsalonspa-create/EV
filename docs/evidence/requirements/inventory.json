@@ -172,6 +172,12 @@
       "test_result": "passed",
       "merge_sha": "775b0b8e18f5f285ef613725de2dd60e9d361e36",
       "evidence": "docs/evidence/integrated-checkpoints-20261123/pr205-verified.json"
+    },
+    "pr397-discovery-closure": {
+      "source_sha": "3cf94fa29b915c844885843dc23d7815f4593ce0",
+      "test_result": "passed",
+      "merge_sha": "ae92e14eb211eed52b0bb74775e8e1363cede168",
+      "evidence": "docs/evidence/integrated-checkpoints-20261126/pr397-discovery-closure.json"
     }
   },
   "production_acceptance": null,
@@ -309,9 +315,9 @@
     {
       "prd": "2.3",
       "requirement": "Search, maps, routes, favorites, reviews",
-      "implemented_code_scope": "Merged nearby radius search plus canonical private favorites and consent-gated web/Flutter current-page maps, clustering/manual centre and opt-in web GPS (PR16 tested e942017, merged1bee9c9); PR19 consented foreground native GPS, bounded server-only address/routing provider, manual endpoints, up to three ordered canonical charging stops, sourced web/native route previews and separately consented fixed-origin external navigation; verified PR46 canonical session-scoped ratings/review/moderation workflow across customer web/Flutter and Admin web, with simulator evidence provenance and consent. 19 November 2026 follow-on: Unified web/native search now has five memory-only explicit recent presets, local-only restoration, account/role/history erasure, truthful incomplete metadata and retained map/manual-centre/GPS workflows. Native min/max published-power filtering and Arabic normalization are integrated; complete broad map/filter/favorite scope is not newly credited. Candidate160 adds explicit advertised-connector route-stop conflicts and per-itinerary consent, fences DiscoveryClient account epochs, rejects first-inactive route intent/tile opt-in, and recovers unverified routing configuration with explicit single-flight metadata reads. This is read-only discovery, not physical compatibility or charging permission.",
-      "automated_evidence_scope": "All ten PR16 exact-source platform/PostgreSQL/Android/iOS checks; source-specific hosted evidence and actual favorites/map/Keychain/Arabic/private-PDF runtime markers; PR19 full Laravel/browser/native suites, actual Android/iOS builds and synthetic iOS GPS/route runtime assertions, all ten exact-source checks passed; PR46 exact-head 11 passing GitHub checks including Linux/Apple native build and platform, finance and connector gates; verified merged ancestry.; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Current partial source evidence: docs/evidence/ocpp-source-admission-20261119/, docs/evidence/native-links-20261119/, docs/evidence/browser-role-quiescence-20261119/ and docs/evidence/discovery-private-presets-20261119/. These are local/module or recorded historical-merge proofs; resulting consolidated-source hosted gates remain required and no whole-atom stage credit is added. Candidate160 local evidence: docs/evidence/route-consent-lifecycle-20261119/local.json;694Flutter,18focused route cases with two genuine EN/AR initial-mount red/green failures, current-source route browser and four map regressions; exact-head hosted integration pending, no atom-stage promotion.",
-      "remaining_scope": "Unified authorized partner discovery/maps/favorites, address/operator/access/price and supported live availability filters, saved places and energy-aware charging-stop recommendations; live/provider physical review acceptance is external and unverified. Tested read-only unified/native map and filter subsets now exist as described above; the remaining statement denotes completion of the original broad requirement, not absence of those subsets.",
+      "implemented_code_scope": "Merged nearby radius search plus canonical private favorites and consent-gated web/Flutter current-page maps, clustering/manual centre and opt-in web GPS (PR16 tested e942017, merged1bee9c9); PR19 consented foreground native GPS, bounded server-only address/routing provider, manual endpoints, up to three ordered canonical charging stops, sourced web/native route previews and separately consented fixed-origin external navigation; verified PR46 canonical session-scoped ratings/review/moderation workflow across customer web/Flutter and Admin web, with simulator evidence provenance and consent. 19 November 2026 follow-on: Unified web/native search now has five memory-only explicit recent presets, local-only restoration, account/role/history erasure, truthful incomplete metadata and retained map/manual-centre/GPS workflows. Native min/max published-power filtering and Arabic normalization are integrated; complete broad map/filter/favorite scope is not newly credited. Candidate160 adds explicit advertised-connector route-stop conflicts and per-itinerary consent, fences DiscoveryClient account epochs, rejects first-inactive route intent/tile opt-in, and recovers unverified routing configuration with explicit single-flight metadata reads. This is read-only discovery, not physical compatibility or charging permission. PR397 closes interactive station maps and private favorites software scope, preserving existing platform, normalized partner and separately consented licensed map paths; exact-source callback and account revocation regression evidence integrated.",
+      "automated_evidence_scope": "All ten PR16 exact-source platform/PostgreSQL/Android/iOS checks; source-specific hosted evidence and actual favorites/map/Keychain/Arabic/private-PDF runtime markers; PR19 full Laravel/browser/native suites, actual Android/iOS builds and synthetic iOS GPS/route runtime assertions, all ten exact-source checks passed; PR46 exact-head 11 passing GitHub checks including Linux/Apple native build and platform, finance and connector gates; verified merged ancestry.; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Current partial source evidence: docs/evidence/ocpp-source-admission-20261119/, docs/evidence/native-links-20261119/, docs/evidence/browser-role-quiescence-20261119/ and docs/evidence/discovery-private-presets-20261119/. These are local/module or recorded historical-merge proofs; resulting consolidated-source hosted gates remain required and no whole-atom stage credit is added. Candidate160 local evidence: docs/evidence/route-consent-lifecycle-20261119/local.json;694Flutter,18focused route cases with two genuine EN/AR initial-mount red/green failures, current-source route browser and four map regressions; exact-head hosted integration pending, no atom-stage promotion. PR397 exact head 3cf94fa29b915c844885843dc23d7815f4593ce0 passed all eight checks, integrated ae92e14eb211eed52b0bb74775e8e1363cede168 with five exact source paths preserved and 96 disjoint intervening paths. See docs/evidence/integrated-checkpoints-20261126/pr397-discovery-closure.json.",
+      "remaining_scope": "Complete address/operator/access/price and supported live availability filter scope, energy-aware charging-stop recommendations and external live/provider physical review acceptance; no new filter or production credit inferred. Interactive map and private favorites software closure recorded separately.",
       "atoms": [
         {
           "id": "2.3.1",
@@ -337,9 +343,9 @@
         {
           "id": "2.3.4",
           "software_atom": "Interactive station maps",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Canonical current-page web/Flutter maps are merged in PR16; unified partner maps remain incomplete. No whole-atom credit."
+          "coded": true,
+          "checkpoint": "pr397-discovery-closure",
+          "note": "Consent-gated interactive canonical/partner and separate licensed-report maps, clustering, pan/zoom, manual center, explicit viewport query, GPS consent and private-data revocation. PR16/197/337 plus integrated PR397 correction; no physical availability or live-provider claim."
         },
         {
           "id": "2.3.5",
@@ -365,9 +371,9 @@
         {
           "id": "2.3.8",
           "software_atom": "Favorites",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Canonical and authorized partner favorites implemented and historically tested through PR337; full acceptance held for retained native callback/session revocation defects identified in PR370. No whole-atom credit pending verified correction."
+          "coded": true,
+          "checkpoint": "pr397-discovery-closure",
+          "note": "Canonical and authorized normalized partner private favorites on web/Flutter, typed saved-only queries, revocation/removal, lost-write recovery, retained callback/account fences. PR337 historical hold resolved by integrated exact PR397; transient licensed reports remain discovery-only."
         },
         {
           "id": "2.3.9",
