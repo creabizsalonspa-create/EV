@@ -327,6 +327,9 @@ class LoyaltyService
                 return $prior;
             }
 
+            abort_if(DB::table('partner_reward_cancelled_intents')->where('request_key', $request)->exists(),
+                409, 'Partner reward claim intent was cancelled or its content changed.');
+
             [$offer, $event] = app(PartnerRewardGovernance::class)->lockEligibleSandboxReview($review);
             $redemption = $this->reserveNoncashRewardLocked($user, (int) $offer->reward_id, $request,
                 'Synthetic partner reward pending manual noncash fulfillment.');
@@ -337,6 +340,41 @@ class LoyaltyService
             $this->audit($user, 'loyalty.partner_reward.claimed', (string) $id);
 
             return $claims->where('id', $id)->firstOrFail();
+        }, 3);
+    }
+
+    /**
+     * Resolve an uncertain intent under the same member lock as claim().
+     * A committed claim wins; otherwise cancellation fences delayed dispatch.
+     * No inventory, points, fulfillment, provider or cash mutation is made.
+     */
+    public function cancelPartnerRewardIntent(int $user, int $review, string $key): array
+    {
+        return DB::transaction(function () use ($user, $review, $key) {
+            $customer = User::whereKey($user)->lockForUpdate()->firstOrFail();
+            abort_unless($customer->role === 'customer' && $customer->account_status === 'active', 403);
+            $request = $this->partnerRewardClaimKey($user, $key);
+            $claim = DB::table('partner_reward_claims')->where('user_id', $user)
+                ->where('request_key', $request)->first();
+            if ($claim) {
+                abort_unless((int) $claim->review_id === $review, 409, 'Partner reward intent content changed.');
+
+                return ['state' => 'accepted', 'claim' => $claim];
+            }
+
+            $prior = DB::table('partner_reward_cancelled_intents')->where('user_id', $user)
+                ->where('request_key', $request)->first();
+            if ($prior) {
+                abort_unless((int) $prior->review_id === $review, 409, 'Partner reward intent content changed.');
+            } else {
+                $id = DB::table('partner_reward_cancelled_intents')->insertGetId([
+                    'user_id' => $user, 'review_id' => $review, 'request_key' => $request,
+                    'created_at' => now()->utc(),
+                ]);
+                $this->audit($user, 'loyalty.partner_reward.intent_cancelled', (string) $id);
+            }
+
+            return ['state' => 'cancelled', 'claim' => null];
         }, 3);
     }
 
