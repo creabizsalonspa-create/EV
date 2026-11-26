@@ -139,7 +139,7 @@ void main() {
       );
       expect(changed['subscription']['cancel_at_period_end'], true);
       expect(subscriptionOperationAcknowledged(
-        subscriptionSummary(changed, f['driver_id'] as int, id: id as int),
+        subscriptionSummary(changed, f['driver_id'] as int, id: id),
         {'action': 'cancel_at_period_end', 'idempotency_key': 'native-cancel-$id'},
         owner: f['driver_id'] as int, action: 'cancel_at_period_end',
       ), true);
@@ -150,14 +150,14 @@ void main() {
       );
       expect(resumed['subscription']['cancel_at_period_end'], false);
       expect(subscriptionOperationAcknowledged(
-        subscriptionSummary(resumed, f['driver_id'] as int, id: id as int),
+        subscriptionSummary(resumed, f['driver_id'] as int, id: id),
         {'action': 'resume', 'idempotency_key': 'native-resume-$id'},
         owner: f['driver_id'] as int, action: 'resume',
       ), true);
       final renewal = subscriptionSummary(await api.request(
         'commercial/subscriptions/$id/renew', method: 'POST',
         body: {'expected_cycle_number': resumed['subscription']['cycle_number']},
-      ), f['driver_id'] as int, id: id as int);
+      ), f['driver_id'] as int, id: id);
       expect(renewal['subscription']['cycle_number'], resumed['subscription']['cycle_number']);
       expect(renewal['invoices'], hasLength(1));
       expect(renewal['real_payment_processed'], false);
