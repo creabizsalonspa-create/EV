@@ -3709,6 +3709,8 @@ window.createVendorWorkspace = ({
                 row.source_evse_number >= 1 && row.source_evse_number <= 1000) &&
             Number.isSafeInteger(row.source_connector_number) && row.source_connector_number >= 1 &&
             row.source_connector_number <= 100 && typeof row.current_registration_matches === "boolean" &&
+            ["current", "renewal_required", "inventory_changed", "operator_review_required"].includes(row.review_state) &&
+            row.current_registration_matches === (row.review_state === "current") &&
             typeof row.source_observed_at === "string" && typeof row.reviewed_at === "string" &&
             row.evidence === "DIRECT_CONNECTOR_REVIEW_ONLY" && row.charging_mapping_created === false &&
             row.physical_availability_verified === false && row.remote_control_authorized === false;
@@ -3731,12 +3733,16 @@ window.createVendorWorkspace = ({
         function render(receipt) {
             result.replaceChildren();
             if (receipt) {
-                result.append(ui("p", receipt.current_registration_matches
-                    ? "Stored connector review matches current registration"
-                    : "Stored review requires registration reconciliation"),
+                const labels = {
+                    current: "Stored connector review matches current registration",
+                    renewal_required: "Stored review requires registration reconciliation",
+                    inventory_changed: "Connector inventory changed; operator investigation required",
+                    operator_review_required: "Connector review requires operator investigation",
+                };
+                result.append(ui("p", labels[receipt.review_state]),
                     raw("p", `#${receipt.id} · ${receipt.source_evse_number}/${receipt.source_connector_number}`),
                     raw("p", receipt.reviewed_at));
-                if (receipt.current_registration_matches) return;
+                if (receipt.review_state !== "renewal_required") return;
             } else {
                 result.append(ui("p", "No connector review recorded"));
             }
