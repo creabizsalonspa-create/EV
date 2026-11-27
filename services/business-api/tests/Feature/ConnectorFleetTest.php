@@ -88,6 +88,81 @@ class ConnectorFleetTest extends TestCase
         $this->getJson($path)->assertOk()->assertJsonPath('connectors.data.0.inventory_eligible_at_read', false)->assertJsonPath('connectors.data.0.status_freshness.reported_status', null)->assertJsonPath('connectors.data.0.operations_target.company_id', $f['company']->id);
     }
 
+    public static function staleBearerCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['revoked', 'individual_expiry', 'global_expiry'] as $reason) {
+                $cases[] = [$protocol, $reason];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('staleBearerCases')]
+    public function test_recorded_fleet_rejects_captured_revoked_or_expired_bearer(string $protocol, string $reason): void
+    {
+        $f = $this->fixture($protocol);
+        $this->observe($f, 60, 'Available', 'NoError');
+        config(['sanctum.expiration' => 60]);
+        $token = $f['owner']->createToken('recorded-fleet', ['*'], now()->addHours(2))->accessToken;
+        $snapshot = $f['owner']->fresh()->withAccessToken($token);
+        $request = Request::create('/api/charging-operations/connectors', 'GET');
+        $request->setUserResolver(fn () => $snapshot);
+        $read = fn () => app(ConnectorFleetController::class)($request);
+        $response = $read();
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(1, $response->getData(true)['connectors']['total']);
+        match ($reason) {
+            'revoked' => $token->delete(),
+            'individual_expiry' => $token->forceFill(['expires_at' => now()->subSecond()])->save(),
+            'global_expiry' => $token->forceFill(['created_at' => now()->subMinutes(61)])->save(),
+        };
+        try {
+            $read();
+            $this->fail('A stale captured bearer received private fleet observations.');
+        } catch (HttpException $error) {
+            $this->assertSame(403, $error->getStatusCode());
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charging_status_observations', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_corrupt_fleet_target_and_cross_charger_connector_never_project_recent_state(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $this->observe($f, 60, 'Available', 'NoError');
+        $this->actingAs($f['owner']);
+        $path = '/api/charging-operations/connectors';
+        $this->getJson($path)->assertOk()->assertJsonPath('connectors.data.0.status_freshness.reported_status', 'Available');
+        $digest = $f['map']->source_target_key;
+        $f['map']->update(['source_target_key' => str_repeat('f', 64)]);
+        $this->getJson($path)->assertOk()->assertJsonPath('connectors.data.0.status_freshness.state', 'unknown')
+            ->assertJsonPath('connectors.data.0.inventory_eligible_at_read', false);
+        $f['map']->update(['source_target_key' => $digest]);
+        $otherCharger = VendorCharger::create([
+            'company_id' => $f['company']->id, 'site_id' => $f['charger']->site_id,
+            'asset_reference' => 'OTHER-FLEET', 'manufacturer' => 'Synthetic',
+            'model' => 'Fixture', 'source' => 'simulator', 'ocpp_protocol' => $protocol,
+        ]);
+        $otherConnector = VendorConnector::create([
+            'charger_id' => $otherCharger->id, 'connector_number' => 1,
+            'connector_type' => 'CCS2', 'max_power_kw' => 50,
+        ]);
+        $f['map']->update(['connector_id' => $otherConnector->id]);
+        $this->getJson($path)->assertOk()->assertJsonPath('connectors.data.0.status_freshness.state', 'unknown')
+            ->assertJsonPath('connectors.data.0.operations_target', null);
+        $f['map']->update(['connector_id' => $f['connector']->id]);
+        $this->getJson($path)->assertOk()->assertJsonPath('connectors.data.0.status_freshness.reported_status', 'Available');
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_reassignment_changed_mapping_and_revoked_request_never_inherit_source_authority(): void
     {
         $f = $this->fixture();
