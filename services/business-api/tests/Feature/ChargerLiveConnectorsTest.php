@@ -187,7 +187,8 @@ class ChargerLiveConnectorsTest extends TestCase
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
             foreach (['healthy', 'disabled', 'plaintext', 'unregistered', 'wrong_station',
-                'changed_generation', 'receipt_changed_during_read', 'missing_event', 'foreign_owner'] as $case) {
+                'changed_generation', 'receipt_changed_during_read', 'missing_event', 'foreign_owner',
+                'wrong_tenant', 'wrong_connection', 'connection_changed_during_read'] as $case) {
                 $cases[] = [$protocol, $case];
             }
         }
@@ -227,7 +228,7 @@ class ChargerLiveConnectorsTest extends TestCase
             $response->assertStatus(match ($case) {
                 'disabled', 'plaintext' => 503, 'foreign_owner' => 404, default => 409,
             });
-            if (! in_array($case, ['wrong_station', 'receipt_changed_during_read'], true)) {
+            if (! in_array($case, ['wrong_station', 'receipt_changed_during_read', 'wrong_tenant', 'wrong_connection', 'connection_changed_during_read'], true)) {
                 Http::assertNothingSent();
             }
         }
@@ -249,6 +250,10 @@ class ChargerLiveConnectorsTest extends TestCase
                 $stationReads++;
                 $row = [
                     'id' => 42, 'protocol' => $fixture['protocol'],
+                    'tenantId' => $case === 'wrong_tenant' ? 2 : 1,
+                    'ocppConnectionName' => $case === 'wrong_connection' ||
+                        ($case === 'connection_changed_during_read' && $stationReads === 2)
+                        ? 'FOREIGN-CONNECTION' : $request['variables']['name'],
                     'isOnline' => $case !== 'offline',
                     'chargePointVendor' => 'Synthetic', 'chargePointModel' => 'Fixture',
                     'firmwareVersion' => 'sim-fw',
