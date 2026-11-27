@@ -14,15 +14,6 @@ use Illuminate\Support\Facades\DB;
 /** Operator reconciliation record, not live source or hardware attestation. */
 final class DirectSourceRegistrationEpoch
 {
-    private function fingerprint(object $row, array $authority): string
-    {
-        return hash('sha256', json_encode([
-            $row->id, $row->charger_id, $row->binding_id, $row->profile_id,
-            $row->source_station_id, $row->source_generation, $row->source_receipt_hash,
-            $row->verified_at, $row->payload_hash, $authority,
-        ], JSON_THROW_ON_ERROR));
-    }
-
     public function reconcile(int $registration, string $receiptHash, string $ticket): bool
     {
         abort_unless($registration > 0 && preg_match('/^[a-f0-9]{64}$/D', $receiptHash)
@@ -68,7 +59,16 @@ final class DirectSourceRegistrationEpoch
             $authority = app(DirectSourceAuthority::class)->requireCurrent();
             abort_unless(hash_equals($row->source_generation, hash('sha256', 'citrineos-v2.1.0-tenant-1|'.config('csms.graphql_url'))),
                 409, 'Registration source origin has changed.');
-            $fingerprint = $this->fingerprint($row, $authority);
+            // Rotation cannot adopt a modified original receipt or station ID,
+            // even when the replacement digest is locally consistent.
+            $previous = DB::table('direct_source_registration_epochs as history')
+                ->join('direct_source_authority_epochs as authority', 'authority.epoch', '=', 'history.epoch')
+                ->where('history.registration_id', $registration)->orderByDesc('history.epoch')
+                ->first(['history.epoch', 'history.registration_fingerprint', 'authority.authority_fingerprint']);
+            abort_unless(! $previous || DirectRegistrationHistory::matches($row, $previous, $authority[0]), 409,
+                'Original reconciled registration evidence changed.');
+
+            $fingerprint = DirectRegistrationHistory::fingerprint($row, $authority);
             $existing = DB::table('direct_source_registration_epochs')->where('registration_id', $registration)
                 ->where('epoch', $authority[0])->first();
             if ($existing) {
@@ -92,7 +92,7 @@ final class DirectSourceRegistrationEpoch
     {
         $entry = DB::table('direct_source_registration_epochs')->where('registration_id', $row->id)
             ->where('epoch', $authority[0])->first();
-        abort_unless($entry && hash_equals($entry->registration_fingerprint, $this->fingerprint($row, $authority)),
+        abort_unless($entry && hash_equals($entry->registration_fingerprint, DirectRegistrationHistory::fingerprint($row, $authority)),
             409, 'Direct registration requires explicit reconciliation for the current source authority.');
     }
 }
