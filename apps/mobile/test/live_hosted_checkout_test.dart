@@ -16,7 +16,7 @@ void main() {
       expect(f['fixture_only'], true);
       final api = EvApi(localFixtureOrigin());
       addTearDown(api.close);
-      await api.signIn(f['customer'], f['password']);
+      final customer = await api.signIn(f['customer'], f['password']);
       final original = await api.request('finance/invoices/${f['invoice']}');
       expect(original['amount_due_minor'], 1050);
       expect(original['paid_minor'], 0);
@@ -98,8 +98,7 @@ void main() {
       // Continue from the exact hosted-captured invoice, not a separately
       // pre-paid fixture. These are guarded local/mock financial operations.
       final invoiceId = f['invoice'] as int;
-      final current = await api.request('me');
-      final customerId = current['id'] as int;
+      final customerId = customer.id;
       final refundPath = 'finance/invoices/$invoiceId/refund-requests';
       final refundBody = <String,dynamic>{
         'amount_minor': 100,
@@ -280,6 +279,54 @@ void main() {
         ))['entitlements_active'],
         true,
       );
+      await api.signOut();
+      await api.signIn(f['admin'], f['password']);
+      // A separate authorized reviewer can resolve this exact case without
+      // implying a provider submission or a second refund. The existing
+      // hosted suite has its own login window (four identities, limit ten).
+      final resolutionPath = 'commercial/cases/$caseId/resolve';
+      final resolutionBody = {
+        'outcome': 'rejected',
+        'resolution': 'Synthetic review: no additional refund authorized',
+      };
+      final resolved = await api.request(
+        resolutionPath, method: 'POST', body: resolutionBody,
+      );
+      expect(resolved['id'], caseId);
+      expect(resolved['invoice_id'], invoiceId);
+      expect(resolved['status'], 'rejected');
+      expect(resolved['refund_id'], isNull);
+      expect(resolved['real_money_moved'], false);
+      final resolvedReplay = await api.request(
+        resolutionPath, method: 'POST', body: resolutionBody,
+      );
+      expect(resolvedReplay['id'], caseId);
+      expect(resolvedReplay['status'], 'rejected');
+      await expectLater(
+        api.request(resolutionPath, method: 'POST', body: {
+          ...resolutionBody, 'outcome': 'approved',
+        }),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+      );
+      final closedEvidence = await api.request(evidencePath);
+      expect(closedEvidence['total'], 1);
+      expect(closedEvidence['can_upload'], false);
+      await expectLater(
+        api.uploadCaseEvidence(
+          caseId, kind: 'receipt', bytes: evidenceBytes, mime: 'image/png',
+          key: 'closed-case-evidence-$invoiceId',
+        ),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+      );
+      final retained = await api.downloadDocument(downloadPath);
+      expect(retained.bytes, orderedEquals(evidenceBytes));
+      final closedInvoice = await api.request('finance/invoices/$invoiceId');
+      expect(closedInvoice['paid_minor'], 1050);
+      expect(closedInvoice['refunded_minor'], 100);
+      expect(closedInvoice['net_collected_minor'], 950);
+      expect((closedInvoice['refunds'] as List).length, 1);
+      expect(closedInvoice['ledger_balanced'], true);
+      expect(closedInvoice['real_payment_processed'], false);
       await api.signOut();
       await api.signIn(f['foreign'], f['password']);
       expect((await api.request('commercial/hosted-checkouts'))['total'], 0);
