@@ -8,6 +8,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
 use App\Services\Charging\ChargerSourceRegistration;
 use App\Services\Charging\CsmsGraphqlTransport;
+use App\Services\Charging\DirectConnectorIdentity;
 use App\Services\Charging\DirectConnectorReviewCoverage;
 use App\Services\Charging\DirectSourceAuthority;
 use App\Services\Charging\DirectSourceRegistrationEpoch;
@@ -94,7 +95,7 @@ final class ChargerLiveConnectorsController extends Controller
             $inventory = VendorConnector::where('charger_id', $charger->id)->orderBy('id')
                 ->limit(101)->lockForUpdate()->get()->map(fn ($connector) => [
                     'id' => (int) $connector->id,
-                    'fingerprint' => DirectConnectorReviewCoverage::connectorFingerprint($connector),
+                    'fingerprint' => DirectConnectorIdentity::fingerprint($connector),
                 ])->all();
             $epoch = $fresh->registration_receipt[7][0];
             $registration = $fresh->registration_receipt[0];
