@@ -16,6 +16,7 @@ class CaseApi extends FixtureApi {
       closed = false,
       unpaid = false;
   int posts = 0, uploads = 0, downloads = 0;
+  String? evidenceTime = '2026-10-28';
   final keys = <String>[];
   final bodies = <Map<String, dynamic>>[];
   final bytes = Uint8List.fromList(
@@ -29,7 +30,7 @@ class CaseApi extends FixtureApi {
     'mime_type': 'application/pdf',
     'size_bytes': bytes.length,
     'sha256': sha256.convert(bytes).toString(),
-    'created_at': '2026-10-28',
+    'created_at': evidenceTime,
     'evidence_status': 'PRIVATE_REVIEW_ONLY',
     'provider_submitted': false,
   };
@@ -136,6 +137,39 @@ Future<void> consent(WidgetTester t) async {
 }
 
 void main() {
+  for (final ar in [false, true]) {
+    testWidgets('private evidence source UTC and invalid-clock fallback ($ar)', (
+      t,
+    ) async {
+      final api = CaseApi()
+        ..uploads = 1
+        ..closed = true
+        ..evidenceTime = '2026-10-28T23:45:00+04:00';
+      await t.pumpWidget(
+        app(
+          CaseEvidenceView(
+            api: api,
+            onExpired: () {},
+            caseId: 7,
+            store: VendorOperationStore(),
+          ),
+          ar: ar,
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(find.textContaining('UTC'), findsOneWidget);
+      expect(find.textContaining('2026-10-28T23:45:00+04:00'), findsNothing);
+      api.evidenceTime = '2026-02-30T01:02:03Z';
+      await click(t, ar ? 'تحديث' : 'Refresh');
+      expect(find.text(ar ? 'وقت الحدث غير متاح' : 'Event time unavailable'),
+          findsOneWidget);
+      expect(find.textContaining('2026-02-30'), findsNothing);
+      expect(find.textContaining('UTC'), findsNothing);
+      expect(api.downloads, 0);
+      expect(t.takeException(), isNull);
+    });
+  }
+
   testWidgets(
     'leaving evidence upload during secure persistence prevents a later-session upload',
     (t) async {
