@@ -114,6 +114,24 @@ class LicensedApi extends FixtureApi {
   }
 }
 
+class SessionEventLicensedApi extends LicensedApi {
+  final changes = StreamController<int>.broadcast(sync: true);
+
+  @override
+  Stream<int> get sessionEvents => changes.stream;
+
+  void rotate() {
+    epoch++;
+    changes.add(epoch);
+  }
+
+  @override
+  void close() {
+    unawaited(changes.close());
+    super.close();
+  }
+}
+
 class LocationFixture extends ForegroundLocationReader {
   int calls = 0;
   Completer<ForegroundFix>? pending;
@@ -146,6 +164,7 @@ Widget app(
   ForegroundLocationReader? location,
   Future<bool> Function(Uri)? open,
   Future<bool> Function(Uri)? navigation,
+  VoidCallback? onExpired,
 }) => MaterialApp(
   locale: Locale(ar ? 'ar' : 'en'),
   supportedLocales: const [Locale('en'), Locale('ar')],
@@ -156,6 +175,7 @@ Widget app(
   ],
   home: LicensedDiscoveryScreen(
     api: api,
+    onExpired: onExpired,
     locationReader: location,
     openSource: open,
     openNavigation: navigation,
@@ -170,6 +190,7 @@ Future<void> prepare(
   TileProvider? tiles,
   Future<bool> Function(Uri)? open,
   Future<bool> Function(Uri)? navigation,
+  VoidCallback? onExpired,
 }) async {
   tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
   await tester.pumpWidget(
@@ -180,6 +201,7 @@ Future<void> prepare(
       open: open,
       tiles: tiles,
       navigation: navigation,
+      onExpired: onExpired,
     ),
   );
   await tester.pumpAndSettle();
@@ -489,6 +511,73 @@ void main() {
       );
     },
   );
+  for (final ar in [false, true]) {
+    testWidgets(
+      'rendered licensed map and private drafts clear on same API revocation ($ar)',
+      (tester) async {
+        final api = SessionEventLicensedApi();
+        addTearDown(api.close);
+        final tiles = LicensedTiles();
+        await prepare(tester, api, ar: ar, tiles: tiles);
+        await search(tester);
+        await tester.ensureVisible(find.byKey(const Key('licensed-map-toggle')));
+        await tester.tap(find.byKey(const Key('licensed-map-toggle')));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('licensed-report-map')));
+        await tester.pumpAndSettle();
+        expect(find.byType(FlutterMap), findsOneWidget);
+        expect(tiles.requests, greaterThan(0));
+        expect(api.calls.length, 2);
+        api.rotate();
+        await tester.pumpAndSettle();
+        expect(find.byType(FlutterMap), findsNothing);
+        expect(find.byKey(const Key('licensed-latitude')), findsNothing);
+        expect(find.byKey(const Key('licensed-consent')), findsNothing);
+        expect(find.text('<img src=x>'), findsNothing);
+        expect(
+          find.text(
+            ar ? 'أعد فتح الاكتشاف بعد تسجيل الدخول.' : 'Reopen discovery after signing in.',
+          ),
+          findsOneWidget,
+        );
+        expect(api.calls.length, 2);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final status in [401, 419]) {
+    for (final replaced in [false, true]) {
+      testWidgets(
+        'session invalidation preserves only current expiry notification ($status/$replaced)',
+        (tester) async {
+          final api = SessionEventLicensedApi();
+          addTearDown(api.close);
+          int expired = 0;
+          await prepare(tester, api, onExpired: () => expired++);
+          final pending = Completer<dynamic>();
+          api.pending = pending;
+          await tester.ensureVisible(find.byKey(const Key('licensed-search')));
+          await tester.tap(find.byKey(const Key('licensed-search')));
+          await tester.pump();
+          api.rotate();
+          final invalidatedEpoch = api.epoch;
+          if (replaced) api.rotate();
+          pending.completeError(ApiException(
+            status,
+            'Session expired',
+            expirationIsCurrent: () => api.epoch == invalidatedEpoch,
+          ));
+          await tester.pumpAndSettle();
+          expect(expired, replaced ? 0 : 1);
+          expect(find.byKey(const Key('licensed-consent')), findsNothing);
+          expect(api.calls.length, 2);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
   testWidgets('account transition rejects held report', (tester) async {
     final api = LicensedApi()..pending = Completer<dynamic>();
     await prepare(tester, api);
