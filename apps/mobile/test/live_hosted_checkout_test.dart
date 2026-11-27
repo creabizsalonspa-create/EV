@@ -2,6 +2,8 @@ import 'local_fixture_origin.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:crypto/crypto.dart';
+import 'package:creabiz_ev/refund_requests.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/hosted_checkout.dart';
 
@@ -93,6 +95,51 @@ void main() {
       expect(finalInvoice['paid_minor'], 1050);
       expect(finalInvoice['amount_due_minor'], 0);
       expect(finalInvoice['ledger_balanced'], true);
+      // Continue from the exact hosted-captured invoice, not a separately
+      // pre-paid fixture. These are guarded local/mock financial operations.
+      final invoiceId = f['invoice'] as int;
+      final current = await api.request('me');
+      final customerId = current['id'] as int;
+      final refundPath = 'finance/invoices/$invoiceId/refund-requests';
+      final refundBody = <String,dynamic>{
+        'amount_minor': 100,
+        'reason': 'Synthetic refund after hosted capture',
+        'idempotency_key': 'native-hosted-refund-$invoiceId',
+      };
+      final refund = await api.request(refundPath, method:'POST',body:refundBody);
+      expect(refundRequestAcknowledged(refund,refundBody,owner:customerId,invoice:invoiceId),true);
+      expect(refund['status'],'pending');
+      expect((await api.request(refundPath,method:'POST',body:refundBody))['id'],refund['id']);
+      await expectLater(api.request(refundPath,method:'POST',body:{...refundBody,'amount_minor':101}),
+        throwsA(isA<ApiException>().having((e)=>e.status,'status',409)));
+      expect((await api.request('finance/invoices/$invoiceId'))['refunded_minor'],0);
+      final disputeBody = <String,dynamic>{
+        'invoice_id': invoiceId, 'kind':'dispute', 'amount_minor':200,
+        'reason':'Synthetic private dispute after hosted capture',
+        'idempotency_key':'native-hosted-case-$invoiceId',
+      };
+      final dispute=await api.request('commercial/cases',method:'POST',body:disputeBody);
+      final caseId=dispute['id'] as int;
+      expect(dispute['invoice_id'],invoiceId);
+      expect(dispute['user_id'],customerId);
+      expect(dispute['status'],'open');
+      expect(dispute.containsKey('request_key'),false);
+      expect((await api.request('commercial/cases',method:'POST',body:disputeBody))['id'],caseId);
+      await expectLater(api.request('commercial/cases',method:'POST',body:{...disputeBody,'amount_minor':201}),
+        throwsA(isA<ApiException>().having((e)=>e.status,'status',409)));
+      final evidenceBytes=base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV2sAAAAASUVORK5CYII=');
+      final evidence=await api.uploadCaseEvidence(caseId,kind:'receipt',
+        bytes:evidenceBytes,mime:'image/png',key:'hosted-case-evidence-$invoiceId');
+      expect(evidence['case_id'],caseId);
+      expect(evidence['sha256'],sha256.convert(evidenceBytes).toString());
+      expect(evidence['provider_submitted'],false);
+      expect(evidence['evidence_status'],'PRIVATE_REVIEW_ONLY');
+      final evidencePath='commercial/cases/$caseId/evidence';
+      final downloadPath="$evidencePath/${evidence['id']}";
+      final afterCase=await api.request('finance/invoices/$invoiceId');
+      expect(afterCase['paid_minor'],1050);
+      expect(afterCase['refunded_minor'],0);
+      expect(afterCase['ledger_balanced'],true);
       final subBody = <String, dynamic>{
         'scope': 'subscription',
         'invoice_id': f['subscription_invoice'],
@@ -174,6 +221,31 @@ void main() {
         ),
         throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
       );
+      final cases=await api.request('commercial/cases');
+      expect((cases['data'] as List).any((r)=>r['id']==caseId),true);
+      expect((await api.request(evidencePath))['total'],1);
+      final privateFile=await api.downloadDocument(downloadPath);
+      expect(privateFile.mime,'image/png');
+      expect(privateFile.bytes,orderedEquals(evidenceBytes));
+      await expectLater(api.request('commercial/cases/$caseId/resolve',
+        method:'POST',body:{'outcome':'approved','resolution':'Unauthorized vendor dispute review'}),
+        throwsA(isA<ApiException>().having((e)=>e.status,'status',403)));
+      final reviewPath="finance/refund-requests/${refund['id']}/review";
+      final reviewBody={'decision':'approve','note':'Synthetic authorized vendor refund'};
+      final reviewed=await api.request(reviewPath,method:'POST',body:reviewBody);
+      expect(reviewed['status'],'approved');
+      expect(reviewed['refund_id'],isA<int>());
+      expect((await api.request(reviewPath,method:'POST',body:reviewBody))['refund_id'],reviewed['refund_id']);
+      await expectLater(api.request(reviewPath,method:'POST',body:{'decision':'reject','note':'Changed decision'}),
+        throwsA(isA<ApiException>().having((e)=>e.status,'status',409)));
+      final afterRefund=await api.request('finance/invoices/$invoiceId');
+      expect(afterRefund['paid_minor'],1050);
+      expect(afterRefund['refunded_minor'],100);
+      expect(afterRefund['net_collected_minor'],950);
+      expect((afterRefund['refunds'] as List).length,1);
+      expect(afterRefund['ledger_balanced'],true);
+      expect(afterRefund['real_payment_processed'],false);
+      expect((await api.request(evidencePath))['can_upload'],true);
       final ownVendor = HostedCheckoutRecord(
         (await api.request(
           'commercial/hosted-checkouts',
@@ -211,6 +283,13 @@ void main() {
       await api.signOut();
       await api.signIn(f['foreign'], f['password']);
       expect((await api.request('commercial/hosted-checkouts'))['total'], 0);
+      expect((await api.request('commercial/cases'))['total'],0);
+      expect((await api.request('finance/refund-requests'))['total'],0);
+      for(final read in [evidencePath,'finance/invoices/$invoiceId']){
+        await expectLater(api.request(read),throwsA(isA<ApiException>().having((e)=>e.status,'status',404)));
+      }
+      await expectLater(api.downloadDocument(downloadPath),
+        throwsA(isA<ApiException>().having((e)=>e.status,'status',404)));
       await expectLater(
         api.request('commercial/hosted-checkouts/${first.id}'),
         throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
