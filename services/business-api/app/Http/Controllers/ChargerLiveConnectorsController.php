@@ -37,12 +37,13 @@ final class ChargerLiveConnectorsController extends Controller
     }
 
     /** Registration proves an exact upstream record, not permission to control it. */
-    private function registeredScope(Request $r, VendorCompany $company, VendorCharger $charger): object
+    public function registeredScope(Request $r, VendorCompany $company, VendorCharger $charger): object
     {
         return DB::transaction(function () use ($r, $company, $charger) {
             app(MaintenanceActor::class)->checkBearer($r->user());
             $registration = app(ChargerSourceRegistration::class);
             [$company, $charger, $station] = $registration->scope($r, $company, $charger);
+            app(VendorAccess::class)->require($r->user(), $company, 'inventory.read');
             app(VendorAccess::class)->operational($company);
             abort_unless(User::whereKey($company->owner_id)->where('role', 'vendor')
                 ->where('account_status', 'active')->exists(), 409, 'Current active owner required.');
@@ -56,7 +57,7 @@ final class ChargerLiveConnectorsController extends Controller
                 $binding->vendor_charger_id === $charger->id && $binding->protocol === $charger->ocpp_protocol, 409);
             // Pin durable registration provenance, not an arbitrary same-name row.
             $binding->registration_receipt = [$receipt->id, $receipt->profile_id, $receipt->source_station_id,
-                $receipt->source_generation, $receipt->source_receipt_hash, $receipt->verified_at];
+                $receipt->source_generation, $receipt->source_receipt_hash, $receipt->verified_at, $receipt->payload_hash];
 
             return $binding;
         }, 3);
