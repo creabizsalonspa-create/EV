@@ -123,8 +123,10 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
   // Reopening the workspace refreshes finance panels against the same
   // per-account budget. Wait before the first receipt or history request.
   await waitForFreshWindow({ wait: (ms) => customer.waitForTimeout(ms) });
-  const recovered = await couponPost(customer, "/claim-receipt",
-    () => button(customerPanel, "Check last claim receipt").click());
+  const recovered = await couponPost(customer, "/claim-intents/cancel",
+    () => button(customerPanel, "Clear coupon draft").click());
+  assert.equal(recovered.state, "accepted");
+  assert.equal(typeof recovered.request_binding, "string");
   await customer.unroute(capabilityPath, disableClaims);
   assert.equal(recovered.claim.id, expectedReceipt.id);
   await customerPanel.getByText("#" + expectedReceipt.id, { exact: true }).waitFor();
@@ -174,6 +176,13 @@ async function exerciseCoupons({ admin, customer, reward, run, decide }) {
   await codeInput.fill(privateCode);
   await couponPost(customer, "/claim", () => button(customerPanel, "Claim coupon").click(), 409);
   await customerPanel.getByText("Coupon request declined. Check the code, dates and limits.", { exact: true }).waitFor();
+  const cancelled = await couponPost(customer, "/claim-intents/cancel",
+    () => button(customerPanel, "Clear coupon draft").click());
+  assert.equal(cancelled.state, "cancelled");
+  assert.equal(cancelled.claim, null);
+  await customerPanel.getByText("Saved claim cancelled by the server.", { exact: true }).waitFor();
+  assert.equal(await customer.evaluate(() => Object.keys(sessionStorage)
+    .some(key => key.startsWith("creabiz.coupon-claim.v1."))), false);
   // Restore the loyalty section selected by the caller before the reload.
   await button(customer.locator("[data-loyalty]"), "Open loyalty & rewards").click();
   await button(customer.locator("[data-loyalty]"), "Reconcile point reversals and expiry").waitFor();
