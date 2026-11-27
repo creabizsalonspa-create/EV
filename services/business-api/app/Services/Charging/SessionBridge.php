@@ -11,6 +11,10 @@ use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Models\VendorOps\VendorCharger;
+use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorConnector;
+use App\Models\VendorOps\VendorSite;
 use App\Services\Finance\FinanceService;
 use App\Services\Finance\Money;
 use App\Services\Finance\PrechargePricing;
@@ -46,10 +50,15 @@ class SessionBridge
                 ? app(ChargingActorConsent::class)->capture($consentingActor)
                 : User::whereKey($actor)->lockForUpdate()->firstOrFail();
             abort_unless($customer->id === $actor && $customer->role === 'customer' && $customer->account_status === 'active', 403);
-            Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
-            $binding = app(ConnectorTopology::class)->binding($reservation, true);
-            abort_unless($binding, 409, 'No CSMS simulator binding.');
+            $station = Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
             $r = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
+            abort_unless($r->user_id === $actor, 404);
+            abort_unless($r->station_id === $station->id
+                && $r->connector_mapping_id === $reservation->connector_mapping_id
+                && $r->charging_evse_id === $reservation->charging_evse_id, 409,
+                'Reservation target changed; refresh before starting.');
+            $binding = app(ConnectorTopology::class)->binding($r, true);
+            abort_unless($binding, 409, 'No CSMS simulator binding.');
             if ($rider) {
                 app(StationGate::class)->requireReady(Station::findOrFail($r->station_id), $r->connector_mapping_id);
                 $rider = app(RiderAuthority::class)->requireGrant($r, $rider->id, $grantId ?? 0);
@@ -58,6 +67,11 @@ class SessionBridge
             if ($old) {
                 $link = SessionLink::where('charging_session_id', $old->id)->first();
                 abort_unless($link, 409, 'This reservation already uses the independent application simulator.');
+                abort_unless($link->binding_id === $binding->id
+                    && $link->identifier === $binding->identifier && $link->protocol === $binding->protocol
+                    && $link->connector_mapping_id === $r->connector_mapping_id
+                    && $old->charging_evse_id === $r->charging_evse_id, 409,
+                    'Existing charging source requires reconciliation.');
                 if ($rider) {
                     if ($old->status === 'pending_start') {
                         app(OperatingCalendar::class)->requireStart(Station::findOrFail($r->station_id));
@@ -128,16 +142,29 @@ class SessionBridge
         $link->update(['closed_without_dispatch_at' => now(), 'closure_reason' => $reason]);
     }
 
-    public function stop(ChargingSession $session, int $actor, string $role): array
+    public function stop(ChargingSession $session, int $actor, string $role, ?User $consentingActor = null): array
     {
         $this->enabled();
-        $r = Reservation::findOrFail($session->reservation_id);
-        $station = Station::findOrFail($r->station_id);
-        abort_unless($actor === $r->user_id || ($role === 'vendor' && $actor === $station->vendor_id) || $role === 'admin', 404);
 
-        return DB::transaction(function () use ($session, $actor, $station) {
+        return DB::transaction(function () use ($session, $actor, $role, $consentingActor) {
+            // Current credentials and station ownership are the actual stop
+            // authority, not the route-bound request's stale user snapshot.
+            $current = $consentingActor
+                ? app(ChargingActorConsent::class)->capture($consentingActor)
+                : User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            abort_unless($current->id === $actor && $current->role === $role
+                && $current->account_status === 'active', 409, 'Charging account authorization changed.');
+            $sourceSession = ChargingSession::whereKey($session->id)->firstOrFail();
+            $reservation = Reservation::findOrFail($sourceSession->reservation_id);
+            $station = Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
+            $r = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
+            abort_unless(($role === 'customer' && $actor === $r->user_id)
+                || ($role === 'vendor' && $actor === $station->vendor_id)
+                || $role === 'admin', 404);
             $link = SessionLink::where('charging_session_id', $session->id)->lockForUpdate()->firstOrFail();
             $s = ChargingSession::whereKey($session->id)->lockForUpdate()->firstOrFail();
+            abort_unless($s->reservation_id === $r->id && $r->station_id === $station->id,
+                409, 'Source session ownership changed during stop.');
             if ($link->stop_command_id || $s->status === 'stopped') {
                 return $this->summary($link);
             }
@@ -157,7 +184,7 @@ class SessionBridge
             'start_command' => ChargerCommand::whereKey($link->start_command_id)->first(['id', 'status', 'failure_code']), 'stop_command' => $link->stop_command_id ? ChargerCommand::whereKey($link->stop_command_id)->first(['id', 'status', 'failure_code']) : null, 'evidence' => 'SIMULATED_CSMS', 'physical_charging_verified' => false];
     }
 
-    public function ingest(array $v): array
+    public function ingest(array $v, ?callable $authorize = null): array
     {
         $this->enabled();
         try {
@@ -174,15 +201,67 @@ class SessionBridge
         }
         $hash = hash('sha256', json_encode($identity, JSON_THROW_ON_ERROR));
 
-        $result = DB::transaction(function () use ($v, $at, $hash) {
+        $result = DB::transaction(function () use ($v, $at, $hash, $authorize) {
+            // Lock the station ahead of the session link: signed event data
+            // alone cannot authorize a previously bound but now reparented
+            // source, and source rebinding must not race invoice issuance.
+            $sessionHint = ChargingSession::whereKey($v['session_id'])->firstOrFail();
+            $reservationHint = Reservation::whereKey($sessionHint->reservation_id)->firstOrFail();
+            $station = Station::whereKey($reservationHint->station_id)->lockForUpdate()->firstOrFail();
             $link = SessionLink::where('charging_session_id', $v['session_id'])->lockForUpdate()->firstOrFail();
+            $session = ChargingSession::whereKey($link->charging_session_id)->firstOrFail();
+            $reservation = Reservation::whereKey($session->reservation_id)->firstOrFail();
+            abort_unless($session->id === $sessionHint->id
+                && $reservation->id === $reservationHint->id
+                && $reservation->station_id === $station->id
+                && $station->source === 'simulator', 409,
+                'Charging source topology changed; reconcile before posting source events.');
+            $binding = DB::table('csms_bindings')->where('id', $link->binding_id)->first();
+            abort_unless($binding && $binding->station_id === $station->id
+                && $binding->identifier === $link->identifier
+                && $binding->protocol === $link->protocol
+                && hash_equals($link->identifier, $v['identifier'])
+                && $link->protocol === $v['protocol'], 409,
+                'Signed source receipt no longer matches the canonical binding.');
+            if ($binding->vendor_charger_id !== null) {
+                $charger = VendorCharger::find($binding->vendor_charger_id);
+                $site = $charger ? VendorSite::find($charger->site_id) : null;
+                $company = $charger ? VendorCompany::find($charger->company_id) : null;
+                abort_unless($charger && $site && $company
+                    && $charger->source === 'simulator'
+                    && $charger->ocpp_protocol === $binding->protocol
+                    && $site->company_id === $company->id
+                    && $site->station_id === $station->id
+                    && $company->owner_id === $station->vendor_id
+                    && $station->country === $company->country
+                    && $site->country === $station->country, 409,
+                    'Charger ownership or source binding changed.');
+            }
+            abort_unless($reservation->connector_mapping_id === $link->connector_mapping_id
+                && $reservation->charging_evse_id === $session->charging_evse_id, 409,
+                'Session reservation target changed; reconcile before posting energy.');
             if ($link->connector_mapping_id) {
                 $map = ConnectorMapping::findOrFail($link->connector_mapping_id);
                 $evse = Evse::findOrFail($map->evse_id);
-                abort_unless(($v['source_connector_number'] ?? null) === $map->source_connector_number && ($v['source_evse_number'] ?? null) === $evse->source_evse_number && $evse->binding_id === $link->binding_id, 409, 'Canonical source target mismatch.');
+                $connector = VendorConnector::find($map->connector_id);
+                // Do not apply new-start maintenance or license policy here:
+                // a genuine ongoing transaction must still be able to end.
+                abort_unless($connector && $binding->vendor_charger_id !== null
+                    && $evse->mode === 'csms'
+                    && $evse->id === $session->charging_evse_id
+                    && $connector->charger_id === $evse->charger_id
+                    && $evse->charger_id === $binding->vendor_charger_id
+                    && ($v['source_connector_number'] ?? null) === $map->source_connector_number
+                    && ($v['source_evse_number'] ?? null) === $evse->source_evse_number
+                    && $evse->binding_id === $binding->id
+                    && $map->station_id === $station->id, 409,
+                    'Canonical source target mismatch.');
             }
             abort_unless($link->closed_without_dispatch_at === null, 409, 'This request was closed before dispatch; unexpected source activity requires reconciliation.');
-            abort_unless(hash_equals($link->identifier, $v['identifier']) && $link->protocol === $v['protocol'], 409, 'CSMS binding mismatch.');
+            // Even an idempotent duplicate is private authenticated evidence.
+            if ($authorize !== null) {
+                $authorize();
+            }
             $old = DB::table('csms_inbox_events')->where('event_id', $v['event_id'])->first();
             if ($old) {
                 abort_unless($old->link_id === $link->id && hash_equals($old->fingerprint, $hash), 409, 'Event identity payload conflict.');
@@ -200,6 +279,11 @@ class SessionBridge
             abort_unless($link->transaction_id === null || $link->transaction_id === $v['transaction_id'], 409, 'Transaction identity conflict.');
             $s = ChargingSession::whereKey($link->charging_session_id)->lockForUpdate()->firstOrFail();
             $r = Reservation::findOrFail($s->reservation_id);
+            // The final session lock can also wait; revalidate before
+            // applying energy, writing a receipt or issuing an invoice.
+            if ($authorize !== null) {
+                $authorize();
+            }
             if ($sequence <= $link->last_sequence) {
                 $outcome = 'stale';
             } else {
