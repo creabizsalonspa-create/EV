@@ -238,6 +238,89 @@ class SourceConsumerTest extends TestCase
         }
     }
 
+    public static function meterAuthorityChanges(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['endpoint', 'source_key', 'inbox_key', 'disabled'] as $kind) {
+                $cases[] = [$protocol, $kind];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('meterAuthorityChanges')]
+    public function test_meter_poll_rejects_changed_authority_and_recovers_from_original_cursor(string $protocol, string $kind): void
+    {
+        $link = $this->link($protocol);
+        $this->freezeTime();
+        $at = now()->toImmutable()->startOfSecond();
+        $final = false;
+        $change = false;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($link, $protocol, $kind, $at, &$final, &$change) {
+            $this->assertSame('http://127.0.0.1:8095/v1/graphql', $request->url());
+            $this->assertSame(self::KEY, $request->header('x-hasura-admin-secret')[0] ?? null);
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10, 'transactionId' => $protocol === '1.6' ? '101' : 'authority-meter-fixture',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000', 'startTime' => $at->toIso8601String(),
+                    'endTime' => $final ? $at->addSeconds(2)->toIso8601String() : null,
+                    'isActive' => ! $final, 'totalKwh' => $final ? '2.500' : null,
+                ]]]]);
+            }
+            if ($change) {
+                match ($kind) {
+                    'endpoint' => config(['csms.graphql_url' => 'https://alternate.example.test/graphql']),
+                    'source_key' => config(['csms.graphql_secret' => str_repeat('s', 64)]),
+                    'inbox_key' => config(['csms.event_secret' => str_repeat('i', 64)]),
+                    'disabled' => config(['csms.session_bridge_enabled' => false]),
+                };
+            }
+
+            return Http::response(['data' => ['MeterValues' => $final ? [[
+                'id' => 1, 'timestamp' => $at->addSeconds(2)->toIso8601String(),
+                'sampledValue' => [['measurand' => 'Energy.Active.Import.Register',
+                    'value' => '3500', 'context' => 'Transaction.End', 'unitOfMeasure' => ['unit' => 'Wh']]],
+            ]] : []]]);
+        });
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
+        $final = true;
+        $change = true;
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('A changed source authority finalized billing.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('Source authority changed', $error->getMessage());
+        }
+        $this->assertSame(0, $link->fresh()->source_meter_cursor);
+        $this->assertNull($link->fresh()->ended_at);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseHas('charging_sessions', ['id' => $link->charging_session_id, 'status' => 'charging', 'energy_wh' => 0]);
+        $this->assertDatabaseCount('charger_commands', 1);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'alternate.example.test'));
+        config(['csms.graphql_url' => 'http://127.0.0.1:8095/v1/graphql', 'csms.graphql_secret' => self::KEY,
+            'csms.event_secret' => self::KEY, 'csms.session_bridge_enabled' => true]);
+        $change = false;
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(1, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseHas('charging_sessions', ['id' => $link->charging_session_id, 'status' => 'stopped', 'energy_wh' => 2500]);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+    }
+
     public static function protocolMismatchCases(): array
     {
         return [
@@ -645,8 +728,9 @@ class SourceConsumerTest extends TestCase
 
         $at = now()->toImmutable()->startOfSecond();
         $bad = true;
+        $repoint = false;
         Http::preventStrayRequests();
-        Http::fake(function (Request $request) use ($protocol, $link, $at, &$bad) {
+        Http::fake(function (Request $request) use ($protocol, $link, $map, $at, &$bad, &$repoint) {
             $query = $request['query'];
             if (str_contains($query, 'ChargingStations')) {
                 return Http::response(['data' => [
@@ -693,6 +777,10 @@ class SourceConsumerTest extends TestCase
                 ]]);
             }
             if (str_contains($query, 'MeterValues')) {
+                if ($repoint) {
+                    DB::table('charging_connector_mappings')->where('id', $map->id)->update(['source_connector_number' => 8]);
+                }
+
                 return Http::response(['data' => ['MeterValues' => [[
                     'id' => 1, 'timestamp' => $at->addSeconds(2)->toIso8601String(),
                     'sampledValue' => [[
@@ -720,7 +808,21 @@ class SourceConsumerTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 1);
 
         $bad = false;
-        $this->assertSame(2, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $repoint = true;
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('A connector repointed during the meter read was accepted.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('Source target changed', $error->getMessage());
+        }
+        $this->assertSame(0, $link->fresh()->source_meter_cursor);
+        $this->assertNull($link->fresh()->ended_at);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseHas('charging_sessions', ['id' => $link->charging_session_id, 'status' => 'charging', 'energy_wh' => 0]);
+        DB::table('charging_connector_mappings')->where('id', $map->id)->update(['source_connector_number' => 7]);
+        $repoint = false;
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
         $this->assertSame(1, $link->fresh()->source_meter_cursor);
         $this->assertSame(8, $link->fresh()->source_station_id);
         $this->assertSame(10, $link->fresh()->source_transaction_database_id);
