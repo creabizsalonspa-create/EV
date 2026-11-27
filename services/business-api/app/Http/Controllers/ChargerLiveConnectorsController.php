@@ -8,6 +8,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\ChargerSourceRegistration;
 use App\Services\Charging\CsmsGraphqlTransport;
 use App\Services\Charging\DirectSourceAuthority;
+use App\Services\Charging\DirectSourceRegistrationEpoch;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SourceStatusTime;
@@ -68,10 +69,12 @@ final class ChargerLiveConnectorsController extends Controller
             abort_unless(is_string($receipt->source_receipt_hash)
                 && hash_equals($expectedReceipt, $receipt->source_receipt_hash), 409,
                 'Original source registration receipt requires reconciliation.');
+            $authority = app(DirectSourceAuthority::class)->requireCurrent();
+            app(DirectSourceRegistrationEpoch::class)->requireCurrent($receipt, $authority);
             // Pin durable registration provenance, not an arbitrary same-name row.
             $binding->registration_receipt = [$receipt->id, $receipt->profile_id, $receipt->source_station_id,
                 $receipt->source_generation, $receipt->source_receipt_hash, $receipt->verified_at, $receipt->payload_hash,
-                app(DirectSourceAuthority::class)->requireCurrent()];
+                $authority];
 
             return $binding;
         }, 3);
