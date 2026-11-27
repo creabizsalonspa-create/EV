@@ -39,7 +39,16 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
             if (filterState) filterState.draftStation = draftStation;
         };
         const submit = node('button', t('Read connector snapshot', 'قراءة لقطة الموصلات')); submit.type = 'submit';
-        form.append(field, submit); panel.append(form);
+        const direct = node('button', t('Read direct charger inventory', 'قراءة مخزون الشواحن المباشرة')); direct.type = 'button';
+        direct.onclick = () => {
+            if (!form.isConnected || actor() !== viewer || document.hidden) return;
+            const id = station.value.trim();
+            if (!validStation(id)) return;
+            selectedStation = draftStation = id;
+            if (filterState) { filterState.selectedStation = id; filterState.draftStation = id; }
+            void loadDirect(1);
+        };
+        form.append(field, submit, direct); panel.append(form);
         form.onsubmit = e => {
             e.preventDefault();
             if (!form.isConnected || actor() !== viewer || document.hidden) return;
@@ -53,6 +62,113 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
             }
             void load(1);
         };
+    }
+    async function loadDirect(page) {
+        const n = ++generation;
+        request?.abort(); request = new AbortController();
+        if (!current(n)) return;
+        const query = new URLSearchParams({page: String(page), ...(selectedStation ? {station_id: selectedStation} : {})});
+        panel.replaceChildren(node('p', t('Reading direct inventory…', 'جارٍ قراءة المخزون المباشر…')));
+        const unknown = t('Registered source unavailable or unverified; status unknown.', 'المصدر المسجل غير متاح أو غير متحقق؛ الحالة مجهولة.');
+        const timestamp = value => typeof value === 'string' && value.length <= 50 &&
+            /^\d{4}-\d\d-\d\dT/.test(value) && Number.isFinite(Date.parse(value));
+        try {
+            const data = await api('charging-operations/registered-chargers?' + query, 'GET', undefined, request.signal);
+            if (!current(n)) return;
+            const p = data?.chargers, ids = new Set();
+            if (data?.scope !== 'direct_charger_fleet' || data.evidence !== 'INVENTORY_ONLY' ||
+                ['physical_availability_verified','remote_control_authorized','billing_authority'].some(k => data[k] !== false) ||
+                !timestamp(data.as_of) || !Array.isArray(p?.data) || p.data.length > 25 ||
+                p.current_page !== page || !Number.isSafeInteger(p.last_page) || p.last_page < 1) throw Error('Invalid direct inventory');
+            for (const row of p.data) {
+                if (!row || !['company_id','charger_id','station_id'].every(k => Number.isSafeInteger(row[k]) && row[k] > 0) ||
+                    ids.has(row.charger_id) || !['1.6','2.0.1'].includes(row.protocol) ||
+                    typeof row.station_name !== 'string' || typeof row.asset_reference !== 'string' ||
+                    row.state !== 'not_inspected' || (selectedStation && String(row.station_id) !== selectedStation)) throw Error('Invalid direct target');
+                ids.add(row.charger_id);
+            }
+            reset();
+            panel.append(node('h4', t('Direct charger fleet inventory', 'مخزون أسطول الشواحن المباشرة')),
+                node('p', t('Inventory only; registration, physical availability and command authority are not verified.', 'المخزون فقط؛ لم يتم التحقق من التسجيل أو التوفر الفعلي أو صلاحية الأوامر.')));
+            const cells = new Map();
+            for (const row of p.data) {
+                const card = document.createElement('article'), cell = document.createElement('section');
+                card.append(node('h4', row.station_name + ' · ' + row.asset_reference),
+                    node('p', 'OCPP ' + row.protocol), cell);
+                cell.append(node('p', t('Source not inspected', 'لم يُفحص المصدر')));
+                cells.set(row.charger_id, cell);
+                panel.append(card);
+            }
+            if (p.data.length) {
+                const read = button(t('Read registered sources for this page', 'قراءة المصادر المسجلة لهذه الصفحة'), async () => {
+                    if (read.disabled || !read.isConnected || actor() !== viewer || document.hidden) return;
+                    const epoch = ++generation;
+                    request?.abort(); request = new AbortController();
+                    const signal = request.signal;
+                    read.disabled = true;
+                    for (const cell of cells.values()) cell.replaceChildren(node('p', t('Reading live source…', 'جارٍ قراءة المصدر المباشر…')));
+                    const results = new Map();
+                    try {
+                        for (let i = 0; i < p.data.length; i += 4) {
+                            if (!current(epoch)) return;
+                            await Promise.all(p.data.slice(i, i + 4).map(async target => {
+                                try {
+                                    const reply = await api('vendor-ops/companies/' + target.company_id + '/chargers/' + target.charger_id + '/live-connectors', 'GET', undefined, signal);
+                                    if (!current(epoch)) return;
+                                    const statuses = target.protocol === '1.6'
+                                        ? ['Available','Preparing','Charging','SuspendedEV','SuspendedEVSE','Finishing','Reserved','Unavailable','Faulted']
+                                        : ['Available','Occupied','Reserved','Unavailable','Faulted'];
+                                    if (!reply || reply.company_id !== target.company_id || reply.charger_id !== target.charger_id ||
+                                        reply.protocol !== target.protocol || reply.evidence !== 'REGISTERED_DIRECT_SOURCE' ||
+                                        reply.source_identity_rechecked !== true || reply.local_mapping_verified !== false ||
+                                        reply.source_topology_matches_local !== false || typeof reply.source_topology_complete !== 'boolean' ||
+                                        typeof reply.source_online !== 'boolean' ||
+                                        ['physical_availability_verified','remote_control_authorized','commands_sent'].some(k => reply[k] !== false) ||
+                                        !timestamp(reply.observed_at) || !Array.isArray(reply.connectors) || reply.connectors.length > 100 ||
+                                        (reply.source_topology_complete && !reply.connectors.length)) throw Error('Invalid direct source');
+                                    const seen = new Set();
+                                    for (const row of reply.connectors) {
+                                        if (!row || row.mapping_id !== null || row.operator_maintenance_blocked !== null ||
+                                            !Number.isSafeInteger(row.source_evse_number) ||
+                                            (target.protocol === '1.6' ? row.source_evse_number !== 0 : row.source_evse_number < 1 || row.source_evse_number > 1000) ||
+                                            !Number.isSafeInteger(row.source_connector_number) || row.source_connector_number < 1 || row.source_connector_number > 100 ||
+                                            !['recent','stale','unknown'].includes(row.state) ||
+                                            row.physical_available !== false || row.remote_control_authorized !== false ||
+                                            (row.state === 'recent' ? (!reply.source_online || !reply.source_topology_complete ||
+                                                !statuses.includes(row.reported_status) || !timestamp(row.source_event_at)) : row.reported_status !== null)) throw Error('Invalid direct connector');
+                                        const key = row.source_evse_number + ':' + row.source_connector_number;
+                                        if (seen.has(key)) throw Error('Duplicate target');
+                                        seen.add(key);
+                                    }
+                                    results.set(target.charger_id, reply);
+                                } catch (e) {
+                                    if ([401,403,419].includes(e.status)) throw e;
+                                }
+                            }));
+                        }
+                        if (!current(epoch)) return;
+                        for (const [id, cell] of cells) {
+                            const reply = results.get(id);
+                            cell.replaceChildren();
+                            if (!reply) { cell.append(node('p', unknown)); continue; }
+                            cell.append(node('p', (reply.source_topology_complete
+                                ? t('Source topology reported; local mappings not verified', 'أبلغ المصدر عن البنية؛ الربط المحلي غير متحقق')
+                                : t('Source topology incomplete; live status unknown', 'بنية المصدر غير مكتملة؛ الحالة مجهولة')) + ' · ' + reply.observed_at));
+                            for (const row of reply.connectors) cell.append(node('p', row.source_evse_number + '/' + row.source_connector_number + ' · ' +
+                                (row.state === 'recent' ? (window.EvConnectorFreshness?.label(row.reported_status, document.documentElement.lang === 'ar') ?? row.reported_status)
+                                    : t('Unknown or stale', 'مجهول أو قديم'))));
+                        }
+                    } catch {
+                        if (current(epoch)) { reset(); panel.append(node('p', unknown)); }
+                    } finally { if (current(epoch)) read.disabled = false; }
+                });
+            } else panel.append(node('p', t('No direct chargers in this scope.', 'لا توجد شواحن مباشرة في هذا النطاق.')));
+            const snapshot = selectedStation;
+            for (const [label,next,enabled] of [[t('Previous','السابق'),page-1,page>1],[t('Next','التالي'),page+1,page<p.last_page]])
+                button(label, () => { selectedStation = snapshot; void loadDirect(next); }).disabled = !enabled;
+        } catch {
+            if (current(n)) { reset(); panel.append(node('p', unknown)); }
+        }
     }
     async function load(page) {
         const n = ++generation;
