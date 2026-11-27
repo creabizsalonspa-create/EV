@@ -107,6 +107,47 @@ final class FederatedNearbyDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_partner_revocation_during_source_fetch_is_reflected_in_published_page(): void
+    {
+        $this->actingAs($this->fixture());
+        Http::fake(['api.openchargemap.io/*' => function () {
+            OcpiProvider::where('connection_key', 'federated-fixture-private')->update(['authorized' => false]);
+
+            return Http::response([[
+                'ID' => 12345,
+                'DataProvider' => ['Title' => 'Fixture licensor', 'License' => 'CC BY-SA 4.0', 'IsOpenDataLicensed' => true],
+                'SubmissionStatusTypeID' => 200,
+                'AddressInfo' => ['Title' => 'Licensed nearby fixture', 'Latitude' => 25.2, 'Longitude' => 55.3, 'Country' => ['ISOCode' => 'AE']],
+                'Connections' => [['ConnectionType' => ['Title' => 'Type 2'], 'PowerKW' => 22]],
+            ]], 200, ['Content-Type' => 'application/json']);
+        }]);
+        $this->postJson('/api/discovery/federated-nearby', $this->input())->assertOk()
+            ->assertJsonPath('published.total', 1)
+            ->assertJsonPath('published.data.0.kind', 'catalog')
+            ->assertJsonPath('licensed.sample.count', 1)
+            ->assertJsonPath('licensed.sample.results.0.id', 'ocm:12345')
+            ->assertJsonPath('licensed.sample.results.0.attribution', 'Open Charge Map / Fixture licensor')
+            ->assertJsonPath('licensed.sample.results.0.availability', 'unknown')
+            ->assertJsonPath('licensed.sample.results.0.remote_control', false)
+            ->assertJsonPath('licensed.sample.results.0.reservable', false)
+            ->assertJsonPath('licensed.sample.results.0.billing_eligible', false);
+        Http::assertSentCount(1);
+    }
+
+    public function test_license_revocation_during_source_fetch_does_not_release_reports(): void
+    {
+        $this->actingAs($this->fixture());
+        Http::fake(['api.openchargemap.io/*' => function () {
+            config(['discovery.ocm_terms_accepted' => false]);
+
+            return Http::response([], 200, ['Content-Type' => 'application/json']);
+        }]);
+        $this->postJson('/api/discovery/federated-nearby', $this->input())->assertOk()
+            ->assertJsonPath('published.total', 2)->assertJsonPath('licensed.state', 'unavailable')
+            ->assertJsonPath('licensed.reason', 'not_configured')->assertJsonPath('licensed.sample', null);
+        Http::assertSentCount(1);
+    }
+
     public function test_account_change_during_provider_response_discards_both_sources(): void
     {
         $actor = $this->fixture();

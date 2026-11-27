@@ -32,7 +32,7 @@ final class FederatedNearbyDiscoveryController extends Controller
         // generated pagination URLs (which may contain private coordinates).
         $local = Request::create('/internal/published-discovery', 'POST', $geography);
         $local->setUserResolver(fn () => $actor);
-        $localPage = $published->index($local)->getData(true);
+        $published->index($local); // Fail local admission before any provider egress.
         $this->currentActor($request);
 
         // This is the exact existing provider path, with its cache,
@@ -42,8 +42,16 @@ final class FederatedNearbyDiscoveryController extends Controller
         $source = $licensed->search($sourceRequest, $adapter, $cache, $quality);
         $this->currentActor($request);
 
+        // Provider latency is an authorization boundary. Re-read published
+        // visibility after the network await, including partner revocation.
+        $localPage = $published->index($local)->getData(true);
+        $this->currentActor($request);
         $sourceStatus = $source->getStatusCode();
         $sourceBody = $source->getData(true);
+        if ($licensed->capabilities()->getData(true)['enabled'] !== true) {
+            $sourceStatus = 503;
+            $sourceBody = ['reason' => 'not_configured'];
+        }
         $sourceResult = $sourceStatus === 200
             ? ['state' => 'observed', 'sample' => $sourceBody]
             : ['state' => 'unavailable', 'reason' => $sourceBody['reason'] ?? 'source_unavailable', 'sample' => null];
