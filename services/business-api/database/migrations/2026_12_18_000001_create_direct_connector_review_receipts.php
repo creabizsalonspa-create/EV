@@ -21,6 +21,7 @@ return new class extends Migration
             $table->unsignedBigInteger('source_event_id');
             $table->unsignedBigInteger('authority_epoch');
             $table->char('registration_fingerprint', 64);
+            $table->char('connector_fingerprint', 64);
             $table->dateTime('source_observed_at', 6);
             $table->dateTime('reviewed_at', 6);
             $table->unique(['connector_id', 'authority_epoch'], 'direct_connector_review_epoch_unique');
