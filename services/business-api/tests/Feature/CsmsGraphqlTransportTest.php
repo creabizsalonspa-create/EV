@@ -16,6 +16,7 @@ use App\Services\Charging\RiderSourceProvisioner;
 use App\Services\Charging\SourceConsumer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
 use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -153,28 +154,46 @@ class CsmsGraphqlTransportTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
-    public function test_rider_source_pins_original_validated_url_if_configuration_changes_between_reads(): void
+    public static function riderSourceAuthorityChanges(): array
+    {
+        return [
+            'stable authority' => [null, 0],
+            'origin changes during station read' => ['origin', 1],
+            'origin changes during connector read' => ['origin', 2],
+            'secret changes during station read' => ['secret', 1],
+            'secret changes during connector read' => ['secret', 2],
+        ];
+    }
+
+    #[DataProvider('riderSourceAuthorityChanges')]
+    public function test_rider_source_rejects_changed_authority_without_disclosing_credentials(?string $change, int $changeAt): void
     {
         $trusted = 'https://source.test/graphql';
         $untrusted = 'http://metadata.evil.test/graphql';
         config(['csms.graphql_url' => $trusted]);
         $reads = 0;
-        Http::fake(function ($request) use (&$reads, $trusted, $untrusted) {
+        Http::fake(function ($request) use (&$reads, $trusted, $untrusted, $change, $changeAt) {
             $reads++;
             $this->assertSame($trusted, $request->url());
+            $this->assertSame(str_repeat('s', 64), $request->header('x-hasura-admin-secret')[0] ?? null);
+            if ($reads === $changeAt) {
+                if ($change === 'origin') {
+                    config(['csms.graphql_url' => $untrusted]);
+                } elseif ($change === 'secret') {
+                    config(['csms.graphql_secret' => str_repeat('t', 64)]);
+                }
+            }
             if ($reads === 1) {
-                config(['csms.graphql_url' => $untrusted]);
-
                 return Http::response(['data' => ['ChargingStations' => [[
                     'id' => 17, 'isOnline' => true, 'protocol' => '1.6',
                 ]]]]);
             }
 
             return Http::response(['data' => [
-                'Connectors' => [['id' => 7]],
+                'Connectors' => [['id' => 7, 'evseId' => 9]],
                 'StatusNotifications' => [[
                     'evseId' => 0, 'connectorId' => 1,
-                    'connectorStatus' => 'Available',
+                    'connectorStatus' => 'Available', 'errorCode' => 'NoError',
                     'timestamp' => now()->subSecond()->toISOString(),
                 ]],
             ]]);
@@ -183,12 +202,14 @@ class CsmsGraphqlTransportTest extends TestCase
             (object) ['identifier' => 'ev-test-source', 'protocol' => '1.6'],
             new ConnectorMapping(['source_connector_number' => 1]),
             new Evse(['source_evse_number' => 0]),
-            ['connectorId' => 7]
+            ['connectorId' => 7, 'evseId' => 9]
         );
-        $this->assertTrue($result);
-        $this->assertSame(2, $reads);
-        Http::assertSentCount(2);
-        Http::assertNotSent(fn ($request) => $request->url() === $untrusted);
+        $this->assertSame($change === null, $result);
+        $expectedReads = $changeAt === 1 ? 1 : 2;
+        $this->assertSame($expectedReads, $reads);
+        Http::assertSentCount($expectedReads);
+        Http::assertNotSent(fn ($request) => $request->url() === $untrusted
+            || ($request->header('x-hasura-admin-secret')[0] ?? null) !== str_repeat('s', 64));
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
     }

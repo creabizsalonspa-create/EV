@@ -76,6 +76,43 @@ class RiderAccessTest extends TestCase
         $this->assertDatabaseCount('csms_session_links', 0);
     }
 
+    public function test_rotated_or_removed_service_credentials_invalidate_existing_callback_tokens(): void
+    {
+        config(['csms.rider_enabled' => true, 'csms.remote_authorization_enabled' => true,
+            'csms.session_bridge_enabled' => true, 'csms.ingress_allow_local_http' => true,
+            'csms.rider_client_id' => 'creabiz-csms-rider', 'csms.rider_client_secret' => str_repeat('s', 64)]);
+        Http::preventStrayRequests();
+        $credentials = ['grant_type' => 'client_credentials', 'client_id' => 'creabiz-csms-rider',
+            'client_secret' => str_repeat('s', 64), 'audience' => 'creabiz-rider-authorize'];
+        $issue = fn (array $v) => $this->postJson('/api/internal/rider-oauth/token', $v)->assertOk()->json('access_token');
+        $rider = ['idToken' => 'AABBCC123456', 'idTokenType' => 'Central', 'ocppConnectionName' => 'ev-test-unregistered'];
+        $remote = ['idToken' => 'EV-0123456789ABCDEF', 'idTokenType' => 'Central', 'ocppConnectionName' => 'ev-test-unregistered'];
+        $old = $issue($credentials);
+        $this->withToken($old)->postJson('/api/internal/rider-authorize', $rider)->assertOk()->assertJsonPath('data.allowed', 'BLOCKED');
+        config(['csms.rider_client_secret' => str_repeat('r', 64)]);
+        $this->withToken($old)->postJson('/api/internal/rider-authorize', $rider)->assertUnauthorized();
+        $this->postJson('/api/internal/remote-session-authorize', $remote)->assertUnauthorized();
+        $this->postJson('/api/internal/rider-oauth/token', $credentials)->assertUnauthorized();
+
+        $credentials['client_secret'] = str_repeat('r', 64);
+        $rotated = $issue($credentials);
+        $this->withToken($rotated)->postJson('/api/internal/remote-session-authorize', $remote)->assertOk()->assertJsonPath('data.allowed', 'NOT_ALLOWED');
+        config(['csms.rider_client_id' => 'replacement-rider-client']);
+        $this->withToken($rotated)->postJson('/api/internal/rider-authorize', $rider)->assertUnauthorized();
+        $this->postJson('/api/internal/remote-session-authorize', $remote)->assertUnauthorized();
+
+        $credentials['client_id'] = 'replacement-rider-client';
+        $replacement = $issue($credentials);
+        $this->withToken($replacement)->postJson('/api/internal/rider-authorize', $rider)->assertOk()->assertJsonPath('data.allowed', 'BLOCKED');
+        config(['csms.rider_client_secret' => '']);
+        $this->postJson('/api/internal/rider-authorize', $rider)->assertServiceUnavailable();
+        $this->postJson('/api/internal/remote-session-authorize', $remote)->assertServiceUnavailable();
+        $this->assertDatabaseCount('csms_session_links', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
     private function approvedSourceFixture(): array
     {
         config([
