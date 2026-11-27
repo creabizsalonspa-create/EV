@@ -1873,8 +1873,8 @@ window.createVendorWorkspace = ({
                         siteIds.has(row.site_id) || (expectedSite !== null && row.site_id !== expectedSite))
                         throw Error("Unexpected analytics authority.");
                     siteIds.add(row.site_id);
-                    if (!Number.isSafeInteger(row.mapped_connectors) || row.mapped_connectors < 0 ||
-                        !Number.isSafeInteger(row.mapped_evses) || row.mapped_evses < 0 ||
+                    if (!Number.isSafeInteger(row.mapped_connectors) || row.mapped_connectors < 0 || row.mapped_connectors > 1000 ||
+                        !Number.isSafeInteger(row.mapped_evses) || row.mapped_evses < 0 || row.mapped_evses > 500 ||
                         row.possible_connector_seconds !== row.mapped_connectors * data.window_seconds ||
                         row.possible_evse_seconds !== row.mapped_evses * data.window_seconds ||
                         row.observed_busy_seconds > row.possible_evse_seconds ||

@@ -249,7 +249,9 @@ class _OperationalState extends State<OperationalAnalyticsView>
       }
       // Uptime is never inferred from unknown evidence, and reported fault
       // duration cannot exceed known source status coverage.
-      if (row['possible_connector_seconds'] !=
+      if (row['mapped_connectors'] > 1000 ||
+          row['mapped_evses'] > 500 ||
+          row['possible_connector_seconds'] !=
               row['mapped_connectors'] * result['window_seconds'] ||
           row['possible_evse_seconds'] !=
               row['mapped_evses'] * result['window_seconds'] ||
