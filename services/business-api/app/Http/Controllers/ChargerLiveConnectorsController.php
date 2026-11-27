@@ -57,6 +57,7 @@ final class ChargerLiveConnectorsController extends Controller
             // Pin durable registration provenance, not an arbitrary same-name row.
             $binding->registration_receipt = [$receipt->id, $receipt->profile_id, $receipt->source_station_id,
                 $receipt->source_generation, $receipt->source_receipt_hash, $receipt->verified_at];
+
             return $binding;
         }, 3);
     }
