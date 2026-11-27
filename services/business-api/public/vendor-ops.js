@@ -3714,9 +3714,10 @@ window.createVendorWorkspace = ({
                     : "Stored review requires registration reconciliation"),
                     raw("p", `#${receipt.id} · ${receipt.source_evse_number}/${receipt.source_connector_number}`),
                     raw("p", receipt.reviewed_at));
-                return;
+                if (receipt.current_registration_matches) return;
+            } else {
+                result.append(ui("p", "No connector review recorded"));
             }
-            result.append(ui("p", "No connector review recorded"));
             if (!company.capabilities?.owner || !company.capabilities?.inventory_operational ||
                 !["1.6", "2.0.1"].includes(charger.ocpp_protocol)) return;
             const form = document.createElement("form");
@@ -3728,10 +3729,17 @@ window.createVendorWorkspace = ({
             evse.max = charger.ocpp_protocol === "1.6" ? "0" : "1000";
             if (charger.ocpp_protocol === "1.6") { evse.value = "0"; evse.readOnly = true; }
             number.min = "1"; number.max = "100";
+            if (receipt) {
+                evse.value = String(receipt.source_evse_number);
+                number.value = String(receipt.source_connector_number);
+                evse.readOnly = number.readOnly = true;
+            }
             const eLabel = ui("label", "Source EVSE number"), nLabel = ui("label", "Source connector number");
             eLabel.append(evse); nLabel.append(number);
-            const submit = ui("button", "Record connector identity review"); submit.type = "submit";
-            form.append(eLabel, nLabel, ui("p", "The server rechecks the exact recent source target before saving."), submit);
+            const submit = ui("button", receipt ? "Re-review same connector identity" : "Record connector identity review"); submit.type = "submit";
+            form.append(eLabel, nLabel, ui("p", receipt
+                ? "A newer source event is required; the original review will be retained."
+                : "The server rechecks the exact recent source target before saving."), submit);
             result.append(form);
             form.onsubmit = async event => {
                 event.preventDefault();
@@ -3739,7 +3747,8 @@ window.createVendorWorkspace = ({
                 const e = Number(evse.value), n = Number(number.value);
                 if (!evse.value || !number.value || !Number.isSafeInteger(e) ||
                     (charger.ocpp_protocol === "1.6" ? e !== 0 : e < 1 || e > 1000) ||
-                    !Number.isSafeInteger(n) || n < 1 || n > 100) return;
+                    !Number.isSafeInteger(n) || n < 1 || n > 100 ||
+                    (receipt && (receipt.source_evse_number !== e || receipt.source_connector_number !== n))) return;
                 busy = true;
                 // Freeze the intent and remove the form before the write.
                 // An uncertain response requires an explicit GET, never a retry.
