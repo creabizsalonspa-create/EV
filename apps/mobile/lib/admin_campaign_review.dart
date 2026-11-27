@@ -155,13 +155,17 @@ class AdminCampaignEvent {
   }
 }
 
+const _reviewFields = ['status', 'country', 'vendor_id', 'station_id', 'invoice_id'];
+const _reviewStates = ['draft', 'submitted', 'approved', 'rejected', 'paused', 'suspended', 'cancelled'];
+
 class AdminCampaignPage {
   final List<AdminCampaignRecord> rows;
   final int number, last;
   final bool enabled;
   AdminCampaignPage._(this.rows, this.number, this.last, this.enabled);
 
-  factory AdminCampaignPage.parse(dynamic raw, int requested) {
+  factory AdminCampaignPage.parse(dynamic raw, int requested,
+      {Map<String, String> scope = const {}}) {
     if (raw is! Map || raw['data'] is! List || raw['adapter_enabled'] is! bool) {
       throw const FormatException('Invalid campaign page.');
     }
@@ -179,6 +183,30 @@ class AdminCampaignPage {
     if (rows.length != expected || rows.map((r) => r.id).toSet().length != rows.length) {
       throw const FormatException('Invalid campaign page scope.');
     }
+    final echo = raw['scope'];
+    if (scope.isNotEmpty || echo != null) {
+      if (echo is! Map || echo.length != _reviewFields.length ||
+          !_reviewFields.every(echo.containsKey)) {
+        throw const FormatException('Invalid campaign filter authority.');
+      }
+      for (final key in _reviewFields) {
+        final expected = scope[key];
+        final value = expected == null ? null :
+            key.endsWith('_id') ? int.parse(expected) : expected;
+        if (echo[key] != value || (value is int && echo[key] is! int)) {
+          throw const FormatException('Invalid campaign filter authority.');
+        }
+      }
+      for (final row in rows) {
+        if ((scope['status'] != null && row.status != scope['status']) ||
+            (scope['country'] != null && row.country != scope['country']) ||
+            (scope['vendor_id'] != null && '${row.vendor}' != scope['vendor_id']) ||
+            (scope['station_id'] != null && '${row.station}' != scope['station_id']) ||
+            (scope['invoice_id'] != null && '${row.invoice}' != scope['invoice_id'])) {
+          throw const FormatException('Campaign outside requested filter.');
+        }
+      }
+    }
     return AdminCampaignPage._(List.unmodifiable(rows), current, last, raw['adapter_enabled']);
   }
 }
@@ -194,6 +222,9 @@ class AdminCampaignReviewView extends StatefulWidget {
 class _AdminCampaignState extends State<AdminCampaignReviewView>
     with WidgetsBindingObserver {
   final reason = TextEditingController();
+  final filters = {for (final key in _reviewFields.skip(1)) key: TextEditingController()};
+  String filterStatus = '';
+  Map<String, String> applied = const {};
   final scroll = ScrollController();
   late final bool Function() ownsSession;
   StreamSubscription<int>? events;
@@ -225,6 +256,8 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
     generation++;
     page = null; selected = null; history = const []; eligible = false; busy = false;
     failed = false; confirmed = false; reason.clear();
+    filterStatus = ''; applied = const {}; number = 1;
+    for (final input in filters.values) { input.clear(); }
   }
 
   @override
@@ -249,6 +282,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
     WidgetsBinding.instance.removeObserver(this);
     scroll.dispose();
     reason.dispose();
+    for (final input in filters.values) { input.dispose(); }
     super.dispose();
   }
 
@@ -280,11 +314,33 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
     setState(() { selected = null; page = null; history = const []; eligible = false; failed = true; reason.clear(); });
   }
 
+  void editFilters() {
+    if (!visible || busy) return;
+    setState(() { generation++; page = null; selected = null; history = const []; eligible = false; failed = false; confirmed = false; number = 1; });
+  }
+
+  void applyFilters() {
+    if (!visible || busy) return;
+    final scope = <String, String>{if (filterStatus.isNotEmpty) 'status': filterStatus};
+    for (final entry in filters.entries) {
+      final value = entry.value.text.trim();
+      if (value.isEmpty) continue;
+      final valid = entry.key == 'country' ? RegExp(r'^[A-Z]{2}$').hasMatch(value)
+          : RegExp(r'^[1-9][0-9]{0,15}$').hasMatch(value) &&
+              (int.tryParse(value) ?? 9007199254740992) <= 9007199254740991;
+      if (!valid) { editFilters(); setState(() => failed = true); return; }
+      scope[entry.key] = value;
+    }
+    applied = Map.unmodifiable(scope);
+    load();
+  }
+
   Future<void> load({int next = 1, AdminCampaignRecord? detail}) async {
     if (!visible || busy) return;
     if (scroll.hasClients) scroll.jumpTo(0);
     final epoch = ++generation;
     final requestApi = widget.api;
+    final scope = applied;
     setState(() {
       busy = true; failed = false; confirmed = false; selected = null; page = null;
       eligible = false; history = const []; reason.clear(); number = next;
@@ -293,7 +349,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
       await requireAdmin(epoch);
       if (!current(epoch)) return;
       final data = AdminCampaignPage.parse(await widget.api.request(
-        'commercial/campaigns', query: {'page': '$next'}), next);
+        'commercial/campaigns', query: {'page': '$next', ...scope}), next, scope: scope);
       if (!current(epoch)) return;
       AdminCampaignRecord? record;
       bool canServe = false;
@@ -380,7 +436,24 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
           'مراجعة وحدات تسليم الباقة المدفوعة فقط. الاعتماد ليس إثباتاً للدفع أو قدرات المحطة أو المشاهدات البشرية.')),
         if (!visible) Text(t('Private review cleared. Reopen from the account menu.', 'مُسحت المراجعة الخاصة. أعد فتحها من قائمة الحساب.')),
         if (visible) ...[
-          OutlinedButton(onPressed: busy ? null : () => load(next: number), child: Text(t('Refresh campaign history', 'تحديث سجل الحملات'))),
+          if (row == null) ...[
+            DropdownButton<String>(value: filterStatus,
+              key: const Key('campaign-filter-status'),
+              items: [DropdownMenuItem(value: '', child: Text(t('All campaign statuses', 'كل حالات الحملات'))),
+                for (final value in _reviewStates) DropdownMenuItem(value: value, child: Text(status(value)))],
+              onChanged: busy ? null : (value) { filterStatus = value ?? ''; editFilters(); }),
+            for (final entry in filters.entries) TextField(
+              key: Key('campaign-filter-${entry.key}'), controller: entry.value,
+              enabled: !busy, onChanged: (_) => editFilters(),
+              decoration: InputDecoration(labelText: switch (entry.key) {
+                'country' => t('Country code', 'رمز الدولة'),
+                'vendor_id' => t('Vendor ID', 'رقم المورد'),
+                'station_id' => t('Station ID', 'رقم المحطة'),
+                _ => t('Invoice ID', 'رقم الفاتورة'),
+              })),
+            TextButton(onPressed: busy ? null : applyFilters, child: Text(t('Apply campaign filters', 'تطبيق مرشحات الحملات'))),
+          ],
+          OutlinedButton(onPressed: busy ? null : () => row == null ? applyFilters() : load(next: number), child: Text(t('Refresh campaign history', 'تحديث سجل الحملات'))),
           if (busy) const LinearProgressIndicator(),
           if (failed) Text(t('Review not confirmed. Refresh authoritative history before another decision.', 'لم تتأكد المراجعة. حدّث السجل الأصلي قبل قرار آخر.')),
           if (confirmed) Text(t('Decision confirmed. Refresh authoritative history.', 'تم تأكيد القرار. حدّث السجل الأصلي.')),
