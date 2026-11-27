@@ -136,6 +136,31 @@ class ConnectorTopologyTest extends TestCase
     }
 
     #[DataProvider('protocols')]
+    public function test_pending_start_replay_rejects_corrupted_source_mapping_without_duplicating_command(string $protocol): void
+    {
+        $f = $this->topology($protocol);
+        $body = $this->book($f, 0, 'source-replay');
+        $booking = $this->postJson('/api/reservations', $body)->assertCreated()->json();
+        $this->travelTo(CarbonImmutable::parse($body['starts_at'])->addMinute());
+        $this->acceptPrechargePrice($booking['id']);
+        $path = '/api/reservations/'.$booking['id'].'/csms-start';
+        $queued = $this->postJson($path)->assertAccepted()->json();
+        $map = DB::table('charging_connector_mappings')->where('id', $f['maps'][0]['id']);
+        $digest = $map->value('source_target_key');
+        foreach ([null, str_repeat('f', 64), strtoupper($digest)] as $invalid) {
+            $map->update(['source_target_key' => $invalid]);
+            $this->postJson($path)->assertConflict();
+            $this->assertDatabaseCount('charging_sessions', 1);
+            $this->assertDatabaseCount('charger_commands', 1);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        }
+        $map->update(['source_target_key' => $digest]);
+        $this->postJson($path)->assertAccepted()->assertJsonPath('session.id', $queued['session']['id']);
+        $this->assertDatabaseCount('charger_commands', 1);
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('protocols')]
     public function test_all_recent_source_searches_require_exact_mapping_and_consistent_source_order(string $protocol): void
     {
         $this->freezeTime();

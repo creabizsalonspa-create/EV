@@ -76,7 +76,18 @@ class ConnectorTopology
             $evse = Evse::findOrFail($map->evse_id);
             abort_unless($map->station_id === $reservation->station_id && $evse->id === $reservation->charging_evse_id, 409, 'Reservation mapping changed.');
 
-            return $evse->binding_id ? DB::table('csms_bindings')->where('id', $evse->binding_id)->when($lock, fn ($q) => $q->lockForUpdate())->first() : null;
+            if ($evse->binding_id === null) {
+                return null;
+            }
+            $binding = DB::table('csms_bindings')->where('id', $evse->binding_id)->when($lock, fn ($q) => $q->lockForUpdate())->first();
+            abort_unless($binding && $evse->mode === 'csms'
+                && $binding->station_id === $reservation->station_id
+                && $binding->vendor_charger_id === $evse->charger_id
+                && SourceTargetIdentity::matches($binding->protocol, $binding->id, $evse->source_evse_number,
+                    $map->source_connector_number, $map->source_target_key), 409,
+                'Canonical reservation source target changed; reconcile before continuing.');
+
+            return $binding;
         }
         $bindings = DB::table('csms_bindings')->where('station_id', $reservation->station_id)->when($lock, fn ($q) => $q->lockForUpdate())->get();
         abort_if($bindings->count() > 1, 409, 'Legacy source is ambiguous.');
