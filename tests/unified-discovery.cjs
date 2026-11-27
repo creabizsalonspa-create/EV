@@ -528,12 +528,19 @@ for(const lang of ['en','ar'])test('unified licensed source entry is explicit, l
  assert.equal(entry.children.length,0);
  f.control.setContext({owner:7,customer:true});
  const stale=entry.children[1].onclick;
+ // The application locale observer replaces textContent on data-en nodes.
+ // Containers must not be tagged as text leaves, or it erases their children.
+ function apply(node,locale){if(node.dataset.en!==undefined){const value=node.dataset[locale]||node.dataset.en;if(node.textContent!==value)node.textContent=value;}for(const child of node.children)apply(child,locale);}
+ apply(f.root,lang==='en'?'ar':'en');assert.equal(entry.children.length,3);
+ f.control.setContext({owner:7,customer:true});stale();assert.equal(focuses,0);
+ const retired=entry.children[1].onclick;
  f.form.children[0].children.find(n=>n.tag==='input').value='private draft';
  entry.children[1].onclick();
  assert.equal(focuses,1);assert.equal(scrolls,1);assert.equal(f.calls.length,0);assert.equal(f.events.length,0);
  f.control.setContext({owner:8,customer:true});
- stale();assert.equal(focuses,1);
+ retired();assert.equal(focuses,1);
  provider.hidden=true;entry.children[1].onclick();
+ apply(f.root,lang);assert.equal(entry.children[2].children.length,1);
  assert.match(entry.textContent,lang==='ar'?/المصدر المرخص غير متاح/:/Licensed source is not available/);
  assert.equal(f.calls.length,0);assert.equal(scrolls,1);
  f.control.setContext({owner:null,customer:false});assert.equal(entry.children.length,0);

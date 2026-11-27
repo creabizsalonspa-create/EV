@@ -92,14 +92,16 @@
   });mapButton.disabled=true;root.append(mapButton,recentPanel);
   // All source entry points belong to discovery, but a licensed provider
   // is a separate consented lookup, not part of the published SQL page.
-  const licensedEntry=text('div','','');
+  const licensedEntry=document.createElement('div');
+  let licensedEntryEpoch=0;
   function renderLicensedEntry(){
+   const entryEpoch=++licensedEntryEpoch;
    licensedEntry.replaceChildren();
    if(owner===null)return;
    const epoch=generation,who=owner;
-   const sourceStatus=text('p','','');sourceStatus.setAttribute('role','status');
+   const sourceStatus=document.createElement('p');sourceStatus.setAttribute('role','status');
    const open=button('Open Charge Map — separate licensed search','خريطة الشحن المفتوحة — بحث مرخص منفصل',()=>{
-    if(epoch!==generation||who!==owner||writing||submit.disabled||document.visibilityState==='hidden')return;
+    if(entryEpoch!==licensedEntryEpoch||epoch!==generation||who!==owner||writing||submit.disabled||document.visibilityState==='hidden')return;
     const panel=document.getElementById('open-charge-map-discovery');
     if(!panel||panel.hidden){
      sourceStatus.replaceChildren(text('span','Licensed source is not available. Published search remains available.','المصدر المرخص غير متاح. يبقى البحث في السجلات المنشورة متاحاً.'));
