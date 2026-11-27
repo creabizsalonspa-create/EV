@@ -2689,6 +2689,14 @@ window.EV_MESSAGES = {
         en: "Connector identity review incomplete",
         ar: "مراجعة هويات الموصلات غير مكتملة",
     },
+    "Connector inventory changed; operator investigation required": {
+        en: "Connector inventory changed; operator investigation required",
+        ar: "تغيرت بيانات الموصل؛ يلزم تحقيق المشغل",
+    },
+    "Connector review requires operator investigation": {
+        en: "Connector review requires operator investigation",
+        ar: "تتطلب مراجعة الموصل تحقيق المشغل",
+    },
     "Re-review same connector identity": {
         en: "Re-review same connector identity",
         ar: "إعادة مراجعة هوية الموصل نفسه",
