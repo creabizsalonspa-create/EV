@@ -58,7 +58,9 @@ final class SourceStatusDurations
         };
         foreach ($rows as $row) {
             $key = $row->evse_number.':'.$row->connector_number;
-            $time = CarbonImmutable::parse($row->occurred_at, 'UTC')->getTimestamp();
+            $instant = CarbonImmutable::parse($row->occurred_at, 'UTC');
+            $time = $instant->getTimestamp();
+            $micros = $time * 1000000 + (int) $instant->format('u');
             $status = in_array($row->status, $statuses, true) ? $row->status : 'Unknown';
             if ($status !== 'Unknown' && ! in_array($row->error_code, [null, 'NoError'], true)) {
                 $status = 'Faulted';
@@ -70,7 +72,11 @@ final class SourceStatusDurations
             // Conflicting observations at the same instant have no defensible
             // winner. Preserve the ambiguity rather than choosing by record ID.
             $old = $components[$key][$time] ?? null;
-            $components[$key][$time] = $old === null || $old === $status ? $status : 'Unknown';
+            $components[$key][$time] = [
+                'status' => $old === null || $old['status'] === $status ? $status : 'Unknown',
+                'first' => $old === null ? $micros : min($old['first'], $micros),
+                'last' => $old === null ? $micros : max($old['last'], $micros),
+            ];
         }
         if (count($components) > 64) {
             return $base + ['state' => 'requires_review', 'reason' => 'component_budget_exceeded'];
@@ -78,14 +84,21 @@ final class SourceStatusDurations
         foreach ($components as $key => $timeline) {
             ksort($timeline, SORT_NUMERIC);
             $times = array_keys($timeline);
-            $durations = [];
+            $durationMicros = [];
+            $startMicros = $start->getTimestamp() * 1000000;
+            $endMicros = $end->getTimestamp() * 1000000;
             foreach ($times as $index => $time) {
-                $until = min($times[$index + 1] ?? $end->getTimestamp(), $time + self::MAX_HOLD_SECONDS, $end->getTimestamp());
-                $seconds = max(0, $until - max($time, $start->getTimestamp()));
-                if ($timeline[$time] !== 'Unknown' && $seconds > 0) {
-                    $durations[$timeline[$time]] = ($durations[$timeline[$time]] ?? 0) + $seconds;
+                $sample = $timeline[$time];
+                $next = isset($times[$index + 1]) ? $timeline[$times[$index + 1]]['first'] : $endMicros;
+                $until = min($next, $sample['last'] + self::MAX_HOLD_SECONDS * 1000000, $endMicros);
+                $elapsed = max(0, $until - max($sample['first'], $startMicros));
+                if ($sample['status'] !== 'Unknown' && $elapsed > 0) {
+                    $durationMicros[$sample['status']] = ($durationMicros[$sample['status']] ?? 0) + $elapsed;
                 }
             }
+            // Round down only after summing disjoint precise intervals for each
+            // status. Any fractional remainder stays in unknown time.
+            $durations = array_filter(array_map(fn ($micros) => intdiv($micros, 1000000), $durationMicros));
             [$evse, $connector] = array_map('intval', explode(':', $key));
             $base['components'][] = ['evse_number' => $evse, 'connector_number' => $connector,
                 'observed_status_seconds' => (object) $durations, 'unknown_seconds' => self::WINDOW_SECONDS - array_sum($durations)];

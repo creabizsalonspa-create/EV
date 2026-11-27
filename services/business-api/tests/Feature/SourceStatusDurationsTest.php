@@ -153,6 +153,39 @@ class SourceStatusDurationsTest extends TestCase
         $this->assertSame([], $report['components']);
     }
 
+    public function test_fractional_status_durations_never_round_unelapsed_time_up(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $binding = $this->binding($protocol);
+            $this->travelTo(CarbonImmutable::parse('2026-11-28T12:00:00.500000Z'));
+            foreach ([
+                [2, 'Available', '2026-11-28 11:59:57.900000'],
+                [3, 'Available', '2026-11-28 11:59:58.100000'],
+                [3, 'Faulted', '2026-11-28 11:59:58.900000'],
+                [2, 'Faulted', '2026-11-28 11:59:59.100000'],
+                [1, 'Available', '2026-11-28 11:59:59.900000'],
+            ] as [$connector, $status, $instant]) {
+                $this->observe($binding, 1, $status, $connector);
+                $id = DB::table('charging_status_observations')->where('binding_id', $binding->id)->max('id');
+                DB::table('charging_status_observations')->where('id', $id)->update(['occurred_at' => $instant]);
+            }
+            $report = app(SourceStatusDurations::class)->report($binding);
+            $components = collect($report['components'])->keyBy('connector_number');
+            $this->assertSame('observed', $report['state']);
+            $this->assertCount(3, $components);
+            $this->assertSame([], (array) $components[1]['observed_status_seconds']);
+            $this->assertSame(86400, $components[1]['unknown_seconds']);
+            $this->assertSame(['Available' => 1], (array) $components[2]['observed_status_seconds']);
+            $this->assertSame(86399, $components[2]['unknown_seconds']);
+            $this->assertSame([], (array) $components[3]['observed_status_seconds']);
+            $this->assertSame(86400, $components[3]['unknown_seconds']);
+            $this->assertFalse($report['physical_uptime_verified']);
+            $this->assertFalse($report['commands_sent']);
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_current_fractional_second_is_observed_without_counting_future_or_unelapsed_time(): void
     {
         $binding = $this->binding();
