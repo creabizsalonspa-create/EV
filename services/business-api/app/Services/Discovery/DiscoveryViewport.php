@@ -53,6 +53,11 @@ final class DiscoveryViewport
         };
         if ($driver === 'sqlite') {
             SqliteGeoMath::register(DB::connection()->getPdo());
+            // json_extract converts JSON booleans to integers before PHP
+            // sees them. Preserve the original JSON scalar type so a
+            // corrupt true/false coordinate can never become a 1/0 pin.
+            $partner->whereRaw("json_type(ocpi_records.normalized, '$.latitude') IN ('text', 'integer', 'real')")
+                ->whereRaw("json_type(ocpi_records.normalized, '$.longitude') IN ('text', 'integer', 'real')");
         }
         $partner->whereRaw("$latitude BETWEEN ? AND ?", [$south, $north])
             ->whereRaw("$latitude BETWEEN -90 AND 90")

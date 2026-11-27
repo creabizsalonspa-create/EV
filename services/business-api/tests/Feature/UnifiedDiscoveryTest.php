@@ -370,6 +370,13 @@ class UnifiedDiscoveryTest extends TestCase
             'normalized' => ['name' => 'Malformed location', 'publish' => true, 'latitude' => 'not-a-number', 'longitude' => '0'],
             'source_updated_at' => now(), 'received_at' => now(),
         ]);
+        $boolean = OcpiRecord::create([
+            'ocpi_provider_id' => $f['provider']->id, 'module' => 'locations',
+            'country_code' => 'AE', 'party_id' => 'TST', 'external_id' => 'boolean-coordinates',
+            'payload' => ['secret' => 'never project'], 'content_hash' => str_repeat('d', 64),
+            'normalized' => ['name' => 'Boolean location', 'publish' => true, 'latitude' => '10', 'longitude' => false],
+            'source_updated_at' => now(), 'received_at' => now(),
+        ]);
         foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $route) {
             $url = $route.'?south=9&north=11&west=179&east=-179';
             $response = $this->getJson($url)->assertOk()->assertJsonPath('total', 2);
@@ -381,8 +388,9 @@ class UnifiedDiscoveryTest extends TestCase
             $this->assertNotContains('partner:'.$malformed->id, array_column($response->json('data'), 'key'));
             $this->getJson($route.'?south=9&north=11&west=-180&east=180')
                 ->assertJsonPath('total', 3);
-            $this->getJson($route.'?south=9&north=11&west=-1&east=1')
-                ->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'catalog');
+            $greenwich = $this->getJson($route.'?south=9&north=11&west=-1&east=1')
+                ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'catalog');
+            $this->assertNotContains('partner:'.$boolean->id, array_column($greenwich->json('data'), 'key'));
         }
         Http::assertNothingSent();
     }
