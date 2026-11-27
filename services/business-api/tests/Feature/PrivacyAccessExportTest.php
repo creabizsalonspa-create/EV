@@ -156,6 +156,11 @@ class PrivacyAccessExportTest extends TestCase
                 ->assertDontSee('OTHER PRIVATE VEHICLE')->assertDontSee($other->email);
         }
         $replace('{malformed-json');
+        // Ten authenticated reads exhaust the real per-minute security budget.
+        // Assert throttling independently, then advance the test clock without
+        // disabling the middleware or relaxing any production limit.
+        $this->postJson($path, ['password' => 'password'])->assertTooManyRequests();
+        $this->travel(61)->seconds();
         $this->postJson($path, ['password' => 'password'])->assertConflict();
         DB::table('account_privacy_exports')->where('privacy_request_id', $case->id)->update(['payload_encrypted' => 'invalid-ciphertext']);
         $this->postJson($path, ['password' => 'password'])->assertConflict();
