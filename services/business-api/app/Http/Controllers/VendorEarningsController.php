@@ -100,12 +100,19 @@ final class VendorEarningsController extends Controller
                 ->where('l.invoice_id', $invoice->id)
                 ->whereIn('s.state', ['pending', 'approved', 'simulated_paid', 'provider_paid'])
                 ->get(['s.state', 'l.amount_minor']);
-            $pending = self::minor($settlements->filter(
-                fn ($line) => in_array($line->state, ['pending', 'approved'], true)
-            )->sum('amount_minor'));
-            $completed = self::minor($settlements->filter(
-                fn ($line) => in_array($line->state, ['simulated_paid', 'provider_paid'], true)
-            )->sum('amount_minor'));
+            // A legitimate refund-debt offset is a negative settlement line.
+            // Preserve signed source amounts rather than refusing the entire
+            // earnings report while an offset is pending or completed.
+            $pending = 0;
+            $completed = 0;
+            foreach ($settlements as $line) {
+                $amount = self::minor($line->amount_minor, true);
+                if (in_array($line->state, ['pending', 'approved'], true)) {
+                    $pending = self::minor($pending + $amount, true);
+                } else {
+                    $completed = self::minor($completed + $amount, true);
+                }
+            }
             $invoiceTotal = self::minor($invoice->total_minor);
 
             return [

@@ -589,6 +589,64 @@ class SettlementTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 3);
     }
 
+    public function test_earnings_reports_signed_refund_debt_offset_through_pending_and_completed_settlement(): void
+    {
+        $original = $this->invoice();
+        $this->configure();
+        $first = $this->draft('original-earnings-payout');
+        $base = '/settlement-test/commercial/settlements/';
+        $this->actingAs($this->admin)->postJson($base.$first['id'].'/approve')->assertOk();
+        $this->postJson($base.$first['id'].'/simulate-payout')->assertOk();
+        app(FinanceService::class)->refund($original, $this->admin->id, 525, 'offset-refund', 'Late partial refund');
+
+        $new = $this->invoice();
+        $this->configure();
+        $offset = $this->draft('earnings-debt-offset');
+        $this->assertSame(450, $offset['amount_minor']);
+        $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
+        $query = '?currency=AED';
+        $journalCount = DB::table('finance_journals')->count();
+
+        $assertReport = function (int $pending, int $completed, int $newPending, int $newCompleted) use ($original, $new, $path, $query, $journalCount): void {
+            $response = $this->actingAs($this->vendor)->getJson($path.$query)->assertOk()
+                ->assertJsonPath('overall_available_minor', 0)
+                ->assertJsonPath('external_psp_or_bank_verified', false);
+            $rows = collect($response->json('data'))->keyBy('invoice_id');
+            $this->assertSame($pending, $rows[$original->id]['pending_reserved_minor']);
+            $this->assertSame($completed, $rows[$original->id]['completed_settlement_minor']);
+            $this->assertSame($newPending, $rows[$new->id]['pending_reserved_minor']);
+            $this->assertSame($newCompleted, $rows[$new->id]['completed_settlement_minor']);
+            $this->assertSame(0, $rows[$original->id]['available_minor']);
+            $this->assertSame(0, $rows[$new->id]['available_minor']);
+
+            $csv = $this->get($path.'/export'.$query)->assertOk()->streamedContent();
+            $stream = fopen('php://temp', 'w+');
+            fwrite($stream, $csv);
+            rewind($stream);
+            $header = fgetcsv($stream, 0, ',', '"', '');
+            $export = [];
+            while (($row = fgetcsv($stream, 0, ',', '"', '')) !== false) {
+                $entry = array_combine($header, $row);
+                $export[(int) $entry['invoice_id']] = $entry;
+            }
+            fclose($stream);
+            $this->assertCount(2, $export);
+            foreach ($rows as $id => $row) {
+                foreach (['pending_reserved_minor', 'completed_settlement_minor', 'available_minor'] as $field) {
+                    $this->assertSame((string) $row[$field], $export[$id][$field]);
+                }
+            }
+            $this->assertSame($journalCount, DB::table('finance_journals')->count());
+        };
+
+        $assertReport(-450, 900, 900, 0);
+        $this->actingAs($this->admin)->postJson($base.$offset['id'].'/approve')->assertOk();
+        $this->postJson($base.$offset['id'].'/simulate-payout')->assertOk();
+        $assertReport(0, 450, 0, 900);
+        $this->assertDatabaseCount('commercial_settlements', 2);
+        $this->assertDatabaseCount('finance_refunds', 1);
+    }
+
     public function test_revoked_vendor_or_admin_cannot_read_private_earnings_or_csv(): void
     {
         $this->invoice();
