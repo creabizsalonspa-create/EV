@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
+use App\Services\Charging\DirectConnectorReviewCoverage;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SourceStatusTime;
 use Carbon\CarbonImmutable;
@@ -21,11 +22,12 @@ final class DirectConnectorReviewController extends Controller
             $binding->identifier, $binding->protocol, $binding->registration_receipt], JSON_THROW_ON_ERROR));
     }
 
-    private function present(object $row, string $fingerprint): array
+    private function present(object $row, string $fingerprint, string $connectorFingerprint): array
     {
         return ['id' => $row->id, 'connector_id' => $row->connector_id,
             'source_evse_number' => $row->source_evse_number, 'source_connector_number' => $row->source_connector_number,
-            'current_registration_matches' => hash_equals($row->registration_fingerprint, $fingerprint),
+            'current_registration_matches' => hash_equals($row->registration_fingerprint, $fingerprint)
+                && hash_equals($row->connector_fingerprint, $connectorFingerprint),
             'source_observed_at' => $row->source_observed_at, 'reviewed_at' => $row->reviewed_at,
             'evidence' => 'DIRECT_CONNECTOR_REVIEW_ONLY', 'charging_mapping_created' => false,
             'physical_availability_verified' => false, 'remote_control_authorized' => false];
@@ -49,7 +51,13 @@ final class DirectConnectorReviewController extends Controller
                     $q->selectRaw('1')->from('direct_connector_review_receipts as newer')
                         ->whereColumn('newer.connector_id', 'direct_connector_review_receipts.connector_id')
                         ->whereColumn('newer.authority_epoch', '>', 'direct_connector_review_receipts.authority_epoch');
-                })->orderBy('id')->paginate(25)->through(fn ($row) => $this->present($row, $fingerprint));
+                })->orderBy('id')->paginate(25);
+            $owned = VendorConnector::where('charger_id', $charger->id)
+                ->whereIn('id', $page->getCollection()->pluck('connector_id'))->orderBy('id')
+                ->lockForUpdate()->get()->keyBy('id');
+            abort_unless($owned->count() === $page->count(), 409, 'Reviewed connector inventory changed.');
+            $page->through(fn ($row) => $this->present($row, $fingerprint,
+                DirectConnectorReviewCoverage::connectorFingerprint($owned->get($row->connector_id))));
 
             return response()->json($page)->header('Cache-Control', 'private, no-store');
         }, 3);
@@ -66,7 +74,8 @@ final class DirectConnectorReviewController extends Controller
         $number = (int) $v['source_connector_number'];
         $binding = $live->registeredScope($r, $company, $charger);
         abort_unless($binding->protocol === '1.6' ? $evse === 0 : $evse > 0, 422);
-        abort_unless(VendorConnector::whereKey($connectorId)->where('charger_id', $charger->id)->exists(), 404);
+        $connector = VendorConnector::whereKey($connectorId)->where('charger_id', $charger->id)->firstOrFail();
+        $connectorFingerprint = DirectConnectorReviewCoverage::connectorFingerprint($connector);
         $fingerprint = $this->fingerprint($binding);
         $authority = [config('csms.graphql_url'), config('csms.graphql_secret')];
 
@@ -74,7 +83,8 @@ final class DirectConnectorReviewController extends Controller
         // the write transaction. The same receipt and actor must survive it.
         $snapshot = $live->inspect($r, $company, $charger, $guard, $source, true)->getData(true);
         abort_unless($snapshot['evidence'] === 'REGISTERED_DIRECT_SOURCE'
-            && $snapshot['source_topology_complete'] === true && $snapshot['source_identity_rechecked'] === true, 409);
+            && $snapshot['source_topology_complete'] === true && $snapshot['source_identity_rechecked'] === true
+            && hash_equals($fingerprint, $snapshot['internal_registration_fingerprint'] ?? ''), 409);
         $matches = array_values(array_filter($snapshot['connectors'], fn ($row) =>
             $row['source_evse_number'] === $evse && $row['source_connector_number'] === $number && $row['state'] === 'recent'));
         abort_unless(count($matches) === 1, 409, 'A recent exact source connector observation is required.');
@@ -83,7 +93,7 @@ final class DirectConnectorReviewController extends Controller
         $eventId = $matches[0]['source_event_id'];
         abort_unless(is_int($sourceId) && $sourceId > 0 && is_int($eventId) && $eventId > 0, 409);
         try {
-            return DB::transaction(function () use ($r, $company, $charger, $live, $connectorId, $evse, $number, $fingerprint, $authority, $observed, $sourceId, $eventId) {
+            return DB::transaction(function () use ($r, $company, $charger, $live, $connectorId, $evse, $number, $fingerprint, $authority, $observed, $sourceId, $eventId, $connectorFingerprint) {
                 $fresh = $live->registeredScope($r, $company, $charger);
                 $currentCompany = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                 abort_unless($currentCompany->owner_id === $r->user()->id && $r->user()->role === 'vendor', 404);
@@ -91,7 +101,9 @@ final class DirectConnectorReviewController extends Controller
                     && [config('csms.graphql_url'), config('csms.graphql_secret')] === $authority
                     && hash_equals($fingerprint, $this->fingerprint($fresh))
                     && $observed->gte(now()->subMinutes(5)), 409, 'Source review authority changed.');
-                abort_unless(VendorConnector::whereKey($connectorId)->where('charger_id', $charger->id)->lockForUpdate()->first(), 404);
+                $connector = VendorConnector::whereKey($connectorId)->where('charger_id', $charger->id)->lockForUpdate()->firstOrFail();
+                abort_unless(hash_equals($connectorFingerprint, DirectConnectorReviewCoverage::connectorFingerprint($connector)),
+                    409, 'Local connector changed during source review.');
                 $epoch = $fresh->registration_receipt[7][0];
                 $old = DB::table('direct_connector_review_receipts')->where('connector_id', $connectorId)
                     ->orderByDesc('authority_epoch')->lockForUpdate()->first();
@@ -101,13 +113,14 @@ final class DirectConnectorReviewController extends Controller
                         && $eventId >= $old->source_event_id
                         && $observed->gte(CarbonImmutable::parse($old->source_observed_at, 'UTC'))
                         && $old->registration_id === $fresh->registration_receipt[0]
+                        && hash_equals($old->connector_fingerprint, $connectorFingerprint)
                         && $epoch >= $old->authority_epoch,
                         409, 'Existing connector identity cannot be reassigned.');
                     if ($epoch === $old->authority_epoch) {
                         abort_unless(hash_equals($old->registration_fingerprint, $fingerprint), 409,
                             'Existing connector review is immutable.');
 
-                        return response()->json($this->present($old, $fingerprint))->header('Cache-Control', 'private, no-store');
+                        return response()->json($this->present($old, $fingerprint, $connectorFingerprint))->header('Cache-Control', 'private, no-store');
                     }
                     // Renew only the same physical identity claim, never adopt a
                     // different target or rewrite the previous epoch receipt.
@@ -125,13 +138,14 @@ final class DirectConnectorReviewController extends Controller
                     'registration_id' => $fresh->registration_receipt[0], 'actor_id' => $r->user()->id,
                     'source_evse_number' => $evse, 'source_connector_number' => $number,
                     'source_connector_database_id' => $sourceId, 'source_event_id' => $eventId,
-                    'authority_epoch' => $epoch, 'registration_fingerprint' => $fingerprint, 'source_observed_at' => $observed->format('Y-m-d H:i:s.u'),
+                    'authority_epoch' => $epoch, 'registration_fingerprint' => $fingerprint,
+                    'connector_fingerprint' => $connectorFingerprint, 'source_observed_at' => $observed->format('Y-m-d H:i:s.u'),
                     'reviewed_at' => now()->format('Y-m-d H:i:s.u'),
                 ]);
                 DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'charging.direct_connector_reviewed',
                     'subject' => (string) $id, 'created_at' => now()]);
 
-                return response()->json($this->present(DB::table('direct_connector_review_receipts')->where('id', $id)->first(), $fingerprint), 201)
+                return response()->json($this->present(DB::table('direct_connector_review_receipts')->where('id', $id)->first(), $fingerprint, $connectorFingerprint), 201)
                     ->header('Cache-Control', 'private, no-store');
             }, 3);
         } catch (UniqueConstraintViolationException) {
