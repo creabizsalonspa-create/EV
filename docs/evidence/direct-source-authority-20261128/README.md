@@ -33,21 +33,45 @@ configured authority, or a rollback of the entire local database and its
 history together. It does not rotate or reconcile existing source
 registrations automatically.
 
-## Executed evidence
+## Registration reconciliation
 
-Exact PHP service blob `39d7e74b6ee905104e77b15a2c328e1cf3e6c57a` was
-reconstructed locally and its Git blob SHA matched the fetched repository
-blob. PHP 8.4 lint passed. A standalone PHP harness using in-memory
-Laravel/configuration/database stubs executed 21/21 assertions, covering
-unprovisioned denial, no read-side writes, invalid ticket, first provision,
-idempotent replay, same-epoch credential substitution, explicit rotation,
-history retention, no raw secret in the stored rows, lower-epoch rejection,
-TLS-only configuration, noncanonical epoch, and inconsistent pointer denial.
+Following an authority change, a registration must independently be
+reconciled with its exact original receipt by an authorized shell operator:
 
-The 21 assertions and exact SHA/lint were independently executed again in the local PHP 8.4.24 runtime on this continuation. The stubs model rollback and query selection, not real row locks. The transport stub returns configured URL and does not implement the real transport validator.
+```sh
+php artisan csms:reconcile-direct-registration REGISTRATION_ID --receipt=ORIGINAL_SHA256 --ticket=APPROVED-TICKET
+```
 
-This is not Laravel/PostgreSQL migration or concurrent transaction evidence.
-Dual-protocol feature regressions for review invalidation, rollback and
-in-flight rotation are authored, not executed. Exact resulting-head hosted
-validation, database locking/rollback validation and approved real-source
-acceptance remain necessary.
+The command locks the owned company, charger, site, station, owner,
+registration, binding and profile; checks the original payload and
+registration receipt against the current local lineage; and records an
+immutable registration-specific epoch entry. A matching but corrupted
+stored hash is not sufficient. The original source origin cannot be
+reassigned by reconciliation. Neither command contacts a real charger.
+This is local administrative evidence, not upstream attestation.
+
+## Executed evidence (current checkpoint)
+
+Both exact PHP service blobs were reconstructed in the local PHP 8.4.24
+runtime, verified with `git hash-object`, and passed `php -l`:
+
+- DirectSourceAuthority: `39d7e74b6ee905104e77b15a2c328e1cf3e6c57a`.
+- DirectSourceRegistrationEpoch: `423ea3c4de43e4f8d8f76329300896f0b636d8ee`.
+
+The combined standalone harness executed **40/40 assertions** (20 each for
+OCPP 1.6 and 2.0.1). It exercised unprovisioned denial, first provision,
+idempotent provision, unreconciled denial, incorrect receipt, initial
+reconciliation, idempotent reconciliation, read-only current checks,
+same-epoch secret substitution, rotation, rejection of prior reconciliation,
+changed model, foreign station, changed profile, matching forged stored
+receipt, explicit new reconciliation, preservation of both histories,
+rollback denial, new origin provisioning and rejection of registration
+migration to the new origin.
+
+The harness uses in-memory model/query/config/transport stubs; it models
+transaction rollback but not actual row locks or PostgreSQL constraints.
+It does not exercise the real transport validator or vendor license check.
+This supersedes the earlier limited standalone evidence claim; no hosted
+Laravel test result is inferred. Dual-protocol feature cases for the new
+lineage failures are authored but remain unexecuted. Full migration,
+concurrency, browser/native and real-source acceptance are outstanding.
