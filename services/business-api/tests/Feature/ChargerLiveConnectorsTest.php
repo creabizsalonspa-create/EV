@@ -92,7 +92,7 @@ class ChargerLiveConnectorsTest extends TestCase
         ];
     }
 
-    private function registeredFixture(string $protocol): array
+    private function registeredFixture(string $protocol, bool $reverseReceipt = false): array
     {
         $f = $this->fixture($protocol);
         $f['station']->update(['source' => 'direct_unverified']);
@@ -111,15 +111,16 @@ class ChargerLiveConnectorsTest extends TestCase
             $f['charger']->id, $f['station']->id, $identity, $protocol,
             $f['charger']->manufacturer, $f['charger']->model, $generation], JSON_THROW_ON_ERROR));
         $admin = User::factory()->create(['role' => 'admin']);
+        $offline = [
+            'id' => 42, 'tenantId' => 1, 'ocppConnectionName' => $identity,
+            'protocol' => 'ocpp'.$protocol, 'isOnline' => false,
+            'chargePointVendor' => $f['charger']->manufacturer, 'chargePointModel' => $f['charger']->model,
+        ];
         $f['receipt'] = DB::table('charger_source_registrations')->insertGetId([
             'charger_id' => $f['charger']->id, 'binding_id' => $binding->id, 'profile_id' => $profile->id,
             'actor_id' => $admin->id, 'idempotency_key' => 'direct-live-test', 'payload_hash' => $payload,
             'source_generation' => $generation, 'state' => 'registered', 'source_station_id' => 42,
-            'source_receipt_hash' => hash('sha256', json_encode([
-                'id' => 42, 'tenantId' => 1, 'ocppConnectionName' => $identity,
-                'protocol' => 'ocpp'.$protocol, 'isOnline' => false,
-                'chargePointVendor' => $f['charger']->manufacturer, 'chargePointModel' => $f['charger']->model,
-            ], JSON_THROW_ON_ERROR)), 'verified_at' => now(),
+            'source_receipt_hash' => hash('sha256', json_encode($reverseReceipt ? array_reverse($offline, true) : $offline, JSON_THROW_ON_ERROR)), 'verified_at' => now(),
             'attempted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
 
@@ -352,6 +353,20 @@ class ChargerLiveConnectorsTest extends TestCase
         DB::table('charger_source_registrations')->where('id', $f['receipt'])
             ->update(['source_receipt_hash' => $f['receipt_hash']]);
 
+        // A valid digest for the same offline values in another order is
+        // still not the immutable original receipt once reconciled.
+        $binding = DB::table('csms_bindings')->where('vendor_charger_id', $f['charger']->id)->first();
+        $replacement = hash('sha256', json_encode([
+            'chargePointModel' => $f['charger']->model,
+            'chargePointVendor' => $f['charger']->manufacturer,
+            'isOnline' => false, 'protocol' => 'ocpp'.$protocol,
+            'ocppConnectionName' => $binding->identifier, 'tenantId' => 1, 'id' => 42,
+        ], JSON_THROW_ON_ERROR));
+        DB::table('charger_source_registrations')->where('id', $f['receipt'])
+            ->update(['source_receipt_hash' => $replacement]);
+        $this->artisan('csms:reconcile-direct-registration', array_replace($command, ['--receipt' => $replacement]))->assertFailed();
+        DB::table('charger_source_registrations')->where('id', $f['receipt'])
+            ->update(['source_receipt_hash' => $f['receipt_hash']]);
         $this->assertDatabaseCount('direct_source_registration_epochs', 1);
         $this->artisan('csms:reconcile-direct-registration', $command)->assertSuccessful();
         $this->assertDatabaseCount('direct_source_registration_epochs', 2);
@@ -438,18 +453,8 @@ class ChargerLiveConnectorsTest extends TestCase
     #[DataProvider('directReviewProtocols')]
     public function test_operator_reconciliation_accepts_original_receipt_with_reordered_json_fields(string $protocol): void
     {
-        $f = $this->registeredFixture($protocol);
-        // The registration service historically retained the order of the
-        // upstream JSON object, not an independently canonicalized digest.
-        $binding = DB::table('csms_bindings')->where('vendor_charger_id', $f['charger']->id)->first();
-        $digest = hash('sha256', json_encode([
-            'chargePointModel' => $f['charger']->model,
-            'chargePointVendor' => $f['charger']->manufacturer,
-            'isOnline' => false, 'protocol' => 'ocpp'.$protocol,
-            'ocppConnectionName' => $binding->identifier, 'tenantId' => 1, 'id' => 42,
-        ], JSON_THROW_ON_ERROR));
-        DB::table('charger_source_registrations')->where('id', $f['receipt'])
-            ->update(['source_receipt_hash' => $digest]);
+        $f = $this->registeredFixture($protocol, true);
+        $digest = $f['receipt_hash'];
         config(['csms.registered_source_authority_epoch' => 2]);
         app(DirectSourceAuthority::class)->provision('test-reordered-receipt');
         $this->source($f);
