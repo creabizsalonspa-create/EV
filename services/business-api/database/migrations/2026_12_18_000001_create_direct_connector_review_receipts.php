@@ -17,10 +17,13 @@ return new class extends Migration
             $table->foreignId('actor_id')->constrained('users')->restrictOnDelete();
             $table->unsignedInteger('source_evse_number');
             $table->unsignedInteger('source_connector_number');
+            $table->unsignedBigInteger('source_connector_database_id');
+            $table->unsignedBigInteger('source_event_id');
             $table->char('registration_fingerprint', 64);
             $table->dateTime('source_observed_at', 6);
             $table->dateTime('reviewed_at', 6);
             $table->unique(['charger_id', 'source_evse_number', 'source_connector_number'], 'direct_connector_review_target_unique');
+            $table->unique(['registration_id', 'source_connector_database_id'], 'direct_connector_review_source_unique');
         });
     }
 
