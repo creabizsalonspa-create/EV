@@ -41,7 +41,7 @@ withCredentialsFixture(async (f) => {
     f.base + "/api/roaming-protocol/versions",
   );
   assert.equal(unauthenticated.status, 401);
-  const rotated = await protocol("PUT", f.local_token, {
+  const offered = {
     token: "SYNTHETIC-PEER-ROTATED",
     url: "https://partner.example/ocpi/versions",
     roles: [
@@ -52,7 +52,21 @@ withCredentialsFixture(async (f) => {
         business_details: { name: "Synthetic peer" },
       },
     ],
+  };
+  // Deterministic fixture transport rejects unknown token proof without DNS,
+  // without replacing the previous generation or logging the offered token.
+  const rejected = await protocol("PUT", f.local_token, {
+    ...offered,
+    token: "SYNTHETIC-UNPROVEN-PEER",
   });
+  assert.equal(rejected.status, 400);
+  assert.equal(rejected.body.status_code, 2000);
+  assert.equal(rejected.body.data, null);
+  assert.equal((await protocol("GET", f.local_token)).status, 200);
+  const unchanged = await client.request(path);
+  assert.equal(unchanged.generation, state.generation);
+  assert(!unchanged.operations.data.some(row => row.action === "peer_rotate"));
+  const rotated = await protocol("PUT", f.local_token, offered);
   assert.equal(rotated.status, 200);
   const newToken = rotated.body.data.token;
   assert.notEqual(newToken, f.local_token);
@@ -146,7 +160,7 @@ withCredentialsFixture(async (f) => {
   assert.equal(revoked.capability_matrix.credentials_current, false);
   assert(revoked.capability_matrix.modules.every((m) => m.local_sender_active === false));
   console.log(
-    "PASS: actual local protocol peer rotation/revocation and old-token denial; Admin EN/AR390px credential history, no tokens in UI, no external peer request or charging/billing action. Initial authority is explicitly synthetic.",
+    "PASS: actual local protocol peer rotation/revocation and old-token denial; Admin EN/AR390px credential history, no tokens in UI, refused proof preserves generation, valid proof uses isolated HTTP fake only; no external network or charging/billing action.",
   );
 }).catch(() => {
   console.error(

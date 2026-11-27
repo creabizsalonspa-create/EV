@@ -53,6 +53,42 @@ class StationAvailabilityBlockTest extends TestCase
         $this->assertSame(1, DB::table('audit_events')->where('action', 'station.availability_block.cancelled')->count());
     }
 
+    public function test_suspended_and_reauthenticated_owner_cannot_publish_or_cancel_retained_station_policy(): void
+    {
+        $this->freezeTime();
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($vendor);
+        $path = '/api/stations/'.$station->id.'/availability-blocks';
+        $this->actingAs($vendor);
+        $body = $this->details();
+
+        DB::table('users')->where('id', $vendor->id)->update(['account_status' => 'suspended']);
+        $this->postJson($path, $body)->assertForbidden();
+        $this->assertDatabaseCount('station_availability_blocks', 0);
+
+        DB::table('users')->where('id', $vendor->id)->update(['account_status' => 'active']);
+        DB::table('users')->where('id', $vendor->id)->increment('auth_epoch');
+        // The retained login cannot inherit newly issued credentials.
+        $this->postJson($path, $body)->assertConflict();
+        $vendor->refresh();
+        // A refreshed model is not a new login. Renew the browser session
+        // explicitly at the current epoch after invalidating the old guard.
+        $this->app['auth']->forgetGuards();
+        $this->actingAs($vendor, 'web')->withSession([
+            'account_auth_epoch' => (int) $vendor->auth_epoch,
+        ]);
+        $id = $this->postJson($path, $body)->assertCreated()->json('id');
+        $this->assertNotEmpty($id);
+
+        DB::table('users')->where('id', $vendor->id)->update(['account_status' => 'suspended']);
+        $this->postJson($path.'/'.$id.'/cancel', ['revision' => 1])->assertForbidden();
+        $this->assertDatabaseHas('station_availability_blocks', [
+            'id' => $id, 'revision' => 1, 'cancelled_at' => null,
+        ]);
+        $this->assertSame(0, DB::table('audit_events')->where('action', 'station.availability_block.cancelled')->count());
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_half_open_blocks_apply_even_without_published_hours_and_cancel_reopens_admission(): void
     {
         $this->freezeTime();
