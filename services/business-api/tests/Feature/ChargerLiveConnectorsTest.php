@@ -19,6 +19,7 @@ use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -112,6 +113,7 @@ class ChargerLiveConnectorsTest extends TestCase
             'source_receipt_hash' => hash('sha256', 'synthetic-registered-source'), 'verified_at' => now(),
             'attempted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
+
         return $f;
     }
 
@@ -124,10 +126,11 @@ class ChargerLiveConnectorsTest extends TestCase
                 $cases[] = [$protocol, $case];
             }
         }
+
         return $cases;
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('directSourceCases')]
+    #[DataProvider('directSourceCases')]
     public function test_registered_direct_source_inspection_is_scoped_tls_read_only_and_never_a_mapping(string $protocol, string $case): void
     {
         $f = $this->registeredFixture($protocol);
