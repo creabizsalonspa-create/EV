@@ -1063,8 +1063,15 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             return card;
         }
         const say = (en, ar) => feedback.replaceChildren(t("span", en, ar));
+        let couponBusy = false;
         function couponButton(parent, en, ar, action, operation = "read") {
             return button(parent, en, ar, async () => {
+                // Claim, cancellation and receipt recovery share a single
+                // draft. Serialize all controls in this mounted workspace,
+                // not only repeated clicks on an individual button.
+                if (couponBusy || !alive()) return;
+                couponBusy = true;
+                panel.setAttribute("aria-busy", "true");
                 feedback.replaceChildren();
                 try {
                     await action();
@@ -1074,15 +1081,33 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                         records.replaceChildren();
                         say("Could not load coupons. Please retry.", "تعذر تحميل القسائم. أعد المحاولة.");
                     } else if ([404, 409, 422].includes(error.status)) {
-                        if (operation === "draft") savePending(undefined);
+                        if (operation === "draft" && role === "admin") savePending(undefined);
                         say("Coupon request declined. Check the code, dates and limits.",
                             "رُفض طلب القسيمة. تحقق من الرمز والتواريخ والحدود.");
                     } else {
                         say("Coupon request could not be confirmed. Check the receipt or retry the same request.",
                             "تعذر تأكيد طلب القسيمة. تحقق من الإيصال أو أعد الطلب نفسه.");
                     }
+                } finally {
+                    couponBusy = false;
+                    if (alive()) panel.removeAttribute("aria-busy");
                 }
             });
+        }
+        async function showClaim(result, saved) {
+            const receipt = receiptCard(result?.claim);
+            const row = result.claim;
+            if (saved.coupon !== undefined && row.coupon_id !== saved.coupon)
+                throw Error("Coupon receipt identity changed");
+            if (saved.codeHash) {
+                const request = await digest("coupon-claim:" + owner + ":" + saved.idempotency_key);
+                if (row.request_binding !== await digest(saved.codeHash + ":" + request))
+                    throw Error("Coupon receipt binding changed");
+            }
+            if (!alive() || readPending()?.idempotency_key !== saved.idempotency_key) return;
+            savePending(undefined);
+            code.value = "";
+            records.replaceChildren(receipt);
         }
         async function refresh(number = 1) {
             const result = await couponRequest((role === "admin" ? "" : "/claims") + "?page=" + number);
@@ -1183,21 +1208,6 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                 );
                 return value.enabled;
             }
-            async function showClaim(result, saved) {
-                const receipt = receiptCard(result?.claim);
-                const row = result.claim;
-                if (saved.coupon !== undefined && row.coupon_id !== saved.coupon)
-                    throw Error("Coupon receipt identity changed");
-                if (saved.codeHash) {
-                    const request = await digest("coupon-claim:" + owner + ":" + saved.idempotency_key);
-                    if (row.request_binding !== await digest(saved.codeHash + ":" + request))
-                        throw Error("Coupon receipt binding changed");
-                }
-                if (!alive()) return;
-                savePending(undefined);
-                code.value = "";
-                records.replaceChildren(receipt);
-            }
             function resolveFirst() {
                 say("Check the previous claim receipt or clear the coupon draft.",
                     "تحقق من إيصال المطالبة السابقة أو امسح مسودة القسيمة.");
@@ -1268,10 +1278,49 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         function validCode() {
             return /^[A-Z0-9-]{12,40}$/.test(code.value.trim().toUpperCase());
         }
-        couponButton(panel, "Clear coupon draft", "مسح مسودة القسيمة", () => {
-            savePending(undefined);
-            code.value = "";
-        });
+        couponButton(panel, "Clear coupon draft", "مسح مسودة القسيمة", async () => {
+            if (role === "admin") {
+                savePending(undefined);
+                code.value = "";
+                return;
+            }
+            const saved = readPending();
+            if (!saved) {
+                code.value = "";
+                return;
+            }
+            const same = () => alive() && readPending()?.idempotency_key === saved.idempotency_key;
+            const entered = code.value.trim().toUpperCase();
+            if (saved.codeHash && (!validCode() || await digest(entered) !== saved.codeHash)) {
+                say("Re-enter the original code to cancel the saved claim.",
+                    "أعد إدخال الرمز الأصلي لإلغاء المطالبة المحفوظة.");
+                return;
+            }
+            if (!same()) return;
+            const request = await digest("coupon-claim:" + owner + ":" + saved.idempotency_key);
+            const binding = await digest(saved.coupon === undefined
+                ? saved.codeHash + ":" + request
+                : "coupon-cancel-v1:" + saved.coupon + ":" + request);
+            if (!same()) return;
+            const result = await couponRequest("/claim-intents/cancel", "POST", {
+                idempotency_key: saved.idempotency_key,
+                ...(saved.coupon === undefined ? { code: entered } : { coupon_id: saved.coupon }),
+            });
+            if (!same()) return;
+            if (result?.request_binding !== binding ||
+                (saved.coupon !== undefined && result.coupon_id !== saved.coupon))
+                throw Error("Invalid cancellation binding");
+            if (result.state === "accepted") {
+                await showClaim(result, saved);
+            } else if (result.state === "cancelled" && result.claim === null) {
+                savePending(undefined);
+                code.value = "";
+                records.replaceChildren();
+                say("Saved claim cancelled by the server.", "ألغى الخادم المطالبة المحفوظة.");
+            } else {
+                throw Error("Invalid cancellation state");
+            }
+        }, "receipt");
         couponButton(panel, "Refresh coupons", "تحديث القسائم", () => refresh());
         panel.append(records);
         container.append(panel);

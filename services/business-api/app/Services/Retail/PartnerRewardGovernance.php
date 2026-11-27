@@ -85,14 +85,39 @@ final class PartnerRewardGovernance
         }, 3);
     }
 
-    public function history(User $actor, int $partner, int $review): array
+    public function history(User $actor, int $partner, int $review, int $claimsPage = 1): array
     {
-        return DB::transaction(function () use ($actor, $partner, $review) {
+        return DB::transaction(function () use ($actor, $partner, $review, $claimsPage) {
             AdminTransactionAuthority::requireCurrent($actor);
             DB::table('retail_partners')->where('id', $partner)->lockForUpdate()->firstOrFail();
             $row = $this->forPartner($partner, $review);
 
+            $claims = DB::table('partner_reward_claims as claim')
+                ->leftJoin('loyalty_redemptions as redemption', 'redemption.id', '=', 'claim.redemption_id')
+                ->leftJoin('partner_reward_review_events as approval', 'approval.id', '=', 'claim.approval_event_id')
+                ->where('claim.review_id', $review)->orderByDesc('claim.id')
+                ->paginate(25, [
+                    'claim.id', 'claim.review_id', 'claim.redemption_id', 'claim.approval_event_id',
+                    'claim.created_at', 'claim.user_id', 'redemption.user_id as redemption_user_id',
+                    'redemption.reward_id', 'redemption.points_cost', 'redemption.status',
+                    'approval.review_id as approval_review_id', 'approval.decision as approval_decision',
+                ], 'claims_page', $claimsPage)->through(function ($claim) use ($row, $review) {
+                    abort_unless((int) $claim->review_id === $review
+                        && $claim->redemption_user_id !== null && (int) $claim->user_id === (int) $claim->redemption_user_id
+                        && (int) $claim->reward_id === (int) $row->reward_id
+                        && $claim->points_cost !== null && (string) $claim->points_cost === '0'
+                        && (int) $claim->approval_review_id === $review && $claim->approval_decision === 'approve'
+                        && in_array($claim->status, ['pending', 'fulfilled', 'rejected'], true), 409, 'Partner claim evidence is inconsistent.');
+
+                    return [
+                        'id' => (int) $claim->id, 'review_id' => $review,
+                        'redemption_id' => (int) $claim->redemption_id, 'approval_event_id' => (int) $claim->approval_event_id,
+                        'created_at' => $claim->created_at, 'status' => $claim->status,
+                    ] + $this->sandboxEvidence();
+                });
+
             return [
+                'claims' => $claims,
                 'review' => $this->projection($row, $this->registry->read($partner)),
                 'events' => DB::table('partner_reward_review_events')->where('review_id', $review)
                     ->orderByDesc('revision')->paginate(25, ['actor_id', 'decision', 'reason', 'revision', 'created_at']),
@@ -105,12 +130,14 @@ final class PartnerRewardGovernance
         return DB::table('partner_reward_reviews')->where('partner_id', $partner)->where('id', $review)->firstOrFail();
     }
 
-    public function sandboxOffers()
+    public function sandboxOffers(int $user, array $account, int $page)
     {
         abort_unless(app(NoncashActivation::class)->legacyPointsEnabled(), 503, 'Synthetic partner rewards are disabled.');
         $now = now()->utc();
+        $today = DB::table('loyalty_redemptions')->where('user_id', $user)
+            ->where('created_at', '>=', $now->copy()->startOfDay())->count();
 
-        return DB::table('partner_reward_reviews as pr')
+        $query = DB::table('partner_reward_reviews as pr')
             ->join('partner_reward_review_events as decision', 'decision.review_id', '=', 'pr.id')
             ->join('retail_partner_events as terms', 'terms.partner_id', '=', 'pr.partner_id')
             ->join('retail_partner_versions as version', 'version.id', '=', 'pr.partner_version_id')
@@ -123,15 +150,45 @@ final class PartnerRewardGovernance
             ->whereColumn('reward.currency', 'regions.currency')
             ->where('version.effective_from', '<=', $now)->where('version.expires_at', '>', $now)
             ->where('reward.starts_at', '<=', $now)->where('reward.ends_at', '>', $now)
+            ->whereColumn('reward.starts_at', '>=', 'version.effective_from')
+            ->whereColumn('reward.ends_at', '<=', 'version.expires_at')
             ->whereNotExists(fn ($query) => $query->from('partner_reward_review_events as later')
                 ->whereColumn('later.review_id', 'decision.review_id')->whereColumn('later.revision', '>', 'decision.revision'))
             ->whereNotExists(fn ($query) => $query->from('retail_partner_events as later')
-                ->whereColumn('later.partner_id', 'terms.partner_id')->whereColumn('later.revision', '>', 'terms.revision'))
+                ->whereColumn('later.partner_id', 'terms.partner_id')->whereColumn('later.revision', '>', 'terms.revision'));
+
+        // Discovery is a current member-specific projection, not a reservation.
+        // Apply the same inventory, policy and projected-debt gates as the
+        // existing canonical claim before pagination. Claim rechecks under locks.
+        foreach ([false, true] as $personal) {
+            $query->where(function ($count) use ($personal, $user) {
+                $count->from('loyalty_redemptions')->selectRaw('count(*)')
+                    ->whereColumn('reward_id', 'reward.id')->whereIn('status', ['pending', 'fulfilled']);
+                if ($personal) {
+                    $count->where('user_id', $user);
+                }
+            }, '<', DB::raw($personal ? 'reward.per_user_limit' : 'reward.stock'));
+        }
+        $query->where(function ($policy) use ($now) {
+            $policy->from('loyalty_policies')->select('daily_redemption_limit')
+                ->whereColumn('currency', 'reward.currency')->where('effective_from', '<=', $now)
+                ->orderByDesc('effective_from')->orderByDesc('id')->limit(1);
+        }, '>', $today);
+        $query->where(function ($policy) use ($now) {
+            $policy->from('loyalty_policies')->select('enabled')
+                ->whereColumn('currency', 'reward.currency')->where('effective_from', '<=', $now)
+                ->orderByDesc('effective_from')->orderByDesc('id')->limit(1);
+        }, '=', true);
+        if ($account['redemption_hold'] || $account['balance_points'] < $account['pending_reconciliation_points']) {
+            $query->whereRaw('1 = 0');
+        }
+
+        return $query
             ->orderByDesc('pr.id')->paginate(25, [
                 'pr.id as review_id', 'version.display_name as partner_name', 'version.display_name_ar as partner_name_ar',
                 'reward.name', 'reward.name_ar', 'reward.description', 'reward.description_ar', 'reward.currency',
                 'reward.starts_at', 'reward.ends_at',
-            ])->through(fn ($row) => (array) $row + $this->sandboxEvidence());
+            ], 'page', $page)->through(fn ($row) => (array) $row + $this->sandboxEvidence());
     }
 
     public function lockEligibleSandboxReview(int $review, ?int $approvalEvent = null): array
