@@ -117,6 +117,13 @@ class FinanceController extends Controller
 
                     return response()->json($old, 201);
                 }
+                // Do not let an unreviewed future full-rate version undo
+                // a newly published price, tax or commission. Apply this
+                // even if scheduling is subsequently disabled; existing
+                // future immutable records do not vanish with a flag.
+                abort_if(TariffVersion::where('station_id', $station->id)
+                    ->where('effective_from', '>', now())->exists(), 409,
+                    'A future tariff is scheduled; review or correct it before immediate publication.');
                 $region = DB::table('regions')->where('country', $station->country)->where('currency', $station->currency)->lockForUpdate()->first();
                 abort_unless($region, 409, 'Configure the matching region/currency first.');
                 abort_if(($expectedUnits !== null && $expectedUnits !== (int) $region->minor_units) || ($expectedCurrency !== null && $expectedCurrency !== $station->currency), 409, 'Pricing currency or precision changed; refresh the station.');
