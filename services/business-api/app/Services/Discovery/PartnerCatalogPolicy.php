@@ -21,8 +21,8 @@ final class PartnerCatalogPolicy
     public static function present(OcpiRecord $record, CarbonInterface $checked): array
     {
         $limit = self::maxAge();
-        $source = $record->source_updated_at;
-        $receipt = $record->received_at;
+        $source = PartnerCatalogAge::storedInstant($record, 'source_updated_at');
+        $receipt = PartnerCatalogAge::storedInstant($record, 'received_at');
         $state = 'unknown';
         if ($limit === null) {
             $state = 'policy_unavailable';
