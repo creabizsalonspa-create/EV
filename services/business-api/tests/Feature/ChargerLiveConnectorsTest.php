@@ -14,6 +14,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\DirectSourceAuthority;
 use App\Services\Charging\RemoteSessionAuthorization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
@@ -95,7 +96,9 @@ class ChargerLiveConnectorsTest extends TestCase
         $f = $this->fixture($protocol);
         $f['station']->update(['source' => 'direct_unverified']);
         $f['charger']->update(['source' => 'direct_unverified']);
-        config(['csms.registered_live_monitoring_enabled' => true, 'csms.session_bridge_enabled' => false]);
+        config(['csms.registered_live_monitoring_enabled' => true, 'csms.session_bridge_enabled' => false,
+            'csms.registered_source_authority_epoch' => 1]);
+        app(DirectSourceAuthority::class)->provision('test-direct-source');
         DB::table('charging_connector_mappings')->where('station_id', $f['station']->id)->delete();
         Evse::where('charger_id', $f['charger']->id)->delete();
         $binding = DB::table('csms_bindings')->where('vendor_charger_id', $f['charger']->id)->first();
@@ -257,6 +260,34 @@ class ChargerLiveConnectorsTest extends TestCase
         $this->assertDatabaseCount('charging_connector_mappings', 0);
         $this->assertDatabaseCount('charger_commands', 0);
         Http::assertNotSent(fn ($request) => str_contains($request['query'], 'mutation'));
+    }
+
+    #[DataProvider('directReviewProtocols')]
+    public function test_direct_authority_rotation_rejects_old_epoch_and_invalidates_review_receipt(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol);
+        $connector = VendorConnector::where('charger_id', $f['charger']->id)->firstOrFail();
+        $path = str_replace('/live-connectors', '/direct-connector-reviews', $f['url']);
+        $body = ['connector_id' => $connector->id, 'source_evse_number' => $protocol === '1.6' ? 0 : 1,
+            'source_connector_number' => 1];
+        $this->source($f);
+        $this->actingAs($f['owner'])->postJson($path, $body)->assertCreated();
+        config(['csms.registered_source_authority_epoch' => 2]);
+        $this->source($f);
+        $this->getJson($f['url'])->assertConflict();
+        Http::assertNothingSent();
+        $this->artisan('csms:provision-direct-source-authority', ['--ticket' => 'TEST-ROTATION'])->assertSuccessful();
+        $this->getJson($path)->assertOk()->assertJsonPath('data.0.current_registration_matches', false);
+        $this->postJson($path, $body)->assertConflict();
+        config(['csms.registered_source_authority_epoch' => 1]);
+        $this->source($f);
+        $this->getJson($f['url'])->assertConflict();
+        $this->artisan('csms:provision-direct-source-authority', ['--ticket' => 'TEST-ROLLBACK'])->assertFailed();
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('direct_source_authority_epochs', 2);
+        $this->assertDatabaseCount('direct_connector_review_receipts', 1);
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
     }
 
     public static function directSourceCases(): array
