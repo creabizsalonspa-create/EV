@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'reservation_times.dart';
 import 'vendor_finance.dart' show nativeFinancialAmount;
 
 String providerDisputeText(BuildContext context, String en, String ar) =>
@@ -10,15 +11,41 @@ bool _providerId(dynamic id) => id is int && id > 0 && id <= 9007199254740991;
 
 // These tokens mirror ExternalDisputes::apply, webhook and reconcile.
 const _disputeStatuses = {
-  'warning_needs_response', 'warning_under_review', 'warning_closed',
-  'needs_response', 'under_review', 'won', 'lost',
+  'warning_needs_response': ['Warning: response required', 'تحذير: مطلوب رد'],
+  'warning_under_review': ['Warning: under review', 'تحذير: قيد المراجعة'],
+  'warning_closed': ['Warning closed', 'تم إغلاق التحذير'],
+  'needs_response': ['Response required', 'مطلوب رد'],
+  'under_review': ['Under review', 'قيد المراجعة'],
+  'won': ['Won', 'تم كسب النزاع'],
+  'lost': ['Lost', 'تم خسارة النزاع'],
 };
 const _providerEvents = {
-  'charge.dispute.created', 'charge.dispute.updated', 'charge.dispute.closed',
-  'charge.dispute.funds_withdrawn', 'charge.dispute.funds_reinstated',
-  'provider.inspect',
+  'charge.dispute.created': ['Dispute created', 'تم إنشاء النزاع'],
+  'charge.dispute.updated': ['Dispute updated', 'تم تحديث النزاع'],
+  'charge.dispute.closed': ['Dispute closed', 'تم إغلاق النزاع'],
+  'charge.dispute.funds_withdrawn': ['Provider reported funds withdrawn', 'أفاد المزود بسحب الأموال'],
+  'charge.dispute.funds_reinstated': ['Provider reported funds reinstated', 'أفاد المزود بإعادة الأموال'],
+  'provider.inspect': ['Provider inspection', 'فحص المزود'],
 };
-const _operationStatuses = {'sending', 'uncertain', 'confirmed'};
+const _operationStatuses = {
+  'sending': ['Sending', 'جارٍ الإرسال'],
+  'uncertain': ['Uncertain', 'غير مؤكد'],
+  'confirmed': ['Confirmed', 'مؤكد'],
+};
+
+String _receiptLabel(BuildContext context, Map<String, List<String>> labels, dynamic token) {
+  final text = labels[token];
+  return text == null
+      ? providerDisputeText(context, 'Unknown', 'غير معروف')
+      : providerDisputeText(context, text[0], text[1]);
+}
+
+String _receiptClock(BuildContext context, dynamic raw) {
+  final value = reservationTime(context, {'instant': raw}, 'instant');
+  return value == '—'
+      ? providerDisputeText(context, 'Event time unavailable', 'وقت الحدث غير متاح')
+      : value;
+}
 
 /// Provider receipts remain distinct from internal complaints and ledger entries.
 Map<String, dynamic> providerDispute(dynamic value, {int? expectedId}) {
@@ -32,7 +59,7 @@ Map<String, dynamic> providerDispute(dynamic value, {int? expectedId}) {
       row['settlement_hold'] is! bool ||
       row['deadline_passed'] is! bool ||
       row['requires_financial_resolution'] is! bool ||
-      !_disputeStatuses.contains(row['status']) ||
+      !_disputeStatuses.containsKey(row['status']) ||
       row.containsKey('provider_reference') ||
       row.containsKey('charge_reference')) {
     throw const FormatException('Unsupported provider dispute receipt.');
@@ -205,22 +232,22 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
         }
         receipt['history'] = events.map((event) {
           if (event is! Map ||
-              !_providerEvents.contains(event['type']) ||
-              !_disputeStatuses.contains(event['status']) ||
+              !_providerEvents.containsKey(event['type']) ||
+              !_disputeStatuses.containsKey(event['status']) ||
               event['created_at'] is! String) {
             throw const FormatException('Invalid provider history.');
           }
-          return '${event['created_at']} UTC — ${event['type']}: ${event['status']}';
+          return {'created_at': event['created_at'], 'type': event['type'], 'status': event['status']};
         }).toList();
         receipt['submissions'] = operations.map((operation) {
           if (operation is! Map ||
-              !_operationStatuses.contains(operation['status']) ||
+              !_operationStatuses.containsKey(operation['status']) ||
               !(operation['submit'] is bool ||
                   operation['submit'] == 0 ||
                   operation['submit'] == 1)) {
             throw const FormatException('Invalid evidence receipt.');
           }
-          return '${operation['status']} — ${operation['retry_until'] ?? ''}';
+          return {'status': operation['status'], 'retry_until': operation['retry_until']};
         }).toList();
       }
       if (mounted && foreground && fence() && identical(source, widget.api) && request == generation) {
@@ -261,13 +288,13 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('${t('Invoice', 'الفاتورة')} #${row['invoice_id']}'),
-          Text('${t('Provider status', 'حالة المزود')}: ${row['status']}'),
+          Text('${t('Provider status', 'حالة المزود')}: ${_receiptLabel(context, _disputeStatuses, row['status'])}'),
           if (row['amount_minor'] is int && row['minor_units'] is int)
             Text(nativeFinancialAmount(context, row, 'amount_minor')),
           if (expanded) ...[
             Text(t('Provider event history (UTC)', 'سجل أحداث المزود (UTC)')),
             for (final event in (row['history'] as List? ?? const []))
-              Text(event as String),
+              Text('${_receiptClock(context, event['created_at'])} — ${_receiptLabel(context, _providerEvents, event['type'])}: ${_receiptLabel(context, _disputeStatuses, event['status'])}'),
             if ((row['submissions'] as List? ?? const []).isNotEmpty)
               Text(
                 t(
@@ -276,11 +303,11 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
                 ),
               ),
             for (final operation in (row['submissions'] as List? ?? const []))
-              Text(operation as String),
+              Text('${_receiptLabel(context, _operationStatuses, operation['status'])} — ${_receiptClock(context, operation['retry_until'])}'),
           ],
           if (row['evidence_due_at'] != null)
             Text(
-              '${t('Evidence deadline (UTC)', 'الموعد النهائي للأدلة (UTC)')}: ${row['evidence_due_at']}',
+              '${t('Evidence deadline (UTC)', 'الموعد النهائي للأدلة (UTC)')}: ${_receiptClock(context, row['evidence_due_at'])}',
             ),
           if (row['deadline_passed'] == true)
             Text(t('Evidence deadline passed', 'انتهى الموعد النهائي للأدلة')),
