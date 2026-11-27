@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\CsmsGraphqlTransport;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SourceStatusTime;
 use Closure;
@@ -114,6 +115,7 @@ final class ChargerLiveConnectorsController extends Controller
             return $result;
         };
         $binding = $guard->scope($r, $company, $charger);
+        app(MaintenanceActor::class)->checkBearer($r->user());
         $local = $this->inventory($binding, $charger);
         $station = $this->sourceStation($graph, $binding, $charger);
 
@@ -223,6 +225,7 @@ final class ChargerLiveConnectorsController extends Controller
             $this->inventory($fresh, VendorCharger::findOrFail($charger->id)) === $local,
             409, 'Owned local connector topology changed during inspection.');
 
+        app(MaintenanceActor::class)->checkBearer($r->user());
         $localTargets = array_fill_keys(array_column($local, 'target'), true);
         $sourceTopologyMatches = count($local) === count($known) &&
             count($sourceTargets) === count($known) &&
