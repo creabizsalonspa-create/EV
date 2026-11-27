@@ -1,5 +1,77 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
+
+Map<String, dynamic> verifyFleetReport(dynamic raw, int fleetId, Map<String, String> filters) {
+  bool count(dynamic v) => v is int && v >= 0 && v <= 9007199254740991;
+  if (!count(fleetId) || fleetId == 0 || raw is! Map ||
+      raw['basis'] != 'approved_claims_submitted_in_period' ||
+      raw['physical_charging_verified'] != false || raw['fleet'] is! Map ||
+      !count(raw['fleet']['id']) || raw['fleet']['id'] != fleetId ||
+      raw['fleet']['name'] is! String ||
+      raw['period'] is! Map || raw['period']['from'] != filters['from'] ||
+      raw['period']['through'] != filters['through'] ||
+      (filters.containsKey('cost_center_id') &&
+        (!count(raw['period']['cost_center_id']) ||
+          raw['period']['cost_center_id'] == 0 ||
+          raw['period']['cost_center_id'] != int.tryParse(filters['cost_center_id']!))) ||
+      (!filters.containsKey('cost_center_id') && raw['period']['cost_center_id'] != null) ||
+      raw['period']['timezone'] is! String || raw['as_of'] is! String ||
+      DateTime.tryParse(raw['as_of']) == null || raw['current_inventory'] is! Map ||
+      !['active_members','invited_members','assigned_vehicles','cost_centers'].every(
+        (key) => count(raw['current_inventory'][key])) ||
+      !count(raw['approved_claims']) || raw['approved_claims'] > 2500 ||
+      raw['groups'] is! List || raw['groups'].length > 2500) {
+    throw const FormatException('Invalid fleet report scope.');
+  }
+  final keys = <(int,String,String,String,int)>{};
+  var claims = 0;
+  for (final g in raw['groups']) {
+    if (g is! Map || !count(g['cost_center_id']) || g['cost_center_id'] == 0 ||
+        (filters.containsKey('cost_center_id') &&
+          g['cost_center_id'] != int.tryParse(filters['cost_center_id']!)) ||
+        g['code'] is! String || g['name'] is! String || g['currency'] is! String ||
+        !RegExp(r'^[A-Z]{3}$').hasMatch(g['currency']) ||
+        g['minor_units'] is! int || g['minor_units'] < 0 || g['minor_units'] > 3 ||
+        g['amount_minor'] is! String || !RegExp(r'^(0|[1-9][0-9]{0,22})$').hasMatch(g['amount_minor']) ||
+        !count(g['claims']) || g['claims'] == 0 ||
+        g['claims'] > raw['approved_claims'] - claims ||
+        !keys.add((g['cost_center_id'],g['code'],g['name'],g['currency'],g['minor_units']))) {
+      throw const FormatException('Invalid fleet report group.');
+    }
+    claims += g['claims'] as int;
+  }
+  if (claims != raw['approved_claims']) throw const FormatException('Invalid fleet report total.');
+  // Only retain the validated fields consumed by the report and its CSV.
+  // Transport maps may be mutable and may include unrelated private fields.
+  final fleet = raw['fleet'] as Map;
+  final period = raw['period'] as Map;
+  final inventory = raw['current_inventory'] as Map;
+  return Map<String, dynamic>.unmodifiable({
+    'as_of': raw['as_of'],
+    'fleet': Map<String, dynamic>.unmodifiable({
+      'id': fleet['id'], 'name': fleet['name'],
+    }),
+    'basis': raw['basis'],
+    'physical_charging_verified': false,
+    'period': Map<String, dynamic>.unmodifiable({
+      for (final k in ['from', 'through', 'timezone', 'cost_center_id'])
+        k: period[k],
+    }),
+    'current_inventory': Map<String, dynamic>.unmodifiable({
+      for (final k in ['active_members', 'invited_members', 'assigned_vehicles', 'cost_centers'])
+        k: inventory[k],
+    }),
+    'approved_claims': raw['approved_claims'],
+    'groups': List<Map<String, dynamic>>.unmodifiable([
+      for (final g in raw['groups'] as List)
+        Map<String, dynamic>.unmodifiable({
+          for (final k in ['cost_center_id', 'code', 'name', 'currency', 'minor_units', 'claims', 'amount_minor'])
+            k: g[k],
+        }),
+    ]),
+  });
+}
 
 class FleetReportView extends StatefulWidget {
   final EvApi api;
@@ -21,6 +93,19 @@ class _FleetReportState extends State<FleetReportView>
       through = TextEditingController(),
       center = TextEditingController();
   late bool Function() authorized;
+  StreamSubscription<int>? sessionEvents;
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (!mounted || !identical(api, widget.api)) return;
+      setState(() {
+        clear();
+        // Do not silently authorize a former fleet screen for a new account.
+        authorized = () => false;
+      });
+    });
+  }
+
   Map<String, dynamic>? report;
   int generation = 0;
   bool busy = false, foreground = true, csv = false;
@@ -41,6 +126,9 @@ class _FleetReportState extends State<FleetReportView>
   void initState() {
     super.initState();
     authorized = widget.api.sessionFence();
+    observe(widget.api);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     final today = DateTime.now().toUtc().toIso8601String().substring(0, 10);
     from.text = '${today.substring(0, 8)}01';
@@ -52,6 +140,7 @@ class _FleetReportState extends State<FleetReportView>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.api != widget.api || oldWidget.fleetId != widget.fleetId) {
       clear();
+      if (!identical(oldWidget.api, widget.api)) observe(widget.api);
       authorized = widget.api.sessionFence();
     }
   }
@@ -59,12 +148,14 @@ class _FleetReportState extends State<FleetReportView>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     foreground = state == AppLifecycleState.resumed;
-    if (mounted && !foreground) setState(clear);
+    if (mounted) setState(() { if (!foreground) clear(); });
   }
 
   Future<void> load() async {
-    if (!foreground || !authorized()) return;
+    if (busy || !foreground || !authorized()) return;
     final n = ++generation;
+    final api = widget.api;
+    final fleetId = widget.fleetId;
     setState(() {
       report = null;
       csv = false;
@@ -77,16 +168,20 @@ class _FleetReportState extends State<FleetReportView>
       if (center.text.trim().isNotEmpty) 'cost_center_id': center.text.trim(),
     };
     try {
-      final data = await widget.api.request(
-        'fleets/${widget.fleetId}/report',
+      final data = await api.request(
+        'fleets/$fleetId/report',
         query: filters,
       );
-      if (current(n)) setState(() => report = Map<String, dynamic>.from(data));
-    } catch (e) {
       if (current(n)) {
-        if (e is ApiException && [401, 419].contains(e.status))
-          widget.onExpired();
-        if (current(n))
+        final verified = verifyFleetReport(data, fleetId, filters);
+        setState(() => report = verified);
+      }
+    } catch (e) {
+      if (mounted && identical(api, widget.api) && e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+        return;
+      }
+      if (current(n)) {
           setState(
             () => error = t(
               'Report unavailable. Check dates, access and cost center.',
@@ -115,7 +210,7 @@ class _FleetReportState extends State<FleetReportView>
   String export(Map d) {
     String cell(Object? v) {
       final s = '$v';
-      return '"${RegExp(r'^[\s\uFEFF]*[=+@-]').hasMatch(s) ? "'" : ''}${s.replaceAll('"', '""')}"';
+      return '"${RegExp(r'^[\p{Z}\p{Cc}\p{Cf}]*[=+@-]', unicode: true).hasMatch(s) ? "'" : ''}${s.replaceAll('"', '""')}"';
     }
 
     final p = d['period'] as Map;
@@ -189,15 +284,16 @@ class _FleetReportState extends State<FleetReportView>
           ])
             TextField(
               controller: pair.$1,
-              enabled: !busy,
+              enabled: !busy && foreground && authorized(),
+              onChanged: (_) => setState(clear),
               decoration: InputDecoration(labelText: pair.$2),
             ),
           FilledButton(
-            onPressed: busy ? null : load,
+            onPressed: busy || !foreground || !authorized() ? null : load,
             child: Text(t('Read report', 'قراءة التقرير')),
           ),
           if (busy) const LinearProgressIndicator(),
-          if (error != null) Text(error!),
+          if (error != null && foreground && authorized()) Text(error!),
           if (d != null) ...[
             Text('${d['fleet']['name']}'),
             Text(
@@ -216,7 +312,10 @@ class _FleetReportState extends State<FleetReportView>
                 '${g['code']} · ${g['name']} · ${g['currency']} ${amount(g)} · ${g['claims']}',
               ),
             TextButton(
-              onPressed: () => setState(() => csv = !csv),
+              onPressed: () {
+                if (!foreground || !authorized() || !identical(report, d)) return;
+                setState(() => csv = !csv);
+              },
               child: Text(
                 t('View private CSV snapshot', 'عرض لقطة CSV الخاصة'),
               ),
@@ -231,6 +330,7 @@ class _FleetReportState extends State<FleetReportView>
 
   @override
   void dispose() {
+    sessionEvents?.cancel();
     generation++;
     WidgetsBinding.instance.removeObserver(this);
     from.dispose();

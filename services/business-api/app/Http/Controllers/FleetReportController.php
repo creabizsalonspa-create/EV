@@ -150,7 +150,7 @@ final class FleetReportController extends Controller
         }
         $file = fopen('php://temp', 'w+');
         $write = static function (array $cells) use ($file): void {
-            fputcsv($file, array_map(static fn ($v) => preg_match('/^[\s\x{FEFF}]*[=+@-]/u', (string) $v) ? "'".$v : (string) $v, $cells), ',', '"', '');
+            fputcsv($file, array_map(static fn ($v) => preg_match('/^[\p{Z}\p{Cc}\p{Cf}]*[=+@-]/u', (string) $v) ? "'".$v : (string) $v, $cells), ',', '"', '');
         };
         $write(['Fleet report', $data['fleet']['name'], $data['as_of']]);
         $write(['Approved claims submitted from', $data['period']['from'], 'through', $data['period']['through'], $data['period']['timezone']]);

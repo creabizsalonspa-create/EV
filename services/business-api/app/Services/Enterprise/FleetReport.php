@@ -31,6 +31,17 @@ final class FleetReport
         abort_if($claims->count() > 2500, 422, 'Report exceeds 2500 claims. Select a shorter period or cost center.');
         $groups = [];
         foreach ($claims as $claim) {
+            // Reject malformed database values before string/integer conversion.
+            abort_unless((is_int($claim->cost_center_id) || is_string($claim->cost_center_id))
+                && preg_match('/\A[1-9][0-9]{0,15}\z/', (string) $claim->cost_center_id) === 1
+                && (int) $claim->cost_center_id <= 9007199254740991
+                && (is_int($claim->minor_units) || is_string($claim->minor_units))
+                && preg_match('/\A[0-3]\z/', (string) $claim->minor_units) === 1
+                && (is_int($claim->amount_minor) || is_string($claim->amount_minor))
+                && preg_match('/\A(?:0|[1-9][0-9]{0,18})\z/', (string) $claim->amount_minor) === 1
+                && is_string($claim->currency) && preg_match('/\A[A-Z]{3}\z/', $claim->currency) === 1
+                && is_string($claim->cost_center_code) && is_string($claim->cost_center_name),
+                409, 'Invalid recorded fleet claim source.');
             // Historic cost-center snapshots and precision form separate groups.
             $key = json_encode([$claim->cost_center_id, $claim->cost_center_code, $claim->cost_center_name, $claim->currency, $claim->minor_units], JSON_THROW_ON_ERROR);
             $groups[$key] ??= ['cost_center_id' => (int) $claim->cost_center_id, 'code' => $claim->cost_center_code, 'name' => $claim->cost_center_name, 'currency' => $claim->currency, 'minor_units' => (int) $claim->minor_units, 'claims' => 0, 'amount_minor' => '0'];
