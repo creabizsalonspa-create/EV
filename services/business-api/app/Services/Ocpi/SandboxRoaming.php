@@ -16,12 +16,38 @@ class SandboxRoaming
 {
     public const TERMS = 'sandbox-roaming-v1';
 
+    /**
+     * Advertise a configured sandbox Sender before negotiation without
+     * suggesting that negotiated, credential or customer authority exists.
+     * The request policy independently enforces all of those current gates.
+     */
+    public function configuredTokenSender(OcpiProvider $provider): bool
+    {
+        [$connection, $local] = app(CredentialExchange::class)->configuration($provider);
+
+        return $this->tokenSenderContract($connection, $local, app(CredentialExchange::class)->receiverModules($provider));
+    }
+
+    private function tokenSenderContract(array $connection, array $local, array $receivers): bool
+    {
+        return app()->environment(['local', 'testing'])
+            && config('ocpi.test_commands_enabled') === true
+            && ($connection['test_commands'] ?? false) === true
+            && ($connection['managed_credentials'] ?? false) === true
+            && ($connection['environment'] ?? null) === 'sandbox'
+            && ($connection['party_role'] ?? null) === 'CPO'
+            && ($local['roles'][0]['role'] ?? null) === 'EMSP'
+            && is_string($connection['test_command_contract'] ?? null)
+            && preg_match('/^[A-Za-z0-9_-]{1,80}$/D', $connection['test_command_contract']) === 1
+            && in_array('sessions', $receivers, true)
+            && in_array('cdrs', $receivers, true);
+    }
+
     public function policy(OcpiProvider $provider): array
     {
         abort_unless(app()->environment(['local', 'testing']) && config('ocpi.test_commands_enabled') && $provider->authorized && $provider->version === '2.2.1' && User::whereKey($provider->owner_id)->where('role', 'vendor')->exists(), 409, 'Approved sandbox roaming is unavailable.');
         [$c,$local] = app(CredentialExchange::class)->configuration($provider);
-        abort_unless(($c['test_commands'] ?? false) === true && ($c['managed_credentials'] ?? false) === true && ($c['environment'] ?? null) === 'sandbox' && $c['party_role'] === 'CPO' && $local['roles'][0]['role'] === 'EMSP' && is_string($c['test_command_contract'] ?? null) && preg_match('/^[A-Za-z0-9_-]{1,80}$/D', $c['test_command_contract']), 409, 'An approved sandbox contract is required.');
-        abort_unless(in_array('sessions', app(CredentialExchange::class)->receiverModules($provider), true) && in_array('cdrs', app(CredentialExchange::class)->receiverModules($provider), true), 409, 'Approved session and CDR reception is required.');
+        abort_unless($this->tokenSenderContract($c, $local, app(CredentialExchange::class)->receiverModules($provider)), 409, 'An approved sandbox contract and session/CDR reception are required.');
         foreach (['locations', 'tariffs', 'sessions', 'cdrs', 'commands_receiver', 'tokens_receiver'] as $module) {
             $url = $provider->endpoints[$module] ?? null;
             abort_unless(is_string($url) && parse_url($url, PHP_URL_QUERY) === null, 409, 'Required negotiated partner modules are unavailable.');

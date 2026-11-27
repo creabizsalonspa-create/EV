@@ -2,16 +2,59 @@
 
 namespace Tests\Feature;
 
+use App\Services\Ocpi\CredentialExchange;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Tests\Support\CreatesSandboxRoaming;
 use Tests\TestCase;
 
 class OcpiTokenWindowTest extends TestCase
 {
     use CreatesSandboxRoaming, RefreshDatabase;
+
+    public function test_token_sender_advertisement_requires_the_same_configured_sandbox_role_and_contract_as_requests(): void
+    {
+        [, , , $provider] = $this->fixture();
+        $url = '/api/roaming-protocol/2.2.1';
+        $connection = config('ocpi.connections.roaming');
+        $local = config('ocpi.local_credentials');
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id);
+        $advertises = function () use ($url): bool {
+            $endpoints = $this->withHeaders($this->peer())->getJson($url)->assertOk()->json('data.endpoints');
+
+            return collect($endpoints)->contains(fn ($endpoint) => $endpoint['identifier'] === 'tokens' && $endpoint['role'] === 'SENDER');
+        };
+        $this->assertTrue($advertises());
+        // Versions negotiation must be possible before a current outbound
+        // endpoint set is known; configured advertisement is not a grant.
+        $provider->update(['version' => null, 'endpoints' => null]);
+        $this->assertTrue($advertises());
+        $this->withHeaders($this->peer())->getJson($url.'/tokens')->assertStatus(409);
+        foreach ([
+            ['environment' => 'production'],
+            ['incoming_modules' => ['sessions']],
+            ['test_commands' => false],
+        ] as $change) {
+            config(['ocpi.connections.roaming' => array_replace($connection, $change)]);
+            $link->update(['configuration_hash' => app(CredentialExchange::class)->configurationHash($provider)]);
+            $this->assertFalse($advertises());
+        }
+        $cpo = $local;
+        $cpo['roles'][0]['role'] = 'CPO';
+        config(['ocpi.local_credentials' => $cpo,
+            'ocpi.connections.roaming' => array_replace($connection, ['party_role' => 'EMSP', 'incoming_modules' => []])]);
+        $link->update(['configuration_hash' => app(CredentialExchange::class)->configurationHash($provider)]);
+        $this->assertFalse($advertises());
+        config(['ocpi.local_credentials' => $local, 'ocpi.connections.roaming' => $connection, 'ocpi.test_commands_enabled' => false]);
+        $link->update(['configuration_hash' => app(CredentialExchange::class)->configurationHash($provider)]);
+        $this->assertFalse($advertises());
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
 
     public function test_token_reads_and_authorization_require_the_same_attempted_command(): void
     {

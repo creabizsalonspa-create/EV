@@ -8,6 +8,7 @@ use App\Services\Ocpi\CpoCatalogContract;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\IncomingEnrollment;
 use App\Services\Ocpi\OcpiMessageHeaders;
+use App\Services\Ocpi\SandboxRoaming;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -77,8 +78,7 @@ class OcpiProtocolCredentialsController extends Controller
             $base = substr($local['url'], 0, -strlen('versions'));
             if ($r->isMethod('GET')) {
                 $sandbox = [];
-                $configured = config('ocpi.connections.'.$p->connection_key);
-                if (app()->environment(['local', 'testing']) && config('ocpi.test_commands_enabled') && ($configured['test_commands'] ?? false) === true) {
+                if (app(SandboxRoaming::class)->configuredTokenSender($p)) {
                     $sandbox[] = ['identifier' => 'tokens', 'role' => 'SENDER', 'url' => $base.'2.2.1/tokens'];
                 }
                 $senders = app(CpoCatalogContract::class)->approved($p)
