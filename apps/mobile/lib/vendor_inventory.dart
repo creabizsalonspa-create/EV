@@ -8,6 +8,7 @@ import 'strings.dart';
 import 'vendor_topology.dart';
 import 'charger_admission.dart';
 import 'charger_diagnostics.dart';
+import 'direct_connector_review.dart';
 import 'charger_availability.dart';
 import 'charger_logs.dart';
 import 'charger_source_registration.dart';
@@ -679,6 +680,27 @@ class _VendorInventoryViewState extends State<VendorInventoryView> with WidgetsB
                             child: Text(firmwareTitle(context)),
                           ),
                         if (level == 3) ...[
+                          if (widget.charger?['source'] == 'direct_unverified' &&
+                              ['1.6', '2.0.1'].contains(widget.charger?['ocpp_protocol']))
+                            OutlinedButton(
+                              onPressed: busy ? null :
+                                guarded(() => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: scoped((_) => DirectConnectorReviewView(
+                                      api: widget.api,
+                                      companyId: widget.company!['id'] as int,
+                                      chargerId: widget.charger!['id'] as int,
+                                      connectorId: row['id'] as int,
+                                      protocol: widget.charger!['ocpp_protocol'] as String,
+                                      canReview: capabilities['owner'] == true &&
+                                        capabilities['inventory_operational'] == true,
+                                      onExpired: widget.onExpired,
+                                    )),
+                                  ),
+                                )),
+                              child: Text(Localizations.localeOf(context).languageCode == 'ar'
+                                ? 'مراجعة هوية الموصل المباشر' : 'Direct connector identity review'),
+                            ),
                           OutlinedButton(
                             onPressed: busy
                                 ? null
