@@ -19,7 +19,13 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
     const node = (tag, text) => { const n = document.createElement(tag); n.textContent = text; return n; };
     const current = n => !disposed && panel.isConnected && !document.hidden && actor() === viewer && n === generation;
     const button = (label, fn) => {
-        const b = node('button', label); b.type = 'button'; b.onclick = fn; panel.append(b); return b;
+        const b = node('button', label);
+        b.type = 'button';
+        b.onclick = () => {
+            if (b.isConnected && !b.disabled && current(generation)) return fn();
+        };
+        panel.append(b);
+        return b;
     };
     function clear() { generation++; request?.abort(); panel.replaceChildren(); }
     function reset() {
@@ -211,11 +217,11 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
                 if (row.operations_target && typeof openDiagnostics === 'function') {
                     const b = node('button', t('Open source diagnostics', 'فتح تشخيص المصدر')); b.type = 'button';
                     b.onclick = async () => {
-                        if (actor() !== viewer || !panel.isConnected || document.hidden || b.disabled) return;
+                        if (!b.isConnected || b.disabled || !current(generation)) return;
                         b.disabled = true;
                         try { await openDiagnostics(row.operations_target.company_id, row.operations_target.charger_id); }
-                        catch { if (actor() === viewer && b.isConnected) card.append(node('p', t('Diagnostics unavailable. Recheck current access.', 'التشخيص غير متاح. تحقق من الوصول الحالي.'))); }
-                        finally { if (b.isConnected) b.disabled = false; }
+                        catch { if (b.isConnected && current(generation)) card.append(node('p', t('Diagnostics unavailable. Recheck current access.', 'التشخيص غير متاح. تحقق من الوصول الحالي.'))); }
+                        finally { if (b.isConnected && current(generation)) b.disabled = false; }
                     };
                     card.append(b);
                 }
@@ -234,7 +240,7 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
             if (groups.size) {
                 const unavailable = t('Live source unavailable or unqualified; state unknown.', 'المصدر المباشر غير متاح أو غير مؤهل؛ الحالة غير معروفة.');
                 const liveRead = button(t('Read live sources for this page', 'قراءة المصادر المباشرة لهذه الصفحة'), async () => {
-                    if (liveRead.disabled || !liveRead.isConnected || actor() !== viewer || document.hidden) return;
+
                     const liveEpoch = ++generation;
                     request?.abort(); request = new AbortController();
                     const signal = request.signal;
