@@ -24,16 +24,28 @@ class RiderServiceAuth
     {
         $this->transport($r);
         $v = $r->validate(['grant_type' => 'required|in:client_credentials', 'client_id' => 'required|string|max:80', 'client_secret' => 'required|string|max:256', 'audience' => 'required|in:'.self::AUDIENCE]);
-        $secret = (string) config('csms.rider_client_secret');
-        abort_unless(strlen($secret) >= 32, 503);
-        abort_unless(hash_equals((string) config('csms.rider_client_id'), $v['client_id']) && hash_equals($secret, $v['client_secret']), 401);
+        [$client, $secret, $authority] = $this->credentials();
+        abort_unless(hash_equals($client, $v['client_id']) && hash_equals($secret, $v['client_secret']), 401);
+        $issued = time();
 
-        return Crypt::encryptString(json_encode(['version' => 1, 'audience' => self::AUDIENCE, 'tenant_id' => 1, 'issued_at' => time(), 'expires_at' => time() + 120, 'nonce' => (string) Str::uuid()], JSON_THROW_ON_ERROR));
+        return Crypt::encryptString(json_encode(['version' => 2, 'audience' => self::AUDIENCE, 'tenant_id' => 1, 'issued_at' => $issued, 'expires_at' => $issued + 120, 'nonce' => (string) Str::uuid(), 'authority' => $authority], JSON_THROW_ON_ERROR));
+    }
+
+    /** Bind opaque callback tokens to the current service credential, not only APP_KEY. */
+    private function credentials(): array
+    {
+        $client = (string) config('csms.rider_client_id');
+        $secret = (string) config('csms.rider_client_secret');
+        abort_unless(strlen($client) >= 1 && strlen($client) <= 80 && strlen($secret) >= 32 && strlen($secret) <= 256, 503);
+        $authority = hash_hmac('sha256', "creabiz-rider-callback-v2\n".$client, $secret);
+
+        return [$client, $secret, $authority];
     }
 
     public function verify(Request $r): void
     {
         $this->transport($r);
+        [, , $authority] = $this->credentials();
         $token = $r->bearerToken();
         abort_unless(is_string($token) && strlen($token) <= 2048, 401);
         try {
@@ -41,6 +53,6 @@ class RiderServiceAuth
         } catch (Throwable) {
             abort(401);
         }
-        abort_unless(is_array($claims) && ($claims['version'] ?? null) === 1 && ($claims['audience'] ?? null) === self::AUDIENCE && ($claims['tenant_id'] ?? null) === 1 && is_int($claims['issued_at'] ?? null) && is_int($claims['expires_at'] ?? null) && $claims['issued_at'] <= time() && $claims['issued_at'] >= time() - 120 && $claims['expires_at'] > time() && $claims['expires_at'] <= $claims['issued_at'] + 120, 401);
+        abort_unless(is_array($claims) && ($claims['version'] ?? null) === 2 && is_string($claims['authority'] ?? null) && hash_equals($authority, $claims['authority']) && ($claims['audience'] ?? null) === self::AUDIENCE && ($claims['tenant_id'] ?? null) === 1 && is_int($claims['issued_at'] ?? null) && is_int($claims['expires_at'] ?? null) && $claims['issued_at'] <= time() && $claims['issued_at'] >= time() - 120 && $claims['expires_at'] > time() && $claims['expires_at'] <= $claims['issued_at'] + 120, 401);
     }
 }
