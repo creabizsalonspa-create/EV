@@ -246,7 +246,8 @@ class SignedFirmwareTest extends TestCase
                     default => ['1.6', '2.0.1'],
                 };
 
-                $proof = hash_hmac('sha256', "creabiz-rider-v1\n".$query['nonce'], str_repeat('s', 64));
+                $legacyProof = hash_hmac('sha256', "creabiz-rider-v1\n".$query['nonce'], str_repeat('s', 64));
+                $proof = hash_hmac('sha256', "creabiz-firmware-capability-v2\n".$query['nonce']."\ntrue\n1\n".implode(',', $protocols), str_repeat('s', 64));
                 $capabilityReads++;
                 $firstProof ??= $proof;
                 $ready = true;
@@ -255,11 +256,13 @@ class SignedFirmwareTest extends TestCase
                         'protocol_removed' => $protocols = array_values(array_diff($protocols, [$f['protocol']])),
                         'replayed_proof' => $proof = $firstProof,
                         'not_ready' => $ready = false,
+                        'tampered_protocols' => $proof = hash_hmac('sha256', "creabiz-firmware-capability-v2\n".$query['nonce']."\ntrue\n1\n", str_repeat('s', 64)),
+                        'legacy_only' => $proof = null,
                         default => null,
                     };
                 }
 
-                return Http::response(['ready' => $ready, 'tenant_id' => 1, 'signed_firmware_protocols' => $protocols, 'proof' => $proof]);
+                return Http::response(['ready' => $ready, 'tenant_id' => 1, 'signed_firmware_protocols' => $protocols, 'proof' => $legacyProof, 'firmware_proof' => $proof]);
             }
 
             if (str_ends_with($r->url(), '/graph')) {
@@ -575,7 +578,7 @@ class SignedFirmwareTest extends TestCase
     {
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['protocol_removed', 'replayed_proof', 'not_ready'] as $failure) {
+            foreach (['protocol_removed', 'replayed_proof', 'not_ready', 'tampered_protocols', 'legacy_only'] as $failure) {
                 $cases[] = [$protocol, $failure];
             }
         }
