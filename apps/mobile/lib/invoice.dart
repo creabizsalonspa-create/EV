@@ -10,6 +10,7 @@ import 'refund_requests.dart';
 import 'corporate_billing.dart';
 import 'payment_cases.dart';
 import 'hosted_checkout.dart';
+import 'reservation_times.dart';
 
 /// Canonical invoice details with explicit server-authoritative TEST checkout.
 class InvoicePage extends StatefulWidget {
@@ -398,7 +399,7 @@ class _InvoicePageState extends State<InvoicePage>
                   s.t('invoiceTransaction', {
                     'amount': row['amount_minor'],
                     'currency': invoice['currency'],
-                    'time': '${row['created_at']}',
+                    'time': serverUtcTime(context, row['created_at']),
                   }),
                 ),
                 if (kind == 'refunds') Text('${row['reason'] ?? ''}'),
