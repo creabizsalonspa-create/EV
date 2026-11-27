@@ -8,7 +8,6 @@ use App\Services\Finance\ChargingProvenance;
 use App\Services\Finance\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
 
 /** Export only explicitly bound, reconciled sandbox charging and finance sources. */
 final class CpoSessionSource
@@ -17,14 +16,9 @@ final class CpoSessionSource
     {
         $connection = config('ocpi.connections.'.$provider->connection_key);
         abort_unless(app()->environment(['local', 'testing']) && ($connection['environment'] ?? null) === 'sandbox', 404);
-        $mapping = $contract['session_exports'][$sessionId] ?? null;
-        abort_unless(is_array($mapping), 404);
-        $validator = Validator::make($mapping, [
-            'site_id' => 'required|integer|min:1', 'token_uid' => ['required', 'string', 'regex:/^TEST-[A-Za-z0-9-]{1,31}$/D'],
-            'contract_id' => ['required', 'string', 'regex:/^TEST-[A-Za-z0-9-]{1,31}$/D'],
-            'evse_id' => ['required', 'string', 'regex:/^[A-Z]{2}\*[A-Z0-9]{3}\*E[A-Z0-9*]{1,30}$/D'],
-        ]);
-        abort_if($validator->fails(), 409, 'Explicit synthetic token mapping requires review.');
+        abort_unless(in_array($module, CpoCatalogContract::SESSION_MODULES, true), 404);
+        $mapping = app(CpoCatalogContract::class)->sessionExports($provider, $contract)[$sessionId] ?? null;
+        abort_unless(is_array($mapping), 409, 'Explicit synthetic token and EVSE mapping requires review.');
 
         $siteId = (int) $mapping['site_id'];
         $location = app(CpoCatalogSource::class)->payload($provider, $contract, 'locations', $siteId);
@@ -86,7 +80,6 @@ final class CpoSessionSource
 
         $cdrLocation = array_intersect_key($location, array_flip(['id', 'name', 'address', 'city', 'country', 'coordinates']));
         $cdrLocation['evse_uid'] = $evseId;
-        abort_unless(str_starts_with($mapping['evse_id'], $location['country_code'].'*'.$location['party_id'].'*E'), 409, 'EVSE identity must belong to this CPO.');
         $cdrLocation['evse_id'] = $mapping['evse_id'];
         $cdrLocation['connector_id'] = $connectorId;
         $rating = collect($connector['connectors'])->firstWhere('id', $connectorId);

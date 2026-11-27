@@ -24,6 +24,9 @@ Map<String, dynamic> option(int id, {bool ready = true}) => {
   'connector_number': 7,
   'connector_type': 'Type2',
   'max_power_kw': 22,
+  'evidence': 'SIMULATED',
+  'availability': 'unknown',
+  'csms_bound': false,
   'reservable': ready,
 };
 Widget app(Widget page, {bool arabic = false}) => MaterialApp(

@@ -72,8 +72,9 @@ final class CpoCatalogPublisher
             });
 
             $sources = ['locations' => array_map('strval', array_keys($contract['sites'])), 'tariffs' => array_map('strval', $contract['tariffs'])];
-            if (($contract['session_exports'] ?? []) !== []) {
-                $sources['sessions'] = $sources['cdrs'] = array_map('strval', array_keys($contract['session_exports']));
+            $sessionExports = $this->contracts->sessionExports($provider, $contract);
+            if ($sessionExports !== []) {
+                $sources['sessions'] = $sources['cdrs'] = array_map('strval', array_keys($sessionExports));
             }
 
             return [
@@ -278,8 +279,8 @@ final class CpoCatalogPublisher
             $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
             [, $link] = $this->authority($current);
             abort_unless(in_array($module, $this->contracts->modules($current), true), 404);
-            abort_unless($current->authorization_revision === $provider->authorization_revision && $link->generation === $authenticatedLink->generation
-                && hash_equals($link->local_token_digest, $authenticatedLink->local_token_digest), 401);
+            abort_unless($current->authorization_revision === $provider->authorization_revision
+                && $this->credentials->sameLink($authenticatedLink, $link), 401);
             $query = $this->bound($current, $link)->where('module', $module);
             if ($module === 'tariffs') {
                 $query->where('withdrawn', false);

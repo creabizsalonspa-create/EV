@@ -23,7 +23,9 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
   final form = GlobalKey<FormState>();
   final price = TextEditingController(), tax = TextEditingController();
   ApiPage<Map<String, dynamic>>? data;
-  Map<String, dynamic>? pricingContext;
+  Map<String, dynamic>? pricingContext, effectiveTariff;
+  String? tariffAsOf;
+  bool compatible = false;
   bool busy = false, uncertain = false;
   Object? error;
   int generation = 0, target = 1;
@@ -58,6 +60,12 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
       busy = true;
       error = null;
       data = null;
+      pricingContext = null;
+      effectiveTariff = null;
+      tariffAsOf = null;
+      compatible = false;
+      price.clear();
+      tax.clear();
     });
     try {
       final response = await widget.api.request(
@@ -73,6 +81,39 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
       if (widget.station == null &&
           result.items.any((row) => row['evidence'] != 'SIMULATED'))
         throw const ApiException(409, 'Unsupported pricing evidence.');
+      Map<String, dynamic>? effective;
+      bool matches = false;
+      if (widget.station != null) {
+        final raw = response['active_tariff'];
+        final ctx = response['pricing_context'];
+        matches = response['active_tariff_context_matches'] == true;
+        bool bounded(dynamic v, int max) => v is int && v >= 0 && v <= max;
+        if (!response.containsKey('active_tariff') ||
+            response['active_tariff_context_matches'] is! bool ||
+            response['tariff_as_of'] is! String ||
+            DateTime.tryParse(response['tariff_as_of'] as String) == null ||
+            (raw == null && matches) ||
+            (raw != null && (raw is! Map ||
+                !bounded(raw['id'], 9007199254740991) || raw['id'] == 0 ||
+                raw['station_id'] != widget.station!['id'] ||
+                !bounded(raw['rate_minor_per_kwh'], 1000000) ||
+                !bounded(raw['tax_bps'], 10000) || !bounded(raw['commission_bps'], 10000) ||
+                (matches && (raw['currency'] != ctx['currency'] ||
+                    raw['minor_units'] != ctx['minor_units']))))) {
+          throw const FormatException('Invalid effective tariff authority.');
+        }
+        if (raw != null) {
+          effective = Map<String, dynamic>.from(raw as Map);
+          for (final row in result.items.where((r) => r['id'] == effective!['id'])) {
+            for (final field in ['station_id', 'rate_minor_per_kwh', 'tax_bps',
+              'commission_bps', 'currency', 'minor_units', 'effective_from']) {
+              if (row[field] != effective[field]) {
+                throw const FormatException('Conflicting effective tariff history.');
+              }
+            }
+          }
+        }
+      }
       if (mounted && epoch == generation)
         setState(() {
           data = result;
@@ -82,8 +123,13 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
             pricingContext = Map<String, dynamic>.from(
               response['pricing_context'] as Map,
             );
-          if (widget.station != null && page == 1) {
-            final latest = result.items.isEmpty ? null : result.items.first;
+          if (widget.station != null) {
+            effectiveTariff = effective;
+            tariffAsOf = response['tariff_as_of'] as String;
+            compatible = effective == null || matches;
+          }
+          if (widget.station != null && page == 1 && compatible) {
+            final latest = effective;
             price.text = latest == null
                 ? ''
                 : minorDecimal(
@@ -109,7 +155,7 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
   }
 
   Future<void> publish() async {
-    if (!form.currentState!.validate() || busy || uncertain) return;
+    if (!compatible || busy || uncertain || form.currentState?.validate() != true) return;
     final epoch = generation, station = widget.station!;
     final body = {
       'rate_minor_per_kwh': decimalMinor(
@@ -121,6 +167,7 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
       'idempotency_key': key,
       'expected_minor_units': pricingContext!['minor_units'],
       'expected_currency': pricingContext!['currency'],
+      'expected_active_tariff_id': effectiveTariff?['id'],
     };
     setState(() {
       busy = true;
@@ -179,7 +226,14 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
             if (page != null) ...[
               if (station != null) ...[
                 Text(s.t('tariffSnapshot')),
-                if (page.current == 1 &&
+                if (effectiveTariff != null)
+                  Text('Effective pricing version / إصدار التسعير الساري #${effectiveTariff!['id']} · $tariffAsOf',
+                    key: const Key('effective-tariff-version'))
+                else
+                  const Text('No effective pricing version / لا يوجد إصدار تسعير سارٍ'),
+                if (!compatible)
+                  const Text('Effective tariff denomination mismatch / اختلاف عملة أو دقة التسعير الساري'),
+                if (compatible && page.current == 1 &&
                     digits is int &&
                     digits >= 0 &&
                     digits <= 3)

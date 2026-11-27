@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'vendor_forms.dart' show vendorDigits;
 import 'package:flutter/services.dart';
 
 import 'api.dart';
@@ -36,7 +38,10 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   Map<String, dynamic>? selected;
   Map<String, dynamic>? account;
   Map? ownerReferral;
-  bool busy = true;
+  bool busy = false;
+  bool foreground = true;
+  StreamSubscription<int>? subscription;
+  int privateEpoch = 0, consentRevision=0;
   bool consent = false;
   bool emailVerified = false;
   int generation = 0;
@@ -47,77 +52,64 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   Map? get draft => operation?.pending?['body'] as Map?;
   Map? get referral => account?['referral'] as Map? ?? ownerReferral;
   bool get active => selected?['active'] == true;
-  bool current(int epoch) => mounted && epoch == generation && ownsSession();
-
-  @override
-  void initState() {
-    super.initState();
-    ownsSession = widget.api.sessionFence();
-    WidgetsBinding.instance.addObserver(this);
-    load();
+  bool current(int epoch) => mounted && foreground && epoch == generation && ownsSession();
+  void redact(){
+    privateEpoch++; generation++;
+    operation=null;programmes=null;rewards=null;selected=null;account=null;ownerReferral=null;
+    emailVerified=false;busy=false;message=null;clearFields();
   }
-
-  @override
-  void didUpdateWidget(covariant ReferralView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.api, widget.api) ||
-        !identical(oldWidget.store, widget.store) ||
-        !ownsSession()) {
-      // The State may be reused after a customer login without a new route.
-      // Never let an old account's referral draft or secure intent migrate.
-      generation++;
-      ownsSession = widget.api.sessionFence();
-      operation = null;
-      programmes = null;
-      rewards = null;
-      selected = null;
-      account = null;
-      ownerReferral = null;
-      emailVerified = false;
-      busy = true;
-      message = null;
-      clearFields();
-      final api = widget.api;
-      final session = ownsSession;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && identical(api, widget.api) &&
-            identical(session, ownsSession) && session()) {
-          load();
-        }
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    code.dispose();
-    invoice.dispose();
-    reason.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      if (ownsSession()) load();
-      return;
-    }
-    setState(() {
-      generation++;
-      operation = null;
-      selected = null;
-      account = null;
-      ownerReferral = null;
-      programmes = null;
-      rewards = null;
-      clearFields();
-      message = null;
-      busy = true;
+  void subscribe(){
+    final api=widget.api;
+    subscription=api.sessionEvents.listen((_){
+      if(mounted&&identical(api,widget.api)&&!ownsSession())setState(redact);
     });
   }
 
+  @override
+  void initState(){
+    super.initState();
+    ownsSession=widget.api.sessionFence();
+    final state=WidgetsBinding.instance.lifecycleState;
+    foreground=state==null||state==AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    subscribe();
+    if(foreground&&ownsSession())load();
+  }
+  @override
+  void didUpdateWidget(covariant ReferralView oldWidget){
+    super.didUpdateWidget(oldWidget);
+    if(!identical(oldWidget.api,widget.api)){
+      unawaited(subscription?.cancel());
+      redact();
+      ownsSession=widget.api.sessionFence();
+      subscribe();
+      if(foreground&&ownsSession())load();
+    }else if(!ownsSession()){
+      redact();
+    }else if(!identical(oldWidget.store,widget.store)){
+      redact();
+      if(foreground)load();
+    }
+  }
+  @override
+  void dispose(){
+    privateEpoch++;generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(subscription?.cancel());
+    code.dispose();invoice.dispose();reason.dispose();
+    super.dispose();
+  }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state){
+    final resumed=state==AppLifecycleState.resumed;
+    if(!mounted||resumed==foreground)return;
+    setState((){foreground=resumed;redact();});
+    // Durable intent stays in the original account's secure store.
+    // Require explicit refresh; never replay a mutation on resume.
+  }
+
   void clearFields() {
+    consentRevision++;
     consent = false;
     code.clear();
     invoice.clear();
@@ -197,14 +189,14 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   static final validCode = RegExp(r'^REF-[A-F0-9]{20}$');
 
   bool scoped(EvApi api, bool Function() fence) =>
-      mounted && identical(api, widget.api) &&
+      mounted && foreground && identical(api, widget.api) &&
       identical(fence, ownsSession) && fence();
 
   Future<void> run(Future<void> Function(int) action) async {
     final api = widget.api;
     final fence = ownsSession;
-    if (!scoped(api, fence)) return;
-    final epoch = ++generation;
+    if (!scoped(api, fence) || busy) return;
+    final epoch = ++generation, scopeEpoch=privateEpoch;
     setState(() {
       busy = true;
       message = null;
@@ -212,17 +204,13 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
     try {
       await action(epoch);
     } catch (error) {
-      if (current(epoch) && scoped(api, fence)) {
-        if (error is ApiException && error.endsCurrentSession) {
-          widget.onExpired();
-        } else {
-          setState(
-            () => message = t(
-              'Referral request could not be confirmed. Check the status or retry a pending request.',
-              'تعذر تأكيد طلب الإحالة. تحقق من الحالة أو أعد محاولة الطلب المعلق.',
-            ),
-          );
-        }
+      if(mounted&&foreground&&identical(api,widget.api)&&identical(fence,ownsSession)&&
+          (privateEpoch==scopeEpoch||!fence())&&error is ApiException&&error.endsCurrentSession){
+        widget.onExpired();
+      }else if(current(epoch)&&scoped(api,fence)){
+        setState(()=>message=t(
+          'Referral request could not be confirmed. Check the status or retry a pending request.',
+          'تعذر تأكيد طلب الإحالة. تحقق من الحالة أو أعد محاولة الطلب المعلق.'));
       }
     } finally {
       if (current(epoch) && scoped(api, fence)) {
@@ -234,13 +222,14 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   Future<void> load() => run((epoch) async {
     final me = await widget.api.request('me');
     if (!current(epoch)) return;
-    if (me['id'] is! int || me['role'] != 'customer') {
+    if (me['id'] is! int || me['id'] <= 0 || me['role'] != 'customer') {
       throw const FormatException('Invalid customer account');
     }
+    final api=widget.api,fence=ownsSession,scopeEpoch=privateEpoch;
     final op = FinancialOperation(
       widget.store ?? DeviceFinancialOperationStore(),
-      '${widget.api.base.origin}:${me['id']}:loyalty:referral',
-      isCurrent: () => mounted && ownsSession(),
+      '${api.base.origin}:${me['id']}:loyalty:referral',
+      isCurrent: () => scoped(api,fence)&&privateEpoch==scopeEpoch,
     );
     await op.restore();
     if (!current(epoch)) return;
@@ -274,6 +263,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   }
 
   Future<void> readAccount(int epoch, int id) async {
+    if(current(epoch))setState((){account=null;consent=false;consentRevision++;});
     final result = await widget.api.request(
       'commercial/referrals/account',
       query: {'program_id': '$id'},
@@ -284,6 +274,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   }
 
   Future<void> openProgramme(Map<String, dynamic> row) => run((epoch) async {
+    if(!(programmes?.items.any((v)=>identical(v,row))??false))return;
     setState(() {
       clearFields();
       selected = row;
@@ -406,8 +397,10 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
     final id = program['id'] as int;
     final api = widget.api;
     final fence = ownsSession;
-    bool sameProgramme() => scoped(api, fence) &&
-        selected?['id'] == id && !busy;
+    final rendered=generation, reviewedAccount=account, reviewedConsent=consentRevision;
+    final reviewedCode=code.text.trim().toUpperCase();
+    bool sameProgramme() => scoped(api, fence) && generation==rendered &&
+        identical(selected,program) && identical(account,reviewedAccount) && !busy;
     void act(Map<String, dynamic> intent) {
       if (sameProgramme()) mutate(intent);
     }
@@ -471,7 +464,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
               decoration: InputDecoration(
                 labelText: t('Referral code', 'رمز الإحالة'),
               ),
-              onChanged: (_) => setState(() {}),
+              onChanged: (_) {if(sameProgramme())setState(() {consentRevision++;consent=false;});},
             ),
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
@@ -483,7 +476,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
               ),
               value: consent,
               onChanged: enabled
-                  ? (value) => setState(() => consent = value == true)
+                  ? (value) {if(sameProgramme()&&reviewedConsent==consentRevision&&reviewedCode==code.text.trim().toUpperCase())setState(() => consent = value == true);}
                   : null,
             ),
             FilledButton(
@@ -491,12 +484,15 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
                   enabled &&
                       consent &&
                       validCode.hasMatch(code.text.trim().toUpperCase())
-                  ? () => act({
-                      'action': 'accept',
-                      'program_id': id,
-                      'code': code.text.trim().toUpperCase(),
-                      'terms_version': program['terms_version'],
-                    })
+                  ? () {
+                      if(!consent||reviewedConsent!=consentRevision||reviewedCode!=code.text.trim().toUpperCase())return;
+                      act({
+                        'action':'accept',
+                        'program_id':id,
+                        'code':reviewedCode,
+                        'terms_version':program['terms_version'],
+                      });
+                    }
                   : null,
               child: Text(t('Accept referral', 'قبول الإحالة')),
             ),
@@ -564,9 +560,9 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
   }
 
   int? get invoiceId {
-    if (!RegExp(r'^[1-9][0-9]{0,15}$').hasMatch(invoice.text.trim()))
-      return null;
-    final id = int.parse(invoice.text.trim());
+    final value=vendorDigits(invoice.text.trim());
+    if (!RegExp(r'^[1-9][0-9]{0,15}$').hasMatch(value))return null;
+    final id = int.parse(value);
     return id <= 9007199254740991 ? id : null;
   }
 
@@ -607,10 +603,12 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    if (!ownsSession()) return const Scaffold();
+    if (!ownsSession()||!foreground) return Scaffold(appBar:AppBar(title:Text(referralTitle(context))),body:Center(child:Text(!ownsSession()?t('Account changed. Reopen referrals.','تغير الحساب. أعد فتح الإحالات.'):t('Private referrals paused.','الإحالات الخاصة متوقفة مؤقتاً.'))));
     final api = widget.api;
     final fence = ownsSession;
     final pending = draft;
+    final rendered=generation;
+    bool authorized()=>scoped(api,fence)&&generation==rendered&&!busy;
     return Scaffold(
       appBar: AppBar(title: Text(referralTitle(context))),
       body: ListView(
@@ -636,7 +634,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
               onPressed: busy
                   ? null
                   : () {
-                      if (scoped(api, fence) && identical(draft, pending)) {
+                      if (authorized() && identical(draft, pending)) {
                         mutate(Map<String, dynamic>.from(pending));
                       }
                     },
@@ -646,7 +644,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
             ),
             TextButton(
               onPressed: busy ? null : () {
-                if (scoped(api, fence)) forgetDraft();
+                if (authorized()) forgetDraft();
               },
               child: Text(t('Clear saved request', 'مسح الطلب المحفوظ')),
             ),
@@ -654,7 +652,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
           if (programmes == null && !busy)
             TextButton(
               onPressed: () {
-                if (scoped(api, fence)) load();
+                if (authorized()) load();
               },
               child: Text(t('Retry programmes', 'إعادة تحميل البرامج')),
             ),
@@ -664,7 +662,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
             for (final row in list.items)
               OutlinedButton(
                 onPressed: busy ? null : () {
-                  if (scoped(api, fence)) openProgramme(row);
+                  if (authorized()) openProgramme(row);
                 },
                 child: Text(t(row['name'] as String, row['name_ar'] as String)),
               ),
@@ -672,7 +670,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
               list.current,
               list.last,
               (number) {
-                if (scoped(api, fence)) {
+                if (authorized()) {
                   run((epoch) => listProgrammes(epoch, number));
                 }
               },
@@ -685,7 +683,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
             Text(referralStatus(existing['status'])),
             TextButton(
               onPressed: busy ? null : () {
-                if (scoped(api, fence)) run(readOwnerReferral);
+                if (authorized()) run(readOwnerReferral);
               },
               child: Text(t('Refresh referral status', 'تحديث حالة الإحالة')),
             ),
@@ -693,7 +691,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
           const Divider(),
           TextButton(
             onPressed: busy ? null : () {
-              if (scoped(api, fence)) readRewards(1);
+              if (authorized()&&operation!=null) readRewards(1);
             },
             child: Text(t('My referral rewards', 'مكافآت الإحالة الخاصة بي')),
           ),
@@ -702,7 +700,7 @@ class _ReferralState extends State<ReferralView> with WidgetsBindingObserver {
               Text(t('No referral rewards.', 'لا توجد مكافآت إحالة.')),
             for (final row in history.items) rewardRow(row),
             pageButtons(history.current, history.last, (number) {
-              if (scoped(api, fence)) readRewards(number);
+              if (authorized()) readRewards(number);
             }),
           ],
         ],

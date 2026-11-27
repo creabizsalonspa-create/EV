@@ -20,3 +20,29 @@ test('stale and missing meter evidence are explicit and never become a zero cost
 test('actual bilingual DOM presentation renders text without interpreting source HTML',()=>{
  for(const lang of ['en','ar']) {const root={children:[],append(x){this.children.push(x);}},window={},document={documentElement:{lang},createElement:()=>({dataset:{},textContent:''})};vm.runInNewContext(fs.readFileSync('services/business-api/public/session-cost.js','utf8'),{window,document});window.EvSessionCost.attach(root,value);assert.equal(root.children.length,1);assert.match(root.children[0].textContent,/KWD 0.396/);assert.equal(root.children[0].innerHTML,undefined);}
 });
+
+test('canonical cost timestamps reject impossible dates and contradictory meter evidence in both languages',()=>{
+ const invalid=[
+  {as_of:'2026-02-29T06:00:00.000000Z'},
+  {as_of:'2026-11-14T06:00:00.000000Z\n'},
+  {as_of:'1900-02-29T06:00:00.000000Z'},
+  {as_of:'2026-04-31T06:00:00.000000Z'},
+  {as_of:'2026-11-14T24:00:00.000000Z'},
+  {as_of:'2026-11-14T06:60:00.000000Z'},
+  {as_of:'2026-11-14T06:00:60.000000Z'},
+  {source_meter_at:'2026-11-14T05:59:59.000000Z'},
+  {meter_freshness_at_read:'RECENT'},
+  {meter_freshness_at_read:'STALE'},
+  {meter_freshness_at_read:'RECENT',source_meter_at:'2026-11-14T06:00:00.000001Z'},
+  {meter_freshness_at_read:'STALE',source_meter_at:'2026-02-30T05:00:00.000000Z'},
+  {meter_freshness_at_read:'UNKNOWN',source_meter_at:'untrusted source'}
+ ];
+ for(const update of invalid) {
+  const invalidValue={...value,...update};
+  assert.equal(p.valid(invalidValue),false);
+  for(const ar of [false,true]) assert.doesNotMatch(p.text(invalidValue,ar),/KWD 0\.396|untrusted source/);
+ }
+ assert.equal(p.valid({...value,as_of:'2000-02-29T06:00:00.000000Z'}),true);
+ assert.equal(p.valid({...value,meter_freshness_at_read:'RECENT',source_meter_at:value.as_of}),true);
+ assert.equal(p.valid({...value,meter_freshness_at_read:'UNKNOWN',source_meter_at:'2026-11-14T06:00:00.000001Z'}),true);
+});
