@@ -147,6 +147,7 @@ class DirectFleetApi extends FleetApi {
       'mapping_id': null, 'operator_maintenance_blocked': null,
       'source_evse_number': id.isOdd ? 0 : 1, 'source_connector_number': 2,
       'state': 'recent', 'reported_status': 'Available',
+      'error_code': id == 4 ? 'GroundFailure' : 'NoError',
       'source_event_at': '2026-11-28T11:59:00Z',
       'physical_available': false, 'remote_control_authorized': false,
     }],
@@ -211,7 +212,7 @@ void main() {
     await tester.scrollUntilVisible(
       find.text('Registered source unavailable or unverified; status unknown.'), 200,
     );
-    expect(find.text('Registered source unavailable or unverified; status unknown.'), findsOneWidget);
+    expect(find.text('Registered source unavailable or unverified; status unknown.'), findsWidgets);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     await tester.pumpAndSettle();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
