@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'vendor_forms.dart' show vendorDigits;
 import 'partner_catalog_policy.dart';
 import 'connector_freshness.dart';
@@ -64,17 +65,75 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   String? error;
   List<Map<String,dynamic>> rows=[];
   String tr(String en,String ar)=>Localizations.localeOf(context).languageCode=='ar'?ar:en;
-  @override
-  void initState(){super.initState();ownSession=widget.api.sessionFence();WidgetsBinding.instance.addObserver(this);}
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state){
-    foreground=state==AppLifecycleState.resumed;
-    if(!foreground){generation++;if(mounted)setState((){rows=[];recentPresets.clear();rememberNextSearch=false;busy=false;writing=false;uncertain=false;error=null;});}
+  StreamSubscription<int>? sessionSubscription;
+  final mapEvents=StreamController<int>.broadcast(sync:true);
+  int mapAuthority=0;
+  void retireMap(){
+    final epoch=++mapAuthority;
+    // A parent widget can change identity during framework build. Deliver
+    // the privacy repaint to the detached Navigator route after that frame.
+    scheduleMicrotask((){if(!mapEvents.isClosed)mapEvents.add(epoch);});
+  }
+  void redact(){
+    generation++;formEpoch++;
+    query.clear();
+    for(final control in advanced.values)control.clear();
+    submittedAdvanced={};submittedViewport={};
+    recentPresets.clear();rememberNextSearch=false;
+    submitted='';scope='all';submittedScope='all';
+    country='';submittedCountry='';connector='';submittedConnector='';
+    sourceStatus='';submittedSourceStatus='';sourceAge='';submittedSourceAge='';
+    submittedSaved=false;savedOnly=false;
+    page=last=1;total=0;rows=[];
+    busy=false;writing=false;uncertain=false;error=null;
+  }
+  void subscribe(){
+    final api=widget.api;
+    sessionSubscription=api.sessionEvents.listen((_){
+      if(mounted&&identical(api,widget.api)&&!ownSession()){
+        retireMap();setState(redact);
+      }
+    });
   }
   @override
-  void didUpdateWidget(covariant UnifiedDiscoveryView old){super.didUpdateWidget(old);if(!identical(old.api,widget.api)||old.customer!=widget.customer){query.clear();for(final control in advanced.values){control.clear();}submittedAdvanced={};submittedViewport={};recentPresets.clear();rememberNextSearch=false;formEpoch++;submitted='';scope='all';submittedScope='all';country='';submittedCountry='';connector='';submittedConnector='';sourceStatus='';submittedSourceStatus='';sourceAge='';submittedSourceAge='';submittedSaved=false;savedOnly=false;ownSession=widget.api.sessionFence();generation++;rows=[];busy=false;writing=false;uncertain=false;error=null;}}
+  void initState(){
+    super.initState();
+    ownSession=widget.api.sessionFence();
+    final state=WidgetsBinding.instance.lifecycleState;
+    foreground=state==null||state==AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    subscribe();
+  }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state){
+    final resumed=state==AppLifecycleState.resumed;
+    if(!mounted)return;
+    if(!resumed&&state!=AppLifecycleState.inactive)retireMap();
+    if(foreground==resumed)return;
+    setState((){foreground=resumed;if(!resumed)redact();});
+  }
+  @override
+  void didUpdateWidget(covariant UnifiedDiscoveryView old){
+    super.didUpdateWidget(old);
+    if(!identical(old.api,widget.api)){
+      retireMap();
+      unawaited(sessionSubscription?.cancel());
+      redact();
+      ownSession=widget.api.sessionFence();
+      subscribe();
+    }else if(old.customer!=widget.customer||!ownSession()){
+      retireMap();redact();
+    }
+  }
+  bool current(int epoch,EvApi api,bool Function() fence)=>
+    mounted&&foreground&&generation==epoch&&identical(api,widget.api)&&
+    identical(fence,ownSession)&&fence();
+  VoidCallback guard(VoidCallback action){
+    final epoch=generation,api=widget.api,fence=ownSession;
+    return (){if(current(epoch,api,fence)&&!busy&&!writing)action();};
+  }
   Future<void> load(int target)async{
-    if(!foreground||writing)return;
+    if(!mounted||!foreground||writing||busy)return;
     if(!ownSession()){setState((){rows=[];recentPresets.clear();rememberNextSearch=false;busy=false;writing=false;error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');});return;}
     // Only an explicitly submitted search is eligible for history.
     // Pagination, map selections and favorite refresh never record history.
@@ -86,8 +145,8 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       for(final entry in submittedAdvanced.entries)'advanced_${entry.key}':entry.value,
     }:null;
     rememberNextSearch=false;
-    final turn=++generation;final api=widget.api;final fence=api.sessionFence();
-    bool active()=>mounted&&foreground&&turn==generation&&ownSession()&&fence();
+    final turn=++generation;final api=widget.api;final fence=ownSession;
+    bool active()=>current(turn,api,fence);
     setState((){busy=true;uncertain=false;error=null;rows=[];});
     try{
       final data=await api.request('discovery/search',query:{...submittedAdvanced,...submittedViewport,'q':submitted,'scope':submittedScope,if(submittedCountry.isNotEmpty)'country':submittedCountry,'connector':submittedConnector,'page':'$target','saved_only':submittedSaved?'1':'0',if(submittedSourceStatus.isNotEmpty)'recent_source_status':submittedSourceStatus,if(submittedSourceAge.isNotEmpty)'max_source_age_hours':submittedSourceAge});
@@ -135,28 +194,20 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   Future<void> searchFromMap() async {
     if (!foreground || busy || writing || !ownSession()) return;
     final snapshot = generation;
-    final fence = widget.api.sessionFence();
+    final api=widget.api, fence = ownSession;
+    final customer=widget.customer, mapEpoch=mapAuthority;
+    bool mapSession()=>mounted&&identical(api,widget.api)&&identical(fence,ownSession)&&customer==widget.customer&&mapEpoch==mapAuthority&&fence();
+    final points=mapPoints();
     final bounds = await Navigator.of(context).push<Map<String,String>>(
       MaterialPageRoute(builder: (_) => PartnerReportMap(
-        points: mapPoints(),
+        points: points,
+        currentSession:mapSession,
+        sessionEvents:mapEvents.stream,
         tileProvider: widget.mapTileProvider,
         allowViewportSearch: true,
       )),
     );
-    if (!mounted) return;
-    // A map route may outlive its original authenticated epoch. Refuse to
-    // surface the previous customer's rows or issue a new catalog lookup.
-    if (!ownSession() || !fence()) {
-      setState(() {
-        generation++;
-        rows=[];
-        submittedViewport={};
-        busy=false;
-        error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');
-      });
-      return;
-    }
-    if (!foreground || generation != snapshot || bounds == null) return;
+    if(!mapSession()||!foreground||generation!=snapshot||bounds==null)return;
     setState(() => submittedViewport = Map<String,String>.of(bounds));
     await load(1);
   }
@@ -196,13 +247,13 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   }
 
   @override
-  Widget build(BuildContext context)=>!ownSession()
+  Widget build(BuildContext context)=>!foreground||!ownSession()
     ? Scaffold(
         appBar:AppBar(title:Text(tr('Search all sources','البحث في كل المصادر'))),
         // A native EvApi can change identity while the same widget/API object
         // stays mounted. Never show a previous customer's rows, saved filters,
         // draft coordinates, or provider labels on the next repaint.
-        body:Center(child:Text(tr('Account changed. Reopen search.', 'تغير الحساب. أعد فتح البحث.'))),
+        body:Center(child:Text(!ownSession()?tr('Account changed. Reopen search.', 'تغير الحساب. أعد فتح البحث.'):tr('Private discovery paused.','البحث الخاص متوقف مؤقتاً.'))),
       )
     : Scaffold(
     appBar:AppBar(title:Text(tr('Search all sources','البحث في كل المصادر'))),
@@ -240,7 +291,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
           TextField(key:Key('unified-${field.$1}'),controller:advanced[field.$1],maxLength:field.$4,decoration:InputDecoration(labelText:tr(field.$2,field.$3))),
         Text(tr('Access, power and price filters exclude partner reports. Published station kW is catalog rated power, not measured live power. Price matches current simulated energy rates excluding tax, not a total-cost quote. Enter both rate and currency.','تستثني مرشحات الوصول والقدرة والسعر تقارير الشركاء. قدرة المحطة المنشورة وصف كتالوجي وليست قدرة فعلية مقاسة. يطابق السعر أسعار الطاقة المحاكاة الحالية دون الضريبة وليس عرضاً للتكلفة الإجمالية. أدخل السعر والعملة معاً.')),
       ]),
-      FilledButton(onPressed:busy||writing?null:(){submittedAdvanced={};for(final field in advanced.entries){var value=field.value.text.trim();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].contains(field.key))value=vendorDigits(value);if(field.key=='price_currency')value=value.toUpperCase();if(value.isNotEmpty)submittedAdvanced[field.key]=value;}submitted=query.text.trim();submittedScope=scope;submittedCountry=country;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;submittedSourceAge=sourceAge;submittedViewport={};rememberNextSearch=true;load(1);},child:Text(tr('Search all sources','البحث في كل المصادر'))),
+      FilledButton(onPressed:busy||writing?null:guard((){submittedAdvanced={};for(final field in advanced.entries){var value=field.value.text.trim();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].contains(field.key))value=vendorDigits(value);if(field.key=='price_currency')value=value.toUpperCase();if(value.isNotEmpty)submittedAdvanced[field.key]=value;}submitted=query.text.trim();submittedScope=scope;submittedCountry=country;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;submittedSourceAge=sourceAge;submittedViewport={};rememberNextSearch=true;load(1);}),child:Text(tr('Search all sources','البحث في كل المصادر'))),
       if(recentPresets.isNotEmpty&&foreground&&ownSession())...[
         Text(tr('Recent filters (this session only)','مرشحات حديثة (هذه الجلسة فقط)')),
         Wrap(spacing:8,children:[
@@ -251,7 +302,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
                 recentLabel(entry.value))),
         ]),
         TextButton(key:const Key('unified-recent-clear'),
-          onPressed:busy||writing?null:()=>setState(recentPresets.clear),
+          onPressed:busy||writing?null:guard(()=>setState(recentPresets.clear)),
           child:Text(tr('Clear recent filters','مسح المرشحات الحديثة'))),
       ],
       if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!),
@@ -260,13 +311,13 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       // catalog records had coordinates or the previous page was empty.
       // Opening the map does not perform a network/GPS lookup; tiles and
       // viewport submission each require separate explicit actions.
-      OutlinedButton(key:const Key('unified-map-open'),onPressed:busy||writing||!foreground||!ownSession()?null:searchFromMap,child:Text(
+      OutlinedButton(key:const Key('unified-map-open'),onPressed:busy||writing||!foreground||!ownSession()?null:guard((){searchFromMap();}),child:Text(
         mapPoints().isEmpty
           ?tr('Choose a map area to search','اختر منطقة على الخريطة للبحث')
           :tr('Map these loaded results','عرض هذه النتائج المحملة على الخريطة'),
       )),
       for(final row in rows)card(row),
-      Wrap(children:[if(page>1)TextButton(onPressed:busy||writing?null:()=>load(page-1),child:Text(tr('Previous','السابق'))),Text('$page / $last'),if(page<last)TextButton(onPressed:busy||writing?null:()=>load(page+1),child:Text(tr('Next','التالي')))]),
+      Wrap(children:[if(page>1)TextButton(onPressed:busy||writing?null:guard((){load(page-1);}),child:Text(tr('Previous','السابق'))),Text('$page / $last'),if(page<last)TextButton(onPressed:busy||writing?null:guard((){load(page+1);}),child:Text(tr('Next','التالي')))]),
     ]),
   );
   // A partner's map pin or saved-place action needs explicit *read-only*
@@ -318,7 +369,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
         ));
       }
       final station=Station.fromJson(raw);
-      return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(station.name),if(widget.customer)favoriteButton(row),Text(tr('Platform catalog · ${station.source}','كتالوج المنصة · ${station.source}')),TextButton(onPressed:foreground&&ownSession()?()=>openCatalog(station):null,child:Text(tr('View station and booking options','عرض المحطة وخيارات الحجز')))])));
+      return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(station.name),if(widget.customer)favoriteButton(row),Text(tr('Platform catalog · ${station.source}','كتالوج المنصة · ${station.source}')),TextButton(onPressed:foreground&&ownSession()&&!busy&&!writing?guard((){if(rows.any((v)=>identical(v,row)))openCatalog(station);}):null,child:Text(tr('View station and booking options','عرض المحطة وخيارات الحجز')))])));
     }
     final location=Map<String,dynamic>.from(row['location'] as Map);
     final nameRaw=location['name'];
@@ -337,16 +388,16 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   }
   Widget favoriteButton(Map<String,dynamic> row)=>TextButton(
     key:ValueKey('unified-favorite-${row['key']}'),
-    onPressed:busy||writing||uncertain||!foreground||!ownSession()?null:()=>favorite(row),
+    onPressed:busy||writing||uncertain||!foreground||!ownSession()?null:guard((){favorite(row);}),
     child:Text(row['is_favorite']==true?tr('Remove saved place','إزالة المكان المحفوظ'):tr('Save place','حفظ المكان')),
   );
   Future<void> favorite(Map<String,dynamic> row)async{
-    if(!foreground||writing||busy||uncertain||!widget.customer||!ownSession())return;
+    if(!mounted||!foreground||writing||busy||uncertain||!widget.customer||!ownSession()||!rows.any((v)=>identical(v,row)))return;
     if(row['kind']=='partner'&&!trustedPartner(row))return;
     if(row['kind']=='catalog'&&!completePublishedStation(
         Map<String,dynamic>.from(row['station'] as Map)))return;
-    final api=widget.api;final turn=generation;final fence=api.sessionFence();
-    bool active()=>mounted&&foreground&&turn==generation&&ownSession()&&fence();
+    final api=widget.api;final turn=generation;final fence=ownSession;
+    bool active()=>current(turn,api,fence);
     final desired=row['is_favorite']!=true;
     final id=row['kind']=='catalog'?(row['station'] as Map)['id']:row['record_id'];
     setState((){writing=true;error=null;});
@@ -359,5 +410,5 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     finally{if(mounted&&foreground&&turn==generation)setState((){writing=false;if(!ownSession()){rows=[];error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');}});}
   }
   @override
-  void dispose(){generation++;WidgetsBinding.instance.removeObserver(this);query.dispose();for(final control in advanced.values){control.dispose();}super.dispose();}
+  void dispose(){generation++;WidgetsBinding.instance.removeObserver(this);unawaited(sessionSubscription?.cancel());unawaited(mapEvents.close());query.dispose();for(final control in advanced.values){control.dispose();}super.dispose();}
 }
