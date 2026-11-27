@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'money_input.dart';
@@ -204,12 +205,38 @@ class _AnalyticsState extends State<FinancialAnalyticsView>
   FinancialReport? report;
   Map<String, String>? loadedFilters;
   Object? error;
-  bool busy = false, hidden = false;
+  bool busy = false, hidden = false, foreground = true;
   int generation = 0;
+  bool Function()? reportAuthority;
+  StreamSubscription<int>? sessionEvents;
+  final documentRevocation = StreamController<int>.broadcast();
+
+  void invalidate() {
+    generation++;
+    report = null;
+    loadedFilters = null;
+    reportAuthority = null;
+    error = null;
+    busy = false;
+    hidden = true;
+    documentRevocation.add(generation);
+  }
+
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (mounted && identical(api, widget.api)) setState(invalidate);
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    observe(widget.api);
+    foreground = WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    hidden = !foreground;
     final utcNow = DateTime.now().toUtc();
     final now = DateTime.utc(utcNow.year, utcNow.month, utcNow.day);
     from.text = now
@@ -217,11 +244,22 @@ class _AnalyticsState extends State<FinancialAnalyticsView>
         .toIso8601String()
         .substring(0, 10);
     to.text = now.toIso8601String().substring(0, 10);
-    load();
+    if (foreground) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant FinancialAnalyticsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api)) {
+      observe(widget.api);
+      invalidate();
+    }
   }
 
   @override
   void dispose() {
+    sessionEvents?.cancel();
+    documentRevocation.close();
     generation++;
     WidgetsBinding.instance.removeObserver(this);
     from.dispose();
@@ -232,15 +270,11 @@ class _AnalyticsState extends State<FinancialAnalyticsView>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed && mounted)
-      setState(() {
-        generation++;
-        report = null;
-        loadedFilters = null;
-        error = null;
-        busy = false;
-        hidden = true;
-      });
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) invalidate();
+    });
   }
 
   Map<String, String> filters() {
@@ -267,7 +301,11 @@ class _AnalyticsState extends State<FinancialAnalyticsView>
   }
 
   Future<void> load() async {
-    final epoch = ++generation, current = widget.api.sessionFence();
+    if (!foreground || busy) return;
+    final api = widget.api, epoch = ++generation, current = api.sessionFence();
+    reportAuthority = current;
+    bool active() => mounted && foreground && identical(api, widget.api) &&
+        epoch == generation && current();
     setState(() {
       busy = true;
       error = null;
@@ -277,10 +315,9 @@ class _AnalyticsState extends State<FinancialAnalyticsView>
     });
     try {
       final query = filters();
-      final data = FinancialReport(
-        await widget.api.request('financial/analytics', query: query),
-      );
-      if (!mounted || epoch != generation || !current()) return;
+      final raw = await api.request('financial/analytics', query: query);
+      if (!active()) return;
+      final data = FinancialReport(raw);
       final period = _map(data.source['period']);
       if (period['from'] != query['from'] ||
           period['to'] != query['to'] ||
@@ -293,15 +330,29 @@ class _AnalyticsState extends State<FinancialAnalyticsView>
       report = data;
       loadedFilters = Map.unmodifiable(query);
     } catch (e) {
-      if (mounted && epoch == generation && current()) failed(e);
+      if (mounted && identical(api, widget.api) &&
+          e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+      } else if (active()) {
+        failed(e);
+      }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && identical(api, widget.api) && epoch == generation) {
+        setState(() {
+          busy = false;
+          if (!current()) invalidate();
+        });
+      }
     }
   }
 
   Future<void> pdf() async {
-    if (busy || loadedFilters == null) return;
-    final epoch = generation, current = widget.api.sessionFence();
+    final accepted = report, current = reportAuthority;
+    if (!foreground || busy || loadedFilters == null || accepted == null ||
+        current == null || !current()) return;
+    final api = widget.api, epoch = generation;
+    bool active() => mounted && foreground && identical(api, widget.api) &&
+        epoch == generation && current() && identical(report, accepted);
     final query = {
       ...loadedFilters!,
       'locale': Localizations.localeOf(context).languageCode,
@@ -311,25 +362,40 @@ class _AnalyticsState extends State<FinancialAnalyticsView>
       error = null;
     });
     try {
-      final document = await widget.api.downloadFinancialAnalytics(query);
+      final document = await api.downloadFinancialAnalytics(query);
+      if (!active()) return;
       if (document.mime != 'application/pdf' ||
           document.bytes.length < 5 ||
           String.fromCharCodes(document.bytes.take(5)) != '%PDF-')
         throw const FormatException('Invalid management PDF.');
-      if (!mounted || epoch != generation || !current()) return;
+      final title = analyticsText(context, 'title');
+      final notice = analyticsText(context, 'pdfNotice');
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => VendorDocumentPreview(
-            document: document,
-            title: analyticsText(context, 'title'),
-            notice: analyticsText(context, 'pdfNotice'),
-          ),
+          builder: (_) => active()
+              ? VendorDocumentPreview(
+                  document: document,
+                  title: title,
+                  notice: notice,
+                  revokedSessionEvents: documentRevocation.stream,
+                )
+              : Scaffold(appBar: AppBar(title: Text(title))),
         ),
       );
     } catch (e) {
-      if (mounted && epoch == generation && current()) failed(e);
+      if (mounted && identical(api, widget.api) &&
+          e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+      } else if (active()) {
+        failed(e);
+      }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && identical(api, widget.api) && epoch == generation) {
+        setState(() {
+          busy = false;
+          if (!current()) invalidate();
+        });
+      }
     }
   }
 
@@ -337,7 +403,7 @@ class _AnalyticsState extends State<FinancialAnalyticsView>
   Widget build(BuildContext c) {
     String t(String k) => analyticsText(c, k);
     final ar = Localizations.localeOf(c).languageCode == 'ar';
-    final data = report;
+    final data = foreground && (reportAuthority?.call() ?? false) ? report : null;
     Widget rowCard(String title, List<Widget> children) => Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -370,7 +436,7 @@ class _AnalyticsState extends State<FinancialAnalyticsView>
               child: TextField(
                 key: Key('analytics-${field.$2}'),
                 controller: field.$1,
-                enabled: !busy,
+                enabled: foreground && !busy,
                 maxLength: field.$2 == 'currency' ? 3 : 10,
                 decoration: InputDecoration(labelText: t(field.$2)),
                 textDirection: TextDirection.ltr,
@@ -378,7 +444,7 @@ class _AnalyticsState extends State<FinancialAnalyticsView>
             ),
           FilledButton(
             key: const Key('analytics-refresh'),
-            onPressed: busy ? null : load,
+            onPressed: busy || !foreground ? null : load,
             child: Text(t('refresh')),
           ),
           if (busy) const Center(child: CircularProgressIndicator()),
