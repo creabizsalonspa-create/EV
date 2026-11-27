@@ -158,6 +158,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Rotate partner credentials'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Rotate partner credentials'));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -180,6 +182,8 @@ void main() {
           home: OcpiCredentialsView(api: api, providerId: 7, onExpired: () {}),
         ),
       );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Rotate partner credentials'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Rotate partner credentials'));
       await tester.pumpAndSettle();
@@ -245,6 +249,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Prepare incoming enrollment'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Prepare incoming enrollment'));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -270,6 +276,8 @@ void main() {
           home: OcpiCredentialsView(api: api, providerId: 7, onExpired: () {}),
         ),
       );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Rotate partner credentials'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Rotate partner credentials'));
       await tester.pumpAndSettle();
