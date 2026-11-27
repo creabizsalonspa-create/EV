@@ -7,6 +7,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\ChargerSourceRegistration;
 use App\Services\Charging\CsmsGraphqlTransport;
+use App\Services\Charging\DirectSourceAuthority;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SourceStatusTime;
@@ -33,7 +34,7 @@ final class ChargerLiveConnectorsController extends Controller
             is_string($secret) && strlen($secret) >= 32, 503,
             'Authenticated source connector monitoring is disabled.');
 
-        return [$endpoint, $secret];
+        return [$endpoint, $secret, $direct ? app(DirectSourceAuthority::class)->requireCurrent() : null];
     }
 
     /** Registration proves an exact upstream record, not permission to control it. */
@@ -69,7 +70,8 @@ final class ChargerLiveConnectorsController extends Controller
                 'Original source registration receipt requires reconciliation.');
             // Pin durable registration provenance, not an arbitrary same-name row.
             $binding->registration_receipt = [$receipt->id, $receipt->profile_id, $receipt->source_station_id,
-                $receipt->source_generation, $receipt->source_receipt_hash, $receipt->verified_at, $receipt->payload_hash];
+                $receipt->source_generation, $receipt->source_receipt_hash, $receipt->verified_at, $receipt->payload_hash,
+                app(DirectSourceAuthority::class)->requireCurrent()];
 
             return $binding;
         }, 3);
@@ -298,6 +300,7 @@ final class ChargerLiveConnectorsController extends Controller
                 : $this->inventory($fresh, $freshCharger) === $local),
             409, 'Owned local connector topology changed during inspection.');
 
+        abort_unless($this->sourceAuthority($direct) === $authority, 409, 'Source authority changed before projection.');
         app(MaintenanceActor::class)->checkBearer($r->user());
         $localTargets = array_fill_keys(array_column($local, 'target'), true);
         $sourceComplete = count($sourceTargets) === count($known);
