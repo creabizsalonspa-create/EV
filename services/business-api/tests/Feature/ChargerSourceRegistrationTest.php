@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\ChargerAdmissionController;
+use App\Http\Controllers\ChargerSourceRegistrationController;
 use App\Models\Charging\AdmissionProfile;
 use App\Models\Station;
 use App\Models\User;
@@ -332,7 +333,7 @@ class ChargerSourceRegistrationTest extends TestCase
         $snapshot = $f['owner']->fresh()->withAccessToken($token);
         $request = ServerRequest::create($f['path'], 'GET');
         $request->setUserResolver(fn () => $snapshot);
-        $controller = app(\App\Http\Controllers\ChargerSourceRegistrationController::class);
+        $controller = app(ChargerSourceRegistrationController::class);
         $registration = app(ChargerSourceRegistration::class);
         $response = $controller->show($request, $f['company'], $f['charger'], $registration);
         $this->assertSame(200, $response->getStatusCode());
