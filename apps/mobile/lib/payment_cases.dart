@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:crypto/crypto.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'reservation_times.dart';
 import 'money_input.dart';
 import 'financial_operation_store.dart';
 import 'vendor_company.dart';
@@ -1211,7 +1212,7 @@ class _EvidenceState extends State<CaseEvidenceView>
                     children: [
                       Text('#${r['id']} · ${t('${r['kind']}')}'),
                       Text(t('private')),
-                      Text('${r['created_at']}'),
+                      Text(serverEventTime(c, r['created_at'])),
                       OutlinedButton(
                         onPressed: busy ? null : () { if (currentView(view)) preview(r); },
                         child: Text(t('view')),
