@@ -132,11 +132,11 @@ final class LicensedCoverageHistory
 
     private function valid(mixed $row): bool
     {
-        if (! is_array($row) || array_keys($row) !== self::FIELDS) {
+        if (!  is_array($row) || array_keys($row) !== self::FIELDS) {
             return false;
         }
         foreach ($row as $count) {
-            if (! is_int($count) || $count < 0 || $count > 625) {
+            if (!  is_int($count) || $count < 0 || $count > 625) {
                 return false;
             }
         }
