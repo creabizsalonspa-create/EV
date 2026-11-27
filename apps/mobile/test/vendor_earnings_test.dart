@@ -421,6 +421,58 @@ void main() {
     expect(expired, 1);
     expect(find.byKey(const Key('vendor-earnings-overall')), findsNothing);
   });
+  test('signed refund-debt reservation remains exact in native JSON and CSV', () {
+    final raw = snapshot();
+    final row = (raw['data'] as List).single as Map<String, dynamic>;
+    row['pending_reserved_minor'] = -450;
+    row['completed_settlement_minor'] = 900;
+    row['available_minor'] = 0;
+    raw['overall_available_minor'] = 0;
+    final report = VendorEarningsSnapshot.parse(
+      raw, vendorId: 3, currency: 'KWD', page: 1,
+    );
+    expect(report.rows.single['pending_reserved_minor'], -450);
+    expect(report.rows.single['completed_settlement_minor'], 900);
+    PrivateDocument document(Map<String, dynamic> values) {
+      final text = [
+        VendorEarningsCsv.headers.join(','),
+        VendorEarningsCsv.headers.map((field) => field == 'invoice_number'
+            ? VendorEarningsCsv.literalNumber(values[field] as String)
+            : '${values[field]}').join(','),
+      ].join('\n') + '\n';
+      return PrivateDocument(Uint8List.fromList(utf8.encode(text)), 'text/csv');
+    }
+
+    String verify(PrivateDocument csv) => VendorEarningsCsv.verifiedText(
+      csv, vendorId: 3, currency: 'KWD', page: 1,
+      source: report.source, rows: report.rows,
+    );
+    final accepted = verify(document(row));
+    final cells = VendorEarningsCsv.parseBounded(accepted)[1];
+    expect(cells[VendorEarningsCsv.headers.indexOf('pending_reserved_minor')],
+        '-450');
+    row['pending_reserved_minor'] = 450;
+    expect(() => verify(document(row)), throwsFormatException);
+    expect(report.rows.single['pending_reserved_minor'], -450);
+  });
+  test('all and only canonical signed earnings fields permit negative values', () {
+    const signed = {
+      'net_collected_minor', 'pending_reserved_minor',
+      'completed_settlement_minor', 'available_minor',
+    };
+    for (final field in VendorEarningsSnapshot.amounts.keys) {
+      final raw = snapshot();
+      raw['data'][0][field] = -450;
+      VendorEarningsSnapshot parse() => VendorEarningsSnapshot.parse(
+        raw, vendorId: 3, currency: 'KWD', page: 1,
+      );
+      if (signed.contains(field)) {
+        expect(parse().rows.single[field], -450);
+      } else {
+        expect(parse, throwsFormatException, reason: field);
+      }
+    }
+  });
   final corruptions = <String, void Function(Map<String, dynamic>)>{
     'foreign vendor': (r) => r['vendor_id'] = 4,
     'wrong currency': (r) => r['currency'] = 'AED',
@@ -429,6 +481,14 @@ void main() {
     'forged overall scope': (r) => r['overall_balance_scope'] = 'PAGE_TOTAL',
     'fractional amount': (r) => r['data'][0]['paid_minor'] = 1.005,
     'unsupported precision': (r) => r['data'][0]['minor_units'] = 4,
+    'different valid precision': (r) => r['data'][0]['minor_units'] = 2,
+    'negative recorded payment': (r) => r['data'][0]['paid_minor'] = -1,
+    'negative refund': (r) => r['data'][0]['refunded_minor'] = -1,
+    'negative allocation': (r) => r['data'][0]['vendor_allocated_minor'] = -1,
+    'negative tax': (r) => r['data'][0]['tax_minor'] = -1,
+    'negative amount due': (r) => r['data'][0]['amount_due_minor'] = -1,
+    'minimum signed 64-bit integer': (r) =>
+        r['data'][0]['available_minor'] = -9223372036854775807 - 1,
     'inconsistent row count': (r) => r['data'] = [],
     'wrong page': (r) => r['current_page'] = 2,
     'unsafe money integer': (r) =>

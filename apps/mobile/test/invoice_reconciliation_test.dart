@@ -16,7 +16,9 @@ Map<String, dynamic> row(int id) => {
   'status': 'reconciled', 'issues': <String>[],
   'evidence': 'SIMULATED_CANONICAL_LEDGER', 'external_psp_or_bank_verified': false,
 };
-Map<String, dynamic> auditPage({int page = 1, int total = 1}) => {
+Map<String, dynamic> auditPage({int page = 1, int total = 1, int? vendorId = 3,
+  String? from, String? to}) => {
+  'scope': {'vendor_id': vendorId, 'currency': 'KWD', 'from': from, 'to': to},
   'data': [for (var i = total - (page - 1) * 20; i > 0 && i > total - page * 20; i--) row(i)],
   'current_page': page, 'last_page': total == 0 ? 1 : ((total - 1) ~/ 20) + 1,
   'per_page': 20, 'total': total,
@@ -31,6 +33,7 @@ class AuditApi extends ScopedVendorApi {
   bool manager = true;
   int auditReads = 0, exports = 0;
   bool forgedCsv = false;
+  void Function(Map<String, dynamic>)? changeScope;
   Map<String, String>? exportQuery;
   @override
   Future<PrivateDocument> downloadInvoiceAuditPage(Map<String, String> query) async {
@@ -48,7 +51,11 @@ class AuditApi extends ScopedVendorApi {
     if (path == 'finance/reconciliation-audit') {
       auditReads++;
       queries.add(Map.of(query));
-      return held == null ? auditPage(page: int.parse(query['page']!)) : held!.future;
+      if (held != null) return held!.future;
+      final response = auditPage(page: int.parse(query['page']!), vendorId: vendor,
+        from: query['from'], to: query['to']);
+      changeScope?.call(response);
+      return response;
     }
     return super.request(path, method: method, body: body, query: query);
   }
@@ -59,7 +66,7 @@ Widget screen(AuditApi api, {bool ar = false}) => vendorApp(
 void main() {
   test('exact immutable ledger diagnostic rejects forged authority and arithmetic', () {
     final raw = auditPage();
-    final parsed = InvoiceAuditPage.parse(raw, 'KWD', 1);
+    final parsed = InvoiceAuditPage.parse(raw, 'KWD', 1, vendorId: 3);
     raw['data'][0]['paid_minor'] = 5;
     expect(parsed.rows.single.money('net_collected_minor'), 'KWD 0.900');
     expect(() => parsed.rows.single.amounts.clear(), throwsUnsupportedError);
@@ -75,21 +82,57 @@ void main() {
     ]) {
       final invalid = auditPage();
       change(invalid);
-      expect(() => InvoiceAuditPage.parse(invalid, 'KWD', 1), throwsFormatException);
+      expect(() => InvoiceAuditPage.parse(invalid, 'KWD', 1, vendorId: 3), throwsFormatException);
     }
     final anomaly = auditPage();
     anomaly['data'][0]['status'] = 'attention_required';
     anomaly['data'][0]['issues'] = ['journal_unbalanced'];
-    expect(InvoiceAuditPage.parse(anomaly, 'KWD', 1).rows.single.issues, ['journal_unbalanced']);
+    expect(InvoiceAuditPage.parse(anomaly, 'KWD', 1, vendorId: 3).rows.single.issues, ['journal_unbalanced']);
+  });
+  test('audit envelope requires exact vendor, currency and date scope', () {
+    final raw = auditPage(from: '2026-11-01', to: '2026-11-27');
+    InvoiceAuditPage parse(Map<String, dynamic> value) => InvoiceAuditPage.parse(
+      value, 'KWD', 1, vendorId: 3, from: '2026-11-01', to: '2026-11-27');
+    expect(parse(raw).total, 1);
+    for (final change in <void Function(Map<String, dynamic>)>[
+      (r) => r.remove('scope'),
+      (r) => r['scope']['vendor_id'] = 4,
+      (r) => r['scope']['vendor_id'] = 3.0,
+      (r) => r['scope']['vendor_id'] = null,
+      (r) => r['scope']['currency'] = 'AED',
+      (r) => r['scope']['from'] = '2026-11-02',
+      (r) => r['scope']['to'] = null,
+      (r) => r['scope'].remove('to'),
+    ]) {
+      final invalid = auditPage(from: '2026-11-01', to: '2026-11-27');
+      change(invalid);
+      expect(() => parse(invalid), throwsFormatException);
+    }
+    expect(InvoiceAuditPage.parse(auditPage(vendorId: null), 'KWD', 1).total, 1);
+    expect(() => InvoiceAuditPage.parse(auditPage(), 'KWD', 1), throwsFormatException);
+  });
+  testWidgets('foreign audit scope clears rows and blocks CSV even with valid amounts', (t) async {
+    final api = AuditApi();
+    addTearDown(api.close);
+    await t.pumpWidget(screen(api));
+    await t.pumpAndSettle();
+    expect(find.text('Internally reconciled'), findsOneWidget);
+    api.changeScope = (r) => r['scope']['vendor_id'] = 4;
+    await t.tap(find.text('Refresh audit'));
+    await t.pumpAndSettle();
+    expect(find.text('Private audit unavailable. Check dates and access.'), findsOneWidget);
+    expect(find.textContaining('TEST-INVOICE'), findsNothing);
+    expect(find.text('View verified current-page CSV'), findsNothing);
+    expect(api.exports, 0);
   });
   test('private CSV verifies exact page amounts and literal invoice cells', () {
-    final source = InvoiceAuditPage.parse(auditPage(), 'KWD', 1);
+    final source = InvoiceAuditPage.parse(auditPage(), 'KWD', 1, vendorId: 3);
     expect(InvoiceAuditCsv.verify(csvFor(), source), contains('TEST-INVOICE-1'));
     expect(() => InvoiceAuditCsv.verify(csvFor(net: 901), source), throwsFormatException);
     expect(() => InvoiceAuditCsv.verify(csvFor(number: 'FOREIGN'), source), throwsFormatException);
     final raw = auditPage();
     raw['data'][0]['invoice_number'] = '\u200b=1';
-    final unsafe = InvoiceAuditPage.parse(raw, 'KWD', 1);
+    final unsafe = InvoiceAuditPage.parse(raw, 'KWD', 1, vendorId: 3);
     expect(InvoiceAuditCsv.verify(csvFor(number: "'\u200b=1"), unsafe), contains("'\u200b=1"));
     expect(() => InvoiceAuditCsv.verify(csvFor(number: '\u200b=1'), unsafe), throwsFormatException);
   });

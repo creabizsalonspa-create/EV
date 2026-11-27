@@ -79,6 +79,45 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         cache = new Map();
         reportQuery = {};
     }
+    // Match the native diagnostic: malformed totals must never be rendered
+    // as a reconciled invoice, but genuine signed audit findings remain visible.
+    function validateInvoiceAuditRow(item, currency, previousId) {
+        const issueCodes = new Set([
+            "invoice_component_mismatch", "invoice_journal_mismatch",
+            "payment_journal_mismatch", "refund_journal_mismatch",
+            "refund_component_mismatch", "refund_allocation_exceeded",
+            "unpaid_credit_journal_mismatch", "unpaid_credit_component_mismatch",
+            "invalid_journal_entry", "journal_accounts_mismatch", "journal_unbalanced",
+            "journal_currency_mismatch", "unexpected_journal_kind",
+            "unlinked_financial_journal", "collection_out_of_bounds",
+        ]);
+        const fields = ["invoiced_minor", "paid_minor", "refunded_minor",
+            "unpaid_credited_minor", "net_collected_minor", "amount_due_minor"];
+        const fail = () => { throw Error("Invalid internal audit source."); };
+        if (!item || !Number.isSafeInteger(item.invoice_id) || item.invoice_id < 1 ||
+            item.invoice_id >= previousId || item.currency !== currency ||
+            item.evidence !== "SIMULATED_CANONICAL_LEDGER" ||
+            item.external_psp_or_bank_verified !== false ||
+            typeof item.invoice_number !== "string" || !item.invoice_number.length ||
+            item.invoice_number.length > 255 ||
+            !Number.isInteger(item.minor_units) || item.minor_units < 0 || item.minor_units > 3 ||
+            !Number.isSafeInteger(item.journal_count) || item.journal_count < 0 || item.journal_count > 500 ||
+            !["reconciled", "attention_required"].includes(item.status) ||
+            !Array.isArray(item.issues) || !item.issues.every(issue => issueCodes.has(issue)) ||
+            new Set(item.issues).size !== item.issues.length ||
+            (item.status === "reconciled") !== (item.issues.length === 0) ||
+            !fields.every(field => Number.isSafeInteger(item[field]))) fail();
+        const issued = BigInt(item.invoiced_minor), paid = BigInt(item.paid_minor),
+            refunded = BigInt(item.refunded_minor), credited = BigInt(item.unpaid_credited_minor);
+        const due = issued - paid - credited;
+        if (BigInt(item.net_collected_minor) !== paid - refunded ||
+            BigInt(item.amount_due_minor) !== (due < 0n ? 0n : due) ||
+            (item.status === "reconciled" &&
+                (issued < 0n || paid < 0n || refunded < 0n || credited < 0n ||
+                    paid + credited > issued || refunded > paid || item.journal_count < 1))) fail();
+        return item;
+    }
+
     function money(amount, currency, digits = 2) {
         return `${currency} ${amount < 0 ? "−" : ""}${EvMoney.format(Math.abs(Number(amount)), Number(digits))}`;
     }
@@ -2142,6 +2181,55 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         }
         button(parent, "Load pending finance reviews", "عرض المراجعات المالية المعلقة", () => show(1));
     }
+    const earningsFields = [
+        ["subtotal_minor", "Invoice subtotal", "المجموع الفرعي للفاتورة"],
+        ["tax_minor", "Tax", "الضريبة"],
+        ["commission_minor", "Commission", "العمولة"],
+        ["vendor_allocated_minor", "Vendor allocation", "حصة المشغل"],
+        ["paid_minor", "Recorded payments", "المدفوعات المسجلة"],
+        ["refunded_minor", "Recorded refunds", "المبالغ المستردة المسجلة"],
+        ["vendor_refunded_minor", "Vendor refunds", "مبالغ المشغل المستردة"],
+        ["unpaid_credited_minor", "Unpaid invoice credits", "الأرصدة الدائنة للفواتير غير المدفوعة"],
+        ["net_collected_minor", "Net collected", "صافي التحصيل"],
+        ["amount_due_minor", "Amount due", "المبلغ المستحق"],
+        ["pending_reserved_minor", "Pending settlement", "تسوية معلقة"],
+        ["completed_settlement_minor", "Completed test settlement", "تسوية اختبارية مكتملة"],
+        ["available_minor", "Available or debt", "المتاح أو الدين"],
+    ];
+    function validateVendorEarnings(report, vendorId, currency, page) {
+        const invalid = () => { throw Error("Vendor earnings source cannot be verified."); };
+        const integer = Number.isSafeInteger;
+        const precision = value => integer(value) && value >= 0 && value <= 3;
+        const signed = new Set(["net_collected_minor", "pending_reserved_minor",
+            "completed_settlement_minor", "available_minor"]);
+        const vendor = Number(vendorId);
+        if (!integer(vendor) || vendor < 1 || !/^[A-Z]{3}$/.test(currency) ||
+            !integer(page) || page < 1 || page > 10000 ||
+            !report || report.vendor_id !== vendor || report.currency !== currency ||
+            report.evidence !== "SIMULATED_CANONICAL_SETTLEMENT" ||
+            report.real_payout_enabled !== false || report.external_psp_or_bank_verified !== false ||
+            report.overall_balance_scope !== "ALL_VENDOR_INVOICES_AND_APPROVED_ADJUSTMENTS" ||
+            !precision(report.minor_units) || !integer(report.overall_available_minor) ||
+            !integer(report.hold_days) || report.hold_days < 0 ||
+            report.current_page !== page || report.per_page !== 10 ||
+            !integer(report.total) || report.total < 0 || !integer(report.last_page) ||
+            report.last_page !== Math.max(1, Math.ceil(report.total / 10)) ||
+            page > report.last_page || !Array.isArray(report.data) ||
+            report.data.length !== Math.min(10, Math.max(0, report.total - (page - 1) * 10)))
+            invalid();
+        const ids = new Set();
+        for (const row of report.data) {
+            if (!row || !integer(row.invoice_id) || row.invoice_id < 1 || ids.has(row.invoice_id) ||
+                row.currency !== currency || row.minor_units !== report.minor_units ||
+                typeof row.invoice_number !== "string" || row.invoice_number.length < 1 ||
+                row.invoice_number.length > 150 || typeof row.evidence !== "string" ||
+                !/^[A-Z][A-Z0-9_]{0,63}$/.test(row.evidence) ||
+                earningsFields.some(([key]) => !integer(row[key]) || (!signed.has(key) && row[key] < 0)))
+                invalid();
+            ids.add(row.invoice_id);
+        }
+        return report;
+    }
     async function settlements(parent, current) {
         const activeCache = cache,
             key = "commercial/settlements?";
@@ -2199,8 +2287,20 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         currency, page: String(page), per_page: "10",
                     });
                     const path = "commercial/vendors/" + vendorId + "/earnings?" + query;
-                    const result = await api(path, "GET", undefined, controller.signal);
+                    // Clear the previously accepted private page and CSV affordance
+                    // before another read, including a rejected or unavailable response.
                     if (current !== epoch || !detail.isConnected) return;
+                    earningsPane.replaceChildren(translated("p", "Loading earnings…", "جارٍ تحميل الأرباح…"));
+                    let result;
+                    try {
+                        const response = await api(path, "GET", undefined, controller.signal);
+                        if (current !== epoch || !detail.isConnected) return;
+                        result = validateVendorEarnings(response, vendorId, currency, page);
+                    } catch (error) {
+                        if (current !== epoch || !detail.isConnected) return;
+                        earningsPane.replaceChildren(translated("p", "Earnings unavailable", "الأرباح غير متاحة"));
+                        throw error;
+                    }
                     earningsPane.replaceChildren(
                         translated("h4", "Itemized vendor earnings", "تفاصيل أرباح المشغل"),
                         translated("p",
@@ -2215,15 +2315,14 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         row.dataset.earningsInvoiceId = String(invoice.invoice_id);
                         const amount = (minor) =>
                             money(minor, invoice.currency, invoice.minor_units);
-                        row.append(
-                            text("h5", invoice.invoice_number),
-                            text("p", amount(invoice.vendor_allocated_minor) + " · Vendor allocation / حصة المشغل"),
-                            text("p", amount(invoice.commission_minor) + " · Commission / العمولة"),
-                            text("p", amount(invoice.net_collected_minor) + " · Net collected / صافي التحصيل"),
-                            text("p", amount(invoice.pending_reserved_minor) + " · Pending settlement / تسوية معلقة"),
-                            text("p", amount(invoice.completed_settlement_minor) + " · Completed test settlement / تسوية اختبارية"),
-                            text("p", amount(invoice.available_minor) + " · Available or debt / المتاح أو الدين"),
-                        );
+                        row.append(text("h5", invoice.invoice_number));
+                        for (const [field, en, ar] of earningsFields) {
+                            const line = document.createElement("p");
+                            line.dataset.earningsAmount = field;
+                            line.append(translated("span", en, ar), text("span", " · " + amount(invoice[field])));
+                            row.append(line);
+                        }
+                        row.append(translated("span", "Source evidence", "دليل المصدر"), text("span", " · " + invoice.evidence));
                         earningsPane.append(row);
                     }
                     if (!(result.data || []).length)
@@ -2247,38 +2346,117 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     () => showEarnings(1));
                 const auditPane = document.createElement("section");
                 auditPane.dataset.financialIntegrity = "true";
-                detail.append(auditPane);
-                button(detail, "Inspect accessible ledger integrity", "فحص سلامة السجل المالي المتاح",
-                    async () => {
-                        // Admin scans all accessible invoices in this currency, not only
-                        // the selected vendor. Vendors remain scoped server-side.
-                        const query = new URLSearchParams({ currency, per_page: "10" });
-                        const report = await api("finance/reconciliation-audit?" + query,
-                            "GET", undefined, controller.signal);
-                        if (current !== epoch || !detail.isConnected) return;
-                        auditPane.replaceChildren(
-                            translated("h4", "Internal ledger integrity", "سلامة السجل المالي الداخلي"),
-                            translated("p",
-                                "Simulated source-only audit, not bank or PSP reconciliation",
-                                "تدقيق داخلي لسجلات اختبارية وليس مطابقة مصرفية"),
+                const auditControls = document.createElement("div");
+                auditControls.className = "finance-form";
+                const auditFrom = document.createElement("input");
+                const auditTo = document.createElement("input");
+                auditFrom.type = auditTo.type = "date";
+                auditFrom.dataset.auditFrom = "true";
+                auditTo.dataset.auditTo = "true";
+                for (const [input, en, ar] of [
+                    [auditFrom, "Audit from date (UTC)", "تاريخ بدء التدقيق (UTC)"],
+                    [auditTo, "Audit to date (UTC)", "تاريخ انتهاء التدقيق (UTC)"],
+                ]) {
+                    const label = document.createElement("label");
+                    label.append(translated("span", en, ar), input);
+                    auditControls.append(label);
+                }
+                detail.append(
+                    translated("p", "Internal audit is scoped to the selected vendor and currency.",
+                        "التدقيق الداخلي محدد بالمورد والعملة المختارين."),
+                    auditControls, auditPane,
+                );
+                let auditGeneration = 0;
+                function clearAudit() {
+                    auditGeneration++;
+                    auditPane.replaceChildren();
+                }
+                auditFrom.addEventListener("input", clearAudit);
+                auditTo.addEventListener("input", clearAudit);
+                document.addEventListener("visibilitychange", () => {
+                    if (document.hidden) {
+                        clearAudit();
+                        auditFrom.value = auditTo.value = "";
+                    }
+                }, { signal: controller.signal });
+
+                async function showAudit(page = 1, applied = null) {
+                    const request = ++auditGeneration;
+                    auditPane.replaceChildren();
+                    if (current !== epoch || !detail.isConnected || document.hidden) return;
+                    if (!Number.isSafeInteger(Number(vendorId)) || Number(vendorId) < 1 ||
+                        !Number.isSafeInteger(page) || page < 1 || page > 10000)
+                        throw Error("Invalid audit scope.");
+                    const query = applied ? new URLSearchParams(applied) :
+                        new URLSearchParams({ currency, vendor_id: vendorId, per_page: "10" });
+                    if (!applied) {
+                        if (auditFrom.value) query.set("from", auditFrom.value);
+                        if (auditTo.value) query.set("to", auditTo.value);
+                    }
+                    if (query.has("from") && query.has("to") && query.get("from") > query.get("to"))
+                        throw Error("Invalid audit date range.");
+                    query.set("page", String(page));
+                    const report = await api("finance/reconciliation-audit?" + query,
+                        "GET", undefined, controller.signal);
+                    if (current !== epoch || request !== auditGeneration ||
+                        !detail.isConnected || document.hidden) return;
+                    const scope = report.scope;
+                    if (report.evidence !== "SIMULATED_INTERNAL_RECONCILIATION" ||
+                        report.external_psp_or_bank_verified !== false ||
+                        !scope || scope.vendor_id !== Number(vendorId) || scope.currency !== currency ||
+                        scope.from !== query.get("from") || scope.to !== query.get("to") ||
+                        !Array.isArray(report.data) || report.current_page !== page ||
+                        report.per_page !== 10 || !Number.isSafeInteger(report.total) ||
+                        report.total < 0 || report.last_page !== Math.max(1, Math.ceil(report.total / 10)) ||
+                        report.data.length !== Math.min(10, Math.max(0, report.total - (page - 1) * 10)))
+                        throw Error("Internal audit response cannot be verified.");
+
+                    const cards = [];
+                    let previousId = Number.MAX_SAFE_INTEGER + 1;
+                    for (const item of report.data) {
+                        validateInvoiceAuditRow(item, currency, previousId);
+                        previousId = item.invoice_id;
+                        const row = document.createElement("article");
+                        row.className = "finance-row";
+                        row.dataset.auditInvoiceId = String(item.invoice_id);
+                        row.append(
+                            text("h5", item.invoice_number),
+                            text("p", item.status + " · " + item.issues.join(", ")),
+                            text("p", money(item.invoiced_minor, currency, item.minor_units) + " · Invoiced / الفاتورة"),
+                            text("p", money(item.net_collected_minor, currency, item.minor_units) + " · Recorded collection / التحصيل المسجل"),
+                            text("p", money(item.amount_due_minor, currency, item.minor_units) + " · Due / المستحق"),
                         );
-                        for (const item of report.data || []) {
-                            const row = document.createElement("article");
-                            row.className = "finance-row";
-                            row.dataset.auditInvoiceId = String(item.invoice_id);
-                            row.append(
-                                text("h5", item.invoice_number),
-                                text("p", item.status + " · " + (item.issues || []).join(", ")),
-                            );
-                            auditPane.append(row);
-                        }
-                        if (!(report.data || []).length)
-                            auditPane.append(translated("p", "No matching invoices.", "لا توجد فواتير مطابقة."));
-                        const link = translated("a", "Download integrity CSV", "تنزيل تقرير السلامة CSV");
-                        link.href = "/api/finance/reconciliation-audit/export?" + query;
-                        link.download = "simulated-finance-reconciliation-page.csv";
-                        auditPane.append(link);
-                    });
+                        cards.push(row);
+                    }
+                    auditPane.replaceChildren(
+                        translated("h4", "Internal ledger integrity", "سلامة السجل المالي الداخلي"),
+                        translated("p", "Simulated source-only audit, not bank or PSP reconciliation",
+                            "تدقيق داخلي لسجلات اختبارية وليس مطابقة مصرفية"),
+                        ...cards,
+                    );
+                    if (!cards.length)
+                        auditPane.append(translated("p", "No matching invoices.", "لا توجد فواتير مطابقة."));
+                    const pager = document.createElement("div");
+                    pager.className = "finance-pagination";
+                    pager.append(text("p", String(page) + " / " + String(report.last_page)));
+                    if (page > 1)
+                        button(pager, "Previous audit page", "صفحة التدقيق السابقة",
+                            () => showAudit(page - 1, query));
+                    if (page < report.last_page && page < 10000)
+                        button(pager, "Next audit page", "صفحة التدقيق التالية",
+                            () => showAudit(page + 1, query));
+                    auditPane.append(pager);
+                    const link = translated("a", "Download integrity CSV", "تنزيل تقرير السلامة CSV");
+                    link.href = "/api/finance/reconciliation-audit/export?" + query;
+                    link.download = "simulated-finance-reconciliation-page.csv";
+                    link.onclick = event => {
+                        if (current !== epoch || request !== auditGeneration ||
+                            !link.isConnected || document.hidden) event.preventDefault();
+                    };
+                    auditPane.append(link);
+                }
+                button(detail, "Inspect accessible ledger integrity", "فحص سلامة السجل المالي المتاح",
+                    () => showAudit());
                 if (statement.eligible_to_request)
                     form(
                         detail,
