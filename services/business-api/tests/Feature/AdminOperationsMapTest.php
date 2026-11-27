@@ -93,7 +93,7 @@ class AdminOperationsMapTest extends TestCase
     {
         $owner = User::factory()->create(['role' => 'vendor']);
         $provider = OcpiProvider::create(['owner_id' => $owner->id, 'name' => 'Synthetic peer', 'connection_key' => 'map-fixture', 'authorized' => true]);
-        $create = function (string $id, mixed $longitude, bool $published = true) use ($provider) {
+        $create = function (string $id, mixed $longitude, mixed $published = true) use ($provider) {
             return OcpiRecord::create([
                 'ocpi_provider_id' => $provider->id, 'module' => 'locations', 'country_code' => 'AE', 'party_id' => 'TST',
                 'external_id' => $id, 'payload' => ['private' => 'SECRET-PARTNER-TOKEN'],
@@ -104,6 +104,9 @@ class AdminOperationsMapTest extends TestCase
         $create('Literal_%', '179');
         $create('West side', '-179');
         $create('Unpublished', '179', false);
+        $create('Numeric publication', '179', 1);
+        $create('Text publication', '179', 'true');
+        $create('Object publication', '179', ['value' => true]);
         $create('Malformed coordinate', 'garbage');
         $create('Boolean coordinate', false);
         $create('Outside area', '0');

@@ -96,7 +96,7 @@ final class AdminOperationsMapController extends Controller
     private function partner(User $actor, array $filters)
     {
         $query = OcpiRecord::query()->where('module', 'locations')
-            ->where('normalized->publish', true)
+            ->explicitlyPublished()
             ->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->select('id'))
             ->when(! empty($filters['country']), fn ($q) => $q->where('normalized->country', $filters['country']));
         if (! empty($filters['q'])) {

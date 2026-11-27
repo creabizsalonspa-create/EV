@@ -33,6 +33,38 @@ class UnifiedDiscoveryTest extends TestCase
         return compact('station', 'provider', 'record');
     }
 
+    public function test_only_explicit_boolean_publication_is_visible_before_pagination(): void
+    {
+        $fixture = $this->fixtures();
+        $original = $fixture['record'];
+        $this->putJson('/api/roaming/favorites/'.$original->id)->assertOk();
+        $values = [1, 1.0, '1', 'true', false, null, ['value' => true], [true]];
+        for ($i = 0; $i < 27; $i++) {
+            $copy = $original->replicate();
+            $copy->external_id = 'malformed-publication-'.$i;
+            $copy->normalized = array_replace($original->normalized, ['publish' => $values[$i % count($values)]]);
+            $copy->save();
+            $this->putJson('/api/roaming/favorites/'.$copy->id)->assertNotFound();
+        }
+        $missing = $original->replicate();
+        $missing->external_id = 'missing-publication';
+        $normalized = $original->normalized;
+        unset($normalized['publish']);
+        $missing->normalized = $normalized;
+        $missing->save();
+        foreach (['/api/discovery/search?scope=partner', '/api/v1/discovery/search?scope=partner', '/api/roaming/locations'] as $path) {
+            $this->getJson($path)->assertOk()->assertJsonPath('total', 1)->assertJsonCount(1, 'data')
+                ->assertJsonPath('data.0.location.publish', true);
+        }
+        $original->update(['normalized' => array_replace($original->normalized, ['publish' => 1])]);
+        foreach (['/api/discovery/search?scope=partner', '/api/v1/discovery/search?scope=partner', '/api/roaming/locations'] as $path) {
+            $this->getJson($path)->assertOk()->assertJsonPath('total', 0)->assertJsonCount(0, 'data');
+        }
+        $this->getJson('/api/roaming/favorites')->assertOk()->assertJsonPath('data.0.location_available', false)
+            ->assertJsonPath('data.0.location', null)->assertJsonPath('data.0.provider_label', null);
+        Http::assertNothingSent();
+    }
+
     public function test_catalog_age_is_consistent_without_fabricating_freshness_or_authority(): void
     {
         $this->travelTo(Carbon::parse('2026-11-15T12:00:00Z'));

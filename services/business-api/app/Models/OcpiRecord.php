@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 
@@ -13,6 +14,19 @@ class OcpiRecord extends Model
     protected $dateFormat = 'Y-m-d H:i:s.u';
 
     protected $hidden = ['payload', 'content_hash'];
+
+    /** Only an explicit JSON boolean true permits public location projection. */
+    public function scopeExplicitlyPublished(Builder $query): Builder
+    {
+        // SQLite's json_extract converts true and numeric 1 to the same
+        // SQL value. PostgreSQL text extraction similarly loses JSON type.
+        // Preserve type before pagination, including legacy corrupt rows.
+        return match ($query->getModel()->getConnection()->getDriverName()) {
+            'sqlite' => $query->whereRaw("json_type(ocpi_records.normalized, '$.publish') = 'true'"),
+            'pgsql' => $query->whereRaw("(ocpi_records.normalized::jsonb->'publish') = 'true'::jsonb"),
+            default => throw new \LogicException('Unsupported partner publication database.'),
+        };
+    }
 
     protected function casts(): array
     {
