@@ -20,7 +20,8 @@ function harness() {
     const el = id => {
         if (!elements.has(id)) elements.set(id,{
             children:[],
-            elements:{name:{value:""},locale:{value:""}},
+            isConnected:true,
+            elements:{name:{value:""},locale:{value:""},subject:{value:"Reviewed support issue",readOnly:false},body:{value:"Exact support request",readOnly:false},namedItem(name){return this[name]??null;}},
             setAttribute(){},removeAttribute(){},dataset:{},
             replaceChildren(...children){this.children=children;},
             append(...children){this.children.push(...children);},
@@ -188,16 +189,18 @@ test("support ticket creation uses independent account-scoped pending tokens",as
     assert.equal(posts.length,2);
     assert.notEqual(posts[0].data.idempotency_key,posts[1].data.idempotency_key);
     assert.equal(form.submit.disabled,true);
-    h.resolveTicket(0,{id:70});
+    h.resolveTicket(0,{id:70,user_id:7,subject:posts[0].data.subject,status:"open"});
     await old;
     assert.equal(form.submit.disabled,true);
     assert.equal(h.supportReloads(),0);
-    h.resolveTicket(1,{id:71});
+    h.resolveTicket(1,{id:71,user_id:8,subject:posts[1].data.subject,status:"open"});
     await current;
     assert.equal(form.submit.disabled,false);
     assert.equal(h.supportReloads(),1);
     assert.deepEqual(h.openedTickets(),[71]);
     assert.equal(form.resetCount,1);
+    assert.equal(form.elements.subject.readOnly,false);
+    assert.equal(form.elements.body.readOnly,false);
 });
 
 test("pending-logout startup has initialized mutation locks before private cleanup",async()=>{

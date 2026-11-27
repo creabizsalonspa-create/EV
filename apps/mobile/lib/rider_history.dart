@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'reservation_times.dart';
 import 'strings.dart';
 
 /// Scoped read-only history, with explicit reload after backgrounding.
@@ -209,7 +210,7 @@ class _RiderHistoryState extends State<RiderHistoryView>
               child: ListTile(
                 title: Text(label(row)),
                 subtitle: Text(
-                  '${row['created_at']}\n${kind == 'sessions' ? 'OCPP ${row['protocol']} · #${row['charging_session_id']}' : ''}',
+                  '${serverEventTime(context, row['created_at'])}\n${kind == 'sessions' ? 'OCPP ${row['protocol']} · #${row['charging_session_id']}' : ''}',
                 ),
               ),
             ),

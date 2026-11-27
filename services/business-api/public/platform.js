@@ -2183,6 +2183,10 @@ function resetCustomerMutationState() {
         const submit = el(id).querySelector("button");
         if (submit) submit.disabled = false;
     }
+    for (const field of ["subject","body"]) {
+        const input = el("support-create").elements.namedItem(field);
+        if (input) input.readOnly = false;
+    }
 }
 async function garage(page = garagePage, showNewest = false) {
     if (!user || !Number.isSafeInteger(page) || page < 1) return;
@@ -3004,9 +3008,10 @@ async function ticketDetail(id, page = 1, showNewest = false) {
     const controller = new AbortController();
     ticketDetailRequest = controller;
     const generation = ++ticketDetailGeneration,
-        epoch = client.sessionEpoch, owner = user.id;
+        epoch = client.sessionEpoch, owner = user.id, role = user.role;
+    let actionPending = false, pendingKind = null;
     const active = () => generation === ticketDetailGeneration &&
-        epoch === client.sessionEpoch && owner === user?.id &&
+        epoch === client.sessionEpoch && owner === user?.id && role === user?.role &&
         ticketDetailRequest === controller && !controller.signal.aborted;
     const d = el("ticket-detail");
     d.setAttribute("aria-busy", "true");
@@ -3032,10 +3037,32 @@ async function ticketDetail(id, page = 1, showNewest = false) {
             status: { translate: j.ticket.status },
         }),
     );
-    if (!messages.data.length) d.append(batteryNode("p",
+    // Support clocks are server UTC, not the browser timezone or station
+    // wall clock. Keep an unavailable clock separate from the message body.
+    // Non-admin clients never display an internal or unknown visibility row,
+    // even if a malformed upstream page unexpectedly includes it.
+    const visible = messages.data.filter(m => m && typeof m.body === "string" &&
+        m.body.length <= 5000 &&
+        (m.support_ticket_id == null || m.support_ticket_id === id) &&
+        ([false, 0, "0"].includes(m.internal) ||
+            (user.role === "admin" && [true, 1, "1"].includes(m.internal))));
+    if (!visible.length) d.append(batteryNode("p",
         "No visible messages on this page.", "لا توجد رسائل ظاهرة في هذه الصفحة."));
-    for (const m of messages.data)
-        d.append(node("p", (m.internal ? "INTERNAL · " : "") + m.body));
+    for (const m of visible) {
+        const item = document.createElement("div");
+        item.dataset.supportMessage = "true";
+        if ([true, 1, "1"].includes(m.internal))
+            item.append(batteryNode("p", "Internal note", "ملاحظة داخلية"));
+        item.append(node("p", m.body));
+        const clock = batteryNode("small",
+            window.EvStationTime.displayStationTime(m.created_at, "UTC", "en") ||
+                "Message time unavailable",
+            window.EvStationTime.displayStationTime(m.created_at, "UTC", "ar") ||
+                "وقت الرسالة غير متاح");
+        clock.dataset.supportMessageTime = "true";
+        item.append(clock);
+        d.append(item);
+    }
     const pager = document.createElement("nav");
     pager.className = "pagination";
     pager.dataset.supportMessagePagination = "true";
@@ -3052,7 +3079,7 @@ async function ticketDetail(id, page = 1, showNewest = false) {
         b.type = "button";
         b.disabled = disabled;
         b.dataset.supportMessagePageAction = key;
-        b.onclick = () => { if (active()) void ticketDetail(id, target); };
+        b.onclick = () => { if (active() && !actionPending && !pendingKind && !b.disabled && pager.contains(b)) void ticketDetail(id, target); };
         pager.append(b);
     }
     d.append(pager);
@@ -3071,37 +3098,50 @@ async function ticketDetail(id, page = 1, showNewest = false) {
             label.append(check);
             f.append(label);
         }
-        // Retain the same key across a lost acknowledgement, but generate a
-        // fresh key when the user changes the reply body or internal flag.
+        // Freeze the submitted reply until an exact acknowledgement.
         let pendingReply = null;
+        const submit = f.querySelector("button");
         f.onsubmit = async (e) => {
             e.preventDefault();
-            if (!active()) return;
-            const payload = {
-                body: body.value,
-                internal: !!f.elements.internal?.checked,
-            };
-            const signature = JSON.stringify(payload);
-            if (!pendingReply || pendingReply.signature !== signature) {
-                pendingReply = {
-                    signature,
-                    key: crypto.randomUUID().replace(/-/g, ""),
-                };
-            }
-            try {
-                await api("support/" + id + "/messages", "POST", {
-                    ...payload,
-                    idempotency_key: pendingReply.key,
+            if (!active() || actionPending || (pendingKind && pendingKind !== "reply") || !d.contains(f)) return;
+            const internal = f.elements.internal;
+            if (!pendingReply) {
+                const value = body.value.trim();
+                if (!value || value.length > 5000) return;
+                pendingReply = Object.freeze({
+                    body: value,
+                    internal: role === "admin" && !!internal?.checked,
+                    idempotency_key: crypto.randomUUID().replace(/-/g, ""),
                 });
+            }
+            const original = pendingReply;
+            pendingKind = "reply";
+            actionPending = true;
+            body.readOnly = true;
+            if (internal) internal.disabled = true;
+            if (submit) submit.disabled = true;
+            try {
+                const receipt = await api("support/" + id + "/messages", "POST", original);
                 if (!active()) return;
+                if (!receipt || !Number.isSafeInteger(receipt.id) || receipt.id < 1 ||
+                    receipt.support_ticket_id !== id || receipt.author_id !== owner ||
+                    receipt.body !== original.body ||
+                    !(original.internal ? [true, 1, "1"] : [false, 0, "0"]).includes(receipt.internal))
+                    throw new Error("Support reply acknowledgement unconfirmed.");
                 pendingReply = null;
-                // The API accepted the message. If the subsequent refresh
-                // fails, do not leave the just-sent body ready to submit again.
+                pendingKind = null;
                 body.value = "";
                 await support();
-                await ticketDetail(id, 1, true);
+                if (active()) await ticketDetail(id, 1, true);
             } catch (e) {
                 if (active()) notice(e);
+            } finally {
+                actionPending = false;
+                if (active()) {
+                    body.readOnly = pendingReply !== null;
+                    if (internal) internal.disabled = pendingReply !== null;
+                    if (submit) submit.disabled = false;
+                }
             }
         };
         d.append(f);
@@ -3126,29 +3166,45 @@ async function ticketDetail(id, page = 1, showNewest = false) {
         EvLocale.attribute(reason, "aria-label", "Reason for status change");
         f.append(select, reason, ui("button", "Update ticket status"));
         let pendingStatus = null;
+        const submit = f.querySelector("button");
         f.onsubmit = async (e) => {
             e.preventDefault();
-            if (!active()) return;
-            const payload = { status: select.value, reason: reason.value };
-            const signature = JSON.stringify(payload);
-            if (!pendingStatus || pendingStatus.signature !== signature) {
-                pendingStatus = {
-                    signature,
-                    key: crypto.randomUUID().replace(/-/g, ""),
-                };
-            }
-            try {
-                await api("support/" + id + "/status", "PATCH", {
-                    ...payload,
-                    idempotency_key: pendingStatus.key,
+            if (!active() || actionPending || (pendingKind && pendingKind !== "status") || role !== "admin" || !d.contains(f)) return;
+            if (!pendingStatus) {
+                const value = reason.value.trim();
+                if (!["open", "in_progress", "resolved", "closed"].includes(select.value) ||
+                    !value || value.length > 1000) return;
+                pendingStatus = Object.freeze({
+                    status: select.value,
+                    reason: value,
+                    idempotency_key: crypto.randomUUID().replace(/-/g, ""),
                 });
+            }
+            const original = pendingStatus;
+            pendingKind = "status";
+            actionPending = true;
+            select.disabled = true;
+            reason.readOnly = true;
+            if (submit) submit.disabled = true;
+            try {
+                const receipt = await api("support/" + id + "/status", "PATCH", original);
                 if (!active()) return;
+                if (!receipt || receipt.id !== id || receipt.status !== original.status)
+                    throw new Error("Support status acknowledgement unconfirmed.");
                 pendingStatus = null;
+                pendingKind = null;
                 reason.value = "";
                 await support();
-                await ticketDetail(id, 1, true);
+                if (active()) await ticketDetail(id, 1, true);
             } catch (e) {
                 if (active()) notice(e);
+            } finally {
+                actionPending = false;
+                if (active()) {
+                    select.disabled = pendingStatus !== null;
+                    reason.readOnly = pendingStatus !== null;
+                    if (submit) submit.disabled = false;
+                }
             }
         };
         d.append(f);
@@ -3169,34 +3225,44 @@ async function ticketDetail(id, page = 1, showNewest = false) {
 }
 el("support-create").onsubmit = async (e) => {
     e.preventDefault();
-    if (!user || ticketCreatePending) return;
-    const epoch = client.sessionEpoch, actor = user.id;
-    const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const form = e.target;
+    if (!user || ticketCreatePending || form !== el("support-create") || !form.isConnected) return;
+    const epoch = client.sessionEpoch, actor = user.id, role = user.role;
     const token = ++ticketCreateGeneration;
-    const submit = e.target.querySelector("button");
-    const payload = Object.fromEntries(new FormData(e.target));
-    const signature = JSON.stringify(payload);
-    if (!pendingTicketCreate || pendingTicketCreate.signature !== signature ||
-        pendingTicketCreate.actor !== actor || pendingTicketCreate.epoch !== epoch) {
-        pendingTicketCreate = {
-            signature, actor, epoch,
-            key: crypto.randomUUID().replace(/-/g, ""),
-        };
+    const active = () => token === ticketCreateGeneration &&
+        epoch === client.sessionEpoch && actor === user?.id && role === user?.role &&
+        form.isConnected && form === el("support-create");
+    const submit = form.querySelector("button");
+    const subject = form.elements.namedItem("subject");
+    const body = form.elements.namedItem("body");
+    if (!subject || !body) return;
+    if (!pendingTicketCreate || pendingTicketCreate.actor !== actor ||
+        pendingTicketCreate.epoch !== epoch || pendingTicketCreate.role !== role) {
+        const payload = {subject:subject.value.trim(),body:body.value.trim()};
+        if (!payload.subject || payload.subject.length > 150 || !payload.body || payload.body.length > 5000) return;
+        pendingTicketCreate = {payload, actor, epoch, role,
+            key: crypto.randomUUID().replace(/-/g, "")};
     }
     const request = pendingTicketCreate;
+    // Restore the exact uncertain intent even if a stale callback changed the DOM.
+    subject.value = request.payload.subject;
+    body.value = request.payload.body;
+    subject.readOnly = body.readOnly = true;
     ticketCreatePending = true;
     if (submit) submit.disabled = true;
     try {
         const t = await api("support", "POST", {
-            ...payload,
+            ...request.payload,
             idempotency_key: request.key,
         });
         if (!active()) return;
-        if (!Number.isSafeInteger(t?.id) || t.id <= 0) {
+        if (!Number.isSafeInteger(t?.id) || t.id <= 0 ||
+            t.user_id !== actor || t.subject !== request.payload.subject ||
+            !["open","in_progress","resolved","closed"].includes(t.status)) {
             throw new Error("Ticket creation was not confirmed");
         }
         if (pendingTicketCreate === request) pendingTicketCreate = null;
-        e.target.reset();
+        form.reset();
         supportPage = 1;
         await support();
         if (active()) await ticketDetail(t.id);
@@ -3205,7 +3271,10 @@ el("support-create").onsubmit = async (e) => {
     } finally {
         if (token === ticketCreateGeneration) {
             ticketCreatePending = false;
-            if (submit?.isConnected) submit.disabled = false;
+            if (active()) {
+                subject.readOnly = body.readOnly = pendingTicketCreate !== null;
+                if (submit) submit.disabled = false;
+            }
         }
     }
 };

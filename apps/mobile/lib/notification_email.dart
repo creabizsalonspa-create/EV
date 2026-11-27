@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'reservation_times.dart';
 
 /// Generic notice consent and private handoff history. No client-triggered send.
 class NotificationEmailView extends StatefulWidget {
@@ -321,7 +322,7 @@ class _NotificationEmailState extends State<NotificationEmailView>
                   ListTile(
                     title: Text(stateLabel(row['state'])),
                     subtitle: Text(
-                      '${row['created_at']} · ${row['evidence'] ?? ''}',
+                      '${serverEventTime(context, row['created_at'])} · ${row['evidence'] ?? ''}',
                     ),
                   ),
                 if (page > 1)

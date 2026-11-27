@@ -4,10 +4,39 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'reservation_times.dart';
 import 'fleet.dart';
 import 'charger_diagnostics.dart';
 import 'charger_repairs.dart';
 import 'charging_operations.dart';
+
+/// Server UTC, independent of device and station timezone.
+String supportMessageTime(BuildContext context, dynamic raw) {
+  final formatted=serverUtcTime(context,raw);
+  if(formatted!='—')return formatted;
+  return EvStrings.of(context).arabic?'وقت الرسالة غير متاح':'Message time unavailable';
+}
+
+/// A positive ID alone does not acknowledge the exact public reply.
+bool supportReplyReceiptMatches(dynamic row, int ticketId, String body,
+    {int? accountId}) {
+  if (row is! Map || row['id'] is! int || row['id'] <= 0 ||
+      row['support_ticket_id'] is! int || row['support_ticket_id'] != ticketId ||
+      row['body'] != body || row['author_id'] is! int ||
+      row['author_id'] <= 0 ||
+      (accountId != null && row['author_id'] != accountId)) return false;
+  final visibility = row['internal'];
+  return visibility == false || visibility == 0 || visibility == '0';
+}
+
+/// The create endpoint returns a ticket, not its private initial message.
+/// Laravel validates the original body when replaying the same request key.
+bool supportTicketReceiptMatches(dynamic row, String subject, {int? accountId}) =>
+    row is Map && row['id'] is int && row['id'] > 0 &&
+    row['user_id'] is int && row['user_id'] > 0 &&
+    (accountId == null || row['user_id'] == accountId) &&
+    row['subject'] == subject &&
+    const {'open','in_progress','resolved','closed'}.contains(row['status']);
 
 String newSupportRequestKey() {
   final random = Random.secure();
@@ -245,8 +274,9 @@ int? operationalCaseTarget(Map<String, dynamic> notice) {
 class _NewSupportTicketDialog extends StatefulWidget {
   final String? initialSubject;
   final String? initialBody;
+  final bool recovering;
 
-  const _NewSupportTicketDialog({this.initialSubject, this.initialBody});
+  const _NewSupportTicketDialog({this.initialSubject, this.initialBody, this.recovering = false});
 
   @override
   State<_NewSupportTicketDialog> createState() => _NewSupportTicketDialogState();
@@ -285,6 +315,7 @@ class _NewSupportTicketDialogState extends State<_NewSupportTicketDialog> {
               TextFormField(
                 key: const Key('support-new-subject'),
                 controller: subjectInput,
+                readOnly: widget.recovering,
                 maxLength: 150,
                 decoration: InputDecoration(labelText: strings.t('subject')),
                 validator: (value) => value == null || value.trim().isEmpty
@@ -293,6 +324,7 @@ class _NewSupportTicketDialogState extends State<_NewSupportTicketDialog> {
               TextFormField(
                 key: const Key('support-new-body'),
                 controller: bodyInput,
+                readOnly: widget.recovering,
                 maxLength: 5000,
                 minLines: 3,
                 maxLines: 5,
@@ -318,7 +350,7 @@ class _NewSupportTicketDialogState extends State<_NewSupportTicketDialog> {
               'body': bodyInput.text.trim(),
             });
           },
-          child: Text(strings.t('openTicket')),
+          child: Text(strings.t(widget.recovering ? 'retry' : 'openTicket')),
         ),
       ],
     );
@@ -571,13 +603,12 @@ class SupportViewState extends State<SupportView>
       builder: (_) => _NewSupportTicketDialog(
         initialSubject: pendingTicketSubject,
         initialBody: pendingTicketBody,
+        recovering: pendingTicketKey != null,
       ),
     );
     if (desired == null || !current(dialogGeneration, dialogSession) ||
         !identical(widget.api, dialogApi)) return;
-    if (pendingTicketKey == null ||
-        pendingTicketSubject != desired['subject'] ||
-        pendingTicketBody != desired['body']) {
+    if (pendingTicketKey == null) {
       pendingTicketKey = newSupportRequestKey();
       pendingTicketSubject = desired['subject'];
       pendingTicketBody = desired['body'];
@@ -592,12 +623,12 @@ class SupportViewState extends State<SupportView>
       final accepted = await widget.api.request(
         'support',
         method: 'POST',
-        body: {...desired, 'idempotency_key': pendingTicketKey},
+        body: {'subject': pendingTicketSubject, 'body': pendingTicketBody,
+          'idempotency_key': pendingTicketKey},
       );
       if (!current(request, session)) return;
-      if (accepted is! Map ||
-          accepted['id'] is! int ||
-          (accepted['id'] as int) <= 0) {
+      if (!supportTicketReceiptMatches(accepted, pendingTicketSubject!,
+          accountId: widget.accountId)) {
         throw const FormatException('Support ticket creation not confirmed');
       }
       pendingTicketSubject = null;
@@ -841,6 +872,7 @@ class SupportViewState extends State<SupportView>
         builder: (_) => TicketPage(
           api: widget.api,
           id: id,
+          accountId: widget.accountId,
           onSessionExpired: widget.onSessionExpired,
         ),
       ),
@@ -1316,11 +1348,13 @@ class SupportViewState extends State<SupportView>
 class TicketPage extends StatefulWidget {
   final EvApi api;
   final int id;
+  final int? accountId;
   final VoidCallback onSessionExpired;
   const TicketPage({
     super.key,
     required this.api,
     required this.id,
+    this.accountId,
     required this.onSessionExpired,
   });
   @override
@@ -1379,7 +1413,8 @@ class _TicketPageState extends State<TicketPage>
   void didUpdateWidget(covariant TicketPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     final identityChanged =
-        oldWidget.api != widget.api || oldWidget.id != widget.id;
+        oldWidget.api != widget.api || oldWidget.id != widget.id ||
+        oldWidget.accountId != widget.accountId;
     if (identityChanged || !authorized()) {
       // A retained client can silently rotate credentials while this widget
       // stays mounted. Clear old messages and unsent/retry reply material.
@@ -1468,6 +1503,9 @@ class _TicketPageState extends State<TicketPage>
           list.items.any((row) =>
               row['body'] is! String ||
               (row['body'] as String).length > 5000 ||
+              (row['support_ticket_id'] != null &&
+                  (row['support_ticket_id'] is! int ||
+                   row['support_ticket_id'] != widget.id)) ||
               !knownMessageVisibility(row['internal']))) {
         throw const FormatException('Unverified ticket messages');
       }
@@ -1487,7 +1525,7 @@ class _TicketPageState extends State<TicketPage>
 
   Future<void> send() async {
     if (loading || !freshRead || !foreground || !authorized() ||
-        !form.currentState!.validate()) return;
+        (pendingReplyKey == null && form.currentState?.validate() != true)) return;
     final session = widget.api.sessionFence();
     final n = ++generation;
     setState(() {
@@ -1495,20 +1533,21 @@ class _TicketPageState extends State<TicketPage>
       error = null;
     });
     try {
-      final text = reply.text.trim();
-      if (pendingReplyKey == null || pendingReplyBody != text) {
-        pendingReplyBody = text;
+      // An uncertain write must keep its original content and key.
+      // A changed draft cannot allocate another request until recovery.
+      if (pendingReplyKey == null) {
+        pendingReplyBody = reply.text.trim();
         pendingReplyKey = newSupportRequestKey();
       }
+      final text = pendingReplyBody!;
       final accepted = await widget.api.request(
         'support/${widget.id}/messages',
         method: 'POST',
         body: {'body': text, 'idempotency_key': pendingReplyKey},
       );
       if (!current(n, session)) return;
-      if (accepted is! Map ||
-          accepted['id'] is! int ||
-          (accepted['id'] as int) <= 0) {
+      if (!supportReplyReceiptMatches(accepted, widget.id, text,
+          accountId: widget.accountId)) {
         throw const FormatException('Support reply not confirmed');
       }
       pendingReplyBody = null;
@@ -1577,7 +1616,8 @@ class _TicketPageState extends State<TicketPage>
                         children: [
                           Text('${row['body']}'),
                           Text(
-                            '${row['created_at'] ?? ''}',
+                            supportMessageTime(context,row['created_at']),
+                            key: const Key('support-message-time'),
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
@@ -1596,20 +1636,20 @@ class _TicketPageState extends State<TicketPage>
                       }),
                     ),
                     TextButton(
-                      onPressed: loading || page.current <= 1
+                      onPressed: loading || pendingReplyKey != null || page.current <= 1
                           ? null
                           : () => load(page: page.current - 1),
                       child: Text(s.t('previous')),
                     ),
                     TextButton(
-                      onPressed: loading || page.current >= page.last
+                      onPressed: loading || pendingReplyKey != null || page.current >= page.last
                           ? null
                           : () => load(page: page.current + 1),
                       child: Text(s.t('next')),
                     ),
                   ],
                 ),
-              if (ticket!['status'] == 'closed')
+              if (ticket!['status'] == 'closed' && pendingReplyKey == null)
                 Text(s.t('closedTicket'))
               else
                 Form(
@@ -1620,7 +1660,7 @@ class _TicketPageState extends State<TicketPage>
                       TextFormField(
                         key: const Key('ticket-reply'),
                         controller: reply,
-                        enabled: !loading,
+                        enabled: !loading && pendingReplyKey == null,
                         maxLength: 5000,
                         minLines: 3,
                         maxLines: 6,
