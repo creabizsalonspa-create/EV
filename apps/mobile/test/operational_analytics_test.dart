@@ -8,7 +8,7 @@ import 'test_support.dart';
 class OpsApi extends FixtureApi {
   bool unsafe = false, fail = false, unsafeFeedback = false, unknownDemand = false;
   bool wrongPeriod = false, inconsistentCoverage = false;
-  bool forgedUnavailable = false;
+  bool forgedUnavailable = false, forgedDowntime = false;
   Completer<dynamic>? held;
   final applied = <Map<String, String>>[];
   @override
@@ -56,6 +56,8 @@ class OpsApi extends FixtureApi {
           for (final key in operationalLabels.keys)
             key: key == 'maximum_observed_site_interval_average_w' && unknownDemand
                 ? null
+                : key == 'reported_downtime_seconds' && forgedDowntime
+                    ? 1
                 : key == 'reported_non_fault_unavailable_seconds' && forgedUnavailable
                     ? 1
                     : key == 'completed_energy_wh'
@@ -116,6 +118,14 @@ void main() {
         scrollable: find.byType(Scrollable).first,
       );
       expect(metric, findsOneWidget);
+    },
+  );
+  testWidgets('downtime source partition must reconcile before private rendering',
+    (tester) async {
+      await tester.pumpWidget(app(OpsApi()..forgedDowntime = true, () {}));
+      await tester.pumpAndSettle();
+      expect(find.text('View private report PDF'), findsNothing);
+      expect(find.textContaining('Completed energy (Wh): 1250'), findsNothing);
     },
   );
   testWidgets('unavailable seconds cannot exceed remaining known coverage',
