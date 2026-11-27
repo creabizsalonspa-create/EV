@@ -167,6 +167,13 @@ jobs:
       - if: failure()
         run: docker logs --tail 100 ev-business-api
 
+      - name: Build Laravel web assets from the checked-in lock
+        working-directory: services/business-api
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          test -s public/build/manifest.json
+
   finance-postgres:
     runs-on: ubuntu-latest
     timeout-minutes: 60
