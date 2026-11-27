@@ -33,7 +33,7 @@ class ReviewApi extends FixtureApi {
       'id': 7, 'connector_id': 3,
       'source_evse_number': body['source_evse_number'],
       'source_connector_number': body['source_connector_number'],
-      'current_registration_matches': true,
+      'current_registration_matches': true, 'review_state': 'current',
       'source_observed_at': '2026-11-28 12:00:00.000000',
       'reviewed_at': '2026-11-28 12:01:00.000000',
       'evidence': 'DIRECT_CONNECTOR_REVIEW_ONLY',
@@ -88,7 +88,7 @@ void main() {
       api.stored = {
         'id': 6, 'connector_id': 3,
         'source_evse_number': protocol == '1.6' ? 0 : 1,
-        'source_connector_number': 2, 'current_registration_matches': false,
+        'source_connector_number': 2, 'current_registration_matches': false, 'review_state': 'renewal_required',
         'source_observed_at': '2026-11-28 12:00:00.000000',
         'reviewed_at': '2026-11-28 12:01:00.000000',
         'evidence': 'DIRECT_CONNECTOR_REVIEW_ONLY',
@@ -112,6 +112,32 @@ void main() {
       expect(api.stored!['source_connector_number'], 2);
       expect(find.text('Stored connector review matches current registration'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
+    });
+  }
+
+  for (final state in ['inventory_changed', 'operator_review_required', 'unknown_state']) {
+    testWidgets('blocked $state receipt cannot offer renewal', (tester) async {
+      final api = ReviewApi()..stored = {
+        'id': 6, 'connector_id': 3,
+        'source_evse_number': 0, 'source_connector_number': 2,
+        'current_registration_matches': false, 'review_state': state,
+        'source_observed_at': '2026-11-28 12:00:00.000000',
+        'reviewed_at': '2026-11-28 12:01:00.000000',
+        'evidence': 'DIRECT_CONNECTOR_REVIEW_ONLY',
+        'charging_mapping_created': false, 'physical_availability_verified': false,
+        'remote_control_authorized': false,
+      };
+      await tester.pumpWidget(view(api));
+      await tester.tap(find.text('Read stored connector review'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsNothing);
+      expect(find.text('Re-review same connector identity'), findsNothing);
+      expect(find.text(state == 'inventory_changed'
+        ? 'Connector inventory changed; operator investigation required'
+        : state == 'operator_review_required'
+          ? 'Connector review requires operator investigation'
+          : 'Connector review unavailable. Read again explicitly.'), findsOneWidget);
+      expect(api.writes, 0);
     });
   }
 
