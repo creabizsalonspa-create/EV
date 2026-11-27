@@ -115,7 +115,9 @@ class OperationalAnalytics
             $previous = null;
             foreach ($source as $e) {
                 $time = $this->seconds($e->occurred_at);
-                if ($previous && $previous[0] >= $a && $time <= $z && $time > $previous[0] && $e->meter_wh >= $previous[1]) {
+                // A filtered or missing source sequence cannot establish a
+                // consecutive accepted meter interval. Do not bridge the gap.
+                if ($previous && $e->sequence === $previous[2] + 1 && $previous[0] >= $a && $time <= $z && $time > $previous[0] && $e->meter_wh >= $previous[1]) {
                     $delta = (int) $e->meter_wh - $previous[1];
                     $duration = $time - $previous[0];
                     // Divide before scaling: a valid cumulative meter delta can
@@ -127,7 +129,7 @@ class OperationalAnalytics
                     $demand[$site][] = [$previous[0], $time, $evse->id, $watts];
                     $rows[$site]['maximum_session_interval_average_w'] = max($rows[$site]['maximum_session_interval_average_w'], $watts);
                 }
-                $previous = [$time, (int) $e->meter_wh];
+                $previous = [$time, (int) $e->meter_wh, (int) $e->sequence];
             }
         }
         foreach ($intervals as $site => $groups) {
