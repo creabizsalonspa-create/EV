@@ -7,7 +7,8 @@ import 'test_support.dart';
 
 class FleetApi extends FixtureApi {
   int reads = 0;
-  bool unsafe = false, navigation = false;
+  bool unsafe = false, navigation = false, multi = false;
+  final liveCalls = <String>[];
   int diagnosticsReads = 0;
   Completer<dynamic>? delayed;
   final queries = <Map<String, String>>[];
@@ -38,6 +39,22 @@ class FleetApi extends FixtureApi {
             'observed_at': '2026-11-15T11:59:00Z',
           },
         },
+        if (multi)
+          for (final id in [2, 3])
+            {
+              'mapping_id': id,
+              'station_id': 7,
+              'station_name': 'Private fleet $id',
+              'protocol': '2.0.1',
+              'inventory_eligible_at_read': true,
+              'operations_target': {'company_id': 7, 'charger_id': id == 2 ? 9 : 10},
+              'status_freshness': {
+                'state': 'unknown',
+                'reported_status': null,
+                'evidence': 'SIMULATED_SOURCE',
+                'physical_availability_verified': false,
+              },
+            },
       ],
     },
   };
@@ -48,6 +65,34 @@ class FleetApi extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (path.endsWith('/live-connectors')) {
+      expect(method, 'GET');
+      liveCalls.add(path);
+      return {
+        'company_id': 7,
+        'charger_id': path.contains('/10/') ? 999 : 9,
+        'protocol': '2.0.1',
+        'evidence': 'SIMULATED_CSMS_SOURCE',
+        'source_identity_rechecked': true,
+        'source_online': true,
+        'source_topology_matches_local': true,
+        'observed_at': '2026-11-15T12:00:00Z',
+        'physical_availability_verified': false,
+        'remote_control_authorized': false,
+        'commands_sent': false,
+        'connectors': [
+          for (final id in [1, 2])
+            {
+              'mapping_id': id,
+              'state': 'recent',
+              'reported_status': 'Occupied',
+              'source_event_at': '2026-11-15T11:59:00Z',
+              'physical_available': false,
+              'remote_control_authorized': false,
+            },
+        ],
+      };
+    }
     if (path == 'vendor-ops/companies/7/chargers/9/source-diagnostics') {
       expect(method, 'GET');
       diagnosticsReads++;
@@ -65,6 +110,37 @@ Widget app(FleetApi api) => MaterialApp(
   home: ConnectorFleetView(api: api, onExpired: () {}),
 );
 void main() {
+  testWidgets('explicit page live refresh deduplicates chargers and rejects foreign source',
+      (tester) async {
+    final api = FleetApi()..navigation = true..multi = true;
+    await tester.pumpWidget(app(api));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Read connector snapshot'));
+    await tester.pumpAndSettle();
+    expect(api.liveCalls, isEmpty);
+    final read = find.text('Read live sources for this page');
+    await tester.ensureVisible(read);
+    await tester.tap(read);
+    await tester.pumpAndSettle();
+    expect(api.liveCalls, [
+      'vendor-ops/companies/7/chargers/9/live-connectors',
+      'vendor-ops/companies/7/chargers/10/live-connectors',
+    ]);
+    expect(find.textContaining('Live source report at read'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.text('Live source unavailable or unqualified; state unknown.'),
+      200,
+    );
+    expect(find.text('Live source unavailable or unqualified; state unknown.'), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Live source report at read'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.liveCalls.length, 2);
+    expect(find.textContaining('Private fleet'), findsNothing);
+  });
+
   testWidgets(
     'diagnostics requires explicit navigation to the scoped existing workspace',
     (tester) async {
