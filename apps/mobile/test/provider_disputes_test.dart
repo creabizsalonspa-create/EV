@@ -20,6 +20,10 @@ Map<String, dynamic> receipt() => {
 
 class DisputeApi extends FixtureApi {
   bool live = true, admin = false;
+  String eventType = 'charge.dispute.created';
+  String eventStatus = 'needs_response';
+  String eventTime = '2026-11-12 10:00:00';
+  String operationStatus = 'uncertain';
   int epoch = 0;
   final changes = StreamController<int>.broadcast(sync: true);
   @override
@@ -58,15 +62,15 @@ class DisputeApi extends FixtureApi {
         'can_reconcile': admin,
         'events': [
           {
-            'type': 'charge.dispute.created',
-            'status': 'needs_response',
-            'created_at': '2026-11-12 10:00:00',
+            'type': eventType,
+            'status': eventStatus,
+            'created_at': eventTime,
           },
         ],
         'evidence_submissions': admin
             ? [
                 {
-                  'status': 'uncertain',
+                  'status': operationStatus,
                   'submit': 0,
                   'retry_until': '2026-11-15 10:00:00',
                 },
@@ -83,6 +87,72 @@ class DisputeApi extends FixtureApi {
 }
 
 void main() {
+  for (final ar in [false, true]) {
+    testWidgets('provider receipt labels and source clocks are localized ($ar)', (tester) async {
+      final api = DisputeApi()
+        ..admin = true
+        ..eventTime = '2026-02-30 10:00:00';
+      addTearDown(api.close);
+      addTearDown(api.changes.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(ar ? 'ar' : 'en'),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: ProviderDisputesView(api: api, onExpired: () {}, initialDisputeId: 7),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text(ar ? 'حالة المزود: تم خسارة النزاع' : 'Provider status: Lost'), findsOneWidget);
+      expect(find.textContaining(ar ? 'تم إنشاء النزاع' : 'Dispute created'), findsOneWidget);
+      expect(find.textContaining(ar ? 'وقت الحدث غير متاح' : 'Event time unavailable'), findsOneWidget);
+      expect(find.textContaining('2026-02-30'), findsNothing);
+      expect(find.textContaining('charge.dispute.created'), findsNothing);
+      expect(find.textContaining('needs_response'), findsNothing);
+      expect(api.methods.every((method) => method == 'GET'), isTrue);
+      expect(tester.takeException(), isNull);
+    });
+  }
+  test('provider receipt accepts only canonical dispute states', () {
+    for (final status in [
+      'warning_needs_response', 'warning_under_review', 'warning_closed',
+      'needs_response', 'under_review', 'won', 'lost',
+    ]) {
+      expect(providerDispute({...receipt(), 'status': status})['status'], status);
+    }
+    for (final status in [null, 1, '', 'refunded', 'private-provider-token']) {
+      expect(() => providerDispute({...receipt(), 'status': status}),
+          throwsFormatException);
+    }
+  });
+  testWidgets('unknown provider history tokens fail closed and recover through list',
+      (tester) async {
+    final api = DisputeApi()..admin = true;
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await tester.pumpWidget(MaterialApp(
+      home: ProviderDisputesView(api: api, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    for (var field = 0; field < 3; field++) {
+      api.eventType = field == 0 ? 'private-invalid-token' : 'provider.inspect';
+      api.eventStatus = field == 1 ? 'private-invalid-token' : 'needs_response';
+      api.operationStatus = field == 2 ? 'private-invalid-token' : 'confirmed';
+      await tester.tap(find.text('Inspect receipt'));
+      await tester.pumpAndSettle();
+      expect(find.text('Invoice #19'), findsNothing);
+      expect(find.textContaining('private-invalid-token'), findsNothing);
+      expect(find.text('Could not load provider receipts. Refresh to retry.'),
+          findsOneWidget);
+      await tester.tap(find.text('Refresh list'));
+      await tester.pumpAndSettle();
+      expect(find.text('Invoice #19'), findsOneWidget);
+    }
+    api.operationStatus = 'confirmed';
+    await tester.tap(find.text('Inspect receipt'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Provider inspection'), findsOneWidget);
+    expect(api.methods.every((method) => method == 'GET'), isTrue);
+    expect(tester.takeException(), isNull);
+  });
   test('provider dispute page binds requested page and exact unique receipt IDs', () {
     final first = <String, dynamic>{
       'data': [for (var i = 1; i <= 25; i++) {...receipt(), 'id': i}],
