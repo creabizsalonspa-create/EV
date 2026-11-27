@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'api.dart';
@@ -19,7 +20,7 @@ class TariffWorkspaceView extends StatefulWidget {
   State<TariffWorkspaceView> createState() => _TariffWorkspaceViewState();
 }
 
-class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
+class _TariffWorkspaceViewState extends State<TariffWorkspaceView> with WidgetsBindingObserver {
   final form = GlobalKey<FormState>();
   final price = TextEditingController(), tax = TextEditingController();
   ApiPage<Map<String, dynamic>>? data;
@@ -30,11 +31,70 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
   Object? error;
   int generation = 0, target = 1;
   late String key;
+  late bool Function() accountFence;
+  StreamSubscription<int>? subscription;
+  bool foreground = true;
+  bool get active => mounted && foreground && accountFence();
+  bool current(int epoch, EvApi source) =>
+      active && epoch == generation && identical(source, widget.api);
+  void redact() {
+    generation++;
+    data = null;
+    pricingContext = effectiveTariff = null;
+    tariffAsOf = null;
+    price.clear();
+    tax.clear();
+    busy = compatible = uncertain = false;
+    target = 1;
+    error = null;
+  }
+  void subscribe() {
+    final source = widget.api;
+    subscription = source.sessionEvents.listen((_) {
+      if (mounted && identical(source, widget.api) && !accountFence()) {
+        setState(redact);
+      }
+    });
+  }
+  VoidCallback guard(VoidCallback action) {
+    final epoch = generation, source = widget.api;
+    return () { if (current(epoch, source) && !busy) action(); };
+  }
   @override
   void initState() {
     super.initState();
+    accountFence = widget.api.sessionFence();
+    final state = WidgetsBinding.instance.lifecycleState;
+    foreground = state == null || state == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    subscribe();
     renewKey();
-    load();
+    if (active) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant TariffWorkspaceView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api)) {
+      unawaited(subscription?.cancel());
+      redact();
+      accountFence = widget.api.sessionFence();
+      subscribe();
+      if (active) load();
+    } else if (!accountFence()) {
+      redact();
+    } else if (oldWidget.station?['id'] != widget.station?['id']) {
+      redact();
+      if (active) load();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (!mounted || resumed == foreground) return;
+    setState(() { foreground = resumed; redact(); });
+    // Refresh explicitly; never replay an unacknowledged price publication.
   }
 
   void renewKey() {
@@ -48,13 +108,16 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(subscription?.cancel());
     price.dispose();
     tax.dispose();
     super.dispose();
   }
 
-  Future<void> load({int page = 1}) async {
-    final epoch = ++generation;
+  Future<void> load({int page = 1, bool afterPublish = false}) async {
+    if (!active || (busy && !afterPublish)) return;
+    final epoch = ++generation, source = widget.api;
     target = page;
     setState(() {
       busy = true;
@@ -68,7 +131,7 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
       tax.clear();
     });
     try {
-      final response = await widget.api.request(
+      final response = await source.request(
         widget.station == null
             ? 'finance/stations'
             : 'stations/${widget.station!['id']}/tariffs',
@@ -114,7 +177,7 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
           }
         }
       }
-      if (mounted && epoch == generation)
+      if (current(epoch, source))
         setState(() {
           data = result;
           uncertain = false;
@@ -142,7 +205,7 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
           }
         });
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (current(epoch, source)) {
         if (e is ApiException && [401, 419].contains(e.status)) {
           widget.onExpired();
           return;
@@ -150,13 +213,13 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
         setState(() => error = e);
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch, source)) setState(() => busy = false);
     }
   }
 
   Future<void> publish() async {
-    if (!compatible || busy || uncertain || form.currentState?.validate() != true) return;
-    final epoch = generation, station = widget.station!;
+    if (!active || !compatible || busy || uncertain || form.currentState?.validate() != true) return;
+    final epoch = ++generation, station = widget.station!, source = widget.api;
     final body = {
       'rate_minor_per_kwh': decimalMinor(
         price.text,
@@ -174,14 +237,14 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
       error = null;
     });
     try {
-      await widget.api.request(
+      await source.request(
         'stations/${station['id']}/tariffs',
         method: 'POST',
         body: body,
       );
-      if (mounted && epoch == generation) await load();
+      if (current(epoch, source)) await load(afterPublish: true);
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (current(epoch, source)) {
         if (e is ApiException && [401, 419].contains(e.status)) {
           widget.onExpired();
           return;
@@ -192,7 +255,7 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
         });
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch, source)) setState(() => busy = false);
     }
   }
 
@@ -200,6 +263,12 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), page = data, station = widget.station;
     final digits = pricingContext?['minor_units'];
+    if (!active) return Scaffold(
+      appBar: AppBar(title: Text(s.t('pricing'))),
+      body: Center(child: Text(s.arabic
+          ? 'أعد فتح التسعير أو حدّث عند العودة.'
+          : 'Reopen pricing or refresh when active.')),
+    );
     return Scaffold(
       appBar: AppBar(
         title: Text(station == null ? s.t('pricing') : '${station['name']}'),
@@ -212,7 +281,7 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
           children: [
             Text(s.t('tariffDisclaimer')),
             TextButton(
-              onPressed: busy ? null : () => load(page: target),
+              onPressed: busy ? null : guard(() { load(page: target); }),
               child: Text(s.t('refreshPricing')),
             ),
             if (busy) const LinearProgressIndicator(),
@@ -220,7 +289,7 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
               Text(s.t(uncertain ? 'pricingUncertain' : errorKey(error!))),
             if (error != null && !busy && !uncertain)
               TextButton(
-                onPressed: () => load(page: target),
+                onPressed: guard(() { load(page: target); }),
                 child: Text(s.t('retry')),
               ),
             if (page != null) ...[
@@ -281,7 +350,7 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
                         ),
                         Text(s.t('commissionRetained')),
                         FilledButton(
-                          onPressed: busy || uncertain ? null : publish,
+                          onPressed: busy || uncertain ? null : guard(() { publish(); }),
                           child: Text(s.t('publishPricing')),
                         ),
                       ],
@@ -325,7 +394,7 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
                       title: Text('${row['name']}'),
                       subtitle: Text('${row['currency']}'),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () => Navigator.of(context).push(
+                      onTap: busy ? null : guard(() { Navigator.of(context).push(
                         MaterialPageRoute<void>(
                           builder: (_) => TariffWorkspaceView(
                             api: widget.api,
@@ -333,7 +402,7 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
                             station: row,
                           ),
                         ),
-                      ),
+                      ); }),
                     ),
                   ),
               ],
@@ -350,13 +419,13 @@ class _TariffWorkspaceViewState extends State<TariffWorkspaceView> {
                   OutlinedButton(
                     onPressed: busy || page.current <= 1
                         ? null
-                        : () => load(page: page.current - 1),
+                        : guard(() { load(page: page.current - 1); }),
                     child: Text(s.t('previous')),
                   ),
                   OutlinedButton(
                     onPressed: busy || page.current >= page.last
                         ? null
-                        : () => load(page: page.current + 1),
+                        : guard(() { load(page: page.current + 1); }),
                     child: Text(s.t('next')),
                   ),
                 ],
