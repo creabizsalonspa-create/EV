@@ -153,3 +153,22 @@ test("repeated regional wall clocks disclose distinct source-instant UTC offsets
         }
     }
 });
+
+test("mounted event labels switch through the actual locale engine without source replay", () => {
+    const nodes = [{dataset:{}},{dataset:{}}];
+    const document = {documentElement:{lang:"en"},querySelectorAll:()=>nodes,getElementById:()=>null,addEventListener:()=>{}};
+    const window = {EV_MESSAGES:{},dispatchEvent:()=>{}};
+    const env = {document,window,Element:class{},localStorage:{getItem:()=>null,setItem:()=>{}},Event:class{}};
+    vm.runInNewContext(fs.readFileSync("services/business-api/public/station-time.js","utf8"),env);
+    vm.runInNewContext(fs.readFileSync("services/business-api/public/locale.js","utf8"),env);
+    window.EvStationTime.bindServerEventTime(nodes[0],"2026-11-07T12:00:00+04:00");
+    window.EvStationTime.bindServerEventTime(nodes[1],"2026-02-30T08:00:00Z");
+    assert.match(nodes[0].textContent,/08:00 \(UTC\)/);
+    assert.equal(nodes[1].textContent,"Event time unavailable");
+    window.EvLocale.set("ar");
+    assert.equal(nodes[0].textContent,nodes[0].dataset.ar);
+    assert.equal(nodes[1].textContent,"وقت الحدث غير متاح");
+    window.EvLocale.set("en");
+    assert.equal(nodes[0].textContent,nodes[0].dataset.en);
+    assert.equal(nodes[1].textContent,"Event time unavailable");
+});

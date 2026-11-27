@@ -116,5 +116,13 @@
             ? displayStationTime(value, "UTC", language) : null;
         return display || (language === "ar" ? "وقت الحدث غير متاح" : "Event time unavailable");
     }
-    window.EvStationTime = Object.freeze({ validZone, toUtc, displayStationTime, serverEventTime });
+    // Bind both presentations so the existing locale engine updates a mounted
+    // receipt without a fresh request or exposing a raw source timestamp.
+    function bindServerEventTime(node, value) {
+        node.dataset.en = serverEventTime(value, "en");
+        node.dataset.ar = serverEventTime(value, "ar");
+        node.textContent = document.documentElement.lang === "ar" ? node.dataset.ar : node.dataset.en;
+        return node;
+    }
+    window.EvStationTime = Object.freeze({ validZone, toUtc, displayStationTime, serverEventTime, bindServerEventTime });
 })();

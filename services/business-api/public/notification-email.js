@@ -81,8 +81,15 @@ window.EvNotificationEmail = {
             }
             root.append(node('h4', t('Handoff history — delivery unconfirmed', 'سجل النقل — التسليم غير مؤكد')));
             if (history.receipts.data.length === 0) root.append(node('p', t('No email notice handoffs on this page.', 'لا توجد عمليات نقل إشعارات بالبريد في هذه الصفحة.')));
-            const labels = {queued: t('Queued', 'في الانتظار'), claimed: t('Claimed; review if interrupted', 'تم الحجز؛ راجع عند الانقطاع'), handed_off: t('Transport accepted; delivery unconfirmed', 'قبله النقل؛ التسليم غير مؤكد'), outcome_unknown: t('Outcome unknown; no automatic retry', 'نتيجة غير معروفة؛ لا إعادة تلقائية'), cancelled: t('Cancelled', 'ملغى')};
-            for (const row of history.receipts.data) root.append(node('p', `${window.EvStationTime.serverEventTime(row.created_at, document.documentElement.lang)} · ${labels[row.state] || t('Review required', 'تلزم المراجعة')} · ${row.evidence || ''}`));
+            const labels = {queued: ['Queued', 'في الانتظار'], claimed: ['Claimed; review if interrupted', 'تم الحجز؛ راجع عند الانقطاع'], handed_off: ['Transport accepted; delivery unconfirmed', 'قبله النقل؛ التسليم غير مؤكد'], outcome_unknown: ['Outcome unknown; no automatic retry', 'نتيجة غير معروفة؛ لا إعادة تلقائية'], cancelled: ['Cancelled', 'ملغى']};
+            for (const row of history.receipts.data) {
+                const receipt = node('p');
+                const label = Object.hasOwn(labels, row.state) ? labels[row.state] : ['Review required', 'تلزم المراجعة'];
+                receipt.dataset.en = `${window.EvStationTime.serverEventTime(row.created_at, 'en')} · ${label[0]} · ${row.evidence || ''}`;
+                receipt.dataset.ar = `${window.EvStationTime.serverEventTime(row.created_at, 'ar')} · ${label[1]} · ${row.evidence || ''}`;
+                receipt.textContent = document.documentElement.lang === 'ar' ? receipt.dataset.ar : receipt.dataset.en;
+                root.append(receipt);
+            }
             if (page > 1) button(t('Previous', 'السابق'), () => load(page - 1));
             if (history.receipts.current_page < history.receipts.last_page) button(t('Next', 'التالي'), () => load(page + 1));
             } catch {

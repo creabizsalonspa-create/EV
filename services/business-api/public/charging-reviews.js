@@ -301,7 +301,7 @@ window.createChargingReviews = ({ root, api, actor }) => {
                         grade(row.evidence),
                         raw("p", `${row.rating} / 5`),
                         raw("p", row.body),
-                        raw("p", window.EvStationTime.serverEventTime(row.created_at, document.documentElement.lang)),
+                        window.EvStationTime.bindServerEventTime(document.createElement("p"), row.created_at),
                     );
                     if (row.state) card.append(raw("p", row.state));
                     if (next === "mine") {
