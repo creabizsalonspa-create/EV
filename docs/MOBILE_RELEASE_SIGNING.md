@@ -264,3 +264,22 @@ The source regression does not compile Kotlin, produce a signed artifact, prove
 Google Play release eligibility, sign iOS, or perform physical-device testing.
 Those gates still require authorized Android/JDK/Flutter and macOS/Xcode runners,
 owned signing keys, and explicit external acceptance.
+
+
+## Android App Bundle upload-signature acceptance (9.2.8)
+
+APK signing evidence cannot certify the AAB uploaded to Google Play. From the repository root, on a JDK 11+ runner, verify the actual bundle against the independently approved **upload certificate** fingerprint (which may differ from the Play-managed app-signing certificate):
+
+```sh
+java apps/mobile/tool/AuditMobileBundleSignature.java path/to/release.aab APPROVED_UPLOAD_CERTIFICATE_64_HEX_SHA256
+```
+
+The verifier reads every non-metadata file to completion through JDK JAR signature verification, rejects unsigned or multiply signed payloads, unexpected certificates, Android Debug signer, duplicate ZIP entries, missing signed bundle config/manifest, and changed artifact bytes. Successful output records the exact artifact SHA-256 and upload signer fingerprint; it does not print keys or passwords. The owner must independently confirm the fingerprint; an example or locally generated certificate is not release authority.
+
+Run the existing native tool test discovery or the focused test:
+
+```sh
+python3 -B -m unittest discover -s apps/mobile/tool -p mobile_bundle_signature_test.py -v
+```
+
+These tests generate disposable JDK fixture keys and synthetic ZIP payloads, not installable app bundles. They verify actual signatures, wrong/debug/multiple signers, tampering, appended unsigned content and duplicates. JDK tooling is required to execute them; a skipped run is not evidence. Actual release acceptance still requires the owner-approved package ID, `bundletool validate`, inspection of the compiled base manifest and privacy rules, verification of the derived installable APKs, approved distribution signing, authorized backend/device tests and store acceptance. No signed release or store claim follows from this signature-only audit.

@@ -1708,6 +1708,71 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 financeApprovals(panel("Finance approval review", "مراجعة الموافقات المالية"), current);
         }
     }
+    function validateRevenueCohort(report, vendor, currency, from, to) {
+        const fields = [
+            "invoice_count", "invoiced_minor", "vendor_allocated_minor",
+            "commission_allocated_minor", "paid_minor", "refunded_minor",
+            "vendor_refunded_minor", "unpaid_credited_minor", "vendor_credited_minor",
+        ];
+        const fail = () => { throw Error("Revenue cohort source cannot be verified."); };
+        const max = BigInt(Number.MAX_SAFE_INTEGER);
+        const exact = (value, signed = false) => {
+            if (!Number.isSafeInteger(value) || (!signed && value < 0)) fail();
+            return BigInt(value);
+        };
+        const day = value => {
+            if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) fail();
+            const ms = Date.parse(value + "T00:00:00Z");
+            if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== value) fail();
+            return ms / 86400000;
+        };
+        const first = day(from), count = day(to) - first + 1;
+        if (!report || !Number.isSafeInteger(vendor) || vendor < 1 ||
+            !/^[A-Z]{3}$/.test(currency) || report.vendor_id !== vendor ||
+            report.currency !== currency || report.from !== from || report.to !== to ||
+            !Number.isSafeInteger(report.minor_units) || report.minor_units < 0 || report.minor_units > 3 ||
+            report.evidence !== "SIMULATED_CANONICAL_FINANCE" ||
+            report.basis !== "INVOICE_ISSUANCE_DATE_UTC_COHORT" ||
+            report.payment_and_refund_totals !== "LIFETIME_OF_SELECTED_INVOICE_COHORT_AS_OF_QUERY" ||
+            report.external_psp_or_bank_verified !== false || report.real_money_movement !== false ||
+            report.not_cashflow_or_payout_eligibility !== true ||
+            count < 1 || count > 93 || !Array.isArray(report.data) || report.data.length !== count ||
+            !report.totals || typeof report.totals !== "object" || Array.isArray(report.totals)) fail();
+        if (Object.hasOwn(report, "as_of")) {
+            const stamp = report.as_of;
+            if (typeof stamp !== "string" ||
+                !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)$/.test(stamp) ||
+                !Number.isFinite(Date.parse(stamp)) ||
+                new Date(stamp).toISOString().slice(0, 19) !== stamp.slice(0, 19)) fail();
+        }
+        const sums = Object.fromEntries(fields.map(field => [field, 0n]));
+        const nets = row => {
+            // Match the canonical native cohort economics, not just balanced
+            // totals. Forged source amounts can be internally additive while
+            // violating invoice, collection and reversal bounds.
+            const issued = exact(row.invoiced_minor), paid = exact(row.paid_minor),
+                refunded = exact(row.refunded_minor), credited = exact(row.unpaid_credited_minor),
+                vendor = exact(row.vendor_allocated_minor), commission = exact(row.commission_allocated_minor),
+                vendorRefund = exact(row.vendor_refunded_minor), vendorCredit = exact(row.vendor_credited_minor);
+            if (paid + credited > issued || refunded > paid || vendor + commission > issued ||
+                vendorRefund > refunded || vendorCredit > credited || vendorRefund + vendorCredit > vendor ||
+                (exact(row.invoice_count) === 0n && fields.some(field => exact(row[field]) !== 0n)) ||
+                exact(row.net_collected_minor, true) !== paid - refunded ||
+                exact(row.net_vendor_allocated_minor, true) !== vendor - vendorRefund - vendorCredit) fail();
+        };
+        report.data.forEach((row, index) => {
+            if (!row || typeof row !== "object" || Array.isArray(row) || day(row.date_utc) !== first + index) fail();
+            for (const field of fields) {
+                sums[field] += exact(row[field]);
+                if (sums[field] > max) fail();
+            }
+            nets(row);
+        });
+        for (const field of fields) if (exact(report.totals[field]) !== sums[field]) fail();
+        nets(report.totals);
+        return report;
+    }
+
     function vendorRevenue(parent, current) {
         // Issuance-date source cohorts, not PSP cashflow or payout eligibility.
         const area = document.createElement("section");
@@ -1743,6 +1808,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             "View revenue cohorts",
             "عرض مجموعات الإيرادات",
             async (data) => {
+                if (current !== epoch || !actor || !requestForm.isConnected || document.hidden) return;
                 const vendor = Number(data.vendor);
                 if (!Number.isSafeInteger(vendor) || vendor < 1 ||
                     (actor.role === "vendor" && vendor !== Number(actor.id)))
@@ -1771,59 +1837,64 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     !results.isConnected ||
                     document.hidden
                 ) return;
-                if (
-                    Number(report.vendor_id) !== vendor ||
-                    report.currency !== currency ||
-                    report.basis !== "INVOICE_ISSUANCE_DATE_UTC_COHORT" ||
-                    report.external_psp_or_bank_verified !== false ||
-                    report.real_money_movement !== false ||
-                    report.not_cashflow_or_payout_eligibility !== true ||
-                    !Array.isArray(report.data) ||
-                    report.data.length > 93
-                )
-                    throw Error("Revenue cohort source cannot be verified.");
+                validateRevenueCohort(report, vendor, currency, query.get("from"), query.get("to"));
+                const metrics = [
+                    ["invoice_count", "Invoices", "الفواتير"],
+                    ["invoiced_minor", "Issued invoices", "الفواتير الصادرة"],
+                    ["vendor_allocated_minor", "Vendor allocation", "حصة المشغل"],
+                    ["commission_allocated_minor", "Commission allocation", "حصة العمولة"],
+                    ["paid_minor", "Collected", "المحصل"],
+                    ["refunded_minor", "Refunds", "الاستردادات"],
+                    ["vendor_refunded_minor", "Vendor refunds", "استردادات المشغل"],
+                    ["unpaid_credited_minor", "Unpaid credits", "الإشعارات غير المدفوعة"],
+                    ["vendor_credited_minor", "Vendor credits", "إشعارات المشغل"],
+                    ["net_collected_minor", "Net collected", "صافي التحصيل"],
+                    ["net_vendor_allocated_minor", "Net vendor allocation", "صافي حصة المشغل"],
+                ];
+                const renderMetrics = (target, row) => {
+                    for (const [field, en, ar] of metrics) {
+                        const line = document.createElement("p");
+                        line.dataset.revenueMetric = field;
+                        line.append(translated("span", en + ": ", ar + ": "),
+                            text("span", field === "invoice_count" ? String(row[field]) :
+                                money(row[field], currency, report.minor_units)));
+                        target.append(line);
+                    }
+                };
                 results.replaceChildren(
                     translated("h5", "Invoice-cohort totals (simulated)", "إجماليات مجموعات الفواتير (تجريبية)"),
-                    text(
-                        "p",
-                        money(report.totals.invoiced_minor, currency, report.minor_units) +
-                            " · Issued invoices / الفواتير الصادرة",
-                    ),
-                    text(
-                        "p",
-                        money(report.totals.net_collected_minor, currency, report.minor_units) +
-                            " · Collected less refunds / المحصل بعد الاستردادات",
-                    ),
-                    text(
-                        "p",
-                        money(report.totals.net_vendor_allocated_minor, currency, report.minor_units) +
-                            " · Vendor allocation after credits / حصة المشغل بعد الإشعارات",
-                    ),
-                    translated(
-                        "p",
-                        "Not a cashflow statement, bank reconciliation or payable balance.",
-                        "ليس كشف تدفق نقدي أو مطابقة مصرفية أو رصيداً مستحقاً للصرف.",
-                    ),
+                    translated("p", "Not a cashflow statement, bank reconciliation or payable balance.",
+                        "ليس كشف تدفق نقدي أو مطابقة مصرفية أو رصيداً مستحقاً للصرف."),
                 );
+                if (report.as_of) {
+                    const cutoff = document.createElement("p");
+                    cutoff.append(translated("span", "Source as of (UTC): ", "وقت المصدر (UTC): "),
+                        text("span", report.as_of));
+                    results.append(cutoff);
+                }
+                const totals = document.createElement("section");
+                totals.dataset.revenueTotals = "true";
+                renderMetrics(totals, report.totals);
+                results.append(totals);
                 for (const row of report.data) {
-                    const entry = document.createElement("article");
+                    const entry = document.createElement("details");
                     entry.className = "finance-row";
                     entry.dataset.revenueDate = row.date_utc;
-                    entry.append(
-                        text("h6", row.date_utc),
-                        text("p", String(row.invoice_count) + " · Invoices / فواتير"),
-                        text("p", money(row.net_collected_minor, currency, report.minor_units) +
-                            " · Net collected / صافي التحصيل"),
-                        text("p", money(row.net_vendor_allocated_minor, currency, report.minor_units) +
-                            " · Vendor allocation / حصة المشغل"),
-                    );
+                    entry.append(text("summary", row.date_utc + " · " +
+                        money(row.net_collected_minor, currency, report.minor_units)));
+                    renderMetrics(entry, row);
                     results.append(entry);
                 }
                 const link = translated("a", "Download private CSV", "تنزيل CSV خاص");
                 link.href = "/api/commercial/vendors/" + vendor +
                     "/revenue-cohorts/export?" + query;
                 link.download = "simulated-vendor-invoice-cohorts.csv";
-                results.append(link);
+                link.onclick = event => {
+                    if (current !== epoch || requestGeneration !== reportGeneration ||
+                        !link.isConnected || document.hidden) event.preventDefault();
+                };
+                results.append(translated("p", "CSV rechecks the current source for this period.",
+                    "يعيد ملف CSV التحقق من المصدر الحالي لهذه الفترة."), link);
             },
         );
         const clearResult = () => {

@@ -17,6 +17,10 @@ module.exports = async function (fixture, clients) {
     );
     assert(Number.isSafeInteger(site.demand_observed_seconds));
     assert(Number.isSafeInteger(site.demand_ambiguous_evse_seconds));
+    assert.equal(site.possible_connector_seconds, site.mapped_connectors * report.window_seconds);
+    assert.equal(site.possible_evse_seconds, site.mapped_evses * report.window_seconds);
+    assert.equal(site.reported_downtime_seconds, site.reported_fault_seconds + site.reported_non_fault_unavailable_seconds);
+    assert.equal(site.other_known_status_seconds + site.reported_downtime_seconds, site.status_known_seconds);
   }
   assert.equal(report.billing_authority, false);
   assert.equal(report.sites.length, 2);
@@ -133,6 +137,39 @@ module.exports = async function (fixture, clients) {
     );
     assert.equal(pdf.status(), 200);
     assert((await pdf.body()).subarray(0, 5).equals(Buffer.from("%PDF-")));
+    const reportUrl = (url) => url.pathname === "/api/" + reportPath;
+    const apply = panel.getByRole("button", { name: "Apply and refresh", exact: true });
+    const unavailable = panel.getByText("Operational report unavailable. Apply filters to retry.", { exact: true });
+    const forge = async (mutate) => {
+      const handler = async (route) => {
+        const response = await route.fetch();
+        assert.equal(response.status(), 200);
+        const data = await response.json();
+        mutate(data);
+        await route.fulfill({ response, json: data });
+      };
+      await page.route(reportUrl, handler);
+      try {
+        await apply.click();
+        await unavailable.waitFor();
+        assert.equal(await csvLink.count(), 0);
+        assert.equal(await panel.getByRole("link", { name: "Download report PDF", exact: true }).count(), 0);
+        assert.equal(await panel.getByText(/Operational metric: Completed energy/).count(), 0);
+      } finally {
+        await page.unroute(reportUrl, handler);
+      }
+    };
+    // Even internally balanced coverage must agree with mapped equipment.
+    await forge((data) => {
+      data.sites[0].possible_connector_seconds++;
+      data.sites[0].status_unknown_seconds++;
+    });
+    await panel.locator("[name=operational_site_id]").fill(String(report.sites[0].site_id));
+    // A real response for the selected site must not be replaced with another site.
+    await forge((data) => { data.sites[0].site_id = report.sites[1].site_id; });
+    await panel.locator("[name=operational_site_id]").fill("");
+    await apply.click();
+    await panel.getByText(/Operational metric: Completed energy/).first().waitFor();
     const prior = await csvLink.getAttribute("href");
     await panel.locator("[name=operational_site_id]").fill("999999");
     assert.equal(

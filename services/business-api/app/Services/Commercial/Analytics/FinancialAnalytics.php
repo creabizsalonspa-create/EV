@@ -24,8 +24,18 @@ class FinancialAnalytics
     private function aggregate(Builder $q, string $period, string $category, string $currency, string $precision, string $amount, string $state, string $evidence, string $integrity = '1'): Builder
     {
         $q = clone $q;
+        // Validate the individual facts in the same SQL snapshot as the SUM.
+        // A negative or fractional import must not disappear into a plausible
+        // positive group total. PostgreSQL's integer columns are exact; SQLite
+        // additionally permits REAL storage in columns with integer affinity.
+        $max = self::MAX_EXACT_JSON_INTEGER;
+        $exact = "({$amount}) BETWEEN 0 AND {$max} AND ({$precision}) BETWEEN 0 AND 3";
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            $exact .= " AND typeof(({$amount})) = 'integer' AND typeof(({$precision})) = 'integer'";
+        }
+        $valid = "CASE WHEN ({$integrity}) = 1 AND {$exact} THEN 1 ELSE 0 END";
 
-        return $q->selectRaw("'{$period}' AS period, '{$category}' AS category, {$currency} AS currency, {$precision} AS minor_units, {$state} AS state, {$evidence} AS evidence, COUNT(*) AS record_count, COALESCE(SUM({$amount}),0) AS amount_minor, MIN({$integrity}) AS source_valid")
+        return $q->selectRaw("'{$period}' AS period, '{$category}' AS category, {$currency} AS currency, {$precision} AS minor_units, {$state} AS state, {$evidence} AS evidence, COUNT(*) AS record_count, COALESCE(SUM(CASE WHEN {$valid} = 1 THEN {$amount} ELSE 0 END),0) AS amount_minor, MIN({$valid}) AS source_valid")
             ->groupByRaw("{$currency}, {$precision}")
             ->when(! str_starts_with($state, "'"), fn ($q) => $q->groupByRaw($state))
             ->when(! str_starts_with($evidence, "'"), fn ($q) => $q->groupByRaw($evidence));
@@ -42,11 +52,28 @@ class FinancialAnalytics
         $charge = fn () => $this->scope(DB::table('finance_invoices as i'), $actor, 'i.user_id', 'i.vendor_id');
         $queries[] = $this->aggregate($this->bounded($charge(), 'i.created_at', $from, $until, $currency, 'i.currency', $asOf), $period, 'charging_invoiced', 'i.currency', 'i.minor_units', 'i.total_minor', "'issued'", 'i.evidence');
         foreach (['finance_payments' => 'charging_collected', 'finance_refunds' => 'charging_refunded', 'finance_unpaid_credits' => 'charging_unpaid_credited'] as $table => $category) {
-            $q = $this->scope(DB::table($table.' as p')->join('finance_invoices as i', 'i.id', '=', 'p.invoice_id'), $actor, 'i.user_id', 'i.vendor_id');
-            $queries[] = $this->aggregate($this->bounded($q, 'p.created_at', $from, $until, $currency, 'i.currency', $asOf), $period, $category, 'i.currency', 'i.minor_units', 'p.amount_minor', "'posted'", 'p.evidence');
+            $q = $this->scope(DB::table($table.' as p')->join('finance_invoices as i', 'i.id', '=', 'p.invoice_id')
+                ->leftJoin('finance_journals as j', 'j.id', '=', 'p.journal_id'), $actor, 'i.user_id', 'i.vendor_id');
+            $kind = match ($table) {
+                'finance_payments' => 'payment',
+                'finance_refunds' => 'refund',
+                'finance_unpaid_credits' => 'unpaid_credit',
+            };
+            $conditions = "j.invoice_id = i.id AND j.kind = '{$kind}' AND j.currency = i.currency AND j.amount_minor = p.amount_minor AND p.amount_minor > 0 AND p.amount_minor <= i.total_minor";
+            if ($table !== 'finance_payments') {
+                $conditions .= ' AND p.tax_minor BETWEEN 0 AND i.tax_minor AND p.commission_minor BETWEEN 0 AND i.commission_minor AND p.vendor_minor BETWEEN 0 AND i.vendor_minor AND p.tax_minor + p.commission_minor + p.vendor_minor = p.amount_minor';
+                if (DB::connection()->getDriverName() === 'sqlite') {
+                    $conditions .= " AND typeof(p.tax_minor) = 'integer' AND typeof(p.commission_minor) = 'integer' AND typeof(p.vendor_minor) = 'integer'";
+                }
+            }
+            if ($table === 'finance_unpaid_credits') {
+                $conditions .= ' AND p.currency = i.currency AND p.minor_units = i.minor_units AND p.amount_minor = i.total_minor';
+            }
+            $integrity = "CASE WHEN {$conditions} THEN 1 ELSE 0 END";
+            $queries[] = $this->aggregate($this->bounded($q, 'p.created_at', $from, $until, $currency, 'i.currency', $asOf), $period, $category, 'i.currency', 'i.minor_units', 'p.amount_minor', "'posted'", 'p.evidence', $integrity);
             if (in_array($actor->role, ['vendor', 'admin'], true) && in_array($table, ['finance_refunds', 'finance_unpaid_credits'], true)) {
                 foreach (['commission_minor' => 'commission_reversed', 'vendor_minor' => 'vendor_allocation_reversed'] as $field => $allocation) {
-                    $queries[] = $this->aggregate($this->bounded(clone $q, 'p.created_at', $from, $until, $currency, 'i.currency', $asOf), $period, $allocation, 'i.currency', 'i.minor_units', 'p.'.$field, "'allocated'", 'p.evidence');
+                    $queries[] = $this->aggregate($this->bounded(clone $q, 'p.created_at', $from, $until, $currency, 'i.currency', $asOf), $period, $allocation, 'i.currency', 'i.minor_units', 'p.'.$field, "'allocated'", 'p.evidence', $integrity);
                 }
             }
         }
@@ -66,11 +93,23 @@ class FinancialAnalytics
             $queries[] = $this->aggregate($this->bounded($q, 'p.created_at', $from, $until, $currency, 'i.currency', $asOf), $period, $category, 'i.currency', 'i.minor_units', 'p.amount_minor', "'posted'", 'p.evidence', $table === 'subscription_credits' ? 'CASE WHEN p.currency = i.currency AND p.minor_units = i.minor_units THEN 1 ELSE 0 END' : 'CASE WHEN p.currency = i.currency THEN 1 ELSE 0 END');
         }
         $disputes = $this->scope(DB::table('external_disputes as d')->join('gateway_checkouts as c', 'c.id', '=', 'd.checkout_id')->join('finance_invoices as i', 'i.id', '=', 'c.invoice_id'), $actor, 'i.user_id', 'i.vendor_id');
-        $queries[] = $this->aggregate($this->bounded($disputes, 'd.created_at', $from, $until, $currency, 'i.currency', $asOf), $period, 'provider_dispute', 'i.currency', 'i.minor_units', 'd.amount_minor', 'd.status', "'STRIPE_TEST_HTTP'");
+        $queries[] = $this->aggregate($this->bounded($disputes, 'd.created_at', $from, $until, $currency, 'i.currency', $asOf), $period, 'provider_dispute', 'i.currency', 'i.minor_units', 'd.amount_minor', 'd.status', "'STRIPE_TEST_HTTP'", 'CASE WHEN d.currency = i.currency AND c.currency = i.currency AND d.amount_minor > 0 AND d.amount_minor <= c.amount_minor THEN 1 ELSE 0 END');
         $corporate = $this->scope(DB::table('corporate_statements as c')->join('fleets as f', 'f.id', '=', 'c.fleet_id'), $actor, 'f.owner_id');
         $queries[] = $this->aggregate($this->bounded($corporate, 'c.created_at', $from, $until, $currency, 'c.currency', $asOf), $period, 'corporate_invoiced', 'c.currency', 'c.minor_units', 'c.total_minor', "'consolidated_reference'", "'SIMULATED'");
-        $paid = DB::table('finance_payments')->where('created_at', '<=', $asOf)->select('invoice_id')->selectRaw('SUM(amount_minor) AS paid')->groupBy('invoice_id');
-        $outstanding = $this->scope(DB::table('corporate_statements as c')->join('fleets as f', 'f.id', '=', 'c.fleet_id')->join('corporate_statement_lines as l', 'l.statement_id', '=', 'c.id')->leftJoinSub($paid, 'p', 'p.invoice_id', '=', 'l.invoice_id'), $actor, 'f.owner_id');
+        $statementLines = $this->bounded($this->scope(DB::table('corporate_statements as c')
+            ->join('fleets as f', 'f.id', '=', 'c.fleet_id')
+            ->join('corporate_statement_lines as l', 'l.statement_id', '=', 'c.id'), $actor, 'f.owner_id'),
+            'c.created_at', $from, $until, $currency, 'c.currency', $asOf);
+        $paid = DB::table('finance_payments as fp')->where('fp.created_at', '<=', $asOf)
+            ->whereIn('fp.invoice_id', (clone $statementLines)->select('l.invoice_id'))
+            ->leftJoin('finance_journals as fj', 'fj.id', '=', 'fp.journal_id')
+            ->join('finance_invoices as fi', 'fi.id', '=', 'fp.invoice_id')
+            ->select('fp.invoice_id')
+            ->selectRaw("SUM(CASE WHEN fp.amount_minor > 0 AND fp.amount_minor <= fi.total_minor AND fj.invoice_id = fi.id AND fj.kind = 'payment' AND fj.currency = fi.currency AND fj.amount_minor = fp.amount_minor THEN fp.amount_minor ELSE 0 END) AS paid")
+            ->selectRaw("MIN(CASE WHEN fp.amount_minor > 0 AND fp.amount_minor <= fi.total_minor AND fj.invoice_id = fi.id AND fj.kind = 'payment' AND fj.currency = fi.currency AND fj.amount_minor = fp.amount_minor THEN 1 ELSE 0 END) AS source_valid")
+            ->groupBy('fp.invoice_id');
+        $outstanding = $statementLines->join('finance_invoices as i', 'i.id', '=', 'l.invoice_id')
+            ->leftJoinSub($paid, 'p', 'p.invoice_id', '=', 'l.invoice_id');
         foreach (['not_due' => [null, null], 'overdue_1_30' => [30, 0], 'overdue_31_60' => [60, 30], 'overdue_61_90' => [90, 60], 'overdue_over_90' => [null, 90]] as $bucket => [$older, $newer]) {
             $q = clone $outstanding;
             if ($bucket === 'not_due') {
@@ -81,8 +120,11 @@ class FinancialAnalytics
                     $q->where('c.due_at', '>=', $asOf->subDays($older));
                 }
             }
-            $q->whereRaw('l.total_minor > COALESCE(p.paid,0)');
-            $queries[] = $this->aggregate($this->bounded($q, 'c.created_at', $from, $until, $currency, 'c.currency', $asOf), $period, 'corporate_receivable', 'c.currency', 'c.minor_units', 'CASE WHEN l.total_minor > COALESCE(p.paid,0) THEN l.total_minor - COALESCE(p.paid,0) ELSE 0 END', "'{$bucket}'", "'SIMULATED'");
+            $integrity = 'CASE WHEN i.currency = c.currency AND i.minor_units = c.minor_units AND i.total_minor = l.total_minor AND COALESCE(p.source_valid,1) = 1 AND COALESCE(p.paid,0) BETWEEN 0 AND l.total_minor THEN 1 ELSE 0 END';
+            // Retain invalid fully-paid/overpaid records in the validation
+            // group: filtering only on positive outstanding would hide them.
+            $q->whereRaw("(l.total_minor > COALESCE(p.paid,0) OR ({$integrity}) = 0)");
+            $queries[] = $this->aggregate($q, $period, 'corporate_receivable', 'c.currency', 'c.minor_units', 'CASE WHEN l.total_minor > COALESCE(p.paid,0) THEN l.total_minor - COALESCE(p.paid,0) ELSE 0 END', "'{$bucket}'", "'SIMULATED'", $integrity);
         }
 
         $points = $this->scope(DB::table('loyalty_ledger as l'), $actor, 'l.user_id')->where('l.created_at', '>=', $from)->where('l.created_at', '<', $until)->where('l.created_at', '<=', $asOf);
@@ -123,12 +165,12 @@ class FinancialAnalytics
             $union->unionAll($q);
         }
         // One SQL snapshot. Never join payment/refund detail rows to one another.
-        $rows = DB::query()->fromSub($union, 'facts')->orderBy('period')->orderBy('category')->orderBy('currency')->orderBy('minor_units')->orderBy('state')->orderBy('evidence')->get();
+        $rows = DB::query()->fromSub($union, 'facts')->orderBy('period')->orderBy('category')->orderBy('currency')->orderBy('minor_units')->orderBy('state')->orderBy('evidence')->limit(2501)->get();
         abort_if($rows->count() > 2500, 409, 'Too many analytic groups; select a currency or shorter period.');
         $pointGroups = [];
         $runRates = [];
         $groups = $rows->map(function ($row) use (&$pointGroups, &$runRates) {
-            abort_unless((int) $row->source_valid === 1, 409, 'Financial source currency/precision does not reconcile; investigate imported postings.');
+            abort_unless((int) $row->source_valid === 1, 409, 'Financial source amount, identity or denomination does not reconcile; investigate imported postings.');
             if ($row->category === 'loyalty_points') {
                 $points = filter_var($row->amount_minor, FILTER_VALIDATE_INT);
                 abort_if($points === false || $points > self::MAX_EXACT_JSON_INTEGER || $points < -self::MAX_EXACT_JSON_INTEGER, 409, 'Points report exceeds exact client integer bounds.');

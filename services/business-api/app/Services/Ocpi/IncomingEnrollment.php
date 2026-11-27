@@ -68,8 +68,7 @@ class IncomingEnrollment
             $this->current($p, $current, $link->configuration_hash);
             $active = DB::table('ocpi_credential_links')->where('id', $link->id)->lockForUpdate()->firstOrFail();
             abort_unless($active->owner_id === $owner->id && hash_equals($link->configuration_hash, $active->configuration_hash)
-                && $active->state === 'awaiting_registration' && $active->generation === $link->generation
-                && $active->local_token_digest === $link->local_token_digest
+                && $active->state === 'awaiting_registration' && $exchange->sameLink($link, $active)
                 && $active->bootstrap_expires_at && CarbonImmutable::parse($active->bootstrap_expires_at)->isFuture(), 401);
             $prepared = DB::table('ocpi_credential_operations')->where('provider_id', $p->id)->where('generation', $active->generation)->where('action', 'prepare_incoming')->where('state', 'awaiting_peer')->lockForUpdate()->firstOrFail();
             $proof = Crypt::decryptString($prepared->source_payload_ciphertext);

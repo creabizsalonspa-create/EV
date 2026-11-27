@@ -67,10 +67,15 @@ final class OcpiCpoCatalogController extends Controller
 
     private function utc(mixed $value): string
     {
-        abort_unless(is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z?$/D', $value), 400);
-        $format = '!Y-m-d\TH:i:s'.(str_contains($value, '.') ? '.u' : '').(str_ends_with($value, 'Z') ? '\Z' : '');
-        $date = DateTimeImmutable::createFromFormat($format, $value, new DateTimeZone('UTC'));
-        abort_unless($date && DateTimeImmutable::getLastErrors() === false, 400);
+        abort_unless(is_string($value) && preg_match('/^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-](?:0\d|1[0-3]):[0-5]\d|[+-]14:00)?$/D', $value, $parts)
+            && checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1]), 400);
+        $zone = new DateTimeZone('UTC');
+        $zoned = str_ends_with($value, 'Z') || preg_match('/[+-]\d{2}:\d{2}$/D', $value);
+        $format = '!Y-m-d\TH:i:s'.(str_contains($value, '.') ? '.u' : '').($zoned ? 'P' : '');
+        $date = DateTimeImmutable::createFromFormat($format, $value, $zone);
+        abort_unless($date !== false && DateTimeImmutable::getLastErrors() === false, 400);
+        $date = $date->setTimezone($zone);
+        abort_unless((int) $date->format('Y') >= 1 && (int) $date->format('Y') <= 9999, 400);
 
         return $date->format('Y-m-d\TH:i:s.u\Z');
     }

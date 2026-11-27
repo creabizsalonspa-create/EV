@@ -4,7 +4,76 @@ const { chromium } = require("playwright"),
   { randomBytes } = require("node:crypto"),
   fs = require("node:fs"),
   assert = require("node:assert/strict");
+// Exercise the exact browser panel, independently of the real Laravel fixture
+// below. This deliberately models a shrinking eligible inventory and retained
+// DOM callbacks rather than replacing the production validation function.
+async function sponsorPanelRegression() {
+  const source = fs.readFileSync("services/business-api/public/platform.js", "utf8");
+  const start = source.indexOf("function sponsorPanel(");
+  const end = source.indexOf("\nfunction clearCatalogPromotions()", start);
+  assert(start >= 0 && end > start);
+  for (const lang of ["en", "ar"]) {
+    class Element {
+      constructor(tag, text = "") {
+        this.tag = tag; this.textContent = text; this.children = [];
+        this.dataset = {}; this.isConnected = true; this.hidden = false;
+      }
+      append(...nodes) { this.children.push(...nodes); }
+      replaceChildren(...nodes) { this.children = nodes; }
+      contains(node) { return this.children.includes(node); }
+    }
+    const document = {documentElement: {lang}, createElement: tag => new Element(tag)};
+    const client = {sessionEpoch: 1}, request = {signal: {aborted: false}};
+    const station = {id: 42, country: "AE"};
+    const calls = [], tasks = [];
+    let response;
+    const row = id => ({campaign_id: id, station_id: 42, sponsored: true,
+      availability_verified: false, compatibility_verified: false, capability_override: false,
+      title: "Offer " + id, title_ar: "عرض " + id, description: "Sponsor", description_ar: "الراعي"});
+    const page = (current_page, last_page, total, placements) =>
+      ({current_page, last_page, total, per_page: 1, placements,
+        ranking_basis: "SPONSORED_ID_ORDER_NOT_PERFORMANCE", client_telemetry_billable: false});
+    response = page(1, 2, 2, [row(1)]);
+    const fn = new Function("document", "client", "api", "node", "queueMicrotask",
+      source.slice(start, end) + "\nreturn sponsorPanel;")(
+        document, client, async url => { calls.push(url); return response; },
+        (tag, text) => new Element(tag, text), task => tasks.push(task));
+    const panel = fn([station], "discovery_banner", request, 1);
+    const content = panel.children[1], tick = async () => {await Promise.resolve();await Promise.resolve();};
+    const button = en => content.children.find(e => e.tag === "button" && e.dataset.en === en);
+    await tasks.shift()();
+    const next = button("Next promotions");
+    assert(next);
+    response = page(2, 1, 0, []);
+    next.onclick(); next.onclick(); await tick();
+    assert.equal(calls.length, 2);
+    assert.equal(panel.hidden, false);
+    const back = button("Previous promotions");
+    assert(back);
+    next.onclick(); await tick();
+    assert.equal(calls.length, 2, "retired page cannot dispatch");
+    response = page(1, 1, 0, []);
+    back.onclick(); await tick();
+    assert.equal(calls.length, 3);
+    assert.equal(panel.hidden, true);
+    // Fail the entire page if even one placement or source claim is invalid.
+    response = page(1, 1, 1, [{...row(7), station_id: 999}]);
+    const corrupt = fn([station], "discovery_banner", request, 1);
+    await tasks.shift()();
+    const children = corrupt.children[1].children;
+    assert.equal(children.some(e => e.tag === "h4"), false);
+    const retry = children.find(e => e.dataset.en === "Retry promotions");
+    assert(retry);
+    const count = calls.length;
+    client.sessionEpoch++;
+    retry.onclick(); await tick();
+    assert.equal(calls.length, count, "revoked owner cannot dispatch retry");
+  }
+  console.log("PASS exact sponsored browser panel: EN/AR withdrawal, invalid evidence, stale page and revoked retry");
+}
+
 (async () => {
+  await sponsorPanelRegression();
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["127.0.0.1", "localhost"].includes(new URL(base).hostname));
   const run = randomBytes(4).toString("hex"),

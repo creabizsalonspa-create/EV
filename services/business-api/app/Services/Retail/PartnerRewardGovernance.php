@@ -85,14 +85,39 @@ final class PartnerRewardGovernance
         }, 3);
     }
 
-    public function history(User $actor, int $partner, int $review): array
+    public function history(User $actor, int $partner, int $review, int $claimsPage = 1): array
     {
-        return DB::transaction(function () use ($actor, $partner, $review) {
+        return DB::transaction(function () use ($actor, $partner, $review, $claimsPage) {
             AdminTransactionAuthority::requireCurrent($actor);
             DB::table('retail_partners')->where('id', $partner)->lockForUpdate()->firstOrFail();
             $row = $this->forPartner($partner, $review);
 
+            $claims = DB::table('partner_reward_claims as claim')
+                ->leftJoin('loyalty_redemptions as redemption', 'redemption.id', '=', 'claim.redemption_id')
+                ->leftJoin('partner_reward_review_events as approval', 'approval.id', '=', 'claim.approval_event_id')
+                ->where('claim.review_id', $review)->orderByDesc('claim.id')
+                ->paginate(25, [
+                    'claim.id', 'claim.review_id', 'claim.redemption_id', 'claim.approval_event_id',
+                    'claim.created_at', 'claim.user_id', 'redemption.user_id as redemption_user_id',
+                    'redemption.reward_id', 'redemption.points_cost', 'redemption.status',
+                    'approval.review_id as approval_review_id', 'approval.decision as approval_decision',
+                ], 'claims_page', $claimsPage)->through(function ($claim) use ($row, $review) {
+                    abort_unless((int) $claim->review_id === $review
+                        && $claim->redemption_user_id !== null && (int) $claim->user_id === (int) $claim->redemption_user_id
+                        && (int) $claim->reward_id === (int) $row->reward_id
+                        && $claim->points_cost !== null && (string) $claim->points_cost === '0'
+                        && (int) $claim->approval_review_id === $review && $claim->approval_decision === 'approve'
+                        && in_array($claim->status, ['pending', 'fulfilled', 'rejected'], true), 409, 'Partner claim evidence is inconsistent.');
+
+                    return [
+                        'id' => (int) $claim->id, 'review_id' => $review,
+                        'redemption_id' => (int) $claim->redemption_id, 'approval_event_id' => (int) $claim->approval_event_id,
+                        'created_at' => $claim->created_at, 'status' => $claim->status,
+                    ] + $this->sandboxEvidence();
+                });
+
             return [
+                'claims' => $claims,
                 'review' => $this->projection($row, $this->registry->read($partner)),
                 'events' => DB::table('partner_reward_review_events')->where('review_id', $review)
                     ->orderByDesc('revision')->paginate(25, ['actor_id', 'decision', 'reason', 'revision', 'created_at']),

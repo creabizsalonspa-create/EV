@@ -108,6 +108,27 @@ window.createTariffWorkspace = ({ root, api, ui, actor }) => {
             if (result.pricing_context?.evidence !== "SIMULATED")
                 throw new Error("Unsupported pricing evidence.");
             station = { ...station, ...result.pricing_context };
+            const effective = result.active_tariff;
+            if (!Object.hasOwn(result, "active_tariff") ||
+                typeof result.active_tariff_context_matches !== "boolean" ||
+                typeof result.tariff_as_of !== "string" ||
+                !Number.isFinite(Date.parse(result.tariff_as_of)) ||
+                (effective === null && result.active_tariff_context_matches) ||
+                (effective !== null && (!Number.isSafeInteger(effective?.id) ||
+                    effective.id < 1 || effective.station_id !== station.id ||
+                    !Number.isSafeInteger(effective.rate_minor_per_kwh) ||
+                    effective.rate_minor_per_kwh < 0 || effective.rate_minor_per_kwh > 1000000 ||
+                    !Number.isInteger(effective.tax_bps) || effective.tax_bps < 0 || effective.tax_bps > 10000 ||
+                    !Number.isInteger(effective.commission_bps) || effective.commission_bps < 0 || effective.commission_bps > 10000 ||
+                    (result.active_tariff_context_matches &&
+                        (effective.currency !== station.currency || effective.minor_units !== station.minor_units)))))
+                throw new Error("Invalid effective tariff authority.");
+            const compatible = effective === null || result.active_tariff_context_matches;
+            const matchingRow = effective && result.data.find(row => row.id === effective.id);
+            if (matchingRow && ["station_id", "rate_minor_per_kwh", "tax_bps",
+                "commission_bps", "currency", "minor_units", "effective_from"]
+                .some(k => matchingRow[k] !== effective[k]))
+                throw new Error("Conflicting effective tariff history.");
             target.replaceChildren(
                 raw("h3", station.name),
                 ui("p", "Tariff snapshot disclaimer"),
@@ -115,13 +136,24 @@ window.createTariffWorkspace = ({ root, api, ui, actor }) => {
             button(target, "Refresh pricing history", () =>
                 editor(station, target),
             );
+            const label = raw("p", "");
+            label.dataset.en = effective === null ? "No effective pricing version." :
+                "Effective pricing version #" + effective.id + " · " + result.tariff_as_of;
+            label.dataset.ar = effective === null ? "لا يوجد إصدار تسعير سارٍ." :
+                "إصدار التسعير الساري #" + effective.id + " · " + result.tariff_as_of;
+            label.textContent = EvLocale.language === "ar" ? label.dataset.ar : label.dataset.en;
+            if (effective !== null) label.dataset.effectiveTariff = String(effective.id);
+            target.append(label);
+            if (!compatible) target.append(raw("p",
+                "Effective tariff denomination mismatch / اختلاف عملة أو دقة التسعير الساري"));
             if (
+                compatible &&
                 Number.isInteger(station.minor_units) &&
                 station.minor_units >= 0 &&
                 station.minor_units <= 3 &&
                 page === 1
             ) {
-                const latest = result.data[0],
+                const latest = effective,
                     form = document.createElement("form");
                 form.dataset.tariffForm = "";
                 form.append(ui("h4", "Publish pricing version"));
@@ -206,6 +238,7 @@ window.createTariffWorkspace = ({ root, api, ui, actor }) => {
                             idempotency_key: key,
                             expected_minor_units: station.minor_units,
                             expected_currency: station.currency,
+                            expected_active_tariff_id: effective?.id ?? null,
                         });
                         if (
                             epoch === generation &&
