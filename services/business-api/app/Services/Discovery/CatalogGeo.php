@@ -41,7 +41,7 @@ final class CatalogGeo
         $one = [$latitude, $latitude, $latitude, $longitude, $longitude];
         $bindings = [...$one, ...$one, ...$one];
         $query->select('stations.*')->selectRaw("$distance as distance_km", $bindings)
-            ->whereRaw("$distance <= ?", [...$bindings, $radius])
+            ->whereRaw("$distance <= CAST(? AS DOUBLE PRECISION)", [...$bindings, $radius])
             ->orderBy('distance_km');
     }
 }
