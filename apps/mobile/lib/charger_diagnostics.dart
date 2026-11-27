@@ -16,6 +16,7 @@ class ChargerDiagnosticsView extends StatefulWidget {
   final int companyId, chargerId;
   final VoidCallback onExpired;
   final bool openFaultAlerts;
+  final String? registeredDirectProtocol;
   const ChargerDiagnosticsView({
     super.key,
     required this.api,
@@ -23,6 +24,7 @@ class ChargerDiagnosticsView extends StatefulWidget {
     required this.chargerId,
     required this.onExpired,
     this.openFaultAlerts = false,
+    this.registeredDirectProtocol,
   });
   @override
   State<ChargerDiagnosticsView> createState() => _DiagnosticsState();
@@ -39,6 +41,7 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
   bool busy = false;
   int generation = 0;
   bool foreground = true;
+  bool get direct => widget.registeredDirectProtocol != null;
   late bool Function() authorized;
   bool current(int epoch) =>
       mounted && foreground && authorized() && epoch == generation;
@@ -49,6 +52,7 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
     super.initState();
     authorized = widget.api.sessionFence();
     WidgetsBinding.instance.addObserver(this);
+    if (direct) return;
     if (widget.openFaultAlerts) {
       // Sequential loads prevent a later alert query from invalidating the
       // diagnostic response's request generation. No POST/PATCH is performed.
@@ -78,7 +82,8 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.api != widget.api ||
         oldWidget.companyId != widget.companyId ||
-        oldWidget.chargerId != widget.chargerId) {
+        oldWidget.chargerId != widget.chargerId ||
+        oldWidget.registeredDirectProtocol != widget.registeredDirectProtocol) {
       clearPrivateState();
       authorized = widget.api.sessionFence();
       // A changed target requires an explicit read, never an automatic write.
@@ -145,7 +150,11 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
           reply['company_id'] != widget.companyId ||
           reply['charger_id'] != widget.chargerId ||
           !['1.6', '2.0.1'].contains(reply['protocol']) ||
-          reply['evidence'] != 'SIMULATED_CSMS_SOURCE' ||
+          reply['evidence'] != (direct ? 'REGISTERED_DIRECT_SOURCE' : 'SIMULATED_CSMS_SOURCE') ||
+          (direct && (reply['protocol'] != widget.registeredDirectProtocol ||
+              reply['local_mapping_verified'] != false ||
+              reply['source_topology_matches_local'] != false ||
+              reply['source_topology_complete'] is! bool)) ||
           reply['source_online'] is! bool ||
           reply['source_topology_matches_local'] is! bool ||
           reply['source_identity_rechecked'] != true ||
@@ -155,7 +164,8 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
           reply['remote_control_authorized'] != false ||
           reply['commands_sent'] != false ||
           reply['connectors'] is! List ||
-          (reply['connectors'] as List).isEmpty ||
+          ((!direct || reply['source_topology_complete'] == true) &&
+              (reply['connectors'] as List).isEmpty) ||
           (reply['connectors'] as List).length > 100) {
         throw const FormatException('Untrusted connector source');
       }
@@ -164,21 +174,29 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
         'SuspendedEVSE', 'Finishing', 'Reserved', 'Unavailable', 'Faulted',
       ];
       final rows = <Map<String, dynamic>>[];
+      final targets = <String>{};
       for (final entry in reply['connectors'] as List) {
         if (entry is! Map ||
-            entry['mapping_id'] is! int ||
-            entry['mapping_id'] <= 0 ||
+            (direct ? entry['mapping_id'] != null :
+                entry['mapping_id'] is! int || entry['mapping_id'] <= 0) ||
             entry['source_evse_number'] is! int ||
             entry['source_evse_number'] < 0 ||
             (reply['protocol'] == '2.0.1' && entry['source_evse_number'] == 0) ||
             entry['source_connector_number'] is! int ||
             entry['source_connector_number'] <= 0 ||
-            entry['operator_maintenance_blocked'] is! bool ||
+            (direct ? entry['operator_maintenance_blocked'] != null :
+                entry['operator_maintenance_blocked'] is! bool) ||
+            (direct && (entry['source_connector_number'] > 100 ||
+                (reply['protocol'] == '1.6' ? entry['source_evse_number'] != 0 :
+                    entry['source_evse_number'] > 1000))) ||
             !['recent', 'stale', 'unknown'].contains(entry['state']) ||
             (entry['state'] == 'recent'
                 ? (!statuses.contains(entry['reported_status']) ||
                     reply['source_online'] != true ||
-                    reply['source_topology_matches_local'] != true ||
+                    (direct ? (reply['source_topology_complete'] != true ||
+                        (reply['protocol'] == '1.6' ? entry['reported_status'] == 'Occupied' :
+                            !['Available', 'Occupied', 'Reserved', 'Unavailable', 'Faulted'].contains(entry['reported_status']))) :
+                        reply['source_topology_matches_local'] != true) ||
                     entry['source_event_at'] is! String)
                 : entry['reported_status'] != null) ||
             (entry['error_code'] != null &&
@@ -191,6 +209,9 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
             entry['physical_available'] != false ||
             entry['remote_control_authorized'] != false) {
           throw const FormatException('Untrusted connector source row');
+        }
+        if (direct && !targets.add('${entry['source_evse_number']}:${entry['source_connector_number']}')) {
+          throw const FormatException('Duplicate direct connector target');
         }
         rows.add(Map<String, dynamic>.from(entry));
       }
@@ -312,6 +333,48 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
     String tr(String en, String arabic) => ar ? arabic : en;
     if (!foreground || !authorized()) {
       return Scaffold(appBar: AppBar(title: Text(diagnosticsTitle(context))));
+    }
+    if (direct) {
+      return Scaffold(
+        appBar: AppBar(title: Text(tr('Registered direct source inspection',
+            'فحص المصدر المباشر المسجل'))),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text(tr('Registered source observations only; local mapping, physical availability and control are not verified.',
+                'ملاحظات المصدر المسجل فقط؛ لم يتم التحقق من الربط المحلي أو التوفر الفعلي أو التحكم.')),
+            if (busy) const LinearProgressIndicator(),
+            TextButton(
+              key: const Key('read-live-connector-source'),
+              onPressed: busy ? null : readLiveConnectors,
+              child: Text(tr('Read live connector source',
+                  'قراءة حالة موصلات المصدر المباشر')),
+            ),
+            if (liveConnectorError != null)
+              Text(tr('Registered source unavailable; no control is authorized.',
+                  'المصدر المسجل غير متاح؛ لا يوجد تصريح بالتحكم.')),
+            if (liveConnectorData != null) ...[
+              Text(tr('Registered direct source snapshot', 'لقطة المصدر المباشر المسجل')),
+              Text(liveConnectorData!['source_topology_complete'] == true
+                  ? tr('Source topology reported; local mappings not verified',
+                      'أبلغ المصدر عن بنية الموصلات؛ لم يتم التحقق من الربط المحلي')
+                  : tr('Source topology incomplete; live status unknown',
+                      'بنية موصلات المصدر غير مكتملة؛ الحالة المباشرة مجهولة')),
+              for (final row in liveConnectorData!['connectors'] as List)
+                Card(
+                  child: ListTile(
+                    title: Text('${row['source_evse_number']}/${row['source_connector_number']}'),
+                    subtitle: Text(row['state'] == 'recent'
+                        ? '${tr('Recent CSMS report', 'تقرير حديث من نظام الشحن')}: ${row['reported_status']}'
+                        : row['state'] == 'stale'
+                            ? tr('Stale source; live status unknown', 'المصدر قديم؛ الحالة المباشرة مجهولة')
+                            : tr('Connector status unknown', 'حالة الموصل مجهولة')),
+                  ),
+                ),
+            ],
+          ],
+        ),
+      );
     }
     final value = data;
     return Scaffold(

@@ -2,42 +2,77 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Services\Charging\ChargerSourceRegistration;
+use App\Services\Charging\CsmsGraphqlTransport;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SourceStatusTime;
+use App\Services\VendorOps\VendorAccess;
+use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Read-only, scoped software source status for one owned simulator charger.
+ * Read-only, scoped source testimony for simulator or registered direct inventory.
  * A CSMS observation never grants a physical connector or remote command.
  */
 final class ChargerLiveConnectorsController extends Controller
 {
-    private function approvedSourceEndpoint(): bool
+    private function sourceAuthority(bool $direct): array
     {
-        $url = config('csms.graphql_url');
-        if (! is_string($url) || strlen($url) > 512) {
-            return false;
-        }
-        $parts = parse_url($url);
-        if (! is_array($parts) ||
-            ! in_array($parts['scheme'] ?? null, ['http', 'https'], true) ||
-            ! is_string($parts['host'] ?? null) || $parts['host'] === '' ||
-            isset($parts['user']) || isset($parts['pass']) ||
-            isset($parts['query']) || isset($parts['fragment'])) {
-            return false;
-        }
+        $endpoint = config('csms.graphql_url');
+        $secret = config('csms.graphql_secret');
+        abort_unless(($direct
+                ? config('csms.registered_live_monitoring_enabled') === true && is_string($endpoint)
+                    && parse_url($endpoint, PHP_URL_SCHEME) === 'https'
+                : app()->environment(['local', 'testing']) && config('csms.session_bridge_enabled')) &&
+            app(CsmsGraphqlTransport::class)->approved($endpoint) &&
+            is_string($secret) && strlen($secret) >= 32, 503,
+            'Authenticated source connector monitoring is disabled.');
 
-        // Never deliver a privileged Hasura secret over plaintext to a
-        // hostname other than a fixed local loopback / sandbox service.
-        return $parts['scheme'] === 'https' ||
-            in_array(strtolower($parts['host']), [
-                'localhost', '127.0.0.1', '[::1]',
-                'citrine', 'hasura', 'citrine-hasura', 'ev-hasura',
-                'charging-graphql',
-            ], true);
+        return [$endpoint, $secret];
+    }
+
+    /** Registration proves an exact upstream record, not permission to control it. */
+    public function registeredScope(Request $r, VendorCompany $company, VendorCharger $charger): object
+    {
+        return DB::transaction(function () use ($r, $company, $charger) {
+            app(MaintenanceActor::class)->checkBearer($r->user());
+            $registration = app(ChargerSourceRegistration::class);
+            [$company, $charger, $station] = $registration->scope($r, $company, $charger);
+            app(VendorAccess::class)->require($r->user(), $company, 'inventory.read');
+            app(VendorAccess::class)->operational($company);
+            abort_unless(User::whereKey($company->owner_id)->where('role', 'vendor')
+                ->where('account_status', 'active')->exists(), 409, 'Current active owner required.');
+            abort_unless($registration->verified($company, $charger), 409,
+                'Current verified direct registration is required.');
+            $receipt = DB::table('charger_source_registrations')->where('charger_id', $charger->id)
+                ->where('state', 'registered')->lockForUpdate()->first();
+            abort_unless($receipt && is_int($receipt->source_station_id) && $receipt->source_station_id > 0, 409);
+            $binding = DB::table('csms_bindings')->where('id', $receipt->binding_id)->lockForUpdate()->first();
+            abort_unless($binding && $binding->station_id === $station->id &&
+                $binding->vendor_charger_id === $charger->id && $binding->protocol === $charger->ocpp_protocol, 409);
+            // Reconstruct the original offline registration receipt, not the
+            // mutable live station state. GraphQL's selected field order is
+            // the order used by the registration adapter when hashing it.
+            $expectedReceipt = hash('sha256', json_encode([
+                'id' => $receipt->source_station_id, 'tenantId' => 1,
+                'ocppConnectionName' => $binding->identifier, 'protocol' => 'ocpp'.$binding->protocol,
+                'isOnline' => false, 'chargePointVendor' => $charger->manufacturer,
+                'chargePointModel' => $charger->model,
+            ], JSON_THROW_ON_ERROR));
+            abort_unless(is_string($receipt->source_receipt_hash)
+                && hash_equals($expectedReceipt, $receipt->source_receipt_hash), 409,
+                'Original source registration receipt requires reconciliation.');
+            // Pin durable registration provenance, not an arbitrary same-name row.
+            $binding->registration_receipt = [$receipt->id, $receipt->profile_id, $receipt->source_station_id,
+                $receipt->source_generation, $receipt->source_receipt_hash, $receipt->verified_at, $receipt->payload_hash];
+
+            return $binding;
+        }, 3);
     }
 
     private function inventory(object $binding, VendorCharger $charger): array
@@ -83,10 +118,10 @@ final class ChargerLiveConnectorsController extends Controller
         return $projection;
     }
 
-    private function sourceStation(RemoteSessionAuthorization $source, object $binding, VendorCharger $charger): array
+    private function sourceStation(Closure $graph, object $binding, VendorCharger $charger): array
     {
-        $rows = $source->graph(
-            'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}',
+        $rows = $graph(
+            'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id tenantId ocppConnectionName isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}',
             ['name' => $binding->identifier]
         )['ChargingStations'] ?? null;
         abort_unless(is_array($rows) && array_is_list($rows) && count($rows) === 1 &&
@@ -103,6 +138,12 @@ final class ChargerLiveConnectorsController extends Controller
             'Current unique typed charger source is required.');
 
         $row = $rows[0];
+        if (isset($binding->registration_receipt)) {
+            abort_unless(($row['tenantId'] ?? null) === 1
+                && ($row['ocppConnectionName'] ?? null) === $binding->identifier
+                && $row['id'] === $binding->registration_receipt[2], 409,
+                'Source station does not match the registered tenant and identity.');
+        }
         $row['heartbeat'] = SourceStatusTime::parse($row['latestOcppMessageTimestamp']);
 
         return $row;
@@ -115,18 +156,41 @@ final class ChargerLiveConnectorsController extends Controller
         ChargerResetController $guard,
         RemoteSessionAuthorization $source
     ) {
-        abort_unless(app()->environment(['local', 'testing']) &&
-            config('csms.session_bridge_enabled') &&
-            $this->approvedSourceEndpoint() &&
-            strlen((string) config('csms.graphql_secret')) >= 32, 503,
-            'Local source connector monitoring is disabled.');
-        $binding = $guard->scope($r, $company, $charger);
-        $local = $this->inventory($binding, $charger);
-        $station = $this->sourceStation($source, $binding, $charger);
+        return $this->inspect($r, $company, $charger, $guard, $source);
+    }
+
+    /** Internal callers can retain exact database/event IDs; public GET cannot request them. */
+    public function inspect(
+        Request $r,
+        VendorCompany $company,
+        VendorCharger $charger,
+        ChargerResetController $guard,
+        RemoteSessionAuthorization $source,
+        bool $internalReview = false
+    ) {
+        $direct = $charger->source === 'direct_unverified';
+        abort_unless(! $internalReview || $direct, 409);
+        $authority = $this->sourceAuthority($direct);
+        $graph = function (string $query, array $variables) use ($authority, $source, $direct): array {
+            abort_unless($this->sourceAuthority($direct) === $authority, 503, 'Connector source authority changed during inspection.');
+            $result = $source->graph($query, $variables);
+            abort_unless($this->sourceAuthority($direct) === $authority, 503, 'Connector source authority changed during inspection.');
+
+            return $result;
+        };
+        $binding = $direct ? $this->registeredScope($r, $company, $charger)
+            : $guard->scope($r, $company, $charger);
+        app(MaintenanceActor::class)->checkBearer($r->user());
+        // Direct inventory remains unverified. Inspect the upstream topology
+        // without inventing local mappings or expanding booking admission.
+        $local = $direct ? [] : $this->inventory($binding, $charger);
+        $station = $this->sourceStation($graph, $binding, $charger);
+        abort_unless(! $direct || $station['id'] === $binding->registration_receipt[2], 409,
+            'Source station differs from registered receipt.');
 
         // Query at most 100 connectors and 1000 events. Missing per-target
         // evidence remains unknown; no stale or truncated source is healthy.
-        $data = $source->graph(
+        $data = $graph(
             'query($station:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1001){id connectorDatabaseId evseId connectorId connectorStatus errorCode timestamp}}',
             ['station' => $station['id']]
         );
@@ -145,6 +209,7 @@ final class ChargerLiveConnectorsController extends Controller
         }
 
         $latest = [];
+        $previousByTarget = [];
         $sourceTargets = [];
         $sourceConnectorTargets = [];
         $lastEvent = PHP_INT_MAX;
@@ -160,9 +225,11 @@ final class ChargerLiveConnectorsController extends Controller
                 $event['id'] > 0 && $event['id'] < $lastEvent &&
                 is_int($event['connectorDatabaseId'] ?? null) &&
                 isset($known[$event['connectorDatabaseId']]) &&
-                is_int($event['connectorId'] ?? null) && $event['connectorId'] > 0 &&
-                ($binding->protocol === '1.6' || (is_int($event['evseId'] ?? null) &&
-                    $event['evseId'] > 0)) &&
+                is_int($event['connectorId'] ?? null) && $event['connectorId'] > 0 && $event['connectorId'] <= 100 &&
+                array_key_exists('evseId', $event) &&
+                ($binding->protocol === '1.6'
+                    ? in_array($event['evseId'], [null, 0], true)
+                    : (is_int($event['evseId']) && $event['evseId'] > 0 && $event['evseId'] <= 1000)) &&
                 in_array($event['connectorStatus'] ?? null, $statusValues, true) &&
                 (! isset($event['errorCode']) || (is_string($event['errorCode']) &&
                     strlen($event['errorCode']) <= 80)), 409, 'Malformed current connector source evidence.');
@@ -183,50 +250,71 @@ final class ChargerLiveConnectorsController extends Controller
             }
             $sourceTargets[$target] = $sourceId;
             $at = SourceStatusTime::parse($event['timestamp'] ?? null);
-            if (! isset($latest[$target])) {
-                $latest[$target] = [
-                    'reported_status' => $event['connectorStatus'],
-                    'error_code' => $event['errorCode'] ?? null,
-                    'observed_at' => $at,
-                ];
-            } else {
-                abort_unless(! $at->gt($latest[$target]['observed_at']), 409,
+            $observation = [
+                'reported_status' => $event['connectorStatus'],
+                'error_code' => $event['errorCode'] ?? null,
+                'observed_at' => $at,
+                'source_event_id' => $event['id'],
+            ];
+            // Rows are sorted by descending source event ID. Compare every
+            // consecutive pair per target, not only against its newest row.
+            // Otherwise a regression or contradiction deeper in the retained
+            // history can appear to be complete, trusted source evidence.
+            $previous = $previousByTarget[$target] ?? null;
+            if ($previous !== null) {
+                abort_unless(! $at->gt($previous['observed_at']), 409,
                     'Source connector observation clock regressed.');
-                // Equal timestamps with contradictory states cannot establish
-                // an unambiguous latest report, regardless of event ID.
-                if ($at->eq($latest[$target]['observed_at'])) {
-                    abort_unless($event['connectorStatus'] === $latest[$target]['reported_status'] &&
-                        ($event['errorCode'] ?? null) === $latest[$target]['error_code'], 409,
+                if ($at->eq($previous['observed_at'])) {
+                    abort_unless($observation['reported_status'] === $previous['reported_status'] &&
+                        $observation['error_code'] === $previous['error_code'], 409,
                         'Contradictory source states at the same instant.');
                 }
             }
+            $latest[$target] ??= $observation;
+            $previousByTarget[$target] = $observation;
         }
 
         // The same station must still be the uniquely authenticated source
         // after the inventory read; a silent disconnect invalidates a recent
         // status despite any earlier "online" flag.
-        $after = $this->sourceStation($source, $binding, $charger);
+        $after = $this->sourceStation($graph, $binding, $charger);
         abort_unless($after['id'] === $station['id'] &&
             $after['protocol'] === $station['protocol'] &&
             $after['firmwareVersion'] === $station['firmwareVersion'] &&
             ! $after['heartbeat']->lt($station['heartbeat']), 409,
             'Source identity or clock changed during connector inspection.');
         $freshCharger = VendorCharger::findOrFail($charger->id);
-        $fresh = $guard->scope($r, VendorCompany::findOrFail($company->id),
-            $freshCharger);
+        $freshCompany = VendorCompany::findOrFail($company->id);
+        $fresh = $direct ? $this->registeredScope($r, $freshCompany, $freshCharger)
+            : $guard->scope($r, $freshCompany, $freshCharger);
         abort_unless($freshCharger->manufacturer === $charger->manufacturer &&
             $freshCharger->model === $charger->model &&
             $freshCharger->site_id === $charger->site_id &&
             $fresh->id === $binding->id &&
             $fresh->identifier === $binding->identifier &&
             $fresh->protocol === $binding->protocol &&
-            $this->inventory($fresh, VendorCharger::findOrFail($charger->id)) === $local,
+            $fresh->station_id === $binding->station_id &&
+            ($direct ? $fresh->registration_receipt === $binding->registration_receipt
+                : $this->inventory($fresh, $freshCharger) === $local),
             409, 'Owned local connector topology changed during inspection.');
 
+        app(MaintenanceActor::class)->checkBearer($r->user());
         $localTargets = array_fill_keys(array_column($local, 'target'), true);
-        $sourceTopologyMatches = count($local) === count($known) &&
-            count($sourceTargets) === count($known) &&
-            array_diff_key($localTargets, $sourceTargets) === [];
+        $sourceComplete = count($sourceTargets) === count($known);
+        $sourceTopologyMatches = ! $direct && count($local) === count($known) &&
+            $sourceComplete && array_diff_key($localTargets, $sourceTargets) === [];
+        if ($direct) {
+            // A known upstream component with no event has no defensible
+            // OCPP target. Never fabricate one; mark the whole topology incomplete.
+            ksort($sourceTargets, SORT_NATURAL);
+            foreach ($sourceTargets as $target => $sourceId) {
+                [$evseNumber, $connectorNumber] = array_map('intval', explode(':', $target));
+                $local[] = ['target' => $target, 'mapping_id' => null,
+                    'source_evse_number' => $evseNumber, 'source_connector_number' => $connectorNumber,
+                    'operator_maintenance_blocked' => null];
+            }
+        }
+        $complete = $direct ? $sourceComplete : $sourceTopologyMatches;
         $stationRecent = $station['isOnline'] && $after['isOnline'] &&
             $station['heartbeat']->gte(now()->subMinutes(5)) &&
             $after['heartbeat']->gte(now()->subMinutes(5));
@@ -240,14 +328,14 @@ final class ChargerLiveConnectorsController extends Controller
             $missingFaultReceipt = $binding->protocol === '1.6' && $event
                 && $event['reported_status'] === 'Available'
                 && in_array($event['error_code'], [null, ''], true);
-            $trusted = $stationRecent && $sourceTopologyMatches && $eventRecent
+            $trusted = $stationRecent && $complete && $eventRecent
                 && ! $missingFaultReceipt;
             $rows[] = [
                 'mapping_id' => $row['mapping_id'],
                 'source_evse_number' => $row['source_evse_number'],
                 'source_connector_number' => $row['source_connector_number'],
                 'operator_maintenance_blocked' => $row['operator_maintenance_blocked'],
-                'state' => $trusted ? 'recent' : ($event && $sourceTopologyMatches && ! $missingFaultReceipt ? 'stale' : 'unknown'),
+                'state' => $trusted ? 'recent' : ($event && $complete && ! $missingFaultReceipt ? 'stale' : 'unknown'),
                 // An OCPP error accompanying an "Available" label must
                 // never be presented as a healthy connector report.
                 'reported_status' => $trusted
@@ -261,6 +349,12 @@ final class ChargerLiveConnectorsController extends Controller
                 'physical_available' => false,
                 'remote_control_authorized' => false,
             ];
+            if ($internalReview) {
+                $rows[array_key_last($rows)] += [
+                    'source_connector_database_id' => $sourceTargets[$row['target']],
+                    'source_event_id' => $event['source_event_id'] ?? null,
+                ];
+            }
         }
 
         return response()->json([
@@ -273,7 +367,9 @@ final class ChargerLiveConnectorsController extends Controller
             'source_topology_matches_local' => $sourceTopologyMatches,
             'source_identity_rechecked' => true,
             'observed_at' => now()->toISOString(),
-            'evidence' => 'SIMULATED_CSMS_SOURCE',
+            'evidence' => $direct ? 'REGISTERED_DIRECT_SOURCE' : 'SIMULATED_CSMS_SOURCE',
+            'source_topology_complete' => $sourceComplete,
+            'local_mapping_verified' => ! $direct && $sourceTopologyMatches,
             'physical_availability_verified' => false,
             'remote_control_authorized' => false,
             'commands_sent' => false,
