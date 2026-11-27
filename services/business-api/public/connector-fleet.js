@@ -68,7 +68,10 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
                 !Array.isArray(data.connectors?.data) || data.connectors.data.length > 25 ||
                 !Number.isSafeInteger(data.connectors.current_page) || !Number.isSafeInteger(data.connectors.last_page) ||
                 data.connectors.current_page !== page || data.connectors.last_page < 1 || typeof data.as_of !== 'string') throw Error('Invalid snapshot');
+            const mappingIds = new Set();
             for (const row of data.connectors.data) {
+                if (!row || mappingIds.has(row.mapping_id) || row.mapping_id <= 0) throw Error('Duplicate mapping');
+                mappingIds.add(row.mapping_id);
                 const f = row.status_freshness;
                 if (row.operations_target != null && !['company_id','charger_id'].every(k => Number.isSafeInteger(row.operations_target[k]) && row.operations_target[k] > 0)) throw Error('Invalid navigation target');
                 if (!Number.isSafeInteger(row.mapping_id) || !Number.isSafeInteger(row.station_id) || typeof row.station_name !== 'string' ||
@@ -78,6 +81,7 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
             }
             reset();
             panel.append(node('p', t('Snapshot time: ', 'وقت اللقطة: ') + data.as_of));
+            const groups = new Map(), liveCells = new Map();
             for (const row of data.connectors.data) {
                 const f = row.status_freshness, card = document.createElement('article');
                 card.append(node('h4', `${row.station_name} · #${row.mapping_id}`), node('p', `${t('Protocol', 'البروتوكول')}: ${row.protocol ?? t('No qualified source', 'لا يوجد مصدر مؤهل')}`));
@@ -96,7 +100,88 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
                     };
                     card.append(b);
                 }
+                const liveCell = node('p', '');
+                liveCell.dataset.fleetLive = String(row.mapping_id);
+                card.append(liveCell);
+                liveCells.set(row.mapping_id, liveCell);
+                if (row.operations_target) {
+                    const {company_id, charger_id} = row.operations_target;
+                    const key = company_id + ':' + charger_id;
+                    if (!groups.has(key)) groups.set(key, {company_id, charger_id, rows: []});
+                    groups.get(key).rows.push(row);
+                }
                 panel.append(card);
+            }
+            if (groups.size) {
+                const unavailable = t('Live source unavailable or unqualified; state unknown.', 'المصدر المباشر غير متاح أو غير مؤهل؛ الحالة غير معروفة.');
+                const liveRead = button(t('Read live sources for this page', 'قراءة المصادر المباشرة لهذه الصفحة'), async () => {
+                    if (liveRead.disabled || !liveRead.isConnected || actor() !== viewer || document.hidden) return;
+                    const liveEpoch = ++generation;
+                    request?.abort(); request = new AbortController();
+                    const signal = request.signal;
+                    liveRead.disabled = true;
+                    for (const cell of liveCells.values()) cell.textContent = t('Reading live source…', 'جارٍ قراءة المصدر المباشر…');
+                    const results = new Map();
+                    const all = [...groups.values()];
+                    try {
+                        // At most four owned charger requests at a time; deduplicate by exact target.
+                        // The existing per-charger API independently checks ownership and source identity.
+                        for (let i = 0; i < all.length; i += 4) {
+                            if (!current(liveEpoch)) return;
+                            await Promise.all(all.slice(i, i + 4).map(async group => {
+                                try {
+                                    const reply = await api('vendor-ops/companies/' + group.company_id + '/chargers/' + group.charger_id + '/live-connectors', 'GET', undefined, signal);
+                                    if (!current(liveEpoch)) return;
+                                    const statuses = reply?.protocol === '1.6'
+                                        ? ['Available','Preparing','Charging','SuspendedEV','SuspendedEVSE','Finishing','Reserved','Unavailable','Faulted']
+                                        : ['Available','Occupied','Reserved','Unavailable','Faulted'];
+                                    const timestamp = v => typeof v === 'string' && v.length <= 50 && /^\d{4}-\d\d-\d\dT/.test(v) && Number.isFinite(Date.parse(v));
+                                    if (!reply || reply.company_id !== group.company_id || reply.charger_id !== group.charger_id ||
+                                        !['1.6','2.0.1'].includes(reply.protocol) ||
+                                        group.rows.some(row => row.protocol !== null && row.protocol !== reply.protocol) ||
+                                        reply.evidence !== 'SIMULATED_CSMS_SOURCE' || reply.source_identity_rechecked !== true ||
+                                        typeof reply.source_online !== 'boolean' || typeof reply.source_topology_matches_local !== 'boolean' ||
+                                        ['physical_availability_verified','remote_control_authorized','commands_sent'].some(k => reply[k] !== false) ||
+                                        !timestamp(reply.observed_at) || !Array.isArray(reply.connectors) ||
+                                        reply.connectors.length < 1 || reply.connectors.length > 100) throw Error('Invalid live source');
+                                    const byId = new Map();
+                                    for (const row of reply.connectors) {
+                                        if (!row || !Number.isSafeInteger(row.mapping_id) || row.mapping_id <= 0 || byId.has(row.mapping_id) ||
+                                            !['recent','stale','unknown'].includes(row.state) ||
+                                            row.physical_available !== false || row.remote_control_authorized !== false ||
+                                            (row.state === 'recent'
+                                                ? (!reply.source_online || !reply.source_topology_matches_local || !statuses.includes(row.reported_status) || !timestamp(row.source_event_at))
+                                                : row.reported_status !== null)) throw Error('Invalid live connector');
+                                        byId.set(row.mapping_id, row);
+                                    }
+                                    if (group.rows.some(row => !byId.has(row.mapping_id))) throw Error('Missing fleet mapping');
+                                    for (const row of group.rows) results.set(row.mapping_id, {row: byId.get(row.mapping_id), at: reply.observed_at});
+                                } catch (e) {
+                                    if ([401, 403, 419].includes(e.status)) throw e;
+                                    // Leave the entire affected charger unknown; never fall back to stored status.
+                                }
+                            }));
+                        }
+                        if (!current(liveEpoch)) return;
+                        for (const [id, cell] of liveCells) {
+                            const result = results.get(id);
+                            if (!result) { cell.textContent = unavailable; continue; }
+                            const row = result.row;
+                            const label = row.state === 'recent'
+                                ? t('Live source report at read: ', 'تقرير المصدر المباشر وقت القراءة: ') + (window.EvConnectorFreshness?.label(row.reported_status, document.documentElement.lang === 'ar') ?? row.reported_status)
+                                : t('Live source state unknown or stale', 'حالة المصدر المباشر غير معروفة أو قديمة');
+                            cell.textContent = label + ' · ' + result.at;
+                        }
+                    } catch {
+                        if (current(liveEpoch)) {
+                            reset();
+                            panel.append(node('p', unavailable));
+                        }
+                    } finally {
+                        if (current(liveEpoch)) liveRead.disabled = false;
+                    }
+                });
+                panel.append(node('p', t('Live reads are separate simulator-source snapshots; no physical or command authority.', 'القراءات المباشرة لقطات مستقلة من المحاكي؛ لا تثبت التوفر الفعلي ولا تمنح صلاحية الأوامر.')));
             }
             if (!data.connectors.data.length) panel.append(node('p', t('No mapped connectors in this scope.', 'لا توجد موصلات مرتبطة ضمن هذا النطاق.')));
             const stationSnapshot = selectedStation;
