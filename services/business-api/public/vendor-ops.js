@@ -2658,13 +2658,16 @@ window.createVendorWorkspace = ({
             live.dataset.liveConnectorSnapshot = "";
             pane.append(live);
             live.append(ui("p", direct ? "Checking registered direct source…" : "Checking authenticated local connector source…"));
-            const current = () => valid(epoch) && actor() === liveViewer &&
+            let invalidated = false;
+            const current = () => !invalidated && valid(epoch) && actor() === liveViewer &&
                 !document.hidden && live.isConnected;
             // A former live observation is not a persisted permission or
             // current state when the browser leaves the foreground.
             document.addEventListener("visibilitychange", () => {
-                if (document.hidden && live.isConnected)
-                    live.replaceChildren();
+                if (document.hidden) {
+                    invalidated = true;
+                    if (live.isConnected) live.replaceChildren();
+                }
             }, { signal: controller?.signal });
             try {
                 const result = await api(
