@@ -63,14 +63,26 @@ class ChargerResetController extends Controller
     {
         $this->requireLocalIdle($b);
         $url = app(CsmsGraphqlTransport::class)->requireApproved();
+        $key = (string) config('csms.graphql_secret');
+        $requireAuthority = function () use ($url, $key): void {
+            abort_unless(strlen($key) >= 32
+                && app(CsmsGraphqlTransport::class)->requireApproved() === $url
+                && hash_equals($key, (string) config('csms.graphql_secret'))
+                && config('csms.session_bridge_enabled')
+                && app()->environment(['local', 'testing']), 503,
+                'Idle source authority changed during inspection.');
+        };
+        $requireAuthority();
         try {
-            $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol} }', 'variables' => ['name' => $b->identifier]]);
+            $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $key])->post($url, ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol} }', 'variables' => ['name' => $b->identifier]]);
+            $requireAuthority();
             $rows = $r->json('data.ChargingStations');
             abort_unless($r->successful() && ! $r->json('errors') && is_array($rows) && array_is_list($rows) && count($rows) === 1 &&
                 is_array($rows[0]) && is_int($rows[0]['id'] ?? null) && $rows[0]['id'] > 0 &&
                 ($rows[0]['isOnline'] ?? null) === true &&
                 in_array($rows[0]['protocol'] ?? null, [$b->protocol, 'ocpp'.$b->protocol], true), 409, 'A current typed online source is required.');
-            $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, ['query' => 'query($station:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},isActive:{_eq:true}},limit:1){id} Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1000){connectorDatabaseId connectorStatus errorCode timestamp}}', 'variables' => ['station' => $rows[0]['id']]]);
+            $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $key])->post($url, ['query' => 'query($station:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},isActive:{_eq:true}},limit:1){id} Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1000){connectorDatabaseId connectorStatus errorCode timestamp}}', 'variables' => ['station' => $rows[0]['id']]]);
+            $requireAuthority();
             $d = $r->json('data');
             abort_unless($r->successful() && ! $r->json('errors') && is_array($d) &&
                 ($d['Transactions'] ?? null) === [] &&
@@ -130,6 +142,7 @@ class ChargerResetController extends Controller
             // The source reads can take seconds. Do not reuse a local
             // idle decision if a charging hold appeared during observation.
             $this->requireLocalIdle($b);
+            $requireAuthority();
         } catch (HttpExceptionInterface $e) {
             throw $e;
         } catch (Throwable) {
@@ -166,6 +179,7 @@ class ChargerResetController extends Controller
             abort_if(DB::table('charger_reset_operations')->where('binding_id', $b->id)->whereNull('reviewed_at')->exists(), 409, 'Review the previous operation before another reset.');
             abort_if(DB::table('charger_firmware_operations')->where('binding_id', $b->id)->whereNull('reviewed_at')->exists(), 409, 'Review the signed firmware operation before a reset.');
             $this->idle($b);
+            $this->enabled();
             $id = DB::table('charger_reset_operations')->insertGetId(['binding_id' => $b->id, 'actor_id' => $r->user()->id, 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'reset_type' => $b->protocol === '1.6' ? 'Soft' : 'OnIdle', 'status' => 'requested', 'created_at' => now(), 'updated_at' => now()]);
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'charger.reset_requested', 'subject' => (string) $id, 'created_at' => now()]);
 
@@ -185,11 +199,17 @@ class ChargerResetController extends Controller
                     $this->scope($r, $company, $charger, true);
                     app(VendorAccess::class)->operational($company);
                     $this->enabled();
+                    $sourceUrl = app(CsmsGraphqlTransport::class)->requireApproved();
+                    $sourceKey = (string) config('csms.graphql_secret');
                     $this->idle($b);
                     $operationsBase = config('csms.operations_base_url');
                     $auth = app(OperationsCredentials::class)->token($operationsBase);
                     $this->enabled();
-                    abort_unless(config('csms.operations_base_url') === $operationsBase, 409, 'Operations authority changed before reset dispatch.');
+                    abort_unless(config('csms.operations_base_url') === $operationsBase
+                        && app(CsmsGraphqlTransport::class)->requireApproved() === $sourceUrl
+                        && hash_equals($sourceKey, (string) config('csms.graphql_secret')), 409,
+                        'Source or operations authority changed before reset dispatch.');
+                    $this->requireLocalIdle($b);
                     abort_unless(is_string($auth) && $auth !== '', 503);
                     $reply = Http::timeout(10)->withoutRedirecting()->withToken($auth)->post($operationsBase.'/ocpp/'.$b->protocol.'/configuration/reset?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), ['type' => $row->reset_type]);
 
@@ -221,6 +241,7 @@ class ChargerResetController extends Controller
                 $wait = in_array($row->status, ['requested', 'dispatching'], true) ? 60 : 20;
                 abort_unless(now()->gte(CarbonImmutable::parse($attempt)->addSeconds($wait)), 409, 'Wait for dispatch completion before source review.');
                 $this->idle($b, $attempt);
+                $this->enabled();
                 DB::table('charger_reset_operations')->where('id', $row->id)->update(['reviewed_by' => $r->user()->id, 'review_note' => Crypt::encryptString($v['note']), 'reviewed_at' => now(), 'updated_at' => now()]);
                 DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'charger.reset_source_reviewed', 'subject' => (string) $row->id, 'created_at' => now()]);
             }
