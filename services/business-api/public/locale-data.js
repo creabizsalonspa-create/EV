@@ -2645,6 +2645,54 @@ window.EV_MESSAGES = {
         en: "Credential revoked",
         ar: "أُبطلت بيانات الدخول",
     },
+    "Direct connector identity review": {
+        en: "Direct connector identity review",
+        ar: "مراجعة هوية الموصل المباشر",
+    },
+    "Review records identity only. Charging, physical availability and control remain disabled.": {
+        en: "Review records identity only. Charging, physical availability and control remain disabled.",
+        ar: "تسجل المراجعة الهوية فقط. يظل الشحن والتوفر الفعلي والتحكم غير مفعّلة.",
+    },
+    "Reading connector review…": {
+        en: "Reading connector review…",
+        ar: "جارٍ قراءة مراجعة الموصل…",
+    },
+    "Connector review unavailable. Read again explicitly.": {
+        en: "Connector review unavailable. Read again explicitly.",
+        ar: "مراجعة الموصل غير متاحة. أعد القراءة صراحةً.",
+    },
+    "Stored connector review matches current registration": {
+        en: "Stored connector review matches current registration",
+        ar: "مراجعة الموصل المحفوظة تطابق التسجيل الحالي",
+    },
+    "Stored review requires registration reconciliation": {
+        en: "Stored review requires registration reconciliation",
+        ar: "تتطلب المراجعة المحفوظة تسوية التسجيل",
+    },
+    "No connector review recorded": {
+        en: "No connector review recorded",
+        ar: "لم تُسجل مراجعة للموصل",
+    },
+    "Record connector identity review": {
+        en: "Record connector identity review",
+        ar: "تسجيل مراجعة هوية الموصل",
+    },
+    "The server rechecks the exact recent source target before saving.": {
+        en: "The server rechecks the exact recent source target before saving.",
+        ar: "يعيد الخادم التحقق من هدف المصدر الحديث المحدد قبل الحفظ.",
+    },
+    "Verifying source connector review…": {
+        en: "Verifying source connector review…",
+        ar: "جارٍ التحقق من مراجعة موصل المصدر…",
+    },
+    "Review outcome uncertain; read stored review before another submission.": {
+        en: "Review outcome uncertain; read stored review before another submission.",
+        ar: "نتيجة المراجعة غير مؤكدة؛ اقرأ المراجعة المحفوظة قبل إرسال طلب آخر.",
+    },
+    "Read stored connector review": {
+        en: "Read stored connector review",
+        ar: "قراءة مراجعة الموصل المحفوظة",
+    },
     "Registered direct source inspection": {
         en: "Registered direct source inspection",
         ar: "فحص المصدر المباشر المسجل",
