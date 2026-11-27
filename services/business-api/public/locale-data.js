@@ -2677,6 +2677,18 @@ window.EV_MESSAGES = {
         en: "No connector review recorded",
         ar: "لم تُسجل مراجعة للموصل",
     },
+    "Connector review coverage unknown": {
+        en: "Connector review coverage unknown",
+        ar: "تغطية مراجعة الموصلات غير معروفة",
+    },
+    "All connector identities reviewed; charging not authorized": {
+        en: "All connector identities reviewed; charging not authorized",
+        ar: "تمت مراجعة جميع هويات الموصلات؛ الشحن غير مصرح به",
+    },
+    "Connector identity review incomplete": {
+        en: "Connector identity review incomplete",
+        ar: "مراجعة هويات الموصلات غير مكتملة",
+    },
     "Re-review same connector identity": {
         en: "Re-review same connector identity",
         ar: "إعادة مراجعة هوية الموصل نفسه",
