@@ -8,16 +8,29 @@ use App\Models\OcpiRecord;
 /** A source comparison, never authorization to bill or a second financial ledger. */
 class CdrReconciler
 {
-    private array $claims = [];
-
     public function inspect(OcpiProvider $provider, OcpiRecord $cdr): array
     {
         if ($cdr->module !== 'cdrs' || $cdr->ocpi_provider_id !== $provider->id) {
             throw new OcpiException('A CDR from this provider is required.');
         }
         $issues = [];
-        $n = $cdr->normalized;
-        $raw = $cdr->payload;
+        $integrity = app(StoredSourceIntegrity::class);
+        $stored = OcpiRecord::whereKey($cdr->id)->where('ocpi_provider_id', $provider->id)
+            ->where('module', 'cdrs')->first();
+        if (! $stored || ! $integrity->consistent($stored) || ! $integrity->consistent($cdr)
+            || $stored->content_hash !== $cdr->content_hash) {
+            $issues[] = 'cdr_source_integrity_requires_review';
+        }
+        try {
+            $n = $cdr->normalized;
+            $raw = $cdr->payload;
+            if (! is_array($n) || ! is_array($raw)) {
+                throw new OcpiException('Source is unreadable.');
+            }
+        } catch (\Throwable) {
+            return ['status' => 'requires_review', 'issues' => ['cdr_source_integrity_requires_review'], 'session_record_id' => null,
+                'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'billing_eligible' => false, 'local_invoice_created' => false, 'credit_review' => null];
+        }
         $sessionId = $n['session_id'] ?? ($raw['session_id'] ?? null);
         // Source reconciliation may run in a long-lived worker after an
         // owner, credential configuration or authorization revision changes.
@@ -44,7 +57,9 @@ class CdrReconciler
             }
         }
         if ($session) {
-            if (app(SessionMeterHistory::class)->requiresReview($session)) {
+            if (! $integrity->consistent($session)) {
+                $issues[] = 'session_source_integrity_requires_review';
+            } elseif (app(SessionMeterHistory::class)->requiresReview($session)) {
                 $issues[] = 'session_meter_history_requires_review';
             }
             $s = $session->normalized;
@@ -89,17 +104,11 @@ class CdrReconciler
                 }
             }
             // Multiple CDRs claiming the same source session cannot be counted twice.
-            $key = $provider->id.':'.$cdr->country_code.':'.$cdr->party_id;
-            $sourceClaims = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'cdrs')
-                ->where('country_code', $cdr->country_code)->where('party_id', $cdr->party_id);
-            // CDRs are append-only. A new accepted CDR changes the high-water
-            // id, so an earlier review must never reuse a stale claim snapshot.
-            $latestId = (int) (clone $sourceClaims)->max('id');
-            if (! isset($this->claims[$key]) || $this->claims[$key]['latest_id'] !== $latestId) {
-                $this->claims[$key] = ['latest_id' => $latestId,
-                    'rows' => (clone $sourceClaims)->orderByDesc('id')->limit(1001)->pluck('normalized')];
-            }
-            $claims = $this->claims[$key]['rows'];
+            // Do not reuse a high-water cache across independent reviews:
+            // a repaired or corrupted stored projection may retain the same ID.
+            $claims = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'cdrs')
+                ->where('country_code', $cdr->country_code)->where('party_id', $cdr->party_id)
+                ->orderByDesc('id')->limit(1001)->pluck('normalized');
             if ($claims->count() > 1000) {
                 $issues[] = 'history_exceeds_comparison_limit';
             }
@@ -112,7 +121,7 @@ class CdrReconciler
         }
 
         return ['status' => $issues === [] ? 'source_consistent' : 'requires_review', 'issues' => $issues, 'session_record_id' => $session?->id,
-            'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'billing_eligible' => false, 'local_invoice_created' => false, 'credit_review' => $this->creditReference($provider, $cdr)];
+            'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'billing_eligible' => false, 'local_invoice_created' => false, 'credit_review' => in_array('cdr_source_integrity_requires_review', $issues, true) ? null : $this->creditReference($provider, $cdr)];
     }
 
     private function creditReference(OcpiProvider $provider, OcpiRecord $cdr): ?array
@@ -127,7 +136,8 @@ class CdrReconciler
             $original = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'cdrs')->where('country_code', $cdr->country_code)->where('party_id', $cdr->party_id)->where('external_id', $reference)->first();
             if (! $original) {
                 $state = 'not_found';
-            } elseif ($original->id === $cdr->id || ($original->payload['credit'] ?? false) || isset($original->payload['credit_reference_id'])) {
+            } elseif (! app(StoredSourceIntegrity::class)->consistent($cdr) || ! app(StoredSourceIntegrity::class)->consistent($original)
+                || $original->id === $cdr->id || ($original->payload['credit'] ?? false) || isset($original->payload['credit_reference_id'])) {
                 $state = 'invalid_target';
             } else {
                 // Existence of a referenced CDR is not proof that a credit is

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'vendor_finance.dart' show nativeFinancialAmount;
@@ -5,11 +6,14 @@ import 'vendor_finance.dart' show nativeFinancialAmount;
 String providerDisputeText(BuildContext context, String en, String ar) =>
     Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
 
+bool _providerId(dynamic id) => id is int && id > 0 && id <= 9007199254740991;
+
 /// Provider receipts remain distinct from internal complaints and ledger entries.
 Map<String, dynamic> providerDispute(dynamic value, {int? expectedId}) {
-  final row = Map<String, dynamic>.from(value as Map);
-  if (row['id'] is! int ||
-      row['invoice_id'] is! int ||
+  if (value is! Map) throw const FormatException('Invalid provider receipt.');
+  final row = Map<String, dynamic>.from(value);
+  if (!_providerId(row['id']) ||
+      !_providerId(row['invoice_id']) ||
       (expectedId != null && row['id'] != expectedId) ||
       row['evidence'] != 'STRIPE_TEST_CONTRACT' ||
       row['real_money_moved'] != false ||
@@ -22,6 +26,28 @@ Map<String, dynamic> providerDispute(dynamic value, {int? expectedId}) {
     throw const FormatException('Unsupported provider dispute receipt.');
   }
   return row;
+}
+
+/// The canonical list is a fixed 25-row Laravel paginator. An obsolete or
+/// inconsistent page must not expose receipt actions or navigation.
+ApiPage<Map<String, dynamic>> providerDisputePage(dynamic raw, int requested) {
+  final result = ApiPage.fromJson(raw, (row) => providerDispute(row));
+  if (requested < 1 || requested > 100000 ||
+      result.current != requested || result.last < 1 ||
+      result.total < 0 || result.total > 2500000 ||
+      result.last != (result.total == 0 ? 1 : (result.total + 24) ~/ 25) ||
+      requested > result.last ||
+      (raw is Map && raw.containsKey('per_page') && raw['per_page'] != 25)) {
+    throw const FormatException('Invalid provider dispute page.');
+  }
+  final remaining = result.total - (requested - 1) * 25;
+  final expected = remaining < 25 ? remaining : 25;
+  final ids = <int>{};
+  if (result.items.length != expected ||
+      result.items.any((row) => !ids.add(row['id'] as int))) {
+    throw const FormatException('Inconsistent provider dispute page.');
+  }
+  return result;
 }
 
 class ProviderDisputesView extends StatefulWidget {
@@ -46,25 +72,61 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
   int generation = 0, target = 1;
   String? error;
   late bool Function() authorized;
+  StreamSubscription<int>? sessionSubscription;
+
+  void clearPrivate() {
+    generation++;
+    page = null;
+    detail = null;
+    error = null;
+    busy = false;
+    target = 1;
+    attention = false;
+  }
+
+  void bindSession() {
+    final source = widget.api;
+    authorized = source.sessionFence();
+    unawaited(sessionSubscription?.cancel());
+    sessionSubscription = source.sessionEvents.listen((_) {
+      if (mounted && identical(widget.api, source) && !authorized()) {
+        setState(clearPrivate);
+      }
+    });
+  }
   String t(String en, String ar) => providerDisputeText(context, en, ar);
   @override
   void initState() {
     super.initState();
-    authorized = widget.api.sessionFence();
+    bindSession();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    load(id: widget.initialDisputeId);
+    if (foreground) load(id: widget.initialDisputeId);
   }
 
   @override
   void didUpdateWidget(covariant ProviderDisputesView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.api != widget.api) {
-      generation++;
-      page = null;
-      detail = null;
-      error = null;
-      busy = false;
-      authorized = widget.api.sessionFence();
+    final switchedApi = !identical(oldWidget.api, widget.api);
+    final switchedTarget = oldWidget.initialDisputeId != widget.initialDisputeId;
+    if (switchedApi || switchedTarget) {
+      clearPrivate();
+      if (switchedApi) bindSession();
+      // A new explicit notification target should open its own canonical
+      // receipt, but a new account/API alone must wait for manual refresh.
+      if (switchedTarget && !switchedApi && foreground && authorized()) {
+        final targetId = widget.initialDisputeId;
+        final api = widget.api;
+        final epoch = generation;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && authorized() && epoch == generation &&
+              identical(api, widget.api) &&
+              widget.initialDisputeId == targetId) {
+            load(id: targetId);
+          }
+        });
+      }
     }
   }
 
@@ -87,12 +149,16 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
   @override
   void dispose() {
     generation++;
+    unawaited(sessionSubscription?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   Future<void> load({int number = 1, int? id}) async {
-    if (!foreground || !authorized()) return;
+    if (!mounted || !foreground || !authorized() ||
+        (id != null && !_providerId(id)) || number < 1 || number > 100000) return;
+    final source = widget.api;
+    final fence = authorized;
     final request = ++generation;
     setState(() {
       busy = true;
@@ -101,7 +167,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
       page = null;
     });
     try {
-      final raw = await widget.api.request(
+      final raw = await source.request(
         id == null
             ? 'commercial/external-disputes'
             : 'commercial/external-disputes/$id',
@@ -112,7 +178,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
       ApiPage<Map<String, dynamic>>? result;
       Map<String, dynamic>? receipt;
       if (id == null) {
-        result = ApiPage.fromJson(raw, (row) => providerDispute(row));
+        result = providerDisputePage(raw, number);
       } else {
         receipt = providerDispute((raw as Map)['dispute'], expectedId: id);
         final events = raw['events'];
@@ -145,7 +211,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
           return '${operation['status']} — ${operation['retry_until'] ?? ''}';
         }).toList();
       }
-      if (mounted && foreground && authorized() && request == generation) {
+      if (mounted && foreground && fence() && identical(source, widget.api) && request == generation) {
         setState(() {
           page = result;
           detail = receipt;
@@ -153,16 +219,22 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
         });
       }
     } catch (e) {
-      if (mounted && foreground && authorized() && request == generation) {
+      if (mounted && foreground && identical(source, widget.api) &&
+          e is ApiException && e.endsCurrentSession &&
+          request + 1 == generation && !fence()) {
+        widget.onExpired();
+      } else if (mounted && foreground && fence() &&
+          identical(source, widget.api) && request == generation) {
         if (e is ApiException && [401, 419].contains(e.status)) {
           widget.onExpired();
         } else {
-          setState(
-            () => error = t(
+          setState(() {
+            if (id == null) target = 1;
+            error = t(
               'Could not load provider receipts. Refresh to retry.',
               'تعذر تحميل إيصالات المزود. حدّث للمحاولة مجددًا.',
-            ),
-          );
+            );
+          });
         }
       }
     } finally {
@@ -170,7 +242,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
     }
   }
 
-  Widget receipt(Map<String, dynamic> row, {bool expanded = false}) => Card(
+  Widget receipt(Map<String, dynamic> row, {bool expanded = false, required bool Function() activeView}) => Card(
     child: Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -211,7 +283,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
             ),
           if (!expanded)
             TextButton(
-              onPressed: busy ? null : () => load(id: row['id'] as int),
+              onPressed: busy ? null : () { if (activeView()) load(id: row['id'] as int); },
               child: Text(t('Inspect receipt', 'عرض الإيصال')),
             ),
         ],
@@ -221,6 +293,9 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
   @override
   Widget build(BuildContext context) {
     final visible = authorized() && foreground;
+    final epoch = generation, source = widget.api;
+    bool activeView() => mounted && foreground && authorized() &&
+        identical(source, widget.api) && epoch == generation && !busy;
     final currentPage = visible ? page : null;
     final currentDetail = visible ? detail : null;
     return Scaffold(
@@ -240,32 +315,33 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
             onChanged: busy || !visible
                 ? null
                 : (value) {
+                    if (!activeView()) return;
                     setState(() => attention = value);
                     load();
                   },
           ),
           OutlinedButton(
-            onPressed: busy || !visible ? null : () => load(number: target),
+            onPressed: busy || !visible ? null : () { if (activeView()) load(number: target); },
             child: Text(t('Refresh list', 'تحديث القائمة')),
           ),
           if (busy) const LinearProgressIndicator(),
           if (visible && error != null) Text(error!),
-          if (currentDetail != null) receipt(currentDetail, expanded: true),
+          if (currentDetail != null) receipt(currentDetail, expanded: true, activeView: activeView),
           if (currentPage != null) ...[
             if (currentPage.items.isEmpty)
               Text(t('No provider disputes.', 'لا توجد نزاعات لدى المزود.')),
-            ...currentPage.items.map((row) => receipt(row)),
+            ...currentPage.items.map((row) => receipt(row, activeView: activeView)),
             Row(
               children: [
                 TextButton(
                   onPressed: !busy && target > 1
-                      ? () => load(number: target - 1)
+                      ? () { if (activeView()) load(number: target - 1); }
                       : null,
                   child: Text(t('Previous', 'السابق')),
                 ),
                 TextButton(
                   onPressed: !busy && currentPage.current < currentPage.last
-                      ? () => load(number: target + 1)
+                      ? () { if (activeView()) load(number: target + 1); }
                       : null,
                   child: Text(t('Next', 'التالي')),
                 ),

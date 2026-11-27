@@ -42,6 +42,9 @@ void main() {
     expect(actual.totals['paid_minor'], greaterThanOrEqualTo(1050));
     expect(actual.source['real_money_movement'], false);
     expect(actual.source['external_psp_or_bank_verified'], false);
+    final document = await api.downloadVendorRevenueCohort(owner,
+      currency:'AED',from:from,to:to);
+    expect(VendorRevenueCohortCsv.verifiedText(document,actual),contains('date_utc,invoice_count'));
     final empty = VendorRevenueCohortSnapshot.parse(
       await api.request(path, query: {
         ...query,
@@ -71,6 +74,8 @@ void main() {
     await api.signIn(f['foreign'], f['password']);
     await expectLater(api.request(path, query: query),
       throwsA(isA<ApiException>().having((e) => e.status, 'foreign vendor', 404)));
+    await expectLater(api.downloadVendorRevenueCohort(owner,currency:'AED',from:from,to:to),
+      throwsA(isA<ApiException>().having((e) => e.status, 'foreign CSV', 404)));
   }, skip: fixturePath == null
       ? 'Requires owned local Laravel finance fixture.'
       : false);

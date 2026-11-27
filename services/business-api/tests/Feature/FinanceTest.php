@@ -50,6 +50,64 @@ class FinanceTest extends TestCase
         return app(FinanceService::class)->issue($f[3], $f[1]->id);
     }
 
+    public function test_tariff_history_distinguishes_effective_price_from_future_versions_on_every_page(): void
+    {
+        $this->travelTo(now()->startOfSecond());
+        [$vendor, $customer, $station, , $current] = $this->fixture();
+        $foreign = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $future = TariffVersion::create([
+            'station_id' => $station->id, 'created_by' => $admin->id,
+            'rate_minor_per_kwh' => 250, 'tax_bps' => 500, 'commission_bps' => 1000,
+            'currency' => 'AED', 'minor_units' => 2, 'effective_from' => now()->addMinute(),
+        ]);
+        $path = '/finance-test-api/stations/'.$station->id.'/tariffs';
+
+        $this->actingAs($foreign)->getJson($path)->assertNotFound();
+        $this->actingAs($customer)->getJson($path)->assertNotFound();
+        $this->actingAs($vendor)->getJson($path)->assertOk()
+            ->assertJsonPath('data.0.id', $future->id)
+            ->assertJsonPath('active_tariff.id', $current->id)
+            ->assertJsonPath('active_tariff_context_matches', true)
+            ->assertJsonPath('tariff_as_of', now()->toISOString())
+            ->assertJsonMissingPath('active_tariff.publishing_key')
+            ->assertJsonMissingPath('active_tariff.publishing_fingerprint');
+        $this->getJson($path.'?page=2')->assertOk()->assertJsonCount(0, 'data')
+            ->assertJsonPath('active_tariff.id', $current->id);
+        $this->travel(1)->minutes();
+        $this->actingAs($admin)->getJson($path)->assertOk()
+            ->assertJsonPath('active_tariff.id', $future->id)
+            ->assertJsonPath('active_tariff_context_matches', true);
+        $this->assertDatabaseCount('finance_tariff_versions', 2);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_tariff_publication_rejects_stale_effective_version_but_recovers_committed_retry(): void
+    {
+        $this->travelTo(now()->startOfSecond());
+        [$vendor, , $station, , $current] = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $future = TariffVersion::create([
+            'station_id' => $station->id, 'created_by' => $admin->id,
+            'rate_minor_per_kwh' => 250, 'tax_bps' => 500, 'commission_bps' => 1500,
+            'currency' => 'AED', 'minor_units' => 2, 'effective_from' => now()->addMinute(),
+        ]);
+        $path = '/finance-test-api/stations/'.$station->id.'/tariffs';
+        $payload = ['rate_minor_per_kwh' => 300, 'tax_bps' => 500, 'commission_bps' => 0,
+            'expected_active_tariff_id' => $current->id, 'idempotency_key' => 'reviewed-pricing'];
+        $this->actingAs($vendor);
+        $this->travel(1)->minutes();
+        $this->postJson($path, $payload)->assertConflict();
+        $this->assertDatabaseCount('finance_tariff_versions', 2);
+        $payload['expected_active_tariff_id'] = $future->id;
+        $receipt = $this->postJson($path, $payload)->assertCreated()
+            ->assertJsonPath('commission_bps', 1500)->json('id');
+        $this->postJson($path, $payload)->assertCreated()->assertJsonPath('id', $receipt);
+        $payload['expected_active_tariff_id'] = $receipt;
+        $this->postJson($path, $payload)->assertConflict();
+        $this->assertDatabaseCount('finance_tariff_versions', 3);
+    }
+
     public function test_integer_rounding_tariff_snapshot_and_invoice_are_immutable_and_reconcile(): void
     {
         $f = $this->fixture();
