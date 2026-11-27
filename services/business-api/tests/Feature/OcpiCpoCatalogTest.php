@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\TestWith;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class OcpiCpoCatalogTest extends TestCase
@@ -158,6 +159,18 @@ class OcpiCpoCatalogTest extends TestCase
             ->assertHeader('Link', '<https://platform.example'.self::SENDER.'/tariffs?date_from=2026-11-21T08%3A00%3A00.000000Z&limit=1&offset=1>; rel="next"')
             ->assertJsonPath('data.0.id', 'T'.$tariff);
         $this->getJson(self::SENDER.'/tariffs?date_to=2026-11-21T08%3A00%3A02Z', $token)->assertOk()->assertJsonCount(1, 'data');
+        $read = fn (array $window) => $this->getJson(self::SENDER.'/tariffs?'.http_build_query($window), $token);
+        $read(['date_from' => '2026-11-21T12:00:00+04:00', 'limit' => 1])
+            ->assertOk()->assertHeader('X-Total-Count', '2')->assertJsonPath('data.0.id', 'T'.$tariff);
+        $read(['date_from' => '2026-11-21T04:00:00.000001-04:00', 'date_to' => '2026-11-21T12:00:02.000001+04:00'])
+            ->assertOk()->assertHeader('X-Total-Count', '1')->assertJsonPath('data.0.id', 'T'.$secondTariff);
+        $read(['date_to' => '2026-11-21T12:00:02+04:00'])->assertOk()->assertJsonCount(1, 'data');
+        foreach (['tomorrow', '2026-02-30T00:00:00Z', '2026-11-21T08:00:00+14:01',
+            '2026-11-21T08:00:00+00:60', '2026-11-21T08:00:00.0000001Z',
+            '0000-01-01T00:00:00Z', '0001-01-01T00:00:00+14:00', '9999-12-31T23:59:59-14:00'] as $invalid) {
+            $read(['date_to' => $invalid])->assertBadRequest();
+        }
+        $read(['date_from' => '2026-11-21T12:00:00+04:00', 'date_to' => '2026-11-21T08:00:00Z'])->assertBadRequest();
         $this->getJson(self::SENDER.'/tariffs?date_to=2026-02-30T00%3A00%3A00Z', $token)->assertBadRequest();
         $this->getJson(self::SENDER.'/tariffs?limit[]=3', $token)->assertBadRequest();
         DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->update(['generation' => 2]);
@@ -165,6 +178,40 @@ class OcpiCpoCatalogTest extends TestCase
         $this->getJson($operations)->assertOk()->assertJsonPath('history.data.0.authority_current', false);
         config(['ocpi.connections.owner.cpo_catalog.id' => 'changed-contract']);
         $this->getJson(self::SENDER.'/tariffs', $token)->assertUnauthorized();
+    }
+
+    public function test_sender_read_revalidates_the_complete_authenticated_credential_snapshot_under_lock(): void
+    {
+        Http::preventStrayRequests();
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sources = $this->source($owner);
+        [, $tariff] = $sources;
+        [$provider, , $operations] = $this->peer($owner, 'owner', $sources);
+        $this->actingAs($admin)->publication($operations.'/tariffs/'.$tariff)->assertOk();
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id);
+        $snapshot = $link->first();
+        $publisher = app(CpoCatalogPublisher::class);
+        $read = fn () => $publisher->read($provider, $snapshot, 'tariffs', ['offset' => 0, 'limit' => 25], $tariff);
+        $this->assertSame('T'.$tariff, $read()[0]['id']);
+        foreach ([
+            'local_token_ciphertext' => Crypt::encryptString('other-local-synthetic-token'),
+            'remote_token_ciphertext' => Crypt::encryptString('other-remote-synthetic-token'),
+            'bootstrap_hash' => str_repeat('b', 64),
+        ] as $field => $replacement) {
+            $link->update([$field => $replacement]);
+            try {
+                $read();
+                $this->fail('Changed credential snapshot granted a private Sender read.');
+            } catch (HttpException $error) {
+                $this->assertSame(401, $error->getStatusCode());
+            }
+            $link->update([$field => $snapshot->$field]);
+            $this->assertSame('T'.$tariff, $read()[0]['id']);
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('ocpi_cpo_catalog', 1);
+        $this->assertDatabaseCount('ocpi_cpo_publication_operations', 0);
     }
 
     public function test_authority_refresh_cannot_rebind_a_withdrawal_to_another_cpo_identity(): void
