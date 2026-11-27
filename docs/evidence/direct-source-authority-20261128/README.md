@@ -122,3 +122,29 @@ syntax compilation. This is 32 executed validation assertions, not a
 browser rendering or end-to-end test. The new Flutter helper and widget
 tests are authored, not executed. Laravel and PostgreSQL integration
 validation remains outstanding.
+
+## Local connector inventory identity fence
+
+The isolated continuation from draft #452 pins the local connector ID,
+charger ID, connector number, type and rated power in each receipt. The
+maintenance flag is deliberately excluded from the identity fingerprint.
+The live coverage projection and private review read validate the current
+local attributes; review creation rechecks the same attributes under lock
+after source I/O. The internal inspection response also binds the exact
+registration fingerprint to the source observation, without exposing that
+fingerprint to the public API. Local inventory mismatch requires explicit
+operator investigation; it cannot silently renew an existing identity.
+
+Executed locally in PHP 8.4.24: exact service blob
+`ff71167a58db9291c91dbc33d58621032a4b2157` matched `git hash-object`,
+passed `php -l`, and passed **48/48 standalone assertions** (24 per
+protocol). Cases include changed connector number/type/power/charger/ID,
+maintenance independence, missing/forged fingerprint, stale/regressed
+events, wrong epoch, partial and incomplete coverage, and all three
+non-authorization flags. These are pure PHP service assertions, not
+Laravel/PostgreSQL concurrency tests. Two new feature regression instances
+were authored but not run. The updated candidate-only migration must not
+be applied as a replacement to a previously deployed migration. This
+comparison cannot detect an attribute change that is reverted to the same
+values between observations; a durable inventory mutation generation
+would be needed for that stronger guarantee.
