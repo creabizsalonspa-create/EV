@@ -424,6 +424,8 @@ class ChargerFirmwareController extends Controller
                     $this->sourceAuthority($authority);
                     $this->compatibleSource($b, $charger, $release);
                     $this->sourceAuthority($authority);
+                    $this->sourceCapability($b);
+                    $this->sourceAuthority($authority);
                     $serialized = Crypt::decryptString($current->source_payload_ciphertext);
                     abort_unless(hash_equals($current->source_payload_digest, hash('sha256', $serialized)), 409, 'Firmware source provenance changed.');
                     $payload = json_decode($serialized, true, 32, JSON_THROW_ON_ERROR);
