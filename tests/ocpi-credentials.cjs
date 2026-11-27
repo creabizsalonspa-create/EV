@@ -104,6 +104,8 @@ withCredentialsFixture(async (f) => {
       .waitFor();
     await detail.getByText("Configured or negotiated modules only", { exact: false }).waitFor();
     await detail.getByText("locations: Partner read", { exact: false }).waitFor();
+    await detail.getByText("Sandbox reservation policy:", { exact: false }).waitFor();
+    await detail.getByText("locations: Partner read", { exact: false }).filter({ hasText: "Receive request readiness" }).waitFor();
     assert(!(await detail.textContent()).includes(newToken));
     assert(
       !(await page.locator("body").textContent()).includes(
@@ -128,6 +130,18 @@ withCredentialsFixture(async (f) => {
     assert.equal(await detail.locator("form").count(), 0);
     assert(!(await detail.textContent()).includes(newToken));
     await page.unroute(credentialPattern, forgeCapability);
+    const forgeReadiness = async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.capability_matrix.modules[0].local_receiver_active = false;
+      body.capability_matrix.modules[0].local_receiver_request_ready = true;
+      await route.fulfill({ response, json: body });
+    };
+    await page.route(credentialPattern, forgeReadiness);
+    await detail.getByRole("button", { name: "Refresh", exact: true }).click();
+    await detail.getByText("Partner capability evidence is inconsistent", { exact: false }).waitFor();
+    assert.equal(await detail.locator("form").count(), 0);
+    await page.unroute(credentialPattern, forgeReadiness);
     await detail.getByRole("button", { name: "Refresh", exact: true }).click();
     await detail
       .getByText("Peer rotated credentials", { exact: false })
@@ -143,6 +157,7 @@ withCredentialsFixture(async (f) => {
       .waitFor();
     await detail.getByText("وحدات الشريك المُهيأة", { exact: false }).waitFor();
     await detail.getByText("locations: قراءة الشريك", { exact: false }).waitFor();
+    await detail.getByText("سياسة الحجز التجريبية:", { exact: false }).waitFor();
     assert(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth + 1,
