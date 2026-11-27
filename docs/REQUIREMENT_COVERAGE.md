@@ -8,9 +8,9 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 
 | Stage | Weighted coverage |
 |---|---:|
-| coded | 61.99% |
-| tested | 61.99% |
-| merged | 61.99% |
+| coded | 62.59% |
+| tested | 62.59% |
+| merged | 62.59% |
 | production_accepted | 0.00% |
 
 Production acceptance: 0.00% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.
@@ -46,7 +46,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 5.3 | Reliable events/state/reconciliation | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 5.4 | Simulator/hardware compatibility QA | 5 | 3/5 | 3/5 | 3/5 | 0/5 |
 | 6.1 | Normalized catalog/freshness | 6 | 5/6 | 5/6 | 5/6 | 0/6 |
-| 6.2 | Licensed discovery providers | 4 | 3/4 | 3/4 | 3/4 | 0/4 |
+| 6.2 | Licensed discovery providers | 4 | 4/4 | 4/4 | 4/4 | 0/4 |
 | 6.3 | Complete CPO/eMSP OCPI | 8 | 3/8 | 3/8 | 3/8 | 0/8 |
 | 6.4 | Partner access/capability/error handling | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 6.5 | Truthful partner availability/controls | 3 | 3/3 | 3/3 | 3/3 | 0/3 |
@@ -372,7 +372,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `6.2.1` [CTM] Licensed discovery-provider adapter (evidence: pr193).
 - `6.2.2` [CTM] Attribution/rate/cache policies (evidence: pr193).
 - `6.2.3` [CTM] Provider-specific frontend integration (evidence: pr197-licensed-frontend).
-- `6.2.4` [—] Coverage-quality monitoring (evidence: none).
+- `6.2.4` [CTM] Coverage-quality monitoring (evidence: pr408-coverage-quality).
 
 ### 6.3 Complete CPO/eMSP OCPI
 
