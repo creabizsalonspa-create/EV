@@ -24,7 +24,7 @@ class MobileBundleSignatureTest(unittest.TestCase):
         cls.store = cls.root / "fixture.p12"
         cls.signers = {}
         for alias, name in (("upload", "Synthetic Upload"), ("other", "Other Fixture"), ("debug", "Android Debug")):
-            cls.run_tool("keytool", "-genkeypair", "-alias", alias, "-dname", "CN=" + name,
+            cls.run_tool("keytool", "-J-Djava.security.egd=file:/dev/urandom", "-genkeypair", "-noprompt", "-alias", alias, "-dname", "CN=" + name,
                          "-keyalg", "RSA", "-keysize", "2048", "-validity", "2", "-storetype", "PKCS12",
                          "-keystore", str(cls.store), "-storepass", "fixture-only", "-keypass", "fixture-only")
             cert = cls.run_tool("keytool", "-exportcert", "-alias", alias, "-keystore", str(cls.store), "-storepass", "fixture-only").stdout
@@ -38,7 +38,9 @@ class MobileBundleSignatureTest(unittest.TestCase):
 
     @staticmethod
     def run_tool(*args):
-        return subprocess.run(args, check=True, capture_output=True, timeout=60)
+        # Hosted macOS can be slow to initialize a JDK security provider.
+        # Never allow fixture tools to prompt for a password or wait for input.
+        return subprocess.run(args, check=True, stdin=subprocess.DEVNULL, capture_output=True, timeout=120)
 
     @classmethod
     def signed_copy(cls, name, *aliases):
