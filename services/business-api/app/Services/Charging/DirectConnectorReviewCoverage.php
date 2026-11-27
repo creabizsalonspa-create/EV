@@ -7,6 +7,16 @@ use DateTimeInterface;
 /** Pure review coverage check. A matching review is not a charging mapping. */
 final class DirectConnectorReviewCoverage
 {
+    /** Pin reviewed local inventory attributes, excluding mutable maintenance status. */
+    public static function connectorFingerprint(object $connector): string
+    {
+        return hash('sha256', json_encode([
+            (int) $connector->id, (int) $connector->charger_id,
+            (int) $connector->connector_number, $connector->connector_type,
+            (string) $connector->max_power_kw,
+        ], JSON_THROW_ON_ERROR));
+    }
+
     public function evaluate(array $inventory, array $receipts, array $sources, int $registration, int $epoch, string $fingerprint, bool $complete): array
     {
         $result = [
@@ -24,11 +34,14 @@ final class DirectConnectorReviewCoverage
             return $result;
         }
         $owned = [];
-        foreach ($inventory as $id) {
-            if (! is_int($id) || $id < 1 || isset($owned[$id])) {
+        foreach ($inventory as $connector) {
+            $id = $connector['id'] ?? null;
+            $localFingerprint = $connector['fingerprint'] ?? null;
+            if (! is_int($id) || $id < 1 || isset($owned[$id])
+                || ! is_string($localFingerprint) || ! preg_match('/^[a-f0-9]{64}$/D', $localFingerprint)) {
                 return $result;
             }
-            $owned[$id] = true;
+            $owned[$id] = $localFingerprint;
         }
         $byTarget = [];
         $sourceIds = [];
@@ -51,6 +64,8 @@ final class DirectConnectorReviewCoverage
             if (! is_int($id) || ! isset($owned[$id]) || isset($seen[$id]) || isset($matched[$target])
                 || $receipt['registration_id'] !== $registration || $receipt['authority_epoch'] !== $epoch
                 || ! is_string($receipt['fingerprint']) || ! hash_equals($fingerprint, $receipt['fingerprint'])
+                || ! is_string($receipt['connector_fingerprint'] ?? null)
+                || ! hash_equals($owned[$id], $receipt['connector_fingerprint'])
                 || ! $source || $source['database_id'] !== $receipt['database_id']
                 || $source['state'] !== 'recent' || ! is_int($source['event_id']) || ! is_int($receipt['event_id'])
                 || $receipt['event_id'] < 1 || $source['event_id'] < $receipt['event_id']
