@@ -2,6 +2,9 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import tempfile
+from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts/audit_mobile_apk.py"
@@ -248,6 +251,32 @@ class MobileApkAuditTests(unittest.TestCase):
                         expected_signer_sha256=digest,
                         signer_output=signer,
                     )
+
+    def test_artifact_audit_binds_actual_manifest_resource_refs_and_snapshot(self):
+        resources = (
+            "spec resource 0x7f140000 " + EXPECTED + ":xml/ev_backup_rules: flags=0x0\n"
+            "spec resource 0x7f140001 " + EXPECTED + ":xml/ev_data_extraction_rules: flags=0x0"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "original.apk"
+            apk.write_bytes(b"fixture")
+            args = SimpleNamespace(apk=str(apk), aapt="aapt", apksigner=None,
+                                   mode="debug", expected_package=EXPECTED,
+                                   require_maps_key=False, expected_signer_sha256=None)
+            with patch.object(audit, "_run", side_effect=[
+                BADGING, MANIFEST, LEGACY, EXTRACTION, resources
+            ]) as run:
+                result = audit.audit_file(args)
+                self.assertTrue(result["compiled_backup_exclusions_verified"])
+                paths = [call.args[0][3] for call in run.call_args_list]
+                self.assertEqual(len(set(paths)), 1)
+                self.assertNotEqual(paths[0], str(apk))
+                self.assertFalse(Path(paths[0]).exists())
+            with patch.object(audit, "_run", side_effect=[
+                BADGING, MANIFEST, LEGACY, EXTRACTION,
+                resources.replace("ev_backup_rules", "unexpected")
+            ]), self.assertRaises(audit.AuditError):
+                audit.audit_file(args)
 
     def test_missing_target_sdk_is_rejected(self):
         text = BADGING.replace("targetSdkVersion:'36'\n", "")
