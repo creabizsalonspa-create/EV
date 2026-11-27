@@ -43,11 +43,16 @@ class CommandReconciler
             }
             $session = ChargingSession::findOrFail($link->charging_session_id);
             $end = $command->action === 'stop';
+            if ($end && ! OcppTransactionId::matchesStop(
+                $link->protocol, $command->payload['transaction_id'] ?? null, $link->transaction_id
+            )) {
+                return false;
+            }
             if ($end && ($link->ended_at === null || $session->status !== 'stopped' || $session->stopped_at === null)) {
                 return false;
             }
             $event = DB::table('csms_inbox_events')->where('link_id', $link->id)->where('outcome', 'applied')->where('type', $end ? 'ended' : 'started')->orderBy('id')->first();
-            if (! $event || (! $end && $event->sequence !== 0)) {
+            if (! $event || ! AppliedCommandReceipt::matches($event, $link, $session, $end)) {
                 return false;
             }
             if (DB::table('command_source_observations')->where('command_id', $command->id)->exists()) {

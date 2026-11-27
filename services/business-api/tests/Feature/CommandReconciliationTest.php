@@ -22,7 +22,7 @@ class CommandReconciliationTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function fixture(): array
+    private function fixture(string $protocol = '1.6'): array
     {
         Http::preventStrayRequests();
         config(['csms.session_bridge_enabled' => true, 'csms.simulator_enabled' => true, 'csms.base_url' => 'https://csms.test']);
@@ -30,18 +30,18 @@ class CommandReconciliationTest extends TestCase
         $vendor = User::factory()->create(['role' => 'vendor']);
         $customer = User::factory()->create();
         $station = Station::create(['vendor_id' => $vendor->id, 'name' => 'Recovery simulator', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
-        DB::table('csms_bindings')->insert(['station_id' => $station->id, 'identifier' => 'ev-test-recovery', 'protocol' => '1.6', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('csms_bindings')->insert(['station_id' => $station->id, 'identifier' => 'ev-test-recovery', 'protocol' => $protocol, 'created_at' => now(), 'updated_at' => now()]);
         $r = Reservation::create(['user_id' => $customer->id, 'station_id' => $station->id, 'starts_at' => now()->subMinutes(5), 'idempotency_key' => 'recovery']);
         $this->actingAs($customer)->postJson('/api/reservations/'.$r->id.'/csms-start')->assertAccepted();
 
         return [$vendor, $customer, ChargingSession::firstOrFail(), ChargerCommand::firstOrFail()];
     }
 
-    private function event(ChargingSession $s, string $type = 'started'): array
+    private function event(ChargingSession $s, string $type = 'started', string $protocol = '1.6'): array
     {
         $end = $type === 'ended';
 
-        return ['event_id' => 'recovery-'.$s->id.'-'.$type, 'session_id' => $s->id, 'identifier' => 'ev-test-recovery', 'protocol' => '1.6', 'transaction_id' => '123', 'type' => $type, 'sequence' => $end ? 1 : 0, 'meter_wh' => $end ? 3500 : 1000, 'occurred_at' => now()->addSeconds($end ? 1 : 0)->toISOString()];
+        return ['event_id' => 'recovery-'.$s->id.'-'.$type, 'session_id' => $s->id, 'identifier' => 'ev-test-recovery', 'protocol' => $protocol, 'transaction_id' => '123', 'type' => $type, 'sequence' => $end ? 1 : 0, 'meter_wh' => $end ? 3500 : 1000, 'occurred_at' => now()->addSeconds($end ? 1 : 0)->toISOString()];
     }
 
     public function test_authenticated_applied_source_recovers_unknown_start_and_stop_without_network_or_acceptance_claim(): void
@@ -63,6 +63,135 @@ class CommandReconciliationTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 1);
         $this->postJson('/api/charging-sessions/'.$session->id.'/reconcile')->assertOk()->assertJsonPath('reconciled', 0)->assertJsonPath('network_requests', 0)->assertJsonPath('command_acceptance_verified', false);
         Http::assertNothingSent();
+    }
+
+    public static function stopIdentityChanges(): array
+    {
+        return [
+            ['1.6', 'before_claim'], ['2.0.1', 'before_claim'],
+            ['1.6', 'during_token'], ['2.0.1', 'during_token'],
+        ];
+    }
+
+    #[DataProvider('stopIdentityChanges')]
+    public function test_pending_session_stop_cannot_target_a_replaced_transaction(string $protocol, string $when): void
+    {
+        [, $customer, $session] = $this->fixture($protocol);
+        $bridge = app(SessionBridge::class);
+        $bridge->ingest($this->event($session, protocol: $protocol));
+        $bridge->stop($session->fresh(), $customer->id, 'customer');
+        $stop = ChargerCommand::where('action', 'stop')->firstOrFail();
+        $link = SessionLink::where('charging_session_id', $session->id)->firstOrFail();
+        $this->assertSame('123', $stop->payload['transaction_id']);
+        if ($when === 'before_claim') {
+            $link->update(['transaction_id' => '456']);
+        }
+        Http::fake(function ($request) use ($link, $when) {
+            if (str_ends_with($request->url(), '/dev/token')) {
+                if ($when === 'during_token') {
+                    $link->update(['transaction_id' => '456']);
+                }
+
+                return Http::response(['accessToken' => 'synthetic-only']);
+            }
+
+            return Http::response([['success' => true]]);
+        });
+        $blocked = app(CsmsDispatcher::class)->dispatch($stop->id);
+        $this->assertSame('pending', $blocked->status);
+        $this->assertSame('pre_dispatch_source_lineage_changed', $blocked->failure_code);
+        $this->assertSame('stopping', $session->fresh()->status);
+        $this->assertSame('123', $blocked->payload['transaction_id']);
+
+        // Restoring a row cannot silently clear the durable quarantine.
+        $link->update(['transaction_id' => '123']);
+        $again = app(CsmsDispatcher::class)->dispatch($stop->id);
+        $this->assertSame('pending', $again->status);
+        $this->assertSame('pre_dispatch_source_lineage_changed', $again->failure_code);
+        Http::assertSentCount($when === 'during_token' ? 1 : 0);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/ocpp/'));
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseMissing('command_source_observations', ['command_id' => $stop->id]);
+    }
+
+    public static function stopProtocols(): array
+    {
+        return [['1.6'], ['2.0.1']];
+    }
+
+    #[DataProvider('stopProtocols')]
+    public function test_terminal_source_evidence_cannot_reconcile_a_stop_for_another_transaction(string $protocol): void
+    {
+        [, $customer, $session] = $this->fixture($protocol);
+        $bridge = app(SessionBridge::class);
+        $bridge->ingest($this->event($session, protocol: $protocol));
+        $bridge->stop($session->fresh(), $customer->id, 'customer');
+        $stop = ChargerCommand::where('action', 'stop')->firstOrFail();
+        $original = $stop->payload;
+        $stop->update(['status' => 'outcome_unknown',
+            'payload' => array_replace($original, ['transaction_id' => '456'])]);
+        $bridge->ingest($this->event($session, 'ended', $protocol));
+        $this->assertSame('stopped', $session->fresh()->status);
+        $this->assertSame('outcome_unknown', $stop->fresh()->status);
+        $this->assertFalse(app(CommandReconciler::class)->forCommand($stop->id));
+        $this->assertDatabaseMissing('command_source_observations', ['command_id' => $stop->id]);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $stop->update(['payload' => $original]);
+        $this->assertTrue(app(CommandReconciler::class)->forCommand($stop->id));
+        $this->assertFalse(app(CommandReconciler::class)->forCommand($stop->id));
+        $this->assertSame('source_observed', $stop->fresh()->status);
+        $this->assertDatabaseHas('command_source_observations', [
+            'command_id' => $stop->id, 'observed_state' => 'ended',
+            'command_acceptance_verified' => false,
+        ]);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('stopProtocols')]
+    public function test_applied_receipt_must_match_durable_session_meter_sequence_and_time(string $protocol): void
+    {
+        [, $customer, $session, $start] = $this->fixture($protocol);
+        $real = app(CommandReconciler::class);
+        $fake = \Mockery::mock(CommandReconciler::class);
+        $fake->shouldReceive('forSession')->twice()->andReturn(0);
+        $this->app->instance(CommandReconciler::class, $fake);
+        $bridge = app(SessionBridge::class);
+        $start->update(['status' => 'outcome_unknown']);
+        $bridge->ingest($this->event($session, protocol: $protocol));
+        $link = SessionLink::where('charging_session_id', $session->id)->firstOrFail();
+        $events = DB::table('csms_inbox_events')->where('link_id', $link->id);
+        $started = (clone $events)->where('type', 'started')->first();
+        foreach (['meter_wh' => 999, 'occurred_at' => now()->subMinute()] as $field => $value) {
+            DB::table('csms_inbox_events')->where('id', $started->id)->update([$field => $value]);
+            $this->assertFalse($real->forCommand($start->id));
+            $this->assertSame('outcome_unknown', $start->fresh()->status);
+            $this->assertDatabaseCount('command_source_observations', 0);
+            DB::table('csms_inbox_events')->where('id', $started->id)->update([$field => $started->{$field}]);
+        }
+        $this->assertTrue($real->forCommand($start->id));
+        $this->assertFalse($real->forCommand($start->id));
+
+        $bridge->stop($session->fresh(), $customer->id, 'customer');
+        $stop = ChargerCommand::where('action', 'stop')->firstOrFail();
+        $stop->update(['status' => 'outcome_unknown']);
+        $bridge->ingest($this->event($session, 'ended', $protocol));
+        $ended = (clone $events)->where('type', 'ended')->first();
+        foreach (['meter_wh' => 3501, 'sequence' => 2, 'occurred_at' => now()->subMinute()] as $field => $value) {
+            DB::table('csms_inbox_events')->where('id', $ended->id)->update([$field => $value]);
+            $this->assertFalse($real->forCommand($stop->id));
+            $this->assertSame('outcome_unknown', $stop->fresh()->status);
+            $this->assertDatabaseCount('command_source_observations', 1);
+            $this->assertDatabaseCount('finance_invoices', 1);
+            DB::table('csms_inbox_events')->where('id', $ended->id)->update([$field => $ended->{$field}]);
+        }
+        $this->assertTrue($real->forCommand($stop->id));
+        $this->assertFalse($real->forCommand($stop->id));
+        $this->assertSame('source_observed', $stop->fresh()->status);
+        $this->assertDatabaseCount('command_source_observations', 2);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        Http::assertNothingSent();
+        $this->app->instance(CommandReconciler::class, $real);
     }
 
     public function test_missing_or_unapplied_evidence_never_recovers_and_scope_is_checked_before_work(): void
