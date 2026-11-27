@@ -3,6 +3,7 @@
 namespace App\Services\Commercial;
 
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\Payments\HostedCheckout;
 use App\Services\Finance\Money;
 use Carbon\CarbonImmutable;
@@ -12,6 +13,37 @@ use Illuminate\Support\Str;
 
 class SubscriptionService
 {
+    private const MAX_EXACT_MINOR = 9_007_199_254_740_991;
+
+    /** Reject coerced, fractional or unsafe source money before financial JSON. */
+    private static function exactMinor(mixed $value, bool $signed = false): int
+    {
+        abort_unless(is_int($value) || is_string($value), 409,
+            'Subscription source amount is not an exact minor-unit integer.');
+        $minor = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($minor !== false && $minor <= self::MAX_EXACT_MINOR
+            && $minor >= ($signed ? -self::MAX_EXACT_MINOR : 0), 409,
+            'Subscription source amount exceeds exact integer bounds.');
+
+        return $minor;
+    }
+
+    private static function checkedAdd(int $left, int $right, bool $signed = false): int
+    {
+        return self::exactMinor($left + $right, $signed);
+    }
+
+    private static function checkedSum(iterable $rows, string $column): int
+    {
+        $total = 0;
+        foreach ($rows as $row) {
+            $value = is_array($row) ? $row[$column] : $row->{$column};
+            $total = self::checkedAdd($total, self::exactMinor($value));
+        }
+
+        return $total;
+    }
+
     public function plan(int $id): object
     {
         $plan = DB::table('commercial_plan_versions')->find($id);
@@ -26,6 +58,8 @@ class SubscriptionService
         abort_unless($actor->role === 'admin', 403);
 
         return DB::transaction(function () use ($actor, $v) {
+            $actor = app(CurrentFinanceReader::class)->requireSnapshot($actor);
+            abort_unless($actor->role === 'admin', 403);
             // Serialize catalog version allocation across all administrators and plan codes.
             DB::table('regions')->orderBy('country')->lockForUpdate()->firstOrFail();
             $prior = DB::table('commercial_plan_versions')->where('code', $v['code'])->orderByDesc('version')->first();
@@ -64,10 +98,39 @@ class SubscriptionService
         DB::table('commercial_subscription_events')->insert(['subscription_id' => $sub, 'actor_id' => $actor, 'kind' => $kind, 'request_key' => $key, 'fingerprint' => $hash, 'data' => json_encode($data, JSON_THROW_ON_ERROR), 'created_at' => now()]);
     }
 
-    private function availablePlan(int $id, User $user): object
+    /**
+     * A current summary may reflect later actions. Acknowledge only the exact
+     * immutable event belonging to this actor and original saved intent.
+     */
+    private function operationSummary(int $id, int $actor, string $key, string $fingerprint, string $action, ?int $planId): array
+    {
+        $event = $this->prior($this->key($actor, $key), $fingerprint);
+        abort_unless($event && (int) $event->subscription_id === $id
+            && (int) $event->actor_id === $actor
+            && $event->kind === ($action === 'enroll' ? 'subscribed' : $action),
+            409, 'Subscription operation evidence requires reconciliation.');
+        $data = json_decode($event->data, true, 512, JSON_THROW_ON_ERROR);
+        abort_unless(is_array($data) && array_key_exists('plan_id', $data)
+            && ($planId === null ? $data['plan_id'] === null
+                : (is_int($data['plan_id']) || is_string($data['plan_id']))
+                    && (string) $data['plan_id'] === (string) $planId),
+            409, 'Subscription operation plan evidence requires reconciliation.');
+        $eventId = (int) $event->id;
+
+        return $this->summary($id) + ['operation_receipt' => [
+            'event_id' => $eventId, 'actor_id' => $actor, 'subscription_id' => $id,
+            'action' => $action, 'plan_id' => $planId,
+            'request_receipt' => hash('sha256', 'subscription-operation-v1:'.$actor.':'.$id.':'.$eventId.':'.$action.':'.($planId ?? 0).':'.$key),
+        ]];
+    }
+
+    private function availablePlan(int $id, User $user, bool $lock = false): object
     {
         $p = $this->plan($id);
-        abort_unless(DB::table('commercial_plan_availability')->where('plan_id', $id)->where('available', true)->exists(), 409, 'Plan is not open for enrollment.');
+        // Serialize new commitments with catalog retirement.
+        $query = DB::table('commercial_plan_availability')->where('plan_id', $id);
+        $availability = ($lock ? $query->lockForUpdate() : $query)->first();
+        abort_unless($availability && (bool) $availability->available, 409, 'Plan is not open for enrollment.');
         abort_unless($p->audience === $user->role && in_array($user->role, ['customer', 'vendor'], true), 409, 'Plan audience does not match this account.');
 
         return $p;
@@ -76,19 +139,19 @@ class SubscriptionService
     public function subscribe(User $user, int $planId, string $key): array
     {
         return DB::transaction(function () use ($user, $planId, $key) {
-            User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $user = app(CurrentFinanceReader::class)->requireSnapshot($user);
             $k = $this->key($user->id, $key);
             $hash = $this->hash('subscribe', [$planId]);
             if ($old = $this->prior($k, $hash)) {
-                return $this->summary($old->subscription_id);
+                return $this->operationSummary((int) $old->subscription_id, $user->id, $key, $hash, 'enroll', $planId);
             }
-            $p = $this->availablePlan($planId, $user);
+            $p = $this->availablePlan($planId, $user, true);
             abort_if(DB::table('commercial_subscriptions')->where('user_id', $user->id)->where('status', '!=', 'cancelled')->exists(), 409, 'An existing subscription must be cancelled before enrolling again.');
             $id = DB::table('commercial_subscriptions')->insertGetId(['user_id' => $user->id, 'plan_id' => $p->id, 'status' => 'pending', 'cycle_number' => 0, 'cancel_at_period_end' => false, 'created_at' => now(), 'updated_at' => now()]);
             $this->invoice($id, $p, CarbonImmutable::now(), 1);
             $this->event($id, $user->id, 'subscribed', ['plan_id' => $p->id], $k, $hash);
 
-            return $this->summary($id);
+            return $this->operationSummary($id, $user->id, $key, $hash, 'enroll', $planId);
         }, 3);
     }
 
@@ -116,23 +179,35 @@ class SubscriptionService
 
     private function invoice(int $sub, object $p, CarbonImmutable $start, int $cycle): int
     {
-        $tax = Money::multiplyDivide((int) $p->price_minor, (int) $p->tax_bps, 10000);
+        $price = self::exactMinor($p->price_minor);
+        $tax = Money::multiplyDivide($price, (int) $p->tax_bps, 10000);
+        $total = self::checkedAdd($price, self::exactMinor($tax));
 
-        $id = DB::table('commercial_subscription_invoices')->insertGetId(['number' => 'MOCK-SUB-'.Str::ulid(), 'subscription_id' => $sub, 'plan_id' => $p->id, 'cycle_number' => $cycle, 'period_start' => $start, 'period_end' => $this->end($start, $p->interval, $sub), 'currency' => $p->currency, 'minor_units' => $p->minor_units, 'subtotal_minor' => $p->price_minor, 'tax_minor' => $tax, 'total_minor' => $p->price_minor + $tax, 'entitlements' => json_encode($p->entitlements, JSON_THROW_ON_ERROR), 'evidence' => 'MOCK_PROVIDER', 'created_at' => now()]);
-        $this->ledger($id, 'invoice', [['subscription_receivable', $p->price_minor + $tax, 0], ['subscription_revenue', 0, (int) $p->price_minor], ['subscription_tax_payable', 0, $tax]]);
+        $id = DB::table('commercial_subscription_invoices')->insertGetId(['number' => 'MOCK-SUB-'.Str::ulid(), 'subscription_id' => $sub, 'plan_id' => $p->id, 'cycle_number' => $cycle, 'period_start' => $start, 'period_end' => $this->end($start, $p->interval, $sub), 'currency' => $p->currency, 'minor_units' => $p->minor_units, 'subtotal_minor' => $price, 'tax_minor' => $tax, 'total_minor' => $total, 'entitlements' => json_encode($p->entitlements, JSON_THROW_ON_ERROR), 'evidence' => 'MOCK_PROVIDER', 'created_at' => now()]);
+        $this->ledger($id, 'invoice', [['subscription_receivable', $total, 0], ['subscription_revenue', 0, $price], ['subscription_tax_payable', 0, $tax]]);
 
         return $id;
     }
 
     private function ledger(int $invoice, string $kind, array $entries): void
     {
-        if (array_sum(array_column($entries, 1)) !== array_sum(array_column($entries, 2))) {
+        // Validate every entry and both running totals before any financial
+        // posting. An overflow after the first insert must never leave a
+        // partially applied journal, even outside a caller transaction.
+        $debits = 0;
+        $credits = 0;
+        $normalized = [];
+        foreach ($entries as [$account, $debit, $credit]) {
+            $debit = self::exactMinor($debit);
+            $credit = self::exactMinor($credit);
+            $debits = self::checkedAdd($debits, $debit);
+            $credits = self::checkedAdd($credits, $credit);
+            $normalized[] = [$account, $debit, $credit];
+        }
+        if ($debits !== $credits) {
             throw new \LogicException('Unbalanced subscription journal rejected.');
         }
-        foreach ($entries as [$account, $debit, $credit]) {
-            if ($debit < 0 || $credit < 0) {
-                throw new \LogicException('Negative subscription journal rejected.');
-            }
+        foreach ($normalized as [$account, $debit, $credit]) {
             if ($debit || $credit) {
                 DB::table('commercial_subscription_ledger')->insert(['invoice_id' => $invoice, 'kind' => $kind, 'account' => $account, 'debit_minor' => $debit, 'credit_minor' => $credit, 'created_at' => now()]);
             }
@@ -155,12 +230,13 @@ class SubscriptionService
      * Share paid-cycle, audience and currency policy between preview and write.
      * Neither checking nor quoting may create a financial record.
      */
-    private function eligibleChangePlan(object $subscription, ?int $planId): object
+    private function eligibleChangePlan(object $subscription, ?int $planId, bool $lock = false): object
     {
-        abort_unless($subscription->status === 'active' && ! $subscription->cancel_at_period_end &&
-            CarbonImmutable::parse($subscription->period_end)->isFuture(), 409, 'Only a current paid subscription can schedule a plan change.');
+        abort_unless(! $subscription->cancel_at_period_end && SubscriptionPaidCycle::current($subscription), 409, 'Only a current paid subscription can schedule a plan change.');
         abort_unless($planId !== null, 422, 'A target plan is required.');
-        $plan = $this->availablePlan($planId, User::findOrFail($subscription->user_id));
+        $owner = User::findOrFail($subscription->user_id);
+        abort_unless($owner->account_status === 'active', 409, 'Subscription owner is not active.');
+        $plan = $this->availablePlan($planId, $owner, $lock);
         $current = $this->plan($subscription->plan_id);
         abort_unless($plan->currency === $current->currency &&
             (int) $plan->minor_units === (int) $current->minor_units, 409, 'Currency changes require a new subscription.');
@@ -215,22 +291,22 @@ class SubscriptionService
     public function change(User $actor, int $id, string $action, ?int $planId, string $key): array
     {
         return DB::transaction(function () use ($actor, $id, $action, $planId, $key) {
-            User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            $actor = app(CurrentFinanceReader::class)->requireSnapshot($actor);
             $s = $this->access($actor, $id, true);
             $k = $this->key($actor->id, $key);
             $h = $this->hash('change', [$id, $action, $planId]);
             if ($this->prior($k, $h)) {
-                return $this->summary($id);
+                return $this->operationSummary($id, $actor->id, $key, $h, $action, $planId);
             }
             abort_if($s->status === 'cancelled', 409, 'Subscription is cancelled.');
             if ($action === 'change_plan') {
-                $p = $this->eligibleChangePlan($s, $planId);
+                $p = $this->eligibleChangePlan($s, $planId, true);
                 $update = ['next_plan_id' => $p->id];
             } elseif ($action === 'cancel_at_period_end') {
-                abort_unless($s->status === 'active', 409, 'No current paid period; cancel immediately instead.');
+                abort_unless(SubscriptionPaidCycle::current($s), 409, 'No current paid period; cancel immediately instead.');
                 $update = ['cancel_at_period_end' => true, 'next_plan_id' => null];
             } elseif ($action === 'resume') {
-                abort_unless($s->status === 'active' && $s->cancel_at_period_end && CarbonImmutable::parse($s->period_end)->isFuture(), 409, 'The paid subscription cannot be resumed.');
+                abort_unless($s->cancel_at_period_end && SubscriptionPaidCycle::current($s), 409, 'The paid subscription cannot be resumed.');
                 $update = ['cancel_at_period_end' => false];
             } else {
                 abort_unless($action === 'cancel_now', 422);
@@ -240,7 +316,7 @@ class SubscriptionService
             DB::table('commercial_subscriptions')->where('id', $id)->update($update + ['updated_at' => now()]);
             $this->event($id, $actor->id, $action, ['plan_id' => $planId], $k, $h);
 
-            return $this->summary($id);
+            return $this->operationSummary($id, $actor->id, $key, $h, $action, $planId);
         }, 3);
     }
 
@@ -249,7 +325,7 @@ class SubscriptionService
         abort_if(app()->environment('production'), 503, 'Mock subscription billing is disabled in production.');
 
         return DB::transaction(function () use ($actor, $id, $invoiceId, $outcome, $key) {
-            User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            $actor = app(CurrentFinanceReader::class)->requireSnapshot($actor);
             $s = $this->access($actor, $id, true);
             HostedCheckout::guard('subscription', $invoiceId);
             $k = $this->key($actor->id, $key);
@@ -277,9 +353,10 @@ class SubscriptionService
 
     private function settleReceipt(object $subscription, object $invoice, string $reference, string $evidence): object
     {
-        $receipt = DB::table('commercial_subscription_receipts')->insertGetId(['invoice_id' => $invoice->id, 'provider_reference' => $reference, 'amount_minor' => $invoice->total_minor, 'currency' => $invoice->currency, 'evidence' => $evidence, 'created_at' => now()]);
+        $total = self::exactMinor($invoice->total_minor);
+        $receipt = DB::table('commercial_subscription_receipts')->insertGetId(['invoice_id' => $invoice->id, 'provider_reference' => $reference, 'amount_minor' => $total, 'currency' => $invoice->currency, 'evidence' => $evidence, 'created_at' => now()]);
         $account = $evidence === 'STRIPE_TEST_CONTRACT' ? 'cash:stripe_test_subscription' : 'cash:mock_subscription';
-        $this->ledger($invoice->id, 'payment', [[$account, (int) $invoice->total_minor, 0], ['subscription_receivable', 0, (int) $invoice->total_minor]]);
+        $this->ledger($invoice->id, 'payment', [[$account, $total, 0], ['subscription_receivable', 0, $total]]);
         DB::table('commercial_subscriptions')->where('id', $subscription->id)->update(['plan_id' => $invoice->plan_id, 'next_plan_id' => null, 'status' => 'active', 'cycle_number' => $invoice->cycle_number, 'period_start' => $invoice->period_start, 'period_end' => $invoice->period_end, 'updated_at' => now()]);
 
         return DB::table('commercial_subscription_receipts')->find($receipt);
@@ -297,9 +374,14 @@ class SubscriptionService
                 HostedCheckout::guard('subscription', $invoice);
                 $i = DB::table('commercial_subscription_invoices')->where('subscription_id', $subscription)->where('id', $invoice)->first();
                 abort_unless($i, 404);
-                abort_unless((int) $i->total_minor === $amount && $i->currency === $currency, 409, 'Provider settlement does not match subscription invoice.');
+                abort_unless(self::exactMinor($i->total_minor) === self::exactMinor($amount)
+                    && $i->currency === $currency, 409,
+                    'Provider settlement does not match subscription invoice.');
                 if ($old = DB::table('commercial_subscription_receipts')->where('invoice_id', $invoice)->first()) {
-                    abort_unless($old->provider_reference === $reference && (int) $old->amount_minor === $amount && $old->currency === $currency && $old->evidence === $evidence, 409, 'Subscription invoice already settled by another provider operation.');
+                    abort_unless($old->provider_reference === $reference
+                        && self::exactMinor($old->amount_minor) === $amount
+                        && $old->currency === $currency && $old->evidence === $evidence,
+                        409, 'Subscription invoice already settled by another provider operation.');
 
                     return $old;
                 }
@@ -314,11 +396,15 @@ class SubscriptionService
         }
     }
 
-    public function renew(int $id): array
+    public function renew(int $id, ?int $expectedCycle = null): array
     {
-        return DB::transaction(function () use ($id) {
+        return DB::transaction(function () use ($id, $expectedCycle) {
             $s = DB::table('commercial_subscriptions')->where('id', $id)->lockForUpdate()->first();
             abort_unless($s, 404);
+            // A delayed native confirmation must not advance a different
+            // paid cycle. Existing scheduler and web callers may omit it.
+            abort_unless($expectedCycle === null || (int) $s->cycle_number === $expectedCycle,
+                409, 'Subscription cycle changed; refresh before checking renewal.');
             if ($s->status === 'cancelled' || ! $s->period_end || CarbonImmutable::parse($s->period_end)->isFuture()) {
                 return $this->summary($id);
             }
@@ -343,25 +429,57 @@ class SubscriptionService
         $s->cancel_at_period_end = (bool) $s->cancel_at_period_end;
         $invoices = DB::table('commercial_subscription_invoices')->where('subscription_id', $id)->orderBy('cycle_number')->get()->map(function ($i) {
             $i->entitlements = json_decode($i->entitlements, true, 512, JSON_THROW_ON_ERROR);
+            $i->total_minor = self::exactMinor($i->total_minor);
+            $i->subtotal_minor = self::exactMinor($i->subtotal_minor);
+            $i->tax_minor = self::exactMinor($i->tax_minor);
+            abort_unless(self::checkedAdd($i->subtotal_minor, $i->tax_minor) === $i->total_minor,
+                409, 'Subscription invoice components no longer reconcile.');
             $receipt = DB::table('commercial_subscription_receipts')->where('invoice_id', $i->id)->first();
             $i->paid = (bool) $receipt;
-            $i->refunded_minor = (int) DB::table('subscription_credits')->where('invoice_id', $i->id)->sum('amount_minor');
-            $i->net_collected_minor = ($receipt ? (int) $receipt->amount_minor : 0) - $i->refunded_minor;
-            $i->credit_state = $i->refunded_minor === 0 ? 'none' : ($receipt && $i->refunded_minor === (int) $receipt->amount_minor ? 'fully_refunded' : 'partially_refunded');
+            $creditsForInvoice = DB::table('subscription_credits')
+                ->where('invoice_id', $i->id)->get(['amount_minor']);
+            $i->refunded_minor = self::checkedSum($creditsForInvoice, 'amount_minor');
+            $collected = $receipt ? self::exactMinor($receipt->amount_minor) : 0;
+            $i->net_collected_minor = self::checkedAdd($collected, -$i->refunded_minor, true);
+            abort_unless($i->net_collected_minor >= 0, 409,
+                'Subscription credits exceed the collected source.');
+            $i->credit_state = $i->refunded_minor === 0 ? 'none'
+                : ($receipt && $i->refunded_minor === $collected
+                    ? 'fully_refunded' : 'partially_refunded');
 
             return $i;
         });
-        $current = $invoices->first(fn ($i) => $i->paid && ((int) $i->total_minor === 0 || $i->net_collected_minor > 0) && (int) $i->cycle_number === (int) $s->cycle_number);
-        $enabled = $s->status === 'active' && $current && CarbonImmutable::parse($current->period_start)->lessThanOrEqualTo(now()) && CarbonImmutable::parse($current->period_end)->isFuture();
+        $current = $invoices->first(fn ($i) => $i->paid
+            && ($i->total_minor === 0 || $i->net_collected_minor > 0)
+            && (int) $i->cycle_number === (int) $s->cycle_number);
+        $enabled = SubscriptionPaidCycle::current($s) && $current;
 
-        $ledger = DB::table('commercial_subscription_ledger')->whereIn('invoice_id', $invoices->pluck('id'));
-        $balanced = (int) (clone $ledger)->sum('debit_minor') === (int) (clone $ledger)->sum('credit_minor');
+        // Read exact individual ledger entries; SQL SUM/Collection::sum may
+        // become a PHP float before an unsafe legacy (int) cast.
+        $entries = DB::table('commercial_subscription_ledger')
+            ->whereIn('invoice_id', $invoices->pluck('id'))
+            ->get(['debit_minor', 'credit_minor']);
+        $balanced = self::checkedSum($entries, 'debit_minor')
+            === self::checkedSum($entries, 'credit_minor');
 
-        $receipts = DB::table('commercial_subscription_receipts')->whereIn('invoice_id', $invoices->pluck('id'))->orderBy('id')->get();
+        $receipts = DB::table('commercial_subscription_receipts')
+            ->whereIn('invoice_id', $invoices->pluck('id'))->orderBy('id')->get();
         $provider = $receipts->last()?->evidence ?? 'MOCK_PROVIDER';
 
-        $credits = DB::table('subscription_credits')->where('subscription_id', $id)->orderBy('id')->get();
+        $credits = DB::table('subscription_credits')
+            ->where('subscription_id', $id)->orderBy('id')->get();
+        $totalCredited = self::checkedSum($credits, 'amount_minor');
+        $netCollected = self::checkedAdd(
+            self::checkedSum($receipts, 'amount_minor'), -$totalCredited, true);
+        abort_unless($netCollected >= 0, 409,
+            'Subscription credits exceed collected source receipts.');
 
-        return ['credits' => $credits, 'refunded_minor' => (int) $credits->sum('amount_minor'), 'net_collected_minor' => (int) $receipts->sum('amount_minor') - (int) $credits->sum('amount_minor'), 'receipts' => $receipts, 'ledger_balanced' => $balanced, 'subscription' => $s, 'plan' => $this->plan($s->plan_id), 'invoices' => $invoices, 'entitlements' => $enabled ? $current->entitlements : [], 'entitlements_active' => (bool) $enabled, 'billing_provider' => $provider, 'real_payment_processed' => false];
+        return ['credits' => $credits, 'refunded_minor' => $totalCredited,
+            'net_collected_minor' => $netCollected, 'receipts' => $receipts,
+            'ledger_balanced' => $balanced, 'subscription' => $s,
+            'plan' => $this->plan($s->plan_id), 'invoices' => $invoices,
+            'entitlements' => $enabled ? $current->entitlements : [],
+            'entitlements_active' => (bool) $enabled, 'billing_provider' => $provider,
+            'real_payment_processed' => false];
     }
 }

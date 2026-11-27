@@ -32,6 +32,22 @@ class MemoryOperations implements FinancialOperationStore {
   }
 }
 
+class PausedReceiptRead extends MemoryOperations {
+  final entered = Completer<void>();
+  final release = Completer<void>();
+  bool stopNextRead = false;
+
+  @override
+  Future<Map<String, dynamic>?> read(String scope) async {
+    if (stopNextRead) {
+      stopNextRead = false;
+      entered.complete();
+      await release.future;
+    }
+    return super.read(scope);
+  }
+}
+
 class FinancialApi extends FixtureApi {
   bool lost = false, deny = false;
   String actor = 'customer';
@@ -183,6 +199,36 @@ Future<void> confirm(WidgetTester t, String button) async {
 }
 
 void main() {
+  test('revoked session cannot delete a private durable financial receipt during storage acknowledgement',
+    () async {
+      final store = PausedReceiptRead();
+      var sameAccount = true;
+      final operation = FinancialOperation(
+        store, 'subscription-owner-A',
+        isCurrent: () => sameAccount,
+      );
+      final original = await operation.prepare({'plan_id': 7});
+      store.stopNextRead = true;
+      final acknowledgment = operation.confirmed();
+      await store.entered.future;
+      sameAccount = false;
+      store.release.complete();
+      await expectLater(acknowledgment, throwsA(
+        isA<ApiException>().having((e) => e.status, 'status', 409),
+      ));
+      final durable = await store.read('subscription-owner-A');
+      expect(durable?['key'], original['idempotency_key']);
+      expect(operation.pending?['key'], original['idempotency_key']);
+      expect(store.values.length, 1);
+
+      // A later genuine authenticated old owner can reconcile its own
+      // original receipt explicitly, without a new idempotency nonce.
+      sameAccount = true;
+      await operation.confirmed();
+      expect(store.values, isEmpty);
+    },
+  );
+
   test('private refund acknowledgement binds owner invoice and exact saved key', () {
     final body = <String, dynamic>{
       'idempotency_key': 'synthetic-original-key',
