@@ -69,8 +69,12 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    foreground = state == AppLifecycleState.resumed;
-    if (!foreground && mounted) setState(clear);
+    if (mounted) {
+      setState(() {
+        foreground = state == AppLifecycleState.resumed;
+        if (!foreground) clear();
+      });
+    }
   }
 
   @override
