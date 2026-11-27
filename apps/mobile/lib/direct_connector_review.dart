@@ -35,6 +35,7 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
   String get path =>
       'vendor-ops/companies/${widget.companyId}/chargers/${widget.chargerId}/direct-connector-reviews';
+  bool get canRenew => receipt?['current_registration_matches'] == false;
   bool current(int n) =>
       mounted && foreground && authorized() && n == generation;
   void clear() {
@@ -131,6 +132,10 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
       setState(() {
         receipt = result;
         readEmpty = result == null;
+        if (result != null && result['current_registration_matches'] == false) {
+          evse.text = '${result['source_evse_number']}';
+          number.text = '${result['source_connector_number']}';
+        }
         uncertain = false;
       });
     } catch (e) {
@@ -147,10 +152,12 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
   }
 
   Future<void> submit() async {
-    if (!foreground || !authorized() || busy || uncertain || !readEmpty ||
+    if (!foreground || !authorized() || busy || uncertain || (!readEmpty && !canRenew) ||
         !widget.canReview) return;
     final e = int.tryParse(evse.text.trim()), c = int.tryParse(number.text.trim());
-    if (e == null || c == null || !validTarget(e, c)) {
+    if (e == null || c == null || !validTarget(e, c) ||
+        (canRenew && (receipt!['source_evse_number'] != e ||
+          receipt!['source_connector_number'] != c))) {
       setState(() => error = 'target');
       return;
     }
@@ -216,25 +223,31 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
               Text('#${receipt!['id']} · ${receipt!['source_evse_number']}/${receipt!['source_connector_number']}'),
               Text('${receipt!['reviewed_at']}'),
             ],
-            if (readEmpty) ...[
-              Text(t('No connector review recorded', 'لم تُسجل مراجعة للموصل')),
+            if (readEmpty || canRenew) ...[
+              if (readEmpty) Text(t('No connector review recorded', 'لم تُسجل مراجعة للموصل')),
               if (widget.canReview && ['1.6', '2.0.1'].contains(widget.protocol)) ...[
                 TextField(
                   controller: evse,
-                  readOnly: widget.protocol == '1.6',
+                  readOnly: widget.protocol == '1.6' || canRenew,
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(labelText: t('Source EVSE number', 'رقم وحدة الشحن لدى المصدر')),
                 ),
                 TextField(
                   controller: number,
+                  readOnly: canRenew,
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(labelText: t('Source connector number', 'رقم الموصل لدى المصدر')),
                 ),
-                Text(t('The server rechecks the exact recent source target before saving.',
-                  'يعيد الخادم التحقق من هدف المصدر الحديث المحدد قبل الحفظ.')),
+                Text(canRenew
+                  ? t('A newer source event is required; the original review will be retained.',
+                    'يلزم حدث أحدث من المصدر؛ سيتم الاحتفاظ بالمراجعة الأصلية.')
+                  : t('The server rechecks the exact recent source target before saving.',
+                    'يعيد الخادم التحقق من هدف المصدر الحديث المحدد قبل الحفظ.')),
                 FilledButton(
                   onPressed: busy ? null : submit,
-                  child: Text(t('Record connector identity review', 'تسجيل مراجعة هوية الموصل')),
+                  child: Text(canRenew
+                    ? t('Re-review same connector identity', 'إعادة مراجعة هوية الموصل نفسه')
+                    : t('Record connector identity review', 'تسجيل مراجعة هوية الموصل')),
                 ),
               ],
             ],
