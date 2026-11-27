@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\CsmsPreflight;
+use App\Services\Charging\DirectSourceAuthority;
 use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\FaultReminderEscalator;
 use App\Services\Charging\SessionBridge;
@@ -91,6 +92,25 @@ Artisan::command('csms:dispatch {id}', function () {
 
     return $c->status === 'submitted' ? 0 : 1;
 })->purpose('Dispatch one simulator-only outbox command; never auto-retry uncertain outcomes');
+
+Artisan::command('csms:provision-direct-source-authority {--ticket=}', function () {
+    $ticket = $this->option('ticket');
+    if (! is_string($ticket) || ! preg_match('/^[A-Za-z0-9._:-]{1,100}$/D', $ticket)) {
+        $this->error('A valid operator ticket reference is required.');
+
+        return 1;
+    }
+    try {
+        $changed = app(DirectSourceAuthority::class)->provision($ticket);
+    } catch (Throwable) {
+        $this->error('Direct source authority not provisioned. Review configuration and immutable history.');
+
+        return 1;
+    }
+    $this->info($changed ? 'Direct source authority epoch recorded.' : 'Direct source authority unchanged.');
+
+    return 0;
+})->purpose('Operator-only local source authority provisioning; never contacts a charger');
 
 Artisan::command('csms:preflight', function () {
     // Offline read-only diagnostics. This does not connect to a charger,
