@@ -111,7 +111,11 @@ class ChargerLiveConnectorsTest extends TestCase
             'charger_id' => $f['charger']->id, 'binding_id' => $binding->id, 'profile_id' => $profile->id,
             'actor_id' => $admin->id, 'idempotency_key' => 'direct-live-test', 'payload_hash' => $payload,
             'source_generation' => $generation, 'state' => 'registered', 'source_station_id' => 42,
-            'source_receipt_hash' => hash('sha256', 'synthetic-registered-source'), 'verified_at' => now(),
+            'source_receipt_hash' => hash('sha256', json_encode([
+                'id' => 42, 'tenantId' => 1, 'ocppConnectionName' => $identity,
+                'protocol' => 'ocpp'.$protocol, 'isOnline' => false,
+                'chargePointVendor' => $f['charger']->manufacturer, 'chargePointModel' => $f['charger']->model,
+            ], JSON_THROW_ON_ERROR)), 'verified_at' => now(),
             'attempted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
 
@@ -205,6 +209,16 @@ class ChargerLiveConnectorsTest extends TestCase
             ->assertJsonPath('physical_availability_verified', false)
             ->assertJsonPath('remote_control_authorized', false)->json('id');
         $this->postJson($path, $body)->assertOk()->assertJsonPath('id', $first);
+        $this->assertDatabaseHas('direct_connector_review_receipts', [
+            'id' => $first, 'source_connector_database_id' => 7, 'source_event_id' => 11,
+        ]);
+        $this->getJson($f['url'])->assertOk()->assertJsonMissingPath('connectors.0.source_connector_database_id')
+            ->assertJsonMissingPath('connectors.0.source_event_id');
+        $this->source($f, 'replacement_source_connector');
+        $this->postJson($path, $body)->assertConflict();
+        $this->source($f, 'regressed_source_event_id');
+        $this->postJson($path, $body)->assertConflict();
+        $this->source($f);
         $this->postJson($path, array_replace($body, ['source_connector_number' => 2]))->assertConflict();
         $this->postJson($path, array_replace($body, ['connector_id' => $connectors[1]->id]))->assertConflict();
         $this->postJson($path, array_replace($body, ['source_connector_number' => 100]))->assertConflict();
@@ -251,7 +265,7 @@ class ChargerLiveConnectorsTest extends TestCase
         foreach (['1.6', '2.0.1'] as $protocol) {
             foreach (['healthy', 'disabled', 'plaintext', 'unregistered', 'wrong_station',
                 'changed_generation', 'receipt_changed_during_read', 'missing_event', 'foreign_owner',
-                'wrong_tenant', 'wrong_connection', 'connection_changed_during_read'] as $case) {
+                'wrong_tenant', 'wrong_connection', 'connection_changed_during_read', 'corrupt_receipt'] as $case) {
                 $cases[] = [$protocol, $case];
             }
         }
@@ -271,6 +285,8 @@ class ChargerLiveConnectorsTest extends TestCase
             DB::table('charger_source_registrations')->where('id', $f['receipt'])->update(['state' => 'prepared']);
         } elseif ($case === 'wrong_station') {
             DB::table('charger_source_registrations')->where('id', $f['receipt'])->update(['source_station_id' => 43]);
+        } elseif ($case === 'corrupt_receipt') {
+            DB::table('charger_source_registrations')->where('id', $f['receipt'])->update(['source_receipt_hash' => str_repeat('a', 64)]);
         } elseif ($case === 'changed_generation') {
             config(['csms.graphql_url' => 'https://replacement.test/graphql']);
         }
@@ -291,7 +307,7 @@ class ChargerLiveConnectorsTest extends TestCase
             $response->assertStatus(match ($case) {
                 'disabled', 'plaintext' => 503, 'foreign_owner' => 404, default => 409,
             });
-            if (! in_array($case, ['wrong_station', 'receipt_changed_during_read', 'wrong_tenant', 'wrong_connection', 'connection_changed_during_read'], true)) {
+            if (! in_array($case, ['receipt_changed_during_read', 'wrong_tenant', 'wrong_connection', 'connection_changed_during_read'], true)) {
                 Http::assertNothingSent();
             }
         }
@@ -477,8 +493,14 @@ class ChargerLiveConnectorsTest extends TestCase
             if ($case === 'missing_event') {
                 array_shift($events);
             }
+            if ($case === 'replacement_source_connector') {
+                $events[1]['connectorDatabaseId'] = 9;
+            }
+            if ($case === 'regressed_source_event_id') {
+                $events[1]['id'] = 10;
+            }
             return Http::response(['data' => [
-                'Connectors' => [['id' => 7], ['id' => 8]],
+                'Connectors' => [['id' => $case === 'replacement_source_connector' ? 9 : 7], ['id' => 8]],
                 'StatusNotifications' => $events,
             ]]);
         });
