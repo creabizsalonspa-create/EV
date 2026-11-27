@@ -8,6 +8,18 @@ String providerDisputeText(BuildContext context, String en, String ar) =>
 
 bool _providerId(dynamic id) => id is int && id > 0 && id <= 9007199254740991;
 
+// These tokens mirror ExternalDisputes::apply, webhook and reconcile.
+const _disputeStatuses = {
+  'warning_needs_response', 'warning_under_review', 'warning_closed',
+  'needs_response', 'under_review', 'won', 'lost',
+};
+const _providerEvents = {
+  'charge.dispute.created', 'charge.dispute.updated', 'charge.dispute.closed',
+  'charge.dispute.funds_withdrawn', 'charge.dispute.funds_reinstated',
+  'provider.inspect',
+};
+const _operationStatuses = {'sending', 'uncertain', 'confirmed'};
+
 /// Provider receipts remain distinct from internal complaints and ledger entries.
 Map<String, dynamic> providerDispute(dynamic value, {int? expectedId}) {
   if (value is! Map) throw const FormatException('Invalid provider receipt.');
@@ -20,7 +32,7 @@ Map<String, dynamic> providerDispute(dynamic value, {int? expectedId}) {
       row['settlement_hold'] is! bool ||
       row['deadline_passed'] is! bool ||
       row['requires_financial_resolution'] is! bool ||
-      row['status'] is! String ||
+      !_disputeStatuses.contains(row['status']) ||
       row.containsKey('provider_reference') ||
       row.containsKey('charge_reference')) {
     throw const FormatException('Unsupported provider dispute receipt.');
@@ -193,8 +205,8 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
         }
         receipt['history'] = events.map((event) {
           if (event is! Map ||
-              event['type'] is! String ||
-              event['status'] is! String ||
+              !_providerEvents.contains(event['type']) ||
+              !_disputeStatuses.contains(event['status']) ||
               event['created_at'] is! String) {
             throw const FormatException('Invalid provider history.');
           }
@@ -202,7 +214,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
         }).toList();
         receipt['submissions'] = operations.map((operation) {
           if (operation is! Map ||
-              operation['status'] is! String ||
+              !_operationStatuses.contains(operation['status']) ||
               !(operation['submit'] is bool ||
                   operation['submit'] == 0 ||
                   operation['submit'] == 1)) {
