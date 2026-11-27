@@ -36,10 +36,35 @@ class OcpiProtocolCredentialsController extends Controller
             && DB::table('ocpi_credential_operations')->where('provider_id', $link->provider_id)->where('generation', $link->generation)->where('state', 'dispatching')->whereIn('action', ['register', 'rotate'])->where('attempted_at', '>=', now()->subSeconds(60))->exists();
         $enrolling = $link->state === 'awaiting_registration' && $link->bootstrap_expires_at && CarbonImmutable::parse($link->bootstrap_expires_at)->isFuture() && (($r->isMethod('GET') && in_array($resource, ['versions', 'details'], true)) || ($r->isMethod('POST') && $resource === 'credentials'));
         abort_unless($link->state === 'active' || $provisional || $enrolling, 401);
+        // All module requests share this authentication boundary. A digest
+        // without matching encrypted token material cannot grant data access.
+        // An authenticated DELETE is the sole reduction-only exception: it
+        // discloses no token and clears the corrupt generation under lock.
+        if ($link->state === 'active' && ! $this->revoking($r, $resource)) {
+            abort_unless(hash_equals($raw, $this->activeToken($link)), 401);
+        }
         $p = OcpiProvider::findOrFail($link->provider_id);
         abort_unless($p->authorized && $p->owner_id === $link->owner_id && User::whereKey($p->owner_id)->where('role', 'vendor')->exists() && ($resource !== 'catalog' || User::whereKey($p->owner_id)->where('account_status', 'active')->exists()) && hash_equals($link->configuration_hash, $exchange->configurationHash($p)), 401);
 
         return [$p, $link];
+    }
+
+    private function revoking(Request $request, string $resource): bool
+    {
+        return $resource === 'credentials' && $request->isMethod('DELETE');
+    }
+
+    private function activeToken(object $link): string
+    {
+        try {
+            $token = Crypt::decryptString($link->local_token_ciphertext);
+        } catch (Throwable) {
+            abort(401);
+        }
+        abort_unless(preg_match('/^[\x21-\x7e]{1,64}$/D', $token)
+            && hash_equals($link->local_token_digest, hash('sha256', $token)), 401);
+
+        return $token;
     }
 
     private function reply(mixed $data, int $code = 1000, int $http = 200)
@@ -53,19 +78,8 @@ class OcpiProtocolCredentialsController extends Controller
     {
         try {
             [$p, $link] = $this->authenticate($r, $exchange, $resource);
-            $localToken = '';
-            if ($link->state === 'active') {
-                // The authenticated digest and encrypted local token must
-                // describe the same generation. A mismatched ciphertext must
-                // never disclose a different token to the previous peer.
-                try {
-                    $localToken = Crypt::decryptString($link->local_token_ciphertext);
-                } catch (Throwable) {
-                    abort(401);
-                }
-                abort_unless(preg_match('/^[\x21-\x7e]{1,64}$/D', $localToken)
-                    && hash_equals($link->local_token_digest, hash('sha256', $localToken)), 401);
-            }
+            $localToken = $link->state === 'active' && ! $this->revoking($r, $resource)
+                ? $this->activeToken($link) : '';
             $local = $exchange->localPayload($localToken, $p);
             if ($r->isMethod('POST') && $resource === 'credentials') {
                 if ($link->state !== 'awaiting_registration') {
