@@ -75,3 +75,30 @@ This supersedes the earlier limited standalone evidence claim; no hosted
 Laravel test result is inferred. Dual-protocol feature cases for the new
 lineage failures are authored but remain unexecuted. Full migration,
 concurrency, browser/native and real-source acceptance are outstanding.
+
+## Same-identity connector renewal checkpoint
+
+An owner can explicitly renew a stale connector review after registration
+reconciliation, but only for the original registration, connector database ID
+and OCPP target, at a strictly higher authority epoch and with a strictly
+newer source event ID and observation time. Each epoch has an immutable
+receipt; the composite foreign key references the corresponding registration
+epoch. Previous target claims are retained and cannot be assigned to another
+connector. Ordinary receipt lookup returns only the latest receipt per
+connector. Web and native renewal forms lock the original target, and an
+uncertain response requires explicit read-back.
+
+The earlier 40/40 PHP service harness was rerun in the local PHP runtime with
+both exact hashes verified. The updated web module blob
+`f0a31968b8eba42fd5ec04103e707f43d4714753` passed 36/36 assertions using a V8
+stub DOM and HTTP harness across both protocols, including target tampering,
+lost response, explicit read-back, stale form, non-owner and visibility
+fences. The amended dual-protocol Laravel rotation tests and two new Flutter
+widget cases are authored, not executed. No real browser or database tests
+are claimed.
+
+The review migration changes are candidate-only and assume that the
+unaccepted draft #448 schema has not been deployed. This continuation
+supersedes that schema; if #448 were deployed first, a separate additive
+migration and historical data reconciliation would be needed. Agent 5 must
+coordinate integration. No charging mapping, capacity or control is enabled.
