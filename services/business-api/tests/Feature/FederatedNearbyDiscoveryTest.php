@@ -148,6 +148,45 @@ final class FederatedNearbyDiscoveryTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_rotated_provider_credential_does_not_release_old_sample(): void
+    {
+        $this->actingAs($this->fixture());
+        Http::fake(['api.openchargemap.io/*' => function () {
+            config(['discovery.ocm_api_key' => 'fixture-rotated-private-key']);
+
+            return Http::response([], 200, ['Content-Type' => 'application/json']);
+        }]);
+        $this->postJson('/api/discovery/federated-nearby', $this->input())->assertOk()
+            ->assertJsonPath('published.total', 2)->assertJsonPath('licensed.state', 'unavailable')
+            ->assertJsonPath('licensed.reason', 'not_configured')->assertJsonPath('licensed.sample', null)
+            ->assertDontSee('fixture-rotated-private-key')->assertDontSee('fixture-federated-private-key');
+        Http::assertSentCount(1);
+
+        $this->postJson('/api/v1/discovery/federated-nearby', $this->input())->assertOk()
+            ->assertJsonPath('licensed.state', 'observed')->assertJsonPath('licensed.sample.count', 0);
+        Http::assertSentCount(2);
+    }
+
+    public function test_federated_and_standalone_search_share_the_same_per_ip_limit(): void
+    {
+        $this->actingAs($this->fixture());
+        Http::fake(['api.openchargemap.io/*' => Http::response([], 200, ['Content-Type' => 'application/json'])]);
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.25']);
+        foreach (range(1, 12) as $index) {
+            $path = match ($index % 4) {
+                0 => '/api/discovery/federated-nearby',
+                1 => '/api/v1/discovery/federated-nearby',
+                2 => '/api/discovery/open-charge-map/search',
+                3 => '/api/v1/discovery/open-charge-map/search',
+            };
+            $this->postJson($path, $this->input())->assertOk();
+        }
+        $this->postJson('/api/v1/discovery/federated-nearby', $this->input())->assertTooManyRequests();
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.26'])
+            ->postJson('/api/discovery/federated-nearby', $this->input())->assertOk();
+        Http::assertSentCount(1);
+    }
+
     public function test_account_change_during_provider_response_discards_both_sources(): void
     {
         $actor = $this->fixture();

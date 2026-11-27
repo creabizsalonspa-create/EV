@@ -39,6 +39,7 @@ final class FederatedNearbyDiscoveryController extends Controller
         // licensing checks, bounds, normalization and failure policy.
         // No account identity or published record travels to the provider.
         $sourceRequest = Request::create('/internal/licensed-discovery', 'POST', $geography + ['consent' => true]);
+        $sourceCredential = config('discovery.ocm_api_key');
         $source = $licensed->search($sourceRequest, $adapter, $cache, $quality);
         $this->currentActor($request);
 
@@ -48,7 +49,10 @@ final class FederatedNearbyDiscoveryController extends Controller
         $this->currentActor($request);
         $sourceStatus = $source->getStatusCode();
         $sourceBody = $source->getData(true);
-        if ($licensed->capabilities()->getData(true)['enabled'] !== true) {
+        // A rotated credential is a different licensed-cache identity.
+        // Never release a sample fetched under the retired configuration.
+        if ($licensed->capabilities()->getData(true)['enabled'] !== true
+            || config('discovery.ocm_api_key') !== $sourceCredential) {
             $sourceStatus = 503;
             $sourceBody = ['reason' => 'not_configured'];
         }
