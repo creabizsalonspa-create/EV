@@ -183,3 +183,26 @@ and PostgreSQL deployment stores; other database drivers fail closed.
 Privileged history tampering or whole-database restore is outside this
 local guard. This candidate must supersede the earlier unaccepted
 receipt schema; no deployment or charging activation is authorized.
+
+## Explicit blocked and renewable review states
+
+The private review API now differentiates `current`, `renewal_required`,
+`inventory_changed`, and `operator_review_required`. Only the same
+registration at a higher reconciled authority epoch, with unchanged local
+connector identity, may offer the renewal form. An inventory mismatch
+requires investigation and is not represented as routine authority
+rotation. Both web and native clients reject unknown or contradictory
+state values rather than offering an actionable form. Existing receipt
+history remains immutable; this is not a new repair or charging authority.
+
+Executed evidence: exact web module blob
+`62639daf7dbc6c7dc182559b64e4acedd2ada46d` passed full JavaScript syntax
+compilation. Its extracted directConnectorReview function passed 72/72
+assertions in V8 with synthetic DOM and HTTP dependencies across both
+OCPP protocols. These cover current, renewable, changed inventory,
+operator-required, missing and invented state, contradictory state flags,
+locked renewal targets, exact submission and no implicit write.
+Three native widget cases and amended Laravel assertions are authored,
+not executed. Real browser, Flutter and full Laravel validation remain
+outstanding. Older server receipts without the state field are rejected
+by these updated clients; deploy server/client changes together.
