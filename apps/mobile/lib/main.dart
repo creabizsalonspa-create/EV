@@ -235,6 +235,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   final catalogKey = GlobalKey<CatalogViewState>();
   final supportKey = GlobalKey<SupportViewState>();
   final reservationIntents = ReservationIntentKeys();
+  Object? _bookingConsent;
   bool registering = false;
   List<Map<String, dynamic>> records = [];
   static const screens = [
@@ -383,6 +384,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     _recordRequestGeneration++;
     _performGeneration++;
     reservationIntents.clear();
+    _bookingConsent = null;
     if (!mounted) return;
     Navigator.of(context).popUntil((route) => route.isFirst);
     setState(() {
@@ -583,18 +585,27 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   void chooseConnectors(Station station) {
+    final sourceApi=api, actor=account?.id, role=account?.role;
+    if(sourceApi==null)return;
+    final fence=sourceApi.sessionFence();
+    bool current()=>mounted&&identical(api,sourceApi)&&fence()&&
+      account?.id==actor&&account?.role==role;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ConnectorChoicesView(
           station: station,
-          loader: (page) async => ApiPage.fromJson(
-            await api!.request(
-              'stations/${station.id}/connectors',
-              query: {'page': '$page'},
-            ),
-            (v) => v,
-          ),
-          onReserve: reserve,
+          currentSession:current,
+          sessionEvents:sourceApi.sessionEvents,
+          loader: (page) async {
+            if(!current())throw const ApiException(409,'Session changed');
+            final raw=await sourceApi.request(
+              'stations/${station.id}/connectors',query:{'page':'$page'});
+            if(!current())throw const ApiException(409,'Session changed');
+            return ApiPage.fromJson(raw,(v)=>v);
+          },
+          onReserve:(selected)async {
+            if(current()&&role=='customer')await reserve(selected);
+          },
         ),
       ),
     );
@@ -603,8 +614,13 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   Future<void> reserve(Station station) async {
     final owner = account?.id;
     final bookingApi = api;
-    if (owner == null || bookingApi == null || account?.role != 'customer')
-      return;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (!mounted || busy || _bookingConsent != null || owner == null ||
+        bookingApi == null || account?.role != 'customer' ||
+        (lifecycle != null && lifecycle != AppLifecycleState.resumed)) return;
+    final consent = Object();
+    _bookingConsent = consent;
+    try {
     final terms = station.reservationTerms == null ? null : Map<String,dynamic>.from(station.reservationTerms!);
     if (terms != null && !supportedReservationTerms(terms)) {
       setState(() => error = 'reservationPolicyUnavailable'); return;
@@ -612,7 +628,9 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     final termsVersion = terms?['version'];
     final bookingFence = bookingApi.sessionFence();
     bool current() =>
-        mounted &&
+        mounted && identical(_bookingConsent, consent) &&
+        (WidgetsBinding.instance.lifecycleState == null ||
+         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) &&
         bookingFence() &&
         identical(api, bookingApi) &&
         account?.id == owner &&
@@ -622,19 +640,24 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
       builder: (_) => ReservationVehiclePicker(
         api: bookingApi,
         connector: station.connector,
-        onExpired: expiredSession,
+        onExpired: () { if (current()) expiredSession(); },
       ),
     );
     if (!current() || vehicle == null) return;
+    final vehicleId = vehicle['id'];
+    if (vehicleId != null && (vehicleId is! int || vehicleId <= 0)) return;
     if (vehicle['add_vehicle'] == true) {
       setState(() => tab = 3);
       return;
     }
+    // The slot picker is explicitly UTC, so its calendar bounds must be UTC too.
+    final todayUtc = reservationUtcCalendarDay(DateTime.now());
     final date = await showDatePicker(
       context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 29)),
+      currentDate: todayUtc,
+      initialDate: todayUtc.add(const Duration(days: 1)),
+      firstDate: todayUtc,
+      lastDate: todayUtc.add(const Duration(days: 29)),
     );
     if (date == null || !current()) return;
     final time = await showTimePicker(
@@ -663,7 +686,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
               : '${s.t('reserveConfirm')} · ${vehicle['name']}',
         ),
         content: SingleChildScrollView(child: Text(
-          '${station.name}${station.mappingId != null ? ' · EVSE ${station.evseNumber} · ${station.connectorNumber}' : ''}\n${slot.toIso8601String()}\n${terms == null ? s.t('reservationTerms') : reservationPolicyText(s.arabic,priceAcceptanceRequired:terms['price_acceptance_required']==true)}',
+          '${station.name}${station.mappingId != null ? ' · EVSE ${station.evseNumber} · ${station.connectorNumber}' : ''}\n${reservationTime(context, {'starts_at': slot.toIso8601String()}, 'starts_at')}\n${terms == null ? s.t('reservationTerms') : reservationPolicyText(s.arabic,priceAcceptanceRequired:terms['price_acceptance_required']==true)}',
         )),
         actions: [
           TextButton(
@@ -677,7 +700,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
         ],
       ),
     );
-    if (confirmed != true || !current()) return;
+    if (confirmed != true || !current() || busy) return;
     final startsAt = slot.toIso8601String().replaceFirst('.000Z', 'Z');
     final intentKey = reservationIntents.forBooking(
       api: bookingApi,
@@ -700,11 +723,20 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     };
     await perform(() async {
       try {
-        await bookingApi.request(
+        final receipt = await bookingApi.request(
           'reservations',
           method: 'POST',
           body: payload,
         );
+        if (!current()) return;
+        if (!reservationReceiptMatches(receipt, ownerId: owner,
+            stationId: station.id, mappingId: station.mappingId,
+            vehicleId: vehicleId, startsAtUtc: startsAt,
+            termsVersion: termsVersion, operationKey: intentKey)) {
+          throw const FormatException('Reservation receipt not confirmed');
+        }
+        // The booking is acknowledged independently of the follow-up list read.
+        reservationIntents.acknowledge(intentKey);
       } catch (_) {
         if (!current()) return;
         rethrow;
@@ -715,13 +747,15 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
         if (station.mappingId != null && Navigator.of(context).canPop())
           Navigator.of(context).pop();
       }
-      await load();
-      if (current()) reservationIntents.acknowledge(intentKey);
+      try { await load(); } catch (_) { if (current()) rethrow; }
     });
-    if (mounted && station.mappingId != null && error != null)
+    if (current() && station.mappingId != null && error != null)
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(s.t(error!))));
+    } finally {
+      if (identical(_bookingConsent, consent)) _bookingConsent = null;
+    }
   }
 
   Future<void> recovery() async {
@@ -1969,6 +2003,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) {
+      _bookingConsent = null; // Old confirmation never survives background/resume.
       secondFactorCode.clear();
       password.clear();
     } else {

@@ -22,3 +22,9 @@ class ReservationPolicyPanel extends StatelessWidget {
     children:[Padding(padding:const EdgeInsets.all(12),child:Text(reservationPolicyText(Localizations.localeOf(context).languageCode=='ar',priceAcceptanceRequired:terms['price_acceptance_required']==true)))],
   ):const SizedBox.shrink();
 }
+
+/// UTC calendar day for the explicit UTC reservation picker, never device-local.
+DateTime reservationUtcCalendarDay(DateTime instant) {
+  final utc = instant.toUtc();
+  return DateTime.utc(utc.year, utc.month, utc.day);
+}
