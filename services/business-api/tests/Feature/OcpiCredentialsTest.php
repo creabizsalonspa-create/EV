@@ -383,7 +383,8 @@ class OcpiCredentialsTest extends TestCase
         $this->assertSame('active', DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first()->state);
         $this->deleteJson($credentialUrl, [], $this->protocol($token))
             ->assertOk()->assertJsonPath('data', null)->assertDontSee('DIFFERENT-PRIVATE-SYNTHETIC');
-        $after = $link->first();
+        $after = DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first();
+        $this->assertNotNull($after);
         $this->assertSame('revoked', $after->state);
         $this->assertSame((int) $before->generation + 1, (int) $after->generation);
         $this->assertNull($after->local_token_ciphertext);
