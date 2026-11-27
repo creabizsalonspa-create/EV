@@ -199,6 +199,10 @@ class OperationalAnalytics
             $row += app(ObservedSiteDemand::class)->project($demand[$row['site_id']] ?? []);
             $row['status_unknown_seconds'] = $row['possible_connector_seconds'] - $row['status_known_seconds'];
             $row['reported_non_fault_unavailable_seconds'] = $unavailableBySite[$row['site_id']] ?? 0;
+            // These are disjoint source-status buckets, not physical uptime.
+            $row['reported_downtime_seconds'] = $row['reported_fault_seconds'] + $row['reported_non_fault_unavailable_seconds'];
+            abort_unless($row['reported_downtime_seconds'] <= $row['status_known_seconds'], 409, 'Inconsistent source coverage.');
+            $row['other_known_status_seconds'] = $row['status_known_seconds'] - $row['reported_downtime_seconds'];
         }unset($row);
         // Canonical invoice facts stay separate by currency, precision and provenance.
         $money = [];
