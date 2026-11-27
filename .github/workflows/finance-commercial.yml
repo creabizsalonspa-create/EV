@@ -29,6 +29,8 @@ on:
       - "tests/financial-analytics.cjs"
       - "tests/commercial-campaigns.cjs"
       - "scripts/campaign-test-setup"
+      - "services/business-api/composer.json"
+      - "services/business-api/composer.lock"
       - ".github/workflows/finance-commercial.yml"
   pull_request:
     paths:
@@ -58,6 +60,8 @@ on:
       - "tests/financial-analytics.cjs"
       - "tests/commercial-campaigns.cjs"
       - "scripts/campaign-test-setup"
+      - "services/business-api/composer.json"
+      - "services/business-api/composer.lock"
       - ".github/workflows/finance-commercial.yml"
 permissions:
   contents: read
