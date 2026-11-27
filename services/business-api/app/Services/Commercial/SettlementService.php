@@ -185,6 +185,9 @@ class SettlementService
             }
             abort_unless($action === 'reject' ? in_array($s->state, ['pending', 'approved'], true) : $s->state === ($action === 'simulate-payout' ? 'approved' : 'pending'), 409, 'Invalid settlement transition.');
             if ($action !== 'reject') {
+                $lines = DB::table('commercial_settlement_lines')->where('settlement_id', $id)->get();
+                abort_unless($lines->isNotEmpty() && $this->reconciles($s, $lines)
+                    && $s->amount_minor > 0, 409, 'Settlement lines do not reconcile.');
                 // Lock invoices in the same order as draft; payment/refund writers
                 // serialize on these exact invoice rows. Every held claim must remain covered.
                 $schedule = DB::table('commercial_settlement_schedules')->where('vendor_id', $s->vendor_id)->where('currency', $s->currency)->first();
