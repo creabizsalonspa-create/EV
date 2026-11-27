@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
-use App\Services\Charging\DirectConnectorReviewCoverage;
+use App\Services\Charging\DirectConnectorIdentity;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SourceStatusTime;
 use Carbon\CarbonImmutable;
@@ -57,7 +57,7 @@ final class DirectConnectorReviewController extends Controller
                 ->lockForUpdate()->get()->keyBy('id');
             abort_unless($owned->count() === $page->count(), 409, 'Reviewed connector inventory changed.');
             $page->through(fn ($row) => $this->present($row, $fingerprint,
-                DirectConnectorReviewCoverage::connectorFingerprint($owned->get($row->connector_id))));
+                DirectConnectorIdentity::fingerprint($owned->get($row->connector_id))));
 
             return response()->json($page)->header('Cache-Control', 'private, no-store');
         }, 3);
@@ -72,10 +72,13 @@ final class DirectConnectorReviewController extends Controller
         $connectorId = (int) $v['connector_id'];
         $evse = (int) $v['source_evse_number'];
         $number = (int) $v['source_connector_number'];
-        $binding = $live->registeredScope($r, $company, $charger);
-        abort_unless($binding->protocol === '1.6' ? $evse === 0 : $evse > 0, 422);
-        $connector = VendorConnector::whereKey($connectorId)->where('charger_id', $charger->id)->firstOrFail();
-        $connectorFingerprint = DirectConnectorReviewCoverage::connectorFingerprint($connector);
+        [$binding, $connectorFingerprint] = DB::transaction(function () use ($r, $company, $charger, $live, $evse, $connectorId) {
+            $binding = $live->registeredScope($r, $company, $charger);
+            abort_unless($binding->protocol === '1.6' ? $evse === 0 : $evse > 0, 422);
+            $connector = VendorConnector::whereKey($connectorId)->where('charger_id', $charger->id)->lockForUpdate()->firstOrFail();
+
+            return [$binding, DirectConnectorIdentity::fingerprint($connector)];
+        }, 3);
         $fingerprint = $this->fingerprint($binding);
         $authority = [config('csms.graphql_url'), config('csms.graphql_secret')];
 
@@ -102,7 +105,7 @@ final class DirectConnectorReviewController extends Controller
                     && hash_equals($fingerprint, $this->fingerprint($fresh))
                     && $observed->gte(now()->subMinutes(5)), 409, 'Source review authority changed.');
                 $connector = VendorConnector::whereKey($connectorId)->where('charger_id', $charger->id)->lockForUpdate()->firstOrFail();
-                abort_unless(hash_equals($connectorFingerprint, DirectConnectorReviewCoverage::connectorFingerprint($connector)),
+                abort_unless(hash_equals($connectorFingerprint, DirectConnectorIdentity::fingerprint($connector)),
                     409, 'Local connector changed during source review.');
                 $epoch = $fresh->registration_receipt[7][0];
                 $old = DB::table('direct_connector_review_receipts')->where('connector_id', $connectorId)
