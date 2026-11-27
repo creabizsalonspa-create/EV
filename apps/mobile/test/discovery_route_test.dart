@@ -101,7 +101,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('1. Replacement stop'),findsOneWidget);
     expect(find.text('2. Replacement stop'),findsNothing);
-    final remove=tester.widget<IconButton>(find.byTooltip('Remove stop')).onPressed!;
+    final remove=tester.widget<IconButton>(find.byWidgetPredicate((widget) =>
+        widget is IconButton && widget.tooltip == 'Remove stop')).onPressed!;
     remove();
     remove();
     await tester.pumpAndSettle();
