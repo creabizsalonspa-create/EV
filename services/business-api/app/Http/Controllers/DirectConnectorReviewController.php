@@ -32,12 +32,18 @@ final class DirectConnectorReviewController extends Controller
 
     public function index(Request $r, VendorCompany $company, VendorCharger $charger, ChargerLiveConnectorsController $live)
     {
-        $r->validate(['page' => 'sometimes|integer|min:1|max:1000000']);
+        $filters = $r->validate(['page' => 'sometimes|integer|min:1|max:1000000',
+            'connector_id' => 'sometimes|integer|min:1|max:9007199254740991']);
 
-        return DB::transaction(function () use ($r, $company, $charger, $live) {
+        return DB::transaction(function () use ($r, $company, $charger, $live, $filters) {
             $binding = $live->registeredScope($r, $company, $charger);
             $fingerprint = $this->fingerprint($binding);
+            if (isset($filters['connector_id'])) {
+                abort_unless(VendorConnector::whereKey($filters['connector_id'])->where('charger_id', $charger->id)
+                    ->lockForUpdate()->first(), 404);
+            }
             $page = DB::table('direct_connector_review_receipts')->where('charger_id', $charger->id)
+                ->when(isset($filters['connector_id']), fn ($q) => $q->where('connector_id', $filters['connector_id']))
                 ->orderBy('id')->paginate(25)->through(fn ($row) => $this->present($row, $fingerprint));
 
             return response()->json($page)->header('Cache-Control', 'private, no-store');
