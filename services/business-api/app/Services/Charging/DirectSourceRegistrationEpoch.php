@@ -61,14 +61,10 @@ final class DirectSourceRegistrationEpoch
             $expectedPayload = hash('sha256', json_encode([$company->id, $company->owner_id,
                 $charger->id, $station->id, $binding->identifier, $charger->ocpp_protocol,
                 $charger->manufacturer, $charger->model, $row->source_generation], JSON_THROW_ON_ERROR));
-            $expectedReceipt = hash('sha256', json_encode([
-                'id' => $row->source_station_id, 'tenantId' => 1,
-                'ocppConnectionName' => $binding->identifier, 'protocol' => 'ocpp'.$binding->protocol,
-                'isOnline' => false, 'chargePointVendor' => $charger->manufacturer,
-                'chargePointModel' => $charger->model,
-            ], JSON_THROW_ON_ERROR));
             abort_unless(is_string($row->payload_hash) && hash_equals($expectedPayload, $row->payload_hash)
-                && hash_equals($expectedReceipt, $receiptHash), 409, 'Original registration payload or receipt changed.');
+                && DirectRegistrationReceipt::matches($receiptHash, $row->source_station_id, $binding->identifier,
+                    $binding->protocol, $charger->manufacturer, $charger->model), 409,
+                'Original registration payload or receipt changed.');
             $authority = app(DirectSourceAuthority::class)->requireCurrent();
             abort_unless(hash_equals($row->source_generation, hash('sha256', 'citrineos-v2.1.0-tenant-1|'.config('csms.graphql_url'))),
                 409, 'Registration source origin has changed.');
