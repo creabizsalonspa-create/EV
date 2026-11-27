@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Http\Controllers\ChargerLiveConnectorsController;
 use App\Http\Controllers\ChargerResetController;
+use App\Models\Charging\AdmissionProfile;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
 use App\Models\Station;
@@ -87,6 +88,87 @@ class ChargerLiveConnectorsTest extends TestCase
         ];
     }
 
+    private function registeredFixture(string $protocol): array
+    {
+        $f = $this->fixture($protocol);
+        $f['station']->update(['source' => 'direct_unverified']);
+        $f['charger']->update(['source' => 'direct_unverified']);
+        config(['csms.registered_live_monitoring_enabled' => true, 'csms.session_bridge_enabled' => false]);
+        DB::table('charging_connector_mappings')->where('station_id', $f['station']->id)->delete();
+        Evse::where('charger_id', $f['charger']->id)->delete();
+        $binding = DB::table('csms_bindings')->where('vendor_charger_id', $f['charger']->id)->first();
+        $identity = 'DIRECT-'.$f['charger']->id;
+        DB::table('csms_bindings')->where('id', $binding->id)->update(['identifier' => $identity]);
+        $profile = AdmissionProfile::create(['charger_id' => $f['charger']->id, 'identity' => $identity, 'protocol' => $protocol]);
+        $generation = hash('sha256', 'citrineos-v2.1.0-tenant-1|'.config('csms.graphql_url'));
+        $payload = hash('sha256', json_encode([$f['company']->id, $f['owner']->id,
+            $f['charger']->id, $f['station']->id, $identity, $protocol,
+            $f['charger']->manufacturer, $f['charger']->model, $generation], JSON_THROW_ON_ERROR));
+        $admin = User::factory()->create(['role' => 'admin']);
+        $f['receipt'] = DB::table('charger_source_registrations')->insertGetId([
+            'charger_id' => $f['charger']->id, 'binding_id' => $binding->id, 'profile_id' => $profile->id,
+            'actor_id' => $admin->id, 'idempotency_key' => 'direct-live-test', 'payload_hash' => $payload,
+            'source_generation' => $generation, 'state' => 'registered', 'source_station_id' => 42,
+            'source_receipt_hash' => hash('sha256', 'synthetic-registered-source'), 'verified_at' => now(),
+            'attempted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        return $f;
+    }
+
+    public static function directSourceCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['healthy', 'disabled', 'plaintext', 'unregistered', 'wrong_station',
+                'changed_generation', 'receipt_changed_during_read', 'missing_event', 'foreign_owner'] as $case) {
+                $cases[] = [$protocol, $case];
+            }
+        }
+        return $cases;
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('directSourceCases')]
+    public function test_registered_direct_source_inspection_is_scoped_tls_read_only_and_never_a_mapping(string $protocol, string $case): void
+    {
+        $f = $this->registeredFixture($protocol);
+        if ($case === 'disabled') {
+            config(['csms.registered_live_monitoring_enabled' => false]);
+        } elseif ($case === 'plaintext') {
+            config(['csms.graphql_url' => 'http://127.0.0.1:8095/v1/graphql']);
+        } elseif ($case === 'unregistered') {
+            DB::table('charger_source_registrations')->where('id', $f['receipt'])->update(['state' => 'prepared']);
+        } elseif ($case === 'wrong_station') {
+            DB::table('charger_source_registrations')->where('id', $f['receipt'])->update(['source_station_id' => 43]);
+        } elseif ($case === 'changed_generation') {
+            config(['csms.graphql_url' => 'https://replacement.test/graphql']);
+        }
+        $this->source($f, $case);
+        $actor = $case === 'foreign_owner' ? User::factory()->create(['role' => 'vendor']) : $f['owner'];
+        $response = $this->actingAs($actor)->getJson($f['url']);
+        if ($case === 'healthy' || $case === 'missing_event') {
+            $response->assertOk()->assertJsonPath('evidence', 'REGISTERED_DIRECT_SOURCE')
+                ->assertJsonPath('source_topology_complete', $case === 'healthy')
+                ->assertJsonPath('source_topology_matches_local', false)->assertJsonPath('local_mapping_verified', false)
+                ->assertJsonPath('connectors.0.mapping_id', null)->assertJsonPath('connectors.0.operator_maintenance_blocked', null)
+                ->assertJsonPath('connectors.0.state', $case === 'healthy' ? 'recent' : 'unknown')
+                ->assertJsonPath('connectors.0.reported_status', $case === 'healthy' ? 'Available' : null)
+                ->assertJsonPath('physical_availability_verified', false)
+                ->assertJsonPath('remote_control_authorized', false)->assertJsonPath('commands_sent', false);
+            Http::assertSentCount(3);
+        } else {
+            $response->assertStatus(match ($case) {
+                'disabled', 'plaintext' => 503, 'foreign_owner' => 404, default => 409,
+            });
+            if (! in_array($case, ['wrong_station', 'receipt_changed_during_read'], true)) {
+                Http::assertNothingSent();
+            }
+        }
+        Http::assertNotSent(fn ($request) => str_contains($request['query'], 'mutation'));
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     private function source(array $fixture, string $case = 'healthy', string $endpoint = 'https://source.test/graphql'): void
     {
         Http::swap(new Factory);
@@ -125,6 +207,10 @@ class ChargerLiveConnectorsTest extends TestCase
                 }
 
                 return Http::response(['data' => ['ChargingStations' => [$row]]]);
+            }
+            if ($case === 'receipt_changed_during_read') {
+                DB::table('charger_source_registrations')->where('id', $fixture['receipt'])
+                    ->update(['source_receipt_hash' => hash('sha256', 'changed-receipt')]);
             }
             if ($case === 'source_secret_changed') {
                 config(['csms.graphql_secret' => str_repeat('r', 64)]);
@@ -252,6 +338,9 @@ class ChargerLiveConnectorsTest extends TestCase
                 return Http::response(['data' => ['Connectors' => [], 'StatusNotifications' => null]]);
             }
 
+            if ($case === 'missing_event') {
+                array_shift($events);
+            }
             return Http::response(['data' => [
                 'Connectors' => [['id' => 7], ['id' => 8]],
                 'StatusNotifications' => $events,
