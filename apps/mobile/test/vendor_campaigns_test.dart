@@ -62,6 +62,8 @@ class CampaignApi extends FixtureApi {
   Stream<int> get sessionEvents => changes.stream;
   void rotate() { epoch++; changes.add(epoch); }
   Map<String, dynamic> row = campaign();
+  List<dynamic> deliveryRows = [];
+  bool wrongPage = false;
   Completer<dynamic>? pendingList;
   final requests = <Map<String, dynamic>>[];
   @override
@@ -93,10 +95,12 @@ class CampaignApi extends FixtureApi {
       return pendingList?.future ??
           {
             ...paged([row]),
+            if (wrongPage) 'current_page':2,
             'adapter_enabled': true,
           };
     if (path == 'commercial/campaigns/7')
-      return {'campaign': row, 'events': [], 'currently_eligible': false};
+      return {'campaign': row, 'events': [], 'currently_eligible': false,
+        'deliveries':paged(deliveryRows)};
     if (path == 'commercial/campaign-packages')
       return paged([
         {
@@ -130,6 +134,79 @@ class CampaignApi extends FixtureApi {
 }
 
 void main() {
+  test('publisher receipt projection rejects foreign or invented source and excludes private publisher keys', () {
+    final row=<String,dynamic>{'id':12,'campaign_id':7,'kind':'delivery',
+      'parent_delivery_id':null,'occurred_at':'2026-11-15 10:00:00',
+      'created_at':'2026-11-15 10:00:01','event_id':'PRIVATE-KEY','fingerprint':'PRIVATE-HASH'};
+    final safe=campaignDelivery(row,7);
+    expect(safe.keys.toSet(),{'id','kind','occurred_at','created_at'});
+    expect(safe['occurred_at'],DateTime.utc(2026,11,15,10));
+    for(final invalid in [
+      {...row,'campaign_id':8},{...row,'kind':'impression'},
+      {...row,'kind':'click','parent_delivery_id':null},
+      {...row,'kind':'click','parent_delivery_id':12},
+      {...row,'occurred_at':'2026-02-30 10:00:00'},
+    ]) {
+      expect(()=>campaignDelivery(invalid,7),throwsFormatException);
+    }
+    expect(campaignDelivery({...row,'kind':'click','parent_delivery_id':11},7)['kind'],'click');
+  });
+  test('campaign pages reject duplicates, wrong page and impossible total', () {
+    final raw={'data':[campaign()],'current_page':1,'last_page':1,'total':1};
+    final parsed=campaignPage(raw,1,'id',(row)=>row);
+    expect(parsed.items.length,1);
+    for(final invalid in [
+      {...raw,'current_page':2},{...raw,'total':26},
+      {...raw,'data':[campaign(),campaign()],'total':2},
+      {...raw,'last_page':0},
+    ]) {
+      expect(()=>campaignPage(invalid,1,'id',(row)=>row),throwsFormatException);
+    }
+  });
+  testWidgets('vendor review shows only approved publisher receipt data and rejects a foreign campaign receipt',(tester) async {
+    final api=CampaignApi()..deliveryRows=[
+      {'id':12,'campaign_id':7,'kind':'delivery','parent_delivery_id':null,
+        'occurred_at':'2026-11-15 10:00:00','created_at':'2026-11-15 10:00:01',
+        'event_id':'PRIVATE-PUBLISHER-KEY','fingerprint':'PRIVATE-PUBLISHER-HASH'},
+    ];
+    await tester.pumpWidget(MaterialApp(home:VendorCampaignsView(
+      api:api,onExpired:(){},operationStore:CampaignStore(),
+    )));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Review'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.byKey(const ValueKey('campaign-delivery-12')),120,
+      scrollable:find.byType(Scrollable).first);
+    expect(find.text('Recorded delivery unit'),findsOneWidget);
+    expect(find.textContaining('PRIVATE-PUBLISHER'),findsNothing);
+    expect(api.requests.where((r)=>r['method']=='POST'),isEmpty);
+    api.deliveryRows=[{...api.deliveryRows.single as Map,'campaign_id':8}];
+    await tester.scrollUntilVisible(find.text('Refresh history'),-120,
+      scrollable:find.byType(Scrollable).first);
+    await tester.tap(find.text('Refresh history'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Review'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('campaign-delivery-12')),findsNothing);
+    expect(find.textContaining('Request not confirmed'),findsOneWidget);
+    expect(api.requests.where((r)=>r['method']=='POST'),isEmpty);
+  });
+
+  testWidgets('vendor campaign rejects wrong page then restores verified history on explicit refresh',(tester) async {
+    final api=CampaignApi()..wrongPage=true;
+    await tester.pumpWidget(MaterialApp(home:VendorCampaignsView(
+      api:api,onExpired:(){},operationStore:CampaignStore(),
+    )));
+    await tester.pumpAndSettle();
+    expect(find.text('Private vendor creative'),findsNothing);
+    expect(find.textContaining('Request not confirmed'),findsOneWidget);
+    api.wrongPage=false;
+    await tester.tap(find.text('Refresh history'));
+    await tester.pumpAndSettle();
+    expect(find.text('Private vendor creative'),findsOneWidget);
+    expect(api.requests.where((r)=>r['method']=='POST'),isEmpty);
+  });
+
   test(
     'strict campaign receipts and saved intent preserve ownership, units and UTC',
     () {
@@ -243,7 +320,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,isTrue);
     expect(tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton,'Pause')).onPressed,isNotNull);
+    final retained = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton,'Pause')).onPressed!;
     await tester.tap(find.text('Pause'));
+    await tester.pumpAndSettle();
+    retained();
+    retained();
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog),findsOneWidget);
     expect(api.requests.where((r) => r['method'] == 'POST'), isEmpty);

@@ -230,7 +230,7 @@ class RoamingDispatch
             abort_unless($current->state === 'source_active' && $current->source_session_record_id !== null, 409, 'Observe this customer-bound active partner session before requesting stop.');
             abort_if($service->stopPending($current->id), 409, 'A stop command already requires reconciliation.');
             $session = OcpiRecord::findOrFail($current->source_session_record_id);
-            abort_unless(($session->normalized['status'] ?? null) === 'ACTIVE' && $service->ownsSourceSession($current, $session), 409, 'Refresh changed partner session ownership before stop.');
+            abort_unless(app(StoredSourceIntegrity::class)->consistent($session) && ($session->normalized['status'] ?? null) === 'ACTIVE' && $service->ownsSourceSession($current, $session), 409, 'Refresh changed partner session ownership before stop.');
             $key = (string) Str::uuid();
             $command = $this->command($current, 'STOP_SESSION', $requestKey, ['response_url' => $this->callback($local, $key), 'session_id' => $session->external_id], $key);
 
@@ -249,7 +249,7 @@ class RoamingDispatch
                 $row = DB::table('ocpi_roaming_orders')->where('id', $order->id)->lockForUpdate()->firstOrFail();
                 abort_unless($row->user_id === $actor->id && $row->state === 'source_active' && $row->source_session_record_id !== null, 409);
                 $session = OcpiRecord::findOrFail($row->source_session_record_id);
-                abort_unless(($session->normalized['status'] ?? null) === 'ACTIVE' && $session->external_id === $payload['session_id'] && $service->ownsSourceSession($row, $session), 409);
+                abort_unless(app(StoredSourceIntegrity::class)->consistent($session) && ($session->normalized['status'] ?? null) === 'ACTIVE' && $session->external_id === $payload['session_id'] && $service->ownsSourceSession($row, $session), 409);
                 [$provider, , $local] = $service->current($row);
                 abort_unless(($payload['response_url'] ?? null) === $this->callback($local, $command->callback_key), 409);
                 $this->preparedClaim($row, $command, 'STOP_SESSION', true);

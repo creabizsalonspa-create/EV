@@ -2,6 +2,31 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/reservation_intent.dart';
 
 void main() {
+  test('booking receipt binds exact owner, station, connector, vehicle, UTC and policy', () {
+    final valid = <String,dynamic>{
+      'id':41,'user_id':11,'station_id':20,'connector_mapping_id':30,
+      'vehicle_id':40,'starts_at':'2026-11-12 12:00:00',
+      'idempotency_key':'booking-key','status':'confirmed',
+      'reservation_terms_snapshot':{'version':2},
+    };
+    bool matches(dynamic row) => reservationReceiptMatches(row,
+      ownerId:11,stationId:20,mappingId:30,vehicleId:40,
+      startsAtUtc:'2026-11-12T12:00:00Z',termsVersion:2,
+      operationKey:'booking-key');
+    expect(matches(valid),isTrue);
+    expect(matches({...valid,'status':'cancelled'}),isTrue);
+    expect(matches({...valid,'starts_at':'2026-11-12T12:00:00Z'}),isTrue);
+    for (final row in [null,{'id':41},{...valid,'user_id':12},
+      {...valid,'station_id':21},{...valid,'connector_mapping_id':31},
+      {...valid,'vehicle_id':null},{...valid,'vehicle_id':40.0},
+      {...valid,'starts_at':'2026-11-12 12:30:00'},
+      {...valid,'idempotency_key':'different'},
+      {...valid,'reservation_terms_snapshot':{'version':3}},
+      {...valid,'status':null}]){
+      expect(matches(row),isFalse,reason:'Wrong receipt: $row');
+    }
+  });
+
   test('uncertain response retries the exact same booking key', () {
     final keys = ReservationIntentKeys();
     final api = Object();

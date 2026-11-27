@@ -88,7 +88,10 @@ const vendorOpsEn = {
   'inventory.read': 'Read inventory',
   'inventory.write': 'Manage inventory',
   'inviteNotice':
-      'Invitation recorded if the account is eligible. No email delivery is implied. Changing active scopes requires revocation and a new accepted invitation.',
+      'Invitation recorded if the account is eligible. No email delivery is implied. Changing active scopes removes the existing grant until the new invitation is accepted.',
+  'editPermissions': 'Edit staff permissions',
+  'editPermissionsConsent': 'Changing permissions removes the current grant until the member accepts the new version. Review the complete replacement set.',
+  'privateHidden': 'Private records are hidden. Return to the current authorized workspace.',
   'selectPermission': 'Choose at least one permission',
   'accept': 'Accept invitation',
   'acceptConsent':
@@ -196,7 +199,10 @@ const vendorOpsAr = {
   'inventory.read': 'قراءة المخزون',
   'inventory.write': 'إدارة المخزون',
   'inviteNotice':
-      'تُسجل الدعوة إذا كان الحساب مؤهلاً. لا يعني ذلك إرسال بريد. يتطلب تغيير صلاحيات العضوية النشطة إبطالها ودعوة جديدة مقبولة.',
+      'تُسجل الدعوة إذا كان الحساب مؤهلاً. لا يعني ذلك إرسال بريد. يؤدي تغيير الصلاحيات النشطة إلى إلغاء المنح الحالي حتى قبول الدعوة الجديدة.',
+  'editPermissions': 'تعديل صلاحيات الموظف',
+  'editPermissionsConsent': 'يؤدي تغيير الصلاحيات إلى إزالة المنح الحالي حتى يقبل العضو الإصدار الجديد. راجع مجموعة الصلاحيات البديلة كاملة.',
+  'privateHidden': 'السجلات الخاصة مخفية. عد إلى مساحة العمل المصرح بها حالياً.',
   'selectPermission': 'اختر صلاحية واحدة على الأقل',
   'accept': 'قبول الدعوة',
   'acceptConsent': 'قبول عضوية الشركة والصلاحيات المعروضة؟',

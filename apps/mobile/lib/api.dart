@@ -497,6 +497,35 @@ class EvApi {
         as PrivateDocument;
   }
 
+  /// Same authenticated issuance-date scope as the accepted revenue report.
+  Future<PrivateDocument> downloadVendorRevenueCohort(
+    int vendorId, {
+    required String currency,
+    required String from,
+    required String to,
+  }) async {
+    DateTime? date(String value) {
+      if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) return null;
+      final result = DateTime.tryParse('${value}T00:00:00Z');
+      return result != null &&
+          result.toIso8601String().substring(0, 10) == value ? result : null;
+    }
+    final first = date(from), last = date(to);
+    if (vendorId < 1 || vendorId > 9007199254740991 ||
+        !RegExp(r'^[A-Z]{3}$').hasMatch(currency) ||
+        first == null || last == null || last.isBefore(first) ||
+        last.difference(first).inDays > 92) {
+      throw ArgumentError('Invalid private revenue cohort export.');
+    }
+    return await _request(
+      'commercial/vendors/$vendorId/revenue-cohorts/export',
+      query: {'currency': currency, 'from': from, 'to': to},
+      binary: true,
+      binaryTypes: const ['text/csv'],
+      binaryLimit: 65536,
+    ) as PrivateDocument;
+  }
+
   /// Same authenticated, bounded scope as the displayed internal audit.
   Future<PrivateDocument> downloadInvoiceAuditPage(Map<String, String> query) async {
     final page = int.tryParse(query['page'] ?? '');
