@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 
@@ -27,6 +28,8 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
     with WidgetsBindingObserver {
   final evse = TextEditingController(), number = TextEditingController();
   late bool Function() authorized;
+  StreamSubscription<int>? sessionSubscription;
+  bool retired = false;
   int generation = 0;
   bool foreground = true, busy = false, readEmpty = false, uncertain = false;
   Map<String, dynamic>? receipt;
@@ -37,9 +40,9 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
       'vendor-ops/companies/${widget.companyId}/chargers/${widget.chargerId}/direct-connector-reviews';
   bool get canRenew => receipt?['review_state'] == 'renewal_required';
   bool current(int n) =>
-      mounted && foreground && authorized() && n == generation;
-  void clear() {
-    generation++;
+      mounted && !retired && foreground && authorized() && n == generation;
+  void clear({bool invalidate = true}) {
+    if (invalidate) generation++;
     busy = false;
     readEmpty = false;
     uncertain = false;
@@ -54,6 +57,18 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
     super.initState();
     authorized = widget.api.sessionFence();
     WidgetsBinding.instance.addObserver(this);
+    final source = widget.api;
+    sessionSubscription = source.sessionEvents.listen((_) {
+      if (mounted && identical(source, widget.api) && !authorized()) {
+        // A real 401 may synchronously retire this fence before throwing.
+        // Redact immediately but keep that request's generation so its
+        // endsCurrentSession callback can still notify the parent.
+        setState(() {
+          retired = true;
+          clear(invalidate: false);
+        });
+      }
+    });
     clear();
   }
 
@@ -63,7 +78,8 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
     if (old.api != widget.api || old.companyId != widget.companyId ||
         old.chargerId != widget.chargerId || old.connectorId != widget.connectorId ||
         old.protocol != widget.protocol || old.canReview != widget.canReview) {
-      authorized = widget.api.sessionFence();
+      // Never bind an already-open private route to a replacement account or scope.
+      retired = true;
       clear();
     }
   }
@@ -81,6 +97,7 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
   @override
   void dispose() {
     generation++;
+    sessionSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     evse.dispose();
     number.dispose();
@@ -112,7 +129,7 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
   }
 
   Future<void> read() async {
-    if (!foreground || !authorized() || busy) return;
+    if (retired || !foreground || !authorized() || busy) return;
     final n = ++generation;
     setState(() {
       busy = true;
@@ -154,7 +171,7 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
   }
 
   Future<void> submit() async {
-    if (!foreground || !authorized() || busy || uncertain || (!readEmpty && !canRenew) ||
+    if (retired || !foreground || !authorized() || busy || uncertain || (!readEmpty && !canRenew) ||
         !widget.canReview) return;
     final e = int.tryParse(evse.text.trim()), c = int.tryParse(number.text.trim());
     if (e == null || c == null || !validTarget(e, c) ||
@@ -197,7 +214,7 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
 
   @override
   Widget build(BuildContext context) {
-    final visible = foreground && authorized();
+    final visible = !retired && foreground && authorized();
     return Scaffold(
       appBar: AppBar(title: Text(t('Direct connector identity review', 'مراجعة هوية الموصل المباشر'))),
       body: ListView(
