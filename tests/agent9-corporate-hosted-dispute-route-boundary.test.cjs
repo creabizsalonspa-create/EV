@@ -10,14 +10,14 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '../services/business-api/routes');
 const targets = new Map([
-  ['corporate_billing.php', 10],
+  ['corporate_billing.php', 12],
   ['hosted_checkout.php', 4],
   ['corporate_hosted_checkout.php', 4],
   ['external_disputes.php', 5],
 ]);
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 
-test('all 23 typed route constraints use bounded integer patterns', () => {
+test('all 25 typed route constraints use bounded integer patterns', () => {
   let total = 0;
   for (const [file, count] of targets) {
     const src = read(file);
@@ -26,7 +26,16 @@ test('all 23 typed route constraints use bounded integer patterns', () => {
     assert.equal(constraints.length, count, file + ' numeric constraint inventory changed');
     total += count;
   }
-  assert.equal(total, 23);
+  assert.equal(total, 25);
+});
+
+test('both corporate cycle-review routes retain the bounded agreement matcher', () => {
+  const src = read('corporate_billing.php');
+  for (const [method, suffix, action] of [['get', '', 'show'], ['post', '/issue', 'issue']]) {
+    const route = "Route::" + method + "('/commercial/corporate/agreements/{agreement}/cycle-review" + suffix
+      + "', [CorporateCycleReviewController::class, '" + action + "'])->where('agreement', '[0-9]{1,18}');";
+    assert.ok(src.includes(route), 'Missing bounded cycle review route: ' + method + ' ' + suffix);
+  }
 });
 
 test('hosted checkout reference, action names and dispute evidence IDs remain strictly controlled', () => {
