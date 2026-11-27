@@ -233,3 +233,29 @@ A matching PHPUnit unit test and two feature regression instances
 were committed but not run through Laravel/PHPUnit. The bounded digest
 check is local evidence verification, not authentication of the original
 upstream hardware or protection from privileged rewriting of local history.
+
+## Preserve original receipt across authority rotations
+
+The previous legacy-order compatibility check allowed any exact digest of
+the seven offline fields, including a different digest introduced after
+the initial operator reconciliation. The new history check compares the
+current registration against the latest existing reconciliation using
+that historical epoch and authority fingerprint. A new epoch cannot adopt
+a modified receipt, source station ID, verification timestamp, payload
+or binding/profile lineage. The compatibility regression now creates its
+reordered receipt before initial reconciliation; a separate regression
+rejects replacement with a different but locally valid serialization
+after reconciliation.
+
+Actual standalone PHP 8.4.24 execution: the fetched
+`DirectRegistrationHistory` service was reconstructed locally,
+`git hash-object` matched `56c1a5e5cb5d390a551d187e1c26840f7cb69a0f`,
+and PHP syntax lint passed. **44/44 assertions passed**, 22 for each
+protocol, covering compatibility with the original fingerprint, valid
+epoch advancement, all nine registration field mutations, coherent
+replacement station and receipt, altered historical authority and
+fingerprint, invalid epoch type, and subsequent rotation. Equivalent
+PHPUnit cases and amended feature regressions are committed but have
+not run under Laravel/PHPUnit. Historical row queries and locking still
+require PostgreSQL and hosted integration validation. Privileged rewriting
+of the entire reconciliation history remains outside this local guard.
