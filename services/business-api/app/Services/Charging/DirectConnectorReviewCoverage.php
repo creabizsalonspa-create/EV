@@ -8,12 +8,12 @@ use DateTimeInterface;
 final class DirectConnectorReviewCoverage
 {
     /** Pin reviewed local inventory attributes, excluding mutable maintenance status. */
-    public static function connectorFingerprint(object $connector): string
+    public static function connectorFingerprint(object $connector, int $generation): string
     {
         return hash('sha256', json_encode([
             (int) $connector->id, (int) $connector->charger_id,
             (int) $connector->connector_number, $connector->connector_type,
-            (string) $connector->max_power_kw,
+            (string) $connector->max_power_kw, $generation,
         ], JSON_THROW_ON_ERROR));
     }
 
