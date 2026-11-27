@@ -20,10 +20,10 @@ bool validQuoteExpiry(dynamic raw) {
       DateTime.tryParse(raw)!=null;
 }
 
-bool freshPrechargeEstimate(Map<String,dynamic> value) =>
+bool freshPrechargeEstimate(Map<String,dynamic> value, {DateTime? now}) =>
     validPrechargeEstimate(value) &&
     DateTime.parse(value['expires_at'] as String).toUtc()
-        .isAfter(DateTime.now().toUtc());
+        .isAfter((now ?? DateTime.now()).toUtc());
 
 String? _receiptInstant(dynamic value) {
   if (value is! String) return null;
@@ -43,6 +43,9 @@ bool confirmedPrechargeReceipt(dynamic receipt, Map<String,dynamic> estimate) {
 
 bool validPrechargeEstimate(dynamic value) {
   if (value is! Map || value['version'] != 1 || value['evidence'] != 'SIMULATED' || value['currency'] is! String || !RegExp(r'^[A-Z]{3}$').hasMatch(value['currency'] as String) || value['minor_units'] is! int || value['minor_units'] < 0 || value['minor_units'] > 3 || value['energy_wh'] is! int || value['energy_wh'] < 1 || value['energy_wh'] > 1000000 || value['tax_bps'] is! int || value['tax_bps'] < 0 || value['tax_bps'] > 10000 || value['external_fees_included'] != false || value['automatic_stop'] != false || value['final_total_depends_on_meter'] != true || value['session_fee_minor'] != '0' || value['idle_fee_minor'] != '0') return false;
+  final tariff = value['tariff_version_id'];
+  if (value['version'] is! int || !value.containsKey('tariff_version_id') ||
+      (tariff != null && (tariff is! int || tariff < 1 || tariff > 9007199254740991))) return false;
   BigInt? amount(String name) {
     final text = value[name];
     return text is String && RegExp(r'^(0|[1-9][0-9]{0,15})$').hasMatch(text) ? BigInt.tryParse(text) : null;
@@ -63,9 +66,13 @@ String prechargeAmount(String value, int digits) {
 String prechargeText(Map<String,dynamic> value, bool arabic) {
   if (!validPrechargeEstimate(value)) throw const FormatException('Unsupported pricing estimate');
   String money(String name) => '${value['currency']} ${prechargeAmount(value[name] as String, value['minor_units'] as int)}';
+  final tariff = value['tariff_version_id'];
+  final version = tariff == null
+    ? (arabic ? 'تعرفة المحاكاة الافتراضية' : 'Default simulator tariff')
+    : (arabic ? 'إصدار التعرفة #$tariff' : 'Tariff version #$tariff');
   return arabic
-    ? 'تقدير محاكاة للشحن: ${value['energy_wh']} Wh\nالسعر لكل kWh: ${money('rate_minor_per_kwh')}\nالطاقة: ${money('subtotal_minor')}\nالضريبة: ${money('tax_minor')}\nالإجمالي التقديري: ${money('total_minor')}\nرسوم الجلسة والخمول في المحاكاة: 0. لا تشمل رسوم المواقف أو الدخول الخارجية. يعتمد المبلغ النهائي على العداد الفعلي للجلسة؛ هذا ليس حداً للإنفاق ولا يوقف الشحن تلقائياً. لا يحدث دفع حقيقي.\nتنتهي صلاحية التأكيد: ${value['expires_at']}'
-    : 'Simulated charging estimate: ${value['energy_wh']} Wh\nRate per kWh: ${money('rate_minor_per_kwh')}\nEnergy: ${money('subtotal_minor')}\nTax: ${money('tax_minor')}\nEstimated total: ${money('total_minor')}\nSimulator session/idle fees: 0. External parking/access fees are excluded. Final cost depends on the session meter; this is not a spending cap and does not automatically stop charging. No real payment occurs.\nConfirmation expires: ${value['expires_at']}';
+    ? '$version\nتقدير محاكاة للشحن: ${value['energy_wh']} Wh\nالسعر لكل kWh: ${money('rate_minor_per_kwh')}\nالطاقة: ${money('subtotal_minor')}\nالضريبة: ${money('tax_minor')}\nالإجمالي التقديري: ${money('total_minor')}\nرسوم الجلسة والخمول في المحاكاة: 0. لا تشمل رسوم المواقف أو الدخول الخارجية. يعتمد المبلغ النهائي على العداد الفعلي للجلسة؛ هذا ليس حداً للإنفاق ولا يوقف الشحن تلقائياً. لا يحدث دفع حقيقي.\nتنتهي صلاحية التأكيد: ${value['expires_at']}'
+    : '$version\nSimulated charging estimate: ${value['energy_wh']} Wh\nRate per kWh: ${money('rate_minor_per_kwh')}\nEnergy: ${money('subtotal_minor')}\nTax: ${money('tax_minor')}\nEstimated total: ${money('total_minor')}\nSimulator session/idle fees: 0. External parking/access fees are excluded. Final cost depends on the session meter; this is not a spending cap and does not automatically stop charging. No real payment occurs.\nConfirmation expires: ${value['expires_at']}';
 }
 
 Future<bool> reviewPrechargePricing(BuildContext context, EvApi api, int reservation) async =>
@@ -74,7 +81,8 @@ Future<bool> reviewPrechargePricing(BuildContext context, EvApi api, int reserva
 class PrechargePricingDialog extends StatefulWidget {
   final EvApi api;
   final int reservation;
-  const PrechargePricingDialog({super.key, required this.api, required this.reservation});
+  final DateTime Function()? clock;
+  const PrechargePricingDialog({super.key, required this.api, required this.reservation, this.clock});
   @override
   State<PrechargePricingDialog> createState() => _PrechargePricingDialogState();
 }
@@ -153,7 +161,7 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
           (reply['quote_token'] as String).isEmpty ||
           (reply['quote_token'] as String).length > 16384)
         throw const ApiException(503,'Invalid estimate');
-      if (!freshPrechargeEstimate(Map<String,dynamic>.from(reply['estimate'] as Map)))
+      if (!freshPrechargeEstimate(Map<String,dynamic>.from(reply['estimate'] as Map), now: widget.clock?.call()))
         throw const ApiException(409,'Price confirmation expired; request a fresh quote');
       setState(() { estimate = Map<String,dynamic>.from(reply['estimate'] as Map); token = reply['quote_token'] as String; });
     } catch (e) { if (mounted && epoch == generation && current()) setState(() => error = e); }
@@ -165,7 +173,7 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
     final reviewedEstimate = estimate;
     if (confirmation == null || reviewedEstimate == null) return;
     // Even a fully reviewed quote becomes invalid at its exact expiry.
-    if (!freshPrechargeEstimate(reviewedEstimate)) {
+    if (!freshPrechargeEstimate(reviewedEstimate, now: widget.clock?.call())) {
       generation++;
       setState(() {
         token = null; estimate = null;
@@ -182,6 +190,9 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
       if (!mounted || epoch != generation || !current() || !foreground) return;
       if (!confirmedPrechargeReceipt(receipt,reviewedEstimate)) {
         throw const ApiException(503,'Price consent not confirmed; check session history before retrying');
+      }
+      if (!freshPrechargeEstimate(reviewedEstimate, now: widget.clock?.call())) {
+        throw const ApiException(409,'Price confirmation expired; request a fresh quote');
       }
       if (top) { Navigator.of(context).pop(true); }
       else { setState(() { token = null; estimate = null; error = const ApiException(409,'Review current price again'); }); }

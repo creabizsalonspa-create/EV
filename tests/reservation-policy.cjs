@@ -15,3 +15,19 @@ test('both language summaries disclose zero penalties and unknown physical avail
  }
  const root=new Element('section');fixture().attach(root,{...terms,version:99});assert.equal(root.children.length,0);
 });
+
+test('web and native terms accept legacy snapshots but reject contradictory price consent',()=>{
+ for(const ar of [false,true]){
+  const policy=fixture(ar),root=new Element('section');
+  assert.equal(policy.valid(terms),true);
+  assert.equal(policy.valid({...terms,price_acceptance_required:true}),true);
+  policy.attach(root,{...terms,price_acceptance_required:true});
+  assert.match(root.children[0].children[1].textContent,ar?/واقبلها صراحة/:/explicitly accept/);
+  for(const bad of [false,null,1,'true']){
+   const invalid={...terms,price_acceptance_required:bad};
+   assert.equal(policy.valid(invalid),false);
+   const blank=new Element('section');policy.attach(blank,invalid);
+   assert.equal(blank.children.length,0);
+  }
+ }
+});
