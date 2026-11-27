@@ -45,7 +45,11 @@ final class DirectConnectorReviewController extends Controller
             }
             $page = DB::table('direct_connector_review_receipts')->where('charger_id', $charger->id)
                 ->when(isset($filters['connector_id']), fn ($q) => $q->where('connector_id', $filters['connector_id']))
-                ->orderBy('id')->paginate(25)->through(fn ($row) => $this->present($row, $fingerprint));
+                ->whereNotExists(function ($q) {
+                    $q->selectRaw('1')->from('direct_connector_review_receipts as newer')
+                        ->whereColumn('newer.connector_id', 'direct_connector_review_receipts.connector_id')
+                        ->whereColumn('newer.authority_epoch', '>', 'direct_connector_review_receipts.authority_epoch');
+                })->orderBy('id')->paginate(25)->through(fn ($row) => $this->present($row, $fingerprint));
 
             return response()->json($page)->header('Cache-Control', 'private, no-store');
         }, 3);
@@ -88,27 +92,40 @@ final class DirectConnectorReviewController extends Controller
                     && hash_equals($fingerprint, $this->fingerprint($fresh))
                     && $observed->gte(now()->subMinutes(5)), 409, 'Source review authority changed.');
                 abort_unless(VendorConnector::whereKey($connectorId)->where('charger_id', $charger->id)->lockForUpdate()->first(), 404);
-                $old = DB::table('direct_connector_review_receipts')->where('connector_id', $connectorId)->first();
+                $epoch = $fresh->registration_receipt[7][0];
+                $old = DB::table('direct_connector_review_receipts')->where('connector_id', $connectorId)
+                    ->orderByDesc('authority_epoch')->lockForUpdate()->first();
                 if ($old) {
                     abort_unless($old->charger_id === $charger->id && $old->source_evse_number === $evse
                         && $old->source_connector_number === $number && $old->source_connector_database_id === $sourceId
                         && $eventId >= $old->source_event_id
                         && $observed->gte(CarbonImmutable::parse($old->source_observed_at, 'UTC'))
-                        && hash_equals($old->registration_fingerprint, $fingerprint),
-                        409, 'Existing connector review is immutable.');
+                        && $old->registration_id === $fresh->registration_receipt[0]
+                        && $epoch >= $old->authority_epoch,
+                        409, 'Existing connector identity cannot be reassigned.');
+                    if ($epoch === $old->authority_epoch) {
+                        abort_unless(hash_equals($old->registration_fingerprint, $fingerprint), 409,
+                            'Existing connector review is immutable.');
 
-                    return response()->json($this->present($old, $fingerprint))->header('Cache-Control', 'private, no-store');
+                        return response()->json($this->present($old, $fingerprint))->header('Cache-Control', 'private, no-store');
+                    }
+                    // Renew only the same physical identity claim, never adopt a
+                    // different target or rewrite the previous epoch receipt.
+                    abort_unless($eventId > $old->source_event_id
+                        && $observed->gt(CarbonImmutable::parse($old->source_observed_at, 'UTC')),
+                        409, 'A newer source event is required for connector re-review.');
                 }
                 abort_if(DB::table('direct_connector_review_receipts')->where('charger_id', $charger->id)
-                    ->where('source_evse_number', $evse)->where('source_connector_number', $number)->exists(), 409, 'Source target already reviewed.');
+                    ->where('source_evse_number', $evse)->where('source_connector_number', $number)
+                    ->where('connector_id', '!=', $connectorId)->exists(), 409, 'Source target already reviewed.');
                 abort_if(DB::table('direct_connector_review_receipts')->where('registration_id', $fresh->registration_receipt[0])
-                    ->where('source_connector_database_id', $sourceId)->exists(), 409, 'Source connector identity already reviewed.');
+                    ->where('source_connector_database_id', $sourceId)->where('connector_id', '!=', $connectorId)->exists(), 409, 'Source connector identity already reviewed.');
                 $id = DB::table('direct_connector_review_receipts')->insertGetId([
                     'charger_id' => $charger->id, 'connector_id' => $connectorId,
                     'registration_id' => $fresh->registration_receipt[0], 'actor_id' => $r->user()->id,
                     'source_evse_number' => $evse, 'source_connector_number' => $number,
                     'source_connector_database_id' => $sourceId, 'source_event_id' => $eventId,
-                    'registration_fingerprint' => $fingerprint, 'source_observed_at' => $observed->format('Y-m-d H:i:s.u'),
+                    'authority_epoch' => $epoch, 'registration_fingerprint' => $fingerprint, 'source_observed_at' => $observed->format('Y-m-d H:i:s.u'),
                     'reviewed_at' => now()->format('Y-m-d H:i:s.u'),
                 ]);
                 DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'charging.direct_connector_reviewed',
