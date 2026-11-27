@@ -214,6 +214,7 @@ class ChargerLiveConnectorsTest extends TestCase
         $first = $this->postJson($path, $body)->assertCreated()
             ->assertJsonPath('evidence', 'DIRECT_CONNECTOR_REVIEW_ONLY')
             ->assertJsonPath('current_registration_matches', true)
+            ->assertJsonPath('review_state', 'current')
             ->assertJsonPath('charging_mapping_created', false)
             ->assertJsonPath('physical_availability_verified', false)
             ->assertJsonPath('remote_control_authorized', false)->json('id');
@@ -298,13 +299,14 @@ class ChargerLiveConnectorsTest extends TestCase
             'registration' => (string) $f['receipt'], '--receipt' => $f['receipt_hash'], '--ticket' => 'TEST-REPLAY',
         ])->assertSuccessful();
         $this->assertDatabaseCount('direct_source_registration_epochs', 2);
-        $this->getJson($path)->assertOk()->assertJsonPath('data.0.current_registration_matches', false);
+        $this->getJson($path)->assertOk()->assertJsonPath('data.0.current_registration_matches', false)
+            ->assertJsonPath('data.0.review_state', 'renewal_required');
         $this->postJson($path, $body)->assertConflict();
         $this->source($f, 'replacement_source_connector');
         $this->postJson($path, $body)->assertConflict();
         $this->source($f, 'newer_review_event');
         $renewed = $this->postJson($path, $body)->assertCreated()
-            ->assertJsonPath('current_registration_matches', true)->json('id');
+            ->assertJsonPath('current_registration_matches', true)->assertJsonPath('review_state', 'current')->json('id');
         $this->postJson($path, $body)->assertOk()->assertJsonPath('id', $renewed);
         $this->getJson($path.'?connector_id='.$connector->id)->assertOk()
             ->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $renewed);
@@ -421,6 +423,7 @@ class ChargerLiveConnectorsTest extends TestCase
         $connectors[0]->fresh()->update(['max_power_kw' => 75]);
         $this->getJson($path.'?connector_id='.$connectors[0]->id)->assertOk()
             ->assertJsonPath('data.0.current_registration_matches', false)
+            ->assertJsonPath('data.0.review_state', 'inventory_changed')
             ->assertJsonMissingPath('data.0.connector_fingerprint');
         $this->getJson($f['url'])->assertOk()->assertJsonPath('review_coverage.state', 'requires_review');
         $this->postJson($path, $body)->assertConflict();
