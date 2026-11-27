@@ -296,7 +296,8 @@ class ChargerLiveConnectorsTest extends TestCase
         foreach (['1.6', '2.0.1'] as $protocol) {
             foreach (['healthy', 'disabled', 'plaintext', 'unregistered', 'wrong_station',
                 'changed_generation', 'receipt_changed_during_read', 'missing_event', 'foreign_owner',
-                'wrong_tenant', 'wrong_connection', 'connection_changed_during_read', 'corrupt_receipt'] as $case) {
+                'wrong_tenant', 'wrong_connection', 'connection_changed_during_read', 'corrupt_receipt',
+                'authority_epoch_changed_during_read'] as $case) {
                 $cases[] = [$protocol, $case];
             }
         }
@@ -336,9 +337,10 @@ class ChargerLiveConnectorsTest extends TestCase
             Http::assertSentCount(3);
         } else {
             $response->assertStatus(match ($case) {
-                'disabled', 'plaintext' => 503, 'foreign_owner' => 404, default => 409,
+                'disabled', 'plaintext', 'authority_epoch_changed_during_read' => 503, 'foreign_owner' => 404, default => 409,
             });
-            if (! in_array($case, ['receipt_changed_during_read', 'wrong_tenant', 'wrong_connection', 'connection_changed_during_read'], true)) {
+            if (! in_array($case, ['receipt_changed_during_read', 'wrong_tenant', 'wrong_connection', 'connection_changed_during_read',
+                'authority_epoch_changed_during_read'], true)) {
                 Http::assertNothingSent();
             }
         }
@@ -390,6 +392,10 @@ class ChargerLiveConnectorsTest extends TestCase
                 }
 
                 return Http::response(['data' => ['ChargingStations' => [$row]]]);
+            }
+            if ($case === 'authority_epoch_changed_during_read') {
+                config(['csms.registered_source_authority_epoch' => 2]);
+                app(DirectSourceAuthority::class)->provision('test-rotation-during-read');
             }
             if ($case === 'receipt_changed_during_read') {
                 DB::table('charger_source_registrations')->where('id', $fixture['receipt'])
