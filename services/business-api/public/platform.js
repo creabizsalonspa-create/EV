@@ -146,6 +146,10 @@ function clearPrivateViews() {
     delete regionForm.dataset.expectedCountry;
     delete regionForm.dataset.expectedRevision;
     delete regionForm.dataset.expectedEpoch;
+    delete regionForm.dataset.expectedValues;
+    regionalConfigBusy = false;
+    regionForm.inert = false;
+    regionForm.querySelector("button").disabled = false;
     el("region-list").querySelectorAll("[data-access=admin]").forEach((node) => node.remove());
     inboxUnreadOnly = false;
     inboxCategory = "all";
@@ -1403,6 +1407,11 @@ async function regions() {
                 form.dataset.expectedCountry = region.country;
                 form.dataset.expectedRevision = String(region.configuration_revision);
                 form.dataset.expectedEpoch = String(epoch);
+                form.dataset.expectedValues = JSON.stringify({
+                    currency: region.currency, minor_units: region.minor_units,
+                    timezone: region.timezone, tax_bps: region.tax_bps,
+                    commerce_enabled: region.commerce_enabled,
+                });
                 form.elements.namedItem("currency").focus();
             };
             root.append(edit);
@@ -1851,48 +1860,66 @@ el("fleet-create").onsubmit = async (e) => {
         }
     }
 };
+function verifyRegionalConfigurationReceipt(saved, country, values, reviewed) {
+    const expected = values.expected_revision;
+    const normalized = {
+        currency: values.currency, minor_units: Number(values.minor_units),
+        timezone: values.timezone, tax_bps: values.tax_bps === null ? null : Number(values.tax_bps),
+    };
+    const fail = () => { throw Error("Regional configuration receipt cannot be verified."); };
+    if (!Number.isSafeInteger(expected) || expected < 0 ||
+        expected >= Number.MAX_SAFE_INTEGER || (expected > 0 && !reviewed)) fail();
+    const same = expected > 0 && [false, 0].includes(reviewed.commerce_enabled) &&
+        Object.keys(normalized).every(key => reviewed[key] === normalized[key]);
+    const revision = expected + (same ? 0 : 1);
+    if (!saved || saved.country !== country || saved.configuration_revision !== revision ||
+        !Object.keys(normalized).every(key => saved[key] === normalized[key]) ||
+        ![false, 0].includes(saved.commerce_enabled)) fail();
+    return {...normalized, commerce_enabled: saved.commerce_enabled};
+}
 let regionalConfigBusy = false;
 el("region-config").onsubmit = async (e) => {
     e.preventDefault();
     if (regionalConfigBusy || user?.role !== "admin") return;
     const form = e.target, epoch = client.sessionEpoch;
     const submit = form.querySelector("button");
-    regionalConfigBusy = true;
+    const ticket = {epoch};
+    regionalConfigBusy = ticket;
     submit.disabled = true;
+    form.inert = true;
     try {
         const v = Object.fromEntries(new FormData(form)), country = v.country;
         delete v.country;
         v.tax_bps = v.tax_bps === "" ? null : v.tax_bps;
         v.expected_revision = form.dataset.expectedCountry === country &&
             form.dataset.expectedEpoch === String(epoch) ? Number(form.dataset.expectedRevision) : 0;
+        const reviewed = v.expected_revision > 0 ? JSON.parse(form.dataset.expectedValues ?? "null") : null;
         const saved = await api("regions/" + encodeURIComponent(country), "PUT", v);
-        if (epoch !== client.sessionEpoch || user?.role !== "admin") return;
-        if (saved?.country !== country || !Number.isSafeInteger(saved.configuration_revision) ||
-            ![v.expected_revision, v.expected_revision + 1].includes(saved.configuration_revision) ||
-            saved.configuration_revision < 1 || saved.currency !== v.currency ||
-            saved.minor_units !== Number(v.minor_units) || saved.timezone !== v.timezone ||
-            saved.tax_bps !== (v.tax_bps === null ? null : Number(v.tax_bps)) ||
-            ![false, 0].includes(saved.commerce_enabled))
-            throw Error("Regional configuration receipt cannot be verified.");
+        if (regionalConfigBusy !== ticket || epoch !== client.sessionEpoch || user?.role !== "admin") return;
+        const accepted = verifyRegionalConfigurationReceipt(saved, country, v, reviewed);
         form.dataset.expectedCountry = country;
         form.dataset.expectedRevision = String(saved.configuration_revision);
         form.dataset.expectedEpoch = String(epoch);
+        form.dataset.expectedValues = JSON.stringify(accepted);
         await regions();
         if (epoch === client.sessionEpoch)
             notice("Configuration saved. Commercial activation remains disabled.");
     } catch (error) {
-        if (epoch !== client.sessionEpoch) return;
+        if (regionalConfigBusy !== ticket || epoch !== client.sessionEpoch) return;
+        // A lost response, malformed receipt or conflict can conceal a
+        // committed update. Never retain its reviewed authority for retry.
+        delete form.dataset.expectedRevision;
+        delete form.dataset.expectedCountry;
+        delete form.dataset.expectedEpoch;
+        delete form.dataset.expectedValues;
         notice(error);
-        if (error.status === 409) {
-            delete form.dataset.expectedRevision;
-            delete form.dataset.expectedCountry;
-            delete form.dataset.expectedEpoch;
-            await regions().catch(notice);
-        }
+        if (error.status === 409) await regions().catch(notice);
     } finally {
-        regionalConfigBusy = false;
-        if (epoch === client.sessionEpoch) submit.disabled = false;
-        else if (submit.isConnected) submit.disabled = false;
+        if (regionalConfigBusy === ticket) {
+            regionalConfigBusy = false;
+            form.inert = false;
+            submit.disabled = false;
+        }
     }
 };
 el("account").onsubmit = async (e) => {

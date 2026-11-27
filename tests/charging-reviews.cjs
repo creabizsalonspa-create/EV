@@ -5,7 +5,36 @@ const fs = require("node:fs"),
   os = require("node:os");
 const assert = require("node:assert/strict");
 const { BusinessClient } = require("./helpers/business-client.cjs");
+function verifyRegionalReceiptParser() {
+  const source = fs.readFileSync("services/business-api/public/platform.js", "utf8");
+  const start = source.indexOf("function verifyRegionalConfigurationReceipt(");
+  const end = source.indexOf("let regionalConfigBusy", start);
+  assert(start >= 0 && end > start);
+  const verify = new Function(source.slice(start, end) + "\nreturn verifyRegionalConfigurationReceipt;")();
+  const reviewed = {currency: "AED", minor_units: 2, timezone: "Asia/Dubai", tax_bps: 0, commerce_enabled: false};
+  const values = {currency: "AED", minor_units: "2", timezone: "Asia/Dubai", tax_bps: "0", expected_revision: 3};
+  const saved = {country: "AE", ...reviewed, configuration_revision: 3};
+  assert.equal(verify(saved, "AE", values, reviewed).tax_bps, 0);
+  assert.equal(verify({...saved, configuration_revision: 4, tax_bps: null}, "AE",
+    {...values, tax_bps: null}, reviewed).tax_bps, null);
+  assert.equal(verify({...saved, configuration_revision: 1}, "AE",
+    {...values, expected_revision: 0}, null).currency, "AED");
+  const invalid = [
+    [{...saved, configuration_revision: 4}, values, reviewed],
+    [{...saved, tax_bps: null}, {...values, tax_bps: null}, reviewed],
+    [{...saved, configuration_revision: 3}, values, null],
+    [{...saved, commerce_enabled: true}, values, reviewed],
+    [{...saved, country: "US"}, values, reviewed],
+    [{...saved, tax_bps: null}, values, reviewed],
+    [{...saved, configuration_revision: 0}, {...values, expected_revision: 0}, null],
+    [{...saved, configuration_revision: 5}, values, reviewed],
+  ];
+  for (const [receipt, request, before] of invalid)
+    assert.throws(() => verify(receipt, "AE", request, before), /Regional configuration receipt cannot be verified/);
+  console.log("PASS regional receipt parser: 3 valid and " + invalid.length + " rejected cases");
+}
 async function main() {
+  verifyRegionalReceiptParser();
   const run = randomBytes(4).toString("hex"),
     password = randomBytes(24).toString("hex") + "aA9!";
   const args = ["tests/Fixtures/charging-reviews.php", run, password];
@@ -145,6 +174,22 @@ async function main() {
     assert.equal(receipt.status(), 200);
     assert.equal(String((await receipt.json()).configuration_revision), revision);
     await editRegion.waitFor();
+    // A genuine no-op is not allowed to acknowledge a revision increment.
+    // Alter only the response; the real API still receives the same no-op.
+    await ap.route("**/api/regions/AE", async route => {
+      if (route.request().method() !== "PUT") return route.continue();
+      const response = await route.fetch();
+      const data = await response.json();
+      assert.equal(response.status(), 200);
+      data.configuration_revision++;
+      await route.fulfill({response, json: data});
+    }, {times: 1});
+    await regionalForm.locator("button").click();
+    await ap.waitForFunction(() => !document.querySelector("#region-config").dataset.expectedRevision &&
+      !document.querySelector("#region-config").inert);
+    assert.equal(await regionalForm.getAttribute("data-expected-values"), null);
+    await editRegion.click();
+    assert.equal(await regionalForm.getAttribute("data-expected-revision"), revision);
     const intake = ap.locator('[data-region-review-intake="AE"]');
     await intake.filter({ hasText: /^Pause new charging feedback$/ }).click();
     await intake.filter({ hasText: /^Allow new charging feedback$/ }).waitFor();
