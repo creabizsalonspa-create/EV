@@ -72,8 +72,9 @@ final class CpoCatalogPublisher
             });
 
             $sources = ['locations' => array_map('strval', array_keys($contract['sites'])), 'tariffs' => array_map('strval', $contract['tariffs'])];
-            if (($contract['session_exports'] ?? []) !== []) {
-                $sources['sessions'] = $sources['cdrs'] = array_map('strval', array_keys($contract['session_exports']));
+            $sessionExports = $this->contracts->sessionExports($provider, $contract);
+            if ($sessionExports !== []) {
+                $sources['sessions'] = $sources['cdrs'] = array_map('strval', array_keys($sessionExports));
             }
 
             return [
