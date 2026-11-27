@@ -232,6 +232,27 @@ class CorporateBilling
         }, 3);
     }
 
+    /** Caller retains the fleet lock. Mixed historical precision cannot be
+     * added or silently ignored when enforcing a single-currency credit cap.
+     */
+    public function outstandingMinor(object $agreement): int
+    {
+        $precision = self::exactMinor($agreement->minor_units);
+        abort_unless($precision <= 3, 409, 'Invalid corporate agreement precision.');
+        $open = 0;
+        $rows = DB::table('corporate_statements')->where('fleet_id', $agreement->fleet_id)
+            ->where('currency', $agreement->currency)
+            ->whereNotIn('id', DB::table('corporate_receipts')->select('statement_id'))
+            ->orderBy('id')->cursor();
+        foreach ($rows as $row) {
+            abort_unless(self::exactMinor($row->minor_units) === $precision,
+                409, 'Outstanding corporate statements have incompatible currency precision.');
+            $open = self::addMinor($open, self::exactMinor($row->total_minor));
+        }
+
+        return $open;
+    }
+
     public function issue(int $agreementId, int $actor, array $v): object
     {
         return DB::transaction(function () use ($agreementId, $actor, $v) {
@@ -271,9 +292,7 @@ class CorporateBilling
                 $total = self::addMinor($total, $components['total_minor']);
                 $items[] = [$claim, $invoice];
             }
-            $open = self::sumMinor(DB::table('corporate_statements')->where('fleet_id', $a->fleet_id)
-                ->where('currency', $a->currency)->whereNotIn('id', DB::table('corporate_receipts')->select('statement_id'))
-                ->get(['total_minor']), 'total_minor');
+            $open = $this->outstandingMinor($a);
             $limit = self::exactMinor($a->credit_limit_minor);
             abort_unless($total > 0 && $open <= $limit && $total <= $limit - $open,
                 409, 'Corporate credit limit exceeded.');
