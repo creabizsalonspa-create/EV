@@ -25,6 +25,7 @@ final class ChargerSourceRegistration
     public function scope(Request $request, VendorCompany $company, VendorCharger $charger, bool $write = false): array
     {
         app(MaintenanceActor::class)->check($request->user());
+        app(MaintenanceActor::class)->checkBearer($request->user());
         if ($write) {
             $actor = AdminTransactionAuthority::requireCurrent($request->user());
             abort_unless(! AdminSecondFactorGate::required() || AdminSecondFactorGate::verified($request, $actor), 403, 'Current administrator verification is required.');

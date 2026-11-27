@@ -307,6 +307,55 @@ class ChargerSourceRegistrationTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public static function staleVendorBearerCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['revoked', 'individual_expiry', 'global_expiry'] as $reason) {
+                $cases[] = [$protocol, $reason];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('staleVendorBearerCases')]
+    public function test_captured_vendor_bearer_cannot_read_private_registration_after_revocation_or_expiry(string $protocol, string $reason): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source();
+        $id = $this->prepare($f);
+        $this->postJson($f['path'].'/'.$id.'/register')->assertOk()->assertJsonPath('state', 'registered');
+        config(['sanctum.expiration' => 60]);
+        $this->freezeTime();
+        $token = $f['owner']->createToken('source-registration-read', ['*'], now()->addHours(2))->accessToken;
+        $snapshot = $f['owner']->fresh()->withAccessToken($token);
+        $request = ServerRequest::create($f['path'], 'GET');
+        $request->setUserResolver(fn () => $snapshot);
+        $controller = app(\App\Http\Controllers\ChargerSourceRegistrationController::class);
+        $registration = app(ChargerSourceRegistration::class);
+        $response = $controller->show($request, $f['company'], $f['charger'], $registration);
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue($response->getData(true)['current_inventory_matches_registration']);
+        $this->assertFalse($response->getData(true)['can_register']);
+        match ($reason) {
+            'revoked' => $token->delete(),
+            'individual_expiry' => $token->forceFill(['expires_at' => now()->subSecond()])->save(),
+            'global_expiry' => $token->forceFill(['created_at' => now()->subMinutes(61)])->save(),
+        };
+        try {
+            $controller->show($request, $f['company'], $f['charger'], $registration);
+            $this->fail('A stale vendor bearer received private registration evidence.');
+        } catch (HttpException $error) {
+            $this->assertSame(403, $error->getStatusCode());
+        }
+        Http::assertSentCount(3);
+        $this->assertSame(1, $this->writes);
+        $this->assertDatabaseHas('charger_source_registrations', ['id' => $id, 'state' => 'registered']);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_inventory_or_source_generation_change_fences_retained_registration(): void
     {
         $f = $this->fixture();
