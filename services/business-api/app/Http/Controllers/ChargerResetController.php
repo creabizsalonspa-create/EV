@@ -28,6 +28,7 @@ class ChargerResetController extends Controller
     public function scope(Request $r, VendorCompany $company, VendorCharger $charger, bool $write = false): object
     {
         app(MaintenanceActor::class)->check($r->user());
+        app(MaintenanceActor::class)->checkBearer($r->user());
         app(VendorAccess::class)->require($r->user(), $company, 'inventory.read');
         if ($write) {
             abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
@@ -42,6 +43,20 @@ class ChargerResetController extends Controller
         abort_unless($b->station_id === $station->id && $b->protocol === $charger->ocpp_protocol && in_array($b->protocol, ['1.6', '2.0.1'], true) && preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/D', $b->identifier), 409);
 
         return $b;
+    }
+
+    private function requireCurrentScope(Request $r, VendorCompany $company, VendorCharger $charger, object $expected): void
+    {
+        $currentCompany = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+        $currentCharger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
+        $current = $this->scope($r, $currentCompany, $currentCharger, true);
+        abort_unless($current->id === $expected->id
+            && $current->station_id === $expected->station_id
+            && $current->vendor_charger_id === $expected->vendor_charger_id
+            && $current->identifier === $expected->identifier
+            && $current->protocol === $expected->protocol, 409,
+            'Reset source mapping changed; retain the operation for review.');
+        app(VendorAccess::class)->operational($currentCompany);
     }
 
     private function enabled(): void
@@ -180,6 +195,7 @@ class ChargerResetController extends Controller
             abort_if(DB::table('charger_firmware_operations')->where('binding_id', $b->id)->whereNull('reviewed_at')->exists(), 409, 'Review the signed firmware operation before a reset.');
             $this->idle($b);
             $this->enabled();
+            $this->requireCurrentScope($r, $company, $charger, $b);
             $id = DB::table('charger_reset_operations')->insertGetId(['binding_id' => $b->id, 'actor_id' => $r->user()->id, 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'reset_type' => $b->protocol === '1.6' ? 'Soft' : 'OnIdle', 'status' => 'requested', 'created_at' => now(), 'updated_at' => now()]);
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'charger.reset_requested', 'subject' => (string) $id, 'created_at' => now()]);
 
@@ -209,6 +225,7 @@ class ChargerResetController extends Controller
                         && app(CsmsGraphqlTransport::class)->requireApproved() === $sourceUrl
                         && hash_equals($sourceKey, (string) config('csms.graphql_secret')), 409,
                         'Source or operations authority changed before reset dispatch.');
+                    $this->requireCurrentScope($r, $company, $charger, $b);
                     $this->requireLocalIdle($b);
                     abort_unless(is_string($auth) && $auth !== '', 503);
                     $reply = Http::timeout(10)->withoutRedirecting()->withToken($auth)->post($operationsBase.'/ocpp/'.$b->protocol.'/configuration/reset?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), ['type' => $row->reset_type]);
@@ -242,6 +259,7 @@ class ChargerResetController extends Controller
                 abort_unless(now()->gte(CarbonImmutable::parse($attempt)->addSeconds($wait)), 409, 'Wait for dispatch completion before source review.');
                 $this->idle($b, $attempt);
                 $this->enabled();
+                $this->requireCurrentScope($r, $company, $charger, $b);
                 DB::table('charger_reset_operations')->where('id', $row->id)->update(['reviewed_by' => $r->user()->id, 'review_note' => Crypt::encryptString($v['note']), 'reviewed_at' => now(), 'updated_at' => now()]);
                 DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'charger.reset_source_reviewed', 'subject' => (string) $row->id, 'created_at' => now()]);
             }

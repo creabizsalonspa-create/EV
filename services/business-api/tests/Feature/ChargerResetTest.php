@@ -333,6 +333,40 @@ class ChargerResetTest extends TestCase
         }
     }
 
+    public static function resetScopeDriftCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['binding', 'account', 'company'] as $change) {
+                $cases[] = [$protocol, $change];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('resetScopeDriftCases')]
+    public function test_reset_rechecks_current_scope_after_token_before_dispatch(string $protocol, string $change): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source($f, duringToken: function () use ($f, $change): void {
+            match ($change) {
+                'binding' => DB::table('csms_bindings')->where('id', $f['binding'])->update(['identifier' => 'ev-test-reassigned']),
+                'account' => DB::table('users')->where('id', $f['owner']->id)->increment('auth_epoch'),
+                'company' => DB::table('vendor_companies')->where('id', $f['company']->id)->update(['status' => 'suspended']),
+            };
+        });
+        $body = ['reason' => 'Inspect current reset source authority', 'idempotency_key' => 'scope-drift'];
+        $id = $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()
+            ->assertJsonPath('status', 'outcome_unknown')->assertJsonPath('capacity_released', false)->json('id');
+        Http::assertSentCount(5);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/configuration/reset?'));
+        $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null]);
+        $this->assertDatabaseCount('charger_reset_operations', 1);
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_unresolved_station_commands_block_reset_even_without_session_links(): void
     {
         foreach (['1.6', '2.0.1'] as $protocol) {
