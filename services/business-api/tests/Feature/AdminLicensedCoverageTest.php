@@ -51,7 +51,7 @@ final class AdminLicensedCoverageTest extends TestCase
             ->assertSee('No validated hourly observations.')
             ->assertSee('href="/admin-licensed-coverage.css"', false)
             ->assertDontSee('<style>', false);
-        $this->get('/admin/licensed-coverage.css')->assertOk();
+        $this->assertFileExists(public_path('admin-licensed-coverage.css'));
         $request = Request::create($url);
         $request->setUserResolver(fn () => $admin);
         DB::table('users')->where('id', $admin->id)->increment('auth_epoch');
