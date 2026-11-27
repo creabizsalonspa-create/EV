@@ -1,4 +1,5 @@
 import hashlib
+from datetime import datetime
 from pathlib import Path
 import plistlib
 import struct
@@ -77,6 +78,29 @@ class IpaSignatureTest(unittest.TestCase):
         self.assertEqual(result['sha256'], hashlib.sha256(self.path.read_bytes()).hexdigest())
         self.assertEqual(result['signing_certificate_sha256'], self.pin)
         self.assertEqual(len(self.calls), 3)
+
+    def test_pinned_profile_uses_same_extracted_signed_bundle(self):
+        raw = b'synthetic profile'
+        self.make([('embedded.mobileprovision', raw)])
+        pin = hashlib.sha256(raw).hexdigest()
+        profile = {'TeamIdentifier': [self.team], 'Platform': ['iOS'],
+                   'CreationDate': datetime(2020, 1, 1),
+                   'ExpirationDate': datetime(2099, 1, 1),
+                   'DeveloperCertificates': [self.cert],
+                   'Entitlements': {**self.entitlements, 'beta-reports-active': True}}
+        def decode(path):
+            self.assertEqual(path.parent, Path(self.calls[0][-1]))
+            self.assertEqual(path.read_bytes(), raw)
+            return profile
+        with patch.object(gate.sys, 'platform', 'darwin'), \
+                patch.object(gate, 'run_codesign', side_effect=self.fake_codesign), \
+                patch('ipa_profile.decode_profile', side_effect=decode):
+            result = gate.verify_signature(self.path, self.bundle, '1.2.3', '42',
+                                           self.team, self.pin, pin)
+        self.assertTrue(result['profile_identity_and_validity_verified'])
+        self.assertEqual(result['profile_sha256'], pin)
+        self.assertFalse(result['provisioning_verified'])
+        self.assertFalse(result['store_accepted'])
 
     def test_device_platform_and_command_bounds(self):
         original = self.binary
