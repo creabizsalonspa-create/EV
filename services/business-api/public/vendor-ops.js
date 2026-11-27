@@ -3661,6 +3661,106 @@ window.createVendorWorkspace = ({
                 ),
             );
     }
+    async function directConnectorReview(company, charger, connector, parent, epoch) {
+        if (!valid(epoch) || document.hidden) return;
+        parent.querySelector("[data-direct-connector-review]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.directConnectorReview = "";
+        parent.append(pane);
+        const viewer = actor();
+        let invalidated = false, busy = false;
+        const current = () => !invalidated && valid(epoch) && actor() === viewer &&
+            !document.hidden && pane.isConnected;
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) {
+                invalidated = true;
+                if (pane.isConnected) pane.replaceChildren();
+            }
+        }, {signal: controller?.signal});
+        const path = base + `companies/${company.id}/chargers/${charger.id}/direct-connector-reviews`;
+        const result = document.createElement("div");
+        const heading = ui("h4", "Direct connector identity review");
+        pane.append(heading, ui("p", "Review records identity only. Charging, physical availability and control remain disabled."), result);
+        const validReceipt = row => row && Number.isSafeInteger(row.id) && row.id > 0 &&
+            row.connector_id === connector.id && Number.isSafeInteger(row.source_evse_number) &&
+            (charger.ocpp_protocol === "1.6" ? row.source_evse_number === 0 :
+                row.source_evse_number >= 1 && row.source_evse_number <= 1000) &&
+            Number.isSafeInteger(row.source_connector_number) && row.source_connector_number >= 1 &&
+            row.source_connector_number <= 100 && typeof row.current_registration_matches === "boolean" &&
+            typeof row.source_observed_at === "string" && typeof row.reviewed_at === "string" &&
+            row.evidence === "DIRECT_CONNECTOR_REVIEW_ONLY" && row.charging_mapping_created === false &&
+            row.physical_availability_verified === false && row.remote_control_authorized === false;
+        async function read() {
+            if (!current() || busy) return;
+            busy = true;
+            result.replaceChildren(ui("p", "Reading connector review…"));
+            try {
+                const page = await api(path + "?connector_id=" + connector.id, "GET", undefined, controller?.signal);
+                if (!current()) return;
+                if (!page || page.current_page !== 1 || page.last_page !== 1 ||
+                    !Array.isArray(page.data) || page.data.length > 1 ||
+                    page.total !== page.data.length || page.data.some(row => !validReceipt(row)))
+                    throw Error("Invalid connector review receipt.");
+                render(page.data[0] ?? null);
+            } catch (_) {
+                if (current()) result.replaceChildren(ui("p", "Connector review unavailable. Read again explicitly."));
+            } finally { busy = false; }
+        }
+        function render(receipt) {
+            result.replaceChildren();
+            if (receipt) {
+                result.append(ui("p", receipt.current_registration_matches
+                    ? "Stored connector review matches current registration"
+                    : "Stored review requires registration reconciliation"),
+                    raw("p", `#${receipt.id} · ${receipt.source_evse_number}/${receipt.source_connector_number}`),
+                    raw("p", receipt.reviewed_at));
+                return;
+            }
+            result.append(ui("p", "No connector review recorded"));
+            if (!company.capabilities?.owner || !company.capabilities?.inventory_operational ||
+                !["1.6", "2.0.1"].includes(charger.ocpp_protocol)) return;
+            const form = document.createElement("form");
+            const evse = document.createElement("input"), number = document.createElement("input");
+            evse.type = number.type = "number";
+            evse.required = number.required = true;
+            evse.step = number.step = "1";
+            evse.min = charger.ocpp_protocol === "1.6" ? "0" : "1";
+            evse.max = charger.ocpp_protocol === "1.6" ? "0" : "1000";
+            if (charger.ocpp_protocol === "1.6") { evse.value = "0"; evse.readOnly = true; }
+            number.min = "1"; number.max = "100";
+            const eLabel = ui("label", "Source EVSE number"), nLabel = ui("label", "Source connector number");
+            eLabel.append(evse); nLabel.append(number);
+            const submit = ui("button", "Record connector identity review"); submit.type = "submit";
+            form.append(eLabel, nLabel, ui("p", "The server rechecks the exact recent source target before saving."), submit);
+            result.append(form);
+            form.onsubmit = async event => {
+                event.preventDefault();
+                if (!current() || busy || !form.isConnected) return;
+                const e = Number(evse.value), n = Number(number.value);
+                if (!evse.value || !number.value || !Number.isSafeInteger(e) ||
+                    (charger.ocpp_protocol === "1.6" ? e !== 0 : e < 1 || e > 1000) ||
+                    !Number.isSafeInteger(n) || n < 1 || n > 100) return;
+                busy = true;
+                // Freeze the intent and remove the form before the write.
+                // An uncertain response requires an explicit GET, never a retry.
+                result.replaceChildren(ui("p", "Verifying source connector review…"));
+                try {
+                    const receipt = await api(path, "POST", {
+                        connector_id: connector.id, source_evse_number: e, source_connector_number: n,
+                    }, controller?.signal);
+                    if (!current()) return;
+                    if (!validReceipt(receipt) || receipt.source_evse_number !== e ||
+                        receipt.source_connector_number !== n || receipt.current_registration_matches !== true)
+                        throw Error("Unexpected review receipt.");
+                    render(receipt);
+                } catch (_) {
+                    if (current()) result.replaceChildren(ui("p", "Review outcome uncertain; read stored review before another submission."));
+                } finally { busy = false; }
+            };
+        }
+        button(pane, "Read stored connector review", read);
+    }
+
     async function connectors(company, charger, parent, operational, epoch) {
         parent.querySelector("[data-connectors]")?.remove();
         const pane = document.createElement("div");
@@ -3741,6 +3841,10 @@ window.createVendorWorkspace = ({
                 button(row, "Scheduled maintenance", () =>
                     maintenanceWindows(company, charger, c, row, epoch),
                 );
+                if (charger.source === "direct_unverified")
+                    button(row, "Direct connector identity review", () =>
+                        directConnectorReview(company, charger, c, row, epoch),
+                    );
                 if (company.capabilities.inventory_write)
                     form(
                         row,
