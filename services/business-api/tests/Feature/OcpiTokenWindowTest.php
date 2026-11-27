@@ -56,6 +56,49 @@ class OcpiTokenWindowTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_corrupt_peer_credentials_block_real_token_and_receiver_routes_without_writes(): void
+    {
+        [, $driver, , $provider, $location] = $this->fixture();
+        [$id] = $this->start($driver, $location);
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        $token = $this->writes[0]['body'];
+        $base = '/api/roaming-protocol/2.2.1';
+        $single = $base.'/tokens/'.$token['country_code'].'/'.$token['party_id'].'/'.$token['uid'];
+        $session = $this->sourceSessionFixture($provider, $order, $token);
+        $sessionPath = $base.'/sessions/NL/ABC/S1';
+        $this->withHeaders($this->peer())->getJson($single)->assertOk()->assertJsonPath('data.valid', true);
+        $this->withHeaders($this->peer())->putJson($sessionPath, $session)->assertCreated();
+        $this->withHeaders($this->peer())->getJson($sessionPath)->assertOk()->assertJsonPath('data.id', 'S1');
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id);
+        $original = $link->value('local_token_ciphertext');
+        $records = DB::table('ocpi_records')->count();
+        $receipts = DB::table('ocpi_record_receipts')->count();
+        $command = DB::table('ocpi_roaming_commands')->where('order_id', $id)->where('action', 'START_SESSION')->first();
+        foreach ([null, 'invalid-ciphertext', Crypt::encryptString('OTHER-SYNTHETIC-PEER')] as $corrupt) {
+            $link->update(['local_token_ciphertext' => $corrupt]);
+            $this->withHeaders($this->peer())->getJson($base.'/tokens')->assertUnauthorized()->assertJsonPath('data', null);
+            $this->withHeaders($this->peer())->getJson($single)->assertUnauthorized()->assertJsonPath('data', null);
+            $this->withHeaders($this->peer())->postJson($base.'/tokens/'.$token['uid'].'/authorize', ['location_id' => 'L1', 'evse_uids' => ['E1']])
+                ->assertUnauthorized()->assertJsonPath('data', null);
+            $this->withHeaders($this->peer())->getJson($sessionPath)->assertUnauthorized()->assertJsonPath('data', null);
+            $this->withHeaders($this->peer())->putJson($base.'/sessions/NL/ABC/S2', array_replace($session, ['id' => 'S2']))
+                ->assertUnauthorized()->assertJsonPath('data', null);
+            $this->withHeaders($this->peer())->postJson($base.'/cdrs', ['id' => 'D2'])->assertUnauthorized();
+            $this->withHeaders($this->peer())->postJson($base.'/commands/'.$command->callback_key, ['result' => 'ACCEPTED'])
+                ->assertUnauthorized();
+            $this->assertDatabaseCount('ocpi_records', $records);
+            $this->assertDatabaseCount('ocpi_record_receipts', $receipts);
+            $this->assertNull(DB::table('ocpi_roaming_orders')->find($id)->authorized_at);
+            $this->assertNull(DB::table('ocpi_roaming_commands')->find($command->id)->callback_result);
+        }
+        $link->update(['local_token_ciphertext' => $original]);
+        $this->withHeaders($this->peer())->getJson($sessionPath)->assertOk()->assertJsonPath('data.id', 'S1');
+        $this->withHeaders($this->peer())->getJson($single)->assertOk()->assertJsonPath('data.valid', true);
+        Http::assertSentCount(2);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
     public function test_token_reads_and_authorization_require_the_same_attempted_command(): void
     {
         $fixture = $this->fixture();
