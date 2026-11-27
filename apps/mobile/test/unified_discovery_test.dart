@@ -257,7 +257,9 @@ void main(){
     expect(api.calls,['GET discovery/open-charge-map/capabilities']);
     expect(find.text('private query'),findsNothing);
     expect(api.queries.single,isEmpty);
-    await tester.pageBack();await tester.pumpAndSettle();
+    final back=find.descendant(of:find.byType(LicensedDiscoveryScreen),matching:find.byType(BackButton));
+    expect(back,findsOneWidget);
+    await tester.tap(back);await tester.pumpAndSettle();
     expect(find.text('private query'),findsOneWidget);
     expect(api.calls,['GET discovery/open-charge-map/capabilities']);
     final stale=tester.widget<IconButton>(open).onPressed!;
