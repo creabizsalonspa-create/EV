@@ -206,12 +206,13 @@ class SubscriptionTest extends TestCase
         $f = $this->subscribe($p);
         $this->pay($f);
         $invoice = $f[1]['invoices'][0];
-        // Append a balanced but unrelated source posting. Existing immutable
-        // invoice, receipt and journal rows are not updated or deleted.
+        // Append two unrelated accounts under the invoice kind. They are
+        // distinct from the original invoice accounts, so the unique journal
+        // constraint and immutability triggers remain fully enforced.
         DB::table('commercial_subscription_ledger')->insert([
-            ['invoice_id' => $invoice['id'], 'kind' => 'invoice', 'account' => 'subscription_receivable',
+            ['invoice_id' => $invoice['id'], 'kind' => 'invoice', 'account' => 'cash:mock_subscription',
                 'debit_minor' => 1, 'credit_minor' => 0, 'created_at' => now()],
-            ['invoice_id' => $invoice['id'], 'kind' => 'invoice', 'account' => 'subscription_revenue',
+            ['invoice_id' => $invoice['id'], 'kind' => 'invoice', 'account' => 'cash:stripe_test_subscription',
                 'debit_minor' => 0, 'credit_minor' => 1, 'created_at' => now()],
         ]);
         $journalCount = DB::table('commercial_subscription_ledger')->count();

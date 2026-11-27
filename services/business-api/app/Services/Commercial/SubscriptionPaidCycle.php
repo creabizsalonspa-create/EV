@@ -29,6 +29,7 @@ final class SubscriptionPaidCycle
             $account => [$total, 0],
             'subscription_receivable' => [0, $total],
         ];
+
         return self::entriesMatch($rows, $expected);
     }
 
