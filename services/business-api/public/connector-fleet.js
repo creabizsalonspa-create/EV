@@ -149,6 +149,19 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
                                         if (seen.has(key)) throw Error('Duplicate target');
                                         seen.add(key);
                                     }
+                                    const coverage = reply.review_coverage;
+                                    if (coverage !== undefined && (!coverage ||
+                                        coverage.evidence !== 'DIRECT_CONNECTOR_REVIEW_COVERAGE_ONLY' ||
+                                        !['requires_review','all_identities_reviewed'].includes(coverage.state) ||
+                                        ['charging_mapping_created','physical_availability_verified','remote_control_authorized'].some(k => coverage[k] !== false) ||
+                                        !['inventory_count','source_target_count','current_review_count'].every(k => Number.isSafeInteger(coverage[k]) && coverage[k] >= 0 && coverage[k] <= 101) ||
+                                        coverage.source_target_count !== reply.connectors.length ||
+                                        coverage.current_review_count > Math.min(coverage.inventory_count, coverage.source_target_count) ||
+                                        (coverage.state === 'all_identities_reviewed' && (!reply.source_online || !reply.source_topology_complete ||
+                                            coverage.inventory_count < 1 || coverage.inventory_count > 100 ||
+                                            coverage.inventory_count !== coverage.source_target_count ||
+                                            coverage.inventory_count !== coverage.current_review_count ||
+                                            reply.connectors.some(row => row.state !== 'recent'))))) throw Error('Invalid review coverage');
                                     results.set(target.charger_id, reply);
                                 } catch (e) {
                                     if ([401,403,419].includes(e.status)) throw e;
@@ -163,6 +176,13 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
                             cell.append(node('p', (reply.source_topology_complete
                                 ? t('Source topology reported; local mappings not verified', 'أبلغ المصدر عن البنية؛ الربط المحلي غير متحقق')
                                 : t('Source topology incomplete; live status unknown', 'بنية المصدر غير مكتملة؛ الحالة مجهولة')) + ' · ' + reply.observed_at));
+                            const coverage = reply.review_coverage;
+                            cell.append(node('p', !coverage
+                                ? t('Connector review coverage unknown', 'تغطية مراجعة الموصلات غير معروفة')
+                                : (coverage.state === 'all_identities_reviewed'
+                                    ? t('All connector identities reviewed; charging not authorized', 'تمت مراجعة جميع هويات الموصلات؛ الشحن غير مصرح به')
+                                    : t('Connector identity review incomplete', 'مراجعة هويات الموصلات غير مكتملة')) +
+                                    ' · ' + coverage.current_review_count + '/' + coverage.inventory_count));
                             for (const row of reply.connectors) cell.append(node('p', row.source_evse_number + '/' + row.source_connector_number + ' · ' +
                                 (row.state === 'recent' ? (window.EvConnectorFreshness?.label(row.reported_status, document.documentElement.lang === 'ar') ?? row.reported_status)
                                     : t('Unknown or stale', 'مجهول أو قديم'))));
