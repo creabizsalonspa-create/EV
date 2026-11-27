@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 
 import 'api.dart';
@@ -32,14 +35,18 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
   ApiPage<Map<String, dynamic>>? offers;
   ApiPage<Map<String, dynamic>>? history;
   Map<String, dynamic>? receipt;
-  bool emailVerified = false;
+  bool emailVerified = false, foreground = true, revoked = false;
+  int? ownerId;
+  int privateEpoch = 0;
+  StreamSubscription<int>? session;
+  bool get visible => foreground && !revoked && ownsSession();
   bool busy = true;
   int generation = 0;
   String? message;
 
   String t(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
-  bool current(int epoch) => mounted && generation == epoch && ownsSession();
+  bool current(int epoch) => mounted && generation == epoch && visible;
   int? get pendingReview =>
       (operation?.pending?['body'] as Map?)?['review_id'] as int?;
 
@@ -48,31 +55,51 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
     super.initState();
     ownsSession = widget.api.sessionFence();
     WidgetsBinding.instance.addObserver(this);
+    session = widget.api.sessionEvents.listen((_) {
+      if (mounted) setState(() { revoked = true; clearPrivate(); });
+    });
     open();
   }
 
   @override
   void dispose() {
+    generation++;
+    privateEpoch++;
+    session?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
+  void clearPrivate() {
+    generation++;
+    privateEpoch++;
+    operation = null;
+    ownerId = null;
+    offers = null;
+    history = null;
+    receipt = null;
+    message = null;
+    emailVerified = false;
+    busy = false;
+  }
+
+  @override
+  void didUpdateWidget(covariant PartnerRewardsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api)) {
+      revoked = true;
+      clearPrivate();
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      open();
-    } else {
-      setState(() {
-        generation++;
-        operation = null;
-        offers = null;
-        history = null;
-        receipt = null;
-        message = null;
-        emailVerified = false;
-        busy = true;
-      });
-    }
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) clearPrivate();
+    });
+    if (visible && operation == null) open();
   }
 
   void checkEvidence(Map row) {
@@ -85,7 +112,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
     }
   }
 
-  bool validId(Object? value) => value is int && value > 0;
+  bool validId(Object? value) => value is int && value > 0 && value <= 9007199254740991;
 
   Map<String, dynamic> parseOffer(Map<String, dynamic> row) {
     checkEvidence(row);
@@ -99,7 +126,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
         row['ends_at'] is! String) {
       throw const FormatException('Invalid partner reward offer');
     }
-    return row;
+    return Map<String, dynamic>.unmodifiable(row);
   }
 
   Map<String, dynamic> parseClaim(Map<String, dynamic> row) {
@@ -111,14 +138,14 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
         !['pending', 'fulfilled', 'rejected'].contains(row['status'])) {
       throw const FormatException('Invalid partner reward receipt');
     }
-    return row;
+    return Map<String, dynamic>.unmodifiable(row);
   }
 
   Future<void> run(
     Future<void> Function(int) action, {
     required String Function() failed,
   }) async {
-    if (!ownsSession()) return;
+    if (!visible) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -127,7 +154,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
     try {
       await action(epoch);
     } catch (error) {
-      if (!mounted || generation != epoch) return;
+      if (!current(epoch)) return;
       if (error is ApiException && error.endsCurrentSession) {
         widget.onExpired();
       } else if (ownsSession()) {
@@ -144,10 +171,11 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
     if (!validId(actor['id']) || actor['role'] != 'customer') {
       throw const FormatException('Invalid customer account');
     }
+    final sourceEpoch = privateEpoch;
     final op = FinancialOperation(
       widget.store ?? DeviceFinancialOperationStore(),
       '${widget.api.base.origin}:${actor['id']}:loyalty:partner-reward',
-      isCurrent: () => mounted && ownsSession(),
+      isCurrent: () => mounted && visible && privateEpoch == sourceEpoch,
     );
     await op.restore();
     if (!current(epoch)) return;
@@ -157,6 +185,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
     }
     setState(() {
       operation = op;
+      ownerId = actor['id'] as int;
       emailVerified = actor['email_verified_at'] != null;
     });
     await loadOffers(epoch, 1);
@@ -304,40 +333,56 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
     );
   }
 
-  Future<void> clearSaved() async {
+  Future<void> cancelSaved() async {
     final op = operation;
-    if (op == null || busy) return;
+    final review = pendingReview;
+    final owner = ownerId;
+    final key = op?.pending?['key'];
+    if (!visible || busy || op == null || review == null ||
+        owner == null || key is! String) return;
     final epoch = generation;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
-        title: Text(
-          t('Clear the saved request?', 'هل تريد مسح الطلب المحفوظ؟'),
-        ),
-        content: Text(
-          t(
-            'Clearing this device does not cancel a claim already recorded by the server.',
-            'مسح الطلب من هذا الجهاز لا يلغي مطالبة سجلها الخادم بالفعل.',
-          ),
-        ),
+        title: Text(t('Cancel saved claim?', 'إلغاء المطالبة المحفوظة؟')),
+        content: Text(t(
+          'If a claim already exists, its receipt is preserved. Otherwise the server prevents this same request from claiming a reward later.',
+          'إذا كانت المطالبة موجودة فسيُحفظ إيصالها. وإلا سيمنع الخادم الطلب نفسه من المطالبة لاحقاً.',
+        )),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialog, false),
-            child: Text(t('Keep request', 'الاحتفاظ بالطلب')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialog, true),
-            child: Text(t('Clear', 'مسح')),
-          ),
+          TextButton(onPressed: () => Navigator.pop(dialog, false),
+            child: Text(t('Keep request', 'الاحتفاظ بالطلب'))),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true),
+            child: Text(t('Confirm cancellation', 'تأكيد الإلغاء'))),
         ],
       ),
     );
-    if (confirmed != true || !current(epoch) || busy) return;
-    await run(
-      (_) => op.confirmed(),
-      failed: () =>
-          t('Could not clear the saved request.', 'تعذر مسح الطلب المحفوظ.'),
-    );
+    if (confirmed != true || !current(epoch) || busy ||
+        !identical(op, operation)) return;
+    await run((requestEpoch) async {
+      final result = await widget.api.request('$endpoint/claim-intents/cancel',
+        method: 'POST', body: {'review_id': review, 'idempotency_key': key});
+      if (!current(requestEpoch)) return;
+      final request = sha256.convert(utf8.encode('partner-reward-claim:$owner:$key')).toString();
+      final binding = sha256.convert(utf8.encode('partner-reward-cancel-v1:$review:$request')).toString();
+      if (result is! Map || result['review_id'] is! int ||
+          result['review_id'] != review || result['request_binding'] != binding ||
+          !result.containsKey('claim')) {
+        throw const FormatException('Invalid cancellation acknowledgement.');
+      }
+      if (result['state'] == 'accepted' && result['claim'] != null) {
+        await acceptReceipt(requestEpoch, op, review, result['claim']);
+        return;
+      }
+      if (result['state'] != 'cancelled' || result['claim'] != null) {
+        throw const FormatException('Invalid cancellation state.');
+      }
+      await op.confirmed();
+      if (!current(requestEpoch)) return;
+      setState(() => message = t('Saved request cancelled by the server.',
+        'ألغى الخادم الطلب المحفوظ.'));
+    }, failed: () => t('Cancellation not confirmed. Keep the same saved request.',
+      'لم يتأكد الإلغاء. احتفظ بالطلب المحفوظ نفسه.'));
   }
 
   Widget pager(int page, int last, void Function(int) select) => Wrap(
@@ -415,7 +460,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
 
   @override
   Widget build(BuildContext context) {
-    if (!ownsSession()) return const Scaffold();
+    if (!visible) return const Scaffold();
     final pending = pendingReview;
     return Scaffold(
       appBar: AppBar(title: Text(partnerRewardsTitle(context))),
@@ -461,8 +506,8 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
               ),
             ),
             TextButton(
-              onPressed: busy ? null : clearSaved,
-              child: Text(t('Clear saved claim', 'مسح المطالبة المحفوظة')),
+              onPressed: busy ? null : cancelSaved,
+              child: Text(t('Cancel saved claim', 'إلغاء المطالبة المحفوظة')),
             ),
           ],
           if (receipt case final confirmed?) ...[
