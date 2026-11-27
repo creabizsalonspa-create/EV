@@ -63,7 +63,7 @@ final class LicensedCoverageHistory
                 return ['state' => 'captured', 'hour_utc' => $hour->toISOString()];
             }
 
-            return ['state' => $this->valid(Cache::get($key)) ? 'already_captured' : 'storage_unavailable',
+            return ['state' => $this->validObservation(Cache::get($key), $current['configured_areas']) ? 'already_captured' : 'storage_unavailable',
                 'hour_utc' => $hour->toISOString()];
         } catch (Throwable) {
             return ['state' => 'storage_unavailable'];
@@ -99,8 +99,7 @@ final class LicensedCoverageHistory
                 if ($row === null) {
                     continue;
                 }
-                if (! $this->valid($row) || $row['configured_areas'] !== $current['configured_areas']
-                    || $row['observed_areas'] === 0) {
+                if (! $this->validObservation($row, $current['configured_areas'])) {
                     $report['unverified_hours']++;
 
                     continue;
@@ -128,6 +127,12 @@ final class LicensedCoverageHistory
     private function key(string $scope, CarbonImmutable $hour): string
     {
         return 'ocm-coverage-history:v1:'.$scope.':'.$hour->format('YmdH');
+    }
+
+    private function validObservation(mixed $row, int $configuredAreas): bool
+    {
+        return $this->valid($row) && $row['configured_areas'] === $configuredAreas
+            && $row['observed_areas'] > 0;
     }
 
     private function valid(mixed $row): bool

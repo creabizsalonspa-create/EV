@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\Discovery\LicensedCoverageHistory;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -124,6 +125,56 @@ class LicensedCoverageHistoryTest extends TestCase
         $this->assertSame('disabled', $history->capture()['state']);
         $this->artisan('discovery:licensed-coverage-history --capture')->assertFailed();
         Http::assertSentCount(1);
+    }
+
+    public function test_existing_empty_or_wrong_scope_history_never_acknowledges_a_capture(): void
+    {
+        Http::fake(['api.openchargemap.io/*' => Http::response([], 200, ['Content-Type' => 'application/json'])]);
+        $this->populate(0);
+        $history = app(LicensedCoverageHistory::class);
+        $scope = hash('sha256', json_encode([
+            self::AREAS, hash('sha256', 'synthetic-private-history-key'),
+        ], JSON_THROW_ON_ERROR));
+        $key = 'ocm-coverage-history:v1:'.$scope.':2026112606';
+        $row = [
+            'configured_areas' => 2, 'observed_areas' => 0, 'areas_with_reports' => 0,
+            'areas_empty' => 0, 'unobserved_areas' => 2, 'unverified_areas' => 0,
+            'returned_record_observations' => 0, 'unknown_time_observations' => 0,
+            'older_than_24h_observations' => 0, 'unknown_operating_observations' => 0,
+        ];
+        foreach ([$row, array_replace($row, ['configured_areas' => 1, 'observed_areas' => 1, 'areas_empty' => 1, 'unobserved_areas' => 0])] as $invalid) {
+            Cache::put($key, $invalid, 3600);
+            $this->assertSame('storage_unavailable', $history->capture()['state']);
+            $this->assertSame(0, $history->report()['observed_hours']);
+            $this->assertSame(1, $history->report()['unverified_hours']);
+            $this->assertSame($invalid, Cache::get($key));
+        }
+        Cache::forget($key);
+        $this->assertSame('captured', $history->capture()['state']);
+        $this->assertSame('already_captured', $history->capture()['state']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_scheduled_capture_is_explicitly_opted_in_and_never_fetches_source(): void
+    {
+        $events = collect(app(Schedule::class)->events())
+            ->filter(fn ($event) => str_contains($event->command ?? '', 'discovery:licensed-coverage-history --capture'));
+        $this->assertCount(1, $events);
+        $event = $events->first();
+        $this->assertSame('* * * * *', $event->expression);
+        $this->assertTrue($event->withoutOverlapping);
+        config(['discovery.ocm_coverage_sampling_enabled' => false]);
+        $this->assertFalse($event->filtersPass(app()));
+        config(['discovery.ocm_coverage_sampling_enabled' => true]);
+        $this->assertTrue($event->filtersPass(app()));
+        foreach (['ocm_coverage_enabled', 'ocm_enabled', 'ocm_terms_accepted'] as $flag) {
+            config(['discovery.'.$flag => false]);
+            $this->assertFalse($event->filtersPass(app()));
+            config(['discovery.'.$flag => true]);
+        }
+        $this->artisan('discovery:licensed-coverage-history --capture')->assertSuccessful();
+        $this->assertSame(0, app(LicensedCoverageHistory::class)->report()['observed_hours']);
+        Http::assertNothingSent();
     }
 
     public function test_corrupt_history_does_not_become_measured_coverage(): void
