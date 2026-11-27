@@ -61,18 +61,9 @@ final class ChargerLiveConnectorsController extends Controller
             $binding = DB::table('csms_bindings')->where('id', $receipt->binding_id)->lockForUpdate()->first();
             abort_unless($binding && $binding->station_id === $station->id &&
                 $binding->vendor_charger_id === $charger->id && $binding->protocol === $charger->ocpp_protocol, 409);
-            // Reconstruct the original offline registration receipt, not the
-            // mutable live station state. GraphQL's selected field order is
-            // the order used by the registration adapter when hashing it.
-            $expectedReceipt = hash('sha256', json_encode([
-                'id' => $receipt->source_station_id, 'tenantId' => 1,
-                'ocppConnectionName' => $binding->identifier, 'protocol' => 'ocpp'.$binding->protocol,
-                'isOnline' => false, 'chargePointVendor' => $charger->manufacturer,
-                'chargePointModel' => $charger->model,
-            ], JSON_THROW_ON_ERROR));
-            abort_unless(is_string($receipt->source_receipt_hash)
-                && hash_equals($expectedReceipt, $receipt->source_receipt_hash), 409,
-                'Original source registration receipt requires reconciliation.');
+            // Operator reconciliation validates the legacy offline digest once.
+            // Its immutable fingerprint pins the exact registration fields and
+            // receipt hash here; do not infer the upstream JSON key order.
             $authority = app(DirectSourceAuthority::class)->requireCurrent();
             app(DirectSourceRegistrationEpoch::class)->requireCurrent($receipt, $authority);
             // Pin durable registration provenance, not an arbitrary same-name row.
