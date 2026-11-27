@@ -8,11 +8,24 @@ import 'package:flutter_map/flutter_map.dart' show TileProvider;
 import 'api.dart';
 
 /// Published local records only. This view never grants remote charging rights.
-String partnerCatalogAgeLabel(Map<String,dynamic> row, bool ar) {
+/// Source and search clocks must agree with the server's floored age.
+/// Ingestion time never substitutes for a missing partner observation.
+String? verifiedPartnerSourceTime(Map<String,dynamic> row) {
   final age = row['reported_source_age_minutes'];
-  final known = row['source_timestamp_evidence'] == 'PARTNER_REPORTED_ONLY' &&
-      row['source_clock_evidence'] == 'PARTNER_REPORTED_TIME' && age is int && age >= 0;
-  if (!known) return ar ? 'عمر الكتالوج المبلغ عنه غير معروف أو ساعة الشريك متقدمة' : 'Reported catalog age unknown or partner clock ahead';
+  if (row['evidence'] != 'PARTNER_REPORTED_UNVERIFIED' ||
+      row['source_timestamp_evidence'] != 'PARTNER_REPORTED_ONLY' ||
+      row['source_clock_evidence'] != 'PARTNER_REPORTED_TIME' ||
+      age is! int || age < 0) return null;
+  final observed = strictUtcConnectorTime(row['source_updated_at']);
+  final checked = strictUtcConnectorTime(row['catalog_checked_at']);
+  if (observed == null || checked == null || observed.isAfter(checked) ||
+      checked.difference(observed).inMinutes != age) return null;
+  return row['source_updated_at'] as String;
+}
+
+String partnerCatalogAgeLabel(Map<String,dynamic> row, bool ar) {
+  if (verifiedPartnerSourceTime(row) == null) return ar ? 'عمر الكتالوج المبلغ عنه غير معروف أو ساعة الشريك متقدمة' : 'Reported catalog age unknown or partner clock ahead';
+  final age = row['reported_source_age_minutes'] as int;
   final stale = age >= 1440;
   return ar
       ? 'عمر الكتالوج المبلغ عنه عند البحث: $age دقيقة${stale ? ' · أقدم من 24 ساعة' : ''}'
@@ -384,7 +397,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     final address=[location['address'],location['city'],location['country']]
       .whereType<String>().where((value)=>value.trim().isNotEmpty).join(' · ');
     final locationCanMap=PartnerMapPoint.fromPublishedLocation(location)!=null;
-    return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(safeName),if(widget.customer&&trustedPartner(row))favoriteButton(row),Text(provider),Text(address.isNotEmpty?address:tr('Address details unavailable','تفاصيل العنوان غير متاحة')),if(!locationCanMap)Text(tr('Map coordinates unavailable; this record can only be inspected in the list.','إحداثيات الخريطة غير متاحة؛ يمكن عرض هذا السجل في القائمة فقط.')),Text(tr('Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد')),Text(tr('Reported source time: ${row['source_updated_at']??'unknown'}','وقت المصدر المبلغ عنه: ${row['source_updated_at']??'غير معروف'}')),Text(partnerCatalogAgeLabel(row,Localizations.localeOf(context).languageCode=='ar')),Text(partnerCatalogPolicyText(row['catalog_age_policy'],Localizations.localeOf(context).languageCode=='ar')),Text(tr('Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'))])));
+    return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(safeName),if(widget.customer&&trustedPartner(row))favoriteButton(row),Text(provider),Text(address.isNotEmpty?address:tr('Address details unavailable','تفاصيل العنوان غير متاحة')),if(!locationCanMap)Text(tr('Map coordinates unavailable; this record can only be inspected in the list.','إحداثيات الخريطة غير متاحة؛ يمكن عرض هذا السجل في القائمة فقط.')),Text(tr('Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد')),Text(tr('Reported source time: ${verifiedPartnerSourceTime(row)??'unknown'}','وقت المصدر المبلغ عنه: ${verifiedPartnerSourceTime(row)??'غير معروف'}')),Text(partnerCatalogAgeLabel(row,Localizations.localeOf(context).languageCode=='ar')),Text(partnerCatalogPolicyText(row['catalog_age_policy'],Localizations.localeOf(context).languageCode=='ar')),Text(tr('Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'))])));
   }
   Widget favoriteButton(Map<String,dynamic> row)=>TextButton(
     key:ValueKey('unified-favorite-${row['key']}'),
