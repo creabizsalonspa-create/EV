@@ -5,6 +5,7 @@ const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const directory = mkdtempSync(join(tmpdir(), "ev-native-commercial-"));
 try {
+ for (const suite of ["live_commercial_parity_test.dart", "live_checkout_refund_dispute_test.dart"]) {
   const run = randomBytes(4).toString("hex"),
     password = randomBytes(24).toString("hex") + "aA9!";
   const fixture = JSON.parse(
@@ -28,13 +29,14 @@ try {
   );
   execFileSync(
     "flutter",
-    ["test", "test/live_commercial_parity_test.dart", "--reporter", "expanded"],
+    ["test", `test/${suite}`, "--reporter", "expanded"],
     {
       cwd: "apps/mobile",
       stdio: "inherit",
       env: { ...process.env, EV_NATIVE_COMMERCIAL_FIXTURE: input },
     },
   );
+ }
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }
