@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/corporate_cycle_review.dart';
+import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/corporate_billing.dart';
 import 'corporate_billing_test.dart' show CorporateApi, corporateApp;
 
@@ -26,6 +27,12 @@ class CycleApi extends CorporateApi {
   int reviewReads = 0;
   Completer<dynamic>? delayed;
   bool malformed = false, canIssue = false, forgeIssue = false;
+  bool expireRead = false, expireIssue = false;
+  Never expire() {
+    revoke();
+    final invalidated = epoch;
+    throw ApiException(401, 'Expired', expirationIsCurrent: () => epoch == invalidated);
+  }
   @override
   Stream<int> get sessionEvents => changes.stream;
   @override
@@ -52,6 +59,7 @@ class CycleApi extends CorporateApi {
       expect(body, isNull);
       reviewReads++;
       if (delayed != null) return delayed!.future;
+      if (expireRead) expire();
       return reviewSource()
         ..['agreement_id'] = malformed ? 8 : 6
         ..['can_issue_reviewed_batch'] = canIssue;
@@ -60,6 +68,7 @@ class CycleApi extends CorporateApi {
       expect(method, 'POST');
       posts++;
       bodies.add({...body!});
+      if (expireIssue) expire();
       return {
         'statement_id': 12, 'agreement_id': 6,
         'period': body['period'], 'claim_ids': body['claim_ids'],
@@ -73,8 +82,8 @@ class CycleApi extends CorporateApi {
   }
 }
 
-Widget reviewApp(CycleApi api, {bool ar = false}) => corporateApp(
-  CorporateCycleReviewView(api: api, onExpired: () {}, agreementId: 6,
+Widget reviewApp(CycleApi api, {bool ar = false, VoidCallback? onExpired}) => corporateApp(
+  CorporateCycleReviewView(api: api, onExpired: onExpired ?? () {}, agreementId: 6,
     fleetId: 4, currency: 'KWD', precision: 3), ar: ar);
 
 void main() {
@@ -204,6 +213,51 @@ void main() {
     expect(find.text('Proposed total: KWD 1.250'), findsNothing);
     expect(find.text('Refresh cycle review'), findsNothing);
     expect(api.posts, 0);
+  });
+
+  testWidgets('current read expiry clears private review and requests sign-in', (t) async {
+    final api = CycleApi()..expireRead = true;
+    addTearDown(api.close);
+    var expirations = 0;
+    await t.pumpWidget(reviewApp(api, onExpired: () { expirations++; }));
+    await t.pumpAndSettle();
+    expect(expirations, 1);
+    expect(find.text('Proposed total: KWD 1.250'), findsNothing);
+    expect(api.posts, 0);
+  });
+
+  testWidgets('current issue expiry requests sign-in without confirming a statement', (t) async {
+    final api = CycleApi()..canIssue = true..expireIssue = true;
+    addTearDown(api.close);
+    var expirations = 0;
+    await t.pumpWidget(reviewApp(api, onExpired: () { expirations++; }));
+    await t.pumpAndSettle();
+    await t.ensureVisible(find.text('Issue reviewed TEST statement'));
+    await t.tap(find.text('Issue reviewed TEST statement'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Confirm TEST issue'));
+    await t.pumpAndSettle();
+    expect(api.posts, 1);
+    expect(expirations, 1);
+    expect(find.textContaining('TEST statement #'), findsNothing);
+    expect(find.text('Issue reviewed TEST statement'), findsNothing);
+  });
+
+  testWidgets('superseded expiry cannot sign out another generation', (t) async {
+    final api = CycleApi()..delayed = Completer<dynamic>();
+    addTearDown(api.close);
+    var expirations = 0;
+    await t.pumpWidget(reviewApp(api, onExpired: () { expirations++; }));
+    await t.pump();
+    expect(api.reviewReads, 1);
+    api.revoke();
+    final expiredGeneration = api.epoch;
+    api.revoke();
+    api.delayed!.completeError(ApiException(401, 'Old expiry',
+      expirationIsCurrent: () => api.epoch == expiredGeneration));
+    await t.pumpAndSettle();
+    expect(expirations, 0);
+    expect(find.text('Proposed total: KWD 1.250'), findsNothing);
   });
 
   testWidgets('Arabic review clears on background and fails closed on forged refresh', (t) async {
