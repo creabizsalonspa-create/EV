@@ -10,6 +10,7 @@ let invitationPage = 1, invitationGeneration = 0,
     invitationRequest = null, invitationOwner = null;
 let fleetDetailGeneration = 0, fleetDetailRequest = null;
 let fleetCreatePending = false;
+let regionalConfigBusy = false;
 // Startup's pending-logout branch can clear identity before lower sections
 // initialize. Every mutation lock read by clearPrivateViews must exist now.
 let vehicleCreatePending = false,
@@ -139,6 +140,18 @@ function clearIdentity() {
     return epoch;
 }
 function clearPrivateViews() {
+    // Public country labels may remain, but reviewed Admin drafts and
+    // detached mutation callbacks must never cross a credential epoch.
+    const regionForm = el("region-config");
+    regionForm.reset();
+    delete regionForm.dataset.expectedCountry;
+    delete regionForm.dataset.expectedRevision;
+    delete regionForm.dataset.expectedEpoch;
+    delete regionForm.dataset.expectedValues;
+    regionalConfigBusy = false;
+    regionForm.inert = false;
+    regionForm.querySelector("button").disabled = false;
+    el("region-list").querySelectorAll("[data-access=admin]").forEach((node) => node.remove());
     inboxUnreadOnly = false;
     inboxCategory = "all";
     inboxPreferences = null;
@@ -1421,11 +1434,37 @@ async function simulations(page = simulationPage) {
     }
 }
 async function regions() {
+    const epoch = client.sessionEpoch;
     const rows = await api("regions");
+    if (epoch !== client.sessionEpoch) return;
     const root = el("region-list");
     root.replaceChildren();
     for (const region of rows) {
         root.append(ui("p", "{country} · {currency} · {timezone} · commerce disabled", region));
+        if (user?.role === "admin" && Number.isSafeInteger(region.configuration_revision) &&
+            region.configuration_revision >= 1) {
+            const edit = batteryNode("button", "Edit reviewed regional settings", "تعديل إعدادات المنطقة التي تمت مراجعتها");
+            edit.type = "button";
+            edit.dataset.access = "admin";
+            edit.dataset.regionConfigurationEdit = region.country;
+            edit.onclick = () => {
+                if (!edit.isConnected || regionalConfigBusy || epoch !== client.sessionEpoch || user?.role !== "admin") return;
+                const form = el("region-config");
+                for (const key of ["country", "currency", "minor_units", "timezone", "tax_bps"]) {
+                    form.elements.namedItem(key).value = region[key] ?? "";
+                }
+                form.dataset.expectedCountry = region.country;
+                form.dataset.expectedRevision = String(region.configuration_revision);
+                form.dataset.expectedEpoch = String(epoch);
+                form.dataset.expectedValues = JSON.stringify({
+                    currency: region.currency, minor_units: region.minor_units,
+                    timezone: region.timezone, tax_bps: region.tax_bps,
+                    commerce_enabled: region.commerce_enabled,
+                });
+                form.elements.namedItem("currency").focus();
+            };
+            root.append(edit);
+        }
         const enabled = Boolean(region.review_intake_enabled);
         const button = enabled
             ? batteryNode("button", "Pause new charging feedback", "إيقاف استقبال ملاحظات الشحن الجديدة")
@@ -1435,8 +1474,7 @@ async function regions() {
         button.dataset.regionReviewIntake = region.country;
         button.hidden = user?.role !== "admin";
         button.onclick = async () => {
-            if (button.disabled || user?.role !== "admin") return;
-            const epoch = client.sessionEpoch;
+            if (!button.isConnected || button.disabled || epoch !== client.sessionEpoch || user?.role !== "admin") return;
             button.disabled = true;
             try {
                 await api("regions/" + encodeURIComponent(region.country) + "/review-intake", "PUT", {
@@ -1871,18 +1909,65 @@ el("fleet-create").onsubmit = async (e) => {
         }
     }
 };
+function verifyRegionalConfigurationReceipt(saved, country, values, reviewed) {
+    const expected = values.expected_revision;
+    const normalized = {
+        currency: values.currency, minor_units: Number(values.minor_units),
+        timezone: values.timezone, tax_bps: values.tax_bps === null ? null : Number(values.tax_bps),
+    };
+    const fail = () => { throw Error("Regional configuration receipt cannot be verified."); };
+    if (!Number.isSafeInteger(expected) || expected < 0 ||
+        expected >= Number.MAX_SAFE_INTEGER || (expected > 0 && !reviewed)) fail();
+    const same = expected > 0 && [false, 0].includes(reviewed.commerce_enabled) &&
+        Object.keys(normalized).every(key => reviewed[key] === normalized[key]);
+    const revision = expected + (same ? 0 : 1);
+    if (!saved || saved.country !== country || saved.configuration_revision !== revision ||
+        !Object.keys(normalized).every(key => saved[key] === normalized[key]) ||
+        ![false, 0].includes(saved.commerce_enabled)) fail();
+    return {...normalized, commerce_enabled: saved.commerce_enabled};
+}
 el("region-config").onsubmit = async (e) => {
     e.preventDefault();
+    if (regionalConfigBusy || user?.role !== "admin") return;
+    const form = e.target, epoch = client.sessionEpoch;
+    const submit = form.querySelector("button");
+    const ticket = {epoch};
+    regionalConfigBusy = ticket;
+    submit.disabled = true;
+    form.inert = true;
     try {
-        let v = Object.fromEntries(new FormData(e.target)),
-            country = v.country;
+        const v = Object.fromEntries(new FormData(form)), country = v.country;
         delete v.country;
-        if (!v.tax_bps) v.tax_bps = null;
-        await api("regions/" + encodeURIComponent(country), "PUT", v);
+        v.tax_bps = v.tax_bps === "" ? null : v.tax_bps;
+        v.expected_revision = form.dataset.expectedCountry === country &&
+            form.dataset.expectedEpoch === String(epoch) ? Number(form.dataset.expectedRevision) : 0;
+        const reviewed = v.expected_revision > 0 ? JSON.parse(form.dataset.expectedValues ?? "null") : null;
+        const saved = await api("regions/" + encodeURIComponent(country), "PUT", v);
+        if (regionalConfigBusy !== ticket || epoch !== client.sessionEpoch || user?.role !== "admin") return;
+        const accepted = verifyRegionalConfigurationReceipt(saved, country, v, reviewed);
+        form.dataset.expectedCountry = country;
+        form.dataset.expectedRevision = String(saved.configuration_revision);
+        form.dataset.expectedEpoch = String(epoch);
+        form.dataset.expectedValues = JSON.stringify(accepted);
         await regions();
-        notice("Configuration saved. Commercial activation remains disabled.");
-    } catch (e) {
-        notice(e);
+        if (epoch === client.sessionEpoch)
+            notice("Configuration saved. Commercial activation remains disabled.");
+    } catch (error) {
+        if (regionalConfigBusy !== ticket || epoch !== client.sessionEpoch) return;
+        // A lost response, malformed receipt or conflict can conceal a
+        // committed update. Never retain its reviewed authority for retry.
+        delete form.dataset.expectedRevision;
+        delete form.dataset.expectedCountry;
+        delete form.dataset.expectedEpoch;
+        delete form.dataset.expectedValues;
+        notice(error);
+        if (error.status === 409) await regions().catch(notice);
+    } finally {
+        if (regionalConfigBusy === ticket) {
+            regionalConfigBusy = false;
+            form.inert = false;
+            submit.disabled = false;
+        }
     }
 };
 el("account").onsubmit = async (e) => {
@@ -1909,6 +1994,8 @@ el("account").onsubmit = async (e) => {
         await identity();
         if (epoch !== client.sessionEpoch) return;
         await stations();
+        if (epoch !== client.sessionEpoch) return;
+        await regions();
         if (epoch === client.sessionEpoch) notice("Signed in.");
     } catch (error) {
         if (error.status === 422 && error.errors?.second_factor_code) {
