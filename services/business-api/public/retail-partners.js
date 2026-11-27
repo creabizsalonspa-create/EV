@@ -334,6 +334,58 @@
             if (ticket === generation) fail(e);
         }
     }
+    function validateRewardHistory(data, row, partner, eventPage, claimsPage) {
+        const positive = n => Number.isSafeInteger(n) && n > 0;
+        const validPage = (p, requested) => p && positive(requested) && requested <= 100000
+            && Array.isArray(p.data) && p.current_page === requested && p.per_page === 25
+            && Number.isSafeInteger(p.total) && p.total >= 0
+            && p.last_page === Math.max(1, Math.ceil(p.total / 25))
+            && p.data.length === Math.min(25, Math.max(0, p.total - (requested - 1) * 25));
+        const fail = () => { throw Error("Invalid partner claim evidence"); };
+        const review = data?.review;
+        if (!review || review.id !== row.id || review.partner_id !== partner.id
+            || !["reward_id", "partner_version_id", "partner_revision", "proposed_by"].every(k =>
+                positive(review[k]) && review[k] === row[k])
+            || !positive(review.revision) || review.revision < row.revision
+            || review.fulfillment_enabled !== false
+            || !validPage(data.events, eventPage) || !validPage(data.claims, claimsPage)) fail();
+        // The canonical state machine appends propose, approve/reject, and
+        // optionally revoke. No review can have more than three decisions.
+        const chain = { propose: ["propose"], approve: ["propose", "approve"],
+            reject: ["propose", "reject"], revoke: ["propose", "approve", "revoke"] };
+        const expected = Object.hasOwn(chain, review.decision) ? chain[review.decision] : null;
+        if (!expected || review.revision !== expected.length
+            || data.events.total !== expected.length || eventPage !== 1) fail();
+        for (let i = 0; i < expected.length; i++) {
+            const e = data.events.data[i], revision = expected.length - i;
+            if (!e || e.revision !== revision || e.decision !== expected[revision - 1]
+                || !positive(e.actor_id) || typeof e.reason !== "string"
+                || e.reason.length < 5 || e.reason.length > 500
+                || typeof e.created_at !== "string" || !Number.isFinite(Date.parse(e.created_at))
+                || (revision === 1 && e.actor_id !== review.proposed_by)
+                || (revision === 2 && e.actor_id === review.proposed_by)
+                || (i === 0 && (e.actor_id !== review.decision_actor_id || e.reason !== review.reason))) fail();
+        }
+        if (!["approve", "revoke"].includes(review.decision) && data.claims.total !== 0) fail();
+        const redemptions = new Set();
+        let previous = Infinity, approval = null;
+        for (const c of data.claims.data) {
+            if (!c || !positive(c.id) || c.id >= previous || c.review_id !== row.id
+                || !positive(c.redemption_id) || redemptions.has(c.redemption_id)
+                || !positive(c.approval_event_id) || (approval !== null && approval !== c.approval_event_id)
+                || !["pending", "fulfilled", "rejected"].includes(c.status)
+                || c.points_cost !== 0 || c.source !== "RETAIL_PARTNER_REWARD"
+                || c.evidence !== "SANDBOX_MANUAL_NONCASH" || c.cash_value !== false
+                || c.external_fulfillment_verified !== false
+                || typeof c.created_at !== "string" || !Number.isFinite(Date.parse(c.created_at))
+                || ["user_id", "redemption_user_id", "email", "request_key", "fingerprint"].some(k => k in c)) fail();
+            previous = c.id;
+            approval = c.approval_event_id;
+            redemptions.add(c.redemption_id);
+        }
+        return data;
+    }
+
     async function loadRewardReviews(partner, panel, page = 1) {
         const ticket = generation;
         const owner = actor;
@@ -356,7 +408,7 @@
             function write(parent, key, path, data) {
                 let previous, requestKey;
                 parent.append(button(key, async () => {
-                    if (!active() || busy) return;
+                    if (!active() || busy || !parent.isConnected) return;
                     const payload = data();
                     if (!payload) {
                         status("invalid");
@@ -419,20 +471,8 @@
                     try {
                         const data = await request(`${endpoint}/${row.id}?page=${eventPage}&claims_page=${claimsPage}`);
                         if (!active() || sequence !== historyGeneration || !history.isConnected) return;
-                        const positive = (id) => Number.isSafeInteger(id) && id > 0;
-                        const validPage = (value, requested) => value && Array.isArray(value.data)
-                            && value.data.length <= 25 && value.current_page === requested
-                            && positive(value.last_page);
+                        validateRewardHistory(data, row, partner, eventPage, claimsPage);
                         const states = { pending: "claimPending", fulfilled: "claimFulfilled", rejected: "claimRejected" };
-                        if (data.review?.id !== row.id || data.review?.partner_id !== partner.id
-                            || !validPage(data.events, eventPage) || !validPage(data.claims, claimsPage)
-                            || new Set(data.claims.data.map(claim => claim.id)).size !== data.claims.data.length
-                            || data.claims.data.some(claim => !positive(claim.id) || claim.review_id !== row.id
-                                || !positive(claim.redemption_id) || !positive(claim.approval_event_id)
-                                || !Object.hasOwn(states, claim.status) || claim.points_cost !== 0
-                                || claim.source !== "RETAIL_PARTNER_REWARD" || claim.evidence !== "SANDBOX_MANUAL_NONCASH"
-                                || claim.cash_value !== false || claim.external_fulfillment_verified !== false))
-                            throw Error("Invalid partner claim evidence");
                         for (const event of data.events.data)
                             history.append(node("p", `${event.revision} · ${t(event.decision)} · ${event.reason}`));
                         if (data.events.current_page > 1)

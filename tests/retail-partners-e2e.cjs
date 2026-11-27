@@ -3,7 +3,58 @@ const { execFileSync } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+function verifyRewardHistoryParser() {
+  const source = fs.readFileSync("services/business-api/public/retail-partners.js", "utf8");
+  const start = source.indexOf("    function validateRewardHistory(");
+  const end = source.indexOf("    async function loadRewardReviews(", start);
+  assert(start >= 0 && end > start);
+  const validate = new Function(source.slice(start, end) + "\nreturn validateRewardHistory;")();
+  const row = {id: 3, partner_id: 2, reward_id: 8, partner_version_id: 4,
+    partner_revision: 2, proposed_by: 10, revision: 2, decision: "approve",
+    decision_actor_id: 11, reason: "Independent review", fulfillment_enabled: false};
+  const at = "2026-11-27T00:00:00Z";
+  const claim = {id: 5, review_id: 3, redemption_id: 6, approval_event_id: 7,
+    created_at: at, status: "pending", points_cost: 0, source: "RETAIL_PARTNER_REWARD",
+    evidence: "SANDBOX_MANUAL_NONCASH", cash_value: false, external_fulfillment_verified: false};
+  const page = data => ({data, current_page: 1, last_page: 1, per_page: 25, total: data.length});
+  const good = {review: {...row}, events: page([
+    {revision: 2, decision: "approve", reason: row.reason, actor_id: 11, created_at: at},
+    {revision: 1, decision: "propose", reason: "Original proposal", actor_id: 10, created_at: at},
+  ]), claims: page([claim])};
+  const run = mutate => {
+    const data = JSON.parse(JSON.stringify(good));
+    mutate(data);
+    return validate(data, row, {id: 2}, 1, 1);
+  };
+  assert.equal(run(() => {}).claims.total, 1);
+  assert.equal(run(d => {d.claims = page([]);}).claims.total, 0);
+  assert.equal(run(d => {
+    d.review = {...d.review, revision: 3, decision: "revoke", reason: "Revoke approval"};
+    d.events = page([{revision: 3, decision: "revoke", reason: "Revoke approval",
+      actor_id: 11, created_at: at}, ...d.events.data]);
+  }).review.revision, 3);
+  const bad = [
+    d => {d.events.data[0].decision = "forged";},
+    d => {d.events.data[0].actor_id = 10;},
+    d => {d.events.data.reverse();},
+    d => {d.events = page([]);},
+    d => {d.claims = page([{...claim, id: 6}, claim]);},
+    d => {d.claims.last_page = 999;},
+    d => {d.claims.data[0].user_id = 123;},
+    d => {d.claims.data[0].external_fulfillment_verified = true;},
+    d => {d.claims = page([{...claim, id: 6, redemption_id: 9, approval_event_id: 99}, claim]);},
+    d => {d.review.reward_id = 100;},
+    d => {d.review.fulfillment_enabled = true;},
+    d => {d.review.revision = 1;},
+    d => {d.claims.data[0].created_at = "invalid";},
+    d => {d.claims.total = 2;},
+  ];
+  for (const mutate of bad) assert.throws(() => run(mutate), /Invalid partner claim evidence/);
+  console.log("PASS reward history: 3 valid and " + bad.length + " rejected cases");
+}
+
 (async () => {
+  verifyRewardHistoryParser();
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["127.0.0.1", "localhost"].includes(new URL(base).hostname));
   const run = randomBytes(4).toString("hex"),
