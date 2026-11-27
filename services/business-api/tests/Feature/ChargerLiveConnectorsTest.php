@@ -300,13 +300,25 @@ class ChargerLiveConnectorsTest extends TestCase
         $this->assertDatabaseCount('direct_source_registration_epochs', 2);
         $this->getJson($path)->assertOk()->assertJsonPath('data.0.current_registration_matches', false);
         $this->postJson($path, $body)->assertConflict();
+        $this->source($f, 'replacement_source_connector');
+        $this->postJson($path, $body)->assertConflict();
+        $this->source($f, 'newer_review_event');
+        $renewed = $this->postJson($path, $body)->assertCreated()
+            ->assertJsonPath('current_registration_matches', true)->json('id');
+        $this->postJson($path, $body)->assertOk()->assertJsonPath('id', $renewed);
+        $this->getJson($path.'?connector_id='.$connector->id)->assertOk()
+            ->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $renewed);
+        $this->assertDatabaseHas('direct_connector_review_receipts', ['connector_id' => $connector->id,
+            'authority_epoch' => 1, 'source_event_id' => 11]);
+        $this->assertDatabaseHas('direct_connector_review_receipts', ['connector_id' => $connector->id,
+            'authority_epoch' => 2, 'source_event_id' => 21]);
         config(['csms.registered_source_authority_epoch' => 1]);
         $this->source($f);
         $this->getJson($f['url'])->assertConflict();
         $this->artisan('csms:provision-direct-source-authority', ['--ticket' => 'TEST-ROLLBACK'])->assertFailed();
         Http::assertNothingSent();
         $this->assertDatabaseCount('direct_source_authority_epochs', 2);
-        $this->assertDatabaseCount('direct_connector_review_receipts', 1);
+        $this->assertDatabaseCount('direct_connector_review_receipts', 2);
         $this->assertDatabaseCount('charging_connector_mappings', 0);
         $this->assertDatabaseCount('charger_commands', 0);
     }
@@ -591,6 +603,11 @@ class ChargerLiveConnectorsTest extends TestCase
             }
             if ($case === 'regressed_source_event_id') {
                 $events[1]['id'] = 10;
+            }
+            if ($case === 'newer_review_event') {
+                array_unshift($events, array_replace($events[1], [
+                    'id' => 21, 'timestamp' => now()->subSeconds(5)->toISOString(),
+                ]));
             }
             return Http::response(['data' => [
                 'Connectors' => [['id' => $case === 'replacement_source_connector' ? 9 : 7], ['id' => 8]],
