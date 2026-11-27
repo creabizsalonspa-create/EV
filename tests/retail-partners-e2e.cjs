@@ -53,8 +53,41 @@ function verifyRewardHistoryParser() {
   console.log("PASS reward history: 3 valid and " + bad.length + " rejected cases");
 }
 
+function verifyCustomerRewardPageParser() {
+  const source = fs.readFileSync("services/business-api/public/loyalty.js", "utf8");
+  const start = source.indexOf("function verifyPartnerRewardPage(");
+  const end = source.indexOf("window.mountLoyalty", start);
+  assert(start >= 0 && end > start);
+  const verify = new Function(source.slice(start, end) + "\nreturn verifyPartnerRewardPage;")();
+  const evidence = {source:"RETAIL_PARTNER_REWARD", evidence:"SANDBOX_MANUAL_NONCASH",
+    external_fulfillment_verified:false, cash_value:false, points_cost:0};
+  const offer = {...evidence, review_id:9, name:"Offer", name_ar:"Offer", partner_name:"Partner",
+    partner_name_ar:"Partner", description:"Terms", description_ar:"Terms", ends_at:"2026-12-01"};
+  const claim = {...evidence, review_id:9, id:14, redemption_id:18, status:"pending", created_at:"2026-11-27"};
+  const page = data => ({data, total:data.length, per_page:25, current_page:1, last_page:1});
+  assert.equal(verify(page([offer]), 1, "offers").total, 1);
+  assert.equal(verify(page([claim]), 1, "claims").total, 1);
+  assert.equal(verify({...page([]),current_page:2,total:1}, 2, "claims").data.length, 0);
+  const bad = [
+    r=>r.current_page=2,r=>r.per_page=26,r=>r.total=2,r=>r.last_page=99,
+    r=>r.data[0].id=0,r=>r.data[0].review_id=0,r=>r.data[0].redemption_id=0,
+    r=>r.data[0].status="paid",r=>r.data[0].cash_value=true,
+    r=>{r.data.push({...claim});r.total=2;},
+    r=>{r.data.unshift({...claim,id:15});r.total=2;},
+    r=>{r.data.push({...claim,id:15,redemption_id:19});r.total=2;},
+  ];
+  for (const change of bad) {
+    const data=page([{...claim}]); change(data);
+    assert.throws(()=>verify(data,1,"claims"),/Invalid partner reward page/);
+  }
+  assert.throws(()=>verify(page([{...offer,ends_at:null}]),1,"offers"),/Invalid partner reward page/);
+  assert.throws(()=>verify(page([offer,offer]),1,"offers"),/Invalid partner reward page/);
+  console.log("PASS customer reward page: 3 valid and "+(bad.length+2)+" rejected cases");
+}
+
 (async () => {
   verifyRewardHistoryParser();
+  verifyCustomerRewardPageParser();
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["127.0.0.1", "localhost"].includes(new URL(base).hostname));
   const run = randomBytes(4).toString("hex"),

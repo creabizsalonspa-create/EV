@@ -150,6 +150,71 @@ class ExternalDisputesTest extends TestCase
         $this->assertDatabaseCount('external_disputes', 1);
     }
 
+    public function test_provider_dispute_list_and_deadline_filters_preserve_private_invoice_scope(): void
+    {
+        $id = $this->providerEvent()->assertOk()->json('dispute_id');
+        $base = '/dispute-test/commercial/external-disputes';
+        $before = DB::table('external_dispute_events')->count();
+        $sent = count(Http::recorded());
+        $filter = '?currency=AED&invoice_id='.$this->invoice->id.'&per_page=1';
+        foreach ([$this->user, $this->vendor, $this->admin] as $reader) {
+            $this->actingAs($reader)->getJson($base.$filter.'&status=needs_response')
+                ->assertOk()->assertJsonPath('total', 1)
+                ->assertJsonPath('data.0.id', $id)
+                ->assertJsonPath('data.0.amount_minor', 700)
+                ->assertJsonPath('per_page', 1);
+            $this->getJson($base.$filter.'&page=2')->assertOk()->assertJsonCount(0, 'data');
+            $this->getJson($base.'?currency=USD')->assertOk()->assertJsonPath('total', 0);
+            $this->getJson($base.'?status=won')->assertOk()->assertJsonPath('total', 0);
+            foreach (['page=0', 'page=10001', 'per_page=26', 'invoice_id=0001', 'status=paid', 'currency=AE%0AD'] as $invalid) {
+                $this->getJson($base.'?'.$invalid)->assertUnprocessable();
+            }
+        }
+        $this->actingAs(User::factory()->create())->getJson($base.$filter)
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($this->vendor)->getJson($base.'/deadline-queue'.$filter)->assertForbidden();
+        $this->actingAs($this->admin)->getJson($base.'/deadline-queue'.$filter.'&window_hours=96')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $id)
+            ->assertJsonPath('scope.currency', 'AED')
+            ->assertJsonPath('scope.invoice_id', $this->invoice->id)
+            ->assertJsonPath('provider_actions_performed', false);
+        $this->getJson($base.'/deadline-queue?currency=USD&window_hours=96')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->assertSame($sent, count(Http::recorded()));
+        $this->assertSame($before, DB::table('external_dispute_events')->count());
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
+    public function test_dispute_readers_reject_unrepresentable_source_without_releasing_hold(): void
+    {
+        $id = $this->providerEvent()->assertOk()->json('dispute_id');
+        $base = '/dispute-test/commercial/external-disputes';
+        $validator = new \ReflectionMethod(ExternalDisputesController::class, 'verifySource');
+        $raw = (object) array_merge((array) DB::table('external_disputes')->where('id', $id)->first(), [
+            'invoice_id' => $this->invoice->id, 'minor_units' => 2,
+        ]);
+        $this->assertSame(700, $validator->invoke(null, $raw)['amount_minor']);
+        foreach ([
+            ['amount_minor' => 9007199254740992],
+            ['amount_minor' => 700.5],
+            ['amount_minor' => 0],
+            ['minor_units' => 4],
+            ['status' => 'paid'],
+        ] as $invalid) {
+            try {
+                $validator->invoke(null, (object) array_replace((array) $raw, $invalid));
+                $this->fail('Invalid private dispute source passed.');
+            } catch (HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
+        }
+        $this->actingAs($this->admin)->getJson($base.'/'.$id)->assertOk()
+            ->assertJsonPath('dispute.settlement_hold', true);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        $this->assertDatabaseCount('external_dispute_events', 1);
+    }
+
     public function test_changed_event_and_wrong_charge_currency_fail_closed(): void
     {
         $this->providerEvent()->assertOk();
@@ -588,6 +653,34 @@ class ExternalDisputesTest extends TestCase
             ->assertJsonPath('data.0.provider_observation_stale', true);
         $this->assertDatabaseCount('finance_refunds', 0);
         $this->assertDatabaseCount('external_dispute_events', 1);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+    }
+
+    public function test_evidence_deadline_is_closed_at_exact_provider_cutoff_on_all_read_surfaces(): void
+    {
+        $id = $this->providerEvent()->assertOk()->json('dispute_id');
+        $base = '/dispute-test/commercial/external-disputes';
+        $due = \Illuminate\Support\Carbon::createFromTimestampUTC($this->body['evidence_details']['due_by']);
+        $this->actingAs($this->admin);
+        $before = DB::table('finance_journals')->count();
+        $this->travelTo($due->copy()->subSecond());
+        $this->getJson($base.'/'.$id)->assertOk()->assertJsonPath('dispute.deadline_passed', false);
+        $this->getJson($base)->assertOk()->assertJsonPath('data.0.deadline_passed', false);
+        $this->getJson($base.'/deadline-queue?window_hours=1')->assertOk()
+            ->assertJsonPath('data.0.urgency', 'evidence_due_soon');
+
+        $this->travelTo($due);
+        $this->getJson($base.'/'.$id)->assertOk()->assertJsonPath('dispute.deadline_passed', true);
+        $this->getJson($base)->assertOk()->assertJsonPath('data.0.deadline_passed', true);
+        $this->getJson($base.'/deadline-queue?window_hours=0')->assertOk()
+            ->assertJsonPath('data.0.id', $id)
+            ->assertJsonPath('data.0.urgency', 'deadline_passed')
+            ->assertJsonPath('data.0.deadline_passed', true)
+            ->assertJsonPath('data.0.settlement_hold', true);
+        $this->travelTo($due->copy()->addSecond());
+        $this->getJson($base.'/'.$id)->assertOk()->assertJsonPath('dispute.deadline_passed', true);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('external_dispute_evidence', 0);
         Http::assertNotSent(fn ($request) => $request->method() === 'POST');
     }
 

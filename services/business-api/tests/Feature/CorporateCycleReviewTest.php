@@ -140,6 +140,41 @@ class CorporateCycleReviewTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 1);
     }
 
+    public function test_incompatible_outstanding_statement_precision_blocks_review_and_issuance(): void
+    {
+        config(['payments.provider' => 'mock']);
+        $f = $this->fixture();
+        $this->travelTo(Carbon::parse('2026-02-15 12:00:00'));
+        $ids = array_map(fn ($c) => $c->id, $f['claims']);
+        $this->actingAs($f['owner'])->getJson($this->url($f))->assertOk()
+            ->assertJsonPath('remaining_credit_minor', 10000);
+        // Historical statement with a different scale must not be subtracted
+        // as though it used the current agreement's minor units.
+        DB::table('corporate_statements')->insert([
+            'agreement_id' => $f['a']->id, 'fleet_id' => $f['fleet']->id,
+            'issued_by' => $f['owner']->id, 'payer_id' => $f['owner']->id,
+            'number' => 'TEST-HISTORICAL-PRECISION', 'period' => '2025-12',
+            'currency' => $f['a']->currency, 'minor_units' => 3,
+            'subtotal_minor' => 1000, 'tax_minor' => 0, 'total_minor' => 1000,
+            'due_at' => now()->addDays(30), 'agreement_snapshot' => json_encode($f['a'], JSON_THROW_ON_ERROR),
+            'request_key' => hash('sha256', 'historical-precision'),
+            'fingerprint' => hash('sha256', 'historical-precision-source'), 'created_at' => now(),
+        ]);
+        $before = DB::table('finance_journals')->count();
+        $this->getJson($this->url($f))->assertConflict();
+        $this->postJson($this->url($f).'/issue', [
+            'period' => '2026-01', 'claim_ids' => $ids, 'total_minor' => 2100, 'consent' => true,
+        ])->assertConflict();
+        $this->postJson('/api/commercial/corporate/agreements/'.$f['a']->id.'/statements', [
+            'period' => '2026-01', 'claim_ids' => $ids, 'idempotency_key' => 'precision-guard',
+        ])->assertConflict();
+        $this->assertDatabaseCount('corporate_statements', 1);
+        $this->assertDatabaseCount('corporate_statement_lines', 0);
+        $this->assertDatabaseCount('corporate_receipts', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
     public function test_credit_limit_and_ownership_change_never_create_a_partial_statement(): void
     {
         $f = $this->fixture(1500);
