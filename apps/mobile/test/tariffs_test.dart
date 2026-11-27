@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,8 @@ import 'test_support.dart';
 
 class PricingApi extends FixtureApi {
   final publications = <Map<String, dynamic>>[];
+  int reads = 0;
+  Completer<void>? pendingPublication;
   bool uncertain = false, expired = false, futureFirst = false, missingAuthority = false;
   int price = 125, version = 1;
   @override
@@ -21,6 +24,7 @@ class PricingApi extends FixtureApi {
     expect(path, 'stations/8/tariffs');
     if (method == 'POST') {
       publications.add({...body!});
+      if (pendingPublication != null) await pendingPublication!.future;
       price = body['rate_minor_per_kwh'] as int;
       version++;
       if (uncertain) {
@@ -29,6 +33,7 @@ class PricingApi extends FixtureApi {
       }
       return {'id': version};
     }
+    reads++;
     final effective = {
       'id': version, 'station_id': 8,
       'rate_minor_per_kwh': price, 'tax_bps': 500,
@@ -76,6 +81,50 @@ Widget app(PricingApi api, VoidCallback expired) => MaterialApp(
   ),
 );
 void main() {
+  testWidgets('session revocation clears tariff editor and rejects retained publish callback', (tester) async {
+    final api = PricingApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, () {}));
+    await tester.pumpAndSettle();
+    final button = find.widgetWithText(FilledButton, 'نشر إصدار التسعير');
+    final callback = tester.widget<FilledButton>(button).onPressed!;
+    final reads = api.reads;
+    await api.forgetSession();
+    await tester.pumpAndSettle();
+    callback();
+    await tester.pumpAndSettle();
+    expect(find.byType(TextFormField), findsNothing);
+    expect(find.byKey(const Key('effective-tariff-version')), findsNothing);
+    expect(api.publications, isEmpty);
+    expect(api.reads, reads);
+  });
+  testWidgets('backgrounding during tariff publication prevents late readback and replay', (tester) async {
+    final api = PricingApi()..pendingPublication = Completer<void>();
+    addTearDown(api.close);
+    addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    await tester.pumpWidget(app(api, () {}));
+    await tester.pumpAndSettle();
+    final button = find.text('نشر إصدار التسعير');
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pump();
+    expect(api.publications, hasLength(1));
+    final reads = api.reads;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    api.pendingPublication!.complete();
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.reads, reads);
+    expect(find.byType(TextFormField), findsNothing);
+    await tester.tap(find.text('تحديث سجل التسعير'));
+    await tester.pumpAndSettle();
+    expect(api.reads, reads + 1);
+    expect(api.publications, hasLength(1));
+    expect(find.byType(TextFormField), findsNWidgets(2));
+    expect(tester.takeException(), isNull);
+  });
   test(
     'exact prices support Arabic/Persian digits and reject rounding, exponent, overflow and ambiguous separators',
     () {
