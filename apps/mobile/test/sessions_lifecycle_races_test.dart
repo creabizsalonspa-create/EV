@@ -10,6 +10,10 @@ import 'test_support.dart';
 
 class ScopedSessionApi extends FixtureApi {
   int epoch = 0;
+  final changes = StreamController<int>.broadcast(sync:true);
+  @override
+  Stream<int> get sessionEvents => changes.stream;
+  void rotate() { epoch++; changes.add(epoch); }
   int requests = 0;
   int posts = 0;
   int sessionId = 7;
@@ -195,4 +199,25 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('session event redacts old history before parent rebuild or new read',(tester) async {
+    final api=ScopedSessionApi();
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await tester.pumpWidget(sessionsApp(api));
+    await tester.pumpAndSettle();
+    final stale=tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton,'Stop simulation')).onPressed!;
+    expect(api.requests,1);
+    api.rotate();
+    await tester.pumpAndSettle();
+    expect(find.text('Stop simulation'),findsNothing);
+    expect(find.text('Refresh'),findsNothing);
+    stale();
+    await tester.pumpAndSettle();
+    expect(api.requests,1);
+    expect(api.posts,0);
+    expect(tester.takeException(),isNull);
+  });
+
 }

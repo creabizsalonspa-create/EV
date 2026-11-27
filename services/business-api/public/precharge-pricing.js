@@ -17,20 +17,22 @@ window.EvPrechargePricing = (() => {
             utc.getUTCSeconds() !== parts[5]) return false;
         return Number.isFinite(Date.parse(raw));
     }
+    function receiptInstant(value) {
+        if (typeof value !== 'string') return null;
+        // UTC SQL replay and ISO UTC receipts share one six-digit representation.
+        const match = /^(\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?|T(\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z)$/.exec(value);
+        if (!match) return null;
+        const iso = match[1] + 'T' + (match[2] ?? match[4]) + '.' +
+            (match[3] ?? match[5] ?? '').padEnd(6, '0') + 'Z';
+        return validExpiry(iso) ? iso : null;
+    }
     function confirmedReceipt(receipt, estimate) {
-        // Newly accepted receipts are ISO UTC; idempotent replay may return
-        // the database's UTC SQL date. Both must confirm the reviewed expiry.
-        if (!receipt || !Number.isSafeInteger(receipt.id) || receipt.id < 1 ||
-            typeof receipt.accepted_at !== 'string' ||
-            receipt.accepted_at.length < 19 || receipt.accepted_at.length > 64 ||
-            typeof receipt.valid_until !== 'string') return false;
-        const until = receipt.valid_until;
-        const sql = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?$/.exec(until);
-        const iso = sql
-            ? sql[1].replace(' ', 'T') + '.' + (sql[2] ?? '').padEnd(6, '0') + 'Z'
-            : until;
-        return validExpiry(iso) &&
-            Date.parse(iso) === Date.parse(estimate.expires_at);
+        if (!receipt || !Number.isSafeInteger(receipt.id) || receipt.id < 1) return false;
+        const accepted = receiptInstant(receipt.accepted_at);
+        const until = receiptInstant(receipt.valid_until);
+        // Compare canonical strings, not Date.parse's millisecond-truncated values.
+        return accepted !== null && until !== null &&
+            until === estimate.expires_at && accepted < until;
     }
     function valid(e) {
         if (!e || e.version !== 1 || e.evidence !== 'SIMULATED' || !/^[A-Z]{3}$/.test(e.currency) || !Number.isInteger(e.minor_units) || e.minor_units < 0 || e.minor_units > 3 || !Number.isInteger(e.energy_wh) || e.energy_wh < 1 || e.energy_wh > 1000000 || !Number.isInteger(e.tax_bps) || e.tax_bps < 0 || e.tax_bps > 10000 || e.external_fees_included !== false || e.automatic_stop !== false || e.final_total_depends_on_meter !== true || e.session_fee_minor !== '0' || e.idle_fee_minor !== '0') return false;
@@ -57,7 +59,7 @@ window.EvPrechargePricing = (() => {
         // send a private estimate POST before checking consent to review.
         if (!current() || document.visibilityState !== 'visible') return false;
         const energy = window.prompt(ar ? 'الطاقة المتوقعة بالواط ساعة (1 إلى 1000000)' : 'Estimated energy in Wh (1 to 1000000)', '10000');
-        if (energy === null || !current()) return false;
+        if (energy === null || !current() || document.visibilityState !== 'visible') return false;
         const amount = window.EvMoney.parse(energy,0,1000000);
         if (amount === null || amount < 1) throw new Error(ar ? 'أدخل طاقة صحيحة بالواط ساعة' : 'Enter valid energy in Wh');
         const reply = await api(`reservations/${reservationId}/price-estimate`, 'POST', {energy_wh:amount});
