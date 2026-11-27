@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\CsmsGraphqlTransport;
+use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\FirmwareCompatibility;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\OperationsCredentials;
@@ -392,7 +393,7 @@ class ChargerFirmwareController extends Controller
             $this->sourceAuthority($authority);
             $this->requireCurrentDeployment($r, $company, $charger, $b, $release, $guard);
             $raw = bin2hex(random_bytes(32));
-            $id = DB::table('charger_firmware_operations')->insertGetId(['binding_id' => $b->id, 'release_id' => $release->id, 'actor_id' => $r->user()->id, 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'status' => 'requested', 'download_token_digest' => hash('sha256', $raw), 'download_token_ciphertext' => Crypt::encryptString($raw), 'download_expires_at' => now()->addHours(2), 'created_at' => now(), 'updated_at' => now()]);
+            $id = DB::table('charger_firmware_operations')->insertGetId(['binding_id' => $b->id, 'source_generation' => FaultMonitor::generation($b), 'release_id' => $release->id, 'actor_id' => $r->user()->id, 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'status' => 'requested', 'download_token_digest' => hash('sha256', $raw), 'download_token_ciphertext' => Crypt::encryptString($raw), 'download_expires_at' => now()->addHours(2), 'created_at' => now(), 'updated_at' => now()]);
             abort_unless($id <= 2147483647, 409, 'Firmware request range exhausted.');
             // Commit exact source provenance with the request before any delivery.
             // A process crash after send must not roll this capsule back.
@@ -417,6 +418,8 @@ class ChargerFirmwareController extends Controller
                     $this->enabled();
                     $current = DB::table('charger_firmware_operations')->where('id', $row->id)->lockForUpdate()->firstOrFail();
                     abort_unless($current->status === 'dispatching' && $current->reviewed_at === null, 409);
+                    $guard->requireCurrentScope($r, $company, $charger, $b);
+                    $guard->requireOperationGeneration($current, $b);
                     $release = DB::table('charger_firmware_releases')->where('id', $row->release_id)->whereNull('revoked_at')->lockForUpdate()->firstOrFail();
                     $this->bytes($release);
                     $authority = $this->sourceAuthority($created['authority']);
@@ -491,6 +494,9 @@ class ChargerFirmwareController extends Controller
         $this->enabled();
         $op = DB::table('charger_firmware_operations')->where('download_token_digest', hash('sha256', $token))->whereNull('reviewed_at')->where('download_expires_at', '>', now())->whereIn('status', ['dispatching', 'transport_submitted', 'outcome_unknown'])->first();
         abort_unless($op, 404);
+        $binding = DB::table('csms_bindings')->where('id', $op->binding_id)->first();
+        abort_unless($binding && is_string($op->source_generation ?? null)
+            && hash_equals($op->source_generation, FaultMonitor::generation($binding)), 404);
         $release = DB::table('charger_firmware_releases')->where('id', $op->release_id)->whereNull('revoked_at')->first();
         abort_unless($release, 404);
         $path = $this->bytes($release);
@@ -512,6 +518,8 @@ class ChargerFirmwareController extends Controller
             $op = DB::table('charger_firmware_operations')->where('id', $operation)->where('binding_id', $b->id)->lockForUpdate()->first();
             abort_unless($op, 404);
             if (! $op->reviewed_at) {
+                $guard->requireCurrentScope($r, $company, $charger, $b);
+                $guard->requireOperationGeneration($op, $b);
                 abort_unless(in_array($op->status, ['transport_submitted', 'outcome_unknown', 'dispatching'], true) && $op->attempted_at && ($op->status !== 'dispatching' || now()->gte(CarbonImmutable::parse($op->attempted_at)->addMinute())), 409, 'Firmware source outcome remains uncertain.');
                 $authority = $this->sourceAuthority();
                 $guard->idle($b, $op->attempted_at);

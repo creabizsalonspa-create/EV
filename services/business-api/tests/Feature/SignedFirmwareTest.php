@@ -634,6 +634,43 @@ class SignedFirmwareTest extends TestCase
         $this->assertStringNotContainsString('Signed simulator deployment', DB::table('charger_firmware_operations')->find($id)->reason);
     }
 
+    public static function historicalGenerationCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['reassigned', 'legacy', 'corrupt'] as $change) {
+                $cases[] = [$protocol, $change];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('historicalGenerationCases')]
+    public function test_historical_firmware_hold_requires_original_source_generation(string $protocol, string $change): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source($f);
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], ['catalog_key' => 'synthetic-v1', 'note' => 'Approve original source fixture'])->assertCreated()->json('id');
+        $id = $this->actingAs($f['owner'])->postJson($f['path'], [
+            'release_id' => $release,
+            'reason' => 'Preserve original maintenance source', 'idempotency_key' => 'historical-generation',
+        ])->assertCreated()->assertJsonPath('status', 'transport_submitted')->json('id');
+        $this->assertNotNull(DB::table('charger_firmware_operations')->where('id', $id)->value('source_generation'));
+        match ($change) {
+            'reassigned' => DB::table('csms_bindings')->where('id', $f['binding'])->update(['identifier' => 'ev-test-reassigned']),
+            'legacy' => DB::table('charger_firmware_operations')->where('id', $id)->update(['source_generation' => null]),
+            'corrupt' => DB::table('charger_firmware_operations')->where('id', $id)->update(['source_generation' => str_repeat('0', 64)]),
+        };
+        $op = DB::table('charger_firmware_operations')->find($id);
+        $this->get('/api/internal/firmware/'.Crypt::decryptString($op->download_token_ciphertext))->assertNotFound();
+        $before = Http::recorded()->count();
+        $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Review original source lineage'])->assertConflict();
+        $this->assertSame($before, Http::recorded()->count());
+        $this->assertDatabaseHas('charger_firmware_operations', ['id' => $id, 'reviewed_at' => null]);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     #[DataProvider('protocols')]
     public function test_signed_firmware_cannot_be_claimed_with_unresolved_legacy_station_commands(string $protocol): void
     {

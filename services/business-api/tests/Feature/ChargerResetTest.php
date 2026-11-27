@@ -80,6 +80,40 @@ class ChargerResetTest extends TestCase
         }
     }
 
+    public static function historicalGenerationCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['reassigned', 'legacy', 'corrupt'] as $change) {
+                $cases[] = [$protocol, $change];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('historicalGenerationCases')]
+    public function test_historical_reset_hold_requires_original_source_generation(string $protocol, string $change): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source($f);
+        $id = $this->actingAs($f['owner'])->postJson($f['path'], [
+            'reason' => 'Preserve original maintenance source', 'idempotency_key' => 'historical-generation',
+        ])->assertCreated()->assertJsonPath('status', 'transport_submitted')->json('id');
+        $this->assertNotNull(DB::table('charger_reset_operations')->where('id', $id)->value('source_generation'));
+        match ($change) {
+            'reassigned' => DB::table('csms_bindings')->where('id', $f['binding'])->update(['identifier' => 'ev-test-reassigned']),
+            'legacy' => DB::table('charger_reset_operations')->where('id', $id)->update(['source_generation' => null]),
+            'corrupt' => DB::table('charger_reset_operations')->where('id', $id)->update(['source_generation' => str_repeat('0', 64)]),
+        };
+        $this->travel(21)->seconds();
+        $before = Http::recorded()->count();
+        $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Review original source lineage'])->assertConflict();
+        $this->assertSame($before, Http::recorded()->count());
+        $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null]);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_relative_source_time_neither_dispatches_reset_nor_releases_an_existing_hold(): void
     {
         foreach (['1.6', '2.0.1'] as $protocol) {

@@ -10,6 +10,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\CsmsGraphqlTransport;
+use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\OperationsCredentials;
 use App\Services\Charging\SourceStatusTime;
@@ -58,6 +59,14 @@ class ChargerResetController extends Controller
             && $current->protocol === $expected->protocol, 409,
             'Reset source mapping changed; retain the operation for review.');
         app(VendorAccess::class)->operational($currentCompany);
+    }
+
+    /** No legacy backfill: current mapping cannot prove historical command lineage. */
+    public function requireOperationGeneration(object $operation, object $binding): void
+    {
+        abort_unless(is_string($operation->source_generation ?? null)
+            && hash_equals($operation->source_generation, FaultMonitor::generation($binding)), 409,
+            'Maintenance source generation is unverified or changed; retain the hold.');
     }
 
     private function enabled(): void
@@ -198,7 +207,7 @@ class ChargerResetController extends Controller
             $this->idle($b);
             $this->enabled();
             $this->requireCurrentScope($r, $company, $charger, $b);
-            $id = DB::table('charger_reset_operations')->insertGetId(['binding_id' => $b->id, 'actor_id' => $r->user()->id, 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'reset_type' => $b->protocol === '1.6' ? 'Soft' : 'OnIdle', 'status' => 'requested', 'created_at' => now(), 'updated_at' => now()]);
+            $id = DB::table('charger_reset_operations')->insertGetId(['binding_id' => $b->id, 'source_generation' => FaultMonitor::generation($b), 'actor_id' => $r->user()->id, 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'reset_type' => $b->protocol === '1.6' ? 'Soft' : 'OnIdle', 'status' => 'requested', 'created_at' => now(), 'updated_at' => now()]);
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'charger.reset_requested', 'subject' => (string) $id, 'created_at' => now()]);
 
             return ['row' => DB::table('charger_reset_operations')->find($id), 'created' => true];
@@ -214,8 +223,8 @@ class ChargerResetController extends Controller
                     $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                     $current = DB::table('charger_reset_operations')->where('id', $row->id)->lockForUpdate()->first();
                     abort_unless($current && $current->status === 'dispatching' && $current->reviewed_at === null, 409, 'Operation is no longer dispatchable.');
-                    $this->scope($r, $company, $charger, true);
-                    app(VendorAccess::class)->operational($company);
+                    $this->requireCurrentScope($r, $company, $charger, $b);
+                    $this->requireOperationGeneration($current, $b);
                     $this->enabled();
                     $sourceUrl = app(CsmsGraphqlTransport::class)->requireApproved();
                     $sourceKey = (string) config('csms.graphql_secret');
@@ -256,6 +265,8 @@ class ChargerResetController extends Controller
             $row = DB::table('charger_reset_operations')->where('id', $operation)->where('binding_id', $b->id)->lockForUpdate()->first();
             abort_unless($row, 404);
             if (! $row->reviewed_at) {
+                $this->requireCurrentScope($r, $company, $charger, $b);
+                $this->requireOperationGeneration($row, $b);
                 $attempt = $row->attempted_at ?? $row->created_at;
                 $wait = in_array($row->status, ['requested', 'dispatching'], true) ? 60 : 20;
                 abort_unless(now()->gte(CarbonImmutable::parse($attempt)->addSeconds($wait)), 409, 'Wait for dispatch completion before source review.');
