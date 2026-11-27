@@ -206,3 +206,30 @@ Three native widget cases and amended Laravel assertions are authored,
 not executed. Real browser, Flutter and full Laravel validation remain
 outstanding. Older server receipts without the state field are rejected
 by these updated clients; deploy server/client changes together.
+
+## Legacy registration digest compatibility
+
+The actual registration implementation was inspected: `verify()` returns
+`array_intersect_key($row, ...)`, preserving upstream key order, and hashes
+that ordered JSON object. The previous direct monitor assumed the selected
+GraphQL field order was always the serialized order. This could reject
+valid registrations.
+
+The new `DirectRegistrationReceipt` helper validates only the seven exact
+typed offline fields used by the original registration adapter. It first
+checks the expected order, then permits bounded legacy serialization
+orders (at most 7! candidate hashes) during explicit operator
+reconciliation. No source value or type is relaxed. Live inspection
+instead requires the immutable reconciliation fingerprint, avoiding
+repeated permutation work and preserving receipt integrity.
+
+Actual local PHP 8.4.24 execution: the fetched helper was reconstructed,
+`git hash-object` matched `7a0d9276ccd3b403686cd2f16d452a9e9d05c610`,
+and PHP lint passed. A standalone harness ran **40/40 assertions**:
+20 each for OCPP 1.6 and 2.0.1, including four serialization orders,
+changed field values, wrong scalar types, omitted/extra fields, malformed
+and forged digests, invalid station ID and unsupported protocol.
+A matching PHPUnit unit test and two feature regression instances
+were committed but not run through Laravel/PHPUnit. The bounded digest
+check is local evidence verification, not authentication of the original
+upstream hardware or protection from privileged rewriting of local history.
