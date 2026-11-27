@@ -51,7 +51,7 @@ final class ChargerLiveConnectorsController extends Controller
             app(VendorAccess::class)->require($r->user(), $company, 'inventory.read');
             app(VendorAccess::class)->operational($company);
             abort_unless(User::whereKey($company->owner_id)->where('role', 'vendor')
-                ->where('account_status', 'active')->exists(), 409, 'Current active owner required.');
+                ->where('account_status', 'active')->lockForUpdate()->first(), 409, 'Current active owner required.');
             abort_unless($registration->verified($company, $charger), 409,
                 'Current verified direct registration is required.');
             $receipt = DB::table('charger_source_registrations')->where('charger_id', $charger->id)
@@ -92,7 +92,10 @@ final class ChargerLiveConnectorsController extends Controller
                 && $fresh->registration_receipt === $binding->registration_receipt, 409,
                 'Direct registration changed before review coverage.');
             $inventory = VendorConnector::where('charger_id', $charger->id)->orderBy('id')
-                ->limit(101)->lockForUpdate()->pluck('id')->all();
+                ->limit(101)->lockForUpdate()->get()->map(fn ($connector) => [
+                    'id' => (int) $connector->id,
+                    'fingerprint' => DirectConnectorReviewCoverage::connectorFingerprint($connector),
+                ])->all();
             $epoch = $fresh->registration_receipt[7][0];
             $registration = $fresh->registration_receipt[0];
             $fingerprint = hash('sha256', json_encode([$fresh->id, $fresh->station_id, $fresh->vendor_charger_id,
@@ -107,6 +110,7 @@ final class ChargerLiveConnectorsController extends Controller
                     'database_id' => $row->source_connector_database_id,
                     'event_id' => $row->source_event_id,
                     'fingerprint' => $row->registration_fingerprint,
+                    'connector_fingerprint' => $row->connector_fingerprint,
                     'observed_at' => CarbonImmutable::parse($row->source_observed_at, 'UTC'),
                 ])->all();
             app(MaintenanceActor::class)->checkBearer($r->user());
@@ -426,6 +430,11 @@ final class ChargerLiveConnectorsController extends Controller
             'remote_control_authorized' => false,
             'commands_sent' => false,
             'connectors' => $rows,
-        ] + ($direct ? ['review_coverage' => $reviewCoverage] : []))->header('Cache-Control', 'private, no-store');
+        ] + ($direct ? ['review_coverage' => $reviewCoverage] : []) + ($internalReview ? [
+            'internal_registration_fingerprint' => hash('sha256', json_encode([
+                $binding->id, $binding->station_id, $binding->vendor_charger_id,
+                $binding->identifier, $binding->protocol, $binding->registration_receipt,
+            ], JSON_THROW_ON_ERROR)),
+        ] : []))->header('Cache-Control', 'private, no-store');
     }
 }
