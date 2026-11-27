@@ -122,6 +122,17 @@ class SourceStatusDurationsTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_empty_fault_code_does_not_become_healthy_observed_time(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $binding = $this->binding($protocol);
+            $this->observe($binding, 100, 'Available', error: '');
+            $report = app(SourceStatusDurations::class)->report($binding);
+            $this->assertSame(['Faulted' => 100], (array) $report['components'][0]['observed_status_seconds']);
+            $this->assertSame(86300, $report['components'][0]['unknown_seconds']);
+        }
+    }
+
     public function test_observation_budget_fails_closed_without_partial_duration_claims(): void
     {
         $binding = $this->binding();

@@ -60,7 +60,7 @@ final class SourceStatusDurations
             $key = $row->evse_number.':'.$row->connector_number;
             $time = CarbonImmutable::parse($row->occurred_at, 'UTC')->getTimestamp();
             $status = in_array($row->status, $statuses, true) ? $row->status : 'Unknown';
-            if ($status !== 'Unknown' && ! in_array($row->error_code, [null, '', 'NoError'], true)) {
+            if ($status !== 'Unknown' && ! in_array($row->error_code, [null, 'NoError'], true)) {
                 $status = 'Faulted';
             } elseif ($binding->protocol === '1.6' && $status === 'Available' && $row->error_code !== 'NoError') {
                 // Old or imported status rows must not turn missing OCPP 1.6
