@@ -249,7 +249,11 @@ class _OperationalState extends State<OperationalAnalyticsView>
       }
       // Uptime is never inferred from unknown evidence, and reported fault
       // duration cannot exceed known source status coverage.
-      if (row['reported_downtime_seconds'] !=
+      if (row['possible_connector_seconds'] !=
+              row['mapped_connectors'] * result['window_seconds'] ||
+          row['possible_evse_seconds'] !=
+              row['mapped_evses'] * result['window_seconds'] ||
+          row['reported_downtime_seconds'] !=
               row['reported_fault_seconds'] +
                   (row['reported_non_fault_unavailable_seconds'] ?? 0) ||
           row['other_known_status_seconds'] + row['reported_downtime_seconds'] !=

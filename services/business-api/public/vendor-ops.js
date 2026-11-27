@@ -1800,9 +1800,19 @@ window.createVendorWorkspace = ({
                     data.physical_uptime_verified !== false ||
                     data.physical_site_demand_verified !== false ||
                     data.billing_authority !== false ||
-                    typeof data.financial_visible !== "boolean"
+                    typeof data.financial_visible !== "boolean" ||
+                    data.from !== filters.from || data.to !== filters.to ||
+                    !Number.isSafeInteger(data.window_seconds) ||
+                    data.window_seconds < 1 || data.window_seconds > 31 * 86400 ||
+                    !Array.isArray(data.sites) || data.sites.length > 500 ||
+                    !Array.isArray(data.invoice_facts)
                 )
                     throw Error("Unexpected analytics authority.");
+                const expectedSite = filters.site_id === undefined ? null : Number(filters.site_id);
+                if (expectedSite !== null &&
+                    (!Number.isSafeInteger(expectedSite) || expectedSite < 1 || data.sites.length !== 1))
+                    throw Error("Unexpected analytics authority.");
+                const siteIds = new Set();
                 content.replaceChildren(
                     raw("p", data.from + " — " + data.to + " UTC"),
                     raw("p", data.as_of),
@@ -1858,6 +1868,19 @@ window.createVendorWorkspace = ({
                 }
                 content.append(links);
                 for (const row of data.sites) {
+                    if (!row || typeof row.name !== "string" ||
+                        !Number.isSafeInteger(row.site_id) || row.site_id < 1 ||
+                        siteIds.has(row.site_id) || (expectedSite !== null && row.site_id !== expectedSite))
+                        throw Error("Unexpected analytics authority.");
+                    siteIds.add(row.site_id);
+                    if (!Number.isSafeInteger(row.mapped_connectors) || row.mapped_connectors < 0 ||
+                        !Number.isSafeInteger(row.mapped_evses) || row.mapped_evses < 0 ||
+                        row.possible_connector_seconds !== row.mapped_connectors * data.window_seconds ||
+                        row.possible_evse_seconds !== row.mapped_evses * data.window_seconds ||
+                        row.observed_busy_seconds > row.possible_evse_seconds ||
+                        row.demand_observed_seconds > data.window_seconds ||
+                        (row.maximum_observed_site_interval_average_w === null && row.demand_observed_seconds !== 0))
+                        throw Error("Inconsistent source coverage.");
                     if (row.reported_downtime_seconds !== row.reported_fault_seconds + row.reported_non_fault_unavailable_seconds ||
                         row.other_known_status_seconds + row.reported_downtime_seconds !== row.status_known_seconds ||
                         row.status_known_seconds + row.status_unknown_seconds !== row.possible_connector_seconds)
