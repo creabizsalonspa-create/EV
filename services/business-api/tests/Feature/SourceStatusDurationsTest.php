@@ -15,17 +15,17 @@ class SourceStatusDurationsTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function binding(): object
+    private function binding(string $protocol = '1.6'): object
     {
         $this->travelTo(CarbonImmutable::parse('2026-11-28T12:00:00Z'));
         $vendor = User::factory()->create(['role' => 'vendor']);
         $station = Station::create(['vendor_id' => $vendor->id, 'name' => 'Duration fixture', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
-        $id = DB::table('csms_bindings')->insertGetId(['station_id' => $station->id, 'identifier' => 'ev-test-duration', 'protocol' => '1.6', 'created_at' => now(), 'updated_at' => now()]);
+        $id = DB::table('csms_bindings')->insertGetId(['station_id' => $station->id, 'identifier' => 'ev-test-duration-'.str_replace('.', '-', $protocol), 'protocol' => $protocol, 'created_at' => now(), 'updated_at' => now()]);
 
         return DB::table('csms_bindings')->find($id);
     }
 
-    private function observe(object $binding, int $secondsAgo, string $status, int $connector = 1, ?string $error = null): void
+    private function observe(object $binding, int $secondsAgo, string $status, int $connector = 1, ?string $error = 'NoError'): void
     {
         $id = DB::table('charging_status_observations')->count() + 1;
         DB::table('charging_status_observations')->insert(['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => $id, 'fingerprint' => hash('sha256', (string) $id), 'evse_number' => 1, 'connector_number' => $connector, 'status' => $status, 'error_code' => $error, 'occurred_at' => now()->subSeconds($secondsAgo), 'created_at' => now()]);
@@ -95,6 +95,29 @@ class SourceStatusDurationsTest extends TestCase
         $this->assertFalse($report['physical_uptime_verified']);
         $this->assertFalse($report['commands_sent']);
         $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_protocol_invalid_status_and_missing_clearance_never_count_as_known_time(): void
+    {
+        $binding = $this->binding('1.6');
+        $this->observe($binding, 300, 'Available', error: null);
+        $this->observe($binding, 240, 'Occupied');
+        $this->observe($binding, 120, 'Available');
+        $this->observe($binding, 60, 'Available', error: 'GroundFailure');
+        $report = app(SourceStatusDurations::class)->report($binding);
+        $this->assertSame(['Available' => 60, 'Faulted' => 60], (array) $report['components'][0]['observed_status_seconds']);
+        $this->assertSame(86280, $report['components'][0]['unknown_seconds']);
+
+        $other = $this->binding('2.0.1');
+        $this->observe($other, 300, 'Charging');
+        $this->observe($other, 120, 'Occupied', error: null);
+        $report = app(SourceStatusDurations::class)->report($other);
+        $this->assertSame(['Occupied' => 120], (array) $report['components'][0]['observed_status_seconds']);
+        $this->assertSame(86280, $report['components'][0]['unknown_seconds']);
+        $this->assertFalse($report['physical_uptime_verified']);
+        $this->assertFalse($report['commands_sent']);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
