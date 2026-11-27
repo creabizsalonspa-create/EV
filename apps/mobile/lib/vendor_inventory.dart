@@ -526,6 +526,10 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                                         api: widget.api,
                                         companyId: widget.company!['id'] as int,
                                         chargerId: row['id'] as int,
+                                        registeredDirectProtocol:
+                                            row['source'] == 'direct_unverified'
+                                            ? row['ocpp_protocol'] as String?
+                                            : null,
                                         onExpired: widget.onExpired,
                                       ),
                                     ),
