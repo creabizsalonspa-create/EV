@@ -10,6 +10,9 @@ return [
     'ocm_enabled' => (bool) env('OCM_DISCOVERY_ENABLED', false),
     'ocm_terms_accepted' => (bool) env('OCM_DISCOVERY_TERMS_ACCEPTED', false),
     'ocm_api_key' => env('OCM_DISCOVERY_API_KEY'),
+    'ocm_quality_enabled' => (bool) env('OCM_DISCOVERY_QUALITY_ENABLED', false),
+    'ocm_coverage_enabled' => (bool) env('OCM_DISCOVERY_COVERAGE_ENABLED', false),
+    'ocm_coverage_areas' => json_decode((string) env('OCM_DISCOVERY_COVERAGE_AREAS_JSON', '[]'), true),
     'requests_per_minute' => (int) env('DISCOVERY_PROVIDER_REQUESTS_PER_MINUTE', 30),
     'requests_per_day' => (int) env('DISCOVERY_PROVIDER_REQUESTS_PER_DAY', 5000),
 ];
