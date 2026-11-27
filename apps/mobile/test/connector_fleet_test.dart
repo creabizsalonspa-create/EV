@@ -106,10 +106,120 @@ class FleetApi extends FixtureApi {
   }
 }
 
+class DirectFleetApi extends FleetApi {
+  int directReads = 0, activeReads = 0, peakReads = 0;
+  bool active = true;
+  final pending = <Completer<dynamic>>[];
+  @override
+  bool Function() sessionFence() => () => active;
+
+  Map<String, dynamic> directPage(int page) => {
+    'scope': 'direct_charger_fleet',
+    'evidence': 'INVENTORY_ONLY',
+    'as_of': '2026-11-28T12:00:00Z',
+    'physical_availability_verified': false,
+    'remote_control_authorized': false,
+    'billing_authority': false,
+    'chargers': {
+      'current_page': page, 'last_page': 2,
+      'data': [
+        for (final id in page == 1 ? [1,2,3,4,5] : [6])
+          {
+            'company_id': 7, 'charger_id': id, 'station_id': 7,
+            'station_name': 'Direct station', 'asset_reference': 'Asset $id',
+            'protocol': id.isOdd ? '1.6' : '2.0.1', 'state': 'not_inspected',
+          },
+      ],
+    },
+  };
+
+  Map<String, dynamic> directReply(int id) => {
+    'company_id': 7, 'charger_id': id == 3 ? 999 : id,
+    'protocol': id.isOdd ? '1.6' : '2.0.1',
+    'evidence': 'REGISTERED_DIRECT_SOURCE',
+    'source_identity_rechecked': true, 'source_online': true,
+    'source_topology_matches_local': false, 'source_topology_complete': true,
+    'local_mapping_verified': false,
+    'observed_at': '2026-11-28T12:00:00Z',
+    'physical_availability_verified': false,
+    'remote_control_authorized': false, 'commands_sent': false,
+    'connectors': [{
+      'mapping_id': null, 'operator_maintenance_blocked': null,
+      'source_evse_number': id.isOdd ? 0 : 1, 'source_connector_number': 2,
+      'state': 'recent', 'reported_status': 'Available',
+      'source_event_at': '2026-11-28T11:59:00Z',
+      'physical_available': false, 'remote_control_authorized': false,
+    }],
+  };
+
+  @override
+  Future<dynamic> request(String path, {
+    String method = 'GET', Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    expect(method, 'GET');
+    expect(body, isNull);
+    if (path == 'charging-operations/registered-chargers') {
+      directReads++;
+      queries.add(Map.of(query));
+      return directPage(int.parse(query['page']!));
+    }
+    final id = int.parse(path.split('/')[4]);
+    expect(path, 'vendor-ops/companies/7/chargers/$id/live-connectors');
+    liveCalls.add(path);
+    activeReads++;
+    if (activeReads > peakReads) peakReads = activeReads;
+    final completer = Completer<dynamic>();
+    pending.add(completer);
+    try {
+      return await completer.future;
+    } finally {
+      activeReads--;
+    }
+  }
+}
+
 Widget app(FleetApi api) => MaterialApp(
   home: ConnectorFleetView(api: api, onExpired: () {}),
 );
 void main() {
+  testWidgets('direct fleet requires explicit inventory and bounded independent source reads',
+      (tester) async {
+    final api = DirectFleetApi();
+    await tester.pumpWidget(app(api));
+    await tester.pumpAndSettle();
+    expect(api.directReads, 0);
+    await tester.enterText(find.byType(TextField), '7');
+    await tester.tap(find.text('Read direct charger inventory'));
+    await tester.pumpAndSettle();
+    expect(api.directReads, 1);
+    expect(api.liveCalls, isEmpty);
+    final read = find.text('Read registered sources for this page');
+    await tester.ensureVisible(read);
+    await tester.tap(read);
+    await tester.pump();
+    expect(api.liveCalls.length, 4);
+    expect(api.peakReads, 4);
+    for (var i = 0; i < 4; i++) {
+      api.pending[i].complete(api.directReply(i + 1));
+    }
+    await tester.pump();
+    expect(api.liveCalls.length, 5);
+    api.pending[4].complete(api.directReply(5));
+    await tester.pumpAndSettle();
+    expect(find.text('0/2 · Available'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.text('Registered source unavailable or unverified; status unknown.'), 200,
+    );
+    expect(find.text('Registered source unavailable or unverified; status unknown.'), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Direct station'), findsNothing);
+    expect(api.liveCalls.length, 5);
+  });
+
   testWidgets('explicit page live refresh deduplicates chargers and rejects foreign source',
       (tester) async {
     final api = FleetApi()..navigation = true..multi = true;
