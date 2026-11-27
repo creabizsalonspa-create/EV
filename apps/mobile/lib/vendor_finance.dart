@@ -1201,8 +1201,15 @@ class VendorEarningsSnapshot {
     required String currency,
     required int page,
   }) {
-    bool integer(dynamic n) => n is int && n.abs() <= 9007199254740991;
+    bool integer(dynamic n) =>
+        n is int && n >= -9007199254740991 && n <= 9007199254740991;
     bool precision(dynamic n) => n is int && n >= 0 && n <= 3;
+    const signed = {
+      'net_collected_minor',
+      'pending_reserved_minor',
+      'completed_settlement_minor',
+      'available_minor',
+    };
     Never invalid() =>
         throw const FormatException('Unsupported earnings evidence.');
     if (raw is! Map ||
@@ -1222,7 +1229,7 @@ class VendorEarningsSnapshot {
         raw['data'] is! List ||
         !integer(raw['current_page']) ||
         raw['current_page'] != page ||
-        page < 1 ||
+        page < 1 || page > 10000 ||
         !integer(raw['per_page']) ||
         raw['per_page'] < 1 ||
         raw['per_page'] > 25 ||
@@ -1231,7 +1238,7 @@ class VendorEarningsSnapshot {
         !integer(raw['last_page']))
       invalid();
     final total = raw['total'] as int, size = raw['per_page'] as int;
-    final last = total == 0 ? 1 : (total + size - 1) ~/ size;
+    final last = total == 0 ? 1 : (total - 1) ~/ size + 1;
     final remaining = total - (page - 1) * size;
     final expected = remaining < 0
         ? 0
@@ -1250,12 +1257,14 @@ class VendorEarningsSnapshot {
           !ids.add(row['invoice_id'] as int) ||
           row['currency'] != currency ||
           !precision(row['minor_units']) ||
+          row['minor_units'] != raw['minor_units'] ||
           row['invoice_number'] is! String ||
           (row['invoice_number'] as String).isEmpty ||
           (row['invoice_number'] as String).length > 150 ||
           row['evidence'] is! String ||
           !RegExp(r'^[A-Z][A-Z0-9_]{0,63}$').hasMatch(row['evidence']) ||
-          amounts.keys.any((field) => !integer(row[field])))
+          amounts.keys.any((field) => !integer(row[field]) ||
+              (!signed.contains(field) && row[field] < 0)))
         invalid();
       rows.add(
         Map<String, dynamic>.unmodifiable(Map<String, dynamic>.from(row)),
