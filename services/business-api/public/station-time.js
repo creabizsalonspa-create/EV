@@ -111,5 +111,10 @@
                 ? offsetLabel.replace("GMT", "UTC") : null;
         return utcOffset ? label + " · \u2068" + utcOffset + "\u2069" : null;
     }
-    window.EvStationTime = Object.freeze({ validZone, toUtc, displayStationTime });
+    function serverEventTime(value, language = "en") {
+        const display = typeof value === "string" && value === value.trim()
+            ? displayStationTime(value, "UTC", language) : null;
+        return display || (language === "ar" ? "وقت الحدث غير متاح" : "Event time unavailable");
+    }
+    window.EvStationTime = Object.freeze({ validZone, toUtc, displayStationTime, serverEventTime });
 })();

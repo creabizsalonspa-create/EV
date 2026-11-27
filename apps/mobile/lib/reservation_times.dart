@@ -112,3 +112,11 @@ String serverUtcTime(BuildContext context, dynamic raw) {
   if (instant == null) return '—';
   return reservationTime(context, {'event': instant.toUtc().toIso8601String()}, 'event');
 }
+
+/// Localized event clock with explicit source UTC, never raw malformed data.
+String serverEventTime(BuildContext context, dynamic raw) {
+  final value = serverUtcTime(context, raw);
+  if (value != '—') return value;
+  return Localizations.localeOf(context).languageCode == 'ar'
+      ? 'وقت الحدث غير متاح' : 'Event time unavailable';
+}

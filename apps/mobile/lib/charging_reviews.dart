@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'reservation_times.dart';
 
 /// Anonymous moderated feedback; no physical charging verification is inferred.
 class ChargingReviewsView extends StatefulWidget {
@@ -438,7 +439,7 @@ class _ReviewsState extends State<ChargingReviewsView>
             evidence('${row['evidence']}'),
             Text('${row['rating']} / 5'),
             SelectableText('${row['body']}'),
-            Text('${row['created_at']}'),
+            Text(serverEventTime(context, row['created_at'])),
             if (row['state'] != null) Text('${row['state']}'),
             if (mode == 'mine') ...[
               TextButton(

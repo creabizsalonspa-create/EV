@@ -140,3 +140,16 @@ test("repeated regional wall clocks disclose distinct source-instant UTC offsets
         assert.match(displayStationTime("2026-11-16T04:30:00Z", "UTC", language), /\(UTC\)$/);
     }
 });
+
+ test("event clocks normalize explicit offsets and fail closed in EN/AR", () => {
+    const {serverEventTime} = subject();
+    for (const language of ["en","ar"]) {
+        const reference = serverEventTime("2026-11-07T08:00:00Z",language);
+        assert.match(reference,/\(UTC\)$/);
+        assert.equal(serverEventTime("2026-11-07T12:00:00+04:00",language),reference);
+        assert.equal(serverEventTime("2026-11-07 08:00:00.123456",language),reference);
+        for (const invalid of [null,"2026-02-30T12:00:00Z","2026-11-07","2026-11-07T08:00:00","2026-11-07T08:00:00Z\n","<img src=x>"]) {
+            assert.equal(serverEventTime(invalid,language),language==="ar"?"وقت الحدث غير متاح":"Event time unavailable");
+        }
+    }
+});

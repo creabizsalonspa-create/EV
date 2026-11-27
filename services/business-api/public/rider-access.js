@@ -461,7 +461,7 @@ window.loadRiderAccessHistory = (() => {
                 ),
             );
             const stamp = document.createElement("p");
-            stamp.textContent = row.created_at;
+            stamp.textContent = window.EvStationTime.serverEventTime(row.created_at, document.documentElement.lang);
             entry.append(stamp);
             if (kind === "sessions") {
                 const protocol = document.createElement("p");
