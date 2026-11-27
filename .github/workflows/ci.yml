@@ -246,8 +246,20 @@ jobs:
         env:
           EV_BACKUP_ENCRYPTION_IMAGE: creabiz-ev-business:ci-review
         run: python3 -B -m unittest discover -s tests -p agent5_backup_encryption_test.py -v
-      - name: Verify PostgreSQL17 migrations, HTTP discovery and fresh private-volume ownership
-        run: ./scripts/staging-image-smoke creabiz-ev-business:ci-review
+      - name: Verify staging migrations, private storage and concurrent HTTP performance
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/staging-performance
+          run_log=$(mktemp)
+          trap 'rm -f "$run_log"' EXIT
+          ./scripts/staging-image-smoke creabiz-ev-business:ci-review | tee "$run_log"
+          tail -n 1 "$run_log" > artifacts/staging-performance/http.json
+          python3 -m json.tool artifacts/staging-performance/http.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staging-http-performance
+          path: artifacts/staging-performance/http.json
+          if-no-files-found: error
       - name: Static validation of disposable recovery runner
         run: |
           bash -n scripts/staging-recovery-smoke
