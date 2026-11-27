@@ -79,6 +79,20 @@ final class CsmsPilotProbe
         return $data;
     }
 
+    /** OCPP 1.6 has no wire EVSE; an explicitly null source projection is zero. */
+    private function sourceEvse(string $protocol, array $event): int
+    {
+        $evse = $event['evseId'] ?? null;
+        if ($protocol === '1.6' && array_key_exists('evseId', $event) && $evse === null) {
+            $evse = 0;
+        }
+        abort_unless(is_int($evse) &&
+            ($protocol === '1.6' ? $evse === 0 : ($protocol === '2.0.1' && $evse > 0)),
+            409, 'Contradictory or unknown source EVSE identity.');
+
+        return $evse;
+    }
+
     public function inspect(int $bindingId): array
     {
         // A pilot probe is read-only but must never reuse the local simulator
@@ -136,6 +150,7 @@ final class CsmsPilotProbe
             $known[$connector['id']] = true;
         }
         $latest = [];
+        $previousByConnector = [];
         $priorId = PHP_INT_MAX;
         $priorTime = null;
         foreach ($events as $event) {
@@ -143,8 +158,6 @@ final class CsmsPilotProbe
                 $event['id'] > 0 && $event['id'] < $priorId &&
                 is_int($event['connectorDatabaseId'] ?? null) &&
                 isset($known[$event['connectorDatabaseId']]) &&
-                is_int($event['evseId'] ?? null) &&
-                ($binding->protocol === '1.6' ? $event['evseId'] === 0 : $event['evseId'] > 0) &&
                 is_int($event['connectorId'] ?? null) &&
                 $event['connectorId'] > 0 &&
                 in_array($event['connectorStatus'] ?? null,
@@ -160,25 +173,27 @@ final class CsmsPilotProbe
             $priorId = $event['id'];
             $priorTime = $at;
             $connectorId = $event['connectorDatabaseId'];
-            $sourceTarget = $event['evseId'].':'.$event['connectorId'];
-            if (! isset($latest[$connectorId])) {
-                $latest[$connectorId] = [
-                    'status' => $event['connectorStatus'],
-                    'error_code' => $event['errorCode'] ?? null,
-                    'observed_at' => $at,
-                    'target' => $sourceTarget,
-                ];
-            } else {
-                // The same durable connector ID must not change its OCPP
-                // EVSE/connector target across the bounded source history.
-                abort_unless($latest[$connectorId]['target'] === $sourceTarget, 409,
+            $sourceTarget = $this->sourceEvse($binding->protocol, $event).':'.$event['connectorId'];
+            $entry = [
+                'status' => $event['connectorStatus'],
+                'error_code' => $event['errorCode'] ?? null,
+                'observed_at' => $at,
+                'target' => $sourceTarget,
+            ];
+            // Compare consecutive observations for each connector, including
+            // older same-time conflicts that precede its newest status.
+            $previous = $previousByConnector[$connectorId] ?? null;
+            if ($previous !== null) {
+                abort_unless($previous['target'] === $sourceTarget, 409,
                     'Source connector target changed; review lineage.');
-                if ($at->equalTo($latest[$connectorId]['observed_at'])) {
-                    abort_unless($event['connectorStatus'] === $latest[$connectorId]['status'] &&
-                        ($event['errorCode'] ?? null) === $latest[$connectorId]['error_code'], 409,
+                if ($at->equalTo($previous['observed_at'])) {
+                    abort_unless($entry['status'] === $previous['status'] &&
+                        $entry['error_code'] === $previous['error_code'], 409,
                         'Conflicting same-time connector evidence requires inspection.');
                 }
             }
+            $latest[$connectorId] ??= $entry;
+            $previousByConnector[$connectorId] = $entry;
         }
         $recentConnectorCount = 0;
         $idleConnectorCount = 0;
@@ -240,12 +255,14 @@ final class CsmsPilotProbe
             ->where('evse.mode', 'csms')
             ->where('evse.charger_id', $charger->id)
             ->where('connector.charger_id', $charger->id)
-            ->get([
+            ->limit(101)->get([
                 'evse.source_evse_number',
                 'mapping.source_connector_number',
+                'mapping.source_target_key',
                 'connector.maintenance_blocked',
             ]);
         $ownedCount = $maps->count();
+        abort_unless($ownedCount <= 100, 409, 'Local connector inventory exceeds the pilot inspection bound.');
         $totalLocalMappings = DB::table('charging_connector_mappings')
             ->where('station_id', $binding->station_id)->count();
         $seenTargets = [];
@@ -256,6 +273,9 @@ final class CsmsPilotProbe
                 ! (bool) $map->maintenance_blocked, 409,
                 'Owned connector mapping or maintenance state requires review.');
             $target = $map->source_evse_number.':'.$map->source_connector_number;
+            abort_unless(is_string($map->source_target_key) &&
+                hash_equals(hash('sha256', $binding->id.':'.$target), $map->source_target_key), 409,
+                'Canonical source target digest requires review.');
             abort_unless(! isset($seenTargets[$target]), 409,
                 'Duplicate OCPP connector target requires review.');
             $seenTargets[$target] = true;
