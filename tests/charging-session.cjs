@@ -7,7 +7,9 @@ const {
   poll,
   SimulatedCharger,
 } = require("./helpers/csms-local.cjs");
-async function session(version) {
+async function session(version, meterBase, waitForPeer) {
+  const periodicWh = meterBase + 1500;
+  const finalWh = meterBase + 2500;
   const station =
       "ev-test-session-" +
       version.replaceAll(".", "") +
@@ -81,7 +83,7 @@ async function session(version) {
       const start = await charger.call("StartTransaction", {
         connectorId: 1,
         idTag: tag,
-        meterStart: 1000,
+        meterStart: meterBase,
         timestamp: startAt,
       });
       assert.equal(start.idTagInfo.status, "Accepted");
@@ -96,7 +98,7 @@ async function session(version) {
             timestamp: new Date().toISOString(),
             sampledValue: [
               {
-                value: "2500",
+                value: String(periodicWh),
                 measurand: "Energy.Active.Import.Register",
                 unit: "Wh",
                 context: "Sample.Periodic",
@@ -124,7 +126,7 @@ async function session(version) {
             timestamp: startAt,
             sampledValue: [
               {
-                value: 1000,
+                value: meterBase,
                 measurand: "Energy.Active.Import.Register",
                 unitOfMeasure: { unit: "Wh" },
                 context: "Transaction.Begin",
@@ -149,7 +151,7 @@ async function session(version) {
             timestamp: updateAt,
             sampledValue: [
               {
-                value: 2500,
+                value: periodicWh,
                 measurand: "Energy.Active.Import.Register",
                 unitOfMeasure: { unit: "Wh" },
                 context: "Sample.Periodic",
@@ -162,6 +164,22 @@ async function session(version) {
       // Replay an identical sequence event: the authoritative transaction must not double-count energy.
       await charger.call("TransactionEvent", update);
     }
+    // Both protocols must have a distinct, simultaneously active source
+    // transaction before either simulator disconnects. Each uses its own
+    // absolute meter registers, so crossed readings cannot pass by chance.
+    const active = await poll(async () => {
+      const data = await graph(
+        "query($id:String!,$station:Int!){Transactions(where:{tenantId:{_eq:1},transactionId:{_eq:$id},stationId:{_eq:$station}},limit:2){id transactionId stationId isActive}}",
+        { id: transactionId, station: internalStationId },
+      );
+      assert(Array.isArray(data.Transactions) && data.Transactions.length <= 1);
+      const row = data.Transactions[0];
+      return row?.isActive === true ? row : null;
+    }, "Concurrent active transaction identity");
+    assert(Number.isInteger(active.id) && active.id > 0);
+    assert.equal(active.stationId, internalStationId);
+    assert.equal(active.transactionId, transactionId);
+    await waitForPeer(active);
     await charger.close();
     await poll(async () => {
       const d = await graph(
@@ -205,7 +223,7 @@ async function session(version) {
       await charger.call("StopTransaction", {
         transactionId: Number(transactionId),
         idTag: tag,
-        meterStop: 3500,
+        meterStop: finalWh,
         timestamp: endAt,
         reason: "Remote",
         transactionData: [
@@ -213,7 +231,7 @@ async function session(version) {
             timestamp: endAt,
             sampledValue: [
               {
-                value: "3500",
+                value: String(finalWh),
                 measurand: "Energy.Active.Import.Register",
                 unit: "Wh",
                 context: "Transaction.End",
@@ -239,7 +257,7 @@ async function session(version) {
             timestamp: endAt,
             sampledValue: [
               {
-                value: 3500,
+                value: finalWh,
                 measurand: "Energy.Active.Import.Register",
                 unitOfMeasure: { unit: "Wh" },
                 context: "Transaction.End",
@@ -258,6 +276,8 @@ async function session(version) {
         ? t
         : null;
     }, "closed transaction with reconciled final energy");
+    assert.equal(tx.id, active.id);
+    assert.equal(tx.stationId, internalStationId);
     assert.equal(
       Number(tx.totalKwh),
       2.5,
@@ -285,9 +305,13 @@ async function session(version) {
     );
     const periodic = meters.MeterValues.filter((m) =>
       (Array.isArray(m.sampledValue) ? m.sampledValue : []).some(
-        (s) => s.context === "Sample.Periodic" && Number(s.value) === 2500,
+        (s) => s.context === "Sample.Periodic" && Number(s.value) === periodicWh,
       ),
     );
+    assert(periodic.length >= 1, "Own periodic meter register must persist");
+    assert(!meters.MeterValues.some((m) => (Array.isArray(m.sampledValue) ? m.sampledValue : []).some(
+      (s) => s.context === "Sample.Periodic" && Number(s.value) === (version === "1.6" ? 4500 : 2500),
+    )), "Peer protocol meter register leaked into this transaction");
     console.log(
       JSON.stringify({
         evidence: "SIMULATED_PROTOCOL_SESSION",
@@ -300,6 +324,8 @@ async function session(version) {
         reconnected: true,
         fault_and_recovery_acknowledged: true,
         active: tx.isActive,
+        concurrent_source_transaction_verified: true,
+        periodic_meter_wh: periodicWh,
         energy_kwh: Number(tx.totalKwh),
         persisted_meter_records: meters.MeterValues.length,
         duplicate_sequence_energy_reconciled: version === "2.0.1",
@@ -315,8 +341,42 @@ async function session(version) {
   }
 }
 (async () => {
-  await session("1.6");
-  await session("2.0.1");
+  const active = [];
+  let resolvePeer, rejectPeer;
+  const barrier = new Promise((resolve, reject) => {
+    resolvePeer = resolve;
+    rejectPeer = reject;
+  });
+  // Install a rejection handler even if a client fails before reaching the
+  // barrier. A failed peer releases the other client rather than hanging CI.
+  barrier.catch(() => {});
+  const timer = setTimeout(() => rejectPeer(Error("Concurrent session barrier timed out")), 120000);
+  const waitForPeer = async (row) => {
+    active.push(row);
+    if (active.length === 2) {
+      assert.notEqual(active[0].id, active[1].id);
+      assert.notEqual(active[0].stationId, active[1].stationId);
+      const proof = await graph(
+        "query($ids:[Int!]!){Transactions(where:{tenantId:{_eq:1},id:{_in:$ids},isActive:{_eq:true}}){id stationId}}",
+        { ids: active.map((t) => t.id) },
+      );
+      assert.equal(proof.Transactions.length, 2);
+      for (const expected of active) {
+        assert(proof.Transactions.some((t) => t.id === expected.id && t.stationId === expected.stationId));
+      }
+      resolvePeer();
+    }
+    await barrier;
+  };
+  try {
+    const results = await Promise.allSettled([
+      session("1.6", 1000, waitForPeer).catch((e) => { rejectPeer(e); throw e; }),
+      session("2.0.1", 3000, waitForPeer).catch((e) => { rejectPeer(e); throw e; }),
+    ]);
+    for (const result of results) if (result.status === "rejected") throw result.reason;
+  } finally {
+    clearTimeout(timer);
+  }
 })().catch((e) => {
   console.error(e.message);
   process.exitCode = 1;
