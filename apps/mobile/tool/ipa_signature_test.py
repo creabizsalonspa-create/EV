@@ -1,6 +1,7 @@
 import hashlib
 from pathlib import Path
 import plistlib
+import struct
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -29,6 +30,8 @@ class IpaSignatureTest(unittest.TestCase):
                              'com.apple.developer.team-identifier': self.team,
                              'get-task-allow': False}
         self.calls = []
+        self.binary = struct.pack('<8I6I', 0xfeedfacf, 0x0100000c, 0, 2, 1, 24, 0, 0,
+                                  0x32, 24, 2, 15 << 16, 18 << 16, 0)
         self.make()
 
     def make(self, extra=()):
@@ -38,7 +41,7 @@ class IpaSignatureTest(unittest.TestCase):
             runner = zipfile.ZipInfo(root + 'Runner')
             runner.create_system = 3
             runner.external_attr = 0o100755 << 16
-            archive.writestr(runner, b'\xcf\xfa\xed\xfefixture')
+            archive.writestr(runner, self.binary)
             archive.writestr(root + '_CodeSignature/CodeResources', b'not a real signature')
             for name, value in extra:
                 archive.writestr(root + name, value)
@@ -67,11 +70,32 @@ class IpaSignatureTest(unittest.TestCase):
     def test_pinned_mock_signature_and_exact_hash(self):
         result = self.verify()
         self.assertTrue(result['signature_verified'])
+        self.assertTrue(result['main_executable_device_architecture_verified'])
+        self.assertFalse(result['nested_executable_architectures_verified'])
         self.assertFalse(result['provisioning_verified'])
         self.assertFalse(result['store_accepted'])
         self.assertEqual(result['sha256'], hashlib.sha256(self.path.read_bytes()).hexdigest())
         self.assertEqual(result['signing_certificate_sha256'], self.pin)
         self.assertEqual(len(self.calls), 3)
+
+    def test_device_platform_and_command_bounds(self):
+        original = self.binary
+        for index, value in [(1, 0x01000007), (3, 6), (4, 2), (5, 0xffffffff),
+                             (8, 0x25), (9, 16), (10, 7), (11, 19 << 16),
+                             (12, 14 << 16), (13, 1)]:
+            with self.subTest(index=index, value=value):
+                fields = list(struct.unpack('<14I', original))
+                fields[index] = value
+                self.binary = struct.pack('<14I', *fields)
+                self.make()
+                with self.assertRaises(AuditError):
+                    self.verify()
+                self.assertEqual(self.calls, [])
+        self.binary = original[:-1]
+        self.make()
+        with self.assertRaises(AuditError):
+            self.verify()
+        self.assertEqual(self.calls, [])
 
     def test_no_mac_or_wrong_pin_fails_closed(self):
         with patch.object(gate.sys, 'platform', 'linux'):

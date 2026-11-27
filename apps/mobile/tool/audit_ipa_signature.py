@@ -17,6 +17,7 @@ import unicodedata
 import zipfile
 
 from audit_ipa_package import AuditError, audit, digest, require
+from ipa_device_architecture import device_architecture
 
 MAX_ARCHIVE = 2 * 1024 ** 3
 MAX_EXPANDED = 3 * 1024 ** 3
@@ -93,6 +94,7 @@ def verify_signature(source, bundle_id, version, build, team_id, leaf_sha256):
         snapshot(source, frozen)
         evidence = audit(frozen, bundle_id, version, build)
         app = extract_app(frozen, root / 'bundle')
+        architecture = device_architecture(app)
         requirement = ('anchor apple generic and identifier "' + bundle_id +
                        '" and certificate leaf[subject.OU] = "' + team_id + '"')
         run_codesign(['--verify', '--deep', '--strict', '-R=' + requirement, str(app)])
@@ -117,7 +119,7 @@ def verify_signature(source, bundle_id, version, build, team_id, leaf_sha256):
                 'Debug entitlement is not permitted')
         require(digest(frozen) == evidence['sha256'], 'Frozen artifact changed')
         require(digest(source) == evidence['sha256'], 'Original artifact changed')
-        return {**evidence, 'signature_verified': True, 'team_id': team_id,
+        return {**evidence, **architecture, 'signature_verified': True, 'team_id': team_id,
                 'signing_certificate_sha256': actual_leaf,
                 'debug_entitlement_disabled': True,
                 'provisioning_verified': False, 'store_accepted': False}
