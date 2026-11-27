@@ -44,6 +44,8 @@ idempotent replay, same-epoch credential substitution, explicit rotation,
 history retention, no raw secret in the stored rows, lower-epoch rejection,
 TLS-only configuration, noncanonical epoch, and inconsistent pointer denial.
 
+The 21 assertions and exact SHA/lint were independently executed again in the local PHP 8.4.24 runtime on this continuation. The stubs model rollback and query selection, not real row locks. The transport stub returns configured URL and does not implement the real transport validator.
+
 This is not Laravel/PostgreSQL migration or concurrent transaction evidence.
 Dual-protocol feature regressions for review invalidation, rollback and
 in-flight rotation are authored, not executed. Exact resulting-head hosted
