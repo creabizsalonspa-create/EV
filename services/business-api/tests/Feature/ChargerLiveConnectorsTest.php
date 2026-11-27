@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ChargerLiveConnectorsController;
+use App\Http\Controllers\ChargerResetController;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
 use App\Models\Station;
@@ -10,10 +12,13 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\RemoteSessionAuthorization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class ChargerLiveConnectorsTest extends TestCase
@@ -123,6 +128,9 @@ class ChargerLiveConnectorsTest extends TestCase
             }
             if ($case === 'source_secret_changed') {
                 config(['csms.graphql_secret' => str_repeat('r', 64)]);
+            }
+            if ($case === 'bearer_revoked_during_read') {
+                $fixture['owner']->tokens()->delete();
             }
             if ($case === 'revoke_during_read') {
                 DB::table('users')->where('id', $fixture['owner']->id)->increment('auth_epoch');
@@ -458,6 +466,44 @@ class ChargerLiveConnectorsTest extends TestCase
         }
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_captured_bearer_revocation_fences_live_connector_disclosure_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $token = $f['owner']->createToken('live-fleet', ['*'], now()->addHour())->accessToken;
+            $snapshot = $f['owner']->fresh()->withAccessToken($token);
+            $request = Request::create($f['url'], 'GET');
+            $request->setUserResolver(fn () => $snapshot);
+            $read = fn () => app(ChargerLiveConnectorsController::class)(
+                $request, $f['company'], $f['charger'], app(ChargerResetController::class), app(RemoteSessionAuthorization::class)
+            );
+            $this->source($f);
+            $this->assertSame(200, $read()->getStatusCode());
+            Http::assertSentCount(3);
+
+            $this->source($f, 'bearer_revoked_during_read');
+            try {
+                $read();
+                $this->fail('A revoked captured token received live source evidence.');
+            } catch (HttpException $error) {
+                $this->assertSame(403, $error->getStatusCode());
+            }
+            Http::assertSentCount(3);
+
+            $this->source($f);
+            try {
+                $read();
+                $this->fail('A revoked captured token initiated source reads.');
+            } catch (HttpException $error) {
+                $this->assertSame(403, $error->getStatusCode());
+            }
+            Http::assertNothingSent();
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+            $this->assertDatabaseCount('charging_status_observations', 0);
+        }
     }
 
     public function test_missing_canonical_target_digest_prevents_any_source_request(): void
