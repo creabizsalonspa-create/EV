@@ -8,7 +8,7 @@ const { BusinessClient } = require("./helpers/business-client.cjs");
 function verifyRegionalReceiptParser() {
   const source = fs.readFileSync("services/business-api/public/platform.js", "utf8");
   const start = source.indexOf("function verifyRegionalConfigurationReceipt(");
-  const end = source.indexOf("let regionalConfigBusy", start);
+  const end = source.indexOf('el("region-config").onsubmit', start);
   assert(start >= 0 && end > start);
   const verify = new Function(source.slice(start, end) + "\nreturn verifyRegionalConfigurationReceipt;")();
   const reviewed = {currency: "AED", minor_units: 2, timezone: "Asia/Dubai", tax_bps: 0, commerce_enabled: false};
@@ -174,6 +174,7 @@ async function main() {
     assert.equal(receipt.status(), 200);
     assert.equal(String((await receipt.json()).configuration_revision), revision);
     await editRegion.waitFor();
+    await ap.waitForFunction(() => !document.querySelector("#region-config").inert);
     // A genuine no-op is not allowed to acknowledge a revision increment.
     // Alter only the response; the real API still receives the same no-op.
     await ap.route("**/api/regions/AE", async route => {

@@ -10,6 +10,7 @@ let invitationPage = 1, invitationGeneration = 0,
     invitationRequest = null, invitationOwner = null;
 let fleetDetailGeneration = 0, fleetDetailRequest = null;
 let fleetCreatePending = false;
+let regionalConfigBusy = false;
 // Startup's pending-logout branch can clear identity before lower sections
 // initialize. Every mutation lock read by clearPrivateViews must exist now.
 let vehicleCreatePending = false,
@@ -1877,7 +1878,6 @@ function verifyRegionalConfigurationReceipt(saved, country, values, reviewed) {
         ![false, 0].includes(saved.commerce_enabled)) fail();
     return {...normalized, commerce_enabled: saved.commerce_enabled};
 }
-let regionalConfigBusy = false;
 el("region-config").onsubmit = async (e) => {
     e.preventDefault();
     if (regionalConfigBusy || user?.role !== "admin") return;
