@@ -74,7 +74,7 @@ class OperationalAnalytics
             $rows[$site]['possible_evse_seconds'] += $z - $a;
         }
         $links = DB::table('csms_session_links as l')->join('charging_sessions as s', 's.id', '=', 'l.charging_session_id')->join('reservations as r', 'r.id', '=', 's.reservation_id')->whereIn('l.binding_id', $bindings->pluck('id'))->where('l.created_at', '<=', $asOf)->whereNull('l.closed_without_dispatch_at')
-            ->where(fn ($q) => $q->whereNull('l.ended_at')->orWhere('l.ended_at', '>=', $from))->select('l.*', 's.energy_wh', 's.status as session_status', 'r.station_id as reservation_station')->limit(10001)->get();
+            ->where(fn ($q) => $q->whereNull('l.ended_at')->orWhere('l.ended_at', '>=', $from))->select('l.*', 's.energy_wh', 's.status as session_status', 'r.station_id as reservation_station', 'r.connector_mapping_id as reservation_mapping', 'r.charging_evse_id as reservation_evse', 's.charging_evse_id as session_evse')->limit(10001)->get();
         abort_if($links->count() > 10000, 409, 'Narrow the report period/site.');
         $events = DB::table('csms_inbox_events')->whereIn('link_id', $links->pluck('id'))->where('outcome', 'applied')->where('created_at', '<=', $asOf)->where('occurred_at', '<=', $asOf)->where(fn ($q) => $q->whereIn('type', ['started', 'ended'])->orWhereBetween('occurred_at', [$from, $until]))->orderBy('sequence')->limit(20001)->get();
         abort_if($events->count() > 20000, 409, 'Narrow the report period/site.');
@@ -87,7 +87,10 @@ class OperationalAnalytics
             $site = $b->site_id;
             $map = $l->connector_mapping_id ? ($byMap[$l->connector_mapping_id] ?? null) : null;
             $evse = $map ? ($byEvse[$map->evse_id] ?? null) : null;
-            if (! $map || ! $evse || $evse->binding_id !== $b->id || $map->station_id !== $b->station_id || $l->reservation_station !== $b->station_id || $l->identifier !== $b->identifier || $l->protocol !== $b->protocol) {
+            // Admission pins the reservation mapping and EVSE into both
+            // the charging session and its source link. Matching only the
+            // station permits a contradictory same-station target to count.
+            if (! $map || ! $evse || $l->reservation_mapping !== $map->id || $l->reservation_evse !== $evse->id || $l->session_evse !== $evse->id || $evse->binding_id !== $b->id || $map->station_id !== $b->station_id || $l->reservation_station !== $b->station_id || $l->identifier !== $b->identifier || $l->protocol !== $b->protocol) {
                 $rows[$site]['excluded_sessions']++;
 
                 continue;
