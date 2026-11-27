@@ -56,6 +56,58 @@ class SignedFirmwareTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public static function staleFirmwareBearerCases(): array
+    {
+        $cases = [];
+        foreach (['revoked', 'individual_expiry', 'global_expiry'] as $reason) {
+            foreach (['list', 'approve', 'revoke'] as $action) {
+                $cases[] = [$reason, $action];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('staleFirmwareBearerCases')]
+    public function test_captured_admin_bearer_cannot_read_or_mutate_firmware_catalog(string $reason, string $action): void
+    {
+        $f = $this->fixture();
+        Http::fake();
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1', 'note' => 'Approved pinned synthetic bytes',
+        ])->assertCreated()->json('id');
+        config(['sanctum.expiration' => 60]);
+        $token = $f['admin']->createToken('firmware-catalog', ['*'], now()->addHours(2))->accessToken;
+        $snapshot = $f['admin']->fresh()->withAccessToken($token);
+        $request = Request::create($f['releases'], $action === 'list' ? 'GET' : 'POST', [
+            'catalog_key' => 'synthetic-v1', 'note' => 'Inspect captured firmware authority',
+        ]);
+        $request->setUserResolver(fn () => $snapshot);
+        $controller = app(ChargerFirmwareController::class);
+        $catalog = app(\App\Services\Charging\SignedFirmwareCatalog::class);
+        $this->assertSame(200, $controller->releases($request, $f['company'], $catalog)->getStatusCode());
+        match ($reason) {
+            'revoked' => $token->delete(),
+            'individual_expiry' => $token->forceFill(['expires_at' => now()->subSecond()])->save(),
+            'global_expiry' => $token->forceFill(['created_at' => now()->subMinutes(61)])->save(),
+        };
+        try {
+            match ($action) {
+                'list' => $controller->releases($request, $f['company'], $catalog),
+                'approve' => $controller->approve($request, $f['company'], $catalog),
+                'revoke' => $controller->revoke($request, $f['company'], $release),
+            };
+            $this->fail('Expired or revoked bearer retained private firmware authority.');
+        } catch (HttpException $error) {
+            $this->assertSame(403, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('charger_firmware_releases', ['id' => $release, 'revoked_at' => null]);
+        $this->assertDatabaseCount('charger_firmware_releases', 1);
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_download_route_rejects_malformed_capabilities_before_entering_the_disabled_adapter(): void
     {
         config(['csms.firmware_enabled' => false]);
