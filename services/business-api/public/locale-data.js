@@ -331,6 +331,10 @@ window.EV_MESSAGES = {
         en: "Mark all current notifications as read",
         ar: "تحديد الإشعارات الحالية كمقروءة",
     },
+    "Replace the existing grant? The staff member loses access until accepting the new permissions.": {
+        en: "Replace the existing grant? The staff member loses access until accepting the new permissions.",
+        ar: "هل تريد استبدال الصلاحيات الحالية؟ سيفقد الموظف إمكانية الوصول إلى أن يقبل الصلاحيات الجديدة.",
+    },
     "Roaming credential state superseded": {
         en: "Enrollment replaced",
         ar: "تم استبدال التسجيل",
