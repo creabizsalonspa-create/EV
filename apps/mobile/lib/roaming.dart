@@ -18,7 +18,7 @@ class RoamingLocation {
   final dynamic catalogAgePolicy;
   final double? distanceKm;
   RoamingLocation.fromJson(Map<String, dynamic> json)
-    : catalogAgePolicy = json['location_available'] == false ? null : json['catalog_age_policy'],
+    : catalogAgePolicy = json['location_available'] == false ? null : verifiedPartnerCatalogPolicy(json),
       id = json['id'] as int?,
       available = json['location_available'] != false,
       location = json['location'] is Map
@@ -31,8 +31,7 @@ class RoamingLocation {
           ? json['provider_label'] as String
           : null,
       reportedSourceAgeMinutes =
-          json['reported_source_age_minutes'] is int &&
-                  (json['reported_source_age_minutes'] as int) >= 0
+          json['location_available'] != false && verifiedPartnerSourceTime(json) != null
               ? json['reported_source_age_minutes'] as int
               : null,
       sourceClockEvidence = json['source_clock_evidence'] is String
