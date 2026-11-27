@@ -1,0 +1,4 @@
+body{font:16px/1.55 system-ui,sans-serif;max-width:76rem;margin:2rem auto;padding:0 1rem;background:#f4f6f8;color:#18232d}
+main{background:#fff;border:1px solid #cbd4dc;border-radius:12px;padding:1.5rem}a{color:#075985}
+.table-scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{border:1px solid #cbd4dc;padding:.65rem;text-align:start}th{background:#e8eef4}
+dt{font-weight:700}dd{margin-block-end:.7rem}caption{text-align:start;font-weight:700;margin-block:.7rem}

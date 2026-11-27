@@ -47,7 +47,11 @@ final class AdminLicensedCoverageTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $this->actingAs($admin)->get($url)->assertOk()
             ->assertHeader('Cache-Control', 'no-store, private')
-            ->assertSee('No validated hourly observations.');
+            ->assertHeader('Referrer-Policy', 'no-referrer')
+            ->assertSee('No validated hourly observations.')
+            ->assertSee('href="/admin-licensed-coverage.css"', false)
+            ->assertDontSee('<style>', false);
+        $this->get('/admin/licensed-coverage.css')->assertOk();
         $request = Request::create($url);
         $request->setUserResolver(fn () => $admin);
         DB::table('users')->where('id', $admin->id)->increment('auth_epoch');
