@@ -34,7 +34,9 @@ final class StationAvailabilityBlockController extends Controller
         // the login after locking the station prevents stale captured tokens
         // from publishing or cancelling policy inside either transaction.
         $current = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
-        app(MaintenanceActor::class)->check($request->user());
+        $actor = app(MaintenanceActor::class);
+        $actor->check($request->user());
+        $actor->checkBearer($request->user());
         abort_unless((int) $current->vendor_id === (int) $request->user()->id, 404);
 
         return $current;
