@@ -44,7 +44,9 @@ class LicensedCoverageHistoryTest extends TestCase
         $this->assertSame(0, $history->report()['observed_hours']);
         Http::assertNothingSent();
 
-        Http::fake(['api.openchargemap.io/*' => Http::response([], 200, ['Content-Type' => 'application/json'])]);
+        // The adapter consumes and closes each streamed response. Each cold
+        // lookup must receive a new body, not a previously closed fake stream.
+        Http::fake(['api.openchargemap.io/*' => fn () => Http::response([], 200, ['Content-Type' => 'application/json'])]);
         $this->populate(0);
         $this->assertSame('captured', $history->capture()['state']);
         $this->populate(1);
