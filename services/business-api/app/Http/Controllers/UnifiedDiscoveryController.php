@@ -17,6 +17,7 @@ use App\Services\Discovery\PublicPartnerLocation;
 use App\Services\Discovery\SourceReportFilter;
 use App\Services\Discovery\StationCatalog;
 use App\Services\Discovery\UnifiedCountryFilter;
+use App\Services\Discovery\UnifiedRadiusFilter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -27,6 +28,9 @@ final class UnifiedDiscoveryController extends Controller
     public function index(Request $request)
     {
         $v = $request->validate(['q' => 'nullable|string|max:80', 'operator' => 'nullable|string|max:100', 'address' => 'nullable|string|max:150', 'access' => 'nullable|string|max:150', 'max_rate_per_kwh' => ['nullable', 'required_with:price_currency', 'string', 'regex:/^[0-9]{1,6}(\.[0-9]{1,3})?$/D'], 'price_currency' => 'nullable|required_with:max_rate_per_kwh|string|size:3|uppercase', 'scope' => 'nullable|in:all,catalog,partner', 'country' => 'nullable|in:AE,CA,US', 'min_power_kw' => 'nullable|integer|between:1,1000', 'max_power_kw' => 'nullable|integer|between:1,1000',
+            'latitude' => 'nullable|required_with:longitude,radius_km|numeric|between:-90,90',
+            'longitude' => 'nullable|required_with:latitude,radius_km|numeric|between:-180,180',
+            'radius_km' => 'nullable|required_with:latitude,longitude|numeric|between:1,200',
             'south' => 'nullable|required_with:north,west,east|numeric|between:-90,90',
             'north' => 'nullable|required_with:south,west,east|numeric|between:-90,90',
             'west' => 'nullable|required_with:south,north,east|numeric|between:-180,180',
@@ -53,6 +57,11 @@ final class UnifiedDiscoveryController extends Controller
                 throw ValidationException::withMessages(['east' => 'East and west must differ.']);
             }
             app(DiscoveryViewport::class)->apply($catalog, $partner, $v);
+        }
+        // A consented radius is a local great-circle predicate on both
+        // published sources, before pagination. It never contacts a provider.
+        if (isset($v['latitude'], $v['longitude'], $v['radius_km'])) {
+            app(UnifiedRadiusFilter::class)->apply($catalog, $partner, $v);
         }
         // Only canonical published station power is comparable: no partner
         // crowd-reported wattage is promoted to verified charger capability.
