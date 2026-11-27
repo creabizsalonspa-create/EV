@@ -72,6 +72,44 @@ class DeferredDiscoveryApi extends EvApi {
 }
 
 void main() {
+  testWidgets('retired route stop callbacks cannot change a revised itinerary or catalog', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900,1600));
+    addTearDown(()=>tester.binding.setSurfaceSize(null));
+    final first=station();
+    final second=Station.fromJson({
+      'id':2,'name':'Replacement stop','connector_type':'CCS2',
+      'power_kw':50,'evidence':'DISCOVERY_ONLY','latitude':25.3,'longitude':55.4,
+    });
+    Widget view(List<Station> stations)=>MaterialApp(home:RoutePlannerView(stations:stations));
+    await tester.pumpWidget(view([first]));
+    await tester.pumpAndSettle();
+    final expand=find.text('Add charging stops from results');
+    await tester.ensureVisible(expand);
+    await tester.tap(expand);
+    await tester.pumpAndSettle();
+    final firstKey=find.byKey(const Key('route-stop-1'));
+    final old=tester.widget<CheckboxListTile>(firstKey).onChanged!;
+    await tester.pumpWidget(view([second]));
+    await tester.pumpAndSettle();
+    old(true);
+    await tester.pumpAndSettle();
+    expect(find.text('1. Synthetic stop'),findsNothing);
+    final key=find.byKey(const Key('route-stop-2'));
+    final choose=tester.widget<CheckboxListTile>(key).onChanged!;
+    choose(true);
+    choose(true);
+    await tester.pumpAndSettle();
+    expect(find.text('1. Replacement stop'),findsOneWidget);
+    expect(find.text('2. Replacement stop'),findsNothing);
+    final remove=tester.widget<IconButton>(find.byWidgetPredicate((widget) =>
+        widget is IconButton && widget.tooltip == 'Remove stop')).onPressed!;
+    remove();
+    remove();
+    await tester.pumpAndSettle();
+    expect(find.text('1. Replacement stop'),findsNothing);
+    expect(tester.takeException(),isNull);
+  });
+
   testWidgets('route coordinate inputs distinguish origin and destination in their labels', (tester) async {
     await tester.pumpWidget(MaterialApp(home:RoutePlannerView(stations:[])));
     await tester.pumpAndSettle();

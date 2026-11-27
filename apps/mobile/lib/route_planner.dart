@@ -545,6 +545,13 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
     }
     final consentGeneration = generation;
     final consentClient = widget.client;
+    final renderedStations = widget.stations;
+    bool currentIntent() => mounted && sessionCurrent &&
+        generation == consentGeneration &&
+        identical(widget.client, consentClient);
+    bool currentCatalog() => currentIntent() &&
+        !awaitingFreshAccountCatalog &&
+        identical(renderedStations, widget.stations);
     final lines =
         estimate?.segments
             .where((line) => line.every((p) => p.latitude.abs() <= 85.05112878))
@@ -594,6 +601,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
                         onPressed: i == 0
                             ? null
                             : () {
+                                if (!currentIntent() || i >= stops.length) return;
                                 final s = stops.removeAt(i);
                                 stops.insert(i - 1, s);
                                 invalidate();
@@ -603,6 +611,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
                       IconButton(
                         tooltip: t('Remove stop', 'إزالة التوقف'),
                         onPressed: () {
+                          if (!currentIntent() || i >= stops.length) return;
                           stops.removeAt(i);
                           invalidate();
                         },
@@ -634,6 +643,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
                       ),
                   ],
                   onChanged: (value) {
+                    if (!currentIntent() || !['','CCS2','Type2','CHAdeMO'].contains(value)) return;
                     requiredConnector = value ?? '';
                     invalidate();
                   },
@@ -684,7 +694,11 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
                                 (!matchesAdvertisedConnector(station) || stops.length >= 3))
                         ? null
                         : (selected) {
+                            if (!currentCatalog() || !valid(station) ||
+                                !widget.stations.any((s) => identical(s, station))) return;
                             if (selected == true) {
+                              if (stops.length >= 3 || !matchesAdvertisedConnector(station) ||
+                                  stops.any((s) => s.id == station.id)) return;
                               stops.add(station);
                             } else {
                               stops.removeWhere((s) => s.id == station.id);
@@ -744,7 +758,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
               key: const Key('route-preview'),
               onPressed: loading || incompatibleStops || !consent || capabilities?.routing != true
                   ? null
-                  : preview,
+                  : () { if (currentIntent()) preview(); },
               icon: const Icon(Icons.route),
               label: Text(t('Preview provider route', 'معاينة مسار المزود')),
             ),
@@ -797,7 +811,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
               ),
             if (estimate != null && !tiles)
               OutlinedButton(
-                onPressed: () => setState(() => tiles = true),
+                onPressed: () { if (currentIntent() && estimate != null) setState(() => tiles = true); },
                 child: Text(
                   t(
                     'Show map — sends viewed area/IP to OpenStreetMap',
@@ -857,7 +871,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
             energyReviewPanel(),
             OutlinedButton.icon(
               key: const Key('route-navigation'),
-              onPressed: incompatibleStops ? null : navigate,
+              onPressed: incompatibleStops ? null : () { if (currentIntent()) navigate(); },
               icon: const Icon(Icons.navigation_outlined),
               label: Text(
                 t(
