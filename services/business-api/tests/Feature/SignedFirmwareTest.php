@@ -477,6 +477,42 @@ class SignedFirmwareTest extends TestCase
         Http::assertNotSent(fn ($r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), 'other.example.test'));
     }
 
+    public static function firmwareDispatchAuthorityChanges(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['csms.graphql_secret', 'csms.graphql_url', 'csms.rider_client_secret', 'csms.firmware_download_base'] as $field) {
+                $cases[] = [$protocol, $field];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('firmwareDispatchAuthorityChanges')]
+    public function test_firmware_authority_change_after_token_never_dispatches_or_exposes_artifact(string $protocol, string $field): void
+    {
+        $f = $this->fixture($protocol);
+        $original = config($field);
+        $replacement = str_ends_with($field, '_secret') ? str_repeat('z', 64) : 'https://alternate.example.test/source';
+        $this->source($f, duringToken: fn () => config([$field => $replacement]));
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1', 'note' => 'Approved pinned synthetic bytes',
+        ])->assertCreated()->json('id');
+        $body = ['release_id' => $release, 'reason' => 'Inspect current firmware source authority', 'idempotency_key' => 'authority-drift'];
+        $id = $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'not_dispatched')->json('id');
+        $op = DB::table('charger_firmware_operations')->find($id);
+        $this->assertNotNull($op->pre_dispatch_blocked_at);
+        $raw = Crypt::decryptString($op->download_token_ciphertext);
+        config([$field => $original]);
+        $this->get('/api/internal/firmware/'.$raw)->assertNotFound();
+        $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id)->assertJsonPath('status', 'not_dispatched');
+        Http::assertSentCount(8);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/ocpp/') || str_contains($request->url(), 'alternate.example.test'));
+        $this->assertDatabaseCount('charger_firmware_operations', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     #[DataProvider('protocols')]
     public function test_signed_deployment_is_one_shot_private_and_source_reviewed(string $protocol): void
     {
