@@ -143,6 +143,18 @@ class PrivacyAccessExportTest extends TestCase
             $replace(json_encode(array_replace($document, $change), JSON_THROW_ON_ERROR));
             $this->postJson($path, ['password' => 'password'])->assertConflict()->assertDontSee('Own private vehicle');
         }
+        // Matching envelope and digest are insufficient when nested
+        // profile identity or explicit record ownership is inconsistent.
+        foreach ([
+            array_replace($document['sections'], ['profile' => array_replace($document['sections']['profile'], ['id' => $other->id, 'email' => $other->email])]),
+            array_replace($document['sections'], ['profile' => null]),
+            array_replace($document['sections'], ['vehicles' => ['foreign' => ['name' => 'OTHER PRIVATE VEHICLE']]]),
+            array_replace($document['sections'], ['vehicles' => [['id' => 1, 'user_id' => $other->id, 'name' => 'OTHER PRIVATE VEHICLE']]]),
+        ] as $sections) {
+            $replace(json_encode(array_replace($document, ['sections' => $sections]), JSON_THROW_ON_ERROR));
+            $this->postJson($path, ['password' => 'password'])->assertConflict()
+                ->assertDontSee('OTHER PRIVATE VEHICLE')->assertDontSee($other->email);
+        }
         $replace('{malformed-json');
         $this->postJson($path, ['password' => 'password'])->assertConflict();
         DB::table('account_privacy_exports')->where('privacy_request_id', $case->id)->update(['payload_encrypted' => 'invalid-ciphertext']);
@@ -155,6 +167,26 @@ class PrivacyAccessExportTest extends TestCase
             ->assertDontSee('OTHER PRIVATE VEHICLE');
         $this->assertSame(1, DB::table('audit_events')->where('action', 'privacy.copy.viewed')->count());
         $this->assertDatabaseCount('account_privacy_exports', 2);
+    }
+
+    public function test_missing_encrypted_payload_never_appears_available_in_owner_metadata(): void
+    {
+        [$owner, $admin, , $case] = $this->scenario();
+        $path = '/api/account/privacy-requests/'.$case->id.'/access-copy';
+        $this->actingAs($admin)->postJson('/api/admin/privacy-requests/'.$case->id.'/access-copy',
+            ['password' => 'password', 'request_key' => 'privacy-missing-payload'])->assertCreated();
+        $original = DB::table('account_privacy_exports')->where('privacy_request_id', $case->id)->first();
+        $this->actingAs($owner);
+        foreach ([null, ''] as $missing) {
+            DB::table('account_privacy_exports')->where('privacy_request_id', $case->id)->update(['payload_encrypted' => $missing]);
+            $this->getJson('/api/account/privacy-requests')->assertOk()->assertJsonPath('data.0.copy.status', 'expired')
+                ->assertJsonMissingPath('data.0.copy.payload_encrypted');
+            $this->postJson($path, ['password' => 'password'])->assertGone();
+        }
+        $this->assertSame(0, DB::table('audit_events')->where('action', 'privacy.copy.viewed')->count());
+        DB::table('account_privacy_exports')->where('privacy_request_id', $case->id)->update(['payload_encrypted' => $original->payload_encrypted]);
+        $this->getJson('/api/account/privacy-requests')->assertOk()->assertJsonPath('data.0.copy.status', 'available');
+        $this->postJson($path, ['password' => 'password'])->assertOk();
     }
 
     public function test_snapshot_builder_rejects_cross_owner_and_non_access_review_before_collecting_rows(): void

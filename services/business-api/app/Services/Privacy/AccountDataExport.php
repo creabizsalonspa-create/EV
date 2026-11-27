@@ -100,12 +100,14 @@ final class AccountDataExport
             ->whereColumn('e.user_id', 'r.user_id')
             ->where('r.kind', 'access')->where('r.status', 'closed_review')
             ->where('e.privacy_request_id', $case)
-            ->first(['e.id', 'e.expires_at', 'e.purged_at', 'e.revoked_at', 'e.byte_length', 'e.created_at']);
+            ->select(['e.id', 'e.expires_at', 'e.purged_at', 'e.revoked_at', 'e.byte_length', 'e.created_at'])
+            ->selectRaw('CASE WHEN e.payload_encrypted IS NULL OR e.payload_encrypted = ? THEN 0 ELSE 1 END AS payload_present', [''])
+            ->first();
         if (! $record) {
             return null;
         }
 
-        return ['id' => (int) $record->id, 'status' => $record->revoked_at ? 'revoked' : ($record->purged_at || $record->expires_at <= now()->toDateTimeString() ? 'expired' : 'available'), 'expires_at' => $record->expires_at, 'byte_length' => (int) $record->byte_length, 'created_at' => $record->created_at];
+        return ['id' => (int) $record->id, 'status' => $record->revoked_at ? 'revoked' : ($record->purged_at || ! $record->payload_present || $record->expires_at <= now()->toDateTimeString() ? 'expired' : 'available'), 'expires_at' => $record->expires_at, 'byte_length' => (int) $record->byte_length, 'created_at' => $record->created_at];
     }
 
     public function purge(): int
