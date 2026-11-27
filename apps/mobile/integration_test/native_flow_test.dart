@@ -784,6 +784,8 @@ void main() {
             expectSync(body['commission_bps'], 0);
             expectSync(body['expected_minor_units'], 2);
             expectSync(body['expected_currency'], 'AED');
+            expectSync(body['expected_active_tariff_id'], pricingVersion);
+            expectSync(body['tax_bps'], 500);
             expectSync(
               body['idempotency_key'],
               matches(RegExp(r'^[a-f0-9]{32}$')),
@@ -791,21 +793,35 @@ void main() {
             pricingAmount = body['rate_minor_per_kwh'] as int;
             result = {'id': ++pricingVersion};
           } else {
+            final active = {
+              'id': pricingVersion,
+              'station_id': 8,
+              'rate_minor_per_kwh': pricingAmount,
+              'tax_bps': 500,
+              'commission_bps': 1250,
+              'minor_units': 2,
+              'currency': 'AED',
+              'effective_from': pricingVersion == 1
+                  ? '2026-10-27T00:00:00Z'
+                  : '2026-11-25T00:00:00Z',
+            };
             result = {
               'data': [
-                {
-                  'id': pricingVersion,
-                  'rate_minor_per_kwh': pricingAmount,
-                  'tax_bps': 500,
-                  'commission_bps': 1250,
-                  'minor_units': 2,
-                  'currency': 'AED',
-                  'effective_from': '2026-10-27T00:00:00Z',
-                },
+                active,
+                if (pricingVersion > 1)
+                  {
+                    ...active,
+                    'id': 1,
+                    'rate_minor_per_kwh': 125,
+                    'effective_from': '2026-10-27T00:00:00Z',
+                  },
               ],
               'current_page': 1,
               'last_page': 1,
-              'total': 1,
+              'total': pricingVersion,
+              'active_tariff': active,
+              'tariff_as_of': '2026-11-25T00:00:01Z',
+              'active_tariff_context_matches': true,
               'pricing_context': {
                 'currency': 'AED',
                 'minor_units': 2,
@@ -1651,12 +1667,37 @@ void main() {
       await settle();
       await tester.tap(find.text('Device pricing station'));
       await settle();
-      await tester.enterText(find.byType(TextFormField).at(0), '٢٫٥٠');
-      await tester.enterText(find.byType(TextFormField).at(1), '٥');
-      await tester.ensureVisible(find.text('نشر إصدار التسعير'));
-      await tester.tap(find.text('نشر إصدار التسعير'));
+      final activePricing = find.byKey(const Key('effective-tariff-version'));
+      final pricingScroll = find.descendant(
+        of: find.byType(ListView),
+        matching: find.byType(Scrollable),
+      ).first;
+      await tester.scrollUntilVisible(activePricing, 120,
+        scrollable: pricingScroll);
+      expect(find.textContaining('الساري #1'), findsOneWidget);
+      final priceInput = find.widgetWithText(
+        TextFormField, 'السعر لكل كيلوواط ساعة (AED)');
+      await tester.scrollUntilVisible(priceInput, 120, scrollable: pricingScroll);
+      await tester.enterText(priceInput, '٢٫٥٠');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await settle();
+      final taxInput = find.widgetWithText(TextFormField, 'الضريبة (%) · ٠–١٠٠');
+      await tester.scrollUntilVisible(taxInput, 120, scrollable: pricingScroll);
+      await tester.enterText(taxInput, '٥');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await settle();
+      final publishPricing = find.text('نشر إصدار التسعير');
+      await tester.scrollUntilVisible(publishPricing, 120,
+        scrollable: pricingScroll);
+      await tester.tap(publishPricing);
       await settle();
       expect(pricingAmount, 250);
+      expect(pricingVersion, 2);
+      await tester.scrollUntilVisible(activePricing, -120,
+        scrollable: pricingScroll);
+      expect(find.textContaining('الساري #2'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('2.50 AED / kWh'), 120,
+        scrollable: pricingScroll);
       expect(find.text('2.50 AED / kWh'), findsOneWidget);
       await tester.tap(find.byType(BackButton));
       await settle();
