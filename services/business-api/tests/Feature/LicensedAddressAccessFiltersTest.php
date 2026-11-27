@@ -8,6 +8,32 @@ use Tests\TestCase;
 
 final class LicensedAddressAccessFiltersTest extends TestCase
 {
+    public function test_invalid_local_filter_text_cannot_trigger_cold_provider_traffic(): void
+    {
+        Cache::flush();
+        Http::preventStrayRequests();
+        Http::fake(['api.openchargemap.io/*' => Http::response([], 200, ['Content-Type' => 'application/json'])]);
+        config([
+            'discovery.ocm_enabled' => true,
+            'discovery.ocm_terms_accepted' => true,
+            'discovery.ocm_api_key' => 'synthetic-address-access-key',
+        ]);
+
+        $input = ['consent' => true, 'latitude' => 25.2, 'longitude' => 55.3, 'radius_km' => 10];
+        foreach (['/api/discovery/open-charge-map/search', '/api/v1/discovery/open-charge-map/search'] as $endpoint) {
+            foreach (['reported_connector', 'operator_contains', 'address_contains', 'access_contains'] as $field) {
+                $this->postJson($endpoint, $input + [$field => "invalid\tlocal filter"])
+                    ->assertUnprocessable()
+                    ->assertJsonPath('reason', 'invalid_request');
+                Http::assertNothingSent();
+            }
+        }
+
+        $this->postJson('/api/discovery/open-charge-map/search', $input + ['address_contains' => 'Dubai'])
+            ->assertOk()->assertJsonPath('count', 0);
+        Http::assertSentCount(1);
+    }
+
     public function test_reported_address_and_access_filters_are_literal_cache_only_and_source_qualified(): void
     {
         Cache::flush();

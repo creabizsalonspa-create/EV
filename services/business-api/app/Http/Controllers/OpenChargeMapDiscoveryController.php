@@ -63,6 +63,16 @@ final class OpenChargeMapDiscoveryController extends Controller
             (float) $input['radius_km'], $input['country'] ?? null, $key);
 
         try {
+            // Invalid local filter text must not initiate provider traffic
+            // or disclose the requested coordinates on a cold lookup.
+            OpenChargeMapAdapter::validateReportedFilters(
+                isset($input['min_reported_power_kw']) ? (float) $input['min_reported_power_kw'] : null,
+                $input['reported_connector'] ?? null,
+                $input['operator_contains'] ?? null,
+                isset($input['max_source_age_hours']) ? (int) $input['max_source_age_hours'] : null,
+                $input['address_contains'] ?? null,
+                $input['access_contains'] ?? null,
+            );
             // Cache only the normalized, attribution-safe provider subset
             // under the geographic/country identity. Filtering by locally
             // reported connector details must not trigger duplicate OCM calls.
