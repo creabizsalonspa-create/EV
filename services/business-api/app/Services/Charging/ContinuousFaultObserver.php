@@ -125,34 +125,7 @@ class ContinuousFaultObserver
                 $previous = $after;
                 foreach ($events as $event) {
                     abort_unless(is_array($event) && is_int($event['id'] ?? null) && $event['id'] > $previous && $event['id'] <= 2147483647 && is_string($event['connectorStatus'] ?? null) && strlen($event['connectorStatus']) <= 40 && is_string($event['timestamp'] ?? null) && strlen($event['timestamp']) <= 50 && (! isset($event['errorCode']) || (is_string($event['errorCode']) && strlen($event['errorCode']) <= 80)), 503);
-                    // All status observations must belong to the canonical OCPP
-                    // status vocabulary. Unknown vendor states are not evidence
-                    // of availability, faults or recovery and must not advance
-                    // the durable cursor beyond an unread source event.
-                    abort_unless(in_array($event['connectorStatus'], ConnectorFreshness::STATUSES, true), 503, 'Unsupported source connector status.');
-                    // A 1.6 StatusNotification includes an explicit fault
-                    // errorCode. Do not persist a healthy/status cursor from
-                    // a partial, contradictory or non-1.6 projection.
-                    if ($b->protocol === '1.6') {
-                        abort_unless(in_array($event['connectorStatus'], [
-                            'Available', 'Preparing', 'Charging', 'SuspendedEVSE',
-                            'SuspendedEV', 'Finishing', 'Reserved', 'Unavailable',
-                            'Faulted',
-                        ], true), 503, 'Invalid OCPP 1.6 status.');
-                        $code = $event['errorCode'] ?? null;
-                        abort_unless(is_string($code) && in_array($code, [
-                            'NoError', 'ConnectorLockFailure', 'EVCommunicationError',
-                            'GroundFailure', 'HighTemperature', 'InternalError',
-                            'LocalListConflict', 'OtherError', 'OverCurrentFailure',
-                            'OverVoltage', 'PowerMeterFailure', 'PowerSwitchFailure',
-                            'ReaderFailure', 'ResetFailure', 'UnderVoltage', 'WeakSignal',
-                        ], true) && (($event['connectorStatus'] === 'Faulted') === ($code !== 'NoError')),
-                            503, 'Invalid or inconsistent OCPP 1.6 fault receipt.');
-                    } else {
-                        abort_unless(in_array($event['connectorStatus'], [
-                            'Available', 'Occupied', 'Reserved', 'Unavailable', 'Faulted',
-                        ], true), 503, 'Invalid OCPP 2.0.1 status.');
-                    }
+                    FaultMonitor::requireProtocolReceipt($b->protocol, $event);
                     try {
                         // Use the same strict absolute-time contract as the
                         // persisted fault observer, including fractional future
@@ -231,26 +204,11 @@ class ContinuousFaultObserver
                 // The source observation, fault alert and vendor-only in-app
                 // notification commit atomically under the verified ownership lock.
                 // Historical replay never emits a second notification.
-                $notify = function (int $alertId, string $kind) use ($current, $ownerId, $companyId): void {
-                    InboxNotification::create([
-                        'user_id' => $ownerId,
-                        'kind' => $kind,
-                        'metadata' => [
-                            'source' => 'simulator',
-                            'evidence' => 'SIMULATED_SOURCE_OBSERVED',
-                            'station_id' => $current->station_id,
-                            'company_id' => $companyId,
-                            'charger_id' => $current->vendor_charger_id,
-                            'alert_id' => $alertId,
-                            'physical_verification' => false,
-                        ],
-                    ]);
-                };
-                $created = app(FaultMonitor::class)->ingest(
+                $created = app(FaultMonitor::class)->ingestForOwner(
                     $current,
                     ['source_generation' => $generation, 'events' => $events],
-                    fn (int $alertId) => $notify($alertId, 'charging.fault.simulated'),
-                    fn (int $alertId) => $notify($alertId, 'charging.fault.recovered.simulated'),
+                    $companyId,
+                    $ownerId,
                 );
                 // A previous monitor review state has cleared only when an
                 // authenticated source page catches up, never on a mere poll.

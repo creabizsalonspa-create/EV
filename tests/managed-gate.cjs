@@ -212,7 +212,9 @@ const { chromium } = require("playwright"),
         () => document.documentElement.scrollWidth <= innerWidth + 1,
       ),
     );
-    // Recover policy, reserve through the real UI, then move only this synthetic booking into its active slot.
+    // Recover policy, reserve through the real UI, then move only this synthetic booking into an active window.
+    // Do not floor the synthetic start to a half-hour boundary: a UI reload near
+    // :00/:30 could otherwise expire the fixture before the start request.
     await maintenance
       .locator("[name=maintenance_blocked]")
       .selectOption("false");
@@ -264,7 +266,7 @@ const { chromium } = require("playwright"),
        if (!$app->environment('local') || config('database.default') !== 'sqlite') throw new RuntimeException('Local SQLite only');
        $r=App\\Models\\Reservation::findOrFail(${booking.id}); $s=App\\Models\\Station::findOrFail($r->station_id);
        if ($s->id !== ${fixture.station_id} || App\\Models\\User::findOrFail($s->vendor_id)->email !== 'gate-owner-${run}@example.test' || App\\Models\\User::findOrFail($r->user_id)->email !== 'gate-customer-${run}@example.test') throw new RuntimeException('Synthetic identity mismatch');
-       $now=Carbon\\CarbonImmutable::now('UTC');$r->update(['starts_at'=>$now->startOfHour()->addMinutes(intdiv($now->minute,30)*30)->format('Y-m-d H:i:s')]);
+       $now=Carbon\\CarbonImmutable::now('UTC');$r->update(['starts_at'=>$now->subMinute()->format('Y-m-d H:i:s')]);
        Illuminate\\Support\\Facades\\DB::table('csms_bindings')->insert(['station_id'=>$s->id,'identifier'=>'ev-test-managed-gate-${run}','protocol'=>'1.6','created_at'=>now(),'updated_at'=>now()]);`,
     ]);
     await customer.reload();

@@ -383,6 +383,55 @@ class ConnectorTopologyTest extends TestCase
         $this->assertSame('charging', ChargingSession::findOrFail($queued['session']['id'])->status);
     }
 
+    #[DataProvider('protocols')]
+    public function test_mapped_meter_settlement_requires_current_reservation_and_owned_binding_but_not_new_start_policy(string $protocol): void
+    {
+        $f = $this->topology($protocol);
+        $start = now()->startOfHour()->addHour();
+        $booking = $this->postJson('/api/reservations', $this->book($f, 0, 'source-settlement'))->assertCreated()->json();
+        $this->travelTo($start->addMinute());
+        $this->acceptPrechargePrice($booking['id']);
+        $queued = $this->postJson('/api/reservations/'.$booking['id'].'/csms-start')->assertAccepted()->json();
+        $session = ChargingSession::findOrFail($queued['session']['id']);
+        $event = ['event_id' => 'settlement-start', 'session_id' => $session->id,
+            'identifier' => 'ev-test-canonical', 'protocol' => $protocol,
+            'transaction_id' => '333', 'type' => 'started', 'sequence' => 0,
+            'meter_wh' => 1000, 'occurred_at' => now()->toISOString(),
+            'source_evse_number' => $protocol === '1.6' ? 0 : 5, 'source_connector_number' => 7];
+        $bridge = app(SessionBridge::class);
+        $bridge->ingest($event);
+        $end = array_replace($event, ['event_id' => 'settlement-end', 'type' => 'ended',
+            'sequence' => 1, 'meter_wh' => 2000, 'occurred_at' => now()->addSecond()->toISOString()]);
+        $reject = function () use ($bridge, $end, $session) {
+            try {
+                $bridge->ingest($end);
+                $this->fail('Changed canonical target settled energy.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+            $this->assertSame('charging', $session->fresh()->status);
+            $this->assertSame(0, (int) $session->fresh()->energy_wh);
+            $this->assertDatabaseCount('csms_inbox_events', 1);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        };
+        DB::table('reservations')->where('id', $booking['id'])->update(['connector_mapping_id' => $f['maps'][1]['id']]);
+        $reject();
+        DB::table('reservations')->where('id', $booking['id'])->update(['connector_mapping_id' => $f['maps'][0]['id']]);
+        DB::table('csms_bindings')->where('id', $f['binding'])->update(['vendor_charger_id' => null]);
+        $reject();
+        DB::table('csms_bindings')->where('id', $f['binding'])->update(['vendor_charger_id' => $f['charger']->id]);
+        // New-start policy changes must not strand the genuine active session.
+        $f['connectors'][0]->update(['maintenance_blocked' => true]);
+        $this->assertSame('applied', $bridge->ingest($end)['outcome']);
+        $this->assertSame('duplicate', $bridge->ingest($end)['outcome']);
+        $this->assertSame('stopped', $session->fresh()->status);
+        $this->assertSame(1000, (int) $session->fresh()->energy_wh);
+        $this->assertDatabaseCount('csms_inbox_events', 2);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+        Http::assertNothingSent();
+    }
+
     public function test_activation_preserves_legacy_bookings_and_rejects_uncorrelated_outbox_history(): void
     {
         $f = $this->topology();

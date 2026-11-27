@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Console\Commands\ObserveChargerFaults;
 use App\Models\InboxNotification;
 use App\Models\Station;
 use App\Models\User;
@@ -9,11 +10,13 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\ContinuousFaultObserver;
+use App\Services\Charging\FaultMonitor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 use Throwable;
@@ -879,5 +882,197 @@ class ContinuousFaultObserverTest extends TestCase
         $this->app->instance('env', 'production');
         $this->artisan('csms:observe-faults --once')->assertFailed();
         Http::assertNothingSent();
+    }
+
+    #[DataProvider('protocols')]
+    public function test_retained_recovery_requires_exact_binding_and_protocol_clearance(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $foreign = $this->fixture($protocol);
+        $this->source($f, $this->events(1, 1), newest: 1);
+        $this->assertSame(1, app(ContinuousFaultObserver::class)->observe($f['binding'])['alerts_created']);
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $generation = FaultMonitor::generation($binding);
+        $alert = DB::table('charging_fault_alerts')->firstOrFail();
+        $recovered = [];
+        $scan = function () use ($binding, $generation, &$recovered) {
+            DB::transaction(function () use ($binding, $generation, &$recovered) {
+                $locked = DB::table('csms_bindings')->where('id', $binding->id)->lockForUpdate()->firstOrFail();
+                app(FaultMonitor::class)->ingest($locked,
+                    ['source_generation' => $generation, 'events' => []],
+                    null,
+                    function (int $id) use (&$recovered) {
+                        $recovered[] = $id;
+                    });
+            });
+        };
+        $candidate = [
+            'binding_id' => $foreign['binding'],
+            'source_generation' => $generation,
+            'source_event_id' => 2,
+            'fingerprint' => str_repeat('b', 64),
+            'evse_number' => 1, 'connector_number' => 1,
+            'status' => 'Available', 'error_code' => 'NoError',
+            'occurred_at' => now()->subMinutes(5), 'created_at' => now(),
+        ];
+        DB::table('charging_status_observations')->insert($candidate);
+        $scan();
+        $this->assertSame([], $recovered);
+        $this->assertNull(DB::table('charging_fault_alerts')->where('id', $alert->id)->value('recovery_observation_id'));
+
+        // This retained historical row lacks explicit OCPP 1.6 clearance.
+        // Null is only valid for the 2.0.1 status projection.
+        $local = array_replace($candidate, [
+            'binding_id' => $binding->id, 'source_event_id' => 3,
+            'fingerprint' => str_repeat('c', 64), 'error_code' => null,
+        ]);
+        $localId = DB::table('charging_status_observations')->insertGetId($local);
+        $scan();
+        if ($protocol === '1.6') {
+            $this->assertSame([], $recovered);
+            $this->assertNull(DB::table('charging_fault_alerts')->where('id', $alert->id)->value('recovery_observation_id'));
+            $localId = DB::table('charging_status_observations')->insertGetId(array_replace($local, [
+                'source_event_id' => 4, 'fingerprint' => str_repeat('d', 64),
+                'error_code' => 'NoError',
+            ]));
+            $scan();
+        }
+        $this->assertSame([(int) $alert->id], $recovered);
+        $this->assertDatabaseHas('charging_fault_alerts', [
+            'id' => $alert->id, 'recovery_observation_id' => $localId,
+        ]);
+        $scan();
+        $this->assertSame([(int) $alert->id], $recovered);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_manual_fault_inspection_cannot_bypass_worker_protocol_receipt_validation(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $this->travelTo(now()->startOfSecond());
+        $url = '/api/vendor-ops/companies/'.$f['company']->id.'/chargers/'.$f['charger']->id.'/fault-alerts/inspect';
+        $inspect = function (array $events) use ($f, $url) {
+            Http::swap(new Factory);
+            Http::preventStrayRequests();
+            Http::fakeSequence()
+                ->push(['data' => ['ChargingStations' => [['id' => 42, 'protocol' => $f['protocol'], 'isOnline' => true]]]])
+                ->push(['data' => ['StatusNotifications' => $events]]);
+
+            return $this->actingAs($f['owner'])->postJson($url);
+        };
+        $events = $this->events(1, 3);
+        $inspect([$events[0]])->assertOk()->assertJsonPath('alerts_created', 1);
+        $alert = DB::table('charging_fault_alerts')->firstOrFail();
+        $this->assertNull($alert->recovery_observation_id);
+
+        $invalid = $protocol === '1.6'
+            ? [
+                ['connectorStatus' => 'Occupied'],
+                ['errorCode' => null],
+                ['errorCode' => 'VendorDefinedFault'],
+                ['errorCode' => 'GroundFailure'],
+                ['connectorStatus' => 'Faulted', 'errorCode' => 'NoError'],
+            ]
+            : [
+                ['connectorStatus' => 'Preparing'],
+                ['connectorStatus' => 'Charging'],
+                ['connectorStatus' => 'VendorDefinedState'],
+            ];
+        foreach ($invalid as $patch) {
+            // The newest row is valid recovery, but the older invalid
+            // row must invalidate the complete manual inspection batch.
+            $inspect([$events[2], array_replace($events[1], $patch)])
+                ->assertServiceUnavailable();
+            $this->assertDatabaseCount('charging_status_observations', 1);
+            $this->assertDatabaseCount('charging_fault_alerts', 1);
+            $this->assertNull(DB::table('charging_fault_alerts')->where('id', $alert->id)->value('recovery_observation_id'));
+        }
+        $inspect([$events[2], $events[1]])->assertOk()->assertJsonPath('alerts_created', 0);
+        $this->assertDatabaseCount('charging_status_observations', 3);
+        $this->assertNotNull(DB::table('charging_fault_alerts')->where('id', $alert->id)->value('recovery_observation_id'));
+        $inspect([$events[2], $events[1]])->assertOk()->assertJsonPath('alerts_created', 0);
+        $this->assertDatabaseCount('charging_status_observations', 3);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_manual_and_automatic_fault_notices_share_first_transition_and_never_duplicate(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $this->travelTo(now()->startOfSecond());
+        $events = $this->events(1, 2);
+        if ($protocol === '1.6') {
+            $events[0]['evseId'] = null;
+            $events[1]['evseId'] = null;
+        }
+        $url = '/api/vendor-ops/companies/'.$f['company']->id.'/chargers/'.$f['charger']->id.'/fault-alerts/inspect';
+        $inspect = function (array $page) use ($f, $url) {
+            Http::swap(new Factory);
+            Http::preventStrayRequests();
+            Http::fakeSequence()
+                ->push(['data' => ['ChargingStations' => [['id' => 42, 'protocol' => $f['protocol'], 'isOnline' => true]]]])
+                ->push(['data' => ['StatusNotifications' => $page]]);
+
+            return $this->actingAs($f['owner'])->postJson($url);
+        };
+
+        // Manual or legacy CLI inspection can discover the fault before the
+        // continuous cursor. The worker must not emit a duplicate on replay.
+        $inspect([$events[0]])->assertOk()->assertJsonPath('alerts_created', 1);
+        $notice = InboxNotification::where('kind', 'charging.fault.simulated')->sole();
+        $this->assertSame($f['owner']->id, $notice->user_id);
+        $this->assertFalse($notice->metadata['physical_verification']);
+        $this->source($f, [$events[0]], newest: 1);
+        app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertDatabaseCount('inbox_notifications', 1);
+
+        // A manual inspection may also observe the terminal recovery before
+        // the worker. Both transitions must remain owner-scoped and durable.
+        $inspect([$events[1]])->assertOk()->assertJsonPath('alerts_created', 0);
+        $recovery = InboxNotification::where('kind', 'charging.fault.recovered.simulated')->sole();
+        $this->assertSame($notice->user_id, $recovery->user_id);
+        $this->assertSame($notice->metadata['alert_id'], $recovery->metadata['alert_id']);
+        $this->assertSame($f['company']->id, $recovery->metadata['company_id']);
+        $this->assertSame($f['charger']->id, $recovery->metadata['charger_id']);
+        $this->assertFalse($recovery->metadata['physical_verification']);
+        $inspect([$events[1], $events[0]])->assertOk()->assertJsonPath('alerts_created', 0);
+        $this->source($f, [$events[1]], newest: 2);
+        app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_cli_fault_review_classification_redacts_exception_text_and_preserves_failure(): void
+    {
+        $f = $this->fixture('1.6');
+        $events = $this->events(1, 2);
+        $events[0]['errorCode'] = null;
+        $this->source($f, $events, newest: 2);
+        $this->artisan('csms:observe-faults', ['--once' => true, '--binding' => $f['binding']])
+            ->expectsOutput('Binding '.$f['binding'].' requires source/access review. No command sent. [review:protocol_receipt]')
+            ->assertFailed();
+        $this->assertDatabaseHas('charging_fault_cursors', ['binding_id' => $f['binding'], 'last_event_id' => 0, 'state' => 'requires_review']);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $command = ObserveChargerFaults::class;
+        foreach ([
+            [503, 'Malformed source component identity.', 'component_identity'],
+            [503, 'Conflicting same-time source status receipts.', 'same_time_conflict'],
+            [503, 'Source status chronology regressed.', 'source_chronology'],
+            [503, 'PRIVATE-TRANSPORT-SECRET', 'source_unavailable'],
+            [409, 'PRIVATE-MAPPING-DETAIL', 'scope_or_lineage'],
+        ] as [$status, $message, $expected]) {
+            $this->assertSame($expected, $command::reviewCode(new HttpException($status, $message)));
+        }
+        $this->assertSame('worker_internal_failure', $command::reviewCode(new RuntimeException('PRIVATE-DATABASE-CREDENTIAL')));
     }
 }
