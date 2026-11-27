@@ -1741,15 +1741,24 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         if (Object.hasOwn(report, "as_of")) {
             const stamp = report.as_of;
             if (typeof stamp !== "string" ||
-                !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)$/.test(stamp) ||
+                !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)$/.test(stamp) ||
                 !Number.isFinite(Date.parse(stamp)) ||
                 new Date(stamp).toISOString().slice(0, 19) !== stamp.slice(0, 19)) fail();
         }
         const sums = Object.fromEntries(fields.map(field => [field, 0n]));
         const nets = row => {
-            if (exact(row.net_collected_minor, true) !== exact(row.paid_minor) - exact(row.refunded_minor) ||
-                exact(row.net_vendor_allocated_minor, true) !== exact(row.vendor_allocated_minor) -
-                    exact(row.vendor_refunded_minor) - exact(row.vendor_credited_minor)) fail();
+            // Match the canonical native cohort economics, not just balanced
+            // totals. Forged source amounts can be internally additive while
+            // violating invoice, collection and reversal bounds.
+            const issued = exact(row.invoiced_minor), paid = exact(row.paid_minor),
+                refunded = exact(row.refunded_minor), credited = exact(row.unpaid_credited_minor),
+                vendor = exact(row.vendor_allocated_minor), commission = exact(row.commission_allocated_minor),
+                vendorRefund = exact(row.vendor_refunded_minor), vendorCredit = exact(row.vendor_credited_minor);
+            if (paid + credited > issued || refunded > paid || vendor + commission > issued ||
+                vendorRefund > refunded || vendorCredit > credited || vendorRefund + vendorCredit > vendor ||
+                (exact(row.invoice_count) === 0n && fields.some(field => exact(row[field]) !== 0n)) ||
+                exact(row.net_collected_minor, true) !== paid - refunded ||
+                exact(row.net_vendor_allocated_minor, true) !== vendor - vendorRefund - vendorCredit) fail();
         };
         report.data.forEach((row, index) => {
             if (!row || typeof row !== "object" || Array.isArray(row) || day(row.date_utc) !== first + index) fail();

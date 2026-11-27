@@ -11,10 +11,10 @@ function verifyRevenueCohortParser() {
   assert(start >= 0 && end > start);
   const validate = new Function(source.slice(start, end) + "\nreturn validateRevenueCohort;")();
   const fields = {
-    invoice_count: 1, invoiced_minor: 1050, vendor_allocated_minor: 900,
-    commission_allocated_minor: 150, paid_minor: 1050, refunded_minor: 100,
+    invoice_count: 2, invoiced_minor: 1050, vendor_allocated_minor: 900,
+    commission_allocated_minor: 150, paid_minor: 1030, refunded_minor: 100,
     vendor_refunded_minor: 80, unpaid_credited_minor: 20, vendor_credited_minor: 15,
-    net_collected_minor: 950, net_vendor_allocated_minor: 805,
+    net_collected_minor: 930, net_vendor_allocated_minor: 805,
   };
   const fixture = () => ({
     vendor_id: 42, currency: "AED", minor_units: 2, from: "2026-11-01", to: "2026-11-01",
@@ -28,7 +28,9 @@ function verifyRevenueCohortParser() {
   const run = report => validate(report, 42, "AED", "2026-11-01", "2026-11-01");
   assert.equal(run(fixture()).totals.net_vendor_allocated_minor, 805);
   const legacy = fixture(); delete legacy.as_of;
-  assert.equal(run(legacy).totals.invoice_count, 1);
+  assert.equal(run(legacy).totals.invoice_count, 2);
+  const preciseClock = fixture(); preciseClock.as_of = "2026-11-26T01:02:03.123456Z";
+  assert.equal(run(preciseClock).as_of, preciseClock.as_of);
   const corruptions = [
     r => r.vendor_id = "42", r => r.currency = "USD", r => r.from = "2026-11-02",
     r => r.minor_units = "2", r => r.minor_units = 4, r => r.evidence = "LIVE",
@@ -38,13 +40,30 @@ function verifyRevenueCohortParser() {
     r => r.data = [], r => r.data[0].date_utc = "2026-11-02",
     r => r.data[0].paid_minor = "1050", r => r.data[0].refunded_minor = -1,
     r => r.data[0].commission_allocated_minor = 1.5,
-    r => r.data[0].net_collected_minor = 951, r => r.data[0].net_vendor_allocated_minor = 806,
-    r => r.totals.invoice_count = 2, r => r.totals.paid_minor = 1049,
+    r => r.data[0].net_collected_minor = 931, r => r.data[0].net_vendor_allocated_minor = 806,
+    r => r.totals.invoice_count = 3, r => r.totals.paid_minor = 1049,
     r => r.totals.net_vendor_allocated_minor = 806,
     r => r.data[0].invoice_count = Number.MAX_SAFE_INTEGER + 1,
   ];
   for (const change of corruptions) {
     const report = fixture(); change(report);
+    assert.throws(() => run(report), /Revenue cohort source cannot be verified/);
+  }
+  // Each mutation preserves daily/total equality and recalculates net
+  // values; none is a possible original invoice cohort.
+  const impossible = [
+    {paid_minor: 1051}, {unpaid_credited_minor: 21},
+    {refunded_minor: 1031}, {commission_allocated_minor: 151},
+    {vendor_refunded_minor: 101}, {vendor_credited_minor: 21},
+    {invoice_count: 0},
+    {vendor_allocated_minor: 90, commission_allocated_minor: 100},
+  ];
+  for (const change of impossible) {
+    const report = fixture(), row = report.data[0];
+    Object.assign(row, change);
+    row.net_collected_minor = row.paid_minor - row.refunded_minor;
+    row.net_vendor_allocated_minor = row.vendor_allocated_minor - row.vendor_refunded_minor - row.vendor_credited_minor;
+    Object.assign(report.totals, row);
     assert.throws(() => run(report), /Revenue cohort source cannot be verified/);
   }
   const overflow = fixture();
@@ -53,7 +72,7 @@ function verifyRevenueCohortParser() {
   overflow.data.push({...overflow.data[0], date_utc: "2026-11-02", invoiced_minor: 1});
   assert.throws(() => validate(overflow, 42, "AED", overflow.from, overflow.to),
     /Revenue cohort source cannot be verified/);
-  console.log("PASS exact revenue cohort parser: 2 valid and 24 rejected source cases");
+  console.log("PASS exact revenue cohort parser: 3 valid and " + (corruptions.length + impossible.length + 1) + " rejected source cases");
 }
 
 (async () => {
