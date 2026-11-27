@@ -1753,6 +1753,8 @@ window.createVendorWorkspace = ({
             request;
         const metrics = {
             mapped_evses: "Mapped EVSEs",
+            mapped_connectors: "Mapped connectors",
+            possible_connector_seconds: "Current mapped connector window seconds",
             source_started: "Source starts",
             source_completed: "Completed source sessions",
             pending_source: "Awaiting source start at snapshot",
@@ -1763,6 +1765,8 @@ window.createVendorWorkspace = ({
             status_unknown_seconds: "Unknown connector seconds",
             reported_fault_seconds: "Reported fault seconds",
             reported_non_fault_unavailable_seconds: "Reported unavailable seconds without a fault",
+            reported_downtime_seconds: "Reported fault or unavailable seconds",
+            other_known_status_seconds: "Other known status seconds (not verified uptime)",
             maximum_session_interval_average_w:
                 "Maximum observed session interval average (W)",
             maximum_observed_site_interval_average_w:
@@ -1854,6 +1858,10 @@ window.createVendorWorkspace = ({
                 }
                 content.append(links);
                 for (const row of data.sites) {
+                    if (row.reported_downtime_seconds !== row.reported_fault_seconds + row.reported_non_fault_unavailable_seconds ||
+                        row.other_known_status_seconds + row.reported_downtime_seconds !== row.status_known_seconds ||
+                        row.status_known_seconds + row.status_unknown_seconds !== row.possible_connector_seconds)
+                        throw Error("Inconsistent source coverage.");
                     if (Object.hasOwn(row, "reported_non_fault_unavailable_seconds") &&
                         (!Number.isSafeInteger(row.status_known_seconds) ||
                             !Number.isSafeInteger(row.reported_fault_seconds) ||
