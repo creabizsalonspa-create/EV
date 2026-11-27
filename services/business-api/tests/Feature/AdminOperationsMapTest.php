@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\AdminOperationsMapController;
+use App\Models\OcpiProvider;
+use App\Models\OcpiRecord;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
@@ -85,6 +87,47 @@ class AdminOperationsMapTest extends TestCase
         VendorSite::create(['company_id' => $company->id, 'station_id' => $station->id, 'name' => 'Corrupt association', 'country' => 'AE', 'timezone' => 'Asia/Dubai', 'address' => 'PRIVATE address', 'latitude' => 25, 'longitude' => 55]);
         $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson('/api/admin/operations/map')->assertOk()->assertJsonPath('data.0.company', null)->assertJsonPath('data.0.charger_count', 0);
         $this->getJson('/api/admin/operations/map?company_id='.$company->id)->assertOk()->assertJsonPath('total', 0);
+    }
+
+    public function test_partner_map_only_projects_authorized_published_coordinates(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $provider = OcpiProvider::create(['owner_id' => $owner->id, 'name' => 'Synthetic peer', 'connection_key' => 'map-fixture', 'authorized' => true]);
+        $create = function (string $id, string $longitude, bool $published = true) use ($provider) {
+            return OcpiRecord::create([
+                'ocpi_provider_id' => $provider->id, 'module' => 'locations', 'country_code' => 'AE', 'party_id' => 'TST',
+                'external_id' => $id, 'payload' => ['private' => 'SECRET-PARTNER-TOKEN'],
+                'normalized' => ['name' => $id, 'country' => 'ARE', 'latitude' => '1', 'longitude' => $longitude, 'publish' => $published],
+                'content_hash' => hash('sha256', $id), 'source_updated_at' => now()->subHour(), 'received_at' => now(),
+            ]);
+        };
+        $create('Literal_%', '179');
+        $create('West side', '-179');
+        $create('Unpublished', '179', false);
+        $create('Malformed coordinate', 'garbage');
+        $create('Outside area', '0');
+        $this->station();
+        $url = '/api/admin/operations/map?catalog=partner';
+        $this->actingAs($owner)->getJson($url)->assertForbidden();
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        $this->getJson($url)->assertOk()->assertJsonPath('total', 3);
+        $this->getJson($url.'&country=ARE&south=0&north=2&west=170&east=-170')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('scope', 'authorized_partner_catalog')->assertJsonPath('total', 2)
+            ->assertJsonPath('data.0.provider_label', 'Synthetic peer')
+            ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.remote_control', false)
+            ->assertJsonPath('data.0.physical_availability_verified', false)->assertJsonPath('charging_authority_granted', false)
+            ->assertJsonPath('data.0.source', 'PARTNER_REPORTED_UNVERIFIED')
+            ->assertJsonMissingPath('data.0.payload')->assertJsonMissingPath('data.0.company')->assertDontSee('SECRET-PARTNER-TOKEN');
+        $this->getJson($url.'&q=Literal_%25')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson($url.'&company_id=1')->assertUnprocessable();
+        $this->getJson($url.'&recent_source_status=Available')->assertUnprocessable();
+        $this->getJson($url.'&country=AE')->assertUnprocessable();
+        $provider->update(['authorized' => false]);
+        $this->getJson($url)->assertOk()->assertJsonPath('total', 0);
+        $provider->update(['authorized' => true]);
+        $owner->update(['account_status' => 'suspended']);
+        $this->getJson($url)->assertOk()->assertJsonPath('total', 0);
     }
 
     public function test_stale_admin_snapshot_is_rejected_before_any_private_inventory_read(): void
