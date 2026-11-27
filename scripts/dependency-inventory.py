@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -74,6 +75,40 @@ def reject_json_constant(_value):
     raise InventoryError('Nonstandard numeric constant in a lockfile.')
 
 
+def finite_lock_float(value):
+    result = float(value)
+    if not math.isfinite(result):
+        raise InventoryError('Non-finite numeric value in a lockfile.')
+    return result
+
+
+def strict_lock_json(text):
+    # Bound nesting independently of Python's recursion limit. Brackets inside
+    # strings (including escaped quotes and backslashes) do not count.
+    depth = 0
+    in_string = False
+    escaped = False
+    for ch in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == '\\':
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in '[{':
+            depth += 1
+            if depth > 64:
+                raise InventoryError('Lockfile JSON nesting exceeds the inventory bound.')
+        elif ch in ']}':
+            depth -= 1
+    return json.loads(text, object_pairs_hook=pairs,
+                      parse_constant=reject_json_constant,
+                      parse_float=finite_lock_float)
+
+
 def declared_licenses(raw):
     if raw is None:
         return []
@@ -98,7 +133,7 @@ def component(ecosystem, lock, instance, name, version, licenses=None, dev=False
 
 
 def json_components(text, lock, composer):
-    data = json.loads(text, object_pairs_hook=pairs, parse_constant=reject_json_constant)
+    data = strict_lock_json(text)
     if not isinstance(data, dict):
         raise InventoryError('A JSON lockfile must contain an object.')
     result = []
@@ -306,7 +341,7 @@ def main():
     args = parser.parse_args()
     try:
         report = inventory(args.root)
-    except (InventoryError, OSError, ValueError, TypeError, UnicodeError):
+    except (InventoryError, OSError, ValueError, TypeError, UnicodeError, RecursionError):
         print(json.dumps({'error': 'Dependency inventory rejected unsupported, malformed or unsafe lockfile data.'}), file=sys.stderr)
         return 2
     if args.require_source_match and (report['tracked_checkout_dirty'] is not False
