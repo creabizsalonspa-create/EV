@@ -2677,6 +2677,14 @@ window.EV_MESSAGES = {
         en: "No connector review recorded",
         ar: "لم تُسجل مراجعة للموصل",
     },
+    "Re-review same connector identity": {
+        en: "Re-review same connector identity",
+        ar: "إعادة مراجعة هوية الموصل نفسه",
+    },
+    "A newer source event is required; the original review will be retained.": {
+        en: "A newer source event is required; the original review will be retained.",
+        ar: "يلزم حدث أحدث من المصدر؛ سيتم الاحتفاظ بالمراجعة الأصلية.",
+    },
     "Record connector identity review": {
         en: "Record connector identity review",
         ar: "تسجيل مراجعة هوية الموصل",
