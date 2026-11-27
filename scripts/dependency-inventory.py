@@ -26,7 +26,29 @@ RELEASE_INPUTS = {
     'Podfile.lock': 'ios_dependency_lock',
     'THIRD_PARTY_NOTICES.md': 'third_party_notices',
 }
+EXACT_RELEASE_INPUTS = {
+    'docs/evidence/composer-licenses.json': 'composer_license_declarations',
+    'services/business-api/package.json': 'unlocked_web_build_manifest',
+    'services/business-api/vite.config.js': 'web_build_configuration',
+    'apps/mobile/third_party/pdfium_flutter/CREABIZ_PATCH.md': 'native_dependency_provenance',
+    'apps/mobile/third_party/pdfium_flutter/pubspec.yaml': 'native_dependency_manifest',
+    'apps/mobile/third_party/pdfium_flutter/LICENSE': 'native_dependency_license',
+    'apps/mobile/third_party/pdfium_flutter/PDFIUM_LICENSES.txt': 'native_dependency_license',
+    'apps/mobile/third_party/pdfium_flutter/android/artifacts.json': 'native_binary_artifact_pins',
+    'apps/mobile/third_party/pdfium_flutter/android/fetch_pdfium.py': 'native_binary_fetcher',
+    'apps/mobile/third_party/pdfium_flutter/android/CMakeLists.txt': 'native_binary_build',
+    'apps/mobile/third_party/pdfium_flutter/darwin/pdfium_flutter.podspec': 'native_binary_artifact_pins',
+    'apps/mobile/third_party/pdfium_flutter/darwin/pdfium_flutter/Package.swift': 'native_binary_artifact_pins',
+}
 SOURCE_INPUTS = LOCKS | MANIFESTS.keys() | RELEASE_INPUTS.keys()
+
+
+def release_input_kind(relative):
+    return EXACT_RELEASE_INPUTS.get(relative.as_posix(), RELEASE_INPUTS.get(relative.name))
+
+
+def is_source_input(relative):
+    return relative.name in SOURCE_INPUTS or relative.as_posix() in EXACT_RELEASE_INPUTS
 EXCLUDED = {'.git', 'node_modules', 'vendor', '.dart_tool', 'build', 'artifacts'}
 NAME = re.compile(r'^[A-Za-z0-9_@][A-Za-z0-9_.@/-]{0,159}$')
 VERSION = re.compile(r'^(?:v?[0-9x]+(?:\.[0-9x]+){1,3}(?:[-+][A-Za-z0-9._-]+)?|dev-[A-Za-z0-9._/-]{1,120})$')
@@ -203,7 +225,7 @@ def inventory(root):
                 raise InventoryError('Source commit identity is unavailable.')
             dirty = bool(git('status', '--porcelain', '--untracked-files=no'))
             selected = [Path(p) for p in git('ls-files', '-z').decode('utf-8').split('\0') if p]
-            selected = [p for p in selected if p.name in SOURCE_INPUTS]
+            selected = [p for p in selected if is_source_input(p)]
         except (OSError, subprocess.SubprocessError):
             raise InventoryError('Source index could not be verified.') from None
     if selected is None:
@@ -212,14 +234,15 @@ def inventory(root):
             raise InventoryError('A source directory could not be inspected.')
         for folder, directories, files in os.walk(root, followlinks=False, onerror=reject_walk_error):
             directories[:] = sorted(d for d in directories if d not in EXCLUDED and not Path(folder, d).is_symlink())
-            selected.extend(Path(folder, name).relative_to(root) for name in files if name in SOURCE_INPUTS)
+            relative_files = (Path(folder, name).relative_to(root) for name in files)
+            selected.extend(p for p in relative_files if is_source_input(p))
     selected_locks = sorted(p for p in selected if p.name in LOCKS)
     locknames = {p.as_posix() for p in selected_locks}
     manifests_without_lock = sorted(p.as_posix() for p in selected if p.name in MANIFESTS
                                    and p.with_name(MANIFESTS[p.name]).as_posix() not in locknames)
     if not selected_locks or len(selected_locks) > 256:
         raise InventoryError('Supported source lockfile count is outside the inventory bound.')
-    selected_release_inputs = sorted(p for p in selected if p.name in RELEASE_INPUTS)
+    selected_release_inputs = sorted(p for p in selected if release_input_kind(p) is not None)
     if len(selected_release_inputs) > 256:
         raise InventoryError('Release input count exceeds the inventory bound.')
     total_bytes = 0
@@ -259,7 +282,7 @@ def inventory(root):
     release_inputs = []
     for relative in selected_release_inputs:
         _, evidence = read_source(relative)
-        release_inputs.append({**evidence, 'kind': RELEASE_INPUTS[relative.name]})
+        release_inputs.append({**evidence, 'kind': release_input_kind(relative)})
 
     components.sort(key=lambda c: (c['lockfile'], c['instance'], c['name'], c['version']))
     return {'schema': 'ev.dependency-inventory.v1', 'source_commit': commit, 'tracked_checkout_dirty': dirty,
