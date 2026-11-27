@@ -259,3 +259,31 @@ PHPUnit cases and amended feature regressions are committed but have
 not run under Laravel/PHPUnit. Historical row queries and locking still
 require PostgreSQL and hosted integration validation. Privileged rewriting
 of the entire reconciliation history remains outside this local guard.
+
+## Native private review session retirement
+
+The open native connector review route now subscribes to the existing
+EvApi synchronous session generation event. Credential changes retire
+and redact the open route immediately, including a displayed receipt
+and editable target. A scope or API replacement does not rebind an old
+route to a new account. Late responses cannot repopulate it. A
+current-session expiration still reaches the parent's callback: the
+immediate redaction deliberately preserves the pending request's
+generation for that specific error path.
+
+Three additional widget cases use the real EvApi session generation
+and forgetSession event (fixture request transport). They cover a
+displayed receipt, a late pending read and a current-session 401.
+These are authored, not executed; Flutter and Dart are unavailable in
+the local runtime. The existing registration history, receipt digest
+and connector generation coverage harnesses were actually rerun:
+44/44, 40/40 and 52/52 assertions respectively. All four local source
+copies (three services and the migration) matched the repository Git
+blob hashes and passed PHP lint. The migration's SQL was not rerun in
+this checkpoint. These checks are not hosted application acceptance.
+
+The isolated candidate was reconciled with canonical
+`d02fe66a6ea361ee1e5a0f8eda3d1000ccb55cb0` at
+`5e2d566e5ff0a073b72d8bd02ed33e0468927cfa` (five intervening commits,
+two nonoverlapping canonical paths, 33 residual paths, zero behind).
+PR #452 remains frozen on its earlier validation head.
