@@ -101,8 +101,11 @@ class OperationalAnalyticsTest extends TestCase
             ->assertJsonPath('sites.0.status_unknown_seconds', 42540)
             ->assertJsonPath('sites.0.reported_fault_seconds', 60)
             ->assertJsonPath('sites.0.reported_non_fault_unavailable_seconds', 300)
+            ->assertJsonPath('sites.0.reported_downtime_seconds', 360)
+            ->assertJsonPath('sites.0.other_known_status_seconds', 300)
+            ->assertJsonPath('sites.0.possible_connector_seconds', 43200)
             ->assertJsonPath('physical_uptime_verified', false);
-        $this->get($url.'/export'.$query)->assertOk()->assertSee('reported_non_fault_unavailable_seconds');
+        $this->get($url.'/export'.$query)->assertOk()->assertSee('reported_non_fault_unavailable_seconds')->assertSee('reported_downtime_seconds')->assertSee('other_known_status_seconds');
         $this->get($url.'/pdf'.$query.'&locale=ar')->assertOk()->assertHeader('Content-Type', 'application/pdf');
     }
 
@@ -242,7 +245,7 @@ class OperationalAnalyticsTest extends TestCase
         app(FaultMonitor::class)->ingest($b, ['source_generation' => FaultMonitor::generation($b), 'events' => [
             ['id' => 1, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => '2026-11-06T10:00:00Z'],
             ['id' => 2, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:00:00Z']]]);
-        $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()->assertJsonPath('sites.0.status_known_seconds', 0)->assertJsonPath('sites.0.status_unknown_seconds', 43200);
+        $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()->assertJsonPath('sites.0.status_known_seconds', 0)->assertJsonPath('sites.0.status_unknown_seconds', 43200)->assertJsonPath('sites.0.reported_downtime_seconds', 0)->assertJsonPath('sites.0.other_known_status_seconds', 0);
     }
 
     public function test_feedback_aggregates_include_only_current_public_revision_in_window_without_private_data_or_billing_changes(): void
