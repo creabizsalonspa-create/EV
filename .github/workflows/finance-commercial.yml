@@ -4,6 +4,13 @@ on:
     branches: [development/fullstack-continuation, development/platform-foundation]
     paths:
       - "services/business-api/app/Services/Commercial/**"
+      - "services/business-api/app/Services/Finance/**"
+      - "services/business-api/app/Models/Finance/**"
+      - "services/business-api/app/Http/Controllers/FinanceController.php"
+      - "services/business-api/app/Http/Controllers/ScheduledTariffController.php"
+      - "services/business-api/routes/finance.php"
+      - "services/business-api/tests/Feature/Finance*.php"
+      - "services/business-api/tests/Feature/ScheduledTariffTest.php"
       - "services/business-api/app/Http/Controllers/FinancialAnalyticsController.php"
       - "services/business-api/app/Http/Controllers/CommercialCampaignController.php"
       - "services/business-api/public/financial-analytics.js"
@@ -35,6 +42,13 @@ on:
   pull_request:
     paths:
       - "services/business-api/app/Services/Commercial/**"
+      - "services/business-api/app/Services/Finance/**"
+      - "services/business-api/app/Models/Finance/**"
+      - "services/business-api/app/Http/Controllers/FinanceController.php"
+      - "services/business-api/app/Http/Controllers/ScheduledTariffController.php"
+      - "services/business-api/routes/finance.php"
+      - "services/business-api/tests/Feature/Finance*.php"
+      - "services/business-api/tests/Feature/ScheduledTariffTest.php"
       - "services/business-api/app/Http/Controllers/FinancialAnalyticsController.php"
       - "services/business-api/app/Http/Controllers/CommercialCampaignController.php"
       - "services/business-api/public/financial-analytics.js"
