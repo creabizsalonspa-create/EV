@@ -182,6 +182,69 @@ class ChargerLiveConnectorsTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public static function directReviewProtocols(): array
+    {
+        return [['1.6'], ['2.0.1']];
+    }
+
+    #[DataProvider('directReviewProtocols')]
+    public function test_owner_reviews_exact_direct_connector_without_admitting_charging(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol);
+        $connectors = VendorConnector::where('charger_id', $f['charger']->id)->orderBy('id')->get();
+        $path = str_replace('/live-connectors', '/direct-connector-reviews', $f['url']);
+        $body = ['connector_id' => $connectors[0]->id, 'source_evse_number' => $protocol === '1.6' ? 0 : 1,
+            'source_connector_number' => 1];
+        $this->source($f);
+        $this->actingAs($f['owner'])->getJson($path)->assertOk()->assertJsonPath('total', 0);
+        Http::assertNothingSent();
+        $first = $this->postJson($path, $body)->assertCreated()
+            ->assertJsonPath('evidence', 'DIRECT_CONNECTOR_REVIEW_ONLY')
+            ->assertJsonPath('current_registration_matches', true)
+            ->assertJsonPath('charging_mapping_created', false)
+            ->assertJsonPath('physical_availability_verified', false)
+            ->assertJsonPath('remote_control_authorized', false)->json('id');
+        $this->postJson($path, $body)->assertOk()->assertJsonPath('id', $first);
+        $this->postJson($path, array_replace($body, ['source_connector_number' => 2]))->assertConflict();
+        $this->postJson($path, array_replace($body, ['connector_id' => $connectors[1]->id]))->assertConflict();
+        $this->postJson($path, array_replace($body, ['source_connector_number' => 100]))->assertConflict();
+        $this->getJson($path)->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonMissingPath('data.0.registration_fingerprint');
+        $this->assertDatabaseCount('direct_connector_review_receipts', 1);
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charging_evses', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNotSent(fn ($request) => str_contains($request['query'], 'mutation'));
+    }
+
+    #[DataProvider('directReviewProtocols')]
+    public function test_direct_connector_review_requires_current_owner_recent_evidence_and_registration(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol);
+        $connector = VendorConnector::where('charger_id', $f['charger']->id)->firstOrFail();
+        $path = str_replace('/live-connectors', '/direct-connector-reviews', $f['url']);
+        $body = ['connector_id' => $connector->id, 'source_evse_number' => $protocol === '1.6' ? 0 : 1,
+            'source_connector_number' => 1];
+        $this->source($f);
+        $this->actingAs(User::factory()->create(['role' => 'vendor']))->postJson($path, $body)->assertNotFound();
+        $this->actingAs(User::factory()->create(['role' => 'admin']))->postJson($path, $body)->assertNotFound();
+        $this->actingAs($f['owner'])->postJson($path, array_replace($body, [
+            'source_evse_number' => $protocol === '1.6' ? 1 : 0,
+        ]))->assertUnprocessable();
+        Http::assertNothingSent();
+        $this->source($f, 'stale');
+        $this->postJson($path, $body)->assertConflict();
+        $this->source($f, 'missing_event');
+        $this->postJson($path, $body)->assertConflict();
+        $this->source($f, 'receipt_changed_during_read');
+        $this->postJson($path, $body)->assertConflict();
+        $this->assertDatabaseCount('direct_connector_review_receipts', 0);
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNotSent(fn ($request) => str_contains($request['query'], 'mutation'));
+    }
+
     public static function directSourceCases(): array
     {
         $cases = [];
