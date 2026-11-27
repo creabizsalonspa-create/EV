@@ -358,6 +358,44 @@ class ChargerLiveConnectorsTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    #[DataProvider('directReviewProtocols')]
+    public function test_direct_live_review_coverage_requires_every_owned_current_identity(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol);
+        $connectors = VendorConnector::where('charger_id', $f['charger']->id)->orderBy('id')->get();
+        $path = str_replace('/live-connectors', '/direct-connector-reviews', $f['url']);
+        $this->source($f);
+        $this->actingAs($f['owner'])->getJson($f['url'])->assertOk()
+            ->assertJsonPath('review_coverage.state', 'requires_review')
+            ->assertJsonPath('review_coverage.current_review_count', 0);
+        foreach ($connectors as $i => $connector) {
+            $this->postJson($path, ['connector_id' => $connector->id,
+                'source_evse_number' => $protocol === '1.6' ? 0 : 1,
+                'source_connector_number' => $i + 1])->assertCreated();
+            $this->getJson($f['url'])->assertOk()
+                ->assertJsonPath('review_coverage.current_review_count', $i + 1)
+                ->assertJsonPath('review_coverage.state', $i === 0 ? 'requires_review' : 'all_identities_reviewed')
+                ->assertJsonPath('review_coverage.evidence', 'DIRECT_CONNECTOR_REVIEW_COVERAGE_ONLY')
+                ->assertJsonPath('review_coverage.charging_mapping_created', false)
+                ->assertJsonPath('review_coverage.physical_availability_verified', false)
+                ->assertJsonPath('review_coverage.remote_control_authorized', false)
+                ->assertJsonPath('local_mapping_verified', false);
+        }
+        foreach (['missing_event', 'replacement_source_connector', 'regressed_source_event_id', 'stale'] as $case) {
+            $this->source($f, $case);
+            $this->getJson($f['url'])->assertOk()->assertJsonPath('review_coverage.state', 'requires_review');
+        }
+        $this->source($f);
+        VendorConnector::create(['charger_id' => $f['charger']->id,
+            'connector_number' => 3, 'connector_type' => 'CCS2', 'max_power_kw' => 50]);
+        $this->getJson($f['url'])->assertOk()->assertJsonPath('review_coverage.inventory_count', 3)
+            ->assertJsonPath('review_coverage.state', 'requires_review');
+        $this->assertDatabaseCount('direct_connector_review_receipts', 2);
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNotSent(fn ($request) => str_contains($request['query'], 'mutation'));
+    }
+
     public static function directSourceCases(): array
     {
         $cases = [];
