@@ -380,7 +380,7 @@ class OcpiCredentialsTest extends TestCase
         }
         $credentialUrl = '/api/roaming-protocol/2.2.1/credentials';
         $this->deleteJson($credentialUrl, [], $this->protocol('FOREIGN-TOKEN'))->assertUnauthorized();
-        $this->assertSame('active', $link->value('state'));
+        $this->assertSame('active', DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first()->state);
         $this->deleteJson($credentialUrl, [], $this->protocol($token))
             ->assertOk()->assertJsonPath('data', null)->assertDontSee('DIFFERENT-PRIVATE-SYNTHETIC');
         $after = $link->first();
