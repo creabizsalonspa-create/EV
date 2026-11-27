@@ -435,6 +435,39 @@ class ChargerLiveConnectorsTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    #[DataProvider('directReviewProtocols')]
+    public function test_operator_reconciliation_accepts_original_receipt_with_reordered_json_fields(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol);
+        // The registration service historically retained the order of the
+        // upstream JSON object, not an independently canonicalized digest.
+        $binding = DB::table('csms_bindings')->where('vendor_charger_id', $f['charger']->id)->first();
+        $digest = hash('sha256', json_encode([
+            'chargePointModel' => $f['charger']->model,
+            'chargePointVendor' => $f['charger']->manufacturer,
+            'isOnline' => false, 'protocol' => 'ocpp'.$protocol,
+            'ocppConnectionName' => $binding->identifier, 'tenantId' => 1, 'id' => 42,
+        ], JSON_THROW_ON_ERROR));
+        DB::table('charger_source_registrations')->where('id', $f['receipt'])
+            ->update(['source_receipt_hash' => $digest]);
+        config(['csms.registered_source_authority_epoch' => 2]);
+        app(DirectSourceAuthority::class)->provision('test-reordered-receipt');
+        $this->source($f);
+        $this->actingAs($f['owner'])->getJson($f['url'])->assertConflict();
+        Http::assertNothingSent();
+        $this->artisan('csms:reconcile-direct-registration', [
+            'registration' => (string) $f['receipt'], '--receipt' => $digest,
+            '--ticket' => 'TEST-REORDERED-RECEIPT',
+        ])->assertSuccessful();
+        $this->getJson($f['url'])->assertOk()
+            ->assertJsonPath('evidence', 'REGISTERED_DIRECT_SOURCE')
+            ->assertJsonPath('physical_availability_verified', false)
+            ->assertJsonPath('remote_control_authorized', false);
+        $this->assertDatabaseCount('direct_source_registration_epochs', 2);
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public static function directSourceCases(): array
     {
         $cases = [];
