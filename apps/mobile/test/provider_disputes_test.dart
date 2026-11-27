@@ -22,6 +22,7 @@ class DisputeApi extends FixtureApi {
   bool live = true, admin = false;
   String eventType = 'charge.dispute.created';
   String eventStatus = 'needs_response';
+  String eventTime = '2026-11-12 10:00:00';
   String operationStatus = 'uncertain';
   int epoch = 0;
   final changes = StreamController<int>.broadcast(sync: true);
@@ -63,7 +64,7 @@ class DisputeApi extends FixtureApi {
           {
             'type': eventType,
             'status': eventStatus,
-            'created_at': '2026-11-12 10:00:00',
+            'created_at': eventTime,
           },
         ],
         'evidence_submissions': admin
@@ -86,6 +87,30 @@ class DisputeApi extends FixtureApi {
 }
 
 void main() {
+  for (final ar in [false, true]) {
+    testWidgets('provider receipt labels and source clocks are localized ($ar)', (tester) async {
+      final api = DisputeApi()
+        ..admin = true
+        ..eventTime = '2026-02-30 10:00:00';
+      addTearDown(api.close);
+      addTearDown(api.changes.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(ar ? 'ar' : 'en'),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: ProviderDisputesView(api: api, onExpired: () {}, initialDisputeId: 7),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text(ar ? 'حالة المزود: تم خسارة النزاع' : 'Provider status: Lost'), findsOneWidget);
+      expect(find.textContaining(ar ? 'تم إنشاء النزاع' : 'Dispute created'), findsOneWidget);
+      expect(find.textContaining(ar ? 'وقت الحدث غير متاح' : 'Event time unavailable'), findsOneWidget);
+      expect(find.textContaining('2026-02-30'), findsNothing);
+      expect(find.textContaining('charge.dispute.created'), findsNothing);
+      expect(find.textContaining('needs_response'), findsNothing);
+      expect(api.methods.every((method) => method == 'GET'), isTrue);
+      expect(tester.takeException(), isNull);
+    });
+  }
   test('provider receipt accepts only canonical dispute states', () {
     for (final status in [
       'warning_needs_response', 'warning_under_review', 'warning_closed',
@@ -124,7 +149,7 @@ void main() {
     api.operationStatus = 'confirmed';
     await tester.tap(find.text('Inspect receipt'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('provider.inspect'), findsOneWidget);
+    expect(find.textContaining('Provider inspection'), findsOneWidget);
     expect(api.methods.every((method) => method == 'GET'), isTrue);
     expect(tester.takeException(), isNull);
   });
