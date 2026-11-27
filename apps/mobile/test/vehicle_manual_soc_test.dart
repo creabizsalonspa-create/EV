@@ -3,6 +3,7 @@ import 'package:creabiz_ev/vehicle_manual_soc.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Deterministic contract fixture. Real HTTP transport is covered by api_test.dart
@@ -16,6 +17,7 @@ class _SocApi extends EvApi {
   bool failReadbackOnce = false;
   bool hideHistoryOnce = false;
   bool foreignHistory = false;
+  String reportClock = '2026-11-07 14:00:00';
   bool staleCurrentOnce = false;
   bool denyNewAccount = false;
   bool supersedeAfterPost = false;
@@ -87,7 +89,7 @@ class _SocApi extends EvApi {
         'source': 'CUSTOMER_MANUAL_SELF_REPORT',
         'measured_by_phone': false, 'measured_by_vehicle_api': false,
         'charging_capability_verified': false,
-        'reported_at': percent == null ? null : '2026-11-07 14:00:00',
+        'reported_at': percent == null ? null : reportClock,
         'replayed': false,
       };
     }
@@ -98,7 +100,7 @@ class _SocApi extends EvApi {
         'current_page': 1, 'last_page': 1, 'total': revision,
         'data': revision == 0 || suppress ? [] : [
           {'vehicle_id': foreignHistory ? 18 : 17, 'battery_percent': percent, 'revision': revision,
-            'reported_at': '2026-11-07 14:00:00',
+            'reported_at': reportClock,
             'source': 'CUSTOMER_MANUAL_SELF_REPORT',
             'measured_by_phone':false,'measured_by_vehicle_api':false,'charging_capability_verified':false},
           if(earlierPercent!=null)
@@ -140,6 +142,67 @@ class _SocApi extends EvApi {
 }
 
 void main() {
+  testWidgets('failed authoritative SOC refresh removes former report and disables new write', (tester) async {
+    final api = _SocApi()..revision=1..percent=63;
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(home:VehicleManualSocView(
+      api:api,vehicleId:17,onExpired:(){},
+    )));
+    await tester.pumpAndSettle();
+    final oldSave=tester.widget<FilledButton>(find.byKey(const Key('manual-soc-save'))).onPressed!;
+    api.foreignHistory=true;
+    final refresh=find.text('Refresh from server');
+    await tester.ensureVisible(refresh);
+    await tester.tap(refresh);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Latest estimate: 63%'),findsNothing);
+    expect(find.byKey(const Key('manual-soc-save')),findsNothing);
+    expect(find.byKey(const Key('manual-soc-error')),findsOneWidget);
+    oldSave();
+    await tester.pumpAndSettle();
+    expect(api.writes,isEmpty);
+    api.foreignHistory=false;
+    await tester.tap(refresh);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Latest estimate: 63%'),findsOneWidget);
+    expect(find.byKey(const Key('manual-soc-save')),findsOneWidget);
+  });
+
+  testWidgets('exhausted manual SOC revision cannot create another report', (tester) async {
+    final api=_SocApi()..revision=2147483647..percent=63;
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(home:VehicleManualSocView(
+      api:api,vehicleId:17,onExpired:(){},
+    )));
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(find.byKey(const Key('manual-soc-save'))).onPressed,isNull);
+    expect(api.writes,isEmpty);
+  });
+
+  for(final ar in [false,true]){
+    testWidgets('manual SOC source clocks are localized without device timezone assumptions ($ar)', (tester) async {
+      final api=_SocApi()..revision=1..percent=63..reportClock='2026-11-07T14:00:00+00:00';
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        locale:Locale(ar?'ar':'en'),
+        supportedLocales:const [Locale('en'),Locale('ar')],
+        localizationsDelegates:GlobalMaterialLocalizations.delegates,
+        home:VehicleManualSocView(api:api,vehicleId:17,onExpired:(){}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('UTC'),findsNWidgets(2));
+      expect(find.textContaining('2026-11-07T14:00:00+00:00'),findsNothing);
+      api.reportClock='2026-02-30T14:00:00Z';
+      final refresh=find.text(ar?'تحديث من الخادم':'Refresh from server');
+      await tester.ensureVisible(refresh);
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(find.textContaining(ar?'وقت التقرير غير متاح':'Report time unavailable'),findsNWidgets(2));
+      expect(find.textContaining('2026-02-30'),findsNothing);
+      expect(api.writes,isEmpty);
+      expect(tester.takeException(),isNull);
+    });
+  }
   testWidgets('customer explicitly records a battery estimate with source labels',
       (tester) async {
     final api = _SocApi();
