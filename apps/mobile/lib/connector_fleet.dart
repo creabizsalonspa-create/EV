@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'direct_review_coverage.dart';
 import 'connector_freshness.dart';
 import 'charger_diagnostics.dart';
 
@@ -264,6 +265,7 @@ class _ConnectorFleetState extends State<ConnectorFleetView>
         throw const FormatException('Invalid registered source connector');
       }
     }
+    validateDirectReviewCoverage(reply);
     return Map<String, dynamic>.from(reply);
   }
 
@@ -526,6 +528,7 @@ class _ConnectorFleetState extends State<ConnectorFleetView>
                         Text(directResults[row['charger_id']]!['source_topology_complete'] == true
                           ? t('Source topology reported; local mappings not verified', 'أبلغ المصدر عن البنية؛ الربط المحلي غير متحقق')
                           : t('Source topology incomplete; live status unknown', 'بنية المصدر غير مكتملة؛ الحالة مجهولة')),
+                        DirectReviewCoverage(reply: directResults[row['charger_id']]!),
                         Text('${directResults[row['charger_id']]!['observed_at']}'),
                         for (final connector in directResults[row['charger_id']]!['connectors'])
                           Text('${connector['source_evse_number']}/${connector['source_connector_number']} · ${connector['state'] == 'recent' ? connectorStatusLabel(connector['reported_status'] as String, Localizations.localeOf(context).languageCode == 'ar') : t('Unknown or stale', 'مجهول أو قديم')}'),
