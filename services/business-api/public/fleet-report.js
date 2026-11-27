@@ -56,6 +56,26 @@ window.EvFleetReport = (() => {
             }catch(error){if(identity===serial&&run===request&&!document.hidden)output.replaceChildren(text('p','Report unavailable. Check access, dates and cost center, then read again.','التقرير غير متاح. تحقق من الصلاحية والتواريخ ومركز التكلفة ثم اقرأ مجدداً.'));}finally{if(identity===serial&&run===request)button.disabled=false;}
         };
     }
+    function verifyDirectory(d,page,filters){
+        const positive=v=>Number.isSafeInteger(v)&&v>0;
+        const count=v=>Number.isSafeInteger(v)&&v>=0;
+        const invalid=()=>{throw Error('Invalid fleet directory scope.');};
+        if(!d||!positive(page)||page>1000000||d.current_page!==page||d.per_page!==25||
+            !count(d.total)||d.last_page!==Math.max(1,Math.ceil(d.total/25))||
+            !Array.isArray(d.data)||d.data.length!==Math.min(25,Math.max(0,d.total-(page-1)*25)))invalid();
+        let previous=0;
+        for(const fleet of d.data){
+            if(!fleet||!positive(fleet.id)||fleet.id<=previous||typeof fleet.name!=='string'||
+                !fleet.name.length||typeof fleet.country!=='string'||!/^[A-Z]{2}$/.test(fleet.country)||
+                (filters.country&&fleet.country!==filters.country)||
+                !fleet.inventory||!['active_members','assigned_vehicles','cost_centers'].every(k=>count(fleet.inventory[k]))||
+                (fleet.owner!==null&&(!fleet.owner||!positive(fleet.owner.id)||
+                    typeof fleet.owner.name!=='string'||typeof fleet.owner.email!=='string'))||
+                (filters.owner_id&&fleet.owner?.id!==Number(filters.owner_id)))invalid();
+            previous=fleet.id;
+        }
+        return d;
+    }
     function setActor(current,request){
         clear();actor=current;api=request;host=document.getElementById('fleet-admin-report');
         if(!host||actor?.role!=='admin')return;
@@ -67,22 +87,29 @@ window.EvFleetReport = (() => {
         const search=text('button','Search fleets','بحث الأساطيل');search.type='submit';form.append(search);
         const rows=document.createElement('div'), slot=document.createElement('div');slot.dataset.fleetReportSlot='';
         let turn=0;
-        const openFleet=id=>{if(identity!==serial||document.hidden)return;slot.replaceChildren();mount(slot,id);};
+        const openFleet=id=>{if(identity!==serial||document.hidden||!target.isConnected)return;slot.replaceChildren();mount(slot,id);};
+        form.addEventListener('input',()=>{
+            turn++;
+            rows.replaceChildren();
+            slot.replaceChildren();
+            search.disabled=false;
+        });
         async function load(page=1,applied=null){
             if(identity!==serial||document.hidden)return;
             const run=++turn, filters=applied||{q:name.value.trim(),country:country.value.trim().toUpperCase(),include:'owner_inventory'};
             if(!applied&&ownerId.value.trim())filters.owner_id=ownerId.value.trim();
             const params=new URLSearchParams({...filters,page:String(page)});
-            rows.replaceChildren();search.disabled=true;
+            rows.replaceChildren();slot.replaceChildren();search.disabled=true;
             try{
                 const d=await api(`admin/fleets?${params}`);
                 if(identity!==serial||run!==turn||document.hidden||!target.isConnected)return;
+                verifyDirectory(d,page,filters);
                 rows.append(text('p',`Fleet results: ${d.total}`,`نتائج الأساطيل: ${d.total}`));
-                for(const fleet of d.data){const card=document.createElement('article'),open=raw('button',fleet.name);open.type='button';open.onclick=()=>openFleet(fleet.id);card.append(open,raw('p',`${fleet.country} · #${fleet.id}`));
+                for(const fleet of d.data){const card=document.createElement('article'),open=raw('button',fleet.name);open.type='button';open.onclick=()=>{if(run===turn&&open.isConnected)openFleet(fleet.id);};card.append(open,raw('p',`${fleet.country} · #${fleet.id}`));
                     if(fleet.owner){const owner=text('p','Fleet owner','مالك الأسطول');owner.append(raw('span',`: ${fleet.owner.name} · ${fleet.owner.email} · #${fleet.owner.id}`));card.append(owner);}
                     if(fleet.inventory){const counts=text('p','Active members / vehicles / cost centers','الأعضاء النشطون / المركبات / مراكز التكلفة');counts.append(raw('span',`: ${fleet.inventory.active_members} / ${fleet.inventory.assigned_vehicles} / ${fleet.inventory.cost_centers}`));card.append(counts);}
                     rows.append(card);}
-                for(const [enabled,pageNumber,en,ar]of[[d.current_page>1,d.current_page-1,'Previous','السابق'],[d.current_page<d.last_page,d.current_page+1,'Next','التالي']]){if(!enabled)continue;const button=text('button',en,ar);button.type='button';button.onclick=()=>load(pageNumber,filters);rows.append(button);}
+                for(const [enabled,pageNumber,en,ar]of[[d.current_page>1,d.current_page-1,'Previous','السابق'],[d.current_page<d.last_page,d.current_page+1,'Next','التالي']]){if(!enabled)continue;const button=text('button',en,ar);button.type='button';button.onclick=()=>{if(run===turn&&button.isConnected)load(pageNumber,filters);};rows.append(button);}
             }catch(error){if(identity===serial&&run===turn&&!document.hidden)rows.replaceChildren(text('p','Fleet directory unavailable. Check filters and current access, then search again.','دليل الأساطيل غير متاح. تحقق من المرشحات والصلاحية الحالية ثم ابحث مجدداً.'));}
             finally{if(identity===serial&&run===turn)search.disabled=false;}
         }
