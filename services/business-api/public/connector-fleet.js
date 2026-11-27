@@ -134,6 +134,9 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
                                             !Number.isSafeInteger(row.source_connector_number) || row.source_connector_number < 1 || row.source_connector_number > 100 ||
                                             !['recent','stale','unknown'].includes(row.state) ||
                                             row.physical_available !== false || row.remote_control_authorized !== false ||
+                                            (row.error_code !== null && (typeof row.error_code !== 'string' || row.error_code.length > 80 ||
+                                                (!['','NoError'].includes(row.error_code) && row.reported_status !== 'Faulted'))) ||
+                                            (row.state !== 'recent' && row.error_code !== null) ||
                                             (row.state === 'recent' ? (!reply.source_online || !reply.source_topology_complete ||
                                                 !statuses.includes(row.reported_status) || !timestamp(row.source_event_at)) : row.reported_status !== null)) throw Error('Invalid direct connector');
                                         const key = row.source_evse_number + ':' + row.source_connector_number;
