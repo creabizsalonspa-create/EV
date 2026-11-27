@@ -38,10 +38,12 @@ void main() {
     store.pending.complete(null);
     await tester.pumpAndSettle();
     expect(indicator, findsNothing);
+    expect(find.bySemanticsLabel(EvStrings.en['loading']!), findsNothing);
   });
   for (final ar in [false, true]) {
     testWidgets('workspace restoration announces localized progress and clears it ($ar)', (tester) async {
       final api = PendingRestoreApi();
+      addTearDown(api.close);
       final preferences = AppPreferences(TestStore());
       await preferences.load();
       await preferences.update(locale: Locale(ar ? 'ar' : 'en'));
@@ -52,11 +54,17 @@ void main() {
       final labels = ar ? EvStrings.ar : EvStrings.en;
       final progress = find.byType(LinearProgressIndicator);
       expect(tester.widget<LinearProgressIndicator>(progress).semanticsLabel, labels['restoringSession']);
-      expect(find.bySemanticsLabel(labels['restoringSession']!), findsWidgets);
+      expect(find.bySemanticsLabel(labels['restoringSession']!), findsOneWidget);
+      final live = find.byWidgetPredicate((widget) =>
+          widget is Semantics &&
+          widget.properties.liveRegion == true &&
+          widget.child is LinearProgressIndicator);
+      expect(live, findsOneWidget);
       expect(find.text(labels['restoringSession']!), findsOneWidget);
       api.pending.complete(null);
       await tester.pumpAndSettle();
       expect(progress, findsNothing);
+      expect(find.bySemanticsLabel(labels['restoringSession']!), findsNothing);
       expect(find.byKey(const Key('auth-submit')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });

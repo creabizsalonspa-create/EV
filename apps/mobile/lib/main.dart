@@ -1445,7 +1445,9 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const ExcludeSemantics(child: CircularProgressIndicator()),
-                Text(s.t('restoringSession')),
+                // The live linear progress node above already announces this
+                // status. Retain the visible copy without announcing it twice.
+                ExcludeSemantics(child: Text(s.t('restoringSession'))),
               ],
             ),
           )
