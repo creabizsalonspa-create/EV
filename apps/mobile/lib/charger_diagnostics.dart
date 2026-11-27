@@ -1,6 +1,7 @@
 import 'source_status_durations.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'direct_review_coverage.dart';
 import 'strings.dart';
 import 'charger_configuration.dart';
 import 'charger_logs.dart';
@@ -215,6 +216,7 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
         }
         rows.add(Map<String, dynamic>.from(entry));
       }
+      if (direct) validateDirectReviewCoverage(reply);
       if (current(epoch)) {
         setState(() => liveConnectorData = <String, dynamic>{
           ...Map<String, dynamic>.from(reply),
@@ -355,6 +357,7 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
                   'المصدر المسجل غير متاح؛ لا يوجد تصريح بالتحكم.')),
             if (liveConnectorData != null) ...[
               Text(tr('Registered direct source snapshot', 'لقطة المصدر المباشر المسجل')),
+              DirectReviewCoverage(reply: liveConnectorData!),
               Text(liveConnectorData!['source_topology_complete'] == true
                   ? tr('Source topology reported; local mappings not verified',
                       'أبلغ المصدر عن بنية الموصلات؛ لم يتم التحقق من الربط المحلي')
