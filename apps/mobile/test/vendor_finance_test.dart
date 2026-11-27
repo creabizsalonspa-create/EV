@@ -193,7 +193,83 @@ class PayableApi extends FixtureApi {
   }
 }
 
+class AuditDetailApi extends FixtureApi {
+  AuditDetailApi():super(role:'vendor');
+  String clock='2026-11-27 12:30:00';
+  @override
+  Future<dynamic> request(String path,{String method='GET',
+    Map<String,dynamic>? body,Map<String,String> query=const {}}) async {
+    calls.add('$method $path');
+    return {
+      'settlement':{'id':7,'vendor_id':1,'state':'provider_paid',
+        'amount_minor':1250,'currency':'KWD','minor_units':3},
+      'real_payout_enabled':false,
+      'events':[
+        {'action':'drafted','created_at':clock},
+        {'action':'payout.paid','created_at':clock},
+        {'action':'private-unrecognized-token','created_at':'2026-02-30T12:30:00Z'},
+      ],
+    };
+  }
+}
+
 void main() {
+  for(final ar in [false,true]){
+    testWidgets('vendor settlement audit uses explicit bilingual actions and UTC source clock ($ar)', (tester) async {
+      final api=AuditDetailApi();
+      addTearDown(api.close);
+      await tester.pumpWidget(vendorApp(VendorFinanceDetailView(
+        api:api,onExpired:(){},id:7,payout:false),ar:ar));
+      await tester.pumpAndSettle();
+      expect(find.text(ar?'أُعدت مسودة التسوية':'Settlement drafted'),findsOneWidget);
+      expect(find.text(ar?'أبلغ مزود الاختبار عن الدفع':'Test provider reported paid'),findsOneWidget);
+      expect(find.text(ar?'حدث تدقيق غير معروف':'Unknown audit event'),findsOneWidget);
+      expect(find.text(ar?'وقت الحدث غير متاح':'Event time unavailable'),findsOneWidget);
+      expect(find.textContaining('UTC'),findsNWidgets(2));
+      expect(find.textContaining('2026-02-30'),findsNothing);
+      expect(find.textContaining('private-unrecognized-token'),findsNothing);
+      expect(api.calls, ['GET commercial/settlements/7']);
+      expect(tester.takeException(),isNull);
+    });
+  }
+  for (final ar in [false, true]) {
+    testWidgets('vendor audit timestamps require authoritative instants ($ar)', (tester) async {
+      late BuildContext clockContext;
+      await tester.pumpWidget(vendorApp(
+        Builder(builder: (context) {
+          clockContext = context;
+          return const SizedBox();
+        }),
+        ar: ar,
+      ));
+      final utc = vendorAuditEventTime(clockContext, '2026-11-27T12:30:00Z');
+      expect(utc, contains('UTC'));
+      for (final raw in [
+        '2026-11-27T16:30:00+04:00',
+        '2026-11-27 12:30:00.123456',
+      ]) {
+        expect(vendorAuditEventTime(clockContext, raw), utc);
+      }
+      for (final raw in [
+        '2026-11-27T12:30:00',
+        '2026-02-30T12:30:00Z',
+        '2026-11-27T12:30:00+14:30',
+        '2026-11-27T12:30:00Z\n',
+        null,
+      ]) {
+        expect(vendorAuditEventTime(clockContext, raw),
+          ar ? 'وقت الحدث غير متاح' : 'Event time unavailable');
+      }
+    });
+  }
+  test('all known vendor audit actions have independent English and Arabic labels',(){
+    expect(vendorFinanceEn.keys.toSet(),vendorFinanceAr.keys.toSet());
+    for(final action in vendorAuditActions){
+      expect(vendorFinanceEn[action],isNotNull,reason:action);
+      expect(vendorFinanceAr[action],matches(RegExp(r'[\u0600-\u06ff]')),reason:action);
+      expect(vendorFinanceEn[action],isNot(vendorFinanceAr[action]),reason:action);
+    }
+  });
   testWidgets('recipient consent cannot dispatch after logout during durable prepare', (t) async {
     final api = VendorFinancialApi(), store = PausedVendorStore();
     addTearDown(api.close);

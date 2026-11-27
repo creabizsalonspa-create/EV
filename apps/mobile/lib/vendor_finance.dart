@@ -8,6 +8,7 @@ import 'financial_operation_store.dart';
 import 'vendor_earnings_csv.dart';
 import 'vendor_revenue_cohorts.dart';
 import 'invoice_reconciliation.dart';
+import 'reservation_times.dart';
 
 const vendorFinanceEn = {
   'title': 'Vendor finance',
@@ -69,6 +70,27 @@ const vendorFinanceEn = {
   'net_commission_allocated_minor': 'Net commission allocation',
   'detail': 'Details',
   'events': 'Audit history',
+  'unknownAuditEvent': 'Unknown audit event',
+  'eventTimeUnavailable': 'Event time unavailable',
+  'provider_paid': 'Test-provider paid outcome',
+  'reversed': 'Test-provider outcome reversed',
+  'rejected': 'Rejected',
+  'drafted': 'Settlement drafted',
+  'approve': 'Settlement approved',
+  'reject': 'Settlement rejected',
+  'simulate-payout': 'Simulated settlement payout',
+  'payout.prepared': 'Test payout prepared',
+  'payout.approved': 'Test payout approved',
+  'payout.executing': 'Test payout executing',
+  'payout.failed': 'Test payout failed',
+  'payout.uncertain': 'Test payout outcome uncertain',
+  'payout.pending': 'Test payout pending',
+  'payout.paid': 'Test provider reported paid',
+  'payout.reversed': 'Test provider reported reversal',
+  'payout.not_found_unresolved': 'Test payout not found; outcome unresolved',
+  'payout.late_attempt_evidence': 'Late test attempt evidence received',
+  'payout.retry_prepared': 'Test payout retry prepared',
+  'payout.cancelled': 'Test payout cancelled',
   'statement': 'Private statement',
   'currency': 'Currency',
   'balance': 'Payable statement',
@@ -137,6 +159,27 @@ const vendorFinanceAr = {
   'net_commission_allocated_minor': 'صافي تخصيص العمولة',
   'detail': 'التفاصيل',
   'events': 'سجل التدقيق',
+  'unknownAuditEvent': 'حدث تدقيق غير معروف',
+  'eventTimeUnavailable': 'وقت الحدث غير متاح',
+  'provider_paid': 'نتيجة دفع من مزود الاختبار',
+  'reversed': 'عُكست نتيجة مزود الاختبار',
+  'rejected': 'مرفوض',
+  'drafted': 'أُعدت مسودة التسوية',
+  'approve': 'اعتُمدت التسوية',
+  'reject': 'رُفضت التسوية',
+  'simulate-payout': 'تحويل تسوية محاكى',
+  'payout.prepared': 'أُعد التحويل التجريبي',
+  'payout.approved': 'اعتُمد التحويل التجريبي',
+  'payout.executing': 'التحويل التجريبي قيد التنفيذ',
+  'payout.failed': 'فشل التحويل التجريبي',
+  'payout.uncertain': 'نتيجة التحويل التجريبي غير مؤكدة',
+  'payout.pending': 'التحويل التجريبي معلق',
+  'payout.paid': 'أبلغ مزود الاختبار عن الدفع',
+  'payout.reversed': 'أبلغ مزود الاختبار عن عكس العملية',
+  'payout.not_found_unresolved': 'لم يُعثر على التحويل التجريبي؛ النتيجة غير محسومة',
+  'payout.late_attempt_evidence': 'ورد دليل متأخر لمحاولة تجريبية',
+  'payout.retry_prepared': 'أُعدت إعادة محاولة التحويل التجريبي',
+  'payout.cancelled': 'أُلغي التحويل التجريبي',
   'statement': 'كشف خاص',
   'currency': 'العملة',
   'balance': 'كشف المستحقات',
@@ -149,7 +192,28 @@ String vendorFinanceText(BuildContext c, String k) =>
     (Localizations.localeOf(c).languageCode == 'ar'
         ? vendorFinanceAr
         : vendorFinanceEn)[k] ??
-    vendorFinanceEn['unknown']!;
+    (Localizations.localeOf(c).languageCode == 'ar'
+        ? vendorFinanceAr
+        : vendorFinanceEn)['unknown']!;
+
+// Explicit event vocabulary comes from SettlementService and PayoutService.
+// Do not turn unknown backend action tokens into user-visible translations.
+const vendorAuditActions = {
+  'drafted','approve','reject','simulate-payout',
+  'payout.prepared','payout.approved','payout.executing','payout.failed',
+  'payout.uncertain','payout.pending','payout.paid','payout.reversed',
+  'payout.not_found_unresolved','payout.late_attempt_evidence',
+  'payout.retry_prepared','payout.cancelled',
+};
+
+String vendorAuditEventLabel(BuildContext context, String action) =>
+    vendorFinanceText(context, vendorAuditActions.contains(action)
+        ? action : 'unknownAuditEvent');
+
+String vendorAuditEventTime(BuildContext context, dynamic raw) {
+  final time = serverUtcTime(context, raw);
+  return time == '—' ? vendorFinanceText(context,'eventTimeUnavailable') : time;
+}
 String nativeFinancialAmount(
   BuildContext c,
   Map<String, dynamic> row,
@@ -1054,8 +1118,8 @@ class _FinanceDetailState extends State<VendorFinanceDetailView> {
             Text(t('events')),
             for (final event in value!['events'] as List? ?? [])
               ListTile(
-                title: Text(t('${event['action']}')),
-                subtitle: Text('${event['created_at'] ?? ''}'),
+                title: Text(vendorAuditEventLabel(c, event['action'] as String)),
+                subtitle: Text(vendorAuditEventTime(c, event['created_at'])),
               ),
           ],
         ],
