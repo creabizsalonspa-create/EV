@@ -92,3 +92,71 @@ test('resolved incident state remains visible beyond the bounded recent timeline
         assert(locale.root.textContent.includes('2026-11-15T12:30:00Z'));
     }
 });
+
+const faultRow=(id,state='recorded_open')=>({
+    alert_id:String(id),state,opened_at:'2026-11-14T10:00:00.000000Z',
+    closed_at:state==='recorded_closed'?'2026-11-14T11:00:00.000000Z':null,
+    resolution_source:state==='recorded_closed'?'operator_acknowledged':null,physical_verification:false,
+});
+const faultPage=(data,next_before=null,store_readable=true)=>({
+    scope:'ASSIGNED_SIMULATOR_ESCALATIONS',current_fault_state_verified:false,physical_verification:false,
+    store_readable,data,next_before,
+});
+test('Assigned escalation history localizes exact IDs, historical closure and exclusive cursor navigation',async()=>{
+    for(const ar of [false,true]){
+        const f=fixture(ar),calls=[],d=report();
+        d.fault_escalations=faultPage([faultRow('9007199254740993','recorded_closed'),...Array.from({length:24},(_,i)=>faultRow(100-i))],'77');
+        f.setActor({role:'admin'},async(...args)=>{calls.push(args);return d;});
+        click(f);await flush();
+        assert(f.root.textContent.includes('9007199254740993'));
+        assert(f.root.textContent.includes(ar?'ليس دليلاً على الإصلاح':'not proof of repair'));
+        assert(f.root.textContent.includes(ar?'سجل تصعيد أعطال المحاكي':'Assigned simulator fault escalation history'));
+        const more=nodes(f.root,'button')[1];
+        d.fault_escalations=faultPage([faultRow(76)]);
+        more.onclick();await flush();
+        assert.equal(calls[1][0],'admin/operational-health?fault_before=77');
+        assert.equal(calls[1][1],'GET');
+        assert(!f.root.textContent.includes('9007199254740993'));
+        assert(f.root.textContent.includes(ar?'العودة إلى أحدث':'Return to latest'));
+        d.fault_escalations=faultPage([]);
+        nodes(f.root,'button')[1].onclick();await flush();
+        assert.equal(calls[2][0],'admin/operational-health');
+        assert(f.root.textContent.includes(ar?'لا توجد سجلات تصعيد':'No assigned escalation receipts'));
+    }
+});
+test('Malformed escalation authority, closure and cursor contracts clear the entire private snapshot',async()=>{
+    for(const mutate of [
+        e=>e.physical_verification=true,
+        e=>e.current_fault_state_verified=true,
+        e=>e.data[0].alert_id=9007199254740993,
+        e=>e.data[0].resolution_source='physical_repair',
+        e=>e.data[0].closed_at='2026-11-14T09:00:00.000000Z',
+        e=>e.data.push(faultRow('6')),
+        e=>e.next_before='5',
+        e=>e.store_readable=false,
+    ]){
+        const f=fixture(),d=report();
+        d.fault_escalations=faultPage([faultRow('5','recorded_closed')]);mutate(d.fault_escalations);
+        f.setActor({role:'admin'},async()=>d);click(f);await flush();
+        assert(f.root.textContent.includes('could not load'));
+        assert(!f.root.textContent.includes('physical_repair'));
+        assert.equal(nodes(f.root,'article').length,0);
+    }
+    const f=fixture(),d=report();d.fault_escalations=faultPage([],null,false);
+    f.setActor({role:'admin'},async()=>d);click(f);await flush();
+    assert(f.root.textContent.includes('Escalation history unavailable'));
+    assert(!f.root.textContent.includes('No assigned escalation receipts'));
+});
+test('A delayed older escalation page cannot survive a role change or backgrounding',async()=>{
+    for(const hide of [false,true]){
+        const f=fixture(),d=report();d.fault_escalations=faultPage(Array.from({length:25},(_,i)=>faultRow(100-i)),'76');
+        let resolve;
+        f.setActor({role:'admin'},async path=>path.includes('?')?new Promise(r=>resolve=r):d);
+        click(f);await flush();nodes(f.root,'button')[1].onclick();await flush();
+        if(hide){f.document.hidden=true;f.events.visibilitychange();}
+        else f.setActor({role:'vendor'},async()=>d);
+        resolve({...d,fault_escalations:faultPage([faultRow(75)])});await flush();
+        assert.equal(nodes(f.root,'article').length,0);
+        assert(!f.root.textContent.includes('Recorded open escalation'));
+    }
+});
