@@ -15,6 +15,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\DirectSourceAuthority;
+use App\Services\Charging\DirectSourceRegistrationEpoch;
 use App\Services\Charging\RemoteSessionAuthorization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
@@ -122,6 +123,9 @@ class ChargerLiveConnectorsTest extends TestCase
             'attempted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
 
+        $f['receipt_hash'] = DB::table('charger_source_registrations')->where('id', $f['receipt'])->value('source_receipt_hash');
+        app(DirectSourceRegistrationEpoch::class)->reconcile($f['receipt'], $f['receipt_hash'], 'test-registration-review');
+
         return $f;
     }
 
@@ -130,6 +134,7 @@ class ChargerLiveConnectorsTest extends TestCase
         $first = $this->registeredFixture('1.6');
         $second = $this->registeredFixture('2.0.1');
         $simulator = $this->fixture('1.6');
+        Http::fake();
         DB::table('charger_source_registrations')->where('id', $second['receipt'])->update(['state' => 'prepared']);
         $path = '/api/charging-operations/registered-chargers';
         $this->actingAs($first['owner'])->getJson($path)->assertOk()
@@ -164,6 +169,7 @@ class ChargerLiveConnectorsTest extends TestCase
     public function test_direct_fleet_paginates_before_projection_and_denies_stale_captured_bearer(): void
     {
         $f = $this->registeredFixture('1.6');
+        Http::fake();
         for ($i = 1; $i <= 25; $i++) {
             VendorCharger::create(['company_id' => $f['company']->id,
                 'site_id' => $f['charger']->site_id, 'asset_reference' => 'PAGE-'.$i,
@@ -277,6 +283,21 @@ class ChargerLiveConnectorsTest extends TestCase
         $this->getJson($f['url'])->assertConflict();
         Http::assertNothingSent();
         $this->artisan('csms:provision-direct-source-authority', ['--ticket' => 'TEST-ROTATION'])->assertSuccessful();
+        $this->getJson($f['url'])->assertConflict();
+        $this->getJson($path)->assertConflict();
+        $this->postJson($path, $body)->assertConflict();
+        Http::assertNothingSent();
+        $this->artisan('csms:reconcile-direct-registration', [
+            'registration' => (string) $f['receipt'], '--receipt' => str_repeat('a', 64), '--ticket' => 'TEST-WRONG',
+        ])->assertFailed();
+        $this->assertDatabaseCount('direct_source_registration_epochs', 1);
+        $this->artisan('csms:reconcile-direct-registration', [
+            'registration' => (string) $f['receipt'], '--receipt' => $f['receipt_hash'], '--ticket' => 'TEST-REVIEW',
+        ])->assertSuccessful();
+        $this->artisan('csms:reconcile-direct-registration', [
+            'registration' => (string) $f['receipt'], '--receipt' => $f['receipt_hash'], '--ticket' => 'TEST-REPLAY',
+        ])->assertSuccessful();
+        $this->assertDatabaseCount('direct_source_registration_epochs', 2);
         $this->getJson($path)->assertOk()->assertJsonPath('data.0.current_registration_matches', false);
         $this->postJson($path, $body)->assertConflict();
         config(['csms.registered_source_authority_epoch' => 1]);
