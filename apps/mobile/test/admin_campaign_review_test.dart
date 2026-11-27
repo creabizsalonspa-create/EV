@@ -23,6 +23,8 @@ class AdminCampaignApi extends FixtureApi {
   final stream = StreamController<int>.broadcast(sync: true);
   int epoch = 0;
   bool enabled = true, forged = false, demoted = false, expire = false;
+  bool forgedScope = false;
+  final queries = <Map<String, String>>[];
   String status = 'submitted', revision = '11';
   final posts = <Map<String, dynamic>>[];
   Completer<dynamic>? delay;
@@ -44,16 +46,24 @@ class AdminCampaignApi extends FixtureApi {
     calls.add('$method $path');
     if (path == 'me') return {'id': 1, 'role': demoted ? 'vendor' : role};
     if (path == 'commercial/campaigns') {
+      queries.add(Map.of(query));
       if (delay != null) return delay!.future;
       if (expire) {
         revoke();
         final invalidated = epoch;
         throw ApiException(401, 'Expired', expirationIsCurrent: () => epoch == invalidated);
       }
+      final matches = (query['status'] == null || query['status'] == status) &&
+          (query['country'] == null || query['country'] == 'AE') &&
+          (query['vendor_id'] == null || query['vendor_id'] == '9') &&
+          (query['station_id'] == null || query['station_id'] == '4') &&
+          (query['invoice_id'] == null || query['invoice_id'] == '12');
       return {
-        'data': [campaign(status: status, revision: revision)],
-        'current_page': 1, 'last_page': 1, 'per_page': 25, 'total': 1,
+        'data': [if (matches) campaign(status: status, revision: revision)],
+        'current_page': 1, 'last_page': 1, 'per_page': 25, 'total': matches ? 1 : 0,
         'adapter_enabled': enabled,
+        'scope': {for (final key in ['status', 'country', 'vendor_id', 'station_id', 'invoice_id'])
+          key: key == 'country' && forgedScope ? 'US' : key.endsWith('_id') ? int.tryParse(query[key] ?? '') : query[key]},
       };
     }
     if (path == 'commercial/campaigns/7') return {
@@ -175,6 +185,33 @@ void main() {
     expect(find.text('Decision confirmed. Refresh authoritative history.'), findsOneWidget);
     expect(find.text('Currently eligible for serving'), findsNothing);
     expect(find.text('Approve campaign'), findsNothing);
+  });
+
+  testWidgets('native filters require exact server scope and clear stale rows', (t) async {
+    final api = AdminCampaignApi();
+    addTearDown(api.close);
+    await t.pumpWidget(app(api));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Campaign filters'));
+    await t.pumpAndSettle();
+    final country = find.byKey(const Key('campaign-filter-country'));
+    await t.ensureVisible(country);
+    await t.enterText(country, 'AE');
+    FocusManager.instance.primaryFocus?.unfocus();
+    await t.pumpAndSettle();
+    expect(find.text('Synthetic campaign'), findsNothing);
+    final apply = find.text('Apply campaign filters');
+    await t.scrollUntilVisible(apply, 150, scrollable: find.byType(Scrollable).first);
+    await t.tap(apply);
+    await t.pumpAndSettle();
+    expect(api.queries.last, {'page': '1', 'country': 'AE'});
+    expect(find.text('Synthetic campaign'), findsOneWidget);
+    api.forgedScope = true;
+    await t.tap(find.text('Refresh campaign history'));
+    await t.pumpAndSettle();
+    expect(find.text('Synthetic campaign'), findsNothing);
+    expect(find.textContaining('Review not confirmed.'), findsOneWidget);
+    expect(api.posts, isEmpty);
   });
 
   testWidgets('vendor cannot access Admin campaign reads', (t) async {
