@@ -97,8 +97,16 @@ require("./vendor-invitation-verification.test.cjs");
         .isDisabled(),
       true,
     );
-    assert.equal(await page.locator("[data-access=admin]:visible").count(), 0);
-    assert.equal(await page.locator("[data-access=vendor]").isVisible(), false);
+    // Privileged controls include both navigation and newly added Admin-only
+    // actions. Verify every matching element remains hidden for anonymous users.
+    for (const role of ["admin", "vendor"]) {
+      const restricted = page.locator(`[data-access="${role}"]`);
+      const count = await restricted.count();
+      assert.ok(count > 0, `Expected ${role}-gated UI controls`);
+      for (let i = 0; i < count; i++) {
+        assert.equal(await restricted.nth(i).isVisible(), false);
+      }
+    }
     fail = true;
     await page.locator("#refresh-catalog").click();
     await page.waitForFunction(() =>
