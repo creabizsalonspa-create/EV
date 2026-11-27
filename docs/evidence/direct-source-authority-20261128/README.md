@@ -102,3 +102,23 @@ unaccepted draft #448 schema has not been deployed. This continuation
 supersedes that schema; if #448 were deployed first, a separate additive
 migration and historical data reconciliation would be needed. Agent 5 must
 coordinate integration. No charging mapping, capacity or control is enabled.
+
+## Direct connector review coverage presentation
+
+The direct-source response now includes bounded review coverage for the
+current owned inventory, reconciled registration and authority epoch. It
+does not create a charging mapping. Web fleet and charger diagnostics,
+and their native equivalents, display the current review count and a
+separate non-authorization statement when all identities are reviewed.
+Missing coverage on an earlier server is displayed as unknown. Malformed
+coverage, contradictory counts, stale/offline complete claims, or any
+assertion of physical availability or charging authority are rejected.
+
+Executed evidence: the exact fetched JavaScript validation blocks in
+`b81a4686d425f932a4364b056ce38a6dcf817484` (fleet) and
+`3534c4321623dbb99ae8352d274e20433d2c8f8f` (diagnostics) each passed 16/16
+assertions in the JavaScript runtime. Both complete modules also passed
+syntax compilation. This is 32 executed validation assertions, not a
+browser rendering or end-to-end test. The new Flutter helper and widget
+tests are authored, not executed. Laravel and PostgreSQL integration
+validation remains outstanding.
