@@ -528,7 +528,7 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                                         chargerId: row['id'] as int,
                                         registeredDirectProtocol:
                                             row['source'] == 'direct_unverified'
-                                            ? row['ocpp_protocol'] as String?
+                                            ? '${row['ocpp_protocol'] ?? ''}'
                                             : null,
                                         onExpired: widget.onExpired,
                                       ),
