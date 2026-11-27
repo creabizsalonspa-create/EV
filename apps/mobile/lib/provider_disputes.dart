@@ -51,20 +51,38 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
   void initState() {
     super.initState();
     authorized = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
-    load(id: widget.initialDisputeId);
+    if (foreground) load(id: widget.initialDisputeId);
   }
 
   @override
   void didUpdateWidget(covariant ProviderDisputesView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.api != widget.api) {
+    final switchedApi = !identical(oldWidget.api, widget.api);
+    final switchedTarget = oldWidget.initialDisputeId != widget.initialDisputeId;
+    if (switchedApi || switchedTarget) {
       generation++;
       page = null;
       detail = null;
       error = null;
       busy = false;
+      target = 1;
       authorized = widget.api.sessionFence();
+      // A new explicit notification target should open its own canonical
+      // receipt, but a new account/API alone must wait for manual refresh.
+      if (switchedTarget && !switchedApi && foreground && authorized()) {
+        final targetId = widget.initialDisputeId;
+        final api = widget.api;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && authorized() &&
+              identical(api, widget.api) &&
+              widget.initialDisputeId == targetId) {
+            load(id: targetId);
+          }
+        });
+      }
     }
   }
 
