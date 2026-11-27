@@ -48,7 +48,7 @@ return new class extends Migration
                 SQL);
         } else {
             DB::unprepared(<<<'SQL'
-                CREATE FUNCTION record_direct_connector_identity_change() RETURNS trigger
+                CREATE OR REPLACE FUNCTION record_direct_connector_identity_change() RETURNS trigger
                 LANGUAGE plpgsql AS $$
                 BEGIN
                     IF TG_OP = 'INSERT' THEN
