@@ -102,6 +102,70 @@
             totalExceeds: needed === null ? null : needed > budget+1e-9,
             firstExceeds: firstKm === null ? null : firstKm > km+1e-9};
     }
+    // Validate the complete provider response before any option can be selected.
+    // Wire coordinates are numeric, not arbitrary coercible user input.
+    function addressPlaces(response) {
+        if (!response || response.provider !== "geoapify" ||
+            response.evidence !== "GEOCODING_RESULT" ||
+            !Array.isArray(response.places) || response.places.length > 5)
+            throw Error("Invalid address evidence");
+        const ids = new Set();
+        return response.places.map(place => {
+            if (!place || typeof place.id !== "string" ||
+                !place.id.startsWith("geoapify:") ||
+                place.id.length <= "geoapify:".length || place.id.length > 100 ||
+                ids.has(place.id) || typeof place.label !== "string" ||
+                !place.label.trim() || place.label.length > 600 ||
+                typeof place.latitude !== "number" || typeof place.longitude !== "number")
+                throw Error("Invalid address point");
+            const p = point(place.latitude, place.longitude);
+            if (!p) throw Error("Invalid address point");
+            ids.add(place.id);
+            return { ...p, id: place.id, label: place.label };
+        });
+    }
+    // Match the native route contract. Validate shape and point budget
+    // before constructing a renderable route or exposing a distance.
+    function routeEvidence(result) {
+        if (!result || result.provider !== "geoapify" ||
+            result.evidence !== "PROVIDER_ROUTE_ESTIMATE" ||
+            result.traffic_verified !== false ||
+            result.charging_time_included !== false ||
+            !Number.isFinite(result.distance_meters) ||
+            result.distance_meters < 0 || result.distance_meters > 40000000 ||
+            !Number.isFinite(result.duration_seconds) ||
+            result.duration_seconds < 0 || result.duration_seconds > 31536000 ||
+            !Array.isArray(result.segments) ||
+            result.segments.length < 1 || result.segments.length > 100)
+            throw Error("Invalid route evidence");
+        let count = 0;
+        for (const line of result.segments) {
+            if (!Array.isArray(line) || line.length < 2 ||
+                (count += line.length) > 10000)
+                throw Error("Invalid route geometry budget");
+        }
+        const segments = result.segments.map(line => line.map(p => {
+            if (!p || typeof p.latitude !== "number" ||
+                typeof p.longitude !== "number")
+                throw Error("Invalid route point");
+            const validated = point(p.latitude, p.longitude);
+            if (!validated) throw Error("Invalid route point");
+            return validated;
+        }));
+        return {
+            provider: result.provider, evidence: result.evidence,
+            traffic_verified: false, charging_time_included: false,
+            distance_meters: result.distance_meters,
+            duration_seconds: result.duration_seconds, segments,
+        };
+    }
+    function routingCapabilities(c) {
+        if (!c || c.provider !== "geoapify" ||
+            typeof c.geocoding !== "boolean" ||
+            typeof c.routing !== "boolean" || c.max_charging_stops !== 3)
+            throw Error("Invalid capabilities");
+        return { geocoding: c.geocoding, routing: c.routing };
+    }
     function addressSearch(request, onSelected) {
         const root = document.createElement("fieldset"),
             legend = label("legend", "Find an address", "البحث عن عنوان");
@@ -122,6 +186,8 @@
         input.disabled = true;
         input.setAttribute("aria-label", "Address search / البحث عن عنوان");
         input.setAttribute("autocomplete", "off");
+        input.setAttribute("autocorrect", "off");
+        input.spellcheck = false;
         const results = document.createElement("div");
         results.setAttribute("role", "listbox");
         results.setAttribute(
@@ -142,6 +208,9 @@
         let timer,
             abort,
             generation = 0;
+        const active = () => root.isConnected && !document.hidden &&
+            !root.closest("[hidden]") &&
+            !root.closest("details:not([open])");
         function clear() {
             generation++;
             clearTimeout(timer);
@@ -149,9 +218,15 @@
             results.replaceChildren();
             state.replaceChildren();
         }
+        function revoke() {
+            clear();
+            input.value = "";
+            consent.checked = false;
+            input.disabled = true;
+        }
         async function lookup() {
             const query = input.value.trim();
-            if (!consent.checked || query.length < 3) return;
+            if (!active() || !consent.checked || query.length < 3 || query.length > 180) return;
             clear();
             const current = ++generation;
             abort = new AbortController();
@@ -169,37 +244,25 @@
                     { consent: true, query, language: arabic() ? "ar" : "en" },
                     abort.signal,
                 );
-                if (current !== generation) return;
-                if (
-                    response.provider !== "geoapify" ||
-                    response.evidence !== "GEOCODING_RESULT" ||
-                    !Array.isArray(response.places) ||
-                    response.places.length > 5
-                )
-                    throw Error("Invalid address evidence");
+                if (current !== generation || !active() || !consent.checked) return;
+                const places = addressPlaces(response);
                 state.replaceChildren();
                 results.replaceChildren();
-                for (const place of response.places) {
-                    const p = point(place.latitude, place.longitude);
-                    if (
-                        !p ||
-                        typeof place.label !== "string" ||
-                        typeof place.id !== "string" ||
-                        !place.id.startsWith("geoapify:")
-                    )
-                        throw Error("Invalid address point");
+                for (const place of places) {
                     const row = document.createElement("button");
                     row.type = "button";
                     row.setAttribute("role", "option");
                     row.textContent = place.label;
                     row.onclick = () => {
+                        if (current !== generation || !active() || !consent.checked ||
+                            !results.contains(row)) return;
                         clear();
                         input.value = place.label;
-                        onSelected({ ...p, label: place.label });
+                        onSelected({ latitude: place.latitude, longitude: place.longitude, label: place.label });
                     };
                     results.append(row);
                 }
-                if (!response.places.length)
+                if (!places.length)
                     state.append(
                         label(
                             "span",
@@ -209,11 +272,12 @@
                     );
             } catch (error) {
                 if (
-                    current !== generation ||
+                    current !== generation || !active() || !consent.checked ||
                     error.name === "AbortError" ||
                     error.name === "SessionChangedError"
                 )
                     return;
+                results.replaceChildren();
                 state.replaceChildren(
                     label(
                         "span",
@@ -228,14 +292,22 @@
             }
         }
         consent.onchange = () => {
-            clear();
-            input.disabled = !consent.checked;
-            if (consent.checked) input.focus();
+            const allowed = active() && consent.checked;
+            revoke();
+            if (allowed) {
+                consent.checked = true;
+                input.disabled = false;
+                input.focus();
+            }
         };
         input.oninput = () => {
             clear();
-            if (consent.checked && input.value.trim().length >= 3)
-                timer = setTimeout(lookup, 600);
+            const current = generation;
+            if (active() && consent.checked && input.value.trim().length >= 3 &&
+                input.value.trim().length <= 180)
+                timer = setTimeout(() => {
+                    if (current === generation) lookup();
+                }, 600);
         };
         input.onkeydown = (event) => {
             if (event.key === "ArrowDown") {
@@ -261,16 +333,16 @@
                 input.focus();
             }
         };
-        window.addEventListener("ev:locale", clear);
-        return {
-            root,
-            clear: () => {
-                clear();
-                input.value = "";
-                consent.checked = false;
-                input.disabled = true;
-            },
-        };
+        // Locale changes invalidate language-specific queries and consent.
+        function localeChanged() {
+            if (!root.isConnected) {
+                window.removeEventListener("ev:locale", localeChanged);
+                return;
+            }
+            revoke();
+        }
+        window.addEventListener("ev:locale", localeChanged);
+        return { root, clear: revoke };
     }
     function install({ root, request, onPoint, getCentre, onRoute }) {
         let stations = [],
@@ -279,6 +351,7 @@
             estimate = null,
             epoch = 0,
             capabilityEpoch = 0,
+            routePending = false,
             routeAbort;
         const section = document.createElement("div");
         section.className = "discovery-tools";
@@ -363,6 +436,7 @@
                 label("summary", "Find an address", "البحث عن عنوان"),
                 addresses.root,
             );
+            addressToggle.ontoggle = () => { if (!addressToggle.open) addresses.clear(); };
             addresses.root = addressToggle;
             addresses.root.hidden = true;
             fieldset.append(addresses.root);
@@ -371,13 +445,14 @@
         function invalidate(revokeConsent = true) {
             epoch++;
             routeAbort?.abort();
+            routePending = false;
             estimate = null;
             renderEnergy();
             // Consent was for the exact reviewed itinerary. Editing stops,
             // coordinates or connector filters requires a new explicit opt-in.
             if (revokeConsent) routeConsent.checked = false;
             routeState.replaceChildren();
-            preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
+            preview.disabled = routePending || !routeConsent.checked || !routeAvailable || !compatibleStops();
             navigation.disabled = !compatibleStops();
             onRoute([]);
         }
@@ -430,9 +505,13 @@
             "معاينة مسار المزود",
             async () => {
                 const points = readPoints();
-                if (!points || !compatibleStops() || !routeConsent.checked || !routeAvailable) return;
-                invalidate();
+                if (!section.isConnected || document.hidden || !journey.open ||
+                    routePending || !points || !compatibleStops() || !routeConsent.checked || !routeAvailable) return;
+                // Keep the exact reviewed itinerary consent visible and
+                // withdrawable throughout the pending provider request.
+                invalidate(false);
                 const current = ++epoch;
+                routePending = true;
                 routeAbort = new AbortController();
                 preview.disabled = true;
                 routeState.append(
@@ -453,29 +532,10 @@
                         },
                         routeAbort.signal,
                     );
-                    if (current !== epoch) return;
-                    if (
-                        result.provider !== "geoapify" ||
-                        result.evidence !== "PROVIDER_ROUTE_ESTIMATE" ||
-                        result.traffic_verified !== false ||
-                        result.charging_time_included !== false ||
-                        !Number.isFinite(result.distance_meters) ||
-                        result.distance_meters < 0 || result.distance_meters > 40000000 ||
-                        !Number.isFinite(result.duration_seconds) ||
-                        result.duration_seconds < 0 || result.duration_seconds > 31536000 ||
-                        !Array.isArray(result.segments) ||
-                        !result.segments.length ||
-                        result.segments.some(
-                            (line) =>
-                                !Array.isArray(line) ||
-                                line.length < 2 ||
-                                line.some(
-                                    (p) => !point(p.latitude, p.longitude),
-                                ),
-                        )
-                    )
-                        throw Error("Invalid route evidence");
-                    estimate = result;
+                    if (current !== epoch || !routeConsent.checked || !routeAvailable ||
+                        !section.isConnected || document.hidden || !journey.open) return;
+                    const verified = routeEvidence(result);
+                    estimate = verified;
                     renderEnergy();
                     routeState.replaceChildren();
                     const total = label(
@@ -494,7 +554,7 @@
                             "Routing © Geoapify / OpenStreetMap contributors",
                         ),
                     );
-                    onRoute(result.segments);
+                    onRoute(verified.segments);
                 } catch (error) {
                     if (
                         current !== epoch ||
@@ -514,9 +574,11 @@
                         ),
                     );
                 } finally {
-                    if (current === epoch)
+                    if (current === epoch) {
+                        routePending = false;
                         preview.disabled =
                             !routeConsent.checked || !routeAvailable || !compatibleStops();
+                    }
                 }
             },
         );
@@ -527,7 +589,8 @@
             "فتح الملاحة بالتوقفات المحددة",
             () => {
                 const points = readPoints();
-                if (!points || !compatibleStops()) return;
+                if (!section.isConnected || document.hidden || !journey.open || !points || !compatibleStops()) return;
+                const reviewed = epoch;
                 if (
                     !confirm(
                         arabic()
@@ -536,6 +599,7 @@
                     )
                 )
                     return;
+                if (reviewed !== epoch || !section.isConnected || document.hidden || !journey.open) return;
                 const url = new URL("https://www.google.com/maps/dir/");
                 url.searchParams.set("api", "1");
                 url.searchParams.set("origin", coordinate(points[0]));
@@ -617,7 +681,7 @@
             choices.replaceChildren();
             mismatchWarning.hidden = compatibleStops();
             navigation.disabled = !compatibleStops();
-            preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
+            preview.disabled = routePending || !routeConsent.checked || !routeAvailable || !compatibleStops();
             for (const station of stations) {
                 const p = point(station.latitude, station.longitude);
                 if (!p) continue;
@@ -789,14 +853,14 @@
             // provider capabilities from the previous authenticated context.
             const requestGeneration = ++capabilityEpoch;
             try {
-                const c = await request("capabilities", "GET");
+                const raw = await request("capabilities", "GET");
                 if (requestGeneration !== capabilityEpoch) return;
-                if (
-                    c.provider !== "geoapify" ||
-                    typeof c.geocoding !== "boolean" ||
-                    typeof c.routing !== "boolean"
-                )
-                    throw Error("Invalid capabilities");
+                const c = routingCapabilities(raw);
+                if (!c.geocoding) {
+                    search.clear();
+                    origin.addresses.clear();
+                    destination.addresses.clear();
+                }
                 search.root.hidden =
                     origin.addresses.root.hidden =
                     destination.addresses.root.hidden =
@@ -811,24 +875,38 @@
                         ),
                     );
                 routeAvailable = c.routing;
+                if (!routeAvailable) invalidate();
                 service.hidden = c.routing;
-                preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
+                preview.disabled = routePending || !routeConsent.checked || !routeAvailable || !compatibleStops();
                 privacy.hidden = !routeAvailable;
             } catch (_) {
                 if (requestGeneration !== capabilityEpoch) return;
+                search.clear();
+                origin.addresses.clear();
+                destination.addresses.clear();
                 search.root.hidden =
                     origin.addresses.root.hidden =
                     destination.addresses.root.hidden =
                         true;
                 routeAvailable = false;
-                preview.disabled = true;
+                service.hidden = false;
+                privacy.hidden = true;
+                invalidate();
             }
         }
         address.ontoggle = () => {
             if (address.open) capabilities();
+            else search.clear();
         };
         journey.ontoggle = () => {
             if (journey.open) capabilities();
+            else {
+                origin.addresses.clear();
+                destination.addresses.clear();
+                // Closing the planner withdraws any in-flight provider
+                // lookup. A displayed route is also no longer authorized.
+                invalidate();
+            }
         };
         const controls = {
             update(data) {
@@ -841,6 +919,7 @@
                 epoch++;
                 capabilityEpoch++;
                 routeAbort?.abort();
+                routePending = false;
                 // These catalog entries may be tenant-private. A session
                 // reset must clear both selected stops and old search results.
                 stations = [];
@@ -892,5 +971,5 @@
         window.addEventListener("pagehide", onPageHide);
         return controls;
     }
-    window.EvGeoTools = { install, point, navigationCoordinate: coordinate, energyReview, energyCandidates };
+    window.EvGeoTools = { install, point, navigationCoordinate: coordinate, energyReview, energyCandidates, addressPlaces, routeEvidence, routingCapabilities };
 })();

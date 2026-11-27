@@ -3265,6 +3265,22 @@ window.EV_MESSAGES = {
         en: "Reported fault seconds",
         ar: "ثواني الأعطال المبلغ عنها",
     },
+    "Mapped connectors": {
+        en: "Mapped connectors",
+        ar: "الموصلات المرتبطة",
+    },
+    "Current mapped connector window seconds": {
+        en: "Current mapped connector window seconds",
+        ar: "ثواني الفترة للموصلات المرتبطة الحالية",
+    },
+    "Reported fault or unavailable seconds": {
+        en: "Reported fault or unavailable seconds",
+        ar: "ثواني الأعطال أو عدم التوفر المبلغ عنها",
+    },
+    "Other known status seconds (not verified uptime)": {
+        en: "Other known status seconds (not verified uptime)",
+        ar: "ثواني الحالات الأخرى المعروفة (ليست وقت تشغيل مؤكداً)",
+    },
     "Reported unavailable seconds without a fault": {
         en: "Reported unavailable seconds without a fault",
         ar: "ثواني عدم التوفر المبلغ عنها دون عطل",

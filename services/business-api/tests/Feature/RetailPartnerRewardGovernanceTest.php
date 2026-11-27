@@ -99,6 +99,47 @@ class RetailPartnerRewardGovernanceTest extends TestCase
         DB::table('partner_reward_claims')->where('id', $claim['id'])->delete();
     }
 
+    public function test_admin_claim_history_is_scoped_to_exact_review_and_preserves_historical_approval(): void
+    {
+        [$reviewer, $review, $path] = $this->sandboxOffer();
+        [$maker, $otherReviewer, $otherPartner, $otherReward] = $this->setupReview(['starts_at' => now()->subMinute()->toISOString()]);
+        $this->approvePartner($otherReviewer, $otherPartner);
+        $otherPath = self::REGISTRY."/{$otherPartner}/reward-reviews";
+        $otherReview = $this->actingAs($maker)->postJson($otherPath, $this->evidence(['reward_id' => $otherReward, 'expected_partner_revision' => 2]))->assertCreated()->json('review.id');
+        $customer = User::factory()->create();
+        $base = '/api/commercial/partner-rewards';
+        $claim = $this->actingAs($customer)->postJson("$base/offers/$review/claim", ['idempotency_key' => 'admin-history'])
+            ->assertCreated()->json('claim');
+        $this->getJson("$path/$review")->assertForbidden();
+        $this->actingAs($reviewer)->getJson("$path/$review?claims_page=1")->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('claims.total', 1)
+            ->assertJsonPath('claims.data.0.id', $claim['id'])
+            ->assertJsonPath('claims.data.0.review_id', $review)
+            ->assertJsonPath('claims.data.0.redemption_id', $claim['redemption_id'])
+            ->assertJsonPath('claims.data.0.status', 'pending')
+            ->assertJsonPath('claims.data.0.points_cost', 0)
+            ->assertJsonPath('claims.data.0.external_fulfillment_verified', false)
+            ->assertJsonMissingPath('claims.data.0.user_id')
+            ->assertJsonMissingPath('claims.data.0.request_key');
+        $approval = DB::table('partner_reward_claims')->where('id', $claim['id'])->value('approval_event_id');
+        $this->getJson("$otherPath/$otherReview")->assertOk()->assertJsonPath('claims.total', 0);
+        $this->getJson("$otherPath/$review")->assertNotFound();
+        $this->getJson("$path/$review?claims_page=2")->assertOk()->assertJsonCount(0, 'claims.data')
+            ->assertJsonPath('claims.current_page', 2)->assertJsonPath('events.current_page', 1);
+        $this->getJson("$path/$review?claims_page=0")->assertUnprocessable();
+        $this->postJson("$path/$review/revoke", $this->evidence(['expected_revision' => 2]))->assertOk();
+        $this->postJson('/api/commercial/loyalty/redemptions/'.$claim['redemption_id'].'/reject', ['reason' => 'Release revoked offer'])->assertOk();
+        config(['loyalty.enabled' => false]);
+        $this->getJson("$path/$review")->assertOk()
+            ->assertJsonPath('review.decision', 'revoke')
+            ->assertJsonPath('claims.data.0.approval_event_id', (int) $approval)
+            ->assertJsonPath('claims.data.0.status', 'rejected')
+            ->assertJsonPath('claims.data.0.cash_value', false);
+        $this->assertDatabaseCount('finance_journals', 0);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+    }
+
     public function test_cancelled_partner_claim_fences_delayed_dispatch_and_is_idempotent_without_reserving_inventory(): void
     {
         [, $review] = $this->sandboxOffer();
