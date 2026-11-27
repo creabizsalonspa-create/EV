@@ -29,6 +29,26 @@ final class SubscriptionPaidCycle
             $account => [$total, 0],
             'subscription_receivable' => [0, $total],
         ];
+        return self::entriesMatch($rows, $expected);
+    }
+
+    /** A paid receipt cannot authorize a malformed or unposted invoice. */
+    private static function invoicePosted(iterable $rows, int $total, int $subtotal, int $tax): bool
+    {
+        if ($subtotal > $total || $tax !== $total - $subtotal) {
+            return false;
+        }
+        $expected = array_filter([
+            'subscription_receivable' => [$total, 0],
+            'subscription_revenue' => [0, $subtotal],
+            'subscription_tax_payable' => [0, $tax],
+        ], static fn (array $entry): bool => $entry !== [0, 0]);
+
+        return self::entriesMatch($rows, $expected);
+    }
+
+    private static function entriesMatch(iterable $rows, array $expected): bool
+    {
         foreach ($rows as $row) {
             if (! isset($expected[$row->account])
                 || $expected[$row->account] !== [self::exactMinor($row->debit_minor), self::exactMinor($row->credit_minor)]) {
@@ -55,6 +75,12 @@ final class SubscriptionPaidCycle
             return false;
         }
         $total = self::exactMinor($i->total_minor);
+        $subtotal = self::exactMinor($i->subtotal_minor);
+        $tax = self::exactMinor($i->tax_minor);
+        $invoiceEntries = DB::table('commercial_subscription_ledger')->where('invoice_id', $i->id)
+            ->where('kind', 'invoice')->get(['account', 'debit_minor', 'credit_minor']);
+        abort_unless(self::invoicePosted($invoiceEntries, $total, $subtotal, $tax),
+            409, 'Subscription invoice journal requires reconciliation.');
         $received = self::exactMinor($r->amount_minor);
         abort_unless($received === $total && $r->currency === $i->currency
             && in_array($r->evidence, ['MOCK_PROVIDER', 'STRIPE_TEST_CONTRACT'], true),

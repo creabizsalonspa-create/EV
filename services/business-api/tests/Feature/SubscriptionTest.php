@@ -199,6 +199,43 @@ class SubscriptionTest extends TestCase
         $this->assertDatabaseCount('commercial_subscription_ledger', $ledgerCount);
     }
 
+    public function test_unexpected_invoice_journal_cannot_authorize_paid_cycle(): void
+    {
+        $p = $this->plan();
+        $target = $this->plan(['code' => 'invoice-journal-target']);
+        $f = $this->subscribe($p);
+        $this->pay($f);
+        $invoice = $f[1]['invoices'][0];
+        // Append a balanced but unrelated source posting. Existing immutable
+        // invoice, receipt and journal rows are not updated or deleted.
+        DB::table('commercial_subscription_ledger')->insert([
+            ['invoice_id' => $invoice['id'], 'kind' => 'invoice', 'account' => 'subscription_receivable',
+                'debit_minor' => 1, 'credit_minor' => 0, 'created_at' => now()],
+            ['invoice_id' => $invoice['id'], 'kind' => 'invoice', 'account' => 'subscription_revenue',
+                'debit_minor' => 0, 'credit_minor' => 1, 'created_at' => now()],
+        ]);
+        $journalCount = DB::table('commercial_subscription_ledger')->count();
+        $this->getJson($f[2])->assertConflict();
+        $this->getJson($f[2].'/change-preview?plan_id='.$target['id'])->assertConflict();
+        $this->postJson($f[2].'/change', [
+            'action' => 'change_plan', 'plan_id' => $target['id'], 'idempotency_key' => 'invalid-invoice-change',
+        ])->assertConflict();
+        $this->assertDatabaseCount('commercial_subscription_events', 2);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $journalCount);
+    }
+
+    public function test_free_and_zero_tax_invoice_journals_preserve_paid_entitlements(): void
+    {
+        foreach ([0, 999] as $price) {
+            $f = $this->subscribe($this->plan(['price_minor' => $price, 'tax_bps' => 0]));
+            $paid = $this->pay($f);
+            $this->assertTrue($paid['entitlements_active']);
+            $this->assertTrue($paid['ledger_balanced']);
+            $this->assertSame($price, $paid['invoices'][0]['total_minor']);
+        }
+    }
+
     public function test_paid_cycle_amount_boundary_does_not_coerce_inexact_financial_sources(): void
     {
         $exact = new \ReflectionMethod(SubscriptionPaidCycle::class, 'exactMinor');
