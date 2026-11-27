@@ -62,6 +62,26 @@ test('nonstandard NaN and Infinity in ignored lockfile metadata fail closed',t=>
  assert.equal(composer.stdout,'');
  assert.doesNotMatch(composer.stderr,/Traceback|DO-NOT-EMIT/);
 });
+test('overflowed numeric values and excessive JSON depth in ignored metadata fail closed',t=>{
+ const root=fixture(t);
+ const npm=opaque=>'{"lockfileVersion":3,"packages":{"node_modules/demo":{"version":"1.0.0","opaque":'+opaque+'}}}';
+ const composer=opaque=>'{"packages":[{"name":"vendor/demo","version":"1.0.0","opaque":'+opaque+'}]}';
+ const cases=['1e999','-1e999','['.repeat(65)+'0'+']'.repeat(65),'{"a":'.repeat(65)+'0'+'}'.repeat(65)];
+ for(const [file,build] of [['package-lock.json',npm],['service/composer.lock',composer]]){
+  for(const opaque of cases){
+   write(root,file,build(opaque));
+   const result=run(root);assert.equal(result.status,2,result.stderr);assert.equal(result.stdout,'');
+   assert.doesNotMatch(result.stderr,/Traceback|DO-NOT-EMIT/);
+  }
+  for(const opaque of ['1e100',JSON.stringify('DO-NOT-EMIT "'+'['.repeat(100)+'\\'+'}'.repeat(100))]){
+   write(root,file,build(opaque));
+   const result=run(root);assert.equal(result.status,0,result.stderr);
+   assert.equal(JSON.parse(result.stdout).component_count,1);
+   assert.doesNotMatch(result.stdout,/DO-NOT-EMIT/);
+  }
+  fs.unlinkSync(path.join(root,file));
+ }
+});
 test('missing versions and unresolved workspace links cannot masquerade as complete inventories',t=>{
  const root=fixture(t);for(const entry of [{name:'demo'},{link:true,resolved:'../private'}]){write(root,'package-lock.json',{lockfileVersion:3,packages:{'node_modules/demo':entry}});const result=run(root);assert.equal(result.status,2);assert.equal(result.stdout,'');}
 });
