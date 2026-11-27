@@ -21,17 +21,19 @@ DateTime? strictUtcConnectorTime(dynamic raw) {
   const unknown = (state: 'unknown', observedAt: null);
   if (value is! Map || value['evidence'] != 'SIMULATED_SOURCE' ||
       value['physical_availability_verified'] != false ||
+      value['max_age_seconds'] is! int ||
       value['max_age_seconds'] != 300 || elapsed.isNegative) return unknown;
   final serverState = value['state'];
   final status = value['reported_status'];
-  if (serverState != 'stale' &&
+  if (serverState == 'stale' ? status != null :
       (serverState != 'recent' || !reportedConnectorStatuses.contains(status))) return unknown;
   final checked = strictUtcConnectorTime(value['checked_at']),
       observed = strictUtcConnectorTime(value['observed_at']),
       until = strictUtcConnectorTime(value['valid_until']);
   if (checked == null || observed == null || until == null ||
       observed.isAfter(checked) || until.difference(observed) != const Duration(seconds: 300) ||
-      (serverState == 'stale' && until.isAfter(checked))) return unknown;
+      (serverState == 'stale' && until.isAfter(checked)) ||
+      (serverState == 'recent' && !until.isAfter(checked))) return unknown;
   final expired = until.difference(checked) <= elapsed;
   return (state: expired ? 'stale' : status as String,
       observedAt: value['observed_at'] as String);
