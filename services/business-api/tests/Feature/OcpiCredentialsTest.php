@@ -2,13 +2,16 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\OcpiProtocolCredentialsController;
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\IncomingEnrollment;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -340,6 +343,58 @@ class OcpiCredentialsTest extends TestCase
             ->assertOk()->assertJsonPath('data.token', $token);
         Http::assertSentCount(3);
         $this->assertDatabaseCount('ocpi_credential_operations', 1);
+        $this->assertCount(1, $this->writes);
+    }
+
+    #[TestWith(['missing'])]
+    #[TestWith(['invalid'])]
+    #[TestWith(['mismatched'])]
+    public function test_corrupt_active_token_denies_module_authority_but_authenticated_revocation_remains_available(string $corruption): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        $this->source();
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'acknowledged');
+        $token = $this->writes[0]['body']['token'];
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id);
+        $before = $link->first();
+        $controller = app(OcpiProtocolCredentialsController::class);
+        $exchange = app(CredentialExchange::class);
+        $request = Request::create('/api/roaming-protocol/2.2.1/locations', 'GET', server: [
+            'HTTP_AUTHORIZATION' => 'Token '.base64_encode($token),
+        ]);
+        foreach (['catalog', 'roaming'] as $resource) {
+            $this->assertSame($provider->id, $controller->authenticate($request, $exchange, $resource)[0]->id);
+        }
+        $link->update(['local_token_ciphertext' => match ($corruption) {
+            'missing' => null,
+            'invalid' => 'invalid-ciphertext',
+            'mismatched' => Crypt::encryptString('DIFFERENT-PRIVATE-SYNTHETIC'),
+        }]);
+        foreach (['catalog', 'roaming'] as $resource) {
+            try {
+                $controller->authenticate($request, $exchange, $resource);
+                $this->fail('Corrupt token material granted module authority.');
+            } catch (HttpException $error) {
+                $this->assertSame(401, $error->getStatusCode());
+            }
+        }
+        $credentialUrl = '/api/roaming-protocol/2.2.1/credentials';
+        $this->deleteJson($credentialUrl, [], $this->protocol('FOREIGN-TOKEN'))->assertUnauthorized();
+        $this->assertSame('active', DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first()->state);
+        $this->deleteJson($credentialUrl, [], $this->protocol($token))
+            ->assertOk()->assertJsonPath('data', null)->assertDontSee('DIFFERENT-PRIVATE-SYNTHETIC');
+        $after = DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first();
+        $this->assertNotNull($after);
+        $this->assertSame('revoked', $after->state);
+        $this->assertSame((int) $before->generation + 1, (int) $after->generation);
+        $this->assertNull($after->local_token_ciphertext);
+        $this->assertNull($after->local_token_digest);
+        $this->assertNull($after->remote_token_ciphertext);
+        $this->assertFalse($provider->fresh()->authorized);
+        $this->getJson('/api/roaming-protocol/versions', $this->protocol($token))->assertUnauthorized();
+        $this->assertDatabaseHas('ocpi_credential_operations', ['provider_id' => $provider->id, 'action' => 'peer_revoke', 'state' => 'acknowledged']);
+        $this->assertDatabaseCount('ocpi_credential_operations', 2);
+        Http::assertSentCount(3);
         $this->assertCount(1, $this->writes);
     }
 
