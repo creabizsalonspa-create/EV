@@ -106,6 +106,34 @@ class OperationalAnalyticsTest extends TestCase
         $this->get($url.'/pdf'.$query.'&locale=ar')->assertOk()->assertHeader('Content-Type', 'application/pdf');
     }
 
+    public function test_demand_does_not_bridge_missing_accepted_meter_sequence(): void
+    {
+        [$owner, , , $binding, $map, $evse, $url] = $this->setupReport();
+        $session = $this->sourceSession($binding, $map, $evse, '2026-11-06 10:00:00', '2026-11-06 11:00:00');
+        $link = DB::table('csms_session_links')->where('charging_session_id', $session->id)->first();
+        DB::table('csms_inbox_events')->where('link_id', $link->id)->where('sequence', 1)->update(['sequence' => 2]);
+        DB::table('csms_session_links')->where('id', $link->id)->update(['last_sequence' => 2]);
+        $before = DB::table('finance_journals')->count();
+        $query = '?from=2026-11-06&to=2026-11-06';
+
+        $this->actingAs($owner)->getJson($url.$query)->assertOk()
+            ->assertJsonPath('sites.0.completed_energy_wh', 1000)
+            ->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', null)
+            ->assertJsonPath('sites.0.demand_observed_seconds', 0)
+            ->assertJsonPath('physical_site_demand_verified', false);
+
+        // Restoring a consecutive accepted source interval restores demand,
+        // without changing completed energy or financial facts.
+        DB::table('csms_inbox_events')->where('link_id', $link->id)->where('sequence', 2)->update(['sequence' => 1]);
+        DB::table('csms_session_links')->where('id', $link->id)->update(['last_sequence' => 1]);
+        $this->getJson($url.$query)->assertOk()
+            ->assertJsonPath('sites.0.completed_energy_wh', 1000)
+            ->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', 1000)
+            ->assertJsonPath('sites.0.demand_observed_seconds', 3600);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        Http::assertNothingSent();
+    }
+
     public function test_large_valid_meter_delta_does_not_overflow_during_power_scaling(): void
     {
         [$owner, $company, , $b, $map, $evse, $url] = $this->setupReport();
