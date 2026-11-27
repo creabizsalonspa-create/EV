@@ -69,6 +69,7 @@ class CaseApi extends FixtureApi {
               {
                 'id': 7,
                 'invoice_id': 3,
+                'amount_minor': 1250,
                 'reason': 'Literal <script> dispute',
                 'status': 'open',
                 'evidence': 'MOCK_PROVIDER',

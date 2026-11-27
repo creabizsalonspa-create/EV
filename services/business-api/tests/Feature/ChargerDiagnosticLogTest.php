@@ -320,6 +320,57 @@ class ChargerDiagnosticLogTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_diagnostic_observation_never_combines_rotated_source_credentials_for_either_protocol(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            [$owner, , , $url] = $this->setupLog($protocol);
+            $id = $this->actingAs($owner)->postJson($url, $this->requestBody())->assertCreated()->json('id');
+            $clock = CarbonImmutable::parse(DB::table('charger_diagnostic_logs')->find($id)->attempted_at, 'UTC');
+            foreach (['station' => 1, 'request' => 2, 'reply' => 3, 'status' => 4] as $phase => $expectedCalls) {
+                config(['csms.graphql_secret' => str_repeat('s', 32)]);
+                Http::swap(new Factory);
+                Http::preventStrayRequests();
+                $calls = 0;
+                Http::fake(function ($request) use ($protocol, $phase, $id, $clock, &$calls) {
+                    $calls++;
+                    $this->assertSame('http://127.0.0.1:8095/v1/graphql', $request->url());
+                    $this->assertSame(str_repeat('s', 32), $request->header('x-hasura-admin-secret')[0] ?? null);
+                    $query = $request['query'];
+                    if (str_contains($query, 'ChargingStations')) {
+                        $stage = 'station';
+                        $data = ['ChargingStations' => [['id' => 42, 'protocol' => $protocol, 'isOnline' => true]]];
+                    } elseif (str_contains($query, 'requestMessageId')) {
+                        $stage = 'reply';
+                        $data = ['OCPPMessages' => [['id' => 200, 'type' => 3,
+                            'createdAt' => $clock->addSecond()->toISOString(),
+                            'payload' => $protocol === '1.6' ? ['fileName' => 'synthetic.log'] : ['status' => 'Accepted']]]];
+                    } elseif (str_contains($query, 'payload:{_contains')) {
+                        $stage = 'status';
+                        $data = ['OCPPMessages' => [['id' => 300, 'createdAt' => $clock->addSeconds(2)->toISOString(),
+                            'payload' => ['requestId' => $id, 'status' => 'Uploaded']]]];
+                    } else {
+                        $stage = 'request';
+                        $data = ['OCPPMessages' => [['id' => 100, 'createdAt' => $clock->toISOString()]]];
+                    }
+                    if ($phase === $stage) {
+                        config(['csms.graphql_secret' => str_repeat('r', 32)]);
+                    }
+
+                    return Http::response(['data' => $data]);
+                });
+                $this->postJson($url.'/'.$id.'/observe')->assertServiceUnavailable();
+                $this->assertSame($expectedCalls, $calls);
+                $row = DB::table('charger_diagnostic_logs')->find($id);
+                $this->assertNull($row->accepted_at);
+                $this->assertNull($row->source_request_id);
+                $this->assertNull($row->source_reply_id);
+                $this->assertNull($row->source_status_at);
+            }
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_work_order_links_are_scoped_to_the_same_canonical_fault_generation(): void
     {
         [$owner,$company,$charger,$url] = $this->setupLog();
