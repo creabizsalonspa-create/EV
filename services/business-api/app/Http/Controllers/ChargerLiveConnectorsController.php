@@ -5,14 +5,17 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorConnector;
 use App\Services\Charging\ChargerSourceRegistration;
 use App\Services\Charging\CsmsGraphqlTransport;
+use App\Services\Charging\DirectConnectorReviewCoverage;
 use App\Services\Charging\DirectSourceAuthority;
 use App\Services\Charging\DirectSourceRegistrationEpoch;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
+use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -77,6 +80,39 @@ final class ChargerLiveConnectorsController extends Controller
                 $authority];
 
             return $binding;
+        }, 3);
+    }
+
+    private function reviewCoverage(Request $r, VendorCompany $company, VendorCharger $charger, object $binding, array $sources, bool $complete): array
+    {
+        return DB::transaction(function () use ($r, $company, $charger, $binding, $sources, $complete) {
+            $fresh = $this->registeredScope($r, $company, $charger);
+            abort_unless($fresh->id === $binding->id && $fresh->identifier === $binding->identifier
+                && $fresh->protocol === $binding->protocol && $fresh->station_id === $binding->station_id
+                && $fresh->registration_receipt === $binding->registration_receipt, 409,
+                'Direct registration changed before review coverage.');
+            $inventory = VendorConnector::where('charger_id', $charger->id)->orderBy('id')
+                ->limit(101)->lockForUpdate()->pluck('id')->all();
+            $epoch = $fresh->registration_receipt[7][0];
+            $registration = $fresh->registration_receipt[0];
+            $fingerprint = hash('sha256', json_encode([$fresh->id, $fresh->station_id, $fresh->vendor_charger_id,
+                $fresh->identifier, $fresh->protocol, $fresh->registration_receipt], JSON_THROW_ON_ERROR));
+            $receipts = DB::table('direct_connector_review_receipts')->where('charger_id', $charger->id)
+                ->where('authority_epoch', $epoch)->orderBy('id')->limit(101)->lockForUpdate()->get()
+                ->map(fn ($row) => [
+                    'connector_id' => $row->connector_id,
+                    'registration_id' => $row->registration_id,
+                    'authority_epoch' => $row->authority_epoch,
+                    'target' => $row->source_evse_number.':'.$row->source_connector_number,
+                    'database_id' => $row->source_connector_database_id,
+                    'event_id' => $row->source_event_id,
+                    'fingerprint' => $row->registration_fingerprint,
+                    'observed_at' => CarbonImmutable::parse($row->source_observed_at, 'UTC'),
+                ])->all();
+            app(MaintenanceActor::class)->checkBearer($r->user());
+
+            return app(DirectConnectorReviewCoverage::class)->evaluate($inventory, $receipts, $sources,
+                $registration, $epoch, $fingerprint, $complete);
         }, 3);
     }
 
@@ -325,6 +361,7 @@ final class ChargerLiveConnectorsController extends Controller
             $station['heartbeat']->gte(now()->subMinutes(5)) &&
             $after['heartbeat']->gte(now()->subMinutes(5));
         $rows = [];
+        $reviewSources = [];
         foreach ($local as $row) {
             $event = $latest[$row['target']] ?? null;
             $eventRecent = $event && $event['observed_at']->gte(now()->subMinutes(5));
@@ -355,6 +392,11 @@ final class ChargerLiveConnectorsController extends Controller
                 'physical_available' => false,
                 'remote_control_authorized' => false,
             ];
+            if ($direct) {
+                $reviewSources[] = ['target' => $row['target'], 'database_id' => $sourceTargets[$row['target']],
+                    'event_id' => $event['source_event_id'] ?? null, 'observed_at' => $event['observed_at'] ?? null,
+                    'state' => $rows[array_key_last($rows)]['state']];
+            }
             if ($internalReview) {
                 $rows[array_key_last($rows)] += [
                     'source_connector_database_id' => $sourceTargets[$row['target']],
@@ -362,6 +404,10 @@ final class ChargerLiveConnectorsController extends Controller
                 ];
             }
         }
+
+        $reviewCoverage = $direct ? $this->reviewCoverage($r, $company, $charger, $binding, $reviewSources, $complete) : null;
+        abort_unless($this->sourceAuthority($direct) === $authority, 409, 'Source authority changed before response.');
+        app(MaintenanceActor::class)->checkBearer($r->user());
 
         return response()->json([
             'company_id' => $company->id,
@@ -380,6 +426,6 @@ final class ChargerLiveConnectorsController extends Controller
             'remote_control_authorized' => false,
             'commands_sent' => false,
             'connectors' => $rows,
-        ])->header('Cache-Control', 'private, no-store');
+        ] + ($direct ? ['review_coverage' => $reviewCoverage] : []))->header('Cache-Control', 'private, no-store');
     }
 }
