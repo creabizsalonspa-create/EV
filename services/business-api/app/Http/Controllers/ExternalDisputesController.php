@@ -71,7 +71,7 @@ class ExternalDisputesController extends Controller
         $value = array_replace((array) $row, self::verifySource($row));
         unset($value['provider_reference'], $value['charge_reference']);
         $value['settlement_hold'] = (bool) $value['settlement_hold'];
-        $value['deadline_passed'] = in_array($value['status'], ['needs_response', 'warning_needs_response'], true) && $value['evidence_due_at'] && Carbon::parse($value['evidence_due_at'])->isPast();
+        $value['deadline_passed'] = in_array($value['status'], ['needs_response', 'warning_needs_response'], true) && $value['evidence_due_at'] && Carbon::parse($value['evidence_due_at'])->lessThanOrEqualTo(now());
         $value['requires_financial_resolution'] = $value['status'] === 'lost';
 
         return $value + ['evidence' => 'STRIPE_TEST_CONTRACT', 'real_money_moved' => false, 'chargeback_accounting' => 'NOT_POSTED_REQUIRES_FINANCIAL_RESOLUTION'];
@@ -173,7 +173,7 @@ class ExternalDisputesController extends Controller
                 $unresolved = self::exact($row->uncertain_evidence_count) > 0;
                 $needs = in_array($row->status, ['needs_response', 'warning_needs_response'], true);
                 $expired = $needs && $row->evidence_due_at
-                    && Carbon::parse($row->evidence_due_at)->lessThan($observedAt);
+                    && Carbon::parse($row->evidence_due_at)->lessThanOrEqualTo($observedAt);
                 $urgency = $row->status === 'lost' ? 'financial_resolution_required'
                     : ($unresolved ? 'provider_submission_uncertain'
                         : ($expired ? 'deadline_passed' : 'evidence_due_soon'));

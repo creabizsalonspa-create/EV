@@ -656,6 +656,34 @@ class ExternalDisputesTest extends TestCase
         Http::assertNotSent(fn ($request) => $request->method() === 'POST');
     }
 
+    public function test_evidence_deadline_is_closed_at_exact_provider_cutoff_on_all_read_surfaces(): void
+    {
+        $id = $this->providerEvent()->assertOk()->json('dispute_id');
+        $base = '/dispute-test/commercial/external-disputes';
+        $due = \Illuminate\Support\Carbon::createFromTimestampUTC($this->body['evidence_details']['due_by']);
+        $this->actingAs($this->admin);
+        $before = DB::table('finance_journals')->count();
+        $this->travelTo($due->copy()->subSecond());
+        $this->getJson($base.'/'.$id)->assertOk()->assertJsonPath('dispute.deadline_passed', false);
+        $this->getJson($base)->assertOk()->assertJsonPath('data.0.deadline_passed', false);
+        $this->getJson($base.'/deadline-queue?window_hours=1')->assertOk()
+            ->assertJsonPath('data.0.urgency', 'evidence_due_soon');
+
+        $this->travelTo($due);
+        $this->getJson($base.'/'.$id)->assertOk()->assertJsonPath('dispute.deadline_passed', true);
+        $this->getJson($base)->assertOk()->assertJsonPath('data.0.deadline_passed', true);
+        $this->getJson($base.'/deadline-queue?window_hours=0')->assertOk()
+            ->assertJsonPath('data.0.id', $id)
+            ->assertJsonPath('data.0.urgency', 'deadline_passed')
+            ->assertJsonPath('data.0.deadline_passed', true)
+            ->assertJsonPath('data.0.settlement_hold', true);
+        $this->travelTo($due->copy()->addSecond());
+        $this->getJson($base.'/'.$id)->assertOk()->assertJsonPath('dispute.deadline_passed', true);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('external_dispute_evidence', 0);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+    }
+
     public function test_deadline_queue_prioritizes_actionable_dates_before_null_deadlines_on_all_drivers(): void
     {
         $due = $this->providerEvent('evt_DueFirst')->assertOk()->json('dispute_id');
