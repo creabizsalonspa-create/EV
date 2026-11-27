@@ -90,6 +90,31 @@
    window.dispatchEvent(published);
    document.getElementById('discovery-map')?.scrollIntoView({block:'start'});
   });mapButton.disabled=true;root.append(mapButton,recentPanel);
+  // All source entry points belong to discovery, but a licensed provider
+  // is a separate consented lookup, not part of the published SQL page.
+  const licensedEntry=text('div','','');
+  function renderLicensedEntry(){
+   licensedEntry.replaceChildren();
+   if(owner===null)return;
+   const epoch=generation,who=owner;
+   const sourceStatus=text('p','','');sourceStatus.setAttribute('role','status');
+   const open=button('Open Charge Map — separate licensed search','خريطة الشحن المفتوحة — بحث مرخص منفصل',()=>{
+    if(epoch!==generation||who!==owner||writing||submit.disabled||document.visibilityState==='hidden')return;
+    const panel=document.getElementById('open-charge-map-discovery');
+    if(!panel||panel.hidden){
+     sourceStatus.replaceChildren(text('span','Licensed source is not available. Published search remains available.','المصدر المرخص غير متاح. يبقى البحث في السجلات المنشورة متاحاً.'));
+     return;
+    }
+    // Do not transfer the query, coordinates, filters, consent or identity.
+    // The existing provider form owns its independent consent and limits.
+    panel.tabIndex=-1;
+    panel.focus?.({preventScroll:true});
+    panel.scrollIntoView?.({block:'start'});
+   });
+   open.dataset.discoverySource='open_charge_map';
+   licensedEntry.append(text('p','Published results and licensed reports are separate. Opening the licensed source does not submit a search or share your current filters.','النتائج المنشورة والتقارير المرخصة منفصلة. فتح المصدر المرخص لا يرسل بحثاً أو يشارك مرشحاتك الحالية.'),open,sourceStatus);
+  }
+  root.append(licensedEntry);
   // Missing source metadata must never become a bookable catalog action.
   // Location identity remains visible as read-only evidence.
   const catalogMetadataComplete=row=>row&&row.station&&
@@ -203,7 +228,7 @@
      mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();
      state.replaceChildren(text('span','Search failed. Submit again to retry.','تعذر البحث. أعد الإرسال للمحاولة.'));
     }}
-   finally{if(turn===generation)submit.disabled=false;}
+   finally{if(turn===generation){submit.disabled=false;renderLicensedEntry();}}
   }
   form.onsubmit=e=>{e.preventDefault();if(writing)return;advancedQuery={};viewportQuery={};for(const [key,control] of Object.entries(advancedInputs)){let value=control.value.trim();if(key==='price_currency')value=value.toUpperCase();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].includes(key))value=normalizeRate(value);if(value)advancedQuery[key]=value;}query=input.value.trim();scope=source.value;country=market.value;connector=plug.value;recentStatus=report.value;maxSourceAge=ageFilter.value;savedOnly=customer&&savedInput.checked;load(1,true);};
   // Map movement does not make a request. Only the user's explicit map-view
@@ -228,7 +253,7 @@
    setContext(context){
     if(owner!==context.owner||customer!==(context.customer===true))this.clear();
     owner=context.owner;customer=context.customer===true;
-    favoriteWriter=context.favorite;savedField.hidden=!customer;
+    favoriteWriter=context.favorite;savedField.hidden=!customer;renderLicensedEntry();
    },
    clear(){
     revokePublishedMap();
@@ -239,7 +264,7 @@
     ageFilter.value='';savedOnly=false;savedInput.checked=false;mapRows=[];
     mapButton.disabled=true;query='';input.value='';country='';market.value='';
     list.replaceChildren();nav.replaceChildren();state.replaceChildren();
-    submit.disabled=false;
+    submit.disabled=false;renderLicensedEntry();
    }
   };
   // BFCache navigation and hidden tabs cannot retain a previous customer's

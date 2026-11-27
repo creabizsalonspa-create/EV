@@ -6,6 +6,7 @@ import 'partner_report_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart' show TileProvider;
 import 'api.dart';
+import 'licensed_discovery.dart';
 
 /// Published local records only. This view never grants remote charging rights.
 String partnerCatalogAgeLabel(Map<String,dynamic> row, bool ar) {
@@ -47,7 +48,8 @@ class UnifiedDiscoveryView extends StatefulWidget {
   final ValueChanged<Station> onCatalog;
   final bool customer;
   final TileProvider? mapTileProvider;
-  const UnifiedDiscoveryView({super.key, required this.api, required this.onCatalog, this.customer=false, this.mapTileProvider});
+  final VoidCallback? onExpired;
+  const UnifiedDiscoveryView({super.key, required this.api, required this.onCatalog, this.customer=false, this.mapTileProvider, this.onExpired});
   @override
   State<UnifiedDiscoveryView> createState() => _UnifiedDiscoveryViewState();
 }
@@ -256,9 +258,17 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
         body:Center(child:Text(!ownSession()?tr('Account changed. Reopen search.', 'تغير الحساب. أعد فتح البحث.'):tr('Private discovery paused.','البحث الخاص متوقف مؤقتاً.'))),
       )
     : Scaffold(
-    appBar:AppBar(title:Text(tr('Search all sources','البحث في كل المصادر'))),
+    appBar:AppBar(title:Text(tr('Search all sources','البحث في كل المصادر')),actions:[
+      IconButton(key:const Key('unified-licensed-source'),
+        tooltip:tr('Open Charge Map — separate licensed search','خريطة الشحن المفتوحة — بحث مرخص منفصل'),
+        onPressed:busy||writing?null:guard((){
+          // No query, coordinates, consent or published record is handed off.
+          // The licensed screen checks capability and requests its own consent.
+          Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>LicensedDiscoveryScreen(api:widget.api,onExpired:widget.onExpired,mapTileProvider:widget.mapTileProvider)));
+        }),icon:const Icon(Icons.travel_explore)),
+    ]),
     body:ListView(key:ValueKey('unified-form-$formEpoch'),padding:const EdgeInsets.all(16),children:[
-      Text(tr('Search published platform and authorized partner records. Partner reports do not authorize booking, charging or payment. External provider lookups require separate consent.','البحث في سجلات المنصة والشركاء المصرح لهم. تقارير الشركاء لا تسمح بالحجز أو الشحن أو الدفع. تتطلب الاستعلامات الخارجية موافقة منفصلة.')),
+      Text(tr('Search published platform and authorized partner records. Partner reports do not authorize booking, charging or payment. Use the source action to open licensed discovery with separate consent; published results are not combined with licensed reports.','البحث في سجلات المنصة والشركاء المصرح لهم. تقارير الشركاء لا تسمح بالحجز أو الشحن أو الدفع. استخدم زر المصدر لفتح الاكتشاف المرخص بموافقة منفصلة؛ لا تدمج النتائج المنشورة مع التقارير المرخصة.')),
       TextField(key:const Key('unified-query'),controller:query,maxLength:80,decoration:InputDecoration(labelText:tr('Name, address or operator','الاسم أو العنوان أو المشغل'))),
       DropdownButtonFormField<String>(key:const Key('unified-scope'),initialValue:scope,decoration:InputDecoration(labelText:tr('Source','المصدر')),items:[for(final choice in [('all','All published sources','كل المصادر المنشورة'),('catalog','Platform catalog','كتالوج المنصة'),('partner','Authorized partner reports','تقارير الشركاء المصرح لهم')])DropdownMenuItem(value:choice.$1,child:Text(tr(choice.$2,choice.$3)))],onChanged:busy?null:(value)=>setState(()=>scope=value!)),
       InputDecorator(

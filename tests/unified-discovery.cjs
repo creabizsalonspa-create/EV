@@ -10,7 +10,7 @@ class Element{
 }
 const sample={data:[{key:'catalog:7',kind:'catalog',station:{id:7,name:'<b>Catalog</b>',evidence:'SIMULATED',connector_type:'CCS2',power_kw:50}},{key:'partner:7',kind:'partner',record_id:7,provider_label:'Private operator label',location:{name:'<img src=x>',address:'Synthetic',country:'ARE',availability:'unknown',remote_control:false,reservable:false},evidence:'PARTNER_REPORTED_UNVERIFIED',availability:'unknown',remote_control:false,reservable:false}],current_page:1,last_page:2,total:3};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-function fixture(lang='en',api=async()=>sample){const events=[],listeners=new Map(),window={addEventListener(type,fn){listeners.set(type,[...(listeners.get(type)||[]),fn]);},dispatchEvent(event){events.push(event);for(const fn of listeners.get(event.type)||[])fn(event);}},document={visibilityState:'visible',addEventListener:(type,fn)=>window.addEventListener('document:'+type,fn),getElementById:()=>null,documentElement:{lang},createElement:tag=>new Element(tag)};vm.runInNewContext(fs.readFileSync('services/business-api/public/partner-catalog-policy.js','utf8'),{window});vm.runInNewContext(fs.readFileSync('services/business-api/public/unified-discovery.js','utf8'),{window,document,URLSearchParams,CustomEvent:class{constructor(type,data={}){this.type=type;this.detail=data.detail??null;}}});const root=new Element('section'),chosen=[],calls=[];const control=window.EvUnifiedDiscovery.install(root,async(...args)=>{calls.push(args);return api(...args);},id=>chosen.push(id));return{root,document,chosen,calls,control,events,emit:(type,detail)=>window.dispatchEvent({type,detail}),form:root.children[2],list:root.children[4],nav:root.children[5]};}
+function fixture(lang='en',api=async()=>sample,licensedPanel=null){const events=[],listeners=new Map(),window={addEventListener(type,fn){listeners.set(type,[...(listeners.get(type)||[]),fn]);},dispatchEvent(event){events.push(event);for(const fn of listeners.get(event.type)||[])fn(event);}},document={visibilityState:'visible',addEventListener:(type,fn)=>window.addEventListener('document:'+type,fn),getElementById:id=>id==='open-charge-map-discovery'?licensedPanel:null,documentElement:{lang},createElement:tag=>new Element(tag)};vm.runInNewContext(fs.readFileSync('services/business-api/public/partner-catalog-policy.js','utf8'),{window});vm.runInNewContext(fs.readFileSync('services/business-api/public/unified-discovery.js','utf8'),{window,document,URLSearchParams,CustomEvent:class{constructor(type,data={}){this.type=type;this.detail=data.detail??null;}}});const root=new Element('section'),chosen=[],calls=[];const control=window.EvUnifiedDiscovery.install(root,async(...args)=>{calls.push(args);return api(...args);},id=>chosen.push(id));return{root,document,chosen,calls,control,events,emit:(type,detail)=>window.dispatchEvent({type,detail}),form:root.children[2],list:root.children[4],nav:root.children[5]};}
 for(const lang of ['en','ar'])test('actual unified DOM query, typed identities and safe source text '+lang,async()=>{
  const f=fixture(lang);assert.equal(f.calls.length,0);f.form.children[0].children.find(n=>n.tag==='input').value='100%_hub';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls[0][0].split('?')[1]).get('q'),'100%_hub');assert.equal(f.list.children.length,2);assert.match(f.list.textContent,/<img src=x>/);assert.equal(f.list.children[1].children.some(n=>n.tag==='button'),false);f.list.children[0].children.find(n=>n.tag==='button').onclick();assert.deepEqual(f.chosen,[7]);assert.equal(f.list.children[0].children[0].innerHTML,undefined);assert.match(f.list.textContent,lang==='ar'?/التوفر غير معروف/:/availability unknown/);f.nav.children.find(n=>n.tag==='button').onclick();await tick();assert.equal(new URLSearchParams(f.calls[1][0].split('?')[1]).get('page'),'2');assert(f.calls.every(args=>args.length===1));
 });
@@ -518,4 +518,23 @@ for(const lang of ['en','ar'])for(const transition of ['account','role','clear']
  assert.equal(input.value,'Current draft','A discarded actor/history callback must not overwrite current form fields');
  assert.equal(f.calls.length,before,'Discarded callbacks must not issue requests');
  assert.equal(panel.hidden,true);
+});
+
+for(const lang of ['en','ar'])test('unified licensed source entry is explicit, local and account fenced '+lang,async()=>{
+ let focuses=0,scrolls=0;
+ const provider={hidden:false,focus(){focuses++;},scrollIntoView(){scrolls++;}};
+ const f=fixture(lang,async()=>sample,provider);
+ const entry=f.root.children[8];
+ assert.equal(entry.children.length,0);
+ f.control.setContext({owner:7,customer:true});
+ const stale=entry.children[1].onclick;
+ f.form.children[0].children.find(n=>n.tag==='input').value='private draft';
+ entry.children[1].onclick();
+ assert.equal(focuses,1);assert.equal(scrolls,1);assert.equal(f.calls.length,0);assert.equal(f.events.length,0);
+ f.control.setContext({owner:8,customer:true});
+ stale();assert.equal(focuses,1);
+ provider.hidden=true;entry.children[1].onclick();
+ assert.match(entry.textContent,lang==='ar'?/المصدر المرخص غير متاح/:/Licensed source is not available/);
+ assert.equal(f.calls.length,0);assert.equal(scrolls,1);
+ f.control.setContext({owner:null,customer:false});assert.equal(entry.children.length,0);
 });

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/unified_discovery.dart';
+import 'package:creabiz_ev/licensed_discovery.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/partner_report_map.dart';
 import 'test_support.dart';
@@ -25,6 +26,7 @@ class UnifiedApi extends FixtureApi {
   @override
   Future<dynamic> request(String path,{String method='GET',Map<String,dynamic>? body,Map<String,String> query=const {}})async{
     calls.add('$method $path');queries.add(query);
+    if(path=='discovery/open-charge-map/capabilities')return {'provider':'open_charge_map','enabled':true,'evidence':'DISCOVERY_ONLY','requires_explicit_consent':true,'max_radius_km':200,'max_results':25,'attribution_required_per_record':true,'availability':'unknown','remote_control':false,'reservable':false};
     if(pending!=null)return pending!.future;
     return {'data':int.parse(query['page']!)==1?[
       if(mapFixtures) {...catalogRow(),'station':{...Map<String,dynamic>.from(catalogRow()['station'] as Map),'latitude':25.2,'longitude':55.3,if(forgedMapAuthority)'evidence':'LIVE_VERIFIED'}}
@@ -137,6 +139,28 @@ class ForgedPublishedApi extends UnifiedApi {
 
 void roomy(WidgetTester tester){tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);}
 void main(){
+  for(final ar in [false,true])testWidgets('unified licensed source opens existing consent workflow without forwarding drafts ($ar)',(tester)async{
+    roomy(tester);
+    final api=UnifiedApi();addTearDown(api.close);
+    await tester.pumpWidget(app(api,(_)=>fail('Unexpected catalog action'),ar:ar,customer:true));
+    await tester.enterText(find.byKey(const Key('unified-query')),'private query');
+    expect(api.calls,isEmpty);
+    final open=find.byKey(const Key('unified-licensed-source'));
+    await tester.tap(open);await tester.pumpAndSettle();
+    expect(find.byType(LicensedDiscoveryScreen),findsOneWidget);
+    expect(api.calls,['GET discovery/open-charge-map/capabilities']);
+    expect(find.text('private query'),findsNothing);
+    expect(api.queries.single,isEmpty);
+    await tester.pageBack();await tester.pumpAndSettle();
+    expect(find.text('private query'),findsOneWidget);
+    expect(api.calls,['GET discovery/open-charge-map/capabilities']);
+    final stale=tester.widget<IconButton>(open).onPressed!;
+    api.rotate();await tester.pumpAndSettle();
+    stale();await tester.pumpAndSettle();
+    expect(find.byType(LicensedDiscoveryScreen),findsNothing);
+    expect(api.calls.length,1);
+    expect(tester.takeException(),isNull);
+  });
 
   for (final ar in [false, true]) {
     testWidgets('unverified union source cannot grant a map pin or saved-place action ($ar)', (tester) async {
