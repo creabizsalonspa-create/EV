@@ -82,6 +82,39 @@ void main() {
     });
   }
 
+  for (final protocol in ['1.6', '2.0.1']) {
+    testWidgets('stale $protocol review can only renew the same target', (tester) async {
+      final api = ReviewApi();
+      api.stored = {
+        'id': 6, 'connector_id': 3,
+        'source_evse_number': protocol == '1.6' ? 0 : 1,
+        'source_connector_number': 2, 'current_registration_matches': false,
+        'source_observed_at': '2026-11-28 12:00:00.000000',
+        'reviewed_at': '2026-11-28 12:01:00.000000',
+        'evidence': 'DIRECT_CONNECTOR_REVIEW_ONLY',
+        'charging_mapping_created': false, 'physical_availability_verified': false,
+        'remote_control_authorized': false,
+      };
+      await tester.pumpWidget(view(api, protocol: protocol));
+      expect(api.reads, 0);
+      await tester.tap(find.text('Read stored connector review'));
+      await tester.pumpAndSettle();
+      final fields = tester.widgetList<TextField>(find.byType(TextField)).toList();
+      expect(fields.length, 2);
+      expect(fields.every((field) => field.readOnly), true);
+      expect(fields.first.controller!.text, protocol == '1.6' ? '0' : '1');
+      expect(fields.last.controller!.text, '2');
+      final submit = find.text('Re-review same connector identity');
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(api.writes, 1);
+      expect(api.stored!['source_connector_number'], 2);
+      expect(find.text('Stored connector review matches current registration'), findsOneWidget);
+      expect(find.byType(TextField), findsNothing);
+    });
+  }
+
   testWidgets('non-owner read is explicit and cannot write; background discards late receipt',
       (tester) async {
     final api = ReviewApi();
