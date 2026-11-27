@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Http\Controllers\ChargerLiveConnectorsController;
 use App\Http\Controllers\ChargerResetController;
+use App\Http\Controllers\RegisteredChargerFleetController;
 use App\Models\Charging\AdmissionProfile;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
@@ -115,6 +116,70 @@ class ChargerLiveConnectorsTest extends TestCase
         ]);
 
         return $f;
+    }
+
+    public function test_direct_fleet_lists_only_current_owned_inventory_without_source_reads_or_mapping(): void
+    {
+        $first = $this->registeredFixture('1.6');
+        $second = $this->registeredFixture('2.0.1');
+        $simulator = $this->fixture('1.6');
+        DB::table('charger_source_registrations')->where('id', $second['receipt'])->update(['state' => 'prepared']);
+        $path = '/api/charging-operations/registered-chargers';
+        $this->actingAs($first['owner'])->getJson($path)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('scope', 'direct_charger_fleet')
+            ->assertJsonPath('evidence', 'INVENTORY_ONLY')
+            ->assertJsonPath('chargers.total', 1)
+            ->assertJsonPath('chargers.data.0.charger_id', $first['charger']->id)
+            ->assertJsonPath('chargers.data.0.state', 'not_inspected')
+            ->assertJsonPath('physical_availability_verified', false)
+            ->assertJsonPath('remote_control_authorized', false)
+            ->assertJsonPath('billing_authority', false)
+            ->assertJsonMissingPath('chargers.data.0.identifier')
+            ->assertJsonMissingPath('chargers.data.0.source_station_id')
+            ->assertJsonMissingPath('chargers.data.0.registration_id');
+        $this->getJson($path.'?station_id='.$second['station']->id)->assertNotFound();
+        $this->actingAs($second['owner'])->getJson($path)->assertOk()
+            ->assertJsonPath('chargers.data.0.state', 'not_inspected')
+            ->assertJsonPath('chargers.data.0.protocol', '2.0.1');
+        $this->actingAs($simulator['owner'])->getJson($path)->assertOk()->assertJsonPath('chargers.total', 0);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->getJson($path)->assertOk()->assertJsonPath('chargers.total', 2);
+        $first['station']->update(['vendor_id' => $second['owner']->id]);
+        $this->getJson($path)->assertOk()->assertJsonPath('chargers.total', 1);
+        $this->actingAs($first['owner'])->getJson($path)->assertOk()->assertJsonPath('chargers.total', 0);
+        $this->actingAs(User::factory()->create())->getJson($path)->assertForbidden();
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_direct_fleet_paginates_before_projection_and_denies_stale_captured_bearer(): void
+    {
+        $f = $this->registeredFixture('1.6');
+        for ($i = 1; $i <= 25; $i++) {
+            VendorCharger::create(['company_id' => $f['company']->id,
+                'site_id' => $f['charger']->site_id, 'asset_reference' => 'PAGE-'.$i,
+                'manufacturer' => 'Synthetic', 'model' => 'Fixture', 'source' => 'direct_unverified',
+                'ocpp_protocol' => '2.0.1']);
+        }
+        $path = '/api/charging-operations/registered-chargers';
+        $this->actingAs($f['owner'])->getJson($path)->assertOk()->assertJsonPath('chargers.total', 26)
+            ->assertJsonPath('chargers.last_page', 2)->assertJsonCount(25, 'chargers.data');
+        $this->getJson($path.'?page=2')->assertOk()->assertJsonCount(1, 'chargers.data');
+        $this->getJson($path.'?page=0')->assertUnprocessable();
+        $token = $f['owner']->createToken('direct-fleet', ['*'], now()->addHour())->accessToken;
+        $snapshot = $f['owner']->fresh()->withAccessToken($token);
+        $request = Request::create($path);
+        $request->setUserResolver(fn () => $snapshot);
+        $token->delete();
+        try {
+            app(\\App\\Http\\Controllers\\RegisteredChargerFleetController::class)($request);
+            $this->fail('Revoked bearer must not receive a private fleet list.');
+        } catch (HttpException $error) {
+            $this->assertSame(403, $error->getStatusCode());
+        }
+        Http::assertNothingSent();
     }
 
     public static function directSourceCases(): array
