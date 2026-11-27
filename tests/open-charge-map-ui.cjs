@@ -182,6 +182,8 @@ const reply = {
       await root.locator('[name="ocm_min_reported_power_kw"]').fill("20");
       await root.locator('[name="ocm_reported_connector"]').fill("Type 2");
       await root.locator('[name="ocm_operator_contains"]').fill("Unverified");
+      await root.locator('[name="ocm_address_contains"]').fill("Dubai");
+      await root.locator('[name="ocm_access_contains"]').fill("Membership");
       await root.locator('[name="ocm_reported_operational"]').selectOption("true");
       await root.locator('[name="ocm_reported_membership_required"]').selectOption("true");
       await root.locator('[name="ocm_max_source_age_hours"]').fill("3");
@@ -271,6 +273,8 @@ const reply = {
         min_reported_power_kw: 20,
         reported_connector: "Type 2",
         operator_contains: "Unverified",
+        address_contains: "Dubai",
+        access_contains: "Membership",
         reported_membership_required: true,
         reported_operational: true,
         max_source_age_hours: 3,
@@ -414,6 +418,8 @@ const reply = {
         assert.equal(await root.locator('[name="ocm_min_reported_power_kw"]').inputValue(), "");
         assert.equal(await root.locator('[name="ocm_reported_connector"]').inputValue(), "");
         assert.equal(await root.locator('[name="ocm_operator_contains"]').inputValue(), "");
+        assert.equal(await root.locator('[name="ocm_address_contains"]').inputValue(), "");
+        assert.equal(await root.locator('[name="ocm_access_contains"]').inputValue(), "");
         assert.equal(await root.locator('[name="ocm_reported_operational"]').inputValue(), "");
         assert.equal(await root.locator('[name="ocm_reported_membership_required"]').inputValue(), "");
         assert.equal(await root.locator('[name="ocm_max_source_age_hours"]').inputValue(), "");

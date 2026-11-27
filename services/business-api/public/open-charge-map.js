@@ -63,6 +63,20 @@
     operatorQuery.maxLength = 120;
     operatorRow.append(text('span', 'Reported operator contains (optional, unverified)',
         'اسم المشغل حسب التقرير يحتوي على (اختياري، غير مؤكد)'), operatorQuery);
+    const addressRow = document.createElement('label');
+    const addressQuery = document.createElement('input');
+    addressQuery.name = 'ocm_address_contains';
+    addressQuery.type = 'text';
+    addressQuery.maxLength = 150;
+    addressRow.append(text('span', 'Reported address or city contains (optional)',
+        'العنوان أو المدينة حسب التقرير (اختياري)'), addressQuery);
+    const accessRow = document.createElement('label');
+    const accessQuery = document.createElement('input');
+    accessQuery.name = 'ocm_access_contains';
+    accessQuery.type = 'text';
+    accessQuery.maxLength = 120;
+    accessRow.append(text('span', 'Reported access contains (optional, unverified)',
+        'الوصول حسب التقرير يحتوي على (اختياري، غير مؤكد)'), accessQuery);
     const reportedStatusRow = document.createElement('label');
     const reportedStatusFilter = document.createElement('select');
     reportedStatusFilter.name = 'ocm_reported_operational';
@@ -91,7 +105,7 @@
     }
     membershipRow.append(text('span', 'Crowd-reported membership requirement',
         'اشتراط العضوية المبلغ عنه'), membershipFilter);
-    form.append(operatorRow, reportedStatusRow, membershipRow);
+    form.append(operatorRow, addressRow, accessRow, reportedStatusRow, membershipRow);
     const ageRow = document.createElement('label');
     const maxSourceAge = document.createElement('input');
     maxSourceAge.name = 'ocm_max_source_age_hours';
@@ -284,6 +298,8 @@
         minimumPower.value = '';
         connector.value = '';
         operatorQuery.value = '';
+        addressQuery.value = '';
+        accessQuery.value = '';
         reportedStatusFilter.value = '';
         membershipFilter.value = '';
         maxSourceAge.value = '';
@@ -336,6 +352,8 @@
                     ...(minPower !== null ? {min_reported_power_kw:minPower} : {}),
                     ...(connector.value.trim() ? {reported_connector:connector.value.trim()} : {}),
                     ...(operatorQuery.value.trim() ? {operator_contains:operatorQuery.value.trim()} : {}),
+                    ...(addressQuery.value.trim() ? {address_contains:addressQuery.value.trim()} : {}),
+                    ...(accessQuery.value.trim() ? {access_contains:accessQuery.value.trim()} : {}),
                     ...(membershipFilter.value ? {reported_membership_required:membershipFilter.value === 'true'} : {}),
                     ...(reportedStatusFilter.value ? {reported_operational:reportedStatusFilter.value === 'true'} : {}),
                     ...(maxAge !== null ? {max_source_age_hours:maxAge} : {})}),
