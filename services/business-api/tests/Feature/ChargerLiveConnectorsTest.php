@@ -396,6 +396,36 @@ class ChargerLiveConnectorsTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains($request['query'], 'mutation'));
     }
 
+    #[DataProvider('directReviewProtocols')]
+    public function test_direct_review_rejects_changed_local_inventory_before_and_after_source_review(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol);
+        $connectors = VendorConnector::where('charger_id', $f['charger']->id)->orderBy('id')->get();
+        $path = str_replace('/live-connectors', '/direct-connector-reviews', $f['url']);
+        $body = ['connector_id' => $connectors[0]->id, 'source_evse_number' => $protocol === '1.6' ? 0 : 1,
+            'source_connector_number' => 1];
+        $this->source($f, 'local_connector_changed_during_read');
+        $this->actingAs($f['owner'])->postJson($path, $body)->assertConflict();
+        $this->assertDatabaseCount('direct_connector_review_receipts', 0);
+        $connectors[0]->fresh()->update(['max_power_kw' => 50]);
+        $this->source($f);
+        $this->postJson($path, $body)->assertCreated();
+        $this->postJson($path, array_replace($body, ['connector_id' => $connectors[1]->id,
+            'source_connector_number' => 2]))->assertCreated();
+        $this->getJson($f['url'])->assertOk()
+            ->assertJsonPath('review_coverage.state', 'all_identities_reviewed')
+            ->assertJsonMissingPath('internal_registration_fingerprint');
+        $connectors[0]->fresh()->update(['max_power_kw' => 75]);
+        $this->getJson($path.'?connector_id='.$connectors[0]->id)->assertOk()
+            ->assertJsonPath('data.0.current_registration_matches', false)
+            ->assertJsonMissingPath('data.0.connector_fingerprint');
+        $this->getJson($f['url'])->assertOk()->assertJsonPath('review_coverage.state', 'requires_review');
+        $this->postJson($path, $body)->assertConflict();
+        $this->assertDatabaseCount('direct_connector_review_receipts', 2);
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public static function directSourceCases(): array
     {
         $cases = [];
@@ -515,6 +545,10 @@ class ChargerLiveConnectorsTest extends TestCase
             }
             if ($case === 'revoke_during_read') {
                 DB::table('users')->where('id', $fixture['owner']->id)->increment('auth_epoch');
+            }
+            if ($case === 'local_connector_changed_during_read') {
+                $connector = VendorConnector::where('charger_id', $fixture['charger']->id)->orderBy('id')->firstOrFail();
+                $connector->update(['max_power_kw' => 75]);
             }
             if ($case === 'model_changed_during_read') {
                 DB::table('vendor_chargers')->where('id', $fixture['charger']->id)
