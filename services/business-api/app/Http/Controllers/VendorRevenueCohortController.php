@@ -87,6 +87,14 @@ final class VendorRevenueCohortController extends Controller
         if ($sqlite) {
             $journalValid .= " AND typeof(j.amount_minor) = 'integer'";
         }
+        // A balanced orphan journal is still inconsistent, not an absent
+        // transaction. Each non-issuance journal requires exactly one receipt
+        // of the corresponding kind within the same report cutoff.
+        $receiptCutoffs = [];
+        foreach (['payment' => 'finance_payments', 'refund' => 'finance_refunds', 'unpaid_credit' => 'finance_unpaid_credits'] as $kind => $table) {
+            $journalValid .= " AND (j.kind <> '{$kind}' OR (SELECT COUNT(*) FROM {$table} AS receipt WHERE receipt.journal_id = j.id AND receipt.invoice_id = j.invoice_id AND receipt.created_at <= ?) = 1)";
+            $receiptCutoffs[] = $cutoff;
+        }
         $journals = DB::table('finance_journals as j')
             ->join('finance_invoices as i', 'i.id', '=', 'j.invoice_id')
             ->leftJoinSub($entries, 'e', 'e.journal_id', '=', 'j.id')
@@ -95,7 +103,7 @@ final class VendorRevenueCohortController extends Controller
             ->groupBy('j.invoice_id')
             ->select('j.invoice_id')
             ->selectRaw("COUNT(CASE WHEN j.kind = 'invoice' THEN 1 END) AS issuance_count")
-            ->selectRaw("MIN(CASE WHEN {$journalValid} THEN 1 ELSE 0 END) AS source_valid");
+            ->selectRaw("MIN(CASE WHEN {$journalValid} THEN 1 ELSE 0 END) AS source_valid", $receiptCutoffs);
 
         $posting = function (string $table, string $kind) use ($cohortIds, $cutoff, $max, $sqlite) {
             $query = DB::table($table.' as p')
@@ -107,6 +115,10 @@ final class VendorRevenueCohortController extends Controller
             if ($sqlite) {
                 $condition .= " AND typeof(p.amount_minor) = 'integer' AND typeof(j.amount_minor) = 'integer'";
             }
+            // This report contract is explicitly simulator-only. Do not
+            // silently omit or mislabel a different source in a selected cohort.
+            $evidence = $kind === 'unpaid_credit' ? 'SIMULATED_NONCASH' : 'SIMULATED';
+            $condition .= " AND p.evidence = '{$evidence}'";
             if ($kind !== 'payment') {
                 $condition .= ' AND p.tax_minor BETWEEN 0 AND i.tax_minor AND p.commission_minor BETWEEN 0 AND i.commission_minor AND p.vendor_minor BETWEEN 0 AND i.vendor_minor AND p.tax_minor + p.commission_minor + p.vendor_minor = p.amount_minor';
                 if ($sqlite) {
@@ -129,7 +141,7 @@ final class VendorRevenueCohortController extends Controller
         $payments = $posting('finance_payments', 'payment');
         $refunds = $posting('finance_refunds', 'refund');
         $credits = $posting('finance_unpaid_credits', 'unpaid_credit');
-        $invoiceValid = "i.minor_units = {$minorUnits} AND i.total_minor BETWEEN 0 AND {$max} AND i.vendor_minor BETWEEN 0 AND i.total_minor AND i.commission_minor BETWEEN 0 AND i.total_minor AND i.tax_minor BETWEEN 0 AND i.total_minor AND i.vendor_minor + i.commission_minor + i.tax_minor = i.total_minor";
+        $invoiceValid = "i.evidence = 'SIMULATED' AND i.minor_units = {$minorUnits} AND i.total_minor BETWEEN 0 AND {$max} AND i.vendor_minor BETWEEN 0 AND i.total_minor AND i.commission_minor BETWEEN 0 AND i.total_minor AND i.tax_minor BETWEEN 0 AND i.total_minor AND i.vendor_minor + i.commission_minor + i.tax_minor = i.total_minor";
         if ($sqlite) {
             $invoiceValid .= " AND typeof(i.minor_units) = 'integer' AND typeof(i.total_minor) = 'integer' AND typeof(i.vendor_minor) = 'integer' AND typeof(i.commission_minor) = 'integer' AND typeof(i.tax_minor) = 'integer'";
         }
