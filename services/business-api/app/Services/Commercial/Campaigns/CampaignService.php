@@ -204,6 +204,14 @@ class CampaignService
                 abort_unless($this->eligible($c, $v['kind'] === 'click') && $v['country'] === $c->country && $v['placement'] === $c->placement && ($c->region === null || $c->region === ($v['region'] ?? null)), 409, 'Campaign is not eligible for this delivery context.');
                 $occurred = CarbonImmutable::parse($v['occurred_at']);
                 abort_unless($occurred->gte(CarbonImmutable::parse($c->starts_at)) && $occurred->gte(CarbonImmutable::parse($c->created_at)) && $occurred->lt(CarbonImmutable::parse($c->ends_at)) && $occurred->betweenIncluded(now()->subMinutes(5), now()->addMinute()), 422, 'Delivery occurrence is outside the allowed interval.');
+                // A fresh delivery must belong to the current approved window,
+                // not an earlier draft, pause or suspension. Exact replays
+                // return above and never allocate a second delivery unit.
+                $activation = DB::table('commercial_campaign_events')->where('campaign_id', $c->id)
+                    ->orderByDesc('id')->first();
+                abort_unless($activation && in_array($activation->action, ['approve', 'resume', 'reinstate'], true)
+                    && $occurred->gte(CarbonImmutable::parse($activation->created_at)), 409,
+                    'Publisher event predates the current approved campaign window.');
                 $parent = null;
                 if ($v['kind'] === 'click') {
                     $parent = DB::table('commercial_campaign_deliveries')->where('event_id', $v['parent_event_id'] ?? '')->where('campaign_id', $c->id)->where('kind', 'delivery')->first();

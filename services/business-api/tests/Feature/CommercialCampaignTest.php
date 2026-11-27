@@ -42,13 +42,43 @@ class CommercialCampaignTest extends TestCase
         return $c;
     }
 
-    private function delivery(int $campaign, string $event, string $kind = 'delivery', ?string $parent = null, bool $valid = true)
+    private function delivery(int $campaign, string $event, string $kind = 'delivery', ?string $parent = null, bool $valid = true, ?string $occurredAt = null)
     {
-        $body = ['campaign_id' => $campaign, 'event_id' => $event, 'kind' => $kind, 'parent_event_id' => $parent, 'country' => 'AE', 'placement' => 'discovery_banner', 'occurred_at' => now()->utc()->toIso8601String()];
+        $body = ['campaign_id' => $campaign, 'event_id' => $event, 'kind' => $kind, 'parent_event_id' => $parent, 'country' => 'AE', 'placement' => 'discovery_banner', 'occurred_at' => $occurredAt ?? now()->utc()->toIso8601String()];
         $raw = json_encode($body, JSON_THROW_ON_ERROR);
         $stamp = (string) time();
 
         return $this->call('POST', '/internal/commercial/campaign-deliveries', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTP_X_CAMPAIGN_TIMESTAMP' => $stamp, 'HTTP_X_CAMPAIGN_SIGNATURE' => hash_hmac('sha256', $stamp.'.'.$raw, $valid ? config('campaigns.delivery_secret') : 'invalid')], $raw);
+    }
+
+    public function test_fresh_publisher_events_cannot_predate_current_approved_window(): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture();
+        $cash = DB::table('commercial_subscription_ledger')->count();
+        $c = $this->create($f);
+        $path = '/campaign-test/commercial/campaigns/'.$c['id'];
+        $this->postJson($path.'/submit', ['reason' => 'Review requested'])->assertOk();
+        $this->travel(2)->seconds();
+        $beforeApproval = now()->utc()->toIso8601String();
+        $this->travel(2)->seconds();
+        $this->actingAs($f['admin'])->postJson($path.'/approve', ['reason' => 'Approved'])->assertOk();
+        $this->delivery($c['id'], 'before-approval', occurredAt: $beforeApproval)->assertConflict();
+        $first = now()->utc()->toIso8601String();
+        $this->delivery($c['id'], 'approved-window', occurredAt: $first)->assertOk();
+        $this->travel(2)->seconds();
+        $this->actingAs($f['vendor'])->postJson($path.'/pause', ['reason' => 'Pause'])->assertOk();
+        $this->travel(2)->seconds();
+        $paused = now()->utc()->toIso8601String();
+        $this->travel(2)->seconds();
+        $this->postJson($path.'/resume', ['reason' => 'Resume'])->assertOk();
+        $this->delivery($c['id'], 'while-paused', occurredAt: $paused)->assertConflict();
+        $this->delivery($c['id'], 'approved-window', occurredAt: $first)
+            ->assertOk()->assertJsonPath('duplicate', true);
+        $this->delivery($c['id'], 'resumed-window')->assertOk();
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 2);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $cash);
+        $this->assertDatabaseCount('finance_payments', 0);
     }
 
     public function test_paid_package_campaign_review_delivery_and_governance_preserve_cash_journals(): void
