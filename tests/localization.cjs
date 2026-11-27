@@ -43,6 +43,10 @@ const fs = require("node:fs"),
     const expressions = [
       /\bui\(\s*["'][a-z]+["']\s*,\s*["']([^"']+)["']/g,
       /\bbutton\([^,]+,\s*["']([^"']+)["']/g,
+      // A literal complete translation lookup can also appear inside a native
+      // browser confirm dialog rather than a rendered element. Exclude
+      // concatenated state/action prefixes, which are dynamic resource keys.
+      /\bEvLocale\.text\(\s*["']([^"']+)["']\s*[,)]/g,
     ];
     for (const expression of expressions)
       for (const match of source.matchAll(expression))
@@ -92,6 +96,56 @@ const fs = require("node:fs"),
     );
     await page.goto(base);
     await page.locator("#stations h3").waitFor();
+    // Contrast is checked against computed styles on the real rendered page,
+    // not just the palette constants. Pending reads must not dim live status.
+    for (const theme of ["light", "dark"]) {
+      await page.locator("#theme-choice").selectOption(theme);
+      for (const language of ["en", "ar"]) {
+        await page.evaluate((language) => window.EvLocale.set(language), language);
+        const result = await page.evaluate(() => {
+          function luminance(color) {
+            const values = color.match(/[\d.]+/g).slice(0, 3).map(Number);
+            return values.map((n) => n / 255).map((n) =>
+              n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4
+            ).reduce((sum, n, i) => sum + n * [0.2126, 0.7152, 0.0722][i], 0);
+          }
+          function contrast(a, b) {
+            const x = luminance(a), y = luminance(b);
+            return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+          }
+          const input = document.querySelector("#account input[name=email]");
+          const control = getComputedStyle(input);
+          const section = getComputedStyle(document.querySelector("#identity"));
+          const body = getComputedStyle(document.body);
+          const fixture = document.createElement("section");
+          fixture.setAttribute("aria-busy", "true");
+          const status = document.createElement("p");
+          status.setAttribute("role", "status");
+          status.textContent = "Synthetic pending read";
+          fixture.append(status);
+          document.querySelector("#workspace").append(fixture);
+          try {
+            return {
+              surfaceBorder: contrast(control.borderTopColor, section.backgroundColor),
+              pageBorder: contrast(control.borderTopColor, body.backgroundColor),
+              busyOpacity: Number(getComputedStyle(fixture).opacity),
+              busyTextContrast: contrast(getComputedStyle(status).color,
+                getComputedStyle(fixture).backgroundColor),
+              direction: document.documentElement.dir,
+            };
+          } finally {
+            fixture.remove();
+          }
+        });
+        assert(result.surfaceBorder >= 3, theme + "/" + language + " input boundary on surface");
+        assert(result.pageBorder >= 3, theme + "/" + language + " input boundary on page");
+        assert.equal(result.busyOpacity, 1, theme + "/" + language + " pending content opacity");
+        assert(result.busyTextContrast >= 4.5, theme + "/" + language + " pending status text");
+        assert.equal(result.direction, language === "ar" ? "rtl" : "ltr");
+      }
+    }
+    await page.evaluate(() => window.EvLocale.set("en"));
+    await page.locator("#theme-choice").selectOption("system");
     // A ticket subject/name is literal text, not a second translation template.
     // Also cover JS replacement metacharacters and translated status resources.
     const interpolation = async (lang) => page.evaluate((lang) => {
@@ -118,11 +172,33 @@ const fs = require("node:fs"),
       assert.equal(result.missing, result.expectedMissing);
     };
     await verifyInterpolation('en');
+    // Static privileged guidance must follow the selected language even when
+    // its authenticated section is hidden. No authorization or DOM structure changes.
+    const checkPrivacyCaptions = async (lang) => {
+      for (const id of ["account-privacy-title","operator-role-history-title","admin-accounts-title","admin-kyc-queue-title","admin-staff-permissions-title","admin-audit-trail-title","admin-privacy-title","admin-session-security-title"]) {
+        const title = page.locator('#' + id);
+        const paragraph = page.locator('#' + id + ' + p');
+        for (const node of [title, paragraph]) {
+          const expected = await node.getAttribute('data-' + lang);
+          assert.ok(expected, id);
+          assert.equal(await node.textContent(), expected, id);
+          if (lang === 'ar') assert.match(expected, /[ء-ي]/, id);
+        }
+        assert.equal(await page.locator('[aria-labelledby="' + id + '"]').count(), 1, id);
+      }
+    };
+    await checkPrivacyCaptions('en');
+
     await page.locator("#account input[name=name]").fill("Unchanged draft");
     await page.locator("#language").click();
     await page.waitForFunction(() => document.documentElement.lang === "ar");
     assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
     await verifyInterpolation('ar');
+    await checkPrivacyCaptions('ar');
+    const replaceGrant = "Replace the existing grant? The staff member loses access until accepting the new permissions.";
+    assert.equal(await page.evaluate(k => window.EvLocale.text(k), replaceGrant),
+      "هل تريد استبدال الصلاحيات الحالية؟ سيفقد الموظف إمكانية الوصول إلى أن يقبل الصلاحيات الجديدة.");
+
     assert.equal(
       await page.locator("#account input[name=name]").inputValue(),
       "Unchanged draft",
@@ -147,6 +223,54 @@ const fs = require("node:fs"),
     await page.reload();
     await page.locator("#stations h3").waitFor();
     assert.equal(await page.locator("html").getAttribute("lang"), "ar");
+    // Test the actual account keyboard path at narrow reflow widths, in
+    // both directions. A wrapping sticky header must not cover focused inputs.
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const language of ["en", "ar"]) {
+        await page.evaluate(language => {
+          window.EvLocale.set(language);
+          window.scrollTo(0, 0);
+        }, language);
+        const skip = page.locator(".skip-link");
+        await skip.focus();
+        assert.equal(await skip.evaluate(node => document.activeElement === node), true);
+        await page.keyboard.press("Enter");
+        assert.equal(await page.evaluate(() => document.activeElement.id), "workspace",
+          width + "/" + language + " skip link focuses the main landmark");
+        const input = page.locator("#account input[name=email]");
+        await input.focus();
+        const keyboard = await input.evaluate(node => {
+          node.scrollIntoView({block:"center", inline:"nearest"});
+          const rect = node.getBoundingClientRect();
+          const center = document.elementFromPoint(rect.left + rect.width / 2,
+            rect.top + rect.height / 2);
+          const style = getComputedStyle(node);
+          return {
+            focused: document.activeElement === node,
+            hit: center === node,
+            height: rect.height,
+            headerPosition: getComputedStyle(document.querySelector("header")).position,
+            outlineWidth: parseFloat(style.outlineWidth),
+            outlineStyle: style.outlineStyle,
+            direction: document.documentElement.dir,
+          };
+        });
+        assert.equal(keyboard.headerPosition, "static", "Narrow header stays in document flow");
+        assert(keyboard.focused && keyboard.hit, width + "/" + language + " focus unobscured");
+        assert(keyboard.height >= 44, width + "/" + language + " account target height");
+        assert(keyboard.outlineWidth >= 3 && keyboard.outlineStyle !== "none",
+          width + "/" + language + " visible keyboard focus");
+        assert.equal(keyboard.direction, language === "ar" ? "rtl" : "ltr");
+        const summary = page.locator("#account [data-second-factor-login] summary");
+        await summary.focus();
+        await page.keyboard.press("Enter");
+        assert.equal(await summary.evaluate(node => node.parentElement.open), true);
+        await page.keyboard.press("Enter");
+        assert.equal(await summary.evaluate(node => node.parentElement.open), false);
+      }
+    }
+    await page.evaluate(() => window.EvLocale.set("ar"));
     await page.setViewportSize({ width: 390, height: 844 });
     assert(
       await page.evaluate(

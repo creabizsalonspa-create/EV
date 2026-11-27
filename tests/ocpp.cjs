@@ -4,6 +4,7 @@ const { promisify } = require("node:util");
 const execFile = promisify(require("node:child_process").execFile);
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const { graph, poll } = require("./helpers/csms-local.cjs");
+const { SimulatedCharger } = require("./helpers/csms-local.cjs");
 async function businessAccount(role) {
   const client = await new BusinessClient().register(role);
   if (
@@ -328,6 +329,129 @@ async function protocol(version, profile, actors) {
     for (const p of pending.values()) p.reject(Error("Socket closed"));
   }
 }
+async function mixedProtocolReconnect() {
+  // Four independent local clients, no extra business accounts or remote
+  // commands. Keep both protocols active while one of each disconnects.
+  const clients = ["1.6", "2.0.1", "1.6", "2.0.1"].map(
+    (version) => new SimulatedCharger(version, "ev-test-load-" + version.replaceAll(".", "") + "-" + randomUUID().replaceAll("-", "").slice(0, 12)),
+  );
+  const lookup = async (client) => {
+    const data = await graph(
+      "query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol}}",
+      { name: client.name },
+    );
+    assert(Array.isArray(data.ChargingStations));
+    if (!data.ChargingStations.length) return null;
+    assert.equal(data.ChargingStations.length, 1);
+    const row = data.ChargingStations[0];
+    assert(Number.isInteger(row.id) && row.id > 0);
+    assert([client.version, "ocpp" + client.version].includes(row.protocol));
+    assert.equal(typeof row.isOnline, "boolean");
+    return row;
+  };
+  const history = async (id) => {
+    const data = await graph(
+      "query($id:Int!){StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$id}},order_by:{id:asc},limit:20){id evseId connectorId connectorStatus}}",
+      { id },
+    );
+    assert(Array.isArray(data.StatusNotifications));
+    return data.StatusNotifications;
+  };
+  const status = async (client, state) => {
+    assert.deepEqual(await client.status(state), {});
+  };
+  const prove = async (client, id, online) => poll(async () => {
+    const row = await lookup(client);
+    if (row) assert.equal(row.id, id, "Reconnect changed durable station identity");
+    return row?.isOnline === online ? row : null;
+  }, "Mixed protocol online state");
+  try {
+    // Enroll each unique fixture once, using the same short station identity
+    // shape as the passing protocol/session suite. Keep every socket open:
+    // the load test starts with all four durable stations active, not with
+    // simultaneous first-time database registration. Never retry a Boot RPC.
+    for (const c of clients) {
+      try {
+        await c.connect();
+        await c.boot();
+        await poll(async () => {
+          const row = await lookup(c);
+          return row?.isOnline === true ? row : null;
+        }, "Initial durable station registration");
+      } catch (error) {
+        throw Error("Mixed protocol initial enrollment (" + c.version + ", " + c.name + "): " + error.message);
+      }
+    }
+    const rows = await Promise.all(clients.map((c) => poll(async () => {
+      const row = await lookup(c);
+      return row?.isOnline === true ? row : null;
+    }, "Initial mixed protocol station")));
+    const ids = rows.map((row) => row.id);
+    assert.equal(new Set(ids).size, clients.length);
+    await Promise.all(clients.map((c) => status(c, "Available")));
+    const initial = await Promise.all(ids.map((id) => poll(async () => {
+      const list = await history(id);
+      return list.some((e) => e.connectorId === 1 && e.connectorStatus === "Available") ? list : null;
+    }, "Initial durable connector status")));
+    await Promise.all([status(clients[0], "Faulted"), status(clients[1], "Faulted")]);
+    const faults = await Promise.all(ids.slice(0, 2).map((id) => poll(async () => {
+      const list = await history(id);
+      return list.find((e) => e.connectorId === 1 && e.connectorStatus === "Faulted");
+    }, "Fault persisted before outage")));
+    await Promise.all(clients.slice(0, 2).map((c) => c.close()));
+    await Promise.all(clients.slice(0, 2).map((c, i) => prove(c, ids[i], false)));
+
+    // The unaffected clients must continue to serve correlated RPCs and
+    // retain their own source histories during the other devices' outage.
+    const live = clients.slice(2);
+    await Promise.all(live.map(async (c) => {
+      const heartbeat = await c.call("Heartbeat", {});
+      assert(Number.isFinite(Date.parse(heartbeat.currentTime)));
+      await status(c, "Unavailable");
+    }));
+    await Promise.all(live.map((c, i) => prove(c, ids[i + 2], true)));
+    // Re-admit each previously disconnected client while its unaffected
+    // peers remain connected; never retry an uncertain BootNotification.
+    for (const [i, c] of clients.slice(0, 2).entries()) {
+      try {
+        await c.reconnect();
+        await c.boot();
+        await prove(c, ids[i], true);
+      } catch (error) {
+        throw Error("Mixed protocol reconnect (" + c.version + ", " + c.name + "): " + error.message);
+      }
+    }
+    await Promise.all(clients.map((c) => status(c, "Available")));
+
+    await Promise.all(clients.map((c, i) => poll(async () => {
+      const list = await history(ids[i]);
+      const target = list.filter((e) => e.connectorId === 1 &&
+        (c.version === "1.6" || e.evseId === 1));
+      const boundary = i < 2 ? faults[i].id : initial[i].at(-1).id;
+      const expected = i < 2 ? "Faulted" : "Unavailable";
+      const intermediate = target.find((e) => e.connectorStatus === expected &&
+        (i < 2 ? e.id === boundary : e.id > boundary));
+      if (!intermediate || !target.some((e) => e.id > intermediate.id && e.connectorStatus === "Available")) return null;
+      assert(!target.some((e) => e.connectorStatus === (i < 2 ? "Unavailable" : "Faulted")));
+      assert(target.every((e, index) => Number.isInteger(e.id) &&
+        (index === 0 || e.id > target[index - 1].id)));
+      return true;
+    }, "Per-station durable outage/recovery isolation")));
+    assert(clients.every((c) => c.commands.length === 0));
+    console.log(JSON.stringify({
+      evidence: "SIMULATED_MIXED_PROTOCOL_RECONNECT",
+      concurrent_clients: clients.length,
+      reconnects: 2,
+      unaffected_clients: 2,
+      durable_identity_preserved: true,
+      remote_commands: 0,
+      physical_hardware_accepted: false,
+    }));
+  } finally {
+    await Promise.allSettled(clients.map((c) => c.close()));
+  }
+}
+
 (async () => {
   // Two bounded identity/firmware variants per protocol. Each uses a unique
   // generated local simulator station; no production CSMS or live hardware.
@@ -344,6 +468,7 @@ async function protocol(version, profile, actors) {
     };
     for (const profile of profiles) await protocol(version, profile, actors);
   }
+  await mixedProtocolReconnect();
 })().catch((e) => {
   console.error(e.message);
   process.exitCode = 1;

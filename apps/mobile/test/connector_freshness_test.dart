@@ -9,6 +9,27 @@ void main() {
   });
 
   final value = <String,dynamic>{'state':'recent','reported_status':'Available','evidence':'SIMULATED_SOURCE','physical_availability_verified':false,'max_age_seconds':300,'observed_at':'2026-11-14T05:00:00Z','checked_at':'2026-11-14T05:04:00Z','valid_until':'2026-11-14T05:05:00Z'};
+  test('source state and age must agree with the authoritative projection', () {
+    for (final change in <Map<String, dynamic>>[
+      {'max_age_seconds': 300.0},
+      {'max_age_seconds': '300'},
+      {'checked_at': value['valid_until']},
+      {'checked_at': '2026-11-14T05:06:00Z'},
+      {'state': 'stale', 'checked_at': value['valid_until']},
+    ]) {
+      final claim = {...value, ...change};
+      for (final elapsed in [Duration.zero, const Duration(minutes: 10)]) {
+        expect(connectorReportedState(claim, elapsed), 'unknown', reason: '$change');
+        expect(connectorFreshnessText(claim, elapsed, false), contains('Observed: unknown'));
+        expect(connectorFreshnessText(claim, elapsed, true), contains('وقت الرصد: غير معروف'));
+      }
+    }
+    final stale = {...value, 'state': 'stale', 'reported_status': null,
+      'checked_at': value['valid_until']};
+    expect(connectorReportedState(stale, Duration.zero), 'stale');
+    expect(connectorReportedState(value, const Duration(seconds: 60)), 'stale');
+  });
+
   test('source freshness expires inclusively using monotonic elapsed time', () {
     expect(connectorReportedState(value,const Duration(milliseconds:59999)),'Available');
     expect(connectorReportedState(value,const Duration(seconds:60)),'stale');
