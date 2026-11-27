@@ -67,7 +67,7 @@
         if (!zone || typeof value !== "string") return null;
         // Laravel may serialize its UTC timestamp with a space and no suffix.
         // An explicit offset must never be interpreted in the device timezone.
-        const utc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
+        const utc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/.test(value)
             ? value.replace(" ", "T") + "Z" : value;
         // Date.parse silently rolls over impossible calendar dates on some
         // platforms (e.g., February 30 becomes March 2). Never fabricate a
@@ -96,9 +96,33 @@
         }
         const instant = new Date(utc);
         if (Number.isNaN(instant.getTime())) return null;
-        return new Intl.DateTimeFormat(language === "ar" ? "ar" : "en-GB", {
+        const label = new Intl.DateTimeFormat(language === "ar" ? "ar" : "en-GB", {
             timeZone: zone, dateStyle: "medium", timeStyle: "short", hourCycle: "h23",
         }).format(instant) + " (" + zone + ")";
+        if (zone === "UTC") return label;
+        // The two occurrences of a repeated DST wall clock must not have the
+        // same visible label. Obtain the offset at the actual source instant,
+        // not the current offset or the device timezone. Isolate it in RTL.
+        const offsetLabel = new Intl.DateTimeFormat("en-GB", {
+            timeZone: zone, timeZoneName: "longOffset",
+        }).formatToParts(instant).find(part => part.type === "timeZoneName")?.value;
+        const utcOffset = offsetLabel === "GMT" ? "UTC+00:00"
+            : /^GMT[+-]\d{2}:\d{2}(?::\d{2})?$/.test(offsetLabel || "")
+                ? offsetLabel.replace("GMT", "UTC") : null;
+        return utcOffset ? label + " · \u2068" + utcOffset + "\u2069" : null;
     }
-    window.EvStationTime = Object.freeze({ validZone, toUtc, displayStationTime });
+    function serverEventTime(value, language = "en") {
+        const display = typeof value === "string" && value === value.trim()
+            ? displayStationTime(value, "UTC", language) : null;
+        return display || (language === "ar" ? "وقت الحدث غير متاح" : "Event time unavailable");
+    }
+    // Bind both presentations so the existing locale engine updates a mounted
+    // receipt without a fresh request or exposing a raw source timestamp.
+    function bindServerEventTime(node, value) {
+        node.dataset.en = serverEventTime(value, "en");
+        node.dataset.ar = serverEventTime(value, "ar");
+        node.textContent = document.documentElement.lang === "ar" ? node.dataset.ar : node.dataset.en;
+        return node;
+    }
+    window.EvStationTime = Object.freeze({ validZone, toUtc, displayStationTime, serverEventTime, bindServerEventTime });
 })();
