@@ -311,6 +311,41 @@ class ChargerLiveConnectorsTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    #[DataProvider('directReviewProtocols')]
+    public function test_registration_epoch_reconciliation_rejects_corrupted_owned_lineage_without_network(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol);
+        config(['csms.registered_source_authority_epoch' => 2]);
+        app(DirectSourceAuthority::class)->provision('test-rotation');
+        Http::fake();
+        $command = ['registration' => (string) $f['receipt'],
+            '--receipt' => $f['receipt_hash'], '--ticket' => 'TEST-RECONCILIATION'];
+        $this->actingAs($f['owner'])->getJson($f['url'])->assertConflict();
+
+        $f['charger']->update(['model' => 'Unreviewed model']);
+        $this->artisan('csms:reconcile-direct-registration', $command)->assertFailed();
+        $f['charger']->update(['model' => 'Fixture']);
+
+        $originalOwner = $f['station']->vendor_id;
+        $f['station']->update(['vendor_id' => User::factory()->create(['role' => 'vendor'])->id]);
+        $this->artisan('csms:reconcile-direct-registration', $command)->assertFailed();
+        $f['station']->update(['vendor_id' => $originalOwner]);
+
+        $forged = str_repeat('a', 64);
+        DB::table('charger_source_registrations')->where('id', $f['receipt'])
+            ->update(['source_receipt_hash' => $forged]);
+        $this->artisan('csms:reconcile-direct-registration', array_replace($command, ['--receipt' => $forged]))->assertFailed();
+        DB::table('charger_source_registrations')->where('id', $f['receipt'])
+            ->update(['source_receipt_hash' => $f['receipt_hash']]);
+
+        $this->assertDatabaseCount('direct_source_registration_epochs', 1);
+        $this->artisan('csms:reconcile-direct-registration', $command)->assertSuccessful();
+        $this->assertDatabaseCount('direct_source_registration_epochs', 2);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public static function directSourceCases(): array
     {
         $cases = [];
