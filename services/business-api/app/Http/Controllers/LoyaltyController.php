@@ -165,7 +165,33 @@ class LoyaltyController extends Controller
                 ->whereColumn('currency', 'reward.currency')->where('effective_from', '<=', $now)
                 ->orderByDesc('effective_from')->orderByDesc('id')->limit(1);
         }, '=', true);
-        if (! config('loyalty.enabled') || app()->environment('production') || $account['redemption_hold'] || $account['balance_points'] < 0) {
+        $activation = app(NoncashActivation::class);
+        $mode = $activation->mode();
+        if ($mode === 'sandbox') {
+            // Pre-activation rows are legacy sandbox evidence only. Reviewed
+            // coupons must never become sandbox commitments after a flag change.
+            $query->whereNotExists(fn ($e) => $e->selectRaw('1')
+                ->from('loyalty_coupon_activation_evidence as e')
+                ->whereColumn('e.coupon_id', 'coupon.id')
+                ->where('e.activation_mode', '!=', 'sandbox'));
+        } elseif ($mode === 'reviewed_manual') {
+            // Match the same immutable approval and terms required by claim().
+            $query->whereExists(fn ($e) => $e->selectRaw('1')
+                ->from('loyalty_coupon_activation_evidence as e')
+                ->whereColumn('e.coupon_id', 'coupon.id')
+                ->where('e.activation_mode', 'reviewed_manual')
+                ->where('e.approval_reference', config('loyalty.noncash.approval_reference'))
+                ->where('e.terms_sha256', config('loyalty.noncash.terms_sha256')));
+            if (DB::table('loyalty_awards')->where('user_id', $user)->exists()
+                || DB::table('loyalty_ledger')->where('user_id', $user)->where('points', '!=', 0)->exists()) {
+                $query->whereRaw('1 = 0');
+            }
+        } else {
+            $query->whereRaw('1 = 0');
+        }
+        // Claim reconciles refundable/expired point lots before checking debt.
+        // The read projection must not advertise a benefit against pending debt.
+        if ($account['redemption_hold'] || $account['balance_points'] < $account['pending_reconciliation_points']) {
             $query->whereRaw('1 = 0');
         }
 
@@ -217,14 +243,21 @@ class LoyaltyController extends Controller
     public function cancelCouponIntent(Request $r, LoyaltyService $service)
     {
         abort_unless($r->user()->role === 'customer', 403);
-        $v = $r->validate(['code' => ['required', 'string', 'regex:/^[A-Z0-9-]{12,40}$/D'], 'idempotency_key' => 'required|string|max:100']);
-        $result = $service->cancelCouponIntent($r->user()->id, $v['code'], $v['idempotency_key']);
+        $v = $r->validate([
+            'code' => ['required_without:coupon_id', 'prohibits:coupon_id', 'string', 'regex:/^[A-Z0-9-]{12,40}$/D'],
+            'coupon_id' => 'required_without:code|prohibits:code|integer|min:1',
+            'idempotency_key' => 'required|string|max:100',
+        ]);
+        $coupon = isset($v['coupon_id']) ? (int) $v['coupon_id'] : null;
+        $result = $service->cancelCouponIntent($r->user()->id, $v['code'] ?? null, $v['idempotency_key'], $coupon);
         $request = hash('sha256', 'coupon-claim:'.$r->user()->id.':'.$v['idempotency_key']);
+        $binding = $coupon === null ? hash('sha256', hash('sha256', $v['code']).':'.$request)
+            : hash('sha256', 'coupon-cancel-v1:'.$coupon.':'.$request);
 
         return response()->json(['state' => $result['state'],
-            'request_binding' => hash('sha256', hash('sha256', $v['code']).':'.$request),
+            'request_binding' => $binding,
             'claim' => $result['claim'] ? $this->couponReceipt($result['claim']) : null,
-        ])->header('Cache-Control', 'private, no-store');
+        ] + ($coupon === null ? [] : ['coupon_id' => $coupon]))->header('Cache-Control', 'private, no-store');
     }
 
     private function couponReceipt(object $row): array
@@ -372,11 +405,14 @@ class LoyaltyController extends Controller
         return DB::table('loyalty_redemptions')->when($r->user()->role !== 'admin', fn ($q) => $q->where('user_id', $r->user()->id))->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->safe($row));
     }
 
-    public function partnerRewardOffers(Request $r, PartnerRewardGovernance $governance)
+    public function partnerRewardOffers(Request $r, PartnerRewardGovernance $governance, LoyaltyService $service)
     {
-        abort_unless($r->user()->role === 'customer', 403);
+        abort_unless($r->user()->role === 'customer' && $r->user()->email_verified_at !== null, 403);
+        $values = $r->validate(['page' => 'sometimes|integer|between:1,100000']);
+        $user = (int) $r->user()->id;
 
-        return response()->json($governance->sandboxOffers())->header('Cache-Control', 'private, no-store');
+        return response()->json($governance->sandboxOffers($user, $service->account($user), (int) ($values['page'] ?? 1)))
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function claimPartnerReward(Request $r, int $review, LoyaltyService $service, PartnerRewardGovernance $governance)

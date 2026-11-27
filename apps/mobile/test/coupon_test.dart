@@ -36,6 +36,10 @@ class CouponApi extends loyalty.LoyaltyApi {
   bool expire = false;
   bool fulfilled = false;
   bool addMalformedOffer = false;
+  bool cancelAccepted = false;
+  bool wrongCancellationBinding = false;
+  bool cancellationTimeout = false;
+  int cancellationCalls = 0;
 
   Map<String, dynamic> get receipt => {
     'id': 19,
@@ -121,6 +125,25 @@ class CouponApi extends loyalty.LoyaltyApi {
       }
       claimKey = key;
       throw const ApiException(503, 'Uncertain response');
+    }
+    if (path.endsWith('/claim-intents/cancel')) {
+      expect(method, 'POST');
+      final listed = body!['coupon_id'] != null;
+      expect(body, listed
+          ? {'coupon_id': 7, 'idempotency_key': claimKey}
+          : {'code': 'PRIVATE-CODE-ABC', 'idempotency_key': claimKey});
+      cancellationCalls++;
+      if (cancellationTimeout) throw const ApiException(503, 'Uncertain cancellation');
+      final request = digest('coupon-claim:$owner:$claimKey');
+      return {
+        if (listed) 'coupon_id': 7,
+        'request_binding': wrongCancellationBinding
+            ? 'invalid'
+            : digest(listed ? 'coupon-cancel-v1:7:$request'
+                : "${digest('PRIVATE-CODE-ABC')}:$request"),
+        'state': cancelAccepted ? 'accepted' : 'cancelled',
+        'claim': cancelAccepted ? receipt : null,
+      };
     }
     if (path.endsWith('/claim-receipt')) {
       expect(method, 'POST');
@@ -270,6 +293,81 @@ void main() {
     expect(find.text('بانتظار التسليم'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('listed cancellation retains draft until bound server acknowledgement', (
+    tester,
+  ) async {
+    final api = CouponApi()..wrongCancellationBinding = true;
+    final store = CouponStore();
+    addTearDown(api.close);
+    await tester.pumpWidget(loyalty.app(api, couponStore: store));
+    await tester.pumpAndSettle();
+    await tap(tester, 'Coupons');
+    await tap(tester, 'Browse eligible coupons');
+    await tap(tester, 'Claim');
+    final key = store.rows.values.single['key'];
+    await tap(tester, 'Clear coupon draft');
+    expect(store.rows.values.single['key'], key);
+    expect(find.textContaining('Cancellation not confirmed'), findsOneWidget);
+    api.wrongCancellationBinding = false;
+    api.cancellationTimeout = true;
+    await tap(tester, 'Clear coupon draft');
+    expect(store.rows.values.single['key'], key);
+    api.cancellationTimeout = false;
+    await tap(tester, 'Clear coupon draft');
+    expect(store.rows, isEmpty);
+    expect(api.cancellationCalls, 3);
+    expect(find.text('Saved claim cancelled by the server.'), findsOneWidget);
+  });
+
+  testWidgets('listed cancellation returns an accepted claim rather than discarding it', (
+    tester,
+  ) async {
+    final api = CouponApi()..cancelAccepted = true;
+    final store = CouponStore();
+    addTearDown(api.close);
+    await tester.pumpWidget(loyalty.app(api, couponStore: store));
+    await tester.pumpAndSettle();
+    await tap(tester, 'Coupons');
+    await tap(tester, 'Browse eligible coupons');
+    await tap(tester, 'Claim');
+    await tap(tester, 'Clear coupon draft');
+    expect(store.rows, isEmpty);
+    expect(find.text('Pending fulfillment'), findsOneWidget);
+    expect(find.text('Synthetic coupon reward'), findsOneWidget);
+    expect(api.cancellationCalls, 1);
+  });
+
+  testWidgets('private draft can be cancelled with original code while claims are disabled', (
+    tester,
+  ) async {
+    final api = CouponApi();
+    final store = CouponStore();
+    addTearDown(api.close);
+    await tester.pumpWidget(loyalty.app(api, couponStore: store));
+    await tester.pumpAndSettle();
+    await tap(tester, 'Coupons');
+    await tester.enterText(find.byType(TextField), 'private-code-abc');
+    await tap(tester, 'Claim coupon');
+    final key = store.rows.values.single['key'];
+    await tester.pumpWidget(const SizedBox.shrink());
+    api.disableClaims = true;
+    await tester.pumpWidget(loyalty.app(api, couponStore: store));
+    await tester.pumpAndSettle();
+    await tap(tester, 'Coupons');
+    await tap(tester, 'Clear coupon draft');
+    expect(find.textContaining('Re-enter the original code'), findsOneWidget);
+    expect(api.cancellationCalls, 0);
+    expect(store.rows.values.single['key'], key);
+    await tester.enterText(find.byType(TextField), 'wrong-code-abc');
+    await tap(tester, 'Clear coupon draft');
+    expect(api.cancellationCalls, 0);
+    await tester.enterText(find.byType(TextField), 'private-code-abc');
+    await tap(tester, 'Clear coupon draft');
+    expect(api.cancellationCalls, 1);
+    expect(store.rows, isEmpty);
+    expect(find.text('Saved claim cancelled by the server.'), findsOneWidget);
+  });
+
   testWidgets('coupon session expiry clears discovery and invokes sign-in', (
     tester,
   ) async {
