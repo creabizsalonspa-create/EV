@@ -2638,10 +2638,11 @@ window.createVendorWorkspace = ({
         parent.querySelector("[data-configuration-reads]")?.remove();
         const pane = document.createElement("section");
         pane.dataset.sourceDiagnostics = "";
+        const direct = charger.source === "direct_unverified";
         parent.append(pane);
         pane.append(
-            ui("h3", "Source diagnostics"),
-            ui("p", "Source diagnostics disclaimer"),
+            ui("h3", direct ? "Registered direct source inspection" : "Source diagnostics"),
+            ui("p", direct ? "Registered source observations only; local mapping, physical availability and control are not verified." : "Source diagnostics disclaimer"),
         );
         button(pane, "Refresh", () =>
             diagnostics(company, charger, parent, epoch),
@@ -2656,7 +2657,7 @@ window.createVendorWorkspace = ({
             const live = document.createElement("section");
             live.dataset.liveConnectorSnapshot = "";
             pane.append(live);
-            live.append(ui("p", "Checking authenticated local connector source…"));
+            live.append(ui("p", direct ? "Checking registered direct source…" : "Checking authenticated local connector source…"));
             const current = () => valid(epoch) && actor() === liveViewer &&
                 !document.hidden && live.isConnected;
             // A former live observation is not a persisted permission or
@@ -2679,27 +2680,40 @@ window.createVendorWorkspace = ({
                 if (!result || result.company_id !== company.id ||
                     result.charger_id !== charger.id ||
                     result.protocol !== charger.ocpp_protocol ||
-                    result.evidence !== "SIMULATED_CSMS_SOURCE" ||
+                    result.evidence !== (direct ? "REGISTERED_DIRECT_SOURCE" : "SIMULATED_CSMS_SOURCE") ||
                     result.physical_availability_verified !== false ||
                     result.remote_control_authorized !== false ||
                     result.commands_sent !== false ||
                     result.source_identity_rechecked !== true ||
                     typeof result.source_topology_matches_local !== "boolean" ||
+                    (direct && (result.source_topology_matches_local !== false ||
+                        result.local_mapping_verified !== false ||
+                        typeof result.source_topology_complete !== "boolean" ||
+                        typeof result.source_online !== "boolean")) ||
                     !Array.isArray(result.connectors) ||
-                    result.connectors.length < 1 || result.connectors.length > 100) {
+                    (!direct && result.connectors.length < 1) || result.connectors.length > 100 ||
+                    (direct && result.source_topology_complete && result.connectors.length === 0)) {
                     throw Error("Unexpected live connector source contract.");
                 }
+                const targets = new Set();
                 for (const row of result.connectors) {
-                    if (!row || !Number.isSafeInteger(row.mapping_id) ||
-                        row.mapping_id <= 0 ||
+                    if (!row || (direct ? row.mapping_id !== null
+                        : (!Number.isSafeInteger(row.mapping_id) || row.mapping_id <= 0)) ||
                         !Number.isSafeInteger(row.source_evse_number) ||
                         !Number.isSafeInteger(row.source_connector_number) ||
                         row.source_connector_number <= 0 ||
-                        typeof row.operator_maintenance_blocked !== "boolean" ||
+                        (direct ? row.operator_maintenance_blocked !== null
+                            : typeof row.operator_maintenance_blocked !== "boolean") ||
+                        (direct && (row.source_connector_number > 100 ||
+                            (result.protocol === "1.6" ? row.source_evse_number !== 0 :
+                                row.source_evse_number < 1 || row.source_evse_number > 1000))) ||
                         !["recent", "stale", "unknown"].includes(row.state) ||
                         (row.state === "recent"
                             ? (!statuses.includes(row.reported_status) ||
-                                result.source_topology_matches_local !== true ||
+                                (direct ? (result.source_topology_complete !== true ||
+                                    (result.protocol === "1.6" ? row.reported_status === "Occupied" :
+                                        !["Available", "Occupied", "Reserved", "Unavailable", "Faulted"].includes(row.reported_status)))
+                                    : result.source_topology_matches_local !== true) ||
                                 result.source_online !== true ||
                                 typeof row.source_event_at !== "string")
                             : row.reported_status !== null) ||
@@ -2712,17 +2726,23 @@ window.createVendorWorkspace = ({
                         row.remote_control_authorized !== false) {
                         throw Error("Unexpected source connector shape.");
                     }
+                    const target = row.source_evse_number + ":" + row.source_connector_number;
+                    if (direct && targets.has(target)) throw Error("Duplicate direct connector target.");
+                    targets.add(target);
                 }
                 live.replaceChildren(
-                    ui("h4", "Local CSMS connector source snapshot"),
+                    ui("h4", direct ? "Registered direct source snapshot" : "Local CSMS connector source snapshot"),
                     ui("p", "No physical connector availability or command authorization is verified."),
-                    ui("p", result.source_topology_matches_local
-                        ? "Source connector targets match the local inventory"
-                        : "Source connector topology requires review"),
+                    ui("p", direct
+                        ? (result.source_topology_complete ? "Source topology reported; local mappings not verified"
+                            : "Source topology incomplete; live status unknown")
+                        : result.source_topology_matches_local
+                            ? "Source connector targets match the local inventory"
+                            : "Source connector topology requires review"),
                 );
                 for (const row of result.connectors) {
                     const card = document.createElement("article");
-                    card.append(raw("h5", `#${row.mapping_id} · ${row.source_evse_number}/${row.source_connector_number}`));
+                    card.append(raw("h5", direct ? `${row.source_evse_number}/${row.source_connector_number}` : `#${row.mapping_id} · ${row.source_evse_number}/${row.source_connector_number}`));
                     card.append(ui("p", row.state === "recent"
                         ? "Recent source status: {status}"
                         : row.state === "stale"
@@ -2736,10 +2756,11 @@ window.createVendorWorkspace = ({
                 }
             } catch (_) {
                 if (current()) live.replaceChildren(
-                    ui("p", "Local connector source unavailable; no control is authorized."),
+                    ui("p", direct ? "Registered source unavailable; no control is authorized." : "Local connector source unavailable; no control is authorized."),
                 );
             }
         });
+        if (direct) return; // No simulator-specific reads or mutation actions.
         button(pane, "Repair work orders", () =>
             repairOrders(company, charger, pane, epoch),
         );
