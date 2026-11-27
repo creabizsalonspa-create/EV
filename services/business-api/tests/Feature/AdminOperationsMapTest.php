@@ -130,7 +130,8 @@ class AdminOperationsMapTest extends TestCase
         $provider->update(['authorized' => false]);
         $this->getJson($url)->assertOk()->assertJsonPath('total', 0);
         $provider->update(['authorized' => true]);
-        $owner->update(['account_status' => 'suspended']);
+        DB::table('users')->where('id', $owner->id)->update(['account_status' => 'suspended']);
+        $this->assertSame('suspended', $owner->fresh()->account_status);
         $this->getJson($url)->assertOk()->assertJsonPath('total', 0);
     }
 
