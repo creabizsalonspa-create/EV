@@ -108,7 +108,7 @@ final class ChargerLiveConnectorsController extends Controller
     private function sourceStation(Closure $graph, object $binding, VendorCharger $charger): array
     {
         $rows = $graph(
-            'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}',
+            'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id tenantId ocppConnectionName isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}',
             ['name' => $binding->identifier]
         )['ChargingStations'] ?? null;
         abort_unless(is_array($rows) && array_is_list($rows) && count($rows) === 1 &&
@@ -125,6 +125,12 @@ final class ChargerLiveConnectorsController extends Controller
             'Current unique typed charger source is required.');
 
         $row = $rows[0];
+        if (isset($binding->registration_receipt)) {
+            abort_unless(($row['tenantId'] ?? null) === 1
+                && ($row['ocppConnectionName'] ?? null) === $binding->identifier
+                && $row['id'] === $binding->registration_receipt[2], 409,
+                'Source station does not match the registered tenant and identity.');
+        }
         $row['heartbeat'] = SourceStatusTime::parse($row['latestOcppMessageTimestamp']);
 
         return $row;
