@@ -11,8 +11,19 @@ for(const ar of [false,true]){
  });
  const read=page.getByRole('button',{name:ar?'قراءة لقطة الموصلات':'Read connector snapshot',exact:true});assert.equal(await page.evaluate(()=>reads.length),0);
  await page.locator('input').fill('7');await read.click();await page.locator('article').waitFor();assert.equal(await page.locator('img').count(),0);assert.match(await page.locator('article').textContent(),ar?/عطل/:/Faulted/);
- assert.deepEqual(await page.evaluate(()=>opened),[]);await page.getByRole('button',{name:ar?'فتح تشخيص المصدر':'Open source diagnostics',exact:true}).click();assert.deepEqual(await page.evaluate(()=>opened),[[7,9]]);
- await page.locator('input').fill('999');await page.getByRole('button',{name:ar?'التالي':'Next',exact:true}).click();await page.getByText(ar?'تقرير قديم؛ الحالة الحالية غير معروفة':'Stale report; current state unknown',{exact:true}).waitFor();assert.deepEqual(await page.evaluate(()=>reads),['charging-operations/connectors?page=1&station_id=7','charging-operations/connectors?page=2&station_id=7']);
+ const diagnostics=page.getByRole('button',{name:ar?'فتح تشخيص المصدر':'Open source diagnostics',exact:true});
+ const next=page.getByRole('button',{name:ar?'التالي':'Next',exact:true});
+ const oldDiagnostics=await diagnostics.elementHandle(), oldNext=await next.elementHandle();
+ assert.deepEqual(await page.evaluate(()=>opened),[]);await diagnostics.click();assert.deepEqual(await page.evaluate(()=>opened),[[7,9]]);
+ await page.locator('input').fill('999');await next.click();await page.getByText(ar?'تقرير قديم؛ الحالة الحالية غير معروفة':'Stale report; current state unknown',{exact:true}).waitFor();
+ for (const control of [oldDiagnostics, oldNext]) {
+  await control.evaluate(button=>{
+   if(button.isConnected)throw Error('Expected detached control');
+   button.click();
+  });
+ }
+ assert.deepEqual(await page.evaluate(()=>opened),[[7,9]]);
+ assert.deepEqual(await page.evaluate(()=>reads),['charging-operations/connectors?page=1&station_id=7','charging-operations/connectors?page=2&station_id=7']);
  // One explicit page action must deduplicate two rows on one charger and independently inspect a second charger.
  await page.evaluate(()=>{
   window.liveCalls=[];
