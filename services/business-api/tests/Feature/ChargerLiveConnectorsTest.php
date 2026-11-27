@@ -151,6 +151,21 @@ class ChargerLiveConnectorsTest extends TestCase
                     'errorCode' => 'NoError', 'timestamp' => now()->subMinute()->toISOString(),
                 ],
             ];
+            if ($case === 'evse_null') {
+                $events[1]['evseId'] = null;
+            }
+            if ($case === 'evse_missing') {
+                unset($events[1]['evseId']);
+            }
+            if ($case === 'evse_string') {
+                $events[1]['evseId'] = (string) $events[1]['evseId'];
+            }
+            if ($case === 'evse_wrong_protocol') {
+                $events[1]['evseId'] = $fixture['protocol'] === '1.6' ? 1 : 0;
+            }
+            if ($case === 'evse_negative') {
+                $events[1]['evseId'] = -1;
+            }
             if ($case === 'unknown_connector') {
                 $events[0]['connectorDatabaseId'] = 999;
             }
@@ -260,6 +275,32 @@ class ChargerLiveConnectorsTest extends TestCase
             $this->assertDatabaseCount('finance_invoices', 0);
             $this->assertDatabaseCount('charging_status_observations', 0);
         }
+    }
+
+    public function test_live_connector_projection_requires_protocol_exact_evse_identity(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            foreach (['evse_missing', 'evse_string', 'evse_wrong_protocol', 'evse_negative', 'evse_null'] as $case) {
+                $this->source($f, $case);
+                $response = $this->actingAs($f['owner'])->getJson($f['url']);
+                if ($protocol === '1.6' && $case === 'evse_null') {
+                    $response->assertOk()
+                        ->assertJsonPath('source_topology_matches_local', true)
+                        ->assertJsonPath('connectors.0.source_evse_number', 0)
+                        ->assertJsonPath('connectors.0.reported_status', 'Available')
+                        ->assertJsonPath('connectors.0.physical_available', false)
+                        ->assertJsonPath('commands_sent', false);
+                    Http::assertSentCount(3);
+                } else {
+                    $response->assertConflict()->assertDontSee('remote_control_authorized');
+                    Http::assertSentCount(2);
+                }
+            }
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
     }
 
     public function test_known_local_charging_graphql_compose_host_allows_authenticated_read_only_source(): void

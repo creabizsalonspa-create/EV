@@ -155,8 +155,10 @@ final class ChargerLiveConnectorsController extends Controller
                 is_int($event['connectorDatabaseId'] ?? null) &&
                 isset($known[$event['connectorDatabaseId']]) &&
                 is_int($event['connectorId'] ?? null) && $event['connectorId'] > 0 &&
-                ($binding->protocol === '1.6' || (is_int($event['evseId'] ?? null) &&
-                    $event['evseId'] > 0)) &&
+                array_key_exists('evseId', $event) &&
+                ($binding->protocol === '1.6'
+                    ? in_array($event['evseId'], [null, 0], true)
+                    : (is_int($event['evseId']) && $event['evseId'] > 0)) &&
                 in_array($event['connectorStatus'] ?? null, $statusValues, true) &&
                 (! isset($event['errorCode']) || (is_string($event['errorCode']) &&
                     strlen($event['errorCode']) <= 80)), 409, 'Malformed current connector source evidence.');
