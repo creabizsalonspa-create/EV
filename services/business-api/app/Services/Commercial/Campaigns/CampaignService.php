@@ -143,6 +143,12 @@ class CampaignService
             }
             if (in_array($action, ['submit', 'approve', 'resume', 'reinstate'], true)) {
                 $this->billing($row->invoice_id, $row->vendor_id, true);
+                // Approval and reactivation must still refer to the original
+                // vendor's station and country. Use the same lock order as
+                // publisher ingestion; restrictive decisions remain available.
+                abort_unless(DB::table('stations')->where('id', $row->station_id)
+                    ->where('vendor_id', $row->vendor_id)->where('country', $row->country)
+                    ->lockForUpdate()->first(), 409, 'Station ownership or country changed.');
                 abort_unless(CarbonImmutable::parse($row->ends_at)->isFuture(), 409, 'Campaign has expired.');
             }
             DB::table('commercial_campaigns')->where('id', $id)->update(['status' => $to, 'updated_at' => now()]);
