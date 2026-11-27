@@ -77,6 +77,10 @@ class ConnectorTopology
             abort_unless($map->station_id === $reservation->station_id && $evse->id === $reservation->charging_evse_id, 409, 'Reservation mapping changed.');
 
             if ($evse->binding_id === null) {
+                abort_unless($evse->mode === 'application' && $evse->source_evse_number === 0
+                    && $map->source_connector_number === null && $map->source_target_key === null, 409,
+                    'Unbound reservation target is not an application connector; reconcile before continuing.');
+
                 return null;
             }
             $binding = DB::table('csms_bindings')->where('id', $evse->binding_id)->when($lock, fn ($q) => $q->lockForUpdate())->first();

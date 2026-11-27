@@ -269,6 +269,56 @@ class ConnectorTopologyTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    #[DataProvider('protocols')]
+    public function test_detached_csms_mapping_cannot_be_reinterpreted_as_application_reservation(string $protocol): void
+    {
+        $f = $this->topology($protocol);
+        $body = $this->book($f, 0, 'detached-source');
+        $booking = $this->postJson('/api/reservations', $body)->assertCreated()->json();
+        $reservation = Reservation::findOrFail($booking['id']);
+        $topology = app(\App\Services\Charging\ConnectorTopology::class);
+        $evse = DB::table('charging_evses')->where('id', $f['evses'][0]['id']);
+        $this->assertSame($f['binding'], $topology->binding($reservation)->id);
+        $evse->update(['binding_id' => null]);
+        try {
+            $topology->binding($reservation);
+            $this->fail('A detached CSMS reservation was treated as application inventory.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->travelTo(CarbonImmutable::parse($body['starts_at'])->addMinute());
+        $this->postJson('/api/reservations/'.$booking['id'].'/csms-start')->assertConflict();
+        $this->postJson('/api/reservations/'.$booking['id'].'/simulate-start')->assertConflict();
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+        $evse->update(['binding_id' => $f['binding']]);
+        $this->assertSame($f['binding'], $topology->binding($reservation)->id);
+    }
+
+    public function test_unbound_application_reservation_requires_empty_source_metadata(): void
+    {
+        $f = $this->topology();
+        $booking = $this->postJson('/api/reservations', $this->book($f, 0, 'application-identity'))->assertCreated()->json();
+        $reservation = Reservation::findOrFail($booking['id']);
+        $topology = app(\App\Services\Charging\ConnectorTopology::class);
+        $map = DB::table('charging_connector_mappings')->where('id', $f['maps'][0]['id']);
+        $this->assertNull($topology->binding($reservation));
+        $map->update(['source_connector_number' => 7]);
+        try {
+            $topology->binding($reservation);
+            $this->fail('Application reservation retained unexpected source metadata.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $map->update(['source_connector_number' => null]);
+        $this->assertNull($topology->binding($reservation));
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_application_sessions_are_parallel_across_evses_but_unresolved_prior_slot_blocks_same_evse(): void
     {
         $f = $this->topology();
