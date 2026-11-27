@@ -404,8 +404,11 @@ class ChargerLiveConnectorsTest extends TestCase
         $path = str_replace('/live-connectors', '/direct-connector-reviews', $f['url']);
         $body = ['connector_id' => $connectors[0]->id, 'source_evse_number' => $protocol === '1.6' ? 0 : 1,
             'source_connector_number' => 1];
-        $this->source($f, 'local_connector_changed_during_read');
+        $this->source($f, 'local_connector_restored_during_read');
         $this->actingAs($f['owner'])->postJson($path, $body)->assertConflict();
+        $this->assertDatabaseCount('direct_connector_review_receipts', 0);
+        $this->source($f, 'local_connector_changed_during_read');
+        $this->postJson($path, $body)->assertConflict();
         $this->assertDatabaseCount('direct_connector_review_receipts', 0);
         $connectors[0]->fresh()->update(['max_power_kw' => 50]);
         $this->source($f);
@@ -419,6 +422,9 @@ class ChargerLiveConnectorsTest extends TestCase
         $this->getJson($path.'?connector_id='.$connectors[0]->id)->assertOk()
             ->assertJsonPath('data.0.current_registration_matches', false)
             ->assertJsonMissingPath('data.0.connector_fingerprint');
+        $this->getJson($f['url'])->assertOk()->assertJsonPath('review_coverage.state', 'requires_review');
+        $this->postJson($path, $body)->assertConflict();
+        $connectors[0]->fresh()->update(['max_power_kw' => 50]);
         $this->getJson($f['url'])->assertOk()->assertJsonPath('review_coverage.state', 'requires_review');
         $this->postJson($path, $body)->assertConflict();
         $this->assertDatabaseCount('direct_connector_review_receipts', 2);
@@ -546,9 +552,12 @@ class ChargerLiveConnectorsTest extends TestCase
             if ($case === 'revoke_during_read') {
                 DB::table('users')->where('id', $fixture['owner']->id)->increment('auth_epoch');
             }
-            if ($case === 'local_connector_changed_during_read') {
+            if (in_array($case, ['local_connector_changed_during_read', 'local_connector_restored_during_read'], true)) {
                 $connector = VendorConnector::where('charger_id', $fixture['charger']->id)->orderBy('id')->firstOrFail();
                 $connector->update(['max_power_kw' => 75]);
+                if ($case === 'local_connector_restored_during_read') {
+                    $connector->update(['max_power_kw' => 50]);
+                }
             }
             if ($case === 'model_changed_during_read') {
                 DB::table('vendor_chargers')->where('id', $fixture['charger']->id)
