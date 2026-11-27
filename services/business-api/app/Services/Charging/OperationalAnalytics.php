@@ -18,6 +18,17 @@ class OperationalAnalytics
         return $a + $b;
     }
 
+    private function sourceInteger(mixed $value): int
+    {
+        // Raw query results must not silently truncate damaged source meters
+        // or sequences (SQLite permits REAL values in integer-affinity columns).
+        abort_unless(is_int($value) || is_string($value), 409, 'Invalid accepted meter source.');
+        $number = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($number !== false && $number >= 0 && $number <= self::MAX, 409, 'Invalid accepted meter source.');
+
+        return $number;
+    }
+
     private function seconds(mixed $value): int
     {
         return CarbonImmutable::parse($value)->getTimestamp();
@@ -115,10 +126,12 @@ class OperationalAnalytics
             $previous = null;
             foreach ($source as $e) {
                 $time = $this->seconds($e->occurred_at);
+                $sequence = $this->sourceInteger($e->sequence);
+                $meter = $this->sourceInteger($e->meter_wh);
                 // A filtered or missing source sequence cannot establish a
                 // consecutive accepted meter interval. Do not bridge the gap.
-                if ($previous && $e->sequence === $previous[2] + 1 && $previous[0] >= $a && $time <= $z && $time > $previous[0] && $e->meter_wh >= $previous[1]) {
-                    $delta = (int) $e->meter_wh - $previous[1];
+                if ($previous && $sequence === $previous[2] + 1 && $previous[0] >= $a && $time <= $z && $time > $previous[0] && $meter >= $previous[1]) {
+                    $delta = $meter - $previous[1];
                     $duration = $time - $previous[0];
                     // Divide before scaling: a valid cumulative meter delta can
                     // overflow PHP's integer range when multiplied by 3600.
@@ -129,7 +142,7 @@ class OperationalAnalytics
                     $demand[$site][] = [$previous[0], $time, $evse->id, $watts];
                     $rows[$site]['maximum_session_interval_average_w'] = max($rows[$site]['maximum_session_interval_average_w'], $watts);
                 }
-                $previous = [$time, (int) $e->meter_wh, (int) $e->sequence];
+                $previous = [$time, $meter, $sequence];
             }
         }
         foreach ($intervals as $site => $groups) {
