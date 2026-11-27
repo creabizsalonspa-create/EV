@@ -79,6 +79,45 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         cache = new Map();
         reportQuery = {};
     }
+    // Match the native diagnostic: malformed totals must never be rendered
+    // as a reconciled invoice, but genuine signed audit findings remain visible.
+    function validateInvoiceAuditRow(item, currency, previousId) {
+        const issueCodes = new Set([
+            "invoice_component_mismatch", "invoice_journal_mismatch",
+            "payment_journal_mismatch", "refund_journal_mismatch",
+            "refund_component_mismatch", "refund_allocation_exceeded",
+            "unpaid_credit_journal_mismatch", "unpaid_credit_component_mismatch",
+            "invalid_journal_entry", "journal_accounts_mismatch", "journal_unbalanced",
+            "journal_currency_mismatch", "unexpected_journal_kind",
+            "unlinked_financial_journal", "collection_out_of_bounds",
+        ]);
+        const fields = ["invoiced_minor", "paid_minor", "refunded_minor",
+            "unpaid_credited_minor", "net_collected_minor", "amount_due_minor"];
+        const fail = () => { throw Error("Invalid internal audit source."); };
+        if (!item || !Number.isSafeInteger(item.invoice_id) || item.invoice_id < 1 ||
+            item.invoice_id >= previousId || item.currency !== currency ||
+            item.evidence !== "SIMULATED_CANONICAL_LEDGER" ||
+            item.external_psp_or_bank_verified !== false ||
+            typeof item.invoice_number !== "string" || !item.invoice_number.length ||
+            item.invoice_number.length > 255 ||
+            !Number.isInteger(item.minor_units) || item.minor_units < 0 || item.minor_units > 3 ||
+            !Number.isSafeInteger(item.journal_count) || item.journal_count < 0 || item.journal_count > 500 ||
+            !["reconciled", "attention_required"].includes(item.status) ||
+            !Array.isArray(item.issues) || !item.issues.every(issue => issueCodes.has(issue)) ||
+            new Set(item.issues).size !== item.issues.length ||
+            (item.status === "reconciled") !== (item.issues.length === 0) ||
+            !fields.every(field => Number.isSafeInteger(item[field]))) fail();
+        const issued = BigInt(item.invoiced_minor), paid = BigInt(item.paid_minor),
+            refunded = BigInt(item.refunded_minor), credited = BigInt(item.unpaid_credited_minor);
+        const due = issued - paid - credited;
+        if (BigInt(item.net_collected_minor) !== paid - refunded ||
+            BigInt(item.amount_due_minor) !== (due < 0n ? 0n : due) ||
+            (item.status === "reconciled" &&
+                (issued < 0n || paid < 0n || refunded < 0n || credited < 0n ||
+                    paid + credited > issued || refunded > paid || item.journal_count < 1))) fail();
+        return item;
+    }
+
     function money(amount, currency, digits = 2) {
         return `${currency} ${amount < 0 ? "−" : ""}${EvMoney.format(Math.abs(Number(amount)), Number(digits))}`;
     }
@@ -2244,18 +2283,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     const cards = [];
                     let previousId = Number.MAX_SAFE_INTEGER + 1;
                     for (const item of report.data) {
-                        if (!item || !Number.isSafeInteger(item.invoice_id) || item.invoice_id < 1 ||
-                            item.invoice_id >= previousId || item.currency !== currency ||
-                            item.evidence !== "SIMULATED_CANONICAL_LEDGER" ||
-                            item.external_psp_or_bank_verified !== false ||
-                            typeof item.invoice_number !== "string" ||
-                            !Number.isInteger(item.minor_units) || item.minor_units < 0 || item.minor_units > 3 ||
-                            !["reconciled", "attention_required"].includes(item.status) ||
-                            !Array.isArray(item.issues) || !item.issues.every(issue => typeof issue === "string") ||
-                            (item.status === "reconciled") !== (item.issues.length === 0) ||
-                            !["invoiced_minor", "paid_minor", "refunded_minor", "unpaid_credited_minor",
-                                "net_collected_minor", "amount_due_minor"].every(field => Number.isSafeInteger(item[field])))
-                            throw Error("Invalid internal audit source.");
+                        validateInvoiceAuditRow(item, currency, previousId);
                         previousId = item.invoice_id;
                         const row = document.createElement("article");
                         row.className = "finance-row";
@@ -2290,6 +2318,10 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     const link = translated("a", "Download integrity CSV", "تنزيل تقرير السلامة CSV");
                     link.href = "/api/finance/reconciliation-audit/export?" + query;
                     link.download = "simulated-finance-reconciliation-page.csv";
+                    link.onclick = event => {
+                        if (current !== epoch || request !== auditGeneration ||
+                            !link.isConnected || document.hidden) event.preventDefault();
+                    };
                     auditPane.append(link);
                 }
                 button(detail, "Inspect accessible ledger integrity", "فحص سلامة السجل المالي المتاح",

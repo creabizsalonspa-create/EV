@@ -4,7 +4,44 @@ const { execFileSync } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
 const fs = require("node:fs");
 const assert = require("node:assert/strict");
+function verifyInvoiceAuditParser() {
+  const source = fs.readFileSync("services/business-api/public/commercial.js", "utf8");
+  const start = source.indexOf("    function validateInvoiceAuditRow(");
+  const end = source.indexOf("    function money(", start);
+  assert(start >= 0 && end > start);
+  const validate = new Function(source.slice(start, end) + "\nreturn validateInvoiceAuditRow;")();
+  const good = {
+    invoice_id: 1, currency: "AED", evidence: "SIMULATED_CANONICAL_LEDGER",
+    external_psp_or_bank_verified: false, invoice_number: "INV-1", minor_units: 2,
+    status: "reconciled", issues: [], journal_count: 2, invoiced_minor: 100,
+    paid_minor: 100, refunded_minor: 0, unpaid_credited_minor: 0,
+    net_collected_minor: 100, amount_due_minor: 0,
+  };
+  const run = patch => validate({...good, ...patch}, "AED", 2);
+  assert.equal(run({}).status, "reconciled");
+  assert.equal(run({status: "attention_required", issues: ["collection_out_of_bounds"],
+    paid_minor: -5, net_collected_minor: -5, amount_due_minor: 105}).paid_minor, -5);
+  assert.equal(run({paid_minor: 0, unpaid_credited_minor: 100, net_collected_minor: 0}).status, "reconciled");
+  const bad = [
+    {paid_minor: 200, net_collected_minor: 200}, {net_collected_minor: 2},
+    {amount_due_minor: -1}, {journal_count: 0}, {journal_count: 501},
+    {status: "attention_required", issues: ["BANK_VERIFIED"]},
+    {status: "attention_required", issues: ["journal_unbalanced", "journal_unbalanced"]},
+    {invoice_number: ""}, {invoice_number: "x".repeat(256)},
+    {invoice_id: 2}, {minor_units: 4}, {currency: "USD"},
+    {external_psp_or_bank_verified: true}, {paid_minor: 1.5},
+    {paid_minor: Number.MAX_SAFE_INTEGER, refunded_minor: -Number.MAX_SAFE_INTEGER,
+      net_collected_minor: Number.MAX_SAFE_INTEGER, status: "attention_required",
+      issues: ["collection_out_of_bounds"]},
+    {refunded_minor: 101, net_collected_minor: -1},
+    {unpaid_credited_minor: 1}, {status: "attention_required", issues: []},
+  ];
+  for (const patch of bad) assert.throws(() => run(patch), /Invalid internal audit source/);
+  console.log("PASS invoice audit parser: 3 valid and " + bad.length + " rejected source cases");
+}
+
 (async () => {
+  verifyInvoiceAuditParser();
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
   const run = randomBytes(4).toString("hex"),
