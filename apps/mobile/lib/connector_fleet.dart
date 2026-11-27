@@ -253,6 +253,10 @@ class _ConnectorFleetState extends State<ConnectorFleetView>
           !seen.add('${row['source_evse_number']}:${row['source_connector_number']}') ||
           !['recent', 'stale', 'unknown'].contains(row['state']) ||
           row['physical_available'] != false || row['remote_control_authorized'] != false ||
+          (row['error_code'] != null &&
+              (row['error_code'] is! String || (row['error_code'] as String).length > 80 ||
+                (!['', 'NoError'].contains(row['error_code']) && row['reported_status'] != 'Faulted'))) ||
+          (row['state'] != 'recent' && row['error_code'] != null) ||
           (row['state'] == 'recent'
             ? (reply['source_online'] != true || reply['source_topology_complete'] != true ||
                 !statuses.contains(row['reported_status']) || !sourceTimestamp(row['source_event_at']))
