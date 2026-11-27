@@ -7,11 +7,9 @@ import 'test_support.dart';
 
 class ReviewApi extends FixtureApi {
   int reads = 0, writes = 0;
-  bool active = true, lost = false;
+  bool lost = false, expireRead = false;
   Map<String, dynamic>? stored;
   Completer<dynamic>? delayed;
-  @override
-  bool Function() sessionFence() => () => active;
 
   @override
   Future<dynamic> request(String path, {
@@ -23,6 +21,10 @@ class ReviewApi extends FixtureApi {
       reads++;
       expect(query, {'connector_id': '3'});
       if (delayed != null) return delayed!.future;
+      if (expireRead) {
+        await forgetSession();
+        throw ApiException(401, 'PRIVATE RESPONSE', expirationIsCurrent: sessionFence());
+      }
       return {'current_page': 1, 'last_page': 1,
         'total': stored == null ? 0 : 1, 'data': [if (stored != null) stored]};
     }
@@ -45,10 +47,10 @@ class ReviewApi extends FixtureApi {
   }
 }
 
-Widget view(ReviewApi api, {String protocol = '1.6', bool owner = true}) =>
+Widget view(ReviewApi api, {String protocol = '1.6', bool owner = true, VoidCallback? onExpired}) =>
     MaterialApp(home: DirectConnectorReviewView(
       api: api, companyId: 1, chargerId: 2, connectorId: 3,
-      protocol: protocol, canReview: owner, onExpired: () {},
+      protocol: protocol, canReview: owner, onExpired: onExpired ?? () {},
     ));
 
 void main() {
@@ -140,6 +142,57 @@ void main() {
       expect(api.writes, 0);
     });
   }
+
+  testWidgets('session change immediately retires displayed private review', (tester) async {
+    final api = ReviewApi()..stored = {
+      'id': 7, 'connector_id': 3,
+      'source_evse_number': 0, 'source_connector_number': 2,
+      'current_registration_matches': true, 'review_state': 'current',
+      'source_observed_at': '2026-11-28 12:00:00.000000',
+      'reviewed_at': '2026-11-28 12:01:00.000000',
+      'evidence': 'DIRECT_CONNECTOR_REVIEW_ONLY',
+      'charging_mapping_created': false, 'physical_availability_verified': false,
+      'remote_control_authorized': false,
+    };
+    await tester.pumpWidget(view(api));
+    await tester.tap(find.text('Read stored connector review'));
+    await tester.pumpAndSettle();
+    expect(find.text('#7 · 0/2'), findsOneWidget);
+    await api.forgetSession();
+    await tester.pumpAndSettle();
+    expect(find.text('#7 · 0/2'), findsNothing);
+    expect(find.text('Read stored connector review'), findsNothing);
+    await tester.pumpWidget(view(api, owner: false));
+    await tester.pumpAndSettle();
+    expect(find.text('Read stored connector review'), findsNothing);
+    expect(api.reads, 1);
+    expect(api.writes, 0);
+  });
+
+  testWidgets('expiration retires route and still notifies parent once', (tester) async {
+    final api = ReviewApi()..expireRead = true;
+    var expired = 0;
+    await tester.pumpWidget(view(api, onExpired: () => expired++));
+    await tester.tap(find.text('Read stored connector review'));
+    await tester.pumpAndSettle();
+    expect(expired, 1);
+    expect(find.text('Read stored connector review'), findsNothing);
+    expect(find.textContaining('PRIVATE RESPONSE'), findsNothing);
+    expect(api.writes, 0);
+  });
+
+  testWidgets('late response cannot reappear after credential transition', (tester) async {
+    final api = ReviewApi()..delayed = Completer<dynamic>();
+    await tester.pumpWidget(view(api));
+    await tester.tap(find.text('Read stored connector review'));
+    await tester.pump();
+    await api.forgetSession();
+    api.delayed!.complete({'current_page': 1, 'last_page': 1, 'total': 0, 'data': []});
+    await tester.pumpAndSettle();
+    expect(find.text('Read stored connector review'), findsNothing);
+    expect(find.text('No connector review recorded'), findsNothing);
+    expect(api.writes, 0);
+  });
 
   testWidgets('non-owner read is explicit and cannot write; background discards late receipt',
       (tester) async {
