@@ -346,9 +346,46 @@ class FinancialAnalyticsTest extends TestCase
         $f = $this->fixture();
         $subscriptions = app(SubscriptionService::class);
         $plan = $subscriptions->publish($f['maker'], ['code' => 'large-import', 'name' => 'Imported magnitude test', 'audience' => 'customer', 'currency' => 'AED', 'minor_units' => 2, 'price_minor' => 9007199254740992, 'tax_bps' => 0, 'interval' => 'month', 'entitlements' => '{}']);
-        $subscriptions->subscribe($f['customer'], $plan->id, 'large-import-enroll');
+        // New enrollment refuses this magnitude before creating an invoice.
+        try {
+            $subscriptions->subscribe($f['customer'], $plan->id, 'large-import-enroll');
+            $this->fail('An unsafe subscription invoice was issued.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->assertDatabaseCount('commercial_subscriptions', 0);
+        $this->assertDatabaseCount('commercial_subscription_invoices', 0);
+        $this->assertDatabaseCount('commercial_subscription_ledger', 0);
+
+        // Model an imported historical record directly, without updating
+        // any immutable row or weakening the new issuance guard.
+        $start = now()->subDay();
+        $end = $start->copy()->addMonthNoOverflow();
+        $id = DB::table('commercial_subscriptions')->insertGetId([
+            'user_id' => $f['customer']->id, 'plan_id' => $plan->id,
+            'status' => 'pending', 'cycle_number' => 0,
+            'cancel_at_period_end' => false, 'created_at' => $start, 'updated_at' => $start,
+        ]);
+        $invoice = DB::table('commercial_subscription_invoices')->insertGetId([
+            'number' => 'TEST-OVERSIZED-IMPORTED-SUBSCRIPTION',
+            'subscription_id' => $id, 'plan_id' => $plan->id, 'cycle_number' => 1,
+            'period_start' => $start, 'period_end' => $end,
+            'currency' => 'AED', 'minor_units' => 2,
+            'subtotal_minor' => 9007199254740992, 'tax_minor' => 0,
+            'total_minor' => 9007199254740992, 'entitlements' => '{}',
+            'evidence' => 'MOCK_PROVIDER', 'created_at' => $start,
+        ]);
+        DB::table('commercial_subscription_ledger')->insert([
+            ['invoice_id' => $invoice, 'kind' => 'invoice', 'account' => 'subscription_receivable',
+                'debit_minor' => 9007199254740992, 'credit_minor' => 0, 'created_at' => $start],
+            ['invoice_id' => $invoice, 'kind' => 'invoice', 'account' => 'subscription_revenue',
+                'debit_minor' => 0, 'credit_minor' => 9007199254740992, 'created_at' => $start],
+        ]);
         $this->actingAs($f['customer'])->getJson('/api/financial/analytics')->assertConflict();
+        $this->getJson('/api/financial/analytics/export')->assertConflict();
         $this->assertDatabaseCount('finance_payments', 1);
+        $this->assertDatabaseCount('commercial_subscription_invoices', 1);
+        $this->assertDatabaseCount('commercial_subscription_ledger', 2);
     }
 
     public function test_pdf_bound_includes_recurring_components_before_rendering(): void

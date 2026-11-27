@@ -62,6 +62,18 @@ void main() {
         api.request('$root/agreements/$a/statements'),
         throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
       );
+      // The same production-shape Laravel catalog that the native plan
+      // picker reads must identify the current customer's published plan.
+      final plans = await api.request('commercial/plans');
+      final available = (plans['data'] as List).firstWhere(
+        (p) => p['id'] == f['plan_id'],
+      ) as Map;
+      expect(available['audience'], 'customer');
+      expect(available['currency'], 'AED');
+      expect(available['minor_units'], 2);
+      expect(available['available'], true);
+      expect(available['entitlements']['priority'], true);
+
       final subscribed = await api.request(
         'commercial/subscriptions',
         method: 'POST',
@@ -72,8 +84,31 @@ void main() {
       );
       final summary = subscriptionSummary(subscribed, f['driver_id']);
       final id = summary['subscription']['id'];
+      expect(subscriptionOperationAcknowledged(summary, {
+        'plan_id': f['plan_id'],
+        'idempotency_key': 'native-enroll-${f['driver_id']}',
+      }, owner: f['driver_id'] as int, action: 'enroll'), true);
       expect(summary['entitlements_active'], false);
       expect((summary['invoices'] as List).single['total_minor'], 1050);
+      // A parsed financial snapshot cannot be retroactively relabelled
+      // by a mutable transport map after its original role/owner check.
+      (subscribed['subscription'] as Map)['user_id'] = -1;
+      (subscribed['invoices'] as List).single['total_minor'] = 1;
+      expect(summary['subscription']['user_id'], f['driver_id']);
+      expect((summary['invoices'] as List).single['total_minor'], 1050);
+      final owned = await api.request('commercial/subscriptions');
+      expect(
+        (owned['data'] as List).any((entry) =>
+            entry['id'] == id && entry['user_id'] == f['driver_id']),
+        true,
+      );
+      final persisted = subscriptionSummary(
+        await api.request('commercial/subscriptions/$id'),
+        f['driver_id'] as int,
+        id: id as int,
+      );
+      expect((persisted['invoices'] as List).single['total_minor'], 1050);
+      expect(persisted['entitlements_active'], false);
       final replay = await api.request(
         'commercial/subscriptions',
         method: 'POST',
@@ -83,6 +118,7 @@ void main() {
         },
       );
       expect(replay['subscription']['id'], id);
+      expect(replay['operation_receipt'], summary['operation_receipt']);
       // Synthetic mock payment is test setup, never a native production action.
       await api.request(
         'commercial/subscriptions/$id/mock-payment',
@@ -102,12 +138,29 @@ void main() {
         },
       );
       expect(changed['subscription']['cancel_at_period_end'], true);
+      expect(subscriptionOperationAcknowledged(
+        subscriptionSummary(changed, f['driver_id'] as int, id: id),
+        {'action': 'cancel_at_period_end', 'idempotency_key': 'native-cancel-$id'},
+        owner: f['driver_id'] as int, action: 'cancel_at_period_end',
+      ), true);
       final resumed = await api.request(
         'commercial/subscriptions/$id/change',
         method: 'POST',
         body: {'action': 'resume', 'idempotency_key': 'native-resume-$id'},
       );
       expect(resumed['subscription']['cancel_at_period_end'], false);
+      expect(subscriptionOperationAcknowledged(
+        subscriptionSummary(resumed, f['driver_id'] as int, id: id),
+        {'action': 'resume', 'idempotency_key': 'native-resume-$id'},
+        owner: f['driver_id'] as int, action: 'resume',
+      ), true);
+      final renewal = subscriptionSummary(await api.request(
+        'commercial/subscriptions/$id/renew', method: 'POST',
+        body: {'expected_cycle_number': resumed['subscription']['cycle_number']},
+      ), f['driver_id'] as int, id: id);
+      expect(renewal['subscription']['cycle_number'], resumed['subscription']['cycle_number']);
+      expect(renewal['invoices'], hasLength(1));
+      expect(renewal['real_payment_processed'], false);
       expect(
         (await api.request('commercial/subscriptions/$id/events'))['total'],
         greaterThanOrEqualTo(3),
