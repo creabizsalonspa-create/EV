@@ -174,7 +174,7 @@ class ChargerLiveConnectorsTest extends TestCase
         $request->setUserResolver(fn () => $snapshot);
         $token->delete();
         try {
-            app(\\App\\Http\\Controllers\\RegisteredChargerFleetController::class)($request);
+            app(RegisteredChargerFleetController::class)($request);
             $this->fail('Revoked bearer must not receive a private fleet list.');
         } catch (HttpException $error) {
             $this->assertSame(403, $error->getStatusCode());
