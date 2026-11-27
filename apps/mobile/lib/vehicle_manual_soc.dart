@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'vendor_forms.dart' show vendorDigits;
 import 'api.dart';
+import 'reservation_times.dart';
 
 /// Manual user estimate. Never battery data sourced from a phone, charger or
 /// vehicle API, and never a basis for automatic charging commands.
@@ -46,6 +47,12 @@ class _VehicleManualSocState extends State<VehicleManualSocView> with WidgetsBin
   bool loading=false,saving=false;
   String? error,success;
   String t(String en,String ar)=>Localizations.localeOf(context).languageCode=='ar'?ar:en;
+  String reportTime(dynamic value) {
+    final formatted=reservationTime(context, {'reported_at':value}, 'reported_at');
+    return formatted=='—'
+      ? t('Report time unavailable','وقت التقرير غير متاح')
+      : formatted;
+  }
   String get path=>'vehicles/'+widget.vehicleId.toString()+'/manual-soc';
 
   // An exact, source-qualified history row establishes that this user report
@@ -182,13 +189,17 @@ class _VehicleManualSocState extends State<VehicleManualSocView> with WidgetsBin
           success=confirmationMessage(confirmation);
         }
       });
-    }catch(e){failed(e,token,api);}
+    }catch(e){
+      if(current(token,api))setState((){latest=null;reports=[];page=lastPage=1;});
+      failed(e,token,api);
+    }
     finally{if(current(token,api))setState(()=>loading=false);}
   }
 
   Future<void> save() async {
     if(!active||saving||loading||latest==null)return;
     if(pending==null){
+      if(latest!['revision']>=2147483647)return;
       final value=int.tryParse(vendorDigits(percent.text.trim()));
       if(value==null||value<0||value>100){
         setState(()=>error=t('Enter a manual estimate from 0 to 100%.',
@@ -270,7 +281,7 @@ class _VehicleManualSocState extends State<VehicleManualSocView> with WidgetsBin
         Text(latest!['battery_percent']==null
           ? t('No report yet.','لا يوجد تقرير بعد.')
           : t('Latest estimate: ','آخر تقدير: ')+latest!['battery_percent'].toString()+
-              '% · '+(latest!['reported_at']??'').toString()),
+              '% · '+reportTime(latest!['reported_at'])),
         Text(t('Battery may have changed since the report.',
           'قد تكون حالة البطارية تغيرت منذ التقرير.')),
         TextFormField(
@@ -282,7 +293,7 @@ class _VehicleManualSocState extends State<VehicleManualSocView> with WidgetsBin
         ),
         FilledButton(
           key:const Key('manual-soc-save'),
-          onPressed:saving||loading?null:guard((){save();}),
+          onPressed:saving||loading||(pending==null&&latest!['revision']>=2147483647)?null:guard((){save();}),
           child:Text(pending==null?t('Save manual report','حفظ التقرير اليدوي')
             :t('Retry identical report','إعادة نفس التقرير')),
         ),
@@ -301,7 +312,7 @@ class _VehicleManualSocState extends State<VehicleManualSocView> with WidgetsBin
           Card(child:ListTile(
             title:Text(report['battery_percent'].toString()+'%'),
             subtitle:Text(t('Reported at: ','تاريخ التقرير: ')+
-              (report['reported_at']??'').toString()+
+              reportTime(report['reported_at'])+
               ' · #'+report['revision'].toString()),
           )),
         Row(children:[

@@ -101,9 +101,56 @@ class RiderAccessTest extends TestCase
         return [$owner, $customer, $company, $id];
     }
 
+    public static function capabilityAuthorityCases(): array
+    {
+        $cases = [];
+        foreach (['publish', 'retire'] as $operation) {
+            foreach (['csms.graphql_secret', 'csms.rider_client_secret', 'csms.rider_source_api_url', 'csms.rider_callback_url'] as $field) {
+                $cases[] = [$operation, $field];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('capabilityAuthorityCases')]
+    public function test_capability_proof_cannot_authorize_a_replaced_source_policy(string $operation, string $field): void
+    {
+        [$owner, $customer, $company, $id] = $this->approvedSourceFixture();
+        if ($operation === 'retire') {
+            $this->actingAs($customer)->deleteJson('/api/rider-access/tokens/'.$id)->assertOk();
+        }
+        $before = RiderAccessToken::findOrFail($id);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($field) {
+            $this->assertStringStartsWith('http://citrine:8080/creabiz/rider-auth/capabilities?', $request->url());
+            parse_str(parse_url($request->url(), PHP_URL_QUERY), $query);
+            config([$field => str_starts_with($field, 'csms.rider_') && str_ends_with($field, '_url')
+                ? 'https://other.example.test/adapter' : str_repeat('r', 64)]);
+
+            return Http::response(['ready' => true, 'adapter_version' => 'creabiz-rider-v1', 'tenant_id' => 1,
+                'offline_fallback' => false, 'cache_seconds' => 0,
+                'proof' => hash_hmac('sha256', "creabiz-rider-v1\n".$query['nonce'], str_repeat('s', 64))]);
+        });
+        try {
+            app(RiderSourceProvisioner::class)->$operation($owner, $company, $id);
+            $this->fail('A capability proof authorized a changed trust policy.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $after = $before->fresh();
+        $this->assertSame($before->provisioning_state, $after->provisioning_state);
+        $this->assertNull($after->provisioned_at);
+        $this->assertNull($after->source_authorization_id);
+        $this->assertNull($after->provision_lease);
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public static function publicationSourceCases(): array
     {
-        return [['valid'], ['lookup_origin'], ['insert_origin'], ['update_disabled'], ['changed_insert_id'], ['changed_update_id'], ['relative_expiry']];
+        return [['valid'], ['lookup_origin'], ['insert_origin'], ['update_disabled'], ['changed_insert_id'], ['changed_update_id'], ['relative_expiry'], ['lookup_key'], ['insert_client'], ['update_callback'], ['lookup_capability_url']];
     }
 
     #[DataProvider('publicationSourceCases')]
@@ -127,6 +174,8 @@ class RiderAccessTest extends TestCase
                 $row = $request['variables']['object'] + ['id' => 71];
                 if ($kind === 'insert_origin') {
                     config(['csms.graphql_url' => 'https://other.example.test/v1/graphql']);
+                } elseif ($kind === 'insert_client') {
+                    config(['csms.rider_client_secret' => str_repeat('r', 64)]);
                 }
                 if ($kind === 'changed_insert_id') {
                     $row['id'] = 72;
@@ -143,12 +192,19 @@ class RiderAccessTest extends TestCase
                     $row['id'] = 72;
                 } elseif ($kind === 'relative_expiry') {
                     $row['cacheExpiryDateTime'] = 'next month';
+                } elseif ($kind === 'update_callback') {
+                    config(['csms.rider_callback_url' => 'https://other.example.test/authorize']);
                 }
 
                 return Http::response(['data' => ['update_Authorizations' => ['affected_rows' => 1]]]);
             }
-            if ($kind === 'lookup_origin' && $row === null) {
-                config(['csms.graphql_url' => 'https://other.example.test/v1/graphql']);
+            if ($row === null) {
+                match ($kind) {
+                    'lookup_origin' => config(['csms.graphql_url' => 'https://other.example.test/v1/graphql']),
+                    'lookup_key' => config(['csms.graphql_secret' => str_repeat('h', 64)]),
+                    'lookup_capability_url' => config(['csms.rider_source_api_url' => 'https://other.example.test']),
+                    default => null,
+                };
             }
 
             return Http::response(['data' => ['Authorizations' => $row === null ? [] : [$row]]]);
@@ -171,8 +227,8 @@ class RiderAccessTest extends TestCase
             $this->assertNull($token->source_authorization_id);
         }
         $this->assertSame(match ($kind) {
-            'lookup_origin' => 0,
-            'insert_origin', 'changed_insert_id' => 1,
+            'lookup_origin', 'lookup_key', 'lookup_capability_url' => 0,
+            'insert_origin', 'insert_client', 'changed_insert_id' => 1,
             default => 2,
         }, $writes);
         Http::assertNotSent(fn ($request) => str_contains($request->url(), 'other.example.test') || str_contains($request->url(), '/ocpp/'));
@@ -183,7 +239,7 @@ class RiderAccessTest extends TestCase
 
     public static function retirementSourceCases(): array
     {
-        return [['valid'], ['lookup_origin'], ['changed_readback_id'], ['update_disabled']];
+        return [['valid'], ['lookup_origin'], ['changed_readback_id'], ['update_disabled'], ['lookup_key'], ['update_client']];
     }
 
     #[DataProvider('retirementSourceCases')]
@@ -215,12 +271,18 @@ class RiderAccessTest extends TestCase
                     $row['id'] = 72;
                 } elseif ($kind === 'update_disabled') {
                     config(['csms.rider_enabled' => false]);
+                } elseif ($kind === 'update_client') {
+                    config(['csms.rider_client_secret' => str_repeat('r', 64)]);
                 }
 
                 return Http::response(['data' => ['update_Authorizations' => ['affected_rows' => 1]]]);
             }
-            if ($kind === 'lookup_origin' && $writes === 0) {
-                config(['csms.graphql_url' => 'https://other.example.test/v1/graphql']);
+            if ($writes === 0) {
+                match ($kind) {
+                    'lookup_origin' => config(['csms.graphql_url' => 'https://other.example.test/v1/graphql']),
+                    'lookup_key' => config(['csms.graphql_secret' => str_repeat('h', 64)]),
+                    default => null,
+                };
             }
 
             return Http::response(['data' => ['Authorizations' => [$row]]]);
@@ -238,7 +300,7 @@ class RiderAccessTest extends TestCase
         $this->assertSame($kind === 'valid' ? 'retired' : 'requires_inspection', $token->provisioning_state);
         $this->assertNotNull($token->revoked_at);
         $this->assertNull($token->provisioned_at);
-        $this->assertSame($kind === 'lookup_origin' ? 0 : 1, $writes);
+        $this->assertSame(in_array($kind, ['lookup_origin', 'lookup_key'], true) ? 0 : 1, $writes);
         Http::assertNotSent(fn ($request) => str_contains($request->url(), 'other.example.test') || str_contains($request->url(), '/ocpp/'));
         $this->assertDatabaseCount('csms_session_links', 0);
         $this->assertDatabaseCount('charger_commands', 0);

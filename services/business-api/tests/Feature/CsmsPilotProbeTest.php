@@ -81,6 +81,7 @@ class CsmsPilotProbeTest extends TestCase
                 'station_id' => $station->id, 'evse_id' => $evse->id,
                 'connector_id' => $connector->id,
                 'source_connector_number' => $number,
+                'source_target_key' => hash('sha256', $binding.':'.($protocol === '1.6' ? 0 : 1).':'.$number),
             ]);
         }
 
@@ -149,6 +150,12 @@ class CsmsPilotProbeTest extends TestCase
                     ->where('station_id', $fixture['station']->id)->value('id');
                 DB::table('charging_connector_mappings')->where('id', $mappingId)->delete();
             }
+            if ($state === 'target_digest_changed') {
+                $mappingId = DB::table('charging_connector_mappings')
+                    ->where('station_id', $fixture['station']->id)->orderBy('id')->value('id');
+                DB::table('charging_connector_mappings')->where('id', $mappingId)
+                    ->update(['source_target_key' => str_repeat('d', 64)]);
+            }
             if ($state === 'maintenance') {
                 DB::table('vendor_connectors')->where('charger_id', $fixture['charger']->id)
                     ->update(['maintenance_blocked' => true]);
@@ -203,6 +210,31 @@ class CsmsPilotProbeTest extends TestCase
                     'id' => 23, 'connectorId' => 2,
                     'timestamp' => now()->subSeconds(3)->toISOString(),
                 ]);
+            }
+            if (in_array($state, ['older_history_conflict', 'older_history_replay'], true)) {
+                $at = now()->subSeconds(4)->toISOString();
+                $rows[] = array_replace($rows[1], ['id' => 23, 'timestamp' => $at]);
+                $rows[] = array_replace($rows[0], ['id' => 22, 'timestamp' => $at]);
+                $rows[] = array_replace($rows[1], [
+                    'id' => 21, 'timestamp' => $at,
+                    'connectorStatus' => $state === 'older_history_conflict' ? 'Faulted' : 'Available',
+                    'errorCode' => $state === 'older_history_conflict'
+                        ? 'GroundFailure' : $rows[1]['errorCode'],
+                ]);
+            }
+            if ($state === 'source_evse_null') {
+                $rows[0]['evseId'] = null;
+            }
+            if ($state === 'source_evse_missing') {
+                unset($rows[0]['evseId']);
+            }
+            if ($state === 'source_evse_string') {
+                $rows[0]['evseId'] = (string) $rows[0]['evseId'];
+            }
+            if ($state === 'source_evse_null_history') {
+                $at = now()->subSeconds(4)->toISOString();
+                $rows[] = array_replace($rows[1], ['id' => 23, 'timestamp' => $at, 'evseId' => null]);
+                $rows[] = array_replace($rows[1], ['id' => 22, 'timestamp' => $at, 'evseId' => 0]);
             }
             if ($state === 'source_target_string') {
                 $rows[0]['connectorId'] = '2';
@@ -273,6 +305,77 @@ class CsmsPilotProbeTest extends TestCase
         $this->assertDatabaseCount('csms_inbox_events', 0);
         $this->assertDatabaseCount('charging_status_observations', 0);
         $this->assertDatabaseCount('audit_events', 0);
+    }
+
+    public function test_pilot_probe_requires_canonical_mapping_digest_and_unambiguous_historical_status_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $mapping = DB::table('charging_connector_mappings')
+                ->where('station_id', $f['station']->id)->orderBy('id')->first();
+            foreach ([null, str_repeat('c', 64)] as $digest) {
+                DB::table('charging_connector_mappings')->where('id', $mapping->id)
+                    ->update(['source_target_key' => $digest]);
+                $this->source($f);
+                $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+                $this->assertStringContainsString('Source pilot probe blocked', Artisan::output());
+                $this->assertStringNotContainsString(str_repeat('a', 64), Artisan::output());
+            }
+            DB::table('charging_connector_mappings')->where('id', $mapping->id)
+                ->update(['source_target_key' => $mapping->source_target_key]);
+            $this->source($f, 'target_digest_changed');
+            $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+            $this->assertStringContainsString('Source pilot probe blocked', Artisan::output());
+            DB::table('charging_connector_mappings')->where('id', $mapping->id)
+                ->update(['source_target_key' => $mapping->source_target_key]);
+            $this->source($f, 'older_history_conflict');
+            $this->assertSame(1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+            $this->assertStringContainsString('Source pilot probe blocked', Artisan::output());
+
+            // Identical older status at the same time is not contradictory.
+            $this->source($f, 'older_history_replay');
+            $this->assertSame(0, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+            $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+            $this->assertTrue($report['software_source_observed']);
+            $this->assertFalse($report['hardware_pilot_approved']);
+            $this->assertFalse($report['physical_hardware_accepted']);
+            $this->assertFalse($report['production_accepted']);
+            Http::assertSentCount(3);
+            Http::assertNotSent(fn ($request) => str_contains($request->url(), '/ocpp/')
+                || str_contains($request->url(), '/dev/token'));
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+    }
+
+    public function test_pilot_probe_normalizes_only_explicit_ocpp16_null_evse_and_preserves_exact_topology(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            foreach (['source_evse_null', 'source_evse_null_history', 'source_evse_missing', 'source_evse_string'] as $state) {
+                $this->source($f, $state);
+                $valid = $protocol === '1.6' && in_array($state, ['source_evse_null', 'source_evse_null_history'], true);
+                $this->assertSame($valid ? 0 : 1, Artisan::call('csms:pilot-probe', ['binding' => $f['binding']]));
+                if ($valid) {
+                    $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+                    $this->assertTrue($report['software_source_observed']);
+                    $this->assertTrue($report['source_connector_targets_match_local_topology']);
+                    $this->assertFalse($report['physical_topology_verified']);
+                    $this->assertFalse($report['production_accepted']);
+                    $this->assertFalse($report['device_commands_sent']);
+                    Http::assertSentCount(3);
+                } else {
+                    $this->assertStringContainsString('Source pilot probe blocked', Artisan::output());
+                    Http::assertSentCount(2);
+                }
+                Http::assertNotSent(fn ($request) => str_contains($request->url(), '/ocpp/')
+                    || str_contains($request->url(), '/dev/token'));
+            }
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
     }
 
     public function test_station_offline_during_inventory_never_promotes_source_read_to_success(): void

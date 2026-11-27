@@ -70,6 +70,7 @@ class ChargerCertificates
 
     public function apply(User $actor, VendorCompany $company, VendorCharger $charger, string $kind, array $intent): array
     {
+        abort_unless(in_array($kind, ['enroll', 'revoke'], true), 404);
         ksort($intent);
         $hash = hash('sha256', json_encode([$charger->id, $kind, $intent], JSON_THROW_ON_ERROR));
 
@@ -94,6 +95,7 @@ class ChargerCertificates
                 if ($kind === 'enroll') {
                     abort_unless(config('csms.certificate_management_enabled'), 503, 'Certificate enrollment is disabled.');
                     app(VendorAccess::class)->operational($company);
+                    abort_unless(User::whereKey($company->owner_id)->where('role', 'vendor')->where('account_status', 'active')->lockForUpdate()->first(), 409, 'A current active vendor owner is required for certificate enrollment.');
                     abort_unless(app(AdmissionIdentity::class)->compatible($company, $charger, $p->identity, $p->protocol, app()->environment('production')), 409, 'Canonical charger identity requires review.');
                     $metadata = app(ChargerCertificateVerifier::class)->verify($intent['public_certificate'], $p->identity, $intent['issuer_chain'] ?? null);
                     $chain = $metadata['issuer_chain'];
