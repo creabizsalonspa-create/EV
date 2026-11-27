@@ -59,7 +59,8 @@ final class LicensedSourceCache
 
     private function cachedArray(mixed $cached): array
     {
-        if (! is_array($cached)) {
+        if (! is_array($cached) || array_is_list($cached)) {
+            // Local cache corruption must not dispatch a replacement provider request.
             throw new LookupFailure('invalid_response', 503);
         }
 
