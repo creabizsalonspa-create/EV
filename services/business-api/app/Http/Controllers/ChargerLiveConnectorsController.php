@@ -55,6 +55,18 @@ final class ChargerLiveConnectorsController extends Controller
             $binding = DB::table('csms_bindings')->where('id', $receipt->binding_id)->lockForUpdate()->first();
             abort_unless($binding && $binding->station_id === $station->id &&
                 $binding->vendor_charger_id === $charger->id && $binding->protocol === $charger->ocpp_protocol, 409);
+            // Reconstruct the original offline registration receipt, not the
+            // mutable live station state. GraphQL's selected field order is
+            // the order used by the registration adapter when hashing it.
+            $expectedReceipt = hash('sha256', json_encode([
+                'id' => $receipt->source_station_id, 'tenantId' => 1,
+                'ocppConnectionName' => $binding->identifier, 'protocol' => 'ocpp'.$binding->protocol,
+                'isOnline' => false, 'chargePointVendor' => $charger->manufacturer,
+                'chargePointModel' => $charger->model,
+            ], JSON_THROW_ON_ERROR));
+            abort_unless(is_string($receipt->source_receipt_hash)
+                && hash_equals($expectedReceipt, $receipt->source_receipt_hash), 409,
+                'Original source registration receipt requires reconciliation.');
             // Pin durable registration provenance, not an arbitrary same-name row.
             $binding->registration_receipt = [$receipt->id, $receipt->profile_id, $receipt->source_station_id,
                 $receipt->source_generation, $receipt->source_receipt_hash, $receipt->verified_at, $receipt->payload_hash];
@@ -144,7 +156,20 @@ final class ChargerLiveConnectorsController extends Controller
         ChargerResetController $guard,
         RemoteSessionAuthorization $source
     ) {
+        return $this->inspect($r, $company, $charger, $guard, $source);
+    }
+
+    /** Internal callers can retain exact database/event IDs; public GET cannot request them. */
+    public function inspect(
+        Request $r,
+        VendorCompany $company,
+        VendorCharger $charger,
+        ChargerResetController $guard,
+        RemoteSessionAuthorization $source,
+        bool $internalReview = false
+    ) {
         $direct = $charger->source === 'direct_unverified';
+        abort_unless(! $internalReview || $direct, 409);
         $authority = $this->sourceAuthority($direct);
         $graph = function (string $query, array $variables) use ($authority, $source, $direct): array {
             abort_unless($this->sourceAuthority($direct) === $authority, 503, 'Connector source authority changed during inspection.');
@@ -229,6 +254,7 @@ final class ChargerLiveConnectorsController extends Controller
                 'reported_status' => $event['connectorStatus'],
                 'error_code' => $event['errorCode'] ?? null,
                 'observed_at' => $at,
+                'source_event_id' => $event['id'],
             ];
             // Rows are sorted by descending source event ID. Compare every
             // consecutive pair per target, not only against its newest row.
@@ -323,6 +349,12 @@ final class ChargerLiveConnectorsController extends Controller
                 'physical_available' => false,
                 'remote_control_authorized' => false,
             ];
+            if ($internalReview) {
+                $rows[array_key_last($rows)] += [
+                    'source_connector_database_id' => $sourceTargets[$row['target']],
+                    'source_event_id' => $event['source_event_id'] ?? null,
+                ];
+            }
         }
 
         return response()->json([
