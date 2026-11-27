@@ -107,14 +107,7 @@ final class CorporateCycleReviewController extends Controller
             }
         }
         $limit = $this->amount($a->credit_limit_minor);
-        $open = 0;
-        $outstanding = DB::table('corporate_statements')->where('fleet_id', $fleet->id)
-            ->where('currency', $a->currency)
-            ->whereNotIn('id', DB::table('corporate_receipts')->select('statement_id'))
-            ->orderBy('id')->cursor();
-        foreach ($outstanding as $s) {
-            $open = $this->add($open, $this->amount($s->total_minor));
-        }
+        $open = app(CorporateBilling::class)->outstandingMinor($a);
         $remaining = max(0, $limit - $open);
         $reason = match (true) {
             ! $active => 'agreement_inactive',
