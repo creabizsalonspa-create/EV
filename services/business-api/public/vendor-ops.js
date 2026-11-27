@@ -2764,6 +2764,22 @@ window.createVendorWorkspace = ({
                     if (direct && targets.has(target)) throw Error("Duplicate direct connector target.");
                     targets.add(target);
                 }
+                const coverage = direct ? result.review_coverage : undefined;
+                if (coverage !== undefined && (!coverage ||
+                    coverage.evidence !== "DIRECT_CONNECTOR_REVIEW_COVERAGE_ONLY" ||
+                    !["requires_review", "all_identities_reviewed"].includes(coverage.state) ||
+                    ["charging_mapping_created", "physical_availability_verified", "remote_control_authorized"].some(k => coverage[k] !== false) ||
+                    !["inventory_count", "source_target_count", "current_review_count"].every(k =>
+                        Number.isSafeInteger(coverage[k]) && coverage[k] >= 0 && coverage[k] <= 101) ||
+                    coverage.source_target_count !== result.connectors.length ||
+                    coverage.current_review_count > Math.min(coverage.inventory_count, coverage.source_target_count) ||
+                    (coverage.state === "all_identities_reviewed" && (!result.source_online || !result.source_topology_complete ||
+                        coverage.inventory_count < 1 || coverage.inventory_count > 100 ||
+                        coverage.inventory_count !== coverage.source_target_count ||
+                        coverage.inventory_count !== coverage.current_review_count ||
+                        result.connectors.some(row => row.state !== "recent"))))) {
+                    throw Error("Unexpected connector review coverage.");
+                }
                 live.replaceChildren(
                     ui("h4", direct ? "Registered direct source snapshot" : "Local CSMS connector source snapshot"),
                     ui("p", "No physical connector availability or command authorization is verified."),
@@ -2774,6 +2790,12 @@ window.createVendorWorkspace = ({
                             ? "Source connector targets match the local inventory"
                             : "Source connector topology requires review"),
                 );
+                if (direct) {
+                    live.append(ui("p", !coverage ? "Connector review coverage unknown" :
+                        coverage.state === "all_identities_reviewed" ? "All connector identities reviewed; charging not authorized" :
+                        "Connector identity review incomplete"));
+                    if (coverage) live.append(raw("p", `${coverage.current_review_count}/${coverage.inventory_count}`));
+                }
                 for (const row of result.connectors) {
                     const card = document.createElement("article");
                     card.append(raw("h5", direct ? `${row.source_evse_number}/${row.source_connector_number}` : `#${row.mapping_id} · ${row.source_evse_number}/${row.source_connector_number}`));
