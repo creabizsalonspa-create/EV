@@ -132,21 +132,21 @@ final class LicensedCoverageHistory
 
     private function valid(mixed $row): bool
     {
-        if (!  is_array($row) || array_keys($row) !== self::FIELDS) {
+        if (! is_array($row) || array_keys($row) !== self::FIELDS) {
             return false;
         }
         foreach ($row as $count) {
-            if (!  is_int($count) || $count < 0 || $count > 625) {
+            if (! is_int($count) || $count < 0 || $count > 625) {
                 return false;
             }
         }
 
         return $row['configured_areas'] >= 1 && $row['configured_areas'] <= 25
-            && $row['observed_areas'] + $row['unobserved_areas'] + $row['unverified_areas'] === $row['configured_areas']
-            && $row['areas_with_reports'] + $row['areas_empty'] === $row['observed_areas']
+            && $row['configured_areas'] === $row['observed_areas'] + $row['unobserved_areas'] + $row['unverified_areas']
+            && $row['observed_areas'] === $row['areas_with_reports'] + $row['areas_empty']
             && $row['returned_record_observations'] >= $row['areas_with_reports']
             && $row['returned_record_observations'] <= 25 * $row['areas_with_reports']
-            && $row['unknown_time_observations'] + $row['older_than_24h_observations'] <= $row['returned_record_observations']
+            && $row['returned_record_observations'] >= $row['unknown_time_observations'] + $row['older_than_24h_observations']
             && $row['unknown_operating_observations'] <= $row['returned_record_observations'];
     }
 }
