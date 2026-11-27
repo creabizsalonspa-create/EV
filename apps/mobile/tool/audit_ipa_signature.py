@@ -18,6 +18,7 @@ import zipfile
 
 from audit_ipa_package import AuditError, audit, digest, require
 from ipa_device_architecture import device_architecture
+from ipa_profile import profile_evidence
 
 MAX_ARCHIVE = 2 * 1024 ** 3
 MAX_EXPANDED = 3 * 1024 ** 3
@@ -81,7 +82,7 @@ def run_codesign(args):
     return completed.stdout
 
 
-def verify_signature(source, bundle_id, version, build, team_id, leaf_sha256):
+def verify_signature(source, bundle_id, version, build, team_id, leaf_sha256, profile_sha256=None):
     require(sys.platform == 'darwin', 'Signature verification requires macOS')
     require(re.fullmatch(r'[A-Z0-9]{10}', team_id), 'Expected approved Apple team ID')
     require(re.fullmatch(r'[a-fA-F0-9]{64}', leaf_sha256),
@@ -117,9 +118,11 @@ def verify_signature(source, bundle_id, version, build, team_id, leaf_sha256):
                 'Signed team identifier mismatch')
         require(entitlements.get('get-task-allow', False) is False,
                 'Debug entitlement is not permitted')
+        profile = (profile_evidence(app, team_id, bundle_id, leaf.read_bytes(), profile_sha256)
+                   if profile_sha256 is not None else {})
         require(digest(frozen) == evidence['sha256'], 'Frozen artifact changed')
         require(digest(source) == evidence['sha256'], 'Original artifact changed')
-        return {**evidence, **architecture, 'signature_verified': True, 'team_id': team_id,
+        return {**evidence, **architecture, **profile, 'signature_verified': True, 'team_id': team_id,
                 'signing_certificate_sha256': actual_leaf,
                 'debug_entitlement_disabled': True,
                 'provisioning_verified': False, 'store_accepted': False}
@@ -133,10 +136,11 @@ def main():
     parser.add_argument('--build', required=True)
     parser.add_argument('--team-id', required=True)
     parser.add_argument('--leaf-sha256', required=True)
+    parser.add_argument('--profile-sha256', help='Independently approved App Store profile SHA-256')
     args = parser.parse_args()
     try:
         result = verify_signature(args.ipa, args.bundle_id, args.version, args.build,
-                                  args.team_id, args.leaf_sha256)
+                                  args.team_id, args.leaf_sha256, args.profile_sha256)
     except AuditError as exc:
         print('IPA SIGNATURE AUDIT FAILED: ' + str(exc), file=sys.stderr)
         return 1
