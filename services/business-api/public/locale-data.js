@@ -2645,6 +2645,34 @@ window.EV_MESSAGES = {
         en: "Credential revoked",
         ar: "أُبطلت بيانات الدخول",
     },
+    "Registered direct source inspection": {
+        en: "Registered direct source inspection",
+        ar: "فحص المصدر المباشر المسجل",
+    },
+    "Registered source observations only; local mapping, physical availability and control are not verified.": {
+        en: "Registered source observations only; local mapping, physical availability and control are not verified.",
+        ar: "ملاحظات المصدر المسجل فقط؛ لم يتم التحقق من الربط المحلي أو التوفر الفعلي أو التحكم.",
+    },
+    "Checking registered direct source…": {
+        en: "Checking registered direct source…",
+        ar: "جارٍ فحص المصدر المباشر المسجل…",
+    },
+    "Registered direct source snapshot": {
+        en: "Registered direct source snapshot",
+        ar: "لقطة المصدر المباشر المسجل",
+    },
+    "Source topology reported; local mappings not verified": {
+        en: "Source topology reported; local mappings not verified",
+        ar: "أبلغ المصدر عن بنية الموصلات؛ لم يتم التحقق من الربط المحلي",
+    },
+    "Source topology incomplete; live status unknown": {
+        en: "Source topology incomplete; live status unknown",
+        ar: "بنية موصلات المصدر غير مكتملة؛ الحالة المباشرة مجهولة",
+    },
+    "Registered source unavailable; no control is authorized.": {
+        en: "Registered source unavailable; no control is authorized.",
+        ar: "المصدر المسجل غير متاح؛ لا يوجد تصريح بالتحكم.",
+    },
     "Read live connector source": {
         en: "Read live connector source",
         ar: "قراءة حالة موصلات المصدر المباشر",
