@@ -33,6 +33,7 @@ class SubscriptionController extends Controller
     {
         return DB::transaction(function () use ($r) {
             $current = $this->currentActor($r);
+            $v = $r->validate(['page' => 'sometimes|integer|between:1,100000']);
             $q = DB::table('commercial_plan_versions as p')
                 ->join('commercial_plan_availability as a', 'a.plan_id', '=', 'p.id')
                 ->select('p.*', 'a.available');
@@ -40,12 +41,17 @@ class SubscriptionController extends Controller
                 $q->where('p.audience', $current->role)->where('a.available', true);
             }
 
-            return $q->orderByDesc('p.id')->paginate(25)->through(function ($p) {
-                $p->available = (bool) $p->available;
-                $p->entitlements = json_decode($p->entitlements, true, 512, JSON_THROW_ON_ERROR);
+            $page = $q->orderByDesc('p.id')
+                ->paginate(25, ['*'], 'page', (int) ($v['page'] ?? 1))
+                ->through(function ($p) {
+                    $p->available = (bool) $p->available;
+                    $p->entitlements = json_decode($p->entitlements, true, 512, JSON_THROW_ON_ERROR);
 
-                return $p;
-            });
+                    return $p;
+                });
+
+            return response()->json($page)
+                ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -94,14 +100,20 @@ class SubscriptionController extends Controller
     {
         return DB::transaction(function () use ($r) {
             $current = $this->currentActor($r);
+            $v = $r->validate(['page' => 'sometimes|integer|between:1,100000']);
 
-            return DB::table('commercial_subscriptions')
+            $page = DB::table('commercial_subscriptions')
                 ->when($current->role !== 'admin', fn ($q) => $q->where('user_id', $current->id))
-                ->orderByDesc('id')->paginate(25)->through(function ($s) {
+                ->orderByDesc('id')
+                ->paginate(25, ['*'], 'page', (int) ($v['page'] ?? 1))
+                ->through(function ($s) {
                     $s->cancel_at_period_end = (bool) $s->cancel_at_period_end;
 
                     return $s;
                 });
+
+            return response()->json($page)
+                ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -112,7 +124,8 @@ class SubscriptionController extends Controller
         return DB::transaction(function () use ($r, $s, $v) {
             $current = $this->currentActor($r);
 
-            return response()->json($s->subscribe($current, (int) $v['plan_id'], $v['idempotency_key']), 201);
+            return response()->json($s->subscribe($current, (int) $v['plan_id'], $v['idempotency_key']), 201)
+                ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -120,7 +133,7 @@ class SubscriptionController extends Controller
     {
         return DB::transaction(function () use ($r, $subscription, $s) {
             $current = $this->currentActor($r);
-            $s->access($current, $subscription);
+            $s->access($current, $subscription, true);
 
             return response()->json($s->summary($subscription))
                 ->header('Cache-Control', 'private, no-store');
@@ -137,7 +150,7 @@ class SubscriptionController extends Controller
             $current = $this->currentActor($r);
 
             // Authorize the CURRENT owner/Admin before resolving target terms.
-            $s->access($current, $subscription);
+            $s->access($current, $subscription, true);
             $v = $r->validate(['plan_id' => 'required|integer|between:1,999999999999999999']);
 
             return response()->json($s->previewChange($current, $subscription, (int) $v['plan_id']))
@@ -155,7 +168,8 @@ class SubscriptionController extends Controller
             $v = $r->validate(['action' => ['required', Rule::in(['change_plan', 'cancel_at_period_end', 'cancel_now', 'resume'])], 'plan_id' => 'required_if:action,change_plan|nullable|integer|min:1', 'idempotency_key' => 'required|string|max:100']);
 
             return response()->json($s->change($current, $subscription, $v['action'],
-                isset($v['plan_id']) ? (int) $v['plan_id'] : null, $v['idempotency_key']));
+                isset($v['plan_id']) ? (int) $v['plan_id'] : null, $v['idempotency_key']))
+                ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -168,7 +182,8 @@ class SubscriptionController extends Controller
             $v = $r->validate(['invoice_id' => 'required|integer|min:1', 'outcome' => ['required', Rule::in(['succeeded', 'failed'])], 'idempotency_key' => 'required|string|max:100']);
 
             return response()->json($s->mockPay($current, $subscription,
-                (int) $v['invoice_id'], $v['outcome'], $v['idempotency_key']));
+                (int) $v['invoice_id'], $v['outcome'], $v['idempotency_key']))
+                ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -178,7 +193,11 @@ class SubscriptionController extends Controller
             $current = $this->currentActor($r);
             $s->access($current, $subscription);
 
-            return response()->json($s->renew($subscription));
+            $v = $r->validate(['expected_cycle_number' => 'sometimes|required|integer|between:1,9007199254740991']);
+
+            return response()->json($s->renew($subscription,
+                isset($v['expected_cycle_number']) ? (int) $v['expected_cycle_number'] : null))
+                ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -187,15 +206,21 @@ class SubscriptionController extends Controller
         return DB::transaction(function () use ($r, $subscription, $s) {
             $current = $this->currentActor($r);
             $s->access($current, $subscription);
+            $v = $r->validate(['page' => 'sometimes|integer|between:1,100000']);
 
-            return DB::table('commercial_subscription_events')
+            $page = DB::table('commercial_subscription_events')
                 ->where('subscription_id', $subscription)
                 ->select(['id', 'kind', 'data', 'created_at'])
-                ->orderByDesc('id')->paginate(25)->through(function ($e) {
+                ->orderByDesc('id')
+                ->paginate(25, ['*'], 'page', (int) ($v['page'] ?? 1))
+                ->through(function ($e) {
                     $e->data = json_decode($e->data, true, 512, JSON_THROW_ON_ERROR);
 
                     return $e;
                 });
+
+            return response()->json($page)
+                ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 }

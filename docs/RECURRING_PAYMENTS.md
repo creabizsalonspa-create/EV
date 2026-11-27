@@ -16,6 +16,22 @@ SCA authenticates the **existing** PaymentIntent, uses the existing durable reco
 
 Existing immutable day1/3/7 in-app reminders are preserved. Reminder screens themselves do not initiate collection. External email/SMS/push delivery remains a separate adapter requirement.
 
+## Current-account authority and bounded collection
+
+Private recurring payment lists and local consent mutations pin the persisted account identity, status, role, credential hash and authentication epoch inside the transaction. Hosted enrollment commits its durable request and lease first, then rechecks ownership, current consent version and lease before each provider I/O transaction. Confirmed encrypted customer evidence survives a subsequent hosted session timeout; an ambiguous session remains recoverable under the existing enrollment identity. Owner-driven inspection and detachment serialize with account revocation. Suspended accounts and obsolete consent terms cannot activate a new mandate, even through a signed enrollment callback. Historical payment recovery remains separate and does not infer a replacement charge.
+
+The collection scanner excludes suspended/non-payer accounts, mismatched policy owners, future leases, and cancelled or disabled subscriptions with no existing checkout. It retains eligible existing checkout recovery work and never removes historical receipts or policies merely because an account is suspended. Reactivated accounts may resume only under still-current verified consent; suspension is not a contractual cancellation. This is a partial security/availability slice, not production acceptance.
+
+Regression coverage extends SubscriptionRecurringTest and RecurringConsentAuthorityTest for callback suspension/consent change, durable customer evidence after a lost hosted response, stale account reads and actions, no collection while suspended, and bounded scan fairness. The saved-payment authorization boundary independently rechecks the current owner, subscription cancellation state, exact payable invoice cycle, due time, positive amount, absence of a receipt, current policy version and mandate before credentials are returned. The gateway passes the exact invoice identity; historical SCA inspection may reconcile evidence, but a new actionable redirect requires current collection consent. The direct scanner also enforces its 1–1000 batch limit.
+
+A locally executed equivalent SQLite predicate fixture passed 23/23 invoice-selection conditions plus reactivation and limit-one fairness (2026-11-25; scanner implementation through `38e6782261f984f5dbe0eae0f2076623b7f9628c`). This is a manually translated SQL predicate with synthetic rows, not execution of the Laravel query builder, provider or PostgreSQL application. The newly authored due-time/cancellation and SCA revocation regression tests still require full application CI.
+
+### Enrollment replay and action-link boundary
+
+Once the enrollment has a known pending, completed or expired provider identity, repeated initiation inspects the original identity rather than creating another session. The transaction acquiring an execution lease rechecks that status. Completed and provider-confirmed expired enrollments return their terminal receipt without any hosted action URL. Only a confirmed open session with unexpired current consent may expose a hosted URL; unknown provider statuses are reconciliation failures. An expired execution lease can be resolved by locked provider inspection; an active lease still blocks inspection. These rules do not cancel a provider session merely because the local consent version changed, and do not infer a new mandate from an open session. Provider verification remains a test contract.
+
+Added regression cases for pending replay, changed terms, unknown provider state, terminal expiry and abandoned lease recovery. Full application execution remains pending.
+
 ## Configuration and operation
 
 Use `services/business-api/.env.example`; leave collection disabled by default. For an authorized sandbox configure `PAYMENT_PROVIDER=stripe_test`, `STRIPE_TEST_SECRET` (`sk_test_…` only), `STRIPE_TEST_WEBHOOK_SECRET`, an operator-controlled HTTPS `PAYMENT_HOSTED_RETURN_URL`, and explicitly enable `SUBSCRIPTION_COLLECTION_ENABLED=true`. Never place these secrets in Flutter, browser bundles, docs or logs. Provider API endpoint and version remain fixed; redirects are disabled on server HTTP requests. Only `checkout.stripe.com` and `hooks.stripe.com` HTTPS action links are accepted by the clients.
