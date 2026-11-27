@@ -31,6 +31,10 @@ return new class extends Migration
             $table->dateTime('reviewed_at', 6);
             $table->unique(['registration_id', 'epoch'], 'direct_source_registration_epoch_unique');
         });
+        Schema::table('direct_connector_review_receipts', function (Blueprint $table) {
+            $table->foreign(['registration_id', 'authority_epoch'], 'direct_review_registration_epoch_fk')
+                ->references(['registration_id', 'epoch'])->on('direct_source_registration_epochs')->restrictOnDelete();
+        });
     }
 
     public function down(): void
@@ -38,6 +42,9 @@ return new class extends Migration
         if (DB::table('direct_source_authority_epochs')->exists()) {
             throw new RuntimeException('Direct source authority history must be retained.');
         }
+        Schema::table('direct_connector_review_receipts', function (Blueprint $table) {
+            $table->dropForeign('direct_review_registration_epoch_fk');
+        });
         Schema::dropIfExists('direct_source_registration_epochs');
         Schema::dropIfExists('direct_source_authority_state');
         Schema::dropIfExists('direct_source_authority_epochs');
