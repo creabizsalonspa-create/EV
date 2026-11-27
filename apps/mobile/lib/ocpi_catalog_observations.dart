@@ -174,6 +174,105 @@ bool catalogObservationReportValid(dynamic d, {required int providerId}) {
   return true;
 }
 
+/// Strict, bounded source-observation history. No record in this shape is
+/// evidence of usable chargers, provider geographic completeness or billing.
+bool catalogQualityHistoryValid(dynamic d, {required int providerId}) {
+  if (d is! Map ||
+      d['scope'] != 'stored_partner_catalog_quality_history' ||
+      d['provider'] is! Map ||
+      d['provider']['id'] != providerId ||
+      d['provider']['name'] is! String ||
+      d['provider']['authorized'] is! bool ||
+      d['period'] != 'hour_utc' ||
+      d['sample_limit'] != 30 ||
+      d['retention_hours'] != 168 ||
+      d['evidence'] != 'STORED_PARTNER_CATALOG_TIMESTAMPS_ONLY' ||
+      d['sample_completeness'] != 'STORED_SYNC_AND_OPTIONAL_PERIODIC_SNAPSHOTS' ||
+      [
+        'source_covers_whole_network',
+        'live_availability_verified',
+        'physical_charging_verified',
+        'remote_control',
+        'billing_authority',
+      ].any((key) => d[key] != false) ||
+      d['samples'] is! List ||
+      (d['samples'] as List).length > 30 ||
+      d['count'] != (d['samples'] as List).length) {
+    return false;
+  }
+  final iso = RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$');
+  DateTime? exactUtc(String text) {
+    if (!iso.hasMatch(text)) return null;
+    final parsed = DateTime.tryParse(text);
+    if (parsed == null || !parsed.isUtc ||
+        parsed.year != int.parse(text.substring(0, 4)) ||
+        parsed.month != int.parse(text.substring(5, 7)) ||
+        parsed.day != int.parse(text.substring(8, 10)) ||
+        parsed.hour != int.parse(text.substring(11, 13)) ||
+        parsed.minute != int.parse(text.substring(14, 16)) ||
+        parsed.second != int.parse(text.substring(17, 19)) ||
+        parsed.millisecond * 1000 + parsed.microsecond !=
+            int.parse(text.substring(20, 26))) {
+      return null;
+    }
+    return parsed;
+  }
+
+  const counts = [
+    'published_count',
+    'within_policy_count',
+    'stale_count',
+    'unknown_age_count',
+    'future_clock_count',
+  ];
+  DateTime? previous;
+  for (final value in d['samples'] as List) {
+    if (value is! Map ||
+        value['observed_hour'] is! String ||
+        value['sampled_at'] is! String ||
+        !iso.hasMatch(value['observed_hour']) ||
+        !iso.hasMatch(value['sampled_at'])) {
+      return false;
+    }
+    final hour = exactUtc(value['observed_hour']);
+    final sampled = exactUtc(value['sampled_at']);
+    if (hour == null ||
+        sampled == null ||
+        hour.minute != 0 ||
+        hour.second != 0 ||
+        hour.millisecond != 0 ||
+        hour.microsecond != 0 ||
+        sampled.isBefore(hour) ||
+        !sampled.isBefore(hour.add(const Duration(hours: 1))) ||
+        (previous != null && !hour.isBefore(previous))) {
+      return false;
+    }
+    previous = hour;
+    if (['within_policy', 'attention', 'empty'].contains(value['state'])) {
+      if (value['max_age_seconds'] is! int ||
+          value['max_age_seconds'] < 60 ||
+          value['max_age_seconds'] > 604800 ||
+          counts.any((key) =>
+              value[key] is! int || value[key] < 0 || value[key] > 1000000) ||
+          value['within_policy_count'] +
+                  value['stale_count'] +
+                  value['unknown_age_count'] !=
+              value['published_count'] ||
+          value['future_clock_count'] > value['unknown_age_count'] ||
+          value['state'] != (value['published_count'] == 0
+              ? 'empty' : (value['stale_count'] + value['unknown_age_count'] > 0
+                  ? 'attention' : 'within_policy'))) {
+        return false;
+      }
+    } else if (!['unavailable', 'policy_unavailable']
+            .contains(value['state']) ||
+        counts.any((key) => value[key] != null)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 class OcpiCatalogObservationsView extends StatefulWidget {
   final EvApi api;
   final int providerId;
@@ -196,6 +295,7 @@ class _CatalogObservationState extends State<OcpiCatalogObservationsView>
   String module = 'all';
   int generation = 0;
   Map<String, dynamic>? data;
+  Map<String, dynamic>? history;
   String? error;
   bool get ar => Localizations.localeOf(context).languageCode == 'ar';
   String t(String en, String arabic) => ar ? arabic : en;
@@ -205,6 +305,7 @@ class _CatalogObservationState extends State<OcpiCatalogObservationsView>
   void clear() {
     generation++;
     data = null;
+    history = null;
     error = null;
     busy = false;
   }
@@ -238,6 +339,7 @@ class _CatalogObservationState extends State<OcpiCatalogObservationsView>
     setState(() {
       busy = true;
       data = null;
+      history = null;
       error = null;
     });
     try {
@@ -274,9 +376,51 @@ class _CatalogObservationState extends State<OcpiCatalogObservationsView>
     }
   }
 
+  Future<void> loadHistory() async {
+    if (!foreground || !authorized()) return;
+    final n = ++generation;
+    setState(() {
+      busy = true;
+      data = null;
+      history = null;
+      error = null;
+    });
+    try {
+      final result = await widget.api.request(
+        'ocpi/providers/${widget.providerId}/catalog-quality-history',
+      );
+      if (!current(n)) return;
+      if (!catalogQualityHistoryValid(result, providerId: widget.providerId)) {
+        throw const FormatException('Invalid partner quality history');
+      }
+      setState(() => history = Map<String, dynamic>.from(result));
+    } catch (e) {
+      if (current(n)) {
+        if (e is ApiException && [401, 419].contains(e.status)) {
+          widget.onExpired();
+        }
+        if (current(n)) {
+          setState(() => error = t(
+            'Quality history unavailable. Read again explicitly; no partial samples are shown.',
+            'سجل جودة المصدر غير متاح. أعد القراءة يدوياً؛ لا تُعرض عينات جزئية.',
+          ));
+        }
+      }
+    } finally {
+      if (mounted && n == generation) {
+        setState(() {
+          busy = false;
+          if (!authorized()) clear();
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final report = foreground && authorized() ? data : null;
+    final permitted = foreground && authorized();
+    final report = permitted ? data : null;
+    final quality = permitted ? history : null;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -328,8 +472,46 @@ class _CatalogObservationState extends State<OcpiCatalogObservationsView>
               ),
             ),
           ),
+          OutlinedButton(
+            onPressed: busy ? null : loadHistory,
+            child: Text(t('Read source quality history', 'قراءة سجل جودة المصدر')),
+          ),
           if (busy) const LinearProgressIndicator(),
           if (error != null) Text(error!),
+          if (quality != null) ...[
+            Text(t(
+              'Stored hourly source quality only — not live availability or network coverage.',
+              'جودة المصدر المخزنة بالساعة فقط؛ ليست توفراً حياً أو تغطية للشبكة.',
+            )),
+            Text('${quality['provider']['name']}'),
+            if ((quality['samples'] as List).isEmpty)
+              Text(t(
+                'No changed location syncs recorded; no coverage conclusion.',
+                'لا توجد عمليات مزامنة مواقع متغيرة مسجلة؛ لا توجد نتيجة عن التغطية.',
+              )),
+            for (final sample in quality['samples'] as List)
+              Card(
+                key: ValueKey('catalog-quality-${sample['observed_hour']}'),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('${sample['observed_hour']}'),
+                      Text(t(
+                        'Source quality state: ${sample['state']}',
+                        'حالة جودة المصدر: ${sample['state']}',
+                      )),
+                      if (sample['published_count'] != null)
+                        Text(t(
+                          'Published: ${sample['published_count']} · Within policy: ${sample['within_policy_count']} · Stale: ${sample['stale_count']} · Unknown: ${sample['unknown_age_count']} · Future clock: ${sample['future_clock_count']}',
+                          'منشور: ${sample['published_count']} · ضمن السياسة: ${sample['within_policy_count']} · قديم: ${sample['stale_count']} · غير معروف: ${sample['unknown_age_count']} · ساعة مستقبلية: ${sample['future_clock_count']}',
+                        )),
+                    ],
+                  ),
+                ),
+              ),
+          ],
           if (report != null) ...[
             Text('${report['provider']['name']}'),
             Text('${report['as_of']}'),

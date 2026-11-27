@@ -90,6 +90,37 @@ class ChargerAvailabilityCommandTest extends TestCase
         $this->assertDatabaseHas('charger_availability_operations', ['id' => $id, 'source_reply_id' => null]);
     }
 
+    #[TestWith(['revocation'])]
+    #[TestWith(['global_expiry'])]
+    #[TestWith(['individual_expiry'])]
+    public function test_mobile_authority_is_current_when_observation_commits(string $change): void
+    {
+        config(['sanctum.expiration' => 10]);
+        $fixture = $this->fixture('2.0.1');
+        $token = $fixture['owner']->createToken('mobile');
+        $token->accessToken->forceFill([
+            'created_at' => $change === 'individual_expiry' ? now() : now()->subMinutes(9),
+            'expires_at' => $change === 'individual_expiry' ? now()->addMinute() : null,
+        ])->save();
+        $this->source($fixture, ['operationalStatus' => 'Inoperative'], onConfirmation: function () use ($token, $change) {
+            if ($change === 'revocation') {
+                $token->accessToken->delete();
+            } else {
+                $this->travel(2)->minutes();
+            }
+        });
+        $path = str_replace('/api/', '/api/v1/', $fixture['path']);
+        $id = $this->withToken($token->plainTextToken)->postJson($path, $this->body())->assertCreated()->json('id');
+
+        $this->app['auth']->forgetGuards();
+        $this->postJson($path.'/'.$id.'/observe')->assertForbidden();
+        $this->assertDatabaseHas('charger_availability_operations', [
+            'id' => $id, 'status' => 'transport_submitted', 'observed_at' => null, 'source_reply_id' => null,
+        ]);
+        $this->assertDatabaseMissing('audit_events', ['action' => 'charger.availability_source_observed', 'subject' => (string) $id]);
+        $this->assertCount(1, Http::recorded(fn ($request) => str_contains($request->url(), '/configuration/changeAvailability?')));
+    }
+
     #[TestWith(['1.6'])]
     #[TestWith(['2.0.1'])]
     public function test_source_key_change_during_confirmation_preserves_unresolved_command(string $protocol): void
@@ -97,7 +128,7 @@ class ChargerAvailabilityCommandTest extends TestCase
         $f = $this->fixture($protocol);
         $payload = $protocol === '1.6' ? ['connectorId' => 0, 'type' => 'Inoperative'] : ['operationalStatus' => 'Inoperative'];
         $change = true;
-        $this->source($f, $payload, onReply: function () use (&$change) {
+        $this->source($f, $payload, onConfirmation: function () use (&$change) {
             if ($change) {
                 config(['csms.graphql_secret' => str_repeat('y', 32)]);
             }
@@ -141,11 +172,11 @@ class ChargerAvailabilityCommandTest extends TestCase
         return compact('owner', 'binding', 'connector', 'identifier', 'path', 'protocol');
     }
 
-    private function source(array $fixture, array $payload, string $reply = 'Accepted', ?callable $onToken = null, ?callable $onReply = null): void
+    private function source(array $fixture, array $payload, string $reply = 'Accepted', ?callable $onToken = null, ?callable $onConfirmation = null): void
     {
         Http::preventStrayRequests();
         $stationId = 9;
-        Http::fake(function ($request) use ($fixture, $payload, $reply, $onToken, $onReply, &$stationId) {
+        Http::fake(function ($request) use ($fixture, $payload, $reply, $onToken, $onConfirmation, &$stationId) {
             if (str_ends_with($request->url(), '/dev/token')) {
                 $onToken?->__invoke();
 
@@ -163,7 +194,7 @@ class ChargerAvailabilityCommandTest extends TestCase
             }
             $time = now()->toISOString();
             if (str_contains($request['query'], 'requestMessageId')) {
-                $onReply?->__invoke();
+                $onConfirmation?->__invoke();
                 if ($reply === 'StationReplaced') {
                     $stationId = 10;
                 }

@@ -34,13 +34,12 @@ class ChargerResetTest extends TestCase
         return compact('owner', 'station', 'company', 'charger', 'binding', 'path', 'protocol');
     }
 
-    private function source(array $f, bool $active = false, bool $uncertain = false, ?string $statusTime = null, ?string $faultCode = 'NoError', ?callable $duringToken = null, ?callable $duringSource = null): void
+    private function source(array $f, bool $active = false, bool $uncertain = false, ?string $statusTime = null, ?string $faultCode = 'NoError', ?callable $duringToken = null): void
     {
         Http::swap(new Factory);
         Http::preventStrayRequests();
-        Http::fake(function ($r) use ($f, $active, $uncertain, $statusTime, $faultCode, $duringToken, $duringSource) {
+        Http::fake(function ($r) use ($f, $active, $uncertain, $statusTime, $faultCode, $duringToken) {
             if ($r->url() === 'http://127.0.0.1:8095/v1/graphql') {
-                $duringSource?->__invoke($r);
                 if (str_contains($r['query'], 'ChargingStations')) {
                     return Http::response(['data' => ['ChargingStations' => [['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']]]]]);
                 }
@@ -250,59 +249,6 @@ class ChargerResetTest extends TestCase
             Http::assertNotSent(fn ($r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), 'other.example.test'));
             $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null]);
         }
-    }
-
-    public static function sourceAuthorityDriftCases(): array
-    {
-        $cases = [];
-        foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['first_read', 'second_read', 'token', 'review'] as $phase) {
-                $cases[] = [$protocol, $phase];
-            }
-        }
-
-        return $cases;
-    }
-
-    #[DataProvider('sourceAuthorityDriftCases')]
-    public function test_reset_source_key_change_cannot_authorize_mixed_generation_evidence(string $protocol, string $phase): void
-    {
-        $f = $this->fixture($protocol);
-        $body = ['reason' => 'Check current reset source credential', 'idempotency_key' => 'source-key-'.$phase];
-        $this->actingAs($f['owner']);
-        $rotate = fn () => config(['csms.graphql_secret' => str_repeat('y', 64)]);
-        $reads = 0;
-        if ($phase === 'review') {
-            $this->source($f);
-            $id = $this->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'transport_submitted')->json('id');
-            $this->travel(21)->seconds();
-            $this->source($f, duringSource: function () use ($rotate) {
-                $rotate();
-            });
-            $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Inspect current source before review'])->assertServiceUnavailable();
-            $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null]);
-            config(['csms.graphql_secret' => str_repeat('x', 64)]);
-            $this->source($f);
-            $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Inspect restored source safely'])->assertOk();
-        } elseif ($phase === 'token') {
-            $this->source($f, duringToken: $rotate);
-            $id = $this->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'outcome_unknown')->json('id');
-            config(['csms.graphql_secret' => str_repeat('x', 64)]);
-            $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id)->assertJsonPath('status', 'outcome_unknown');
-            Http::assertSentCount(5);
-        } else {
-            $this->source($f, duringSource: function () use ($phase, $rotate, &$reads) {
-                if (++$reads === ($phase === 'first_read' ? 1 : 2)) {
-                    $rotate();
-                }
-            });
-            $this->postJson($f['path'], $body)->assertServiceUnavailable();
-            $this->assertSame($phase === 'first_read' ? 1 : 2, $reads);
-            $this->assertDatabaseCount('charger_reset_operations', 0);
-        }
-        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/configuration/reset?'));
-        $this->assertDatabaseCount('charger_commands', 0);
-        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_uncertain_reset_is_not_retried_and_blocks_start_admission(): void

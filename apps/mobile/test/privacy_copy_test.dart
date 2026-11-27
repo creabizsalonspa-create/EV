@@ -1,3 +1,4 @@
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,6 +36,38 @@ class CopyApi extends FixtureApi {
 }
 
 void main() {
+
+  for (final language in ['en', 'ar']) {
+    testWidgets('first inactive private copy mount cannot expose reauthentication ($language)',
+        (tester) async {
+      final api = CopyApi();
+      addTearDown(api.close);
+      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: PrivacyCopyPage(api: api, requestId: 7, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsNothing);
+      expect(find.text(language == 'ar' ? 'عرض النسخة الخاصة' : 'View private copy'),
+          findsNothing);
+      expect(api.calls, isEmpty);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsNothing,
+          reason: 'Resuming must not reactivate sensitive credentials or export');
+      expect(api.calls, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets(
     'reauthentication fields clear and explicit discard removes the private copy',
     (tester) async {

@@ -275,7 +275,7 @@ class SourceConsumerTest extends TestCase
                     'remoteStartId' => $link->start_command_id,
                     'meterStart' => '1.000', 'startTime' => $at->toIso8601String(),
                     'endTime' => $final ? $at->addSeconds(2)->toIso8601String() : null,
-                    'isActive' => ($final === false), 'totalKwh' => $final ? '2.500' : null,
+                    'isActive' => ! $final, 'totalKwh' => $final ? '2.500' : null,
                 ]]]]);
             }
             if ($change) {

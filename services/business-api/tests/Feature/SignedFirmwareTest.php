@@ -445,6 +445,12 @@ class SignedFirmwareTest extends TestCase
         ])->assertCreated()->json('id');
         $body = ['release_id' => $release, 'reason' => 'Inspect token endpoint generation', 'idempotency_key' => 'token-drift'];
         $id = $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'not_dispatched')->json('id');
+        // Initial idle (2), compatibility (1), capability (1);
+        // pre-dispatch idle (2), compatibility (1), token (1).
+        Http::assertSentCount(8);
+        $this->assertCount(1, Http::recorded(fn ($r) => str_ends_with($r->url(), '/dev/token')));
+        $this->assertCount(6, Http::recorded(fn ($r) => str_ends_with($r->url(), '/graph')));
+        $this->assertCount(1, Http::recorded(fn ($r) => str_contains($r->url(), '/capabilities')));
         config(['csms.operations_base_url' => $original]);
         $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id);
         $this->assertNotNull(DB::table('charger_firmware_operations')->find($id)->pre_dispatch_blocked_at);

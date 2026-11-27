@@ -132,7 +132,7 @@ class CsmsGraphqlTransportTest extends TestCase
         foreach ([RiderSourceProvisioner::class, ChargerSourceRegistration::class] as $class) {
             try {
                 $method = new ReflectionMethod($class, 'graph');
-                $args = $class === ChargerSourceRegistration::class ? [$query, [], str_repeat('a', 64), (string) config('csms.graphql_secret')] : [$query, []];
+                $args = $class === ChargerSourceRegistration::class ? [$query, [], str_repeat('a', 64)] : [$query, []];
                 $method->invoke(app($class), ...$args);
                 $this->fail('Privileged CSMS writer accepted an untrusted HTTP endpoint.');
             } catch (HttpException $e) {

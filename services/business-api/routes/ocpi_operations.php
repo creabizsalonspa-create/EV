@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\OcpiCatalogObservationsController;
+use App\Http\Controllers\OcpiCatalogQualityHistoryController;
 use App\Http\Controllers\OcpiController;
 use App\Http\Controllers\OcpiCpoCatalogController;
 use App\Http\Controllers\OcpiCredentialsController;
@@ -30,6 +31,7 @@ Route::get('/providers/{provider}/sync-plans', [OcpiSyncPlanController::class, '
 Route::put('/providers/{provider}/sync-plans/{module}', [OcpiSyncPlanController::class, 'update'])->whereIn('module', ['locations', 'tariffs', 'sessions', 'cdrs']);
 
 Route::get('/providers/{provider}/catalog-observations', [OcpiCatalogObservationsController::class, 'show'])->where('provider', '[0-9]{1,18}');
+Route::get('/providers/{provider}/catalog-quality-history', [OcpiCatalogQualityHistoryController::class, 'show'])->where('provider', '[0-9]{1,18}');
 
 Route::get('/providers/{provider}/cpo-catalog', [OcpiCpoCatalogController::class, 'show'])->where('provider', '[0-9]{1,18}');
 Route::put('/providers/{provider}/cpo-catalog/{module}/{source}', [OcpiCpoCatalogController::class, 'change'])

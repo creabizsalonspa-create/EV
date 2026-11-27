@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Ocpi\CdrReconciler;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerBillingExport;
@@ -13,12 +14,31 @@ use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class OcpiController extends Controller
 {
     private function owner(Request $r, OcpiProvider $provider): void
     {
         abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $provider->owner_id === $r->user()->id), 404);
+    }
+
+    /**
+     * Partner CDR financial reports contain canonical private invoice and
+     * credit-note lineage. Call only inside the response snapshot transaction:
+     * actor lock first, then current provider lock. A stale route model or
+     * cached Vendor/Admin credential cannot authorize another owner's ledger.
+     */
+    private function billingProvider(Request $r, OcpiProvider $route): OcpiProvider
+    {
+        $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+        // Retain legacy non-enumerating 404 for customers/foreign peers.
+        abort_unless(in_array($actor->role, ['vendor', 'admin'], true), 404);
+        $provider = OcpiProvider::whereKey($route->id)->lockForUpdate()->firstOrFail();
+        abort_unless($actor->role === 'admin'
+            || (int) $provider->owner_id === (int) $actor->id, 404);
+
+        return $provider;
     }
 
     private function audit(Request $r, string $action, int $id): void
@@ -130,28 +150,36 @@ class OcpiController extends Controller
 
     public function billingReconciliation(Request $r, OcpiProvider $provider, PartnerBillingReconciliation $service)
     {
-        $this->owner($r, $provider);
-        $filters = $r->validate(['page' => 'sometimes|integer|min:1|max:100000', 'currency' => 'sometimes|regex:/^[A-Z]{3}$/D', 'country_code' => 'sometimes|regex:/^[A-Z]{2}$/D', 'party_id' => 'sometimes|regex:/^[A-Z0-9]{3}$/D', 'kind' => 'sometimes|in:all,charges,credits']);
+        return DB::transaction(function () use ($r, $provider, $service) {
+            $current = $this->billingProvider($r, $provider);
+            // Validate after ownership to avoid revealing that foreign CDR
+            // financial sources exist through a different 422 response.
+            $filters = $r->validate(['page' => 'sometimes|integer|min:1|max:100000', 'currency' => 'sometimes|regex:/^[A-Z]{3}$/D', 'country_code' => 'sometimes|regex:/^[A-Z]{2}$/D', 'party_id' => 'sometimes|regex:/^[A-Z0-9]{3}$/D', 'kind' => 'sometimes|in:all,charges,credits']);
 
-        return DB::transaction(function () use ($r, $provider, $filters, $service) {
-            $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            $this->owner($r, $provider);
-
-            return response()->json($service->page($provider, $filters))->header('Cache-Control', 'private, no-store');
-        });
+            return response()->json($service->page($current, $filters))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function billingExport(Request $r, OcpiProvider $provider, PartnerBillingReconciliation $service, PartnerBillingExport $export, string $format)
     {
-        $this->owner($r, $provider);
         abort_unless(in_array($format, ['csv', 'pdf'], true), 404);
-        $filters = $r->validate(['currency' => 'sometimes|regex:/^[A-Z]{3}$/D', 'country_code' => 'sometimes|regex:/^[A-Z]{2}$/D', 'party_id' => 'sometimes|regex:/^[A-Z0-9]{3}$/D', 'kind' => 'sometimes|in:all,charges,credits', 'locale' => 'sometimes|in:en,ar', 'page' => 'prohibited']);
-        $rows = DB::transaction(function () use ($r, $provider, $filters, $service) {
-            $locked = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            $this->owner($r, $locked);
+        try {
+            [$rows, $filters] = DB::transaction(function () use ($r, $provider, $service) {
+                $current = $this->billingProvider($r, $provider);
+                $filters = $r->validate(['currency' => 'sometimes|regex:/^[A-Z]{3}$/D', 'country_code' => 'sometimes|regex:/^[A-Z]{2}$/D', 'party_id' => 'sometimes|regex:/^[A-Z0-9]{3}$/D', 'kind' => 'sometimes|in:all,charges,credits', 'locale' => 'sometimes|in:en,ar', 'page' => 'prohibited']);
 
-            return $service->exportRows($locked, $filters);
-        });
+                return [$service->exportRows($current, $filters), $filters];
+            }, 3);
+        } catch (ValidationException $error) {
+            // A direct browser download has no Accept: JSON header. Keep
+            // invalid private financial exports an explicit HTTP 422,
+            // never an HTML redirect with a misleading success page.
+            return response()->json([
+                'message' => 'Invalid private partner financial export filters.',
+                'errors' => $error->errors(),
+            ], 422)->header('Cache-Control', 'private, no-store');
+        }
         $body = $format === 'csv' ? $export->csv($rows) : $export->pdf($rows, $provider->id, $filters);
 
         return response($body)->header('Content-Type', $format === 'csv' ? 'text/csv; charset=UTF-8' : 'application/pdf')

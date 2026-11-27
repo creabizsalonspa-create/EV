@@ -29,8 +29,8 @@ final class ChargerSourceRegistration
             $actor = AdminTransactionAuthority::requireCurrent($request->user());
             abort_unless(! AdminSecondFactorGate::required() || AdminSecondFactorGate::verified($request, $actor), 403, 'Current administrator verification is required.');
         }
-        $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
         app(VendorAccess::class)->require($request->user(), $company, 'inventory.read');
+        $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
         $charger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
         abort_unless($charger->company_id === $company->id, 404);
         $site = VendorSite::whereKey($charger->site_id)->lockForUpdate()->firstOrFail();
@@ -109,11 +109,11 @@ final class ChargerSourceRegistration
         }
     }
 
-    private function lineage(object $row, VendorCharger $charger, Station $station): object
+    private function lineage(object $row, VendorCharger $charger, Station $station, bool $currentSource = true): object
     {
         $binding = DB::table('csms_bindings')->where('id', $row->binding_id)->lockForUpdate()->first();
         $profile = AdmissionProfile::whereKey($row->profile_id)->lockForUpdate()->first();
-        abort_unless($binding && $profile && $row->charger_id === $charger->id && $profile->charger_id === $charger->id && $binding->vendor_charger_id === $charger->id && $binding->station_id === $station->id && $binding->identifier === $profile->identity && $binding->protocol === $charger->ocpp_protocol && $profile->protocol === $charger->ocpp_protocol && hash_equals($row->source_generation, $this->source(false)), 409, 'Canonical registration mapping or authenticated source changed.');
+        abort_unless($binding && $profile && $row->charger_id === $charger->id && $profile->charger_id === $charger->id && $binding->vendor_charger_id === $charger->id && $binding->station_id === $station->id && $binding->identifier === $profile->identity && $binding->protocol === $charger->ocpp_protocol && $profile->protocol === $charger->ocpp_protocol && (! $currentSource || hash_equals($row->source_generation, $this->source(false))), 409, 'Canonical registration mapping or authenticated source changed.');
 
         $hash = hash('sha256', json_encode([$charger->company_id, $station->vendor_id, $charger->id, $station->id, $binding->identifier, $charger->ocpp_protocol, $charger->manufacturer, $charger->model, $row->source_generation], JSON_THROW_ON_ERROR));
         abort_unless(hash_equals($row->payload_hash, $hash), 409, 'Prepared registration inventory changed; retain the original request for review.');
@@ -121,32 +121,22 @@ final class ChargerSourceRegistration
         return $binding;
     }
 
-    private function requireRegistrationAuthority(string $generation, string $key): string
-    {
-        $url = $this->sourceUrl();
-        abort_unless(hash_equals($generation, $this->generation($url))
-            && hash_equals($key, (string) config('csms.graphql_secret')), 409,
-            'Authenticated registration source or credential changed.');
-
-        return $url;
-    }
-
-    private function graph(string $query, array $variables, string $generation, string $key): array
+    private function graph(string $query, array $variables, string $generation): array
     {
         // Every lookup, mutation and read-back must use the exact prepared
         // source generation, with the registration adapter still enabled.
         // Even another approved HTTPS origin cannot supply its receipt.
-        $url = $this->requireRegistrationAuthority($generation, $key);
-        $response = Http::connectTimeout(3)->timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $key])->post($url, compact('query', 'variables'));
-        $this->requireRegistrationAuthority($generation, $key);
+        $url = $this->sourceUrl();
+        abort_unless(hash_equals($generation, $this->generation($url)), 409, 'Authenticated registration source changed.');
+        $response = Http::connectTimeout(3)->timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, compact('query', 'variables'));
         abort_unless($response->successful() && strlen($response->body()) <= 32768 && ! $response->json('errors') && is_array($response->json('data')), 503, 'Authenticated source registration requires inspection.');
 
         return $response->json('data');
     }
 
-    private function lookup(string $identity, string $generation, string $key): array
+    private function lookup(string $identity, string $generation): array
     {
-        $rows = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id tenantId ocppConnectionName protocol isOnline chargePointVendor chargePointModel}}', ['name' => $identity], $generation, $key)['ChargingStations'] ?? null;
+        $rows = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id tenantId ocppConnectionName protocol isOnline chargePointVendor chargePointModel}}', ['name' => $identity], $generation)['ChargingStations'] ?? null;
         abort_unless(is_array($rows) && array_is_list($rows) && count($rows) <= 1, 409, 'Ambiguous source identity requires inspection.');
 
         return $rows;
@@ -162,10 +152,10 @@ final class ChargerSourceRegistration
         return array_intersect_key($row, array_flip(['id', 'tenantId', 'ocppConnectionName', 'protocol', 'isOnline', 'chargePointVendor', 'chargePointModel']));
     }
 
-    public function verified(VendorCompany $company, VendorCharger $charger): bool
+    public function verified(VendorCompany $company, VendorCharger $charger, bool $currentSource = true): bool
     {
         try {
-            return DB::transaction(function () use ($company, $charger) {
+            return DB::transaction(function () use ($company, $charger, $currentSource) {
                 $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                 $charger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
                 if ($charger->company_id !== $company->id) {
@@ -177,7 +167,7 @@ final class ChargerSourceRegistration
                 if (! $row || ! $station || $site->company_id !== $company->id || $station->vendor_id !== $company->owner_id) {
                     return false;
                 }
-                $this->lineage($row, $charger, $station);
+                $this->lineage($row, $charger, $station, $currentSource);
 
                 return true;
             });
@@ -188,10 +178,8 @@ final class ChargerSourceRegistration
 
     public function register(Request $request, VendorCompany $company, VendorCharger $charger, int $registration): array
     {
-        $generation = $this->source();
-        $key = (string) config('csms.graphql_secret');
-        $claimed = DB::transaction(function () use ($request, $company, $charger, $registration, $generation, $key) {
-            $this->requireRegistrationAuthority($generation, $key);
+        $this->source();
+        $claimed = DB::transaction(function () use ($request, $company, $charger, $registration) {
             [, $charger, $station] = $this->scope($request, $company, $charger, true);
             $row = DB::table('charger_source_registrations')->where('id', $registration)->where('charger_id', $charger->id)->lockForUpdate()->first();
             abort_unless($row, 404);
@@ -207,24 +195,24 @@ final class ChargerSourceRegistration
         if ($claimed) {
             try {
                 // Never retry this transaction: it contains the one external write.
-                DB::transaction(function () use ($request, $company, $charger, $registration, $key) {
+                DB::transaction(function () use ($request, $company, $charger, $registration) {
                     [, $charger, $station] = $this->scope($request, $company, $charger, true);
                     $row = DB::table('charger_source_registrations')->where('id', $registration)->where('charger_id', $charger->id)->lockForUpdate()->firstOrFail();
                     abort_unless($row->state === 'registering', 409);
                     $binding = $this->lineage($row, $charger, $station);
-                    abort_unless($this->lookup($binding->identifier, $row->source_generation, $key) === [], 409, 'An existing upstream identity cannot be adopted or overwritten.');
+                    abort_unless($this->lookup($binding->identifier, $row->source_generation) === [], 409, 'An existing upstream identity cannot be adopted or overwritten.');
                     $object = ['tenantId' => 1, 'ocppConnectionName' => $binding->identifier, 'protocol' => 'ocpp'.$binding->protocol, 'isOnline' => false, 'chargePointVendor' => $charger->manufacturer, 'chargePointModel' => $charger->model, 'createdAt' => now()->utc()->toISOString(), 'updatedAt' => now()->utc()->toISOString()];
                     [, $charger, $station] = $this->scope($request, $company, $charger, true);
                     $this->lineage($row, $charger, $station);
-                    $data = $this->graph('mutation($object:ChargingStations_insert_input!){insert_ChargingStations_one(object:$object){id tenantId ocppConnectionName protocol isOnline chargePointVendor chargePointModel}}', compact('object'), $row->source_generation, $key);
+                    $data = $this->graph('mutation($object:ChargingStations_insert_input!){insert_ChargingStations_one(object:$object){id tenantId ocppConnectionName protocol isOnline chargePointVendor chargePointModel}}', compact('object'), $row->source_generation);
                     $created = $this->verify($data['insert_ChargingStations_one'] ?? null, $object);
-                    $rows = $this->lookup($binding->identifier, $row->source_generation, $key);
+                    $rows = $this->lookup($binding->identifier, $row->source_generation);
                     abort_unless(count($rows) === 1, 409, 'Created source registration is not yet observable.');
                     $observed = $this->verify($rows[0], $object);
                     abort_unless($observed['id'] === $created['id'], 409, 'Created source identity changed before read-back.');
                     [, $charger, $station] = $this->scope($request, $company, $charger, true);
                     $this->lineage($row, $charger, $station);
-                    $this->requireRegistrationAuthority($row->source_generation, $key);
+                    abort_unless(hash_equals($row->source_generation, $this->source()), 409, 'Authenticated registration source changed.');
                     DB::table('charger_source_registrations')->where('id', $row->id)->update(['state' => 'registered', 'source_station_id' => $created['id'], 'source_receipt_hash' => hash('sha256', json_encode($observed, JSON_THROW_ON_ERROR)), 'verified_at' => now()->format('Y-m-d H:i:s.u'), 'updated_at' => now()]);
                     $this->event($request->user()->id, $row->id, 'charger.source_registration_verified');
                 });

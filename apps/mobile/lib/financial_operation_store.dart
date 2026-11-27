@@ -97,6 +97,9 @@ class FinancialOperation {
       // Retain this screen's original identity even when another screen has already
       // acknowledged it. A stale retry must not silently allocate a fresh request.
       final saved = await store.read(scope);
+      // A revoked caller must not create or re-persist a durable intent after
+      // the independent asynchronous storage read has completed.
+      checkCurrent();
       pending ??= saved == null
           ? null
           : _freezeFinancialValue(saved) as Map<String, dynamic>;
@@ -126,9 +129,19 @@ class FinancialOperation {
   }
 
   Future<void> confirmed() => serial(() async {
+    // A server receipt observed for account A must not acknowledge or erase
+    // account A's durable replay identity after sign-out/account B sign-in.
+    // Recheck both sides of the secure-storage await: this is the final
+    // independently asynchronous boundary after HTTP response validation.
+    checkCurrent();
     final current = await store.read(scope);
-    if (current != null && pending != null && current['key'] == pending!['key'])
+    checkCurrent();
+    if (current != null && pending != null && current['key'] == pending!['key']) {
+      // Once deletion starts it is already the durable acknowledgement.
+      // Never throw a post-commit "not acknowledged" error: that would
+      // invite a replacement key despite the original having been deleted.
       await store.remove(scope);
+    }
     pending = null;
   });
 }

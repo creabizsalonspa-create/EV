@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\CorporateBillingController;
 use App\Http\Controllers\FleetReportController;
 use App\Models\ChargingSession;
 use App\Models\Finance\TariffVersion;
@@ -9,6 +10,7 @@ use App\Models\Fleet;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Services\Commercial\CorporateBilling;
 use App\Services\Commercial\Payments\GatewayService;
 use App\Services\Enterprise\FleetReport;
 use App\Services\Finance\FinanceService;
@@ -96,6 +98,90 @@ class CorporateBillingTest extends TestCase
         return $this->actingAs($this->owner)->postJson($this->url('agreements/'.$a['id'].'/statements'), ['period' => now()->format('Y-m'), 'claim_ids' => array_column($claims, 'id'), 'idempotency_key' => $key]);
     }
 
+    public function test_exact_source_guard_rejects_lossy_and_overflowed_corporate_amounts(): void
+    {
+        $max = 9_007_199_254_740_991;
+        $this->assertSame($max, CorporateBilling::exactMinor((string) $max));
+        $this->assertSame($max, CorporateBilling::addMinor($max - 1, 1));
+        foreach ([100.0, true, false, -1, '1.5', '1e3', '9007199254740992'] as $bad) {
+            try {
+                CorporateBilling::exactMinor($bad);
+                $this->fail('Unsafe corporate financial source was accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+        try {
+            CorporateBilling::addMinor(4_503_599_627_370_496, 4_503_599_627_370_496);
+            $this->fail('Corporate aggregate overflow was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->assertDatabaseCount('corporate_statements', 0);
+        $this->assertDatabaseCount('corporate_receipts', 0);
+    }
+
+    public function test_malformed_approved_claim_is_not_consolidated_even_when_credit_limit_allows_it(): void
+    {
+        $a = $this->agreement();
+        $invoice = $this->invoice();
+        $id = DB::table('corporate_claims')->insertGetId([
+            'agreement_id' => $a['id'], 'invoice_id' => $invoice->id,
+            'driver_id' => $this->driver->id, 'cost_center_id' => $this->center,
+            'cost_center_code' => 'ENGINEERING', 'cost_center_name' => 'Engineering',
+            'amount_minor' => $invoice->total_minor + 1, 'currency' => 'AED',
+            'minor_units' => 2, 'request_key' => hash('sha256', 'malformed-claim'),
+            'fingerprint' => hash('sha256', 'malformed-claim-source'), 'created_at' => now(),
+        ]);
+        DB::table('corporate_claim_decisions')->insert([
+            'claim_id' => $id, 'actor_id' => $this->owner->id,
+            'decision' => 'approved', 'reason' => 'Synthetic inconsistent fixture',
+            'created_at' => now(),
+        ]);
+        $before = DB::table('finance_journals')->count();
+        $this->issue($a, [['id' => $id]])->assertConflict();
+        $this->assertDatabaseCount('corporate_statements', 0);
+        $this->assertDatabaseCount('corporate_statement_lines', 0);
+        $this->assertDatabaseCount('corporate_receipts', 0);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
+    public function test_statement_matching_gross_total_but_forged_tax_is_not_read_or_collected(): void
+    {
+        $a = $this->agreement();
+        $invoice = $this->invoice();
+        $claim = $this->approved($a, $invoice);
+        $id = DB::table('corporate_statements')->insertGetId([
+            'agreement_id' => $a['id'], 'fleet_id' => $this->fleet->id,
+            'issued_by' => $this->owner->id, 'payer_id' => $this->owner->id,
+            'number' => 'TEST-INCONSISTENT-STATEMENT', 'period' => now()->format('Y-m'),
+            'currency' => 'AED', 'minor_units' => 2,
+            'subtotal_minor' => $invoice->subtotal_minor - 1,
+            'tax_minor' => $invoice->tax_minor + 1, 'total_minor' => $invoice->total_minor,
+            'due_at' => now()->addDays(30), 'agreement_snapshot' => json_encode($a, JSON_THROW_ON_ERROR),
+            'request_key' => hash('sha256', 'bad-statement'),
+            'fingerprint' => hash('sha256', 'bad-statement-source'), 'created_at' => now(),
+        ]);
+        DB::table('corporate_statement_lines')->insert([
+            'statement_id' => $id, 'claim_id' => $claim['id'], 'invoice_id' => $invoice->id,
+            'invoice_number' => $invoice->number, 'driver_id' => $this->driver->id,
+            'cost_center_id' => $this->center, 'cost_center_code' => 'ENGINEERING',
+            'cost_center_name' => 'Engineering', 'subtotal_minor' => $invoice->subtotal_minor - 1,
+            'tax_minor' => $invoice->tax_minor + 1, 'total_minor' => $invoice->total_minor,
+            'created_at' => now(),
+        ]);
+        $before = DB::table('finance_journals')->count();
+        $this->actingAs($this->owner)->getJson($this->url('statements/'.$id))
+            ->assertConflict();
+        $this->get($this->url('statements/'.$id.'/export'))->assertConflict();
+        $this->postJson($this->url('statements/'.$id.'/simulate-payment'), [
+            'idempotency_key' => 'blocked-inconsistent-statement',
+        ])->assertConflict();
+        $this->assertDatabaseCount('corporate_receipts', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
     public function test_complete_claim_consolidation_cost_center_statement_and_atomic_canonical_simulated_receipts(): void
     {
         $a = $this->agreement();
@@ -117,6 +203,134 @@ class CorporateBillingTest extends TestCase
         $this->assertSame(0, app(FinanceService::class)->summary($invoice)['amount_due_minor']);
         $this->assertTrue(app(FinanceService::class)->summary($invoice)['ledger_balanced']);
         $this->getJson($this->url('statements/'.$s['id']))->assertOk()->assertJsonPath('state', 'simulated_paid');
+    }
+
+    public function test_corporate_business_receipts_hide_internal_idempotency_material_across_all_clients(): void
+    {
+        $agreement = $this->agreement();
+        $before = DB::table('finance_journals')->count();
+        $this->assertArrayNotHasKey('request_key', $agreement);
+        $this->assertArrayNotHasKey('fingerprint', $agreement);
+        $this->actingAs($this->owner)->getJson(
+            '/corporate-test/commercial/corporate?fleet_id='.$this->fleet->id
+        )->assertOk()
+            ->assertJsonMissingPath('agreements.0.request_key')
+            ->assertJsonMissingPath('agreements.0.fingerprint');
+
+        $invoice = $this->invoice();
+        $claim = $this->claim($agreement, $invoice);
+        $this->assertArrayNotHasKey('request_key', $claim);
+        $this->assertArrayNotHasKey('fingerprint', $claim);
+        $this->actingAs($this->owner)->getJson(
+            $this->url('agreements/'.$agreement['id'].'/claims')
+        )->assertOk()
+            ->assertJsonMissingPath('data.0.request_key')
+            ->assertJsonMissingPath('data.0.fingerprint');
+        $this->postJson($this->url('claims/'.$claim['id'].'/review'), [
+            'decision' => 'approved', 'reason' => 'Corporate test review',
+        ])->assertOk();
+
+        $statement = $this->issue($agreement, [$claim])->assertCreated()
+            ->assertJsonMissingPath('statement.request_key')
+            ->assertJsonMissingPath('statement.fingerprint')->json('statement');
+        $this->getJson($this->url('agreements/'.$agreement['id'].'/statements'))
+            ->assertOk()->assertJsonMissingPath('data.0.request_key')
+            ->assertJsonMissingPath('data.0.fingerprint');
+        $this->getJson($this->url('statements/'.$statement['id']))
+            ->assertOk()->assertJsonMissingPath('statement.request_key')
+            ->assertJsonMissingPath('statement.fingerprint');
+
+        $this->postJson($this->url('statements/'.$statement['id'].'/simulate-payment'), [
+            'idempotency_key' => 'corporate-secret-output',
+        ])->assertOk()->assertJsonPath('real_payment_processed', false)
+            ->assertJsonMissingPath('receipt.request_key')
+            ->assertJsonMissingPath('receipt.fingerprint');
+        $this->getJson($this->url('statements/'.$statement['id']))
+            ->assertOk()->assertJsonMissingPath('receipt.request_key')
+            ->assertJsonMissingPath('receipt.fingerprint');
+        $this->getJson($this->url('agreements/'.$agreement['id'].'/statements'))
+            ->assertOk()->assertJsonMissingPath('data.0.receipt.request_key')
+            ->assertJsonMissingPath('data.0.receipt.fingerprint');
+
+        // Server-owned immutable replay identity remains for same-key retries.
+        $this->assertSame(64, strlen(DB::table('corporate_agreements')
+            ->where('id', $agreement['id'])->value('request_key')));
+        $this->assertSame(64, strlen(DB::table('corporate_claims')
+            ->where('id', $claim['id'])->value('fingerprint')));
+        $this->assertSame(64, strlen(DB::table('corporate_statements')
+            ->where('id', $statement['id'])->value('request_key')));
+        $this->assertSame(64, strlen(DB::table('corporate_receipts')
+            ->where('statement_id', $statement['id'])->value('fingerprint')));
+        $this->assertSame($before + 2, DB::table('finance_journals')->count());
+    }
+
+    public function test_corporate_statement_export_refuses_rounded_source_money_and_hidden_formulas(): void
+    {
+        $exact = new \ReflectionMethod(
+            CorporateBillingController::class,
+            'exactMinor'
+        );
+        $this->assertSame(9_007_199_254_740_991,
+            $exact->invoke(null, '9007199254740991'));
+        $this->assertSame(0, $exact->invoke(null, '0'));
+        foreach ([100.0, true, false, 0.1, '-1', '1e2',
+            '9007199254740992', 'wrong-source'] as $unsafe) {
+            try {
+                $exact->invoke(null, $unsafe);
+                $this->fail('Unsafe corporate source money was rounded into a CSV.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+
+        $literal = new \ReflectionMethod(
+            CorporateBillingController::class,
+            'safeCsvCell'
+        );
+        foreach (["\u{00A0}=SUM(1,1)", "\u{200B}@hidden",
+            "\u{202E}+bidi", "\u{FEFF}-bom"] as $formula) {
+            $this->assertSame("'".$formula, $literal->invoke(null, $formula));
+        }
+
+        $a = $this->agreement();
+        $claim = $this->approved($a, $this->invoice());
+        $statement = $this->issue($a, [$claim])
+            ->assertCreated()->json('statement');
+        $cash = DB::table('finance_journals')->count();
+        $this->actingAs($this->owner)->get(
+            $this->url('statements/'.$statement['id'].'/export')
+        )->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertSee('ENGINEERING');
+        $this->assertSame($cash, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('corporate_receipts', 0);
+    }
+
+    public function test_corporate_statement_csv_keeps_formula_like_cost_centers_literal(): void
+    {
+        $agreement = $this->agreement();
+        $this->center = DB::table('cost_centers')->insertGetId([
+            'fleet_id' => $this->fleet->id,
+            'code' => '  =SUM(1+1)',
+            'name' => 'Synthetic spreadsheet formula identifier',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $claim = $this->approved($agreement, $this->invoice());
+        $statement = $this->issue($agreement, [$claim])
+            ->assertCreated()->json('statement');
+        $before = DB::table('finance_journals')->count();
+
+        $this->actingAs($this->owner);
+        $this->getJson($this->url('statements/'.$statement['id']))
+            ->assertOk()->assertJsonPath('lines.0.cost_center_code', '  =SUM(1+1)');
+        $csv = $this->get($this->url('statements/'.$statement['id'].'/export'))
+            ->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('Cache-Control', 'no-store, private')->getContent();
+        $this->assertStringContainsString("'  =SUM(1+1)", $csv);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseHas('corporate_claims', [
+            'id' => $claim['id'], 'cost_center_code' => '  =SUM(1+1)',
+        ]);
     }
 
     public function test_revoked_corporate_owner_and_admin_cannot_read_or_collect_private_statements(): void
@@ -319,6 +533,42 @@ class CorporateBillingTest extends TestCase
         $this->issue($a, [$c])->assertNotFound();
         $this->actingAs($newOwner)->postJson($this->url('claims/'.$c['id'].'/review'), ['decision' => 'approved', 'reason' => 'Authorized'])->assertOk();
         $this->postJson($this->url('agreements/'.$a['id'].'/statements'), ['period' => now()->format('Y-m'), 'claim_ids' => [$c['id']], 'idempotency_key' => 'new-owner'])->assertCreated()->assertJsonPath('statement.payer_id', $newOwner->id);
+    }
+
+    public function test_hosted_statement_fingerprint_uses_invoice_order_not_submission_order(): void
+    {
+        $a = $this->agreement();
+        $earlierInvoice = $this->invoice();
+        $laterInvoice = $this->invoice();
+        // The later invoice is submitted first: claim and immutable statement
+        // line identities now run in the opposite order to invoice identities.
+        $firstClaim = $this->approved($a, $laterInvoice);
+        $secondClaim = $this->approved($a, $earlierInvoice);
+        $statement = $this->issue($a, [$firstClaim, $secondClaim])->assertCreated()->json('statement');
+        $detail = $this->getJson($this->url('statements/'.$statement['id']))
+            ->assertOk()->assertJsonPath('lines.0.invoice_id', $laterInvoice->id)
+            ->assertJsonPath('lines.1.invoice_id', $earlierInvoice->id)->json();
+
+        config(['payments.provider' => 'mock']);
+        $checkout = $this->postJson('/api/commercial/corporate/hosted-checkouts', [
+            'statement_id' => $statement['id'], 'consent' => true,
+            'idempotency_key' => 'canonical-invoice-order',
+        ])->assertCreated()->json('checkout');
+        $this->assertSame($detail['line_fingerprint'], $checkout['line_fingerprint']);
+        $canonicalLines = DB::table('corporate_statement_lines')
+            ->where('statement_id', $statement['id'])->orderBy('invoice_id')->get();
+        $expected = hash('sha256', json_encode($canonicalLines->map(fn ($line) => [
+            (int) $line->id, (int) $line->invoice_id, (int) $line->total_minor, (int) $line->driver_id,
+        ])->all(), JSON_THROW_ON_ERROR));
+        $this->assertSame($expected, $checkout['line_fingerprint']);
+
+        $this->postJson('/api/commercial/corporate/hosted-checkouts/'.$checkout['id'].'/simulate', [
+            'consent' => true, 'outcome' => 'authorized',
+        ])->assertOk()->assertJsonPath('checkout.status', 'authorized');
+        $this->postJson('/api/commercial/corporate/hosted-checkouts/'.$checkout['id'].'/capture')
+            ->assertOk()->assertJsonPath('checkout.status', 'captured');
+        $this->assertDatabaseCount('corporate_receipts', 1);
+        $this->assertDatabaseCount('finance_payments', 2);
     }
 
     public function test_production_or_nonmock_collection_is_disabled(): void

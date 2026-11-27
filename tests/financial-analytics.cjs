@@ -280,6 +280,57 @@ const assert = require("node:assert/strict");
     const exportText = fs.readFileSync(dir + "/admin-approval-queue.csv", "utf8");
     assert.match(exportText, /^kind,record_id,vendor_id,invoice_id,currency/);
     assert.doesNotMatch(exportText, /provider_reference|request_key|secret/i);
+    // Apply the same real server scope to the visible rows and CSV.
+    const queue = maker.locator("[data-finance-approval-queue]");
+    const loadQueue = maker.getByRole("button", {
+      name: "Load pending finance reviews", exact: true,
+    });
+    await maker.locator("[data-finance-review-currency]").fill("aed");
+    await maker.locator("[data-finance-review-vendor]").fill(String(f.vendor));
+    assert.equal(await queue.locator("[data-finance-approval-kind]").count(), 0);
+    assert.equal(await approvalCsv.count(), 0);
+    const scoped = maker.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/finance/approval-queue" &&
+        url.searchParams.get("currency") === "AED" &&
+        url.searchParams.get("vendor_id") === String(f.vendor);
+    });
+    await loadQueue.click();
+    const scopedHttp = await scoped;
+    assert.equal(scopedHttp.status(), 200);
+    const scopedBody = await scopedHttp.json();
+    assert(scopedBody.data.every(row => row.vendor_id === f.vendor && row.currency === "AED"));
+    await queue.getByRole("heading", { name: "Pending financial reviews" }).waitFor();
+    const scopedLink = new URL(await approvalCsv.getAttribute("href"), base);
+    assert.equal(scopedLink.searchParams.get("currency"), "AED");
+    assert.equal(scopedLink.searchParams.get("vendor_id"), String(f.vendor));
+    const filteredDownload = maker.waitForEvent("download");
+    await approvalCsv.click();
+    const filteredFile = await filteredDownload;
+    await filteredFile.saveAs(dir + "/admin-approval-scoped.csv");
+    const filteredCsv = fs.readFileSync(dir + "/admin-approval-scoped.csv", "utf8");
+    for (const line of filteredCsv.trim().split(/\r?\n/).slice(1)) {
+      const fields = line.split(",");
+      assert.equal(fields[2], String(f.vendor));
+      assert.equal(fields[4], "AED");
+    }
+
+    // A malformed second response must remove the old private rows and
+    // export link; never render a partial new page or leak another vendor.
+    const pattern = "**/api/finance/approval-queue?*";
+    const forge = async route => {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.current_page = 2;
+      await route.fulfill({ response, json: body });
+    };
+    await maker.route(pattern, forge);
+    await loadQueue.click();
+    await maker.locator("[data-commercial-status]")
+      .getByText("Financial approval queue source cannot be verified.", { exact: true }).waitFor();
+    assert.equal(await queue.locator("[data-finance-approval-kind]").count(), 0);
+    assert.equal(await approvalCsv.count(), 0);
+    await maker.unroute(pattern, forge);
     const wrongRole = await vendor.request.get(
       base + "/api/finance/approval-queue?kind=refund",
       { headers: { Accept: "application/json" } },
