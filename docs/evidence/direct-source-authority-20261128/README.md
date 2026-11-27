@@ -148,3 +148,38 @@ be applied as a replacement to a previously deployed migration. This
 comparison cannot detect an attribute change that is reverted to the same
 values between observations; a durable inventory mutation generation
 would be needed for that stronger guarantee.
+
+## Durable local connector mutation generation
+
+The new SQLite/PostgreSQL migration records connector inserts, identity
+updates and deletes in a separate indexed history table. It records both
+old and new IDs on reassignment, excludes maintenance-only updates, and
+retains history after deletion. Connector identity fingerprints include
+the latest history ID (zero for pre-existing unmodified inventory).
+Review creation captures that fingerprint inside a locked transaction,
+then rechecks it after source I/O. Review reads and complete-coverage
+checks use the same generation. Committed changes that restore old
+attribute values therefore do not restore the old review's validity.
+
+Executed in this checkpoint:
+- Exact coverage service blob `c5c140ed0ac4127135387510bee32831d5137791`:
+  git hash-object matched, PHP 8.4.24 lint passed, **52/52** standalone
+  assertions passed (26 per OCPP protocol).
+- Exact migration blob `d0e6751bcf759eedec5a76f22d533561b8d1fb42`:
+  git hash-object matched, PHP lint passed, and **36/36 actual SQLite
+  assertions** passed using the three verbatim trigger definitions on a
+  minimal synthetic schema. Covered pre-existing rows, no-op and
+  maintenance updates, changed/restored power, connector type/number,
+  charger/ID reassignment, independent connector history, deletion,
+  ID reuse, and transaction rollback.
+- Two existing dual-protocol Laravel regression instances extended to
+  exercise committed changes reverted during and after source review;
+  authored, not executed.
+
+PostgreSQL trigger execution, actual Laravel migrations, database
+concurrency and full end-to-end acceptance remain outstanding. The
+migration intentionally supports the repository's SQLite development
+and PostgreSQL deployment stores; other database drivers fail closed.
+Privileged history tampering or whole-database restore is outside this
+local guard. This candidate must supersede the earlier unaccepted
+receipt schema; no deployment or charging activation is authorized.
