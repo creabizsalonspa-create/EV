@@ -224,6 +224,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
   final reason = TextEditingController();
   final filters = {for (final key in _reviewFields.skip(1)) key: TextEditingController()};
   String filterStatus = '';
+  bool filtersOpen = false, filtersDirty = false;
   Map<String, String> applied = const {};
   final scroll = ScrollController();
   late final bool Function() ownsSession;
@@ -257,6 +258,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
     page = null; selected = null; history = const []; eligible = false; busy = false;
     failed = false; confirmed = false; reason.clear();
     filterStatus = ''; applied = const {}; number = 1;
+    filtersOpen = false; filtersDirty = false;
     for (final input in filters.values) { input.clear(); }
   }
 
@@ -316,7 +318,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
 
   void editFilters() {
     if (!visible || busy) return;
-    setState(() { generation++; page = null; selected = null; history = const []; eligible = false; failed = false; confirmed = false; number = 1; });
+    setState(() { generation++; page = null; selected = null; history = const []; eligible = false; failed = false; confirmed = false; number = 1; filtersDirty = true; });
   }
 
   void applyFilters() {
@@ -332,6 +334,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
       scope[entry.key] = value;
     }
     applied = Map.unmodifiable(scope);
+    setState(() { filtersDirty = false; filtersOpen = false; });
     load();
   }
 
@@ -436,7 +439,9 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
           'مراجعة وحدات تسليم الباقة المدفوعة فقط. الاعتماد ليس إثباتاً للدفع أو قدرات المحطة أو المشاهدات البشرية.')),
         if (!visible) Text(t('Private review cleared. Reopen from the account menu.', 'مُسحت المراجعة الخاصة. أعد فتحها من قائمة الحساب.')),
         if (visible) ...[
-          if (row == null) ...[
+          if (row == null)
+            TextButton(onPressed: busy ? null : () => setState(() => filtersOpen = !filtersOpen), child: Text(t('Campaign filters', 'مرشحات الحملات'))),
+          if (row == null && filtersOpen) ...[
             DropdownButton<String>(value: filterStatus,
               key: const Key('campaign-filter-status'),
               items: [DropdownMenuItem(value: '', child: Text(t('All campaign statuses', 'كل حالات الحملات'))),
@@ -453,7 +458,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
               })),
             TextButton(onPressed: busy ? null : applyFilters, child: Text(t('Apply campaign filters', 'تطبيق مرشحات الحملات'))),
           ],
-          OutlinedButton(onPressed: busy ? null : () => row == null ? applyFilters() : load(next: number), child: Text(t('Refresh campaign history', 'تحديث سجل الحملات'))),
+          OutlinedButton(onPressed: busy ? null : () => filtersDirty ? applyFilters() : load(next: number), child: Text(t('Refresh campaign history', 'تحديث سجل الحملات'))),
           if (busy) const LinearProgressIndicator(),
           if (failed) Text(t('Review not confirmed. Refresh authoritative history before another decision.', 'لم تتأكد المراجعة. حدّث السجل الأصلي قبل قرار آخر.')),
           if (confirmed) Text(t('Decision confirmed. Refresh authoritative history.', 'تم تأكيد القرار. حدّث السجل الأصلي.')),
