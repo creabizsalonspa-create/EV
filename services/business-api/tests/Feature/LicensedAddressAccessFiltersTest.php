@@ -67,7 +67,11 @@ final class LicensedAddressAccessFiltersTest extends TestCase
         Http::fake(['api.openchargemap.io/*' => Http::response([$first, $second, $unknown], 200, ['Content-Type' => 'application/json'])]);
         $input = ['consent' => true, 'latitude' => 25.2, 'longitude' => 55.3, 'radius_km' => 10];
         $this->postJson('/api/discovery/open-charge-map/search', $input)->assertOk()->assertJsonPath('count', 3);
-        foreach (['/api/discovery/open-charge-map/search', '/api/v1/discovery/open-charge-map/search'] as $endpoint) {
+        // Exercise each mount within its legitimate 12-request IP budget.
+        // The geographic source cache remains shared; changing client IP
+        // does not change the provider query identity or global budget.
+        foreach (['/api/discovery/open-charge-map/search', '/api/v1/discovery/open-charge-map/search'] as $index => $endpoint) {
+            $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.'.($index + 1)]);
             $this->postJson($endpoint, $input + ['address_contains' => 'éNERGIE', 'access_contains' => 'membership'])
                 ->assertOk()->assertJsonPath('count', 1)->assertJsonPath('results.0.id', 'ocm:12345')
                 ->assertJsonPath('results.0.availability', 'unknown')->assertJsonPath('results.0.reservable', false)
@@ -83,6 +87,34 @@ final class LicensedAddressAccessFiltersTest extends TestCase
             $this->postJson($endpoint, $input + ['access_contains' => str_repeat('x', 121)])
                 ->assertUnprocessable();
         }
+        Http::assertSentCount(1);
+    }
+
+    public function test_both_mounts_share_the_unmodified_per_ip_lookup_budget(): void
+    {
+        Cache::flush();
+        Http::preventStrayRequests();
+        Http::fake(['api.openchargemap.io/*' => Http::response([], 200, ['Content-Type' => 'application/json'])]);
+        config([
+            'discovery.ocm_enabled' => true,
+            'discovery.ocm_terms_accepted' => true,
+            'discovery.ocm_api_key' => 'synthetic-address-access-key',
+            'discovery.requests_per_minute' => 30,
+            'discovery.requests_per_day' => 5000,
+        ]);
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10']);
+        $input = ['consent' => true, 'latitude' => 25.2, 'longitude' => 55.3, 'radius_km' => 10];
+        $web = '/api/discovery/open-charge-map/search';
+        $native = '/api/v1/discovery/open-charge-map/search';
+        for ($i = 0; $i < 12; $i++) {
+            $this->postJson($i % 2 === 0 ? $web : $native, $input)->assertOk();
+        }
+        $this->postJson($native, $input + ['access_contains' => str_repeat('x', 121)])
+            ->assertTooManyRequests();
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.11']);
+        $this->postJson($native, $input + ['access_contains' => str_repeat('x', 121)])
+            ->assertUnprocessable();
         Http::assertSentCount(1);
     }
 }
