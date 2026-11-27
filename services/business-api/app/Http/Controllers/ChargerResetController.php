@@ -45,7 +45,8 @@ class ChargerResetController extends Controller
         return $b;
     }
 
-    private function requireCurrentScope(Request $r, VendorCompany $company, VendorCharger $charger, object $expected): void
+    /** Shared maintenance guard; caller holds the station lock in a transaction. */
+    public function requireCurrentScope(Request $r, VendorCompany $company, VendorCharger $charger, object $expected): void
     {
         $currentCompany = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
         $currentCharger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
@@ -64,7 +65,8 @@ class ChargerResetController extends Controller
         abort_unless(config('csms.safe_reset_enabled') && config('csms.session_bridge_enabled') && app()->environment(['local', 'testing']) && strlen((string) config('csms.graphql_secret')) >= 32, 503, 'Local reset adapter is disabled.');
     }
 
-    private function requireLocalIdle(object $b): void
+    /** Recheck local holds after external reads, immediately before a maintenance write. */
+    public function requireLocalIdle(object $b): void
     {
         abort_if(SessionLink::where('binding_id', $b->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists(), 409, 'An unresolved charging session owns this charger.');
         abort_if(Reservation::where('station_id', $b->station_id)->where('status', 'confirmed')->where('starts_at', '<', now()->addMinutes(5))->where('starts_at', '>', now()->subMinutes(30))->exists(), 409, 'A current or imminent reservation owns this station.');

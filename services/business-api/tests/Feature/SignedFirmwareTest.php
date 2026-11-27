@@ -513,6 +513,49 @@ class SignedFirmwareTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public static function firmwareLocalDriftCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['binding', 'account', 'company', 'model', 'command', 'signer'] as $change) {
+                $cases[] = [$protocol, $change];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('firmwareLocalDriftCases')]
+    public function test_firmware_rechecks_local_authority_and_holds_after_token(string $protocol, string $change): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source($f, duringToken: function () use ($f, $change): void {
+            match ($change) {
+                'binding' => DB::table('csms_bindings')->where('id', $f['binding'])->update(['identifier' => 'ev-test-reassigned']),
+                'account' => DB::table('users')->where('id', $f['owner']->id)->increment('auth_epoch'),
+                'company' => DB::table('vendor_companies')->where('id', $f['company']->id)->update(['status' => 'suspended']),
+                'model' => DB::table('vendor_chargers')->where('id', $f['charger']->id)->update(['model' => 'ChangedModel']),
+                'command' => ChargerCommand::create(['actor_id' => $f['owner']->id, 'station_id' => $f['station']->id, 'action' => 'start', 'idempotency_key' => 'inflight-hold', 'payload_hash' => str_repeat('a', 64), 'payload' => []]),
+                'signer' => config(['csms.firmware_signer_pins' => []]),
+            };
+        });
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1', 'note' => 'Approved pinned synthetic bytes',
+        ])->assertCreated()->json('id');
+        $id = $this->actingAs($f['owner'])->postJson($f['path'], [
+            'release_id' => $release, 'reason' => 'Review current firmware authorization', 'idempotency_key' => 'local-drift',
+        ])->assertCreated()->assertJsonPath('status', 'not_dispatched')->assertJsonPath('capacity_released', false)->json('id');
+        $op = DB::table('charger_firmware_operations')->find($id);
+        $this->assertNotNull($op->pre_dispatch_blocked_at);
+        config(['csms.firmware_signer_pins' => [$f['pin']]]);
+        $this->get('/api/internal/firmware/'.Crypt::decryptString($op->download_token_ciphertext))->assertNotFound();
+        Http::assertSentCount(8);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/ocpp/'));
+        $this->assertDatabaseCount('charger_firmware_operations', 1);
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     #[DataProvider('protocols')]
     public function test_signed_deployment_is_one_shot_private_and_source_reviewed(string $protocol): void
     {

@@ -350,6 +350,17 @@ class ChargerFirmwareController extends Controller
         return ['requestId' => $id, 'retries' => 1, 'retryInterval' => 0, 'firmware' => ['location' => $location, 'retrieveDateTime' => now()->toISOString(), 'signingCertificate' => $release->signing_certificate, 'signature' => $release->signature]];
     }
 
+    private function requireCurrentDeployment(Request $r, VendorCompany $company, VendorCharger $charger, object $binding, object $release, ChargerResetController $guard): void
+    {
+        $guard->requireCurrentScope($r, $company, $charger, $binding);
+        $fresh = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
+        abort_unless($fresh->manufacturer === $release->manufacturer && $fresh->model === $release->model, 409, 'Approved charger model changed.');
+        $current = DB::table('charger_firmware_releases')->where('id', $release->id)->where('company_id', $company->id)->whereNull('revoked_at')->lockForUpdate()->first();
+        abort_unless($current && $current == $release, 409, 'Approved firmware release changed.');
+        $this->bytes($current);
+        $guard->requireLocalIdle($binding);
+    }
+
     public function deploy(Request $r, VendorCompany $company, VendorCharger $charger, ChargerResetController $guard)
     {
         $this->enabled();
@@ -379,6 +390,7 @@ class ChargerFirmwareController extends Controller
             $this->sourceAuthority($authority);
             $this->sourceCapability($b);
             $this->sourceAuthority($authority);
+            $this->requireCurrentDeployment($r, $company, $charger, $b, $release, $guard);
             $raw = bin2hex(random_bytes(32));
             $id = DB::table('charger_firmware_operations')->insertGetId(['binding_id' => $b->id, 'release_id' => $release->id, 'actor_id' => $r->user()->id, 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'status' => 'requested', 'download_token_digest' => hash('sha256', $raw), 'download_token_ciphertext' => Crypt::encryptString($raw), 'download_expires_at' => now()->addHours(2), 'created_at' => now(), 'updated_at' => now()]);
             abort_unless($id <= 2147483647, 409, 'Firmware request range exhausted.');
@@ -389,7 +401,7 @@ class ChargerFirmwareController extends Controller
 
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'firmware.deployment_requested', 'subject' => (string) $id, 'created_at' => now()]);
 
-            return ['row' => DB::table('charger_firmware_operations')->find($id), 'created' => true];
+            return ['row' => DB::table('charger_firmware_operations')->find($id), 'created' => true, 'authority' => $authority];
         });
         $row = $created['row'];
         if ($created['created'] && DB::table('charger_firmware_operations')->where('id', $row->id)->where('status', 'requested')->update(['status' => 'dispatching', 'attempted_at' => now(), 'updated_at' => now()])) {
@@ -397,7 +409,7 @@ class ChargerFirmwareController extends Controller
             $wireAttempted = false;
             $blockedAt = null;
             try {
-                $state = DB::transaction(function () use ($r, $company, $charger, $guard, $b, $row, &$wireAttempted) {
+                $state = DB::transaction(function () use ($r, $company, $charger, $guard, $b, $row, $created, &$wireAttempted) {
                     Station::whereKey($b->station_id)->lockForUpdate()->firstOrFail();
                     $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                     $guard->scope($r, $company, $charger, true);
@@ -407,7 +419,7 @@ class ChargerFirmwareController extends Controller
                     abort_unless($current->status === 'dispatching' && $current->reviewed_at === null, 409);
                     $release = DB::table('charger_firmware_releases')->where('id', $row->release_id)->whereNull('revoked_at')->lockForUpdate()->firstOrFail();
                     $this->bytes($release);
-                    $authority = $this->sourceAuthority();
+                    $authority = $this->sourceAuthority($created['authority']);
                     $guard->idle($b);
                     $this->sourceAuthority($authority);
                     $this->compatibleSource($b, $charger, $release);
@@ -419,6 +431,7 @@ class ChargerFirmwareController extends Controller
                     $operationsBase = $authority[2];
                     $token = app(OperationsCredentials::class)->token($operationsBase);
                     $this->sourceAuthority($authority);
+                    $this->requireCurrentDeployment($r, $company, $charger, $b, $release, $guard);
                     abort_unless(is_string($token) && $token !== '', 503);
                     $action = $b->protocol === '1.6' ? 'signedUpdateFirmware' : 'updateFirmware';
                     $wireAttempted = true; // From here even an exception is an uncertain command outcome.
@@ -542,6 +555,8 @@ class ChargerFirmwareController extends Controller
                     abort_unless($release->revoked_at === null && ($station[0]['firmwareVersion'] ?? null) === $release->version, 409, 'Installed version must match the approved release.');
                 }
                 $this->sourceAuthority($authority);
+                $guard->requireCurrentScope($r, $company, $charger, $b);
+                $guard->requireLocalIdle($b);
                 DB::table('charger_firmware_operations')->where('id', $op->id)->update(['status' => $installed ? 'source_installed' : 'source_failed', 'reviewed_by' => $r->user()->id, 'review_note' => Crypt::encryptString($v['note']), 'reviewed_at' => now(), 'updated_at' => now()]);
                 DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'firmware.source_reviewed', 'subject' => (string) $op->id, 'created_at' => now()]);
             }
